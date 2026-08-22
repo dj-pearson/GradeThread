@@ -1,27 +1,40 @@
 #!/usr/bin/env node
-// US-2789: how many guards READ the source where they could CALL it?
+// US-2789: which guards READ a module that nothing ever CALLS?
 //
 // A source scan is the right instrument for a WIRING property — is this module
 // mounted, does this registry list that route, do these two files agree. It is
 // the wrong one for LOGIC, because it pins a spelling or a string position and
 // stays green through any change that preserves them.
 //
-// That is not theoretical. Three guards in this repo were found blind while
-// reading as coverage:
+// That is not theoretical. Three guards here were found blind while reading as
+// coverage, each measured on the same sabotages a behavioural test then caught:
 //
-//   US-2739  six cases asserting against a re-implementation of the code they
-//            guarded; changing the real function to Math.floor left them green.
-//   US-2719  ten scans caught 1 of 7 sabotages. A behavioural test caught 7.
-//   US-2789  submission-no-double-charge caught 0 of 6 — including the exact
-//            double-charge regression it was written for.
+//   US-2739  stepPrice           six cases asserting against a re-implementation
+//   US-2719  buildSteps          scans 1 of 7, behavioural 7 of 7
+//   US-2789  decideSubmitAction  scans 0 of 6, including its own double-charge bug
+//   US-2789  paginationNav       scans 1 of 6, missing the duplicate-URL rule
 //
-// WHAT THIS IS NOT. It is not a gate and it does not fail. Most of the files it
-// lists are correct as scans, and a threshold would only invite someone to add a
-// throwaway `expect(fn())` to get under it. It is a WORKLIST, so the count can
-// be shown to fall rather than asserted to.
+// ⚠ WHAT THIS COUNTS, AND WHY THE FIRST VERSION COUNTED THE WRONG THING.
 //
-//   node scripts/scan-only-guards.mjs           # the worklist
-//   node scripts/scan-only-guards.mjs --count   # just the number, for a diff
+// It first counted files that scan and never call. That number CANNOT FALL as
+// the work is done, because every conversion deliberately KEEPS its scan — the
+// scan holds a wiring property the call cannot see, and deleting it would trade
+// a weak guard for no guard. Two conversions later the count was still 63, so it
+// was measuring effort spent rather than ground gained.
+//
+// What moves is the SUBJECT. A guard is a candidate only while the module it
+// reads is called by no test at all. Convert one — extract the decision, import
+// it somewhere, assert on what it returns — and the subject leaves this list
+// whether or not its scan stays. That is the number worth watching.
+//
+// NOT A GATE, and it does not fail. Most listed files are correct as scans;
+// composer-dirty-guard.test.ts tops the raw scan count and is right as it is,
+// because its logic half already lives in composer-dirty.test.ts. A threshold
+// would only invite a throwaway `expect(fn())` to duck under it.
+//
+//   node scripts/scan-only-guards.mjs            # the worklist
+//   node scripts/scan-only-guards.mjs --count    # just the number, for a diff
+//   node scripts/scan-only-guards.mjs --all      # include subjects already covered
 
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
@@ -38,56 +51,127 @@ const SCAN = /toContain\(|toMatch\(|readFileSync|\.test\(\s*(?:src|code|text)\b/
 /**
  * Calling something and asserting on the result.
  *
- * Deliberately loose: `expect(someFn(` in any shape counts. A guard that calls
- * ANYTHING is out of scope here — the question is whether the file ever leaves
- * the text layer, not how thoroughly.
+ * Deliberately loose: any `expect(someFn(` counts. The question is whether the
+ * file ever leaves the text layer, not how thoroughly.
  */
 const CALL = /expect\(\s*(?:await\s+)?[a-z][A-Za-z0-9_]*\s*\(/g;
+
+/** Repo-relative paths a test names as a string — the files it reads. */
+const SUBJECT = /["'`]((?:src|functions|services|scripts|supabase|android|ios)\/[^"'`\n]+?\.[a-z]{2,4})["'`]/g;
+
+/** Modules a test IMPORTS, normalised toward a repo-relative-ish tail. */
+const IMPORT = /from\s+["']([^"']+)["']/g;
 
 function count(re, s) {
   return (s.match(re) ?? []).length;
 }
 
-const rows = [];
-for (const dir of DIRS) {
-  let entries;
-  try {
-    entries = readdirSync(join(root, dir));
-  } catch {
-    continue; // the directory may not exist in a partial checkout
-  }
-  for (const name of entries) {
-    if (!/\.(test|spec)\.tsx?$/.test(name)) continue;
-    const rel = `${dir}/${name}`;
-    const src = readFileSync(join(root, rel), "utf8");
-    const scans = count(SCAN, src);
-    const calls = count(CALL, src);
-    // Six is the floor for "this file is mostly reading text". Below it a
-    // stray readFileSync in an otherwise behavioural suite would show up.
-    if (scans >= 6 && calls === 0) {
-      rows.push({ rel, scans, lines: src.split("\n").length });
+function testFiles() {
+  const out = [];
+  for (const dir of DIRS) {
+    let entries;
+    try {
+      entries = readdirSync(join(root, dir));
+    } catch {
+      continue; // may not exist in a partial checkout
     }
+    for (const name of entries) {
+      if (!/\.(test|spec)\.tsx?$/.test(name)) continue;
+      out.push({ rel: `${dir}/${name}`, src: readFileSync(join(root, dir, name), "utf8") });
+    }
+  }
+  return out;
+}
+
+const files = testFiles();
+
+/**
+ * Every module tail any test imports.
+ *
+ * Tails rather than resolved paths: an import is written `@/lib/submit-action`,
+ * `../composer-dirty` or `../../functions/_shared/blog-pagination`, and the
+ * shared, comparable part is the end. Matching on the last two segments is
+ * loose enough to survive all three spellings and tight enough that `index.ts`
+ * files do not collide with each other.
+ */
+const importedTails = new Set();
+for (const f of files) {
+  for (const m of f.src.matchAll(IMPORT)) {
+    const spec = m[1].replace(/\.[tj]sx?$/, "");
+    if (spec === "vitest" || spec.startsWith("node:")) continue;
+    const parts = spec.split("/").filter((p) => p && p !== "." && p !== "..");
+    if (parts.length) importedTails.add(parts.slice(-2).join("/"));
   }
 }
 
-rows.sort((a, b) => b.scans - a.scans);
+function tailOf(path) {
+  return path.replace(/\.[a-z]+$/, "").split("/").slice(-2).join("/");
+}
+
+/**
+ * Is this subject a place where "extract the decision and call it" is even
+ * possible?
+ *
+ * A guard reading a PAGE or a ROUTE component is very often correct forever:
+ * the property is structural (this page has a heading, that tab sets a header,
+ * this route is mounted) and there is no pure function to lift out. Counting
+ * those as debt makes the number unactionable, which is how the first version
+ * of this script produced a total nobody could move — two conversions later it
+ * still read 63.
+ *
+ * Library modules are the opposite. A lib file no test imports is a file whose
+ * behaviour nothing checks, and lifting a decision out of it is exactly the
+ * move US-2739, US-2719 and US-2789 each made.
+ */
+function isLiftable(path) {
+  return (
+    path.startsWith("src/lib/") ||
+    path.startsWith("functions/_shared/") ||
+    path.startsWith("scripts/lib/") ||
+    /^services\/[^/]+\/src\/lib\//.test(path)
+  );
+}
+
+const rows = [];
+for (const f of files) {
+  const scans = count(SCAN, f.src);
+  const calls = count(CALL, f.src);
+  if (scans < 6 || calls > 0) continue;
+
+  const subjects = [...new Set([...f.src.matchAll(SUBJECT)].map((m) => m[1]))];
+  const uncovered = subjects
+    .filter((s) => !importedTails.has(tailOf(s)))
+    .filter(isLiftable);
+  rows.push({
+    rel: f.rel,
+    scans,
+    subjects: subjects.length,
+    uncovered,
+    covered: subjects.length > 0 && uncovered.length === 0,
+  });
+}
+
+const showAll = process.argv.includes("--all");
+const candidates = rows.filter((r) => !r.covered);
+const shown = showAll ? rows : candidates;
+shown.sort((a, b) => b.uncovered.length - a.uncovered.length || b.scans - a.scans);
 
 if (process.argv.includes("--count")) {
-  console.log(rows.length);
+  console.log(candidates.length);
   process.exit(0);
 }
 
 console.log(
-  `\nGuards that scan the source and never call it: ${rows.length}\n` +
-    "Not a failure list. A scan is right for WIRING and wrong for LOGIC —\n" +
-    "the question per file is which one it is holding.\n",
+  `\nScan-only guards: ${rows.length}\n` +
+    `Of those, reading a LIBRARY module no test ever calls: ${candidates.length}\n\n` +
+    "Not a failure list. A scan is right for WIRING and wrong for LOGIC — the\n" +
+    "question per file is which it holds.\n\n" +
+    "Only LIBRARY subjects count. A guard reading a page or a route is very often\n" +
+    "correct forever: the property is structural and there is nothing to lift out.\n" +
+    "Counting those gave a total nobody could move.\n",
 );
-for (const r of rows) {
-  console.log(`  ${String(r.scans).padStart(3)} scans  ${String(r.lines).padStart(4)} lines  ${r.rel}`);
+for (const r of shown) {
+  const flag = r.covered ? "covered" : `${r.uncovered.length} uncovered`;
+  console.log(`  ${String(r.scans).padStart(3)} scans  ${flag.padEnd(13)} ${r.rel}`);
+  for (const u of r.uncovered.slice(0, 3)) console.log(`        ${u}`);
 }
-console.log(
-  "\nConverted so far (each kept its scan for a property the call cannot see):\n" +
-    "  US-2739  stepPrice           src/test/step-price.test.ts\n" +
-    "  US-2719  buildSteps          src/test/cross-post-setup-steps.test.ts\n" +
-    "  US-2789  decideSubmitAction  src/lib/__tests__/submit-action.test.ts\n",
-);
