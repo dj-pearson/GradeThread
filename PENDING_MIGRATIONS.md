@@ -1,5 +1,31 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## HELD: 00650_items_full_parcel_inputs.sql
+
+US-2790, added 2026-08-22 and NOT pushed.
+
+**What it does:** `create or replace view public.items_full`, appending two new
+LAST columns — `garment_category` and `material` — so the parcel estimator can
+read them. Body otherwise verbatim from 00506.
+
+**Risk: LOW, with one thing to know.** Additive and idempotent: all existing
+columns keep their name, order and type, so dependents (the analytics RPCs that
+select from `items_full`) are unaffected. No `DROP` — that would fail against
+those dependents.
+
+**Client-side read risk: NONE right now, and that is deliberate.**
+`src/types/database.ts` is NOT updated in this commit. `ItemFullRow` is the
+shape of this view fetched with `select("*")`, so declaring the fields before
+the view returns them would give a type that is present at compile time and
+undefined at runtime. The type change and the consumer land AFTER this is
+applied.
+
+**Apply order:** 00650 → `NOTIFY pgrst, 'reload schema';` (a view changed) →
+redeploy the edge, whose boot guard now expects 00650 → then OK the push.
+
+**Verify rather than trust this file:**
+`curl -fsS https://functions.gradethread.com/health/ready | jq .schema`
+
 ## ✅ APPLIED 2026-08-22: 00649_sales_predicted_parcel.sql
 
 US-2790. Applied by the owner and VERIFIED against the database rather than
