@@ -1,5 +1,9 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import {
+  estimateParcel,
+  type ParcelGarmentCategory,
+} from "../lib/parcel-estimate.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { isEbayConfigured, isLogisticsScopeAvailable } from "../lib/ebay-client.ts";
 import {
@@ -250,16 +254,37 @@ export function toLogisticsAddress(
   };
 }
 
-/** Parse the parcel spec off a request body. Weight is the only hard require. */
-export function parseParcel(body: unknown): ParcelSpec | { error: string } {
+/**
+ * Parse the parcel spec off a request body.
+ *
+ * US-2790: `fallbackOz` is a PREDICTED weight from the garment's own
+ * measurements, used only when the body carries none. Before it, a seller
+ * retyped a weight on every single sale, and the route simply refused without
+ * one — for a garment the system had already measured.
+ *
+ * The body still WINS whenever it has a weight. A caller that names a number is
+ * making a statement about this parcel, and a prediction must never overwrite a
+ * seller who put the thing on a scale. The fallback only fills a hole.
+ */
+export function parseParcel(
+  body: unknown,
+  fallbackOz?: number | null,
+): ParcelSpec | { error: string } {
   const b = (body ?? {}) as Record<string, unknown>;
   const num = (v: unknown): number | null =>
     typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
-  const weight = num(b.weight_value);
+  const supplied = num(b.weight_value);
+  const predicted = num(fallbackOz);
+  const weight = supplied ?? predicted;
   if (weight == null) {
     return { error: "A parcel weight above zero is required." };
   }
-  const unit = b.weight_unit === "OUNCE"
+  // The predicted value is in OUNCES by construction, so a body that named no
+  // weight also named no unit worth honouring. Reading b.weight_unit here would
+  // let a stale "POUND" from an earlier request turn 12 oz into 12 lb.
+  const unit = supplied == null
+    ? "OUNCE"
+    : b.weight_unit === "OUNCE"
     ? "OUNCE"
     : b.weight_unit === "KILOGRAM"
     ? "KILOGRAM"
@@ -280,6 +305,44 @@ export function parseParcel(body: unknown): ParcelSpec | { error: string } {
     heightValue: complete ? height : null,
     dimensionUnit: b.dimension_unit === "CENTIMETER" ? "CENTIMETER" : "INCH",
   };
+}
+
+/**
+ * Billable ounces predicted from the garment's own record, or null.
+ *
+ * Best-effort by design: this exists so a seller who never typed a weight can
+ * still price a label. A read failure returns null, which puts the route back
+ * to asking for a weight — the behaviour it had before — rather than failing
+ * the rate call over a prediction.
+ */
+async function predictedParcelOz(
+  ownerId: string,
+  inventoryItemId: string | null,
+): Promise<number | null> {
+  if (!inventoryItemId) return null;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("inventory_items")
+      .select("garment_category, material, measurements, size")
+      .eq("id", inventoryItemId)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    if (error || !data) return null;
+    const row = data as {
+      garment_category: ParcelGarmentCategory | null;
+      material: string | null;
+      measurements: Record<string, number | string> | null;
+      size: string | null;
+    };
+    return estimateParcel({
+      garmentCategory: row.garment_category,
+      material: row.material,
+      measurements: row.measurements,
+      size: row.size,
+    }).billableWeightOz;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -362,7 +425,13 @@ flipdeskLogisticsRoutes.post("/sales/:saleId/rates", async (c) => {
   const pre = await preflight(ownerId, saleId);
   if (!pre.ok) return c.json(pre.body, pre.status);
 
-  const parcel = parseParcel(body);
+  // US-2790: predict the parcel from the garment we already measured, so a
+  // seller who has not typed a weight still gets rates. Owner-scoped on
+  // user_id even though preflight already proved ownership of the SALE — the
+  // service-role client bypasses RLS, and an id taken from a joined row is
+  // still an id from a request (US-268).
+  const predictedOz = await predictedParcelOz(ownerId, pre.sale.inventory_item_id);
+  const parcel = parseParcel(body, predictedOz);
   if ("error" in parcel) return jsonError(c, 400, parcel.error);
 
   const { data: userRow } = await supabaseAdmin

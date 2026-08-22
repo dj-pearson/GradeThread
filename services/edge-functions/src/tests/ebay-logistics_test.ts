@@ -4,7 +4,7 @@
 // what the per-item P&L rests on. Everything here is network-free.
 
 import "./_env.ts";
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import {
   cheapestRate,
   findRate,
@@ -372,4 +372,93 @@ Deno.test("US-2417: the label handler decrypts before it builds the address", ()
     !/toLogisticsAddress\(\s*u\?\.ship_from_address/.test(source),
     "flipdesk-logistics.ts is passing the raw (encrypted) column to toLogisticsAddress",
   );
+});
+
+// ── US-2790: the predicted weight fallback ─────────────────────────────────
+//
+// Before this, parseParcel refused without a weight in the body, so a seller
+// retyped one on every sale — for a garment the system had already measured.
+
+Deno.test("US-2790: a predicted weight is used when the body has none", () => {
+  const r = parseParcel({}, 12.5);
+  assertEquals("error" in r, false);
+  const p = r as { weightValue: number; weightUnit: string };
+  assertEquals(p.weightValue, 12.5);
+  // Ounces by construction — the estimator's unit.
+  assertEquals(p.weightUnit, "OUNCE");
+});
+
+Deno.test("US-2790: the body WINS over the prediction", () => {
+  // A caller that names a weight is stating a fact about this parcel, very
+  // possibly off a scale. A prediction must never overwrite it.
+  const r = parseParcel({ weight_value: 3, weight_unit: "POUND" }, 99);
+  const p = r as { weightValue: number; weightUnit: string };
+  assertEquals(p.weightValue, 3);
+  assertEquals(p.weightUnit, "POUND");
+});
+
+Deno.test("US-2790: a predicted weight ignores a stale unit in the body", () => {
+  // The trap: a body carrying weight_unit POUND but no weight_value would have
+  // turned 12 predicted OUNCES into 12 pounds — a 16x over-declaration, and
+  // eBay prices it.
+  const r = parseParcel({ weight_unit: "POUND" }, 12);
+  const p = r as { weightValue: number; weightUnit: string };
+  assertEquals(p.weightValue, 12);
+  assertEquals(p.weightUnit, "OUNCE");
+});
+
+Deno.test("US-2790: no body weight and no prediction still refuses", () => {
+  // The pre-existing behaviour, kept. A failed prediction must not invent one.
+  for (const fallback of [null, undefined, 0, -1, Number.NaN]) {
+    const r = parseParcel({}, fallback as number | null);
+    assertEquals("error" in r, true, `fallback ${String(fallback)}`);
+  }
+});
+
+Deno.test("US-2790: the prediction does not disturb dimensions", () => {
+  // Dimensions are all-or-nothing for eBay and come only from the body. A
+  // predicted WEIGHT must not cause a partial dimension set to slip through.
+  const r = parseParcel({ length_value: 10 }, 8);
+  const p = r as { lengthValue: number | null; widthValue: number | null };
+  assertEquals(p.lengthValue, null);
+  assertEquals(p.widthValue, null);
+});
+
+// ── US-2790 / US-268: the predicted-parcel read is owner-scoped ────────────
+//
+// A SOURCE assertion, deliberately. predictedParcelOz is not exported and its
+// read goes through the service-role client, which BYPASSES RLS — so the
+// property worth pinning is a WIRING one: does the query carry the owner
+// filter. A sabotage confirmed the behavioural cases above cannot see this
+// (they exercise the pure parser), and the real check lives in the Tenant
+// Isolation lane, which needs the full stack.
+//
+// preflight already proves ownership of the SALE. That is not enough on its
+// own: inventory_item_id comes off the joined row, and an id taken from a
+// request-derived row is still an id from a request.
+Deno.test("US-268: predictedParcelOz filters inventory_items by user_id", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../routes/flipdesk-logistics.ts", import.meta.url),
+  );
+  const start = src.indexOf("async function predictedParcelOz");
+  assertEquals(start > -1, true, "predictedParcelOz was renamed or removed");
+  const body = src.slice(start, start + 1200);
+
+  assertStringIncludes(body, 'from("inventory_items")');
+  assertStringIncludes(body, '.eq("user_id", ownerId)');
+  // The item id must be constrained too, or the filter selects an arbitrary row.
+  assertStringIncludes(body, '.eq("id", inventoryItemId)');
+});
+
+Deno.test("US-2790: a failed prediction degrades to asking, not to throwing", () => {
+  // The route must not fail a rate call because a prediction could not be made.
+  // Guarded as source because the catch is an ABSENCE of a throw — there is no
+  // wrong value to assert on.
+  const src = Deno.readTextFileSync(
+    new URL("../routes/flipdesk-logistics.ts", import.meta.url),
+  );
+  const start = src.indexOf("async function predictedParcelOz");
+  const body = src.slice(start, src.indexOf("\n}", start));
+  assertStringIncludes(body, "catch");
+  assertStringIncludes(body, "return null");
 });
