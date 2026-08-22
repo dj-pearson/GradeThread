@@ -89,7 +89,7 @@ const NOW = "2026-08-20T00:00:00.000Z";
     // words it uses to describe what it forbids. Cost an hour on sync/content.js
     // the day its line endings changed.
     .replace(/\r\n/g, "\n")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))
     .join("\n");

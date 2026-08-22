@@ -19,7 +19,7 @@ import { NOTIFICATION_TYPES } from "@/lib/notification-preferences";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 const stripComments = (s: string) =>
-  s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  s.replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 
 const unsubscribe = read("services/edge-functions/src/lib/unsubscribe.ts");
 const routes = read("src/routes/index.tsx");

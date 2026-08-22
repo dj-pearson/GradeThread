@@ -2277,20 +2277,6 @@
         "OPERATOR: the auth ones need judgement this cannot supply. Google is gated behind AppConfig.googleSignInEnabled, which is off until the provider is configured on the self-hosted GoTrue - so AC1 is partly a provisioning question, not only a button. And a Turnstile site key has to exist for Android before AC2 can be more than a rendered widget."
       ],
       "priority": 12
-    },
-    {
-      "id": "US-2794",
-      "passes": false,
-      "title": "Seven more comment strippers are a no-op on CRLF, so those source scans are weaker on Windows than in CI",
-      "description": "As someone running the suite before pushing, I want a source-scanning test to strip comments on my machine as well as in CI, so that a local green means what a CI green means.",
-      "acceptanceCriteria": [
-        "THE SIGNATURE, and it has now bitten three times: split(\"\\n\") followed by a per-line `//.*$` replace, with no CRLF normalisation. In JS `.` never matches `\\r`, so on a CRLF line the pattern cannot reach the end and the replace removes NOTHING. The strip looks like it works. Fix is one line: `.replace(/\\r\\n?/g, \"\\n\")` before the split.",
-        "THE SEVEN, found by sweeping 3543 files for the signature: src/lib/__tests__/margin-floor-postage.test.ts, src/test/blog-pagination.test.ts, src/test/return-analytics-claim-rules.test.ts, src/test/return-evidence-surface.test.ts, services/edge-functions/src/tests/dispute-evidence_test.ts, services/edge-functions/src/tests/evidence-refusal-parity_test.ts, services/edge-functions/src/tests/publication-funnel-coverage_test.ts. The `gm` flag does not save you: with `m`, `$` matches before `\\n`, and `.*` still stops at the `\\r` one position earlier.",
-        "NOT CURRENTLY FAILING, which is why this is a story and not a fix in passing. The full suite is green on this machine, so none of the seven is producing a wrong answer TODAY. The exposure is that each scans repo sources and this tree has MIXED line endings - src/pages/flipdesk/consignment.tsx is CRLF while autolister.tsx is LF, and all of ios/ is CRLF. A file that changes endings, or a scan that widens to ios/, turns a latent no-op into a wrong result.",
-        "PRIOR ART, so nobody re-derives it: extension-unified/test/sync-poll.test.cjs had exactly this and was fixed 2026-08-21; sync-manifest and sync-observe already normalise and carry a comment about the day the line endings changed. CLAUDE.md records it. scripts/check-ios-orphans.mjs and check-android-orphans.mjs were fixed 2026-08-22 after CI went red while the same guard was green here.",
-        "A guard would be better than seven fixes: any file that splits on \\n and then applies a `$`-anchored per-line regex, without normalising first, is the shape. The sweep that found these over-reports badly on its own (58 candidates, 40 after filtering, 7 real) because `/\\.(ts|tsx)$/` and `/^\\d{4}-\\d{2}-\\d{2}$/` match the same crude signature - so the rule has to key on the COMMENT pattern specifically, not on `$` in general."
-      ],
-      "priority": 1994
     }
   ]
 }

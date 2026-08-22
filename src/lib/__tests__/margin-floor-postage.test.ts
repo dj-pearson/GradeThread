@@ -200,7 +200,7 @@ describe("US-2790: the call sites keep passing postage", () => {
   // is the failure US-2686 found here twice in one session.
   function code(rel: string): string {
     return readFileSync(resolve(process.cwd(), rel), "utf8")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "")
       .split("\n")
       .map((l) => l.replace(/\/\/.*$/, ""))
       .join("\n");

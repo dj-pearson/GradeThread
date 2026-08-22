@@ -23,7 +23,7 @@ const ROUTE = new URL("../routes/flipdesk-ebay.ts", import.meta.url);
 function code(src: string): string {
   return src
     .replace(/\r\n/g, "\n")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))
     .join("\n");

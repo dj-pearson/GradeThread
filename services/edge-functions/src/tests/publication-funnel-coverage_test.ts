@@ -23,7 +23,7 @@ const FUNNEL = "recordPublication";
 function code(src: string): string {
   return src
     .replace(/\r\n/g, "\n")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))
     .join("\n");

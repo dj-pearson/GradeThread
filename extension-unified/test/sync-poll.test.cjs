@@ -222,7 +222,7 @@ assert.strictEqual(
     // failed on its own documentation: green on Linux CI, red on a Windows dev
     // box, which is the worst place for a difference to live.
     .replace(/\r\n/g, "\n")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))
     .join("\n");

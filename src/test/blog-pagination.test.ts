@@ -17,7 +17,7 @@ const blog = read("functions/blog/[[path]].ts");
 // something is ABSENT has to read code, not prose. This has bitten repeatedly:
 // a guard that greps its own explanation is measuring documentation.
 const stripComments = (src: string) =>
-  src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  src.replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 const blogCode = stripComments(blog);
 const nav = read("functions/_shared/blog-pagination.ts");
 const sitemap = read("functions/_shared/sitemap.ts");

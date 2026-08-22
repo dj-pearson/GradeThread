@@ -23,7 +23,7 @@ import { LEGAL_VERSIONS } from "@/lib/constants";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 const stripTs = (s: string) =>
-  s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+  s.replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 
 /** Pull a `static let <name> = "<value>"` out of the Swift source. */
 function swiftLet(src: string, name: string): string | null {
@@ -93,7 +93,7 @@ describe("US-2017 AC2: iOS has a re-acceptance gate", () => {
   // would fail on the fix. Kept in the same file because the two halves are one
   // rule: agreeing constants are worthless if nobody is ever re-asked.
   const strip = (s: string) =>
-    s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    s.replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 
   it("calls the server for the decision rather than comparing versions locally", () => {
     const gate = strip(read("ios/GradeThread/Auth/LegalGate.swift"));

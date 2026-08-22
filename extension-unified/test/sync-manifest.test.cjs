@@ -182,7 +182,7 @@ for (const rel of syncFiles) {
     // words it uses to describe what it forbids. Cost an hour on sync/content.js
     // the day its line endings changed.
     .replace(/\r\n/g, "\n")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))
     .join("\n");
@@ -230,7 +230,7 @@ for (const rel of syncFiles) {
     // words it uses to describe what it forbids. Cost an hour on sync/content.js
     // the day its line endings changed.
     .replace(/\r\n/g, "\n")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))
     .join("\n");

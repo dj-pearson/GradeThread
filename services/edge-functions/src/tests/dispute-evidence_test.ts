@@ -375,7 +375,7 @@ Deno.test("US-2705 AC8: neither module imports the supabase client", () => {
     const src = Deno.readTextFileSync(new URL(`../lib/${file}`, import.meta.url));
     const code = src
       .replace(/\r\n/g, "\n")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "")
       .split("\n")
       .map((l) => l.replace(/\/\/.*$/, ""))
       .join("\n");

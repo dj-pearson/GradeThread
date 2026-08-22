@@ -119,7 +119,7 @@ describe("US-2107: published standard matches the grading engine", () => {
       join(process.cwd(), "src/lib/grading-standard.ts"),
       "utf8",
     )
-      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/\/\/.*$/gm, "");
 
     expect(src).not.toMatch(/BASE_WEIGHT/);

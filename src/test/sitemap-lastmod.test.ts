@@ -114,7 +114,7 @@ describe("US-2100: lastmod is derived, not stamped", () => {
     // also route through withHubLastmod. Comments are stripped first, because an
     // earlier version of this assertion counted 20 by matching the explanatory
     // comments ABOUT today() — a guard reading prose instead of code.
-    const code = src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+    const code = src.replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
     const fns = code.split(/(?=^export (?:async )?function )/m);
     const offenders: string[] = [];
     for (const fn of fns) {

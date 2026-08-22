@@ -23,7 +23,7 @@ function read(rel: string): string {
 function copy(rel: string): string {
   return read(rel)
     .replace(/\r\n/g, "\n")
-    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\r\n?/g, "\n").replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))
