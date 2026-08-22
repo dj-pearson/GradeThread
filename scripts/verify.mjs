@@ -150,6 +150,7 @@ const IOS_GUARDS = [
   ["ATS not relaxed", "check-ats.py"],
   ["one sheet modifier per view", "check-chained-sheets.py"],
   ["AI routes on the AI session", "check-ai-session.py"],
+  ["no trailing comma in a param list", "no-trailing-comma.py"],
 ];
 
 const results = [];

@@ -71,8 +71,13 @@ struct ItemCanvasView: View {
     /// Duplicate-SKU merge resolution (web parity). A function rather than an
     /// inline case body so the `let sku` binding stays in ordinary Swift rather
     /// than inside a result builder.
+    ///
+    /// `state` is a PARAMETER, not the `@State` property of the same name. The
+    /// property is `ItemCanvasState?`; this body used to live inside
+    /// `form(state:)`, where the non-optional parameter shadows it. Lifting it
+    /// out silently rebound `state` to the optional and broke the build.
     @ViewBuilder
-    private func skuMergeSheet(_ existing: ExistingSkuItem) -> some View {
+    private func skuMergeSheet(_ existing: ExistingSkuItem, state: ItemCanvasState) -> some View {
         let sku = (state.draft.sku.isEmpty ? (item.sku ?? "") : state.draft.sku)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         MergeSkuSheet(
@@ -629,7 +634,8 @@ struct ItemCanvasView: View {
                 }
                 .ignoresSafeArea()
             case .skuMerge(let existing):
-                skuMergeSheet(existing)
+                // `state` here is `form(state:)`'s non-optional parameter.
+                skuMergeSheet(existing, state: state)
             }
         }
         .alert(

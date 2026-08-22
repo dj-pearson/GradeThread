@@ -280,9 +280,11 @@ public final class EbayPublishService {
     ///
     /// A timeout tells us only that we stopped listening. It says nothing about
     /// whether eBay acted, so the copy must not imply either.
+    // No trailing comma after the last parameter: Swift only allows that from
+    // 6.1, and this target builds at SWIFT_VERSION 5.9.
     nonisolated static func networkFailureMessage(
         _ error: Error,
-        verb: Verb = .idempotent,
+        verb: Verb = .idempotent
     ) -> String {
         if isTimeout(error) {
             return verb == .oneShot
