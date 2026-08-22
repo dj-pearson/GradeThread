@@ -54,6 +54,16 @@ export const ITEM_LIST_COLUMNS = [
   "grade_label",
   "certificate_url",
   "measurements",
+  // US-2790: the parcel estimator's two inputs. IN the list projection, not
+  // detail-only, because item-card-list.tsx shows a per-item profit figure and
+  // it is fed by the LIST read. Absent here they arrive `undefined`, the
+  // estimator falls back to the `other` base weight for every row, and the card
+  // still reports the number as category-derived — a confident wrong figure on
+  // every card rather than a missing one on some.
+  //
+  // Both are small: garment_category is an enum, material is a short text.
+  "garment_category",
+  "material",
   "location_bin",
   "created_at",
   "updated_at",
