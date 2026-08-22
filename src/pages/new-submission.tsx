@@ -46,6 +46,7 @@ import { GRADETHREAD_TIERS, tierSupportsAuthenticityAddon } from "@/lib/constant
 import type { GradeTierKey } from "@/lib/constants";
 import type { InventoryItemRow } from "@/types/database";
 import { supabase } from "@/lib/supabase";
+import { decideSubmitAction } from "@/lib/submit-action";
 import { useBillingSummary, planLabel } from "@/hooks/use-billing-summary";
 import { usePlanUsage } from "@/hooks/use-plan-usage";
 import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
@@ -817,17 +818,32 @@ export function NewSubmissionPage() {
   }
 
   async function handleSubmit() {
-    if (!garmentInfo) return;
-    // US-2538: a submission from this session is already waiting to be paid
-    // for. Re-price it instead of creating another one.
-    if (repricingSubmissionId) {
-      await repriceExistingSubmission(repricingSubmissionId);
+    // US-2789: ONE decision, in lib/submit-action.ts, so the ordering can be
+    // tested by calling it rather than by comparing string indexes in this
+    // file. The gates it replaces are unchanged in behaviour and in order.
+    //
+    // US-2538: a submission from this session may already be waiting to be paid
+    // for; re-price it rather than creating another one. US-774: a re-entrant
+    // double-click is rejected synchronously.
+    const action = decideSubmitAction({
+      repricingSubmissionId,
+      hasGarmentInfo: !!garmentInfo,
+      captureMode: captureMode === "video" ? "video" : "photo",
+      hasVideo: !!videoFile,
+      photoCount: photos.length,
+      locked: submitLockRef.current,
+    });
+    if (action === "ignore") return;
+    if (action === "reprice") {
+      await repriceExistingSubmission(repricingSubmissionId!);
       return;
     }
+    // Narrowing only. decideSubmitAction already returned "ignore" for a null
+    // garmentInfo, so this is unreachable — but the compiler cannot see through
+    // the function, and the alternative is a non-null assertion on every one of
+    // the twenty field reads below.
+    if (!garmentInfo) return;
     const videoMode = captureMode === "video";
-    if (videoMode ? !videoFile : photos.length === 0) return;
-    // US-774: reject a re-entrant double-click synchronously (see submitLockRef).
-    if (submitLockRef.current) return;
     submitLockRef.current = true;
     setIsSubmitting(true);
 

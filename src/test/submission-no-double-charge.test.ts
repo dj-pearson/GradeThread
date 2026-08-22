@@ -27,11 +27,23 @@ describe("changing tier reuses the submission (US-2538)", () => {
     const text = src();
     // The branch is the FIRST thing handleSubmit does, before any of the
     // upload work — anything after would still build a second multipart body.
+    //
+    // US-2789: the DECISION moved to lib/submit-action.ts so its ordering can
+    // be tested by calling it (src/lib/__tests__/submit-action.test.ts). What
+    // stays here is the property that test cannot see: where the decision sits
+    // relative to the multipart build. A correct decision consulted too late
+    // still assembles a second body.
     const submitAt = text.indexOf("async function handleSubmit()");
-    const branchAt = text.indexOf("if (repricingSubmissionId) {");
+    const decideAt = text.indexOf("decideSubmitAction({", submitAt);
+    const repriceAt = text.indexOf('action === "reprice"', submitAt);
     const formDataAt = text.indexOf("new FormData()", submitAt);
-    expect(branchAt).toBeGreaterThan(submitAt);
-    expect(branchAt).toBeLessThan(formDataAt);
+    expect(decideAt, "handleSubmit no longer asks decideSubmitAction").toBeGreaterThan(submitAt);
+    expect(repriceAt, "handleSubmit no longer acts on the reprice answer").toBeGreaterThan(decideAt);
+    expect(
+      repriceAt,
+      "the reprice branch moved after the multipart build, so a re-price still " +
+        "assembles a second submission body",
+    ).toBeLessThan(formDataAt);
   });
 
   it("the reprice uses the pay endpoint, not a second submit", () => {
