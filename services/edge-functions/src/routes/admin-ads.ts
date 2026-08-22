@@ -121,6 +121,47 @@ adminAdsRoutes.post("/themes/:id/archive", async (c) => {
     .maybeSingle();
   if (error) return failSafe(c, 500, "Couldn't archive the ad theme.", error, "admin.ads.themes.archive");
   if (!data) return c.json({ error: "Not found" }, 404);
+  // US-2803: archive was filed OPEN by admin-audit-policy — an admin mutation
+  // with no audit row and no domain trail either. Auditing the pair closes
+  // that rather than adding a second silent mutation beside it.
+  await writeAuditLog(c, {
+    action: "archive_ad_theme",
+    targetType: "keyword_library",
+    targetId: data.id,
+    details: { theme: data.theme, platform: data.platform },
+  });
+  return c.json({ theme: data as KeywordLibraryRow });
+});
+
+// ── KEYWORD LIBRARY: restore ─────────────────────────────────────────
+//
+// US-2803. "Soft delete" promises the row is recoverable, and until now it was
+// not: archive was the ONLY writer of is_active, there is no update route for a
+// theme, and the list defaults to active-only while no caller passed
+// ?include_archived=1. So archiving a theme removed it from the product with
+// the row still sitting in the table and no route able to bring it back — a
+// one-way door wearing the word "soft".
+//
+// The pair is what makes the list filter meaningful: being able to SEE an
+// archived theme and not restore it would only move the dead end one screen
+// later.
+adminAdsRoutes.post("/themes/:id/restore", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("keyword_library")
+    .update({ is_active: true })
+    .eq("id", c.req.param("id"))
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    return failSafe(c, 500, "Couldn't restore the ad theme.", error, "admin.ads.themes.restore");
+  }
+  if (!data) return c.json({ error: "Not found" }, 404);
+  await writeAuditLog(c, {
+    action: "restore_ad_theme",
+    targetType: "keyword_library",
+    targetId: data.id,
+    details: { theme: data.theme, platform: data.platform },
+  });
   return c.json({ theme: data as KeywordLibraryRow });
 });
 

@@ -9,6 +9,7 @@ import {
   Save,
   Download,
   Archive,
+  RotateCcw,
   Tag,
 } from "lucide-react";
 import {
@@ -96,11 +97,16 @@ interface AdCreative {
   created_at: string;
 }
 
-function useThemes() {
+// US-2803: `includeArchived` reaches ?include_archived=1, which the route has
+// implemented since it was written and which nothing ever passed. Without it
+// an archived theme is invisible AND unreachable — see the restore route.
+function useThemes(includeArchived: boolean) {
   return useQuery<KeywordTheme[]>({
-    queryKey: ["admin_ads_themes"],
+    queryKey: ["admin_ads_themes", includeArchived],
     queryFn: async () => {
-      const res = await edgeFetch("/api/admin/ads/themes");
+      const res = await edgeFetch(
+        `/api/admin/ads/themes${includeArchived ? "?include_archived=1" : ""}`,
+      );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Could not load keyword themes.");
       return (json.themes ?? []) as KeywordTheme[];
@@ -160,8 +166,11 @@ export function AdminAdsPage() {
   const [newTheme, setNewTheme] = useState("");
   const [newKeywords, setNewKeywords] = useState("");
   const [newPillar, setNewPillar] = useState("");
+  // US-2803: local, not persisted — a filter that outlives the visit is one
+  // somebody forgets is on.
+  const [showArchived, setShowArchived] = useState(false);
 
-  const themesQuery = useThemes();
+  const themesQuery = useThemes(showArchived);
   const creativesQuery = useCreatives();
 
   const visibleThemes = useMemo(
@@ -211,6 +220,20 @@ export function AdminAdsPage() {
       const res = await edgeFetch(`/api/admin/ads/themes/${id}/archive`, { method: "POST" });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Could not archive theme.");
+      return json;
+    },
+    onSuccess: () => {
+      // Prefix match, so both the filtered and unfiltered lists refresh.
+      qc.invalidateQueries({ queryKey: ["admin_ads_themes"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const restoreTheme = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await edgeFetch(`/api/admin/ads/themes/${id}/restore`, { method: "POST" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not restore theme.");
       return json;
     },
     onSuccess: () => {
@@ -316,9 +339,20 @@ export function AdminAdsPage() {
               Select the themes to ground the copy in. Generation uses their keywords as the demand signal.
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setShowNewTheme((s) => !s)}>
-            <Plus className="mr-1 h-4 w-4" /> New theme
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant={showArchived ? "secondary" : "outline"}
+              size="sm"
+              onClick={() => setShowArchived((v) => !v)}
+              aria-pressed={showArchived}
+            >
+              <Archive className="mr-1 h-4 w-4" />
+              {showArchived ? "Showing archived" : "Show archived"}
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowNewTheme((s) => !s)}>
+              <Plus className="mr-1 h-4 w-4" /> New theme
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {showNewTheme && (
@@ -414,17 +448,27 @@ export function AdminAdsPage() {
                             {t.pillar}
                           </Badge>
                         )}
+                        {!t.is_active && (
+                          <Badge variant="outline" className="shrink-0 text-xs">
+                            Archived
+                          </Badge>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-6 w-6 shrink-0"
                           onClick={(e) => {
                             e.stopPropagation();
-                            archiveTheme.mutate(t.id);
+                            if (t.is_active) archiveTheme.mutate(t.id);
+                            else restoreTheme.mutate(t.id);
                           }}
-                          title="Archive theme"
+                          title={t.is_active ? "Archive theme" : "Restore theme"}
                         >
-                          <Archive className="h-3.5 w-3.5" />
+                          {t.is_active ? (
+                            <Archive className="h-3.5 w-3.5" />
+                          ) : (
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          )}
                         </Button>
                       </div>
                     </div>

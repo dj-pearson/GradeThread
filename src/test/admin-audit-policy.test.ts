@@ -187,11 +187,14 @@ const OPEN: Record<string, string> = {
   // Filed OPEN rather than EXEMPT deliberately: each one writes, and "an agent
   // never decided this was fine, a parsing accident decided it" is not the same
   // as a decision. They need a real ruling, not my guess at one.
-  "admin-ads.ts POST /themes/:id/archive":
-    "flips a creative theme inactive with no audit row and no ads_change_audit " +
-    "entry either — unlike the recommendation routes above, which at least land " +
-    "in the domain trail. Low stakes (internal marketing config) but it is a " +
-    "silent write by an admin, and it was only ever 'covered' by accident",
+  // RESOLVED 2026-08-22 (US-2803) and left here as a worked example of what an
+  // OPEN entry is for. It asked for "a real ruling, not my guess at one", and
+  // the ruling arrived from an unrelated direction: adding a RESTORE route to
+  // this pair meant either auditing both or filing a second silent write beside
+  // the first. Both now call writeAuditLog — archive_ad_theme and
+  // restore_ad_theme — so the entry is gone rather than re-argued. The file
+  // already imported writeAuditLog for its other routes, which is what made
+  // this an omission rather than a policy.
   "admin-grading.ts POST /review/:id/release":
     "releases a claimed human review back to the queue. Claim (line 3089) and " +
     "approve (3172) both audit; release, between them, does not — which reads " +
