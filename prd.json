@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2796",
+  "nextId": "US-2797",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2291,6 +2291,19 @@
         "WHY THE EXISTING GUARD MISSED IT, worth keeping: api-v1-surface-parity.test.ts compares the SPEC to the ROUTES and both are correct - 16 and 16, and the live spec matches the committed one exactly. The doc is a THIRD copy nothing compared to either. Two artefacts held in lockstep while a third drifts beside them is the recurring shape in this repo."
       ],
       "priority": 1993
+    },
+    {
+      "id": "US-2796",
+      "passes": false,
+      "title": "Footwear: record which size SCALE a shoe size is on",
+      "description": "measurement-templates.ts gives shoes a single required `size_us` field and nothing records whether that number is US men's, US women's, UK, EU or JP. A women's 9 and a men's 9 are two different shoes: about 1.5 sizes and roughly an inch of last length apart. Everything downstream reads the bare number as if the scale were known.\n\nWhere it lands today:\n- parcel-estimate.ts sizeFactor() now scales shoe weight off size_us against a US men's 9 reference. A women's number read as men's understates the shipping weight by roughly 4%. Real, small, and the reason this story exists.\n- aspect-registry.ts maps shoes to the eBay aspects \"US Shoe Size\" and \"Shoe Size\". eBay itself splits its shoe categories by department, so a listing built from an unqualified number can land on the wrong scale.\n- src/lib/size-conversion.ts already holds a full SHOE_SIZES table (usMen/usWomen/uk/eu/jp/footCm). Its only consumer is the public /tools/measurement-converter page. The seller flow cannot use it because it has no scale to convert FROM.\n\nThe fix is one field, not a redesign: capture the scale beside the number and let the existing conversion table do the rest.",
+      "acceptanceCriteria": [
+        "The shoes measurement template captures a size SCALE alongside size_us (US men's / US women's / UK / EU / JP), defaulting to US men's so existing rows keep their current meaning.",
+        "parcel-estimate.ts sizeFactor() normalises to US men's via the SHOE_SIZES table before applying SHOE_SIZE_EXPONENT, and the existing footwear tests still pass unchanged for US men's input.",
+        "The eBay aspect built for a shoe names the scale it is on, so a women's listing does not publish a men's number.",
+        "A shoe recorded with no scale behaves exactly as it does today (treated as US men's) rather than failing or refusing to estimate."
+      ],
+      "priority": 60
     }
   ]
 }

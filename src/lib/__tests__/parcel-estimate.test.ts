@@ -21,6 +21,7 @@ import {
   estimateParcel,
   PACK_DIMENSIONS,
   PACKAGING_WEIGHT_OZ,
+  sizeFactor,
   type ParcelGarmentCategory,
 } from "../parcel-estimate";
 
@@ -384,5 +385,75 @@ describe("US-2790: dimensional weight, against the published USPS rule", () => {
       expect(Number.isFinite(r) || r === 0, `cu ${cu}`).toBe(true);
     }
     expect(dimensionalWeightOzForCubicInches(Number.NaN)).toBe(0);
+  });
+});
+
+describe("footwear scales by shoe size, not by a tape measurement", () => {
+  // BEFORE THIS, sizeFactor read chest or waist ONLY, so it returned null for
+  // every shoe and the estimate was the category base alone: a men's 13 boot
+  // and a women's 6 boot both priced at the same weight. Shoe size is the one
+  // number a shoe listing always carries.
+  const shoe = (garmentCategory: string, size_us: number) => ({
+    garmentCategory: garmentCategory as ParcelGarmentCategory,
+    material: null,
+    measurements: { size_us },
+    size: null,
+  });
+
+  it("returns a factor for footwear, where it used to return null", () => {
+    for (const cat of ["sneakers", "boots", "sandals"]) {
+      expect(sizeFactor(shoe(cat, 10)), cat).not.toBeNull();
+    }
+  });
+
+  it("a bigger shoe weighs more, monotonically", () => {
+    const sizes = [5, 7, 9, 11, 13];
+    const factors = sizes.map((s) => sizeFactor(shoe("boots", s))!);
+    for (let i = 1; i < factors.length; i++) {
+      expect(factors[i]!, `US ${sizes[i]} vs ${sizes[i - 1]}`).toBeGreaterThan(factors[i - 1]!);
+    }
+  });
+
+  it("scales GENTLY — a shoe grows mostly along one axis", () => {
+    // The garment exponent would make a 13 weigh 1.6x an 8. Published weights
+    // across one sneaker model run nearer 2-3% per half size. A rule that
+    // over-scales is worse than none: it prices the large sizes out.
+    const ratio = sizeFactor(shoe("sneakers", 13))! / sizeFactor(shoe("sneakers", 8))!;
+    expect(ratio).toBeGreaterThan(1.1);
+    expect(ratio).toBeLessThan(1.4);
+  });
+
+  it("is 1.0 at the reference size, so the base weights keep their meaning", () => {
+    // BASE_WEIGHT_OZ.boots is what a mid-size boot weighs. If the reference
+    // were anywhere else, every seeded base would silently mean a different
+    // shoe than the person who chose it intended.
+    expect(sizeFactor(shoe("boots", 9))).toBeCloseTo(1, 5);
+  });
+
+  it("falls back to the category alone when no size is recorded", () => {
+    // The size stamp photo is OPTIONAL in the shoes photo profile, so a missing
+    // size is the common case, not the edge case. It must not throw or guess.
+    const e = estimateParcel({ garmentCategory: "boots", measurements: {} } as never);
+    expect(e.basis).toEqual(["category"]);
+    expect(e.weightOz).toBe(BASE_WEIGHT_OZ.boots + (e.weightOz - BASE_WEIGHT_OZ.boots));
+    expect(Number.isFinite(e.weightOz)).toBe(true);
+  });
+
+  it("refuses a nonsense size rather than producing a nonsense weight", () => {
+    // The guarantee lives in numeric(), which returns null unless the value is
+    // finite and above zero. This branch adds NO guard of its own, on purpose —
+    // it had one, and a sabotage run showed removing it changed nothing, which
+    // is the definition of dead code. Assert the BEHAVIOUR here so that a future
+    // change to numeric() that loosened it would fail loudly.
+    for (const bad of [0, -3, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(sizeFactor(shoe("sneakers", bad)), String(bad)).toBeNull();
+    }
+  });
+
+  it("does not touch the garment path", () => {
+    // Regression guard on the branch order: a shirt still measures at the chest
+    // and must be unaffected by anything above.
+    const shirt = { garmentCategory: "shirt", measurements: { chest: 21 } } as never;
+    expect(sizeFactor(shirt)).toBeCloseTo(1, 5);
   });
 });

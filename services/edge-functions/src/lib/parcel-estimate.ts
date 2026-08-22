@@ -103,6 +103,38 @@ export const MATERIAL_MULTIPLIERS: ReadonlyArray<[string, number]> = [
 const REFERENCE_CHEST_IN = 21;
 const REFERENCE_WAIST_IN = 17;
 
+/**
+ * Footwear is measured by SHOE SIZE, not by a tape measurement.
+ *
+ * Before this, sizeFactor read only chest or waist, so it returned null for
+ * every shoe and the estimate was the category base alone — a men's 13 boot
+ * and a women's 6 boot both came out at 48 oz. Shoe size is the one number a
+ * shoe listing always carries, so it is the best signal available and it was
+ * being ignored.
+ *
+ * THE EXPONENT IS LOWER THAN THE GARMENT ONE, deliberately. A garment scales
+ * in two dimensions and its weight roughly tracks fabric area. A shoe is
+ * graded mostly along its length: the upper and the outsole grow, the
+ * midsole stack does not. Published weights across a single sneaker model run
+ * about 2-3% per half size, which is what 0.6 reproduces over this range —
+ * a US 13 lands near 1.2x a US 8 rather than the 1.6x a linear rule gives.
+ *
+ * US MEN'S is the reference scale because that is what `size_us` holds
+ * (measurement-templates.ts: shoes -> size_us, "US size", required). A
+ * women's-scale number read as men's overstates by 1.5 sizes, which is inside
+ * the clamp and worth roughly 4% — real, and far smaller than ignoring size
+ * altogether. Fixing it needs a size TYPE on the item, which is US-2796.
+ */
+const REFERENCE_SHOE_US_MEN = 9;
+const SHOE_SIZE_EXPONENT = 0.6;
+
+/** Categories sized by shoe size rather than by a tape measurement. */
+const SHOE_SIZED: ReadonlySet<string> = new Set([
+  "sneakers",
+  "boots",
+  "sandals",
+]);
+
 /** Categories measured at the waist rather than the chest. */
 const WAIST_MEASURED: ReadonlySet<string> = new Set([
   "jeans",
@@ -245,6 +277,14 @@ export function materialMultiplier(material: string | null): number | null {
 export function sizeFactor(input: ParcelInput): number | null {
   const cat = input.garmentCategory;
   if (!cat) return null;
+
+  if (SHOE_SIZED.has(cat)) {
+    const us = numeric(input.measurements, "size_us");
+    if (us == null) return null;
+    const ratio = Math.pow(us / REFERENCE_SHOE_US_MEN, SHOE_SIZE_EXPONENT);
+    return clamp(ratio, SIZE_FACTOR_MIN, SIZE_FACTOR_MAX);
+  }
+
   const useWaist = WAIST_MEASURED.has(cat);
   const measured = useWaist
     ? numeric(input.measurements, "waist")
