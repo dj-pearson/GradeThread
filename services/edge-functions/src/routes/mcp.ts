@@ -96,8 +96,13 @@ const INSTRUCTIONS =
  *
  * US-9127 replaces this with a real feature flag so it can be flipped without a
  * redeploy; an env var needs no migration and is enough to ship behind.
+ *
+ * EXPORTED for /health/ready (US-2687), not because anything else routes on it.
+ * The alternative was a second copy of these five lines in health.ts, and the
+ * whole point of reporting the kill switch is that the report agrees with the
+ * switch — two readings of one env var is exactly how they drift apart.
  */
-function isMcpEnabled(): boolean {
+export function isMcpEnabled(): boolean {
   const raw = (Deno.env.get("MCP_ENABLED") ?? "").trim().toLowerCase();
   if (raw === "true" || raw === "1") return true;
   if (raw === "false" || raw === "0") return false;

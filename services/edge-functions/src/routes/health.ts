@@ -19,6 +19,8 @@ import {
   summarizeMemory,
 } from "../lib/grading-capacity.ts";
 import { getSetting } from "../lib/system-settings.ts";
+import { isFeatureEnabled } from "../lib/feature-flags.ts";
+import { isMcpEnabled } from "./mcp.ts";
 import { WATCHDOG_HEARTBEAT_KEY } from "./jobs-watchdog-heartbeat.ts";
 
 export const healthRoutes = new Hono();
@@ -265,6 +267,75 @@ export function watchdogReadiness(
     `minute) — assume an edge hang would NOT be capped`;
 }
 
+/**
+ * US-2687: does the `claude_connector` flag say on, say off, or say nothing?
+ *
+ * isFeatureEnabled fails OPEN, so a missing row and an unreachable flag store
+ * BOTH return the caller's default and a single read cannot tell either of them
+ * from a rule that genuinely says on. Read it twice with opposite defaults:
+ * agreement means a real rule was read, disagreement means both calls fell back.
+ *
+ * Both reads hit the same flag cache, so this is one query, not two.
+ *
+ * EXPORTED so its test drives THIS function rather than a copy of it. The copy
+ * is the failure US-2789 spent itself measuring: a guard that re-implements the
+ * thing it checks stays green through any change to the original.
+ */
+export async function connectorFlagState(): Promise<"on" | "off" | "unreadable"> {
+  const [open, closed] = await Promise.all([
+    isFeatureEnabled("claude_connector", { defaultEnabled: true }),
+    isFeatureEnabled("claude_connector", { defaultEnabled: false }),
+  ]);
+  return open === closed ? (open ? "on" : "off") : "unreadable";
+}
+
+/**
+ * US-2687: is the Claude connector actually serving, and which switch stopped it?
+ *
+ * WHY THIS EXISTS. The connector has two independent kill switches — the
+ * MCP_ENABLED env var (deploy-time) and the `claude_connector` feature flag
+ * (runtime) — and NEITHER was observable from outside. main.ts mounts
+ * mcpAuthMiddleware before app.route("/mcp"), while the kill switch's 404 lives
+ * inside the route handler, so production answers 401 to an unauthenticated
+ * probe whether the connector is live or dark. The two states are
+ * indistinguishable, which is a bad property for a stop button: during an
+ * incident you flip the flag and have no way to confirm it took, short of
+ * holding credentials for the thing you are trying to stop.
+ *
+ * `flagState` distinguishes three cases, not two, because isFeatureEnabled()
+ * fails OPEN — a missing row and an unreachable flag store both return the
+ * caller's default. Reporting that as "live" would be the same blind spot in a
+ * new place. Resolve it by reading the flag twice with opposite defaults: agree
+ * means a real row was read, disagree means there was nothing to read.
+ *
+ * Informational only, like `release` and `hostWatchdog`. A dark connector must
+ * never take grading and payments out of rotation.
+ *
+ * Pure so it is unit-testable without an environment or a database.
+ */
+export function connectorReadiness(
+  envEnabled: boolean,
+  flagState: "on" | "off" | "unreadable",
+): string {
+  if (!envEnabled) {
+    return "off: MCP_ENABLED is not enabled for this deploy — /mcp returns 404 " +
+      "inside the handler, but the auth middleware in front of it answers 401 " +
+      "first, so this state is invisible from outside (US-2687)";
+  }
+  if (flagState === "off") {
+    return "off: the claude_connector kill switch is set — MCP_ENABLED is on, " +
+      "so this is the runtime stop button rather than the deploy default";
+  }
+  if (flagState === "unreadable") {
+    // The fail-open default is what SERVES, so the connector really is live.
+    // Saying only "live" would hide that nothing was actually read.
+    return "live: MCP_ENABLED on, and claude_connector has no readable rule — " +
+      "the flag fails OPEN, so the connector is serving on a default, not on a " +
+      "decision. The kill switch cannot stop it until a rule row exists";
+  }
+  return "live";
+}
+
 // Pure decision (unit-tested) so the route's I/O stays trivial. `features` is
 // informational: overall readiness is still just DB + core env so a missing
 // optional integration can't take the container out of rotation.
@@ -406,6 +477,19 @@ healthRoutes.get("/ready", async (c) => {
     }
   }
 
+  // US-2687: the connector's two kill switches, neither of which could be
+  // observed from outside. Best-effort like every other diagnostic here — the
+  // env half needs no I/O, and a flag-store failure reports "unreadable"
+  // (which is the truth) rather than failing the probe.
+  let connectorFlag: "on" | "off" | "unreadable" = "unreadable";
+  if (dbOk && isMcpEnabled()) {
+    try {
+      connectorFlag = await connectorFlagState();
+    } catch {
+      connectorFlag = "unreadable";
+    }
+  }
+
   const summary = summarizeReadiness(
     dbOk,
     missingEnv,
@@ -428,6 +512,8 @@ healthRoutes.get("/ready", async (c) => {
         typeof watchdogLastSeen === "number" ? watchdogLastSeen : null,
         Date.now(),
       ),
+      // US-2687: two kill switches that were invisible from outside.
+      connector: connectorReadiness(isMcpEnabled(), connectorFlag),
     },
     summarizeSchema(EXPECTED_SCHEMA_VERSION, applied, completeness),
   );
