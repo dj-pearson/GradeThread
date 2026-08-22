@@ -76,12 +76,28 @@ describe("US-2745: manualFields", () => {
     }
   });
 
-  it("Mercari does not list category or brand, because both fill", () => {
-    // AC5. Listing them would tell the seller to redo work already done, which
-    // is a different kind of wrong from omitting one.
+  it("Mercari does not list BRAND, because brand really does fill", () => {
+    // AC5. Listing it would tell the seller to redo work already done, which is
+    // a different kind of wrong from omitting one.
+    //
+    // ⚠ THIS CASE USED TO SAY "category or brand, because both fill" and it was
+    // half wrong — which is worse than wholly wrong, because the true half made
+    // it read as checked. Brand fills: its selector was verified on the live
+    // form and runFlow has filled `f.brand` for any channel declaring one since
+    // US-2730. Category CANNOT: no channel in lister/selectors.js declares a
+    // `category` selector at all, and runFlow has no branch for one.
+    //
+    // A live run saw a category on the finished listing and the claim was
+    // written from that observation. Mercari derives one from the title, or the
+    // seller had set it — either way it was never the extension, and the kit was
+    // telling sellers the required field they most need to check was handled.
+    //
+    // The general rule now lives in manual-fields-match-selectors.test.ts, which
+    // loads the real selector config and would have caught this. Kept here as
+    // well, by name, because this is the case that was actively wrong (US-2743).
     const mercari = MARKETPLACE_SPECS.mercari.manualFields ?? [];
-    expect(mercari).not.toContain("category");
     expect(mercari).not.toContain("brand");
+    expect(mercari).toContain("category");
   });
 
   it("the declared sets are the ones confirmed on the live form", () => {
@@ -89,8 +105,11 @@ describe("US-2745: manualFields", () => {
     // these means re-checking the form, which is what AC2 is about.
     expect([...(MARKETPLACE_SPECS.poshmark.manualFields ?? [])].sort())
       .toEqual(["category", "color", "nwt", "size"]);
+    // category joined 2026-08-22 (US-2743 AC6): it was never fillable, and the
+    // pin above was holding the wrong set steady rather than holding a checked
+    // one. A pin is only as good as the check behind it.
     expect([...(MARKETPLACE_SPECS.mercari.manualFields ?? [])].sort())
-      .toEqual(["condition", "size"]);
+      .toEqual(["category", "condition", "size"]);
   });
 });
 
