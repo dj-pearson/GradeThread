@@ -15,7 +15,7 @@
 //   services/edge-functions/src/lib/marketplace-specs.ts
 // because the Deno edge runtime cannot import from the Vite `src/` tree. The
 // two copies MUST stay byte-identical — the guard test
-// src/lib/__tests__/marketplace-specs-sync.test.ts fails the build if they
+// src/lib/__tests__/marketplace-specs.test.ts fails the build if they
 // drift. Keep this module dependency-free (pure data + pure functions) so it
 // type-checks under BOTH tsconfig and Deno.
 //

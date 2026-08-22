@@ -160,7 +160,7 @@ export function helpHubPath(): string {
  * The seeded category shelf (US-2582).
  *
  * Mirrors the seed in supabase/migrations/00602_help_center_articles.sql, and
- * src/test/help-categories.test.ts fails if the two ever disagree. It exists so
+ * src/test/help-link-graph.test.ts fails if the two ever disagree. It exists so
  * PRERENDERED surfaces — the human HTML sitemap in particular — can link every
  * shelf in crawlable markup, which a client-side fetch cannot do.
  *

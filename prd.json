@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2793",
+  "nextId": "US-2794",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2277,6 +2277,20 @@
         "OPERATOR: the auth ones need judgement this cannot supply. Google is gated behind AppConfig.googleSignInEnabled, which is off until the provider is configured on the self-hosted GoTrue - so AC1 is partly a provisioning question, not only a button. And a Turnstile site key has to exist for Android before AC2 can be more than a rendered widget."
       ],
       "priority": 12
+    },
+    {
+      "id": "US-2793",
+      "passes": false,
+      "title": "doc-refs checks the docs an agent reads, not the 975 path references inside the code",
+      "description": "As someone reading this codebase, I want a comment that names a file to name a file that exists, so that a header describing where the guard lives does not send me looking for something that was renamed.",
+      "acceptanceCriteria": [
+        "scripts/doc-refs.mjs (or a sibling) also scans COMMENTS in src/, services/edge-functions/src/, functions/ and scripts/. It covers CLAUDE.md and friends today; the code carries 975 distinct path references and nothing checks any of them.",
+        "TWO TRAPS, BOTH MEASURED, and the first is already documented in doc-refs.mjs's own header. (1) The extension alternation must be LONGEST-FIRST: with `ts` before `tsx` the pattern matches the head of routes/index.tsx and reports routes/index.ts missing. (2) A path is relative to its PACKAGE, not the repo - the edge tree calls its own tests src/tests/foo_test.ts, real under services/edge-functions and absent from the root. A prototype scoring both wrong reported 182 findings; fixing them gave 14.",
+        "The remaining 14 are three kinds and the guard must tell them apart or it is noise. FIVE are prose EXAMPLES, not references - src/pages/admin/foo.tsx, vault/10-ops/x.md, vault/NN-folder/note.md, docs/X.md, scripts/prod-catchup-YYYY-MM-DD.sql. THREE name a file deliberately BECAUSE it does not exist: check-web-unwired.mjs cites src/lib/list-sort.ts as the module it found and deleted, src/lib/shipping-rates.ts records that there is deliberately no edge mirror, and a comment in the hot-read tests opens 'src/pages/inventory.tsx was DELETED'. Those must be allowlistable with a reason. The rest are candidates: src/pages/inventory-detail.tsx, docs/openapi.yaml, scripts/_placeholder-db-env.ts, scripts/seed-demo-account.sql, src/test/style-code-coverage-precedence.test.ts.",
+        "A fixture proves the rule fires and does not over-fire, the way repeated-labels.test.ts does: a real stale path is caught, a .tsx referenced correctly is not, an edge-relative path is not, and an allowlisted deliberate reference is not.",
+        "WHY THIS IS WORTH DOING AT ALL, since 14 findings is thin: the two fixed alongside this story were both comments claiming a GUARD exists. src/lib/marketplace-specs.ts said the byte-identical-mirror check lives in marketplace-specs-sync.test.ts (it is marketplace-specs.test.ts) and src/types/help-center.ts said the seed comparison lives in help-categories.test.ts (it is help-link-graph.test.ts). Both guards are real. A reader who went looking would have found nothing and reasonably concluded the guard was gone - which is the expensive reading, and it is the one this catches."
+      ],
+      "priority": 1995
     }
   ]
 }
