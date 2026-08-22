@@ -104,6 +104,24 @@ function monthLabel(key: string): string {
   });
 }
 
+/**
+ * What to CALL one expense when a control has to name it (US-2450).
+ *
+ * An expense has no name of its own. The description is what the row prints and
+ * it is optional, so the fallback is the other two things the row already
+ * shows — its category and its date. Deliberately not a constant like "this
+ * expense": three delete buttons in a column all announcing that is the defect
+ * this exists to fix, and a column of expenses is exactly where it would land.
+ *
+ * Two expenses in one category on one day still sound alike. They also LOOK
+ * alike, which makes that a row problem rather than a labelling one.
+ */
+function expenseName(e: ExpenseRow): string {
+  const described = e.description?.trim();
+  if (described) return described;
+  return `${EXPENSE_CATEGORY_LABELS[e.category]} on ${e.spent_on}`;
+}
+
 export function FlipdeskExpensesPage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
@@ -414,7 +432,7 @@ export function FlipdeskExpensesPage() {
                           size="icon"
                           className="h-7 w-7"
                           onClick={() => openReceipt(e.id)}
-                          aria-label="View receipt"
+                          aria-label={`View the receipt for ${expenseName(e)}`}
                           title="View receipt"
                         >
                           <Paperclip className="h-3.5 w-3.5" />
@@ -428,7 +446,7 @@ export function FlipdeskExpensesPage() {
                           setEditing(e);
                           setDialogOpen(true);
                         }}
-                        aria-label="Edit expense"
+                        aria-label={`Edit ${expenseName(e)}`}
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
@@ -437,7 +455,7 @@ export function FlipdeskExpensesPage() {
                         size="icon"
                         className="h-7 w-7 text-destructive"
                         onClick={() => remove(e.id)}
-                        aria-label="Delete expense"
+                        aria-label={`Delete ${expenseName(e)}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>

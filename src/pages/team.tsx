@@ -423,7 +423,7 @@ export function TeamPage() {
                         size="icon"
                         onClick={() => setRemoveMemberId(m.member_id)}
                         disabled={pendingAction === `remove:${m.member_id}`}
-                        aria-label="Remove member"
+                        aria-label={`Remove ${m.member_name || m.member_email}`}
                       >
                         {pendingAction === `remove:${m.member_id}` ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -496,6 +496,7 @@ export function TeamPage() {
                           size="sm"
                           onClick={() => resendInvitation(inv.id)}
                           disabled={pendingAction === `resend:${inv.id}`}
+                          aria-label={`Resend the invitation to ${inv.email}`}
                           title="Resend invitation email"
                         >
                           {pendingAction === `resend:${inv.id}` ? (
@@ -518,7 +519,7 @@ export function TeamPage() {
                           size="icon"
                           onClick={() => revokeInvitation(inv.id)}
                           disabled={pendingAction === `revoke:${inv.id}`}
-                          aria-label="Revoke invitation"
+                          aria-label={`Revoke the invitation to ${inv.email}`}
                         >
                           {pendingAction === `revoke:${inv.id}` ? (
                             <Loader2 className="h-4 w-4 animate-spin" />

@@ -482,6 +482,7 @@ export function AdminConditionIndexPage() {
                           size="sm"
                           disabled={refreshingId === s.id || refreshingAll}
                           onClick={() => refreshOne(s)}
+                          aria-label={`Refresh comps for ${s.label}`}
                           title="Refresh comps now"
                         >
                           <RefreshCw className={`h-3.5 w-3.5 ${refreshingId === s.id ? "animate-spin" : ""}`} />
@@ -494,6 +495,7 @@ export function AdminConditionIndexPage() {
                             setEditSeed(s);
                             setDialogOpen(true);
                           }}
+                          aria-label={`Edit ${s.label}`}
                           title="Edit entry"
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -502,6 +504,7 @@ export function AdminConditionIndexPage() {
                           checked={s.enabled}
                           disabled={working}
                           onCheckedChange={() => toggleEnabled(s)}
+                          aria-label={`${s.enabled ? "Disable" : "Enable"} ${s.label}`}
                           title={s.enabled ? "Disable" : "Enable"}
                         />
                         <Button
@@ -509,6 +512,7 @@ export function AdminConditionIndexPage() {
                           size="sm"
                           disabled={working}
                           onClick={() => deleteSeed(s)}
+                          aria-label={`Delete ${s.label}`}
                           title="Delete entry"
                         >
                           <Trash2 className="h-3.5 w-3.5 text-red-500" />

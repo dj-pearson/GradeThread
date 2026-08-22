@@ -444,7 +444,7 @@ export function AdminConfigPricingPage() {
                     <TableCell className="tabular-nums">{t.sla_hours}h</TableCell>
                     {isSuperAdmin && (
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="sm" disabled={working} onClick={() => setEditTier(t)} title="Edit tier">
+                        <Button variant="ghost" size="sm" disabled={working} onClick={() => setEditTier(t)} aria-label={`Edit the ${t.label} grading tier`} title="Edit tier">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                       </TableCell>
@@ -493,7 +493,7 @@ export function AdminConfigPricingPage() {
                     </TableCell>
                     {isSuperAdmin && (
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="sm" disabled={working} onClick={() => setEditPack(p)} title="Edit pack">
+                        <Button variant="ghost" size="sm" disabled={working} onClick={() => setEditPack(p)} aria-label={`Edit the ${p.label} credit pack`} title="Edit pack">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                       </TableCell>
@@ -543,7 +543,7 @@ export function AdminConfigPricingPage() {
                     <TableCell className="tabular-nums">{p.included_standard_grades_per_month}</TableCell>
                     {isSuperAdmin && (
                       <TableCell className="text-right">
-                        <Button variant="ghost" size="sm" disabled={working} onClick={() => setEditPlan(p)} title="Edit included grades">
+                        <Button variant="ghost" size="sm" disabled={working} onClick={() => setEditPlan(p)} aria-label={`Edit the grades included with ${p.name}`} title="Edit included grades">
                           <Pencil className="h-3.5 w-3.5" />
                         </Button>
                       </TableCell>

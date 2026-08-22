@@ -1518,6 +1518,7 @@ export function AdminAiModelsPage() {
                             variant="ghost"
                             size="sm"
                             className="h-7 w-7 p-0"
+                            aria-label={`View ${version.version_name}`}
                             title="View"
                             onClick={() => openView(version)}
                           >
@@ -1527,6 +1528,7 @@ export function AdminAiModelsPage() {
                             variant="ghost"
                             size="sm"
                             className="h-7 w-7 p-0"
+                            aria-label={`Test ${version.version_name}`}
                             title="Test prompt"
                             onClick={() => handleTestPrompt(version)}
                           >
@@ -1537,6 +1539,7 @@ export function AdminAiModelsPage() {
                               variant="ghost"
                               size="sm"
                               className="h-7 w-7 p-0 text-amber-600 dark:text-amber-400"
+                              aria-label={`Deactivate ${version.version_name}`}
                               title="Deactivate"
                               onClick={() => setDeactivateTarget(version)}
                             >
@@ -1547,6 +1550,7 @@ export function AdminAiModelsPage() {
                               variant="ghost"
                               size="sm"
                               className="h-7 w-7 p-0 text-green-600 dark:text-green-400"
+                              aria-label={`Activate ${version.version_name}`}
                               title="Activate"
                               onClick={() => setActivateTarget(version)}
                             >
@@ -1557,6 +1561,7 @@ export function AdminAiModelsPage() {
                             variant="ghost"
                             size="sm"
                             className="h-7 w-7 p-0 text-red-600 dark:text-red-400"
+                            aria-label={`Delete ${version.version_name}`}
                             title="Delete"
                             onClick={() => setDeleteTarget(version)}
                             disabled={version.is_active}
