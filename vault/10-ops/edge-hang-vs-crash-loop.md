@@ -6,11 +6,12 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
+  - services/edge-functions/src/lib/lifecycle.ts
   - services/edge-functions/src/middleware/access-log.ts
   - scripts/ops/edge-watchdog.sh
   - scripts/ops/host-schedules.json
   - services/edge-functions/src/routes/jobs-watchdog-heartbeat.ts
-reviewed: 2026-08-15
+reviewed: 2026-08-22
 tags: [edge, incident, outage, ops]
 summary: Two edge failure modes with opposite signatures — a dying process that restarts itself, and a live process that never will. Telling them apart is the whole job; the hang recurred 2026-08-09 and ran far longer than the watchdog is meant to allow.
 ---
@@ -21,6 +22,19 @@ The edge service fails in two ways that look similar from the browser and behave
 in **opposite** ways on the host. Diagnose which one you have before doing
 anything else.
 
+> [!note] There is a THIRD state, and it is not a failure: a deploy
+> A routine deploy produces the same 503 in a browser. `installShutdownHandlers`
+> (`lib/lifecycle.ts`) catches SIGTERM, stops claiming new work immediately, and
+> drains in-flight requests for **8 seconds** (`SHUTDOWN_DRAIN_MS`) before
+> exiting — inside Docker's 10s grace period, deliberately, because a drain that
+> outlasts the grace window gets SIGKILLed having already stopped claiming.
+>
+> **Tell it apart by the clock and the log, not by the status code.** A drain
+> emits `edge.shutdown_begin` then `edge.shutdown_end` with `drained` and
+> `in_flight`, and it is over in under ten seconds. A hang logs *nothing at all*
+> and does not end. If you are inside a minute of a deploy, wait before opening
+> an incident.
+
 | | Crash-loop | Hang |
 |---|---|---|
 | Process | exits repeatedly | **stays alive** |
@@ -29,6 +43,7 @@ anything else.
 | Coolify UI | visibly churning | says **"running"** |
 | Logs | a boot error each cycle | **nothing at all** |
 | Browser | intermittent 502 | steady **503 "no available server"** |
+| Duration | until fixed | until fixed (a DEPLOY's 503 clears in <10s) |
 
 ## The hang: alive, unhealthy, and removed from the load balancer
 

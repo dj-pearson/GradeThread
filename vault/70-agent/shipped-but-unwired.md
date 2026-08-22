@@ -13,7 +13,7 @@ code_refs:
   - src/test/waitlist-capture-reachable.test.ts
   - scripts/audit-unwired-exports.mjs
   - scripts/check-unwired-modules.mjs
-reviewed: 2026-08-15
+reviewed: 2026-08-22
 tags: [quality, testing, dead-code, gotcha]
 summary: Modules that pass their tests while nothing calls them; one was a real unenforced guarantee now half-wired, one was ruled uncalled-by-design and that ruling turned out to be wrong, one was a policy retirement that got deleted once a live switch started promising it, one was assumed correct because being unwired hid a broken table, and one was a UI component whose absence left a lockout switch armed — telling the shapes apart is the point.
 ---
@@ -59,6 +59,30 @@ place. `authenticity-gate-guard_test.ts` fails the build if an activation path
 ever appears without calling the eval. `grading_eval_cases` also has no
 authenticity rows yet (US-2131 — expert-dependent, cannot be generated), so the
 boot warning reports ungated for every version until real labeled cases exist.
+
+## Three modules have since graduated, which is the thesis holding
+
+The allowlist in `scripts/check-unwired-modules.mjs` is down to four entries:
+`drip-trigger.ts`, `rubric.ts`, `brand-seed.ts`, `content-ai-email.ts`. Three
+names left it between 2026-08-15 and 2026-08-20, and each left the same way —
+the codebase changed around a verdict that had been correct when written:
+
+- **`grading-reliability.ts`** (2026-08-15, US-2035). The env-gated job that
+  feeds it live re-grades now exists as `routes/jobs-grading-self-consistency.ts`,
+  so the module has a caller.
+- **`size-systems.ts`** (2026-08-17, US-2215). Its entry said a converted size
+  would have to go through the trusted block first. It now does:
+  `usEquivalentForLabel` is called from `grading-size.ts`'s
+  `sizeVerificationLine`.
+- **`marketplace-observations.ts`** (2026-08-20). The entry's own closing line
+  said to remove it when a route imports it. `routes/flipdesk-sync.ts` imports
+  `planObservations` and `planSaleEffects`, and **the gate had been failing since
+  that route landed** — the allowlist doing exactly what it is for.
+
+Each was left in the script as a COMMENT rather than deleted, so the next reader
+sees a module that graduated instead of a name that quietly vanished. That is
+worth copying: a silently shrinking allowlist and a correctly shrinking one look
+identical in a diff nobody reads.
 
 ## Judged "uncalled by design" — and judged wrong
 
