@@ -226,4 +226,53 @@ assert.strictEqual(
   assert.ok(!/1 Main St/.test(serialized), "a shipping address reached the posted batch");
 }
 
+// ── 9. AC9: the fixture guard, standing BEFORE the first fixture ───────────
+//
+// AC9 asks for node guards driven by saved HTML fixtures of the seller's own
+// Poshmark pages, scrubbed of buyer details, with a test asserting no fixture
+// carries a street address.
+//
+// THE FIXTURES CANNOT BE WRITTEN FROM HERE. An authentic Sold page needs a
+// logged-in Poshmark account, which is the same human step `enabled: false`
+// in sync/selectors.js is waiting on. THE GUARD CAN, and the ordering is the
+// whole point: a scrubbing rule written AFTER the first fixture lands is a
+// rule that never inspected the thing it exists for. This one is armed and
+// empty, so the first fixture to arrive is checked on the commit that adds it.
+//
+// It PASSES on an empty directory deliberately — an absent fixture is a gap in
+// coverage (recorded on US-2698, and the reason `enabled` is still false), not
+// a leak. Failing here would only pressure someone to add a fixture to make a
+// test go green, which is exactly the wrong incentive for a file that may
+// contain a stranger's address.
+
+{
+  const fixtureDir = path.join(dir, "test", "fixtures");
+  const files = fs.existsSync(fixtureDir)
+    ? fs.readdirSync(fixtureDir).filter((f) => /\.html?$/i.test(f))
+    : [];
+
+  // Patterns that mean a scrub was missed. Deliberately about SHAPE rather
+  // than about a name: "Jane Doe" is unguessable, "1 Main St" is not.
+  const leaks = [
+    [/\b\d{1,6}\s+[A-Z][a-z]+\s+(St|Street|Ave|Avenue|Rd|Road|Ln|Lane|Blvd|Dr|Drive|Way|Ct|Court)\b/,
+      "a street address"],
+    [/\b\d{5}(-\d{4})?\b(?![^<]*<\/(?:price|span class="price")>)/, "a US ZIP code"],
+    [/\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b/, "a UK postcode"],
+    [/\b[\w.+-]+@[\w-]+\.[\w.]{2,}\b/, "an email address"],
+    [/\b(?:\+?1[-. ]?)?\(?\d{3}\)?[-. ]\d{3}[-. ]\d{4}\b/, "a phone number"],
+  ];
+  for (const name of files) {
+    const html = fs.readFileSync(path.join(fixtureDir, name), "utf8");
+    for (const [re, what] of leaks) {
+      assert.ok(
+        !re.test(html),
+        `fixture ${name} contains what looks like ${what}. Scrub it before ` +
+          `committing — these files are captured from a real account, and the ` +
+          `whole reason the observer has an allowlist is that the page prints ` +
+          `the buyer's details beside the price.`,
+      );
+    }
+  }
+}
+
 console.log("sync-observe.test.cjs: ok");
