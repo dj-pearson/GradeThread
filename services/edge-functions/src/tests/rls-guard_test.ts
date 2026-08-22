@@ -219,6 +219,9 @@ const SERVICE_ROLE_ONLY = new Set([
   // a public evidence URL; a seller-sourced row records WHAT was corrected,
   // never by whom.
   "style_code_names",
+  // US-2783: per-brand cursor for the brand-first crawl. A brand name, an
+  // offset and four counters. Written and read only by the discovery cron.
+  "style_code_discovery_state",
   // US-1565: admin task board — internal operator tooling; client policies
   // dropped in 00344, all CRUD flows through /api/admin/tasks (edge boundary).
   "admin_task_projects",

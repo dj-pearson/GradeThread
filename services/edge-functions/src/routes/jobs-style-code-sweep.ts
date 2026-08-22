@@ -24,6 +24,7 @@ import { getBrowseItemAspects, searchBrowseComps } from "../lib/ebay-client.ts";
 import { canonicalStyleCode } from "../lib/style-code-observations.ts";
 import {
   aspectEvidence,
+  aspectNameConfidence,
   classifyListing,
   type ClassifiedListing,
 } from "../lib/style-code-aspects.ts";
@@ -340,10 +341,9 @@ function makeLiveDeps(ownEbayItemIds: ReadonlySet<string>): SweepDeps {
       p_name: evidence.name,
       p_source: "consensus",
       p_supporting: evidence.confirming,
-      // Higher than the old title consensus could ever earn, and still below a
-      // seller correction and a decoder. A structured code that matches is
-      // evidence of a different kind, not just more of the same.
-      p_confidence: Math.min(0.75, 0.6 + 0.05 * (evidence.confirming - 1)),
+      // US-2782: the band moved to aspectNameConfidence, shared with the
+      // discovery crawl. Same evidence, so it must be the same number.
+      p_confidence: aspectNameConfidence(evidence.confirming),
       p_evidence_url: hits.find((h) => h.url)?.url ?? null,
     });
     if (error) throw error;

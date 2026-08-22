@@ -549,28 +549,35 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/stuck-submissions
 ```
 
-### 76. style-code-sweep
+### 76. style-code-discovery
+**Frequency:** `10 3 * * *`  ·  _200 with {ok:true, considered, crawled, deferred, scanned, inspected, declared, codes, newCodes, names}; newCodes falls toward 0 as a brand's pages are exhausted, and deferred is non-zero whenever more brands are eligible than the budget covers_
+
+```bash
+curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/style-code-discovery
+```
+
+### 77. style-code-sweep
 **Frequency:** `35 * * * *`  ·  _200 with {ok:true, considered, swept, deferred, learned, noHits}; swept is 0 once every known code is confirmed or cooling off_
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/style-code-sweep
 ```
 
-### 77. sync-reaper
+### 78. sync-reaper
 **Frequency:** `*/15 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/sync-reaper
 ```
 
-### 78. thumbnail-backfill
+### 79. thumbnail-backfill
 **Frequency:** `*/5 * * * *`
 
 ```bash
 curl -fsS -X POST -H "X-Internal-Job-Secret: $FLIPDESK_INTERNAL_JOB_SECRET" http://localhost:8787/api/jobs/thumbnail-backfill
 ```
 
-### 79. trial-expiry
+### 80. trial-expiry
 **Frequency:** `15 0 * * *`
 
 ```bash

@@ -436,12 +436,13 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | reprice-scan | `0 */6 * * *` | `/api/jobs/reprice-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | reward-nudges | `0 15 * * *` | `/api/jobs/reward-nudges` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, evaluated, sent, holdout, skipped, scanned, converted}; sent can be 0 — most evaluated users are frequency-capped or have no true candidate |
 | stuck-submissions | `*/10 * * * *` | `/api/jobs/stuck-submissions` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| style-code-discovery | `10 3 * * *` | `/api/jobs/style-code-discovery` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, considered, crawled, deferred, scanned, inspected, declared, codes, newCodes, names}; newCodes falls toward 0 as a brand's pages are exhausted, and deferred is non-zero whenever more brands are eligible than the budget covers |
 | style-code-sweep | `35 * * * *` | `/api/jobs/style-code-sweep` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, considered, swept, deferred, learned, noHits}; swept is 0 once every known code is confirmed or cooling off |
 | sync-reaper | `*/15 * * * *` | `/api/jobs/sync-reaper` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_79 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_80 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 <!-- cron-registry:end -->
 
 > **Cadence notes (US-496):**

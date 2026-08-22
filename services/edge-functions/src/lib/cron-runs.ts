@@ -281,6 +281,12 @@ export const CRON_REGISTRY: CronDef[] = [
   // and shrinks every tick, and a faster clock would only spend the same shared
   // eBay allowance the Add flow and the comps ladder draw on.
   { name: "style-code-sweep", label: "Style-code index sweep", schedule: "35 * * * *", category: "sync", endpoint: "/api/jobs/style-code-sweep", recorded: true, healthy: "200 with {ok:true, considered, swept, deferred, learned, noHits}; swept is 0 once every known code is confirmed or cooling off" },
+  // US-2784: the other direction — crawl a BRAND's live listings and keep the
+  // codes sellers already typed into structured fields, so the index holds
+  // garments nobody here has listed. Nightly and overnight: the budget is
+  // shared with the Add flow, and a brand's inventory does not turn over fast
+  // enough for a second pass the same day to reach anything new.
+  { name: "style-code-discovery", label: "Style-code brand discovery", schedule: "10 3 * * *", category: "sync", endpoint: "/api/jobs/style-code-discovery", recorded: true, healthy: "200 with {ok:true, considered, crawled, deferred, scanned, inspected, declared, codes, newCodes, names}; newCodes falls toward 0 as a brand's pages are exhausted, and deferred is non-zero whenever more brands are eligible than the budget covers" },
   { name: "ebay-publish-due", label: "Scheduled publish-due", schedule: "*/5 * * * *", category: "publish", endpoint: "/api/flipdesk/ebay/jobs/publish-due", recorded: true },
   // Recorded via recordEbayCron mounted on the sync/push path (cronNameForPath),
   // so a missed/failed 5-min sheet sync signals in the cron_runs ledger + ops stream.

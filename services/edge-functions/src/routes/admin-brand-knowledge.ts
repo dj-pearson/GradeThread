@@ -8,6 +8,10 @@ import {
 } from "../lib/db-write.ts";
 import { requireScope } from "../lib/scope-guard.ts";
 import { resolveBrandKnowledgePack } from "../lib/brand-knowledge.ts";
+import {
+  EXHAUSTED_EMPTY_PASSES,
+  MAX_DISCOVERY_OFFSET,
+} from "../lib/style-code-discovery.ts";
 import { validateTellsForWrite } from "../lib/brand-authenticity.ts";
 import {
   groupStyleCodeRows,
@@ -327,6 +331,73 @@ adminBrandKnowledgeRoutes.delete("/:table/:id", async (c) => {
  *  the ordering rule (conflict first, then thin evidence) is not expressible as
  *  a column and is worth a unit test. */
 const STYLE_CODE_REVIEW_SCAN = 2000;
+
+// ── GET /style-codes/discovery — how the brand-first crawl is doing ─────────
+//
+// US-2785: the crawl spends a shared eBay allowance every night and until now
+// spent it invisibly. The number that decides whether to crawl MORE brands or
+// FEWER brands deeper is codes per lookup, so it is computed here rather than
+// left for whoever is reading to divide two totals in their head.
+//
+// Read-only. Nothing on this surface starts, stops or re-runs a crawl.
+adminBrandKnowledgeRoutes.get("/style-codes/discovery", async (c) => {
+  const [{ data: brands, error: brandErr }, { data: state, error: stateErr }] =
+    await Promise.all([
+      supabaseAdmin
+        .from("brand_knowledge")
+        .select("brand_key, canonical_brand")
+        .order("canonical_brand", { ascending: true }),
+      supabaseAdmin
+        .from("style_code_discovery_state")
+        .select(
+          "brand_key, page_offset, last_run_at, pass_count, listings_seen, codes_found, empty_passes",
+        ),
+    ]);
+  if (brandErr || stateErr) {
+    console.error(
+      "[admin-brand-kb] discovery read failed:",
+      brandErr?.message ?? stateErr?.message,
+    );
+    return c.json({ error: "Could not load crawl state" }, 500);
+  }
+
+  const byKey = new Map<string, Record<string, unknown>>();
+  for (const row of (state ?? []) as Array<Record<string, unknown>>) {
+    byKey.set(String(row.brand_key), row);
+  }
+
+  const rows = ((brands ?? []) as Array<{
+    brand_key: string;
+    canonical_brand: string;
+  }>).map((b) => {
+    const st = byKey.get(b.brand_key);
+    const listingsSeen = Number(st?.listings_seen ?? 0);
+    const codesFound = Number(st?.codes_found ?? 0);
+    const pageOffset = Number(st?.page_offset ?? 0);
+    const emptyPasses = Number(st?.empty_passes ?? 0);
+    return {
+      brand_key: b.brand_key,
+      brand: b.canonical_brand,
+      last_run_at: (st?.last_run_at as string | null) ?? null,
+      page_offset: pageOffset,
+      pass_count: Number(st?.pass_count ?? 0),
+      listings_seen: listingsSeen,
+      codes_found: codesFound,
+      empty_passes: emptyPasses,
+      // A rate, not a total: a brand crawled twice as long is not a brand
+      // yielding twice as well, and the totals alone read as if it were.
+      codes_per_listing: listingsSeen > 0
+        ? Math.round((codesFound / listingsSeen) * 1000) / 1000
+        : null,
+      // Wrapped cursor, or several passes with nothing new. Either way the
+      // crawl has stopped learning from this brand for now.
+      exhausted: pageOffset >= MAX_DISCOVERY_OFFSET ||
+        emptyPasses >= EXHAUSTED_EMPTY_PASSES,
+    };
+  });
+
+  return c.json({ brands: rows });
+});
 
 adminBrandKnowledgeRoutes.get("/style-codes/review", async (c) => {
   const brand = c.req.query("brand")?.trim();

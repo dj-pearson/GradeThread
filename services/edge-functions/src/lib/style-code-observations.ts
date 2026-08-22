@@ -95,7 +95,15 @@ export function learnedConfidence(seenCount: number): number {
   return Math.min(LEARNED_CONFIDENCE_CAP, Math.round(value * 100) / 100);
 }
 
-export type ObservationSource = "market_verify" | "own_sale" | "admin";
+/** US-2783 added "discovery": a code the brand-first crawl FOUND, as opposed to
+ *  one the sweep verified after somebody had already met it. Same evidence
+ *  quality, different act, and the index is worth less if both arrive stamped
+ *  market_verify. Must stay in step with the 00646 CHECK constraint. */
+export type ObservationSource =
+  | "market_verify"
+  | "own_sale"
+  | "admin"
+  | "discovery";
 
 export interface StyleCodeObservation {
   brandKey: string;

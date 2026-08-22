@@ -161,6 +161,20 @@ interface ReviewResponse {
   truncated: boolean;
 }
 
+interface CrawlRow {
+  brand_key: string;
+  brand: string;
+  last_run_at: string | null;
+  page_offset: number;
+  pass_count: number;
+  listings_seen: number;
+  codes_found: number;
+  empty_passes: number;
+  /** Codes found per listing scanned. Null until a brand has been crawled. */
+  codes_per_listing: number | null;
+  exhausted: boolean;
+}
+
 export function AdminBrandKnowledgePage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -209,6 +223,19 @@ export function AdminBrandKnowledgePage() {
     queryFn: async (): Promise<ReviewResponse> =>
       await api("/api/admin/brand-knowledge/style-codes/review?limit=100"),
     staleTime: 30 * 1000,
+  });
+
+  const {
+    data: crawl,
+    isLoading: crawlLoading,
+    isError: crawlError,
+    refetch: refetchCrawl,
+    isFetching: crawlFetching,
+  } = useQuery({
+    queryKey: ["admin-brand-kb", "discovery"],
+    queryFn: async (): Promise<{ brands: CrawlRow[] }> =>
+      await api("/api/admin/brand-knowledge/style-codes/discovery"),
+    staleTime: 60 * 1000,
   });
 
   const refreshReview = () =>
@@ -514,6 +541,95 @@ export function AdminBrandKnowledgePage() {
             : null}
         </div>
       </div>
+
+      {/* US-2785: the nightly brand crawl spends a shared eBay allowance, and
+          until now spent it invisibly. Codes per listing is the number that
+          decides more brands versus fewer brands crawled deeper. Read-only:
+          nothing here starts, stops or re-runs a crawl. */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Style-code discovery crawl</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            How far the nightly brand crawl has walked each brand's live eBay
+            listings, and what it got back. A brand is exhausted when its cursor
+            wrapped or several passes found nothing new.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {crawlError
+            ? (
+              <ErrorState
+                title="Couldn't load the crawl state"
+                description="Nothing was changed — this is a read failure."
+                onRetry={() => void refetchCrawl()}
+                retrying={crawlFetching}
+              />
+            )
+            : crawlLoading
+            ? [0, 1, 2].map((i) => <Skeleton key={i} className="h-10 w-full" />)
+            : (crawl?.brands ?? []).length === 0
+            ? (
+              <p className="text-sm text-muted-foreground">
+                No brands in the knowledge base yet, so there is nothing to
+                crawl.
+              </p>
+            )
+            : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-left text-muted-foreground">
+                    <tr>
+                      <th className="py-2 pr-4 font-medium">Brand</th>
+                      <th className="py-2 pr-4 font-medium">Last crawled</th>
+                      <th className="py-2 pr-4 text-right font-medium">Depth</th>
+                      <th className="py-2 pr-4 text-right font-medium">Scanned</th>
+                      <th className="py-2 pr-4 text-right font-medium">Codes</th>
+                      <th className="py-2 pr-4 text-right font-medium">
+                        Codes / listing
+                      </th>
+                      <th className="py-2 font-medium">State</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(crawl?.brands ?? []).map((row) => (
+                      <tr key={row.brand_key} className="border-t">
+                        <td className="py-2 pr-4">{row.brand}</td>
+                        <td className="py-2 pr-4 text-muted-foreground">
+                          {row.last_run_at
+                            ? new Date(row.last_run_at).toLocaleDateString()
+                            : "never"}
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums">
+                          {row.page_offset.toLocaleString()}
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums">
+                          {row.listings_seen.toLocaleString()}
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums">
+                          {row.codes_found.toLocaleString()}
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums">
+                          {row.codes_per_listing === null
+                            ? "—"
+                            : row.codes_per_listing.toFixed(3)}
+                        </td>
+                        <td className="py-2">
+                          {row.last_run_at === null
+                            ? (
+                              <Badge variant="outline">queued</Badge>
+                            )
+                            : row.exhausted
+                            ? <Badge variant="secondary">exhausted</Badge>
+                            : <Badge variant="outline">crawling</Badge>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+        </CardContent>
+      </Card>
 
       {/* US-2693: what the machine LEARNED, and the two verbs an admin has for
           it. Ordered by what needs a human — disagreement first, then thin

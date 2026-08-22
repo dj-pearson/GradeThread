@@ -4592,6 +4592,88 @@ export async function searchBrowseComps(
   return toBrowseCompsResult(summaries, payload.total);
 }
 
+// ── Brand paging for the style-code discovery crawl (US-2782) ───────────
+//
+// searchBrowseComps cannot page, and it should not learn to. It sits on the
+// seller's Add flow, where every call is one garment's comps and an offset is
+// meaningless; giving it a fifth optional argument it never uses would put a
+// crawl concern on a hot path.
+//
+// This one exists to walk a brand's live listings from the top down over many
+// nights, so the crawl reaches inventory the first page never shows.
+
+export interface BrowseBrandPageArgs {
+  /** eBay's Brand aspect matches DISPLAY spelling, not our normalized key. */
+  brand: string;
+  /** Required: eBay refuses an aspect_filter with no category scope. */
+  categoryId: string;
+  offset: number;
+  limit: number;
+}
+
+export interface BrowseBrandListing {
+  itemId: string;
+  title: string;
+  url: string | null;
+}
+
+/**
+ * One page of a brand's live clothing listings, oldest-crawled offset first.
+ *
+ * Returns the summaries only. Item specifics are not in the search response, so
+ * the caller pays one more call per listing it wants to inspect — which is why
+ * the caller's lookup budget, not this page size, is what bounds a crawl.
+ */
+export async function searchBrowseByBrand(
+  args: BrowseBrandPageArgs,
+): Promise<{ listings: BrowseBrandListing[]; total: number }> {
+  const token = await getAppAccessToken();
+
+  const params = new URLSearchParams();
+  params.set("category_ids", args.categoryId);
+  // Brand in `q` as well as the aspect filter: Browse matches `q` against title
+  // text, and a brand present in only one of the two routinely under-constrains
+  // the result set (the same reasoning buildCompKeywords records).
+  params.set("q", args.brand);
+  params.set(
+    "aspect_filter",
+    `categoryId:${args.categoryId},Brand:{${args.brand}}`,
+  );
+  params.set("limit", String(Math.min(Math.max(args.limit, 1), 200)));
+  params.set("offset", String(Math.max(0, Math.floor(args.offset))));
+  // Newest first. A crawl wants the listings it has not seen, and relevance
+  // ordering re-serves the same popular items to every pass.
+  params.set("sort", "newlyListed");
+
+  const url = `${apiHost()}/buy/browse/v1/item_summary/search?${params.toString()}`;
+  const res = await ebayFetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `eBay Browse brand page failed (${res.status}): ${text.slice(0, 300)}`,
+    );
+  }
+
+  const payload = (await res.json()) as {
+    itemSummaries?: BrowseItemSummary[];
+    total?: number;
+  };
+  const listings = (payload.itemSummaries ?? [])
+    .map((s) => ({
+      itemId: s.itemId ?? "",
+      title: s.title ?? "",
+      url: s.itemWebUrl ?? null,
+    }))
+    .filter((l) => l.itemId !== "");
+
+  return { listings, total: payload.total ?? listings.length };
+}
+
 // ── Visual comps via Browse search_by_image (US-2756) ───────────────────
 //
 // Post a photo, get visually similar LIVE listings back. It is the closest

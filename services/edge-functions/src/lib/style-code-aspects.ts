@@ -69,12 +69,20 @@ function firstAspect(
   return null;
 }
 
+/** The style code a listing DECLARES in a structured field, exactly as the
+ *  seller typed it. Exported for US-2782: the discovery crawl keeps the raw
+ *  spelling for display alongside the canonical key, and reading CODE_ASPECTS a
+ *  second time in that module would be a second list to forget to update. */
+export function declaredStyleCodeRaw(listing: ListingAspects): string | null {
+  return firstAspect(listing.aspects, CODE_ASPECTS);
+}
+
 /** The style code a listing DECLARES in a structured field, normalized. */
 export function declaredStyleCode(
   listing: ListingAspects,
   canonicalize: (raw: string) => string,
 ): string | null {
-  const raw = firstAspect(listing.aspects, CODE_ASPECTS);
+  const raw = declaredStyleCodeRaw(listing);
   if (!raw) return null;
   const canon = canonicalize(raw);
   return canon || null;
@@ -192,4 +200,21 @@ export function aspectEvidence(
   const first = confirmed[0]!.name!;
   const allAgree = confirmed.every((c) => sameName(c.name!, first));
   return { name: allAgree ? first : null, ...counts };
+}
+
+/**
+ * What a name learned from item specifics is worth.
+ *
+ * Higher than a title consensus could ever earn — a structured code that
+ * matches plus a structured name is evidence of a different kind, not more of
+ * the same — and still below a seller correction and below a decoder hit, so it
+ * can populate the index and never overrule it.
+ *
+ * US-2782 moved it here from the sweep route. Both the sweep and the discovery
+ * crawl write names on identical evidence, and two copies of this number is one
+ * place for them to drift apart.
+ */
+export function aspectNameConfidence(confirming: number): number {
+  const n = Math.max(1, Math.floor(confirming));
+  return Math.min(0.75, 0.6 + 0.05 * (n - 1));
 }
