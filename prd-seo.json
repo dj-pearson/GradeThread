@@ -45,7 +45,7 @@
       "dependsOn": [
         "US-9001"
       ],
-      "notes": "Script verified against the local stack 2026-08-18 and two defects fixed. Still open on two operator items: the prod --apply, and the 2026-10-17 Search Console follow-up."
+      "notes": "Script verified against the local stack 2026-08-18 and two defects fixed. Still open on two operator items: the prod --apply, and the 2026-10-17 Search Console follow-up. | 2026-08-22 THE 11 REGISTRY REWRITES ARE LIVE, verified against production rather than against the registry. Fetched each URL and compared the served <title> to proposed_title in the worklist: 11 of 11 match, ignoring the \" | GradeThread\" suffix the registry appends.  THIS IS A DIFFERENT QUESTION FROM AC7 and worth doing once. That test asserts the SHIPPED REGISTRY COPY equals the reviewed copy in the CSV - both of them in the repo. It cannot see whether the registry reached the live site, so a route that never rebuilt, or one whose head is assembled somewhere the prerender does not cover, would pass it and serve the old title. It did not happen; now it is known rather than assumed.  UNCHANGED: the 7 BLOG rows still need the prod --apply (AC8/AC14), and the 2026-10-17 Search Console read is still dated and still outstanding. Those are the only two items left on this story and both are operator."
     },
     {
       "id": "US-9002",
