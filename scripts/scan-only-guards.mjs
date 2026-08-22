@@ -68,12 +68,50 @@ const COVERAGE_DIRS = [
 const SCAN = /toContain\(|toMatch\(|readFileSync|\.test\(\s*(?:src|code|text)\b/g;
 
 /**
- * Calling something and asserting on the result.
+ * Does this suite import something from the app and EXERCISE it?
  *
- * Deliberately loose: any `expect(someFn(` counts. The question is whether the
- * file ever leaves the text layer, not how thoroughly.
+ * ⚠ THE OBVIOUS TEST IS WRONG, and it over-flags. This was
+ * `/expect\(\s*[a-z]\w*\s*\(/` — matching `expect(fn(x)).toBe(y)`. That misses
+ * the more common shape by far:
+ *
+ *     const res = await refundPack(io, input);
+ *     assertEquals(res.ok, false);
+ *
+ * a call, then an assertion on the RESULT. Applying the same heuristic to the
+ * 824-file edge suite reported 9 scan-only guards; the corrected one reports 4.
+ * Among the five false positives was admin-pack-refund_test.ts, which drives
+ * TWENTY cases of a money path through injected IO. "Converting" that would
+ * have meant bolting redundant tests onto one of the better suites here.
+ *
+ * So the question is not how the assertion is written. It is whether the file
+ * imports an application symbol and USES it anywhere.
+ *
+ * ⚠ AND "USES" IS NOT "CALLS". Requiring a call missed the case where the
+ * exports that matter are DATA. disclosure-version.test.ts imports
+ * DISCLOSURE_ARCHIVE and asserts that the archived copy equals the copy in the
+ * source — the strongest form that property can take, because it is a
+ * compliance record of the words a subscriber was actually shown. There is no
+ * function to call and nothing to convert, yet it flagged as debt.
+ *
+ * A symbol referenced anywhere outside its own import line is being exercised,
+ * whether that reads `fn(x)` or `toEqual(ARCHIVE)`.
  */
-const CALL = /expect\(\s*(?:await\s+)?[a-z][A-Za-z0-9_]*\s*\(/g;
+function usesApp(src) {
+  const named = [...src.matchAll(
+    /import\s*\{([^}]+)\}\s*from\s*["'](?:@\/|\.\.?\/)[^"']*["']/g,
+  )];
+  const dynamic = [...src.matchAll(/const\s*\{([^}]+)\}\s*=\s*await\s+import\(/g)];
+  const names = [...named, ...dynamic]
+    .flatMap((m) => m[1].split(","))
+    .map((x) => x.trim().split(/\s+as\s+/).pop().replace(/^type\s+/, "").trim())
+    // Values, not types. `PascalCase` is a Type or a <Component>; neither is a
+    // thing a guard exercises. SCREAMING_CASE and camelCase both are.
+    .filter((n) => n && /^[A-Za-z][A-Za-z0-9_]*$/.test(n) && !/^[A-Z][a-z]/.test(n));
+  // Referenced OUTSIDE the import lines that introduced it — otherwise every
+  // import counts as its own use and nothing is ever scan-only.
+  const body = src.replace(/^\s*import\b[^;]*;?$/gm, "");
+  return names.some((n) => new RegExp("\\b" + n + "\\b").test(body));
+}
 
 /** Repo-relative paths a test names as a string — the files it reads. */
 const SUBJECT = /["'`]((?:src|functions|services|scripts|supabase|android|ios)\/[^"'`\n]+?\.[a-z]{2,4})["'`]/g;
@@ -190,8 +228,7 @@ function isCorpusGuard(src) {
 const rows = [];
 for (const f of files) {
   const scans = count(SCAN, f.src);
-  const calls = count(CALL, f.src);
-  if (scans < 6 || calls > 0) continue;
+  if (scans < 6 || usesApp(f.src)) continue;
   if (isCorpusGuard(f.src)) continue;
 
   const subjects = [...new Set([...f.src.matchAll(SUBJECT)].map((m) => m[1]))]
