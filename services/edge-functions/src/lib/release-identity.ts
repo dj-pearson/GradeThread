@@ -83,3 +83,61 @@ export function resolveRelease(
   }
   return "unknown";
 }
+
+// ── US-2001: which variable SHOULD we be reading? ───────────────────────────
+//
+// resolveRelease answers "which build is this" and, when the answer is
+// "unknown", says nothing about WHY. That gap has cost this story weeks: the
+// operator sees release "unknown", has no way to tell an unset variable from
+// one set under a name this code does not read, and is left guessing at how
+// Coolify exposes the commit. Three passes went hunting for a build arg.
+//
+// This closes the loop from the other end. If SOME variable on the running
+// container already holds what looks like a build identity, name it — then the
+// fix is "add that key" or "copy that value into SOURCE_COMMIT" rather than a
+// fourth round of guesswork.
+//
+// NAMES ONLY, NEVER VALUES, and that is not a nicety. Anything printed here
+// lands in a deploy log, so a value would put whatever the key holds somewhere
+// it was never meant to be. The names alone are enough to act on.
+
+/** Key names worth reporting: they claim to carry a commit. */
+const CANDIDATE_NAME_RE = /(COMMIT|REVISION|_SHA|SHA_|^SHA$|GIT_REF|^REF$)/i;
+
+/**
+ * Names that must never be printed even when they match above.
+ *
+ * A key called `COMMIT_SIGNING_KEY` matches CANDIDATE_NAME_RE and is a secret.
+ * The deny list wins on purpose: a missed diagnostic costs one more question,
+ * a leaked secret name in a deploy log costs a rotation.
+ */
+const SECRET_NAME_RE = /(SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIAL|PRIVATE|_KEY$|^KEY$|APIKEY|API_KEY)/i;
+
+/** How many to report. A long list is a list nobody reads. */
+const MAX_CANDIDATES = 8;
+
+/**
+ * Env key NAMES that look like they carry this build's identity but are not in
+ * RELEASE_ENV_KEYS — so nothing is reading them.
+ *
+ * Returns [] when the release already resolves, because the diagnostic is only
+ * interesting while the answer is "unknown". Pure and injectable so the whole
+ * thing is testable without touching a real environment.
+ */
+export function unreadReleaseCandidates(
+  entries: Iterable<[string, string]>,
+): string[] {
+  const known = new Set<string>(RELEASE_ENV_KEYS);
+  const out: string[] = [];
+  for (const [key, value] of entries) {
+    if (known.has(key)) continue;
+    if (SECRET_NAME_RE.test(key)) continue;
+    if (!CANDIDATE_NAME_RE.test(key)) continue;
+    // A key holding "dev" is not a candidate — pointing the operator at it
+    // would send them to the same placeholder they already have.
+    if (isPlaceholderRelease(value)) continue;
+    out.push(key);
+    if (out.length >= MAX_CANDIDATES) break;
+  }
+  return out;
+}

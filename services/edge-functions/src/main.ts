@@ -292,6 +292,11 @@ import { assertRequiredEnv, warnDeliverability, warnMissingFeatureGroups } from 
 import { assertSchemaVersion, checkSchemaCompleteness } from "./lib/schema-version.ts";
 import { redactError } from "./lib/log-redact.ts";
 import { captureException, logEvent, readCtxVar, releaseSha } from "./lib/observability.ts";
+import {
+  RELEASE_ENV_KEYS,
+  isPlaceholderRelease,
+  unreadReleaseCandidates,
+} from "./lib/release-identity.ts";
 import { featureGate } from "./lib/feature-flags.ts";
 // US-9103: the origin allowlist moved to its own module so the MCP endpoint's
 // DNS-rebinding guard and CORS share one definition of a trusted origin.
@@ -1998,11 +2003,34 @@ globalThis.addEventListener("error", (event) => {
 });
 
 const port = parseInt(Deno.env.get("PORT") || "8787");
+const bootRelease = releaseSha();
 logEvent("info", "edge.boot", {
   port,
-  release: releaseSha(),
+  release: bootRelease,
   errorTracking: !!Deno.env.get("SENTRY_DSN")?.trim(),
 });
+
+// US-2001: when the build has no identity, say what MIGHT hold one.
+//
+// "release: unknown" tells the operator something is wrong and nothing about
+// what to do, which is why this story has been re-diagnosed three times. If a
+// variable on this container already carries a commit under a name nothing
+// reads, naming it turns the fix into one copy rather than another round of
+// guessing at how Coolify exposes the build.
+//
+// NAMES ONLY. This lands in a deploy log; a value would put whatever the key
+// holds somewhere it was never meant to be. Only when the release is unknown,
+// so a healthy deploy logs nothing extra.
+if (isPlaceholderRelease(bootRelease)) {
+  const candidates = unreadReleaseCandidates(Object.entries(Deno.env.toObject()));
+  logEvent("warn", "edge.boot.release_unknown", {
+    read: RELEASE_ENV_KEYS,
+    unreadCandidates: candidates,
+    hint: candidates.length
+      ? "One of these looks like a build id and nothing reads it. Copy its value into SOURCE_COMMIT on the edge resource, or add the key to RELEASE_ENV_KEYS."
+      : "No variable on this container looks like a build id. Set SOURCE_COMMIT on the edge resource in Coolify.",
+  });
+}
 
 // US-2010: graceful shutdown. Without this a deploy SIGKILLs in-flight
 // requests, and any job claimed just before the kill sits "running" for
