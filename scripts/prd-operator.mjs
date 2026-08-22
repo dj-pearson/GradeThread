@@ -516,6 +516,18 @@ function rank(s) {
  * Missing siblings are skipped rather than fatal: a partial checkout, or a
  * programme that has been fully archived and its file removed, must not stop
  * the queue printing.
+ *
+ * MERGING THEM IS SAFE, and this is the thing to check before widening any
+ * other tool the same way. Measured 2026-08-22: 2,833 story ids across all
+ * four files (these three plus the archive) and ZERO duplicates. The sibling
+ * programmes live in the 9xxx range — highest is 9131 — while prd.json's
+ * nextId is 2790, so the ranges cannot collide by accident.
+ *
+ * The other backlog tools (prd-lint, prd-story, archive-passing-stories,
+ * prd-digest) all still read prd.json alone. That is a real limitation —
+ * `prd-story.mjs note`/`ac` cannot touch a sibling, so those get hand-edited —
+ * but it is not an integrity risk while the ranges stay apart. If a sibling
+ * ever gets an id under 3000, that stops being true.
  */
 const BACKLOG_FILES = ["prd.json", "prd-seo.json", "prd-connector.json"];
 
