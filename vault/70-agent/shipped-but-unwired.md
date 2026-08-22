@@ -321,6 +321,35 @@ the other went stale in silence. When a migration touches more than one
 vocabulary, check each separately: the story that fixes one will describe
 itself as fixing "the" taxonomy drift.
 
+**2026-08-22 — a fourth way: the flag is ON and the feature still cannot run.**
+The three above are about a thing nothing reaches. This one is reached, and
+returns early every time, because what it READS has no value for the input in
+front of it. It cost the owner a config change on my advice, twice in one day.
+
+`GRADING_SIZE_VERIFY` was set on to feed the 41 curated footwear sizing charts
+into shoe grades. It cannot: the gate is `sizeVerifyGradingEnabled() &&
+hasMeasurementPhotos`, and `isMeasurementPhoto` wants a type starting
+`measurement` or equal to `flatlay`. The grading `image_type` enum holds five
+measurement values — chest, waist, length, sleeve, inseam — every one a
+garment tape measurement, and no `flatlay` at all (that belongs to
+`flipdesk_photo_type`, a different enum). A shoe cannot satisfy the second
+condition, and `ai-size-estimate.ts` agrees from the other end with zero
+mentions of shoe, footwear or insole.
+
+The redirect to `GRADING_TAG_OCR` was better and still one link short. It DOES
+fire on `label`, which a submission requires, and its size example is
+literally `EU 42` — but the prompt says "you are shown ONLY the brand/size/care
+label of a single garment", the tool is `read_garment_tag`, and two of the five
+fields it asks for are fiber content and an RN number, a textile registration
+footwear does not carry. The gate fits; the prompt does not.
+
+**The rule: a flag being on is not a feature being reachable.** Both times the
+gate was correct and something one step further in — an enum with no value for
+this input, then a prompt with no concept of it — made the feature inert.
+Trace what the feature READS, not just what turns it on, and prefer one real
+run as evidence over any amount of reading. US-2811 carries the footwear
+chain.
+
 ### `brand-seed.ts` — the gate that could never have run
 
 The interesting one. Its header states that "the AI-assisted drafting job, the
