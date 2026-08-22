@@ -85,7 +85,22 @@ function takeLock() {
         `\x1b[31mverify is already running\x1b[0m (pid ${held.pid}, ~${mins} min).\n` +
           "The lanes share dist/ and the coverage directory, so a second run " +
           "reports failures that are not real.\n" +
-          "Wait for it, or re-run with --force if you know that run is dead.\n",
+          "Wait for it, or re-run with --force if you know that run is dead.\n" +
+          // US-2788: the takeover above only recognises a DEAD pid. A WEDGED
+          // one is alive, holds the lock indefinitely and looks identical to a
+          // slow run — which is how a hung `docker info` held this lock for
+          // three hours and blocked every push on the machine. "Is it dead" is
+          // the wrong question and the operator cannot answer it; "is it doing
+          // anything" they can, and CPU time is the answer.
+          (mins > 30
+            ? "\n\x1b[33mOver 30 minutes is long for a verify run.\x1b[0m A run that is " +
+              "WEDGED looks exactly like one that is slow. Check whether it is " +
+              "doing any work rather than guessing:\n" +
+              `  Windows: Get-Process -Id ${held.pid} | Select CPU   (run twice; ` +
+              "unchanged = stuck)\n" +
+              `  macOS/Linux: ps -o time= -p ${held.pid}             (same test)\n` +
+              "If the CPU time does not move, it is not working. --force is safe then.\n"
+            : ""),
       );
       // Non-zero: a wrapper script must never read this refusal as a pass.
       process.exit(2);
@@ -133,8 +148,45 @@ const anyLaneFlag = ["--web", "--edge", "--db", "--security", "--e2e", "--vault"
   .some((f) => flags.has(f));
 const on = (name) => flags.has(`--${name}`) || flags.has("--all") || !anyLaneFlag && ["web", "edge", "db", "vault", "ios"].includes(name);
 
+/**
+ * Is a WORKING Docker daemon reachable?
+ *
+ * ⚠ THE TIMEOUT IS THE WHOLE POINT (2026-08-22). This was
+ * `spawnSync("docker", ["info"])` with no timeout, and an UNRESPONSIVE daemon —
+ * as opposed to an absent one — never answers. A verify run on this box sat on
+ * that call for THREE HOURS: 0.1 CPU seconds total, one child stuck in
+ * `cmd /c "docker info"`, and the whole run holding `verify.lock` the entire
+ * time. Because the lock is what the pre-push hook waits on, a hung Docker
+ * daemon silently blocked every push on the machine.
+ *
+ * "Docker is down" was always handled — the db and security lanes skip with a
+ * warning. What was not handled is Docker being UP and not answering, which
+ * looks identical to a slow start and is indistinguishable from progress
+ * because `stdio: "ignore"` prints nothing while it waits.
+ *
+ * 20s is generous for a daemon that is going to answer at all: a cold Docker
+ * Desktop replies in a few seconds. Past that it is not slow, it is stuck, and
+ * treating it as absent is both correct and the safe direction — the lanes it
+ * gates are skipped rather than run against a broken daemon.
+ */
 function dockerUp() {
-  return spawnSync("docker", ["info"], { stdio: "ignore", shell: true }).status === 0;
+  const res = spawnSync("docker", ["info"], {
+    stdio: "ignore",
+    shell: true,
+    timeout: 20_000,
+  });
+  // A timeout kills the child and reports SIGTERM with a null status, so the
+  // `status === 0` test alone would read it as "not up" by accident rather than
+  // on purpose. Saying it explicitly keeps the intent legible.
+  if (res.error?.code === "ETIMEDOUT" || res.signal) {
+    console.warn(
+      "  ! docker did not answer `docker info` within 20s — treating it as " +
+        "unavailable. The daemon is running but wedged; restart Docker Desktop " +
+        "if you need the db/security lanes.",
+    );
+    return false;
+  }
+  return res.status === 0;
 }
 
 // The iOS text guards, and the workflow each one answers to. Exported shape is
@@ -169,6 +221,17 @@ const warnings = [];
 const degraded = [];
 
 
+// US-2788: NO TIMEOUT HERE, AND THAT IS CORRECT.
+//
+// `dockerUp` needed one because it is a silent PROBE: stdio "ignore", a
+// sub-second expected answer, and a wedged daemon that prints nothing while it
+// hangs. These two run the WORK - a build, a full vitest pass, a deno suite -
+// with stdio "inherit". A legitimate run here takes minutes and the spread is
+// wide, so any number large enough to be safe is too large to be useful, and a
+// hang is VISIBLE because the output simply stops.
+//
+// The rule the three-hour lock actually teaches is not "time out every external
+// call". It is "time out the ones that cannot show you they are stuck".
 function run(name, cmd, opts = {}) {
   process.stdout.write(`\n\x1b[1m▶ ${name}\x1b[0m\n  $ ${cmd}${opts.cwd ? `   (in ${opts.cwd})` : ""}\n`);
   const started = Date.now();
