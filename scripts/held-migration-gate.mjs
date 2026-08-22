@@ -40,14 +40,29 @@
 // Usage:  node scripts/held-migration-gate.mjs [--upstream origin/main] [--ci]
 // Exit 0 = clean, exit 1 = a held migration has reached (or is on) origin.
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 const DOC = "PENDING_MIGRATIONS.md";
 // Headings look like:  ## ⏳ HELD: 00512_job_lock_holder_release.sql (US-2311 …)
 // Deliberately tolerant of the emoji so a copy-paste that loses it still matches.
-const HELD_HEADING = /^##\s*(?:\S+\s+)?HELD:\s*(\d{5})_([A-Za-z0-9_.-]+\.sql)/gm;
+//
+// THE FILENAME IS OPTIONAL, and that is a fix rather than a convenience
+// (2026-08-22). This regex used to require `NNNNN_name.sql`. Two headings in
+// PENDING_MIGRATIONS.md were written as `## HELD: 00645 - why a visual run
+// offered nothing` - a version number and prose, no filename - so neither
+// matched, and the gate printed "no HELD migrations listed - OK" while the file
+// marked one held and origin/main already carried it. That is the FOURTH time
+// this control has been routed around, and the first time by a heading rather
+// than by `--no-verify`.
+//
+// So the VERSION alone arms it and the filename is resolved from the migrations
+// directory. A gate that only fires on a perfectly formatted heading is a gate
+// whose real trigger is formatting.
+const HELD_HEADING =
+  /^##\s*(?:\S+\s+)?HELD:\s*(\d{5})(?:_([A-Za-z0-9_.-]+\.sql))?/gm;
+const MIGRATIONS_DIR = "supabase/migrations";
 
 function arg(name, fallback) {
   const i = process.argv.indexOf(name);
@@ -68,10 +83,42 @@ function existsInRef(ref, path) {
   }
 }
 
-export function heldMigrations(docText) {
+function defaultReaddir(dir) {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Resolve a bare version to the file it names.
+ *
+ * Returns null when nothing on disk starts with that version - a heading for a
+ * migration that was renamed, or never existed. Null is REPORTED by the caller
+ * rather than guessed at: inventing a path would make the gate block on a file
+ * nobody can find, which is how a control gets bypassed instead of fixed.
+ */
+function fileForVersion(version, readdir) {
+  const hit = readdir(MIGRATIONS_DIR).find(
+    (n) => n.startsWith(version + "_") && n.endsWith(".sql"),
+  );
+  return hit ? `${MIGRATIONS_DIR}/${hit}` : null;
+}
+
+export function heldMigrations(docText, readdir = defaultReaddir) {
   const out = [];
+  const seen = new Set();
   for (const m of docText.matchAll(HELD_HEADING)) {
-    out.push({ version: m[1], file: `supabase/migrations/${m[1]}_${m[2]}` });
+    const version = m[1];
+    // One heading per version. A file that names the same migration twice -
+    // an entry plus a later correction - is one held migration, not two.
+    if (seen.has(version)) continue;
+    seen.add(version);
+    const file = m[2]
+      ? `${MIGRATIONS_DIR}/${version}_${m[2]}`
+      : fileForVersion(version, readdir);
+    out.push({ version, file });
   }
   return out;
 }
@@ -89,7 +136,23 @@ function main() {
   }
 
   const held = heldMigrations(doc);
-  if (held.length === 0) {
+
+  // A heading naming a version with no file on disk is SAID OUT LOUD and then
+  // set aside. It cannot be "in this push" - there is nothing to push - but
+  // silently dropping it is the habit that let a mis-formatted heading disarm
+  // this gate in the first place.
+  for (const h of held.filter((h) => !h.file)) {
+    console.warn(
+      `[held-migration-gate] ${DOC} marks ${h.version} HELD, but no ` +
+        `${MIGRATIONS_DIR}/${h.version}_*.sql exists. Renamed, or a typo in ` +
+        `the heading.`,
+    );
+  }
+  // Everything below asks a question about a PATH, so an orphan is dropped
+  // once here rather than guarded at each of the six call sites.
+  const runnable = held.filter((h) => h.file);
+
+  if (runnable.length === 0) {
     console.log("[held-migration-gate] no HELD migrations listed — OK.");
     return 0;
   }
@@ -99,10 +162,10 @@ function main() {
   // upstream is missing" escape — that escape is right for a fresh clone on a
   // developer machine and wrong for the gate of last resort.
   if (ciMode) {
-    const present = held.filter((h) => existsSync(h.file));
+    const present = runnable.filter((h) => existsSync(h.file));
     if (present.length === 0) {
       console.log(
-        `[held-migration-gate] ${held.length} HELD migration(s), none in this ` +
+        `[held-migration-gate] ${runnable.length} HELD migration(s), none in this ` +
           `commit — OK.`,
       );
       return 0;
@@ -145,15 +208,15 @@ function main() {
   // which is the worst possible split: locally green, red after pushing. A
   // pre-push hook that cannot stop the thing it is named for is a detector, not
   // a gate.
-  const already = held.filter((h) => existsInRef(upstream, h.file));
-  const incoming = held.filter(
+  const already = runnable.filter((h) => existsInRef(upstream, h.file));
+  const incoming = runnable.filter(
     (h) => !existsInRef(upstream, h.file) && existsSync(h.file),
   );
   const leaked = [...already, ...incoming];
 
   if (leaked.length === 0) {
     console.log(
-      `[held-migration-gate] ${held.length} HELD migration(s), none on ${upstream} — OK.`,
+      `[held-migration-gate] ${runnable.length} HELD migration(s), none on ${upstream} — OK.`,
     );
     return 0;
   }

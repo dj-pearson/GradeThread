@@ -157,3 +157,68 @@ describe("US-2346: the hook blocks an INCOMING held migration", () => {
     expect(both).toMatch(/for \(const h of incoming\)/);
   });
 });
+
+// ── The gap the gate found in itself, 2026-08-22 ────────────────────────────
+//
+// The FOURTH bypass of this control, and the first that was not `--no-verify`.
+//
+// PENDING_MIGRATIONS.md carried two HELD headings written as
+// `## HELD: 00645 - why a visual run offered nothing`: a version number and
+// prose, with no `_name.sql`. HELD_HEADING required the filename, so neither
+// matched. The gate printed "no HELD migrations listed - OK" while the file
+// marked one held and origin/main already carried it — a green control with
+// nothing behind it, which is worse than no control, because the green is read
+// as evidence.
+//
+// The fix is that the VERSION arms the gate and the filename is resolved from
+// disk. These pin that, because the failure mode is silence: a regression here
+// does not throw, it returns an empty list.
+
+describe("US-2777: a heading with no filename still arms the gate", () => {
+  const readdir = () => [
+    "00644_cross_post_channels.sql",
+    "00645_provenance_decline_reason.sql",
+    "00648_lister_locales.sql",
+  ];
+
+  it("resolves a bare version to the file on disk", () => {
+    const held = heldMigrations("## HELD: 00645 - why a visual run offered nothing", readdir);
+    expect(held).toEqual([
+      { version: "00645", file: "supabase/migrations/00645_provenance_decline_reason.sql" },
+    ]);
+  });
+
+  it("still reads a fully spelled heading, filename and all", () => {
+    const held = heldMigrations("## ⏳ HELD: 00648_lister_locales.sql (US-2777)", readdir);
+    expect(held).toEqual([
+      { version: "00648", file: "supabase/migrations/00648_lister_locales.sql" },
+    ]);
+  });
+
+  it("reports a version with no file rather than inventing a path", () => {
+    // A renamed migration, or a typo. `file: null` is what makes the caller
+    // warn about it; a guessed path would make the gate block on something
+    // nobody can find, which is how a control gets bypassed instead of fixed.
+    const held = heldMigrations("## HELD: 09999 - nothing on disk", readdir);
+    expect(held).toEqual([{ version: "09999", file: null }]);
+  });
+
+  it("counts one migration once even when the file names it twice", () => {
+    const doc = [
+      "## HELD: 00648_lister_locales.sql (US-2777)",
+      "",
+      "## HELD: 00648 - a later correction to the same entry",
+    ].join("\n");
+    expect(heldMigrations(doc, readdir)).toHaveLength(1);
+  });
+
+  it("the real PENDING_MIGRATIONS.md headings all parse", () => {
+    // The regression that started this: a heading nobody could see. Every HELD
+    // heading in the shipped file must resolve to a real path.
+    const doc = readFileSync(resolve(process.cwd(), "PENDING_MIGRATIONS.md"), "utf8");
+    for (const h of heldMigrations(doc)) {
+      expect(h.file, `PENDING_MIGRATIONS.md marks ${h.version} HELD with no file on disk`)
+        .not.toBeNull();
+    }
+  });
+});

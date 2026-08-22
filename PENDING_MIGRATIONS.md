@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!warning] HELD: 00645. 00646 and 00647 are both APPLIED and verified
+> [!warning] HELD: none. 00646 and 00647 are both APPLIED and verified
 > (2026-08-21),
 > and the
 > 00627 tail (US-2729) is fully resolved — both its functions are confirmed
@@ -223,7 +223,28 @@ logging "Could not find the function public.style_code_sweep_candidates".
 
 ---
 
-## HELD: 00645 — why a visual run offered nothing (US-2779)
+## ✅ APPLIED 2026-08-22: 00645_provenance_decline_reason.sql (US-2779)
+
+**APPLIED, and the HELD marker above it was stale.** Measured rather than
+assumed: `GET https://functions.gradethread.com/health/ready` reports
+`{"expected":"00647","applied":"00647","status":"match"}` with **no `missing`
+key**, so the applied SET is complete through 00647 and 00645 is in it. The
+apply script is `set -euo pipefail` with `ON_ERROR_STOP=1` per file and the
+self-record footer is the last statement, so a recorded version proves the whole
+file ran.
+
+**HOW THIS WENT UNNOTICED, which is the part worth keeping.** `held-migration-gate.mjs`
+keys on a heading of the exact shape `## HELD: NNNNN_name.sql`. This heading was
+written as `## HELD: 00645 — why a visual run offered nothing` — a version number
+with no filename — so the regex never matched it and the gate reported "no HELD
+migrations listed — OK" while this file marked one held and origin/main already
+carried it. That is the FOURTH time this control has been routed around, and the
+first time by a heading rather than by `--no-verify`. Both headings in this file
+are now in the parseable form, and the gate correctly reports 00645 as already on
+origin.
+
+Original entry follows.
+
 
 **Risk: LOW.** One nullable column, one CHECK constraint, one partial index. No
 backfill, no data rewritten, nothing dropped. The column defaults to NULL and
