@@ -18,22 +18,41 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
-import { getBrowseItemAspects, searchBrowseByBrand } from "../lib/ebay-client.ts";
+import {
+  getBrowseItemAspects,
+  searchBrowseByBrand,
+  searchBrowseCategoryPage,
+} from "../lib/ebay-client.ts";
+import { brandKeyForRaw } from "../lib/brand-normalize.ts";
 import { aspectNameConfidence } from "../lib/style-code-aspects.ts";
 import {
   canonicalStyleCode,
   recordStyleCodeObservations,
 } from "../lib/style-code-observations.ts";
 import {
+  DEFAULT_PROSPECT_LOOKUPS,
+  emptyProspectOutcome,
+  harvestSighting,
+  poolExhausted,
+  type ProspectOutcome,
+  type ProspectSighting,
+  tallyCandidates,
+} from "../lib/style-code-prospect.ts";
+import {
   type BrandOutcome,
   crawlBrand,
   DEFAULT_BRANDS_PER_RUN,
   DEFAULT_LOOKUPS_PER_BRAND,
+  DISCOVERY_PAGE_SIZE,
   type DiscoveryBrandRow,
   type DiscoveryDeps,
+  type DiscoveryListing,
   type DiscoveryStateRow,
   type DiscoveryWrite,
   EBAY_CLOTHING_CATEGORY_ID,
+  MAX_DISCOVERY_OFFSET,
+  nextCursor,
+  planDiscoveryWrites,
   pickDiscoveryTargets,
   summarizeDiscovery,
 } from "../lib/style-code-discovery.ts";
@@ -228,6 +247,168 @@ function makeLiveDeps(): DiscoveryDeps {
   };
 }
 
+/**
+ * Where the unfiltered survey stopped paging, as one row.
+ *
+ * A read failure returns offset 0, which re-reads a page rather than skipping
+ * the pass. Wasteful once; the alternative silently walks past inventory.
+ */
+async function readProspectCursor(): Promise<number> {
+  const { data, error } = await supabaseAdmin
+    .from("style_code_prospect_state")
+    .select("page_offset")
+    .eq("id", "clothing")
+    .maybeSingle();
+  if (error) {
+    console.error(
+      "[style-code-discovery] prospect cursor read failed:",
+      error.message,
+    );
+    return 0;
+  }
+  const offset = (data as { page_offset?: number } | null)?.page_offset ?? 0;
+  return offset >= MAX_DISCOVERY_OFFSET ? 0 : Math.max(0, offset);
+}
+
+/**
+ * US-2786: survey eBay's clothing category for brands nobody has curated.
+ *
+ * Runs ONLY when every curated brand has been crawled and gone flat, or when an
+ * operator forces it. That gate is the story's first requirement and it is the
+ * right one: a pool with one never-crawled brand left may be hiding the best
+ * brand in it, and spending the survey budget first is the expensive way to
+ * find that out.
+ *
+ * Codes found here ARE kept, for brands we hold no knowledge on. A brand with
+ * no decoder cannot canonicalize its spellings, so those rows are filed under
+ * the plain normalized code and a later decoder re-keys them the way US-2714
+ * re-keys Lululemon's four spellings.
+ */
+async function runProspectPass(args: {
+  ownItemIds: ReadonlySet<string>;
+  knownBrandKeys: ReadonlySet<string>;
+  lookups: number;
+}): Promise<ProspectOutcome> {
+  const offset = await readProspectCursor();
+  const out = emptyProspectOutcome(offset);
+  out.ran = true;
+
+  try {
+    const page = await searchBrowseCategoryPage({
+      categoryId: EBAY_CLOTHING_CATEGORY_ID,
+      offset,
+      limit: DISCOVERY_PAGE_SIZE,
+    });
+    out.scanned = page.listings.length;
+
+    const foreign = page.listings.filter((l) => !args.ownItemIds.has(l.itemId));
+    out.ownSkipped = page.listings.length - foreign.length;
+
+    const sightings: ProspectSighting[] = [];
+    for (const listing of foreign.slice(0, Math.max(0, args.lookups))) {
+      out.inspected++;
+      const detail = await getBrowseItemAspects(listing.itemId);
+      if (!detail) continue;
+      const full: DiscoveryListing = { ...detail, url: listing.url };
+      const sighting = harvestSighting({
+        listing: full,
+        // Plain normalization, not a decoder: an uncurated brand has no
+        // brand_style_codes spec to resolve against.
+        canonicalize: (raw) => canonicalStyleCode("", raw),
+        ownItemIds: args.ownItemIds,
+      });
+      if (!sighting) continue;
+      out.branded++;
+      if (sighting.declaredCode) out.declared++;
+      sightings.push(sighting);
+    }
+
+    const tallies = tallyCandidates({
+      sightings,
+      brandKeyFor: (label) => brandKeyForRaw(label),
+      knownBrandKeys: args.knownBrandKeys,
+    });
+    out.candidates = tallies.length;
+
+    for (const tally of tallies) {
+      const { error } = await supabaseAdmin.rpc(
+        "record_style_code_brand_candidate",
+        {
+          p_brand_key: tally.brandKey,
+          p_brand_label: tally.brandLabel,
+          p_listings_seen: tally.listingsSeen,
+          p_listings_with_code: tally.listingsWithCode,
+        },
+      );
+      if (error) {
+        console.error(
+          `[style-code-discovery] candidate write failed for ${tally.brandKey}:`,
+          error.message,
+        );
+      }
+    }
+
+    // Keep the codes too. A code read off a tag is worth having whether or not
+    // anyone has curated the brand it belongs to.
+    const byBrand = new Map<string, ProspectSighting[]>();
+    for (const s of sightings) {
+      if (!s.declaredCode || !s.codeRaw) continue;
+      const key = brandKeyForRaw(s.brandLabel);
+      if (!key) continue;
+      const list = byBrand.get(key);
+      if (list) list.push(s);
+      else byBrand.set(key, [s]);
+    }
+    for (const [brandKey, group] of byBrand) {
+      const writes = planDiscoveryWrites(
+        group.map((s) => ({
+          itemId: "",
+          codeNorm: canonicalStyleCode("", s.codeRaw),
+          codeRaw: s.codeRaw!,
+          name: s.name,
+          title: s.title,
+          url: s.url,
+        })),
+      );
+      for (const write of writes) {
+        await recordStyleCodeObservations({
+          brandKey,
+          styleCodeRaw: write.codeRaw,
+          titles: write.titles,
+          source: "discovery",
+        });
+        out.codes++;
+      }
+    }
+
+    out.nextOffset = nextCursor({
+      offset,
+      requested: DISCOVERY_PAGE_SIZE,
+      returned: page.listings.length,
+    });
+  } catch (err) {
+    out.failed = true;
+    console.error(
+      "[style-code-discovery] prospect pass failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  const { error } = await supabaseAdmin.rpc("record_style_code_prospect", {
+    p_next_offset: out.nextOffset,
+    p_listings_seen: out.scanned,
+    p_brands_seen: out.candidates,
+  });
+  if (error) {
+    console.error(
+      "[style-code-discovery] prospect cursor write failed:",
+      error.message,
+    );
+  }
+
+  return out;
+}
+
 /** The lock is a seam so the concurrency guarantee is a test, not a claim. */
 export type LockAcquirer = typeof acquireJobLock;
 
@@ -239,6 +420,9 @@ export interface DiscoveryRunOptions {
   forceBrandKeys?: readonly string[];
   /** Overrides the env budget. Used by the admin single-brand run. */
   budget?: number;
+  /** US-2786: run the uncurated-brand survey even if the curated pool is not
+   *  used up yet. Operator-only; the cron never sets it. */
+  forceProspect?: boolean;
 }
 
 /**
@@ -299,6 +483,22 @@ export async function runStyleCodeDiscovery(
 
     const summary = summarizeDiscovery(outcomes);
 
+    // US-2786: only after the curated pool has nothing left to give, and never
+    // on a single-brand manual run, which is somebody asking one question.
+    const singleBrandRun = forceBrandKeys.size > 0;
+    const prospect = deps || singleBrandRun
+      ? emptyProspectOutcome(0)
+      : (opts.forceProspect || poolExhausted(state))
+      ? await runProspectPass({
+        ownItemIds,
+        knownBrandKeys: new Set(brands.map((b) => b.brandKey)),
+        lookups: envInt(
+          "STYLE_CODE_PROSPECT_LOOKUPS",
+          DEFAULT_PROSPECT_LOOKUPS,
+        ),
+      })
+      : emptyProspectOutcome(0);
+
     // Say what was left behind. A job reporting only what it did reads as "we
     // covered everything" on a run that reached three brands out of forty.
     console.log(
@@ -308,7 +508,13 @@ export async function runStyleCodeDiscovery(
         `scanned=${summary.scanned} inspected=${summary.inspected} ` +
         `declared=${summary.declared} codes=${summary.codes} ` +
         `new=${summary.newCodes} names=${summary.names} ` +
-        `own_skipped=${summary.ownSkipped} failed=${summary.failed}`,
+        `own_skipped=${summary.ownSkipped} failed=${summary.failed} ` +
+        `prospect=${prospect.ran ? "ran" : "skipped"}` +
+        (prospect.ran
+          ? ` prospect_inspected=${prospect.inspected} ` +
+            `prospect_candidates=${prospect.candidates} ` +
+            `prospect_codes=${prospect.codes}`
+          : ""),
     );
 
     return {
@@ -318,6 +524,7 @@ export async function runStyleCodeDiscovery(
       skipped_cooldown: work.skippedCooldown,
       skipped_exhausted: work.skippedExhausted,
       ...summary,
+      prospect,
       brands: outcomes.map((o) => ({
         brand_key: o.brandKey,
         scanned: o.scanned,

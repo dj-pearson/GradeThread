@@ -11,6 +11,8 @@ code_refs:
   - services/edge-functions/src/lib/style-code-discovery.ts
   - services/edge-functions/src/routes/jobs-style-code-discovery.ts
   - supabase/migrations/00646_style_code_discovery.sql
+  - services/edge-functions/src/lib/style-code-prospect.ts
+  - supabase/migrations/00647_style_code_brand_candidates.sql
   - supabase/migrations/00628_style_code_names.sql
   - supabase/migrations/00635_style_code_submissions.sql
   - supabase/migrations/00638_drop_lulufanatics_catalog.sql
@@ -129,6 +131,45 @@ The crawl's brand pool is `brand_knowledge` — every brand we hold background
 knowledge on, not Lululemon alone (owner decision, 2026-08-21). Widening the
 crawl is not widening the public `/style/:code` surface, which stays
 Lululemon-only until a brand-collision rule exists.
+
+## Which brands get a crawl budget is measured, not chosen
+
+The crawl walks `brand_knowledge`, so it can only reach brands somebody already
+researched by hand. US-2786 added a survey for the rest, and two things about it
+are contract rather than implementation detail.
+
+**It cannot mine the crawl's own listings.** The obvious design — read the Brand
+aspect off the listings discovery already fetched — is circular: the crawl
+searches WITH an eBay Brand aspect filter, so every listing it sees carries the
+brand it searched for. The story was written that way and was wrong about it.
+The survey therefore runs its own UNFILTERED walk of eBay's clothing category,
+newest first, with its own cursor.
+
+**The ranking is a rate, not a volume.** A brand is worth a crawl budget in
+proportion to how often its sellers fill eBay's Style Code box, not how many
+listings it has. A brand with a million listings and nobody filling that field
+yields nothing; a small brand whose sellers all fill it yields on every page.
+`tallyCandidates` sorts by that rate, and the admin surface shows it as a
+percentage, so the SQL and the UI cannot form separate opinions about what
+"most promising" means.
+
+Two guards on top:
+
+- The survey does not run until every curated brand has been crawled AND gone
+  flat. A pool with one never-crawled brand left is not exhausted — that brand
+  may be the best one, and surveying strangers first is the expensive way to
+  find out.
+- A candidate never becomes a `brand_knowledge` row on its own. Promotion goes
+  through the US-1718 sourced seed flow, and `style_code_brand_candidates` has
+  no `source_url` column precisely because a tally is a measurement rather than
+  a claim about a brand. Marking a candidate promoted is REFUSED while no
+  `brand_knowledge` row exists, so the status cannot claim the crawl covers a
+  brand it does not.
+
+Codes found for an uncurated brand are still kept. A brand with no
+`brand_style_codes` decoder has no canonical form, so those rows are filed under
+the plain normalized code and a later decoder re-keys them the way US-2714
+re-keys Lululemon's four spellings.
 
 ## Related
 

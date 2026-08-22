@@ -13,6 +13,7 @@ import {
   MAX_DISCOVERY_OFFSET,
 } from "../lib/style-code-discovery.ts";
 import { runStyleCodeDiscovery } from "./jobs-style-code-discovery.ts";
+import { poolProgress } from "../lib/style-code-prospect.ts";
 import { validateTellsForWrite } from "../lib/brand-authenticity.ts";
 import {
   groupStyleCodeRows,
@@ -447,6 +448,146 @@ adminBrandKnowledgeRoutes.post("/style-codes/discovery/run", async (c) => {
     return c.json({ error: "The crawl failed to start" }, 500);
   }
 });
+
+// ── GET /style-codes/brand-candidates — brands worth curating next ──────────
+//
+// US-2786: uncurated brands, ranked by how often their eBay listings DECLARE a
+// style code. A brand with a million listings and nobody filling the Style Code
+// box is worth no crawl budget; a small brand whose sellers all fill it is worth
+// a great deal, and that ordering is the only reason this surface exists.
+//
+// It also returns how close the CURATED pool is to used up, because that is the
+// gate on the survey running at all and an operator staring at an empty
+// candidate list should be able to see why it is empty.
+adminBrandKnowledgeRoutes.get("/style-codes/brand-candidates", async (c) => {
+  const status = c.req.query("status")?.trim() || "pending";
+  const [candidates, brandCount, crawlState] = await Promise.all([
+    supabaseAdmin
+      .from("style_code_brand_candidates")
+      .select(
+        "id, brand_key, brand_label, listings_seen, listings_with_code, first_seen_at, last_seen_at, status, reviewed_at",
+      )
+      .eq("status", status)
+      .order("listings_with_code", { ascending: false })
+      .limit(200),
+    supabaseAdmin
+      .from("brand_knowledge")
+      .select("brand_key", { count: "exact", head: true }),
+    supabaseAdmin
+      .from("style_code_discovery_state")
+      .select("brand_key, page_offset, last_run_at, empty_passes")
+      .limit(2000),
+  ]);
+
+  if (candidates.error) {
+    console.error(
+      "[admin-brand-kb] candidate read failed:",
+      candidates.error.message,
+    );
+    return c.json({ error: "Could not load brand candidates" }, 500);
+  }
+
+  const rows = ((candidates.data ?? []) as Array<Record<string, unknown>>).map(
+    (r) => {
+      const seen = Number(r.listings_seen ?? 0);
+      const withCode = Number(r.listings_with_code ?? 0);
+      return {
+        ...r,
+        // A rate, not a total. A brand surveyed twice as long is not a brand
+        // filling the field twice as often, and the totals alone read as if it
+        // were.
+        code_rate: seen > 0 ? Math.round((withCode / seen) * 1000) / 1000 : null,
+      };
+    },
+  );
+
+  return c.json({
+    candidates: rows,
+    pool: poolProgress(
+      ((crawlState.data ?? []) as Array<{
+        brand_key: string;
+        page_offset: number | null;
+        last_run_at: string | null;
+        empty_passes: number | null;
+      }>).map((r) => ({
+        brand_key: r.brand_key,
+        page_offset: r.page_offset ?? 0,
+        last_run_at: r.last_run_at,
+        empty_passes: r.empty_passes ?? 0,
+      })),
+      brandCount.count ?? 0,
+    ),
+  });
+});
+
+// ── POST /style-codes/brand-candidates/:id/:verb ───────────────────────────
+//
+// reject: judged not worth a crawl budget. The row is KEPT, not deleted — the
+// next survey would otherwise re-surface it every night, and the tally is still
+// worth having if somebody revisits the decision.
+//
+// promote: records that a brand_knowledge row now exists. It does NOT create
+// one. Seeding a brand still goes through the US-1718 draft-verify-seed flow,
+// which rejects a fact with no source_url, and a tally is a measurement rather
+// than a sourced claim about a brand.
+adminBrandKnowledgeRoutes.post(
+  "/style-codes/brand-candidates/:id/:verb",
+  async (c) => {
+    const id = c.req.param("id");
+    const verb = c.req.param("verb");
+    if (verb !== "reject" && verb !== "promote") {
+      return c.json({ error: "Unknown action" }, 400);
+    }
+
+    if (verb === "promote") {
+      // Refuse to mark a brand promoted while no brand_knowledge row exists.
+      // Otherwise the status says "the crawl covers this now" and the crawl,
+      // which reads brand_knowledge, does not.
+      const { data: cand } = await supabaseAdmin
+        .from("style_code_brand_candidates")
+        .select("brand_key")
+        .eq("id", id)
+        .maybeSingle();
+      const brandKey = (cand as { brand_key?: string } | null)?.brand_key ?? "";
+      const { data: known } = await supabaseAdmin
+        .from("brand_knowledge")
+        .select("brand_key")
+        .eq("brand_key", brandKey)
+        .maybeSingle();
+      if (!known) {
+        return c.json({
+          error:
+            "Seed the brand into the knowledge base first (it needs a source URL). " +
+            "Then mark the candidate promoted.",
+        }, 409);
+      }
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from("style_code_brand_candidates")
+      .update({
+        status: verb === "reject" ? "rejected" : "promoted",
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: c.get("userId") ?? null,
+      })
+      .eq("id", id)
+      .select("id, brand_key, status")
+      .maybeSingle();
+    if (error) {
+      console.error("[admin-brand-kb] candidate update failed:", error.message);
+      return c.json({ error: "Could not update the candidate" }, 500);
+    }
+    if (!data) return c.json({ error: "Candidate not found" }, 404);
+
+    await writeAuditLog(c, {
+      action: `brand_knowledge.brand_candidate_${verb}`,
+      targetType: "style_code_brand_candidate",
+      targetId: id,
+      after: data,
+    });
+    return c.json({ candidate: data });
+  },
+);
 
 adminBrandKnowledgeRoutes.get("/style-codes/review", async (c) => {
   const brand = c.req.query("brand")?.trim();

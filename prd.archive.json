@@ -40591,6 +40591,24 @@
         "US-2784"
       ],
       "completionNote": "Done 2026-08-21. The tick is runStyleCodeDiscovery() in routes/jobs-style-code-discovery.ts; the cron handler is now four lines around it. DEFAULT_BRANDS_PER_RUN also went 3 -> 12 here, driven by the first production run's own numbers: considered 230, crawled 3, deferred 227. At three a night one pass over the knowledge base takes 77 nights, so the seven-day cooldown never binds and the budget was the entire schedule. Twelve is 252 eBay calls a night and a full pass every 19 nights. 30 tests in style-code-discovery_test.ts."
+    },
+    {
+      "id": "US-2786",
+      "passes": true,
+      "priority": 26,
+      "title": "Discovery can only crawl brands we already know, so the brands a thrift seller actually finds are invisible to it",
+      "description": "As a reseller, I want the crawl to reach brands we hold no knowledge on yet, so that the index is not permanently limited to the brands somebody already researched by hand.",
+      "acceptanceCriteria": [
+        "Only run once the current brand_knowledge pool is measurably exhausted — every brand crawled, cursors wrapped, yield flat. US-2785's numbers are what proves that, not a hunch",
+        "CORRECTED DURING BUILD. AC2 as written was circular: the crawl searches WITH an eBay Brand aspect filter, so every listing it fetches carries the brand it searched for, and mining those yields the 230 brands we started with. The survey therefore runs its own UNFILTERED walk of eBay's clothing category, newest first, and tallies the Brand aspect of every listing that DECLARES a style code. That measures what AC2 actually wanted - how often a brand's sellers fill the Style Code box - and is the only way to see a brand nobody here has heard of",
+        "A mined brand becomes a brand_knowledge row only through the existing US-1718 draft-verify-seed flow with source_url and confidence. partitionSeedFacts rejects an unsourced fact and that does not change here",
+        "A brand crawled before it has a decoder still yields codes and names; it just cannot canonicalize spellings. Recorded explicitly so a later decoder can re-key those rows the way US-2714 re-keys Lululemon's four spellings",
+        "The public /style/:code lookup stays Lululemon-only until a brand-collision rule is decided. Widening the crawl is not widening the public surface"
+      ],
+      "dependsOn": [
+        "US-2785"
+      ],
+      "completionNote": "Done 2026-08-21. Migration 00647 (HELD) adds style_code_brand_candidates and style_code_prospect_state. lib/style-code-prospect.ts is pure: poolExhausted, poolProgress, harvestSighting, tallyCandidates. searchBrowseCategoryPage added to ebay-client.ts for the unfiltered walk. The pass runs inside the existing nightly tick, gated on poolExhausted and never on a single-brand manual run, with an operator override (forceProspect). Codes found for uncurated brands ARE kept, filed under the plain normalized key because a brand with no decoder has no canonical form - US-2714's re-key handles those rows if a decoder arrives later (AC4). Admin surface: 'Brands worth curating next', ranked by code-fill RATE rather than volume, with the curated-pool progress shown so an empty list explains itself. 'Mark curated' REFUSES while no brand_knowledge row exists, so the status cannot claim the crawl covers a brand it does not (AC3). Public /style/:code untouched and still Lululemon-only (AC5). 15 tests in style-code-prospect_test.ts. AC1's gate is roughly 19 nights out at the current budget, so nothing surveys anything tonight."
     }
   ]
 }

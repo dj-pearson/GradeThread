@@ -175,6 +175,25 @@ interface CrawlRow {
   exhausted: boolean;
 }
 
+interface BrandCandidate {
+  id: string;
+  brand_key: string;
+  brand_label: string;
+  listings_seen: number;
+  listings_with_code: number;
+  /** Share of surveyed listings that declared a style code. Null before any. */
+  code_rate: number | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  status: string;
+}
+
+interface PoolProgress {
+  crawled: number;
+  exhausted: number;
+  total: number;
+}
+
 export function AdminBrandKnowledgePage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -247,6 +266,42 @@ export function AdminBrandKnowledgePage() {
     void queryClient.invalidateQueries({
       queryKey: ["admin-brand-kb", "style-codes"],
     });
+
+  const {
+    data: candidates,
+    isLoading: candLoading,
+    isError: candError,
+    refetch: refetchCandidates,
+    isFetching: candFetching,
+  } = useQuery({
+    queryKey: ["admin-brand-kb", "brand-candidates"],
+    queryFn: async (): Promise<
+      { candidates: BrandCandidate[]; pool: PoolProgress }
+    > => await api("/api/admin/brand-knowledge/style-codes/brand-candidates"),
+    staleTime: 60 * 1000,
+  });
+
+  async function judgeCandidate(cand: BrandCandidate, verb: "reject" | "promote") {
+    setBusyId(cand.id);
+    try {
+      await api(
+        `/api/admin/brand-knowledge/style-codes/brand-candidates/${cand.id}/${verb}`,
+        "POST",
+      );
+      toast.success(
+        verb === "reject"
+          ? "Rejected. The survey will not re-surface it."
+          : "Marked promoted.",
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-brand-kb", "brand-candidates"],
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not update it");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   async function runCrawl(brandKey?: string) {
     setCrawling(brandKey ?? "__rotation__");
@@ -680,6 +735,108 @@ export function AdminBrandKnowledgePage() {
                           >
                             {crawling === row.brand_key ? "Crawling…" : "Crawl now"}
                           </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+        </CardContent>
+      </Card>
+
+      {/* US-2786: brands nobody has curated, ranked by how often their sellers
+          fill eBay's Style Code box. The survey that produces this only runs
+          once every curated brand has been crawled and gone flat, so the pool
+          line explains an empty list rather than leaving it a mystery. */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Brands worth curating next</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Uncurated brands the survey met on eBay, ranked by how often their
+            listings declare a style code. A brand nobody tags structurally is
+            not worth a crawl budget, however many listings it has.
+          </p>
+          {candidates?.pool
+            ? (
+              <p className="text-sm text-muted-foreground">
+                Curated pool: {candidates.pool.exhausted} of{" "}
+                {candidates.pool.total} brands exhausted,{" "}
+                {candidates.pool.crawled} crawled at least once. The survey runs
+                only when every one of them is exhausted.
+              </p>
+            )
+            : null}
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {candError
+            ? (
+              <ErrorState
+                title="Couldn't load brand candidates"
+                description="Nothing was changed — this is a read failure."
+                onRetry={() => void refetchCandidates()}
+                retrying={candFetching}
+              />
+            )
+            : candLoading
+            ? [0, 1, 2].map((i) => <Skeleton key={i} className="h-10 w-full" />)
+            : (candidates?.candidates ?? []).length === 0
+            ? (
+              <p className="text-sm text-muted-foreground">
+                Nothing yet. The survey has not run, which is expected until the
+                curated pool is exhausted.
+              </p>
+            )
+            : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="text-left text-muted-foreground">
+                    <tr>
+                      <th className="py-2 pr-4 font-medium">Brand</th>
+                      <th className="py-2 pr-4 text-right font-medium">
+                        Surveyed
+                      </th>
+                      <th className="py-2 pr-4 text-right font-medium">
+                        With a code
+                      </th>
+                      <th className="py-2 pr-4 text-right font-medium">Rate</th>
+                      <th className="py-2 font-medium sr-only">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(candidates?.candidates ?? []).map((cand) => (
+                      <tr key={cand.id} className="border-t">
+                        <td className="py-2 pr-4">{cand.brand_label}</td>
+                        <td className="py-2 pr-4 text-right tabular-nums">
+                          {cand.listings_seen.toLocaleString()}
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums">
+                          {cand.listings_with_code.toLocaleString()}
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums">
+                          {cand.code_rate === null
+                            ? "—"
+                            : `${Math.round(cand.code_rate * 100)}%`}
+                        </td>
+                        <td className="py-2 text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={busyId === cand.id}
+                              onClick={() => void judgeCandidate(cand, "promote")}
+                            >
+                              Mark curated
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={busyId === cand.id}
+                              onClick={() => void judgeCandidate(cand, "reject")}
+                            >
+                              Not worth it
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))}

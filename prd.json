@@ -2381,23 +2381,6 @@
         "A guard fails if ListerPayload.locale has no producer. The unwired-module gate catches a module nobody imports; this is the same defect one level down - a FIELD nobody sets - and it survived because every layer that consumes it is correct."
       ],
       "priority": 31
-    },
-    {
-      "id": "US-2786",
-      "passes": false,
-      "priority": 26,
-      "title": "Discovery can only crawl brands we already know, so the brands a thrift seller actually finds are invisible to it",
-      "description": "As a reseller, I want the crawl to reach brands we hold no knowledge on yet, so that the index is not permanently limited to the brands somebody already researched by hand.",
-      "acceptanceCriteria": [
-        "Only run once the current brand_knowledge pool is measurably exhausted — every brand crawled, cursors wrapped, yield flat. US-2785's numbers are what proves that, not a hunch",
-        "Candidate brands are mined from the Brand aspect of listings discovery ALREADY fetched, ranked by how often they appear with a filled-in style code field. A brand nobody tags structurally is not worth a crawl budget",
-        "A mined brand becomes a brand_knowledge row only through the existing US-1718 draft-verify-seed flow with source_url and confidence. partitionSeedFacts rejects an unsourced fact and that does not change here",
-        "A brand crawled before it has a decoder still yields codes and names; it just cannot canonicalize spellings. Recorded explicitly so a later decoder can re-key those rows the way US-2714 re-keys Lululemon's four spellings",
-        "The public /style/:code lookup stays Lululemon-only until a brand-collision rule is decided. Widening the crawl is not widening the public surface"
-      ],
-      "dependsOn": [
-        "US-2785"
-      ]
     }
   ]
 }

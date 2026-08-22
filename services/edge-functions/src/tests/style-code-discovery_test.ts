@@ -554,7 +554,14 @@ Deno.test("US-2784: the route reads no tenant table but the own-listing exclusio
     new URL("../routes/jobs-style-code-discovery.ts", import.meta.url),
   );
   const tables = [...src.matchAll(/\.from\("([a-z_]+)"\)/g)].map((m) => m[1]);
-  assertEquals(tables, ["listings", "style_code_observations"]);
+  // Exact list, not a "contains no tenant table" check: a new name has to be
+  // looked at by a person, which is the whole point of pinning it. US-2786
+  // added style_code_prospect_state, the survey's own cursor.
+  assertEquals(tables, [
+    "listings",
+    "style_code_observations",
+    "style_code_prospect_state",
+  ]);
 
   // And that `listings` read selects the platform id and nothing else — no
   // owner, no title, no price.

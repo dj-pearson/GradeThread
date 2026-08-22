@@ -4674,6 +4674,60 @@ export async function searchBrowseByBrand(
   return { listings, total: payload.total ?? listings.length };
 }
 
+/**
+ * US-2786: one page of a category's live listings with NO brand filter.
+ *
+ * The brand crawl above cannot answer "which brands do sellers tag with style
+ * codes", because it filters by brand and therefore only ever sees the brands
+ * we already knew to ask about. This walks the category itself so the prospect
+ * pass can read the Brand aspect off listings nobody chose.
+ *
+ * Newest-first for the same reason the brand crawl is: a survey wants inventory
+ * it has not already surveyed, and relevance ordering re-serves the same
+ * popular items to every pass.
+ */
+export async function searchBrowseCategoryPage(args: {
+  categoryId: string;
+  offset: number;
+  limit: number;
+}): Promise<{ listings: BrowseBrandListing[]; total: number }> {
+  const token = await getAppAccessToken();
+
+  const params = new URLSearchParams();
+  params.set("category_ids", args.categoryId);
+  params.set("limit", String(Math.min(Math.max(args.limit, 1), 200)));
+  params.set("offset", String(Math.max(0, Math.floor(args.offset))));
+  params.set("sort", "newlyListed");
+
+  const url = `${apiHost()}/buy/browse/v1/item_summary/search?${params.toString()}`;
+  const res = await ebayFetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+    },
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `eBay Browse category page failed (${res.status}): ${text.slice(0, 300)}`,
+    );
+  }
+
+  const payload = (await res.json()) as {
+    itemSummaries?: BrowseItemSummary[];
+    total?: number;
+  };
+  const listings = (payload.itemSummaries ?? [])
+    .map((s) => ({
+      itemId: s.itemId ?? "",
+      title: s.title ?? "",
+      url: s.itemWebUrl ?? null,
+    }))
+    .filter((l) => l.itemId !== "");
+
+  return { listings, total: payload.total ?? listings.length };
+}
+
 // ── Visual comps via Browse search_by_image (US-2756) ───────────────────
 //
 // Post a photo, get visually similar LIVE listings back. It is the closest

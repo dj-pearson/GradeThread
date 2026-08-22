@@ -1,6 +1,7 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!warning] HELD: 00645. 00646 is APPLIED and verified (2026-08-21), and the
+> [!warning] HELD: 00645 and 00647. 00646 is APPLIED and verified (2026-08-21),
+> and the
 > 00627 tail (US-2729) is fully resolved — both its functions are confirmed
 > present, one of them against pg_proc directly. Everything through 00644 is
 > applied.
@@ -25,6 +26,66 @@
 > both directions before — claiming HELD when prod had applied, and claiming
 > applied when prod had not — and both times it was trusted and prod was not
 > asked. One unauthenticated GET settles it.
+
+## HELD: 00647 — style_code_brand_candidates (US-2786)
+
+**NOT APPLIED. Do not push the commit that carries it until this has run.**
+
+**Risk: LOW.** Two new tables with no foreign keys and two new functions. Nothing
+existing is altered, dropped or backfilled.
+
+### What it does
+
+Adds `style_code_brand_candidates`: one row per brand NOT yet in
+`brand_knowledge`, tallying how many of its eBay listings the survey looked at
+and how many of those declared a style code in a structured field. The ratio is
+the point — a brand with a million listings and nobody filling the Style Code box
+is worth no crawl budget, and a small brand whose sellers all fill it is worth a
+great deal.
+
+Adds `style_code_prospect_state`: a single-row cursor for the unfiltered survey,
+so it walks fresh inventory instead of re-reading eBay's first page nightly. Same
+reasoning as 00646's per-brand cursor; one row rather than one per brand because
+there is one unfiltered walk.
+
+Plus `record_style_code_brand_candidate(...)` and `record_style_code_prospect(...)`,
+both accumulating server-side so two overlapping passes cannot erase each other.
+
+**Nothing here writes brand_knowledge.** A candidate is evidence for a human
+decision; seeding a brand still goes through the US-1718 draft-verify-seed flow,
+which rejects a fact with no `source_url`. That is why there is no `source_url`
+column: a tally is a measurement, not a claim about a brand.
+
+### The one thing that breaks if the order is wrong
+
+The survey does not run until every curated brand has been crawled and gone flat,
+which is roughly 19 nights away at the current budget, so the window here is wide.
+If it did fire against a database without this migration, the candidate writes
+would fail and the pass would log errors and record nothing. It is a CRON, so no
+seller path is affected.
+
+The admin "Brands worth curating next" card reads through an edge route, so the
+frontend auto-deploy on push cannot get ahead of the schema.
+
+### Apply
+
+1. Run `supabase/migrations/00647_style_code_brand_candidates.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — two new tables and two new RPCs.
+3. Redeploy the edge on Coolify (its boot guard now expects `00647`).
+4. Then OK the push.
+
+### Verify
+
+```sql
+select to_regclass('public.style_code_brand_candidates');   -- not null
+select to_regclass('public.style_code_prospect_state');     -- not null
+select proname from pg_proc
+where proname in ('record_style_code_brand_candidate', 'record_style_code_prospect');
+-- expect both rows; pg_proc is the question that has an answer, not the
+-- PostgREST OpenAPI document (see the 00627 note below)
+```
+
+---
 
 ## APPLIED 2026-08-21: 00646 — style_code_discovery (US-2783)
 
