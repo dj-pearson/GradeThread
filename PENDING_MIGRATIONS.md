@@ -1,8 +1,9 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!warning] HELD: 00645. 00646 is APPLIED (verified 2026-08-21), and one
-> operator step that is not a migration at all (the tail of 00627, US-2729)
-> is partly resolved. Everything through 00644 is applied.
+> [!warning] HELD: 00645. 00646 is APPLIED and verified (2026-08-21), and the
+> 00627 tail (US-2729) is fully resolved — both its functions are confirmed
+> present, one of them against pg_proc directly. Everything through 00644 is
+> applied.
 > Everything through **00644** is applied. Verified by asking the database
 > rather than this file: `GET /health/ready` reports
 > `{"expected":"00642","applied":"00644","status":"ahead","unexpected":["00643","00644"]}`
@@ -97,32 +98,28 @@ select count(*) from public.style_code_discovery_brands(10);      -- runs, retur
 
 ---
 
-## OPERATOR STEP (no new migration): re-run the TAIL of 00627 — US-2729
+## RESOLVED 2026-08-21: the tail of 00627 — US-2729
 
-**PARTLY RESOLVED, 2026-08-21.** `style_code_sweep_candidates` is now PRESENT in
-prod — confirmed by the same OpenAPI read as above — so the error that broke
-every hourly sweep tick is gone.
+**FULLY RESOLVED, 2026-08-21. Nothing to run.** Both objects 00627 creates are
+present in production:
 
-**One thing still needs one query.** That same read does NOT list
-`/rpc/record_style_code_sweep`, which 00627 also creates and which the sweep
-calls to record cooldowns. The absence is not proof: the OpenAPI document only
-shows what the anon role may execute, and 00503's `record_style_code_observation`
-is missing from it for exactly that reason (00503 REVOKEs it). But 00627 contains
-no REVOKE, and its other function IS listed, so the asymmetry is unexplained.
+- `style_code_sweep_candidates` — the function whose absence broke every hourly
+  sweep tick. Confirmed via the PostgREST OpenAPI read.
+- `record_style_code_sweep` — confirmed directly against `pg_proc`, which is the
+  only source that settles it.
 
-Settle it with one query before assuming the sweep is whole:
+> [!warning] A LESSON WORTH MORE THAN THE FIX
+> `record_style_code_sweep` does **not** appear in the anon PostgREST OpenAPI
+> document even though it exists in `pg_proc` and 00627 revokes nothing. Its
+> sibling in the same file does appear. So **absence from that document proves
+> nothing about whether a function exists** — it answers "did the schema cache
+> reload" and "is this signature live", and only PRESENCE is conclusive.
+> `select proname from pg_proc where proname = ...` is the question that has an
+> answer. This nearly produced a second repair of something that was never
+> broken.
 
-```sql
-select proname, pronargs from pg_proc
-where proname in ('record_style_code_sweep', 'record_style_code_observation');
-```
-
-If `record_style_code_sweep` is absent, re-run just its
-`CREATE OR REPLACE FUNCTION` block and `GRANT` from 00627 (idempotent), then
-`NOTIFY pgrst, 'reload schema';`. Without it the sweep re-asks the same codes
-every hour instead of cooling them off.
-
-Original write-up follows.
+Original write-up follows, kept because the reasoning is still the right
+reasoning for the next half-applied migration.
 
 The prod schema audit (2026-08-20) found `style_code_sweeps`, both its indexes
 and `record_style_code_sweep` all present, and the LAST two objects the file
