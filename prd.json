@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2809",
+  "nextId": "US-2810",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2344,6 +2344,19 @@
         "If it is not: the route is removed, and the note says it was built and never wired rather than leaving the next sweep to rediscover it."
       ],
       "priority": 870
+    },
+    {
+      "id": "US-2809",
+      "passes": false,
+      "title": "The public changelog feed has an API, an admin authoring page, and no reader",
+      "description": "The admin page says its entries \"power the public /changelog feed AND the autonomous newsletter's what's new section\", and its on-screen subtitle repeats it: \"Product changelog powering the public feed and the autonomous newsletter\".\n\nONE OF THOSE TWO IS TRUE. lib/newsletter-changelog.ts really does read published entries into the newsletter, so an admin who writes one does reach subscribers.\n\nTHE PUBLIC FEED DOES NOT EXIST. `/changelog` is not in src/lib/seo/public-routes.ts and is not a route. The API that would serve it IS built — changelogPublicRoutes at /api/changelog, cursor-paginated by published_at, with an ?audience= filter whose own comment describes \"the in-app panel\" passing the viewer's audience so a grading-only user never sees FlipDesk-only news. There is no in-app panel. Nothing on web, iOS or Android fetches /api/changelog; src/hooks/use-changelog.ts only ever calls the ADMIN authoring endpoint.\n\nSo the shape is: authoring wired, one consumer wired, second consumer described in three places and absent. An admin publishing an entry reasonably believes it appears somewhere it does not.\n\nFound by sweeping mounted edge routes for ones no first-party client calls — the same question that found US-2802 and US-2808.",
+      "acceptanceCriteria": [
+        "Decide which of the two the copy should promise: a public /changelog page, an in-app What's New panel, or neither.",
+        "If a surface is built, it reads /api/changelog and passes ?audience= — the filter exists so a grading-only user is not shown FlipDesk news, and skipping it would ship the leak the API was designed to prevent.",
+        "If neither is built, the admin page's description and subtitle stop claiming a public feed, and the route is either removed or commented as newsletter-only. An admin should not be told their post is public when it is not.",
+        "A public page, if built, is registered in public-routes.ts AND entry-server.tsx per the SEO contract, or the prerender guard fails."
+      ],
+      "priority": 860
     }
   ]
 }
