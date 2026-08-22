@@ -3,7 +3,6 @@ import {
   CALCULATORS,
   CALCULATOR_HUB_META,
   CALCULATOR_HUB_PATH,
-  calculatorBreadcrumbItems,
   calculatorPath,
   calculatorRoutes,
   getCalculatorByPath,
@@ -12,6 +11,10 @@ import {
   liveCalculators,
 } from "@/lib/seo/calculators";
 import { PUBLIC_ROUTES } from "@/lib/seo/public-routes";
+import {
+  calculatorBreadcrumbLdItems,
+  calculatorHubBreadcrumbLdItems,
+} from "@/pages/marketing/marketing-jsonld";
 
 // US-9002. The family's whole safety property is that a calculator is not
 // routable until its compute exists, so most of what is worth asserting here is
@@ -63,15 +66,34 @@ describe("calculator registry", () => {
   });
 
   it("breadcrumbs run home, hub, page", () => {
+    // MOVED OFF A DEAD FUNCTION. This asserted calculatorBreadcrumbItems, which
+    // returned relative paths and was called by nothing — so the trail that
+    // every calculator page actually emits was untested, while the one nothing
+    // rendered had a passing case. The live builders are the *LdItems pair in
+    // marketing-jsonld.ts, and they return absolute urls.
     const first = CALCULATORS[0];
     expect(first).toBeDefined();
     if (!first) return;
-    const crumbs = calculatorBreadcrumbItems(first);
-    expect(crumbs.map((c) => c.path)).toEqual([
-      "/",
-      CALCULATOR_HUB_PATH,
-      calculatorPath(first.slug),
+    const crumbs = calculatorBreadcrumbLdItems(first);
+    expect(crumbs.map((c) => c.name)).toEqual([
+      "GradeThread",
+      "Calculators",
+      first.h1,
     ]);
+    expect(crumbs.map((c) => c.url)).toEqual([
+      "https://gradethread.com/",
+      `https://gradethread.com${CALCULATOR_HUB_PATH}`,
+      `https://gradethread.com${calculatorPath(first.slug)}`,
+    ]);
+  });
+
+  it("the hub's own trail stops at the hub", () => {
+    // The hub is the second crumb, not a third pointing at itself.
+    const crumbs = calculatorHubBreadcrumbLdItems();
+    expect(crumbs.map((c) => c.name)).toEqual(["GradeThread", "Calculators"]);
+    expect(crumbs[crumbs.length - 1]?.url).toBe(
+      `https://gradethread.com${CALCULATOR_HUB_PATH}`,
+    );
   });
 });
 

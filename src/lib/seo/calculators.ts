@@ -534,23 +534,6 @@ export function isCalculatorHubPath(path: string): boolean {
   return path.replace(/\/+$/, "") === CALCULATOR_HUB_PATH;
 }
 
-export function calculatorBreadcrumbItems(
-  calc: Calculator,
-): Array<{ name: string; path: string }> {
-  return [
-    { name: "GradeThread", path: "/" },
-    { name: "Calculators", path: CALCULATOR_HUB_PATH },
-    { name: calc.h1, path: calculatorPath(calc.slug) },
-  ];
-}
-
-export function calculatorHubBreadcrumbItems(): Array<{ name: string; path: string }> {
-  return [
-    { name: "GradeThread", path: "/" },
-    { name: "Calculators", path: CALCULATOR_HUB_PATH },
-  ];
-}
-
 /**
  * The hub plus every LIVE calculator. Spread into PUBLIC_ROUTES.
  *
