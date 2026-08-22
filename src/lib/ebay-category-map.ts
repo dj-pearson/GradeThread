@@ -54,6 +54,24 @@ export function ebayPathToItemCategory(
   ) {
     return "jewelry";
   }
+  // US-2799: headwear sits with the other SPECIFIC verticals, above `clothing`,
+  // for the same reason shoes and bags do — an eBay hat path reads
+  // "Men › Men's Accessories › Hats" or "… › Men's Clothing › Hats", so the
+  // generic word is present alongside the leaf that actually names the item.
+  //
+  // Until now a hat returned `accessories`, and this function is not advisory:
+  // its whole job is to overwrite item_category when a seller CORRECTS the eBay
+  // category in the composer. So a seller deliberately picking "Men's Hats" was
+  // moved OFF headwear rather than onto it — the loudest possible statement of
+  // what the item is, translated into the wrong answer. item_category picks the
+  // rubric, the photo profile and the measurement template, so that correction
+  // cost the seller all three.
+  if (
+    /\b(?:hats?|caps?|beanies?|snapbacks?|visors?|fedoras?|berets?|balaclavas?|headwear)\b/
+      .test(tail)
+  ) {
+    return "headwear";
+  }
   if (
     /\b(?:clothing|apparel|shirts?|dress(?:es)?|pants?|trousers?|jeans?|jackets?|coats?|sweaters?|hoodies?|sweatshirts?|skirts?|shorts?|blouses?|suits?|blazers?|leggings?|activewear|swimwear|swimsuits?|lingerie|sleepwear|robes?|vests?|rompers?|jumpsuits?|cardigans?|polos?|tees?|t-shirts?|capris?|overalls?)\b/.test(
       tail,
@@ -61,8 +79,11 @@ export function ebayPathToItemCategory(
   ) {
     return "clothing";
   }
+  // The hat words are GONE from this branch, not left as a harmless duplicate.
+  // Two branches both claiming hats reads as undecided, and the next person to
+  // reorder these would silently restore the bug above.
   if (
-    /\b(?:hats?|caps?|beanies?|belts?|scarves|scarf|gloves?|mittens?|sunglasses|eyewear|neckties?|ties?|bandanas?|suspenders?|accessor\w*)\b/.test(
+    /\b(?:belts?|scarves|scarf|gloves?|mittens?|sunglasses|eyewear|neckties?|ties?|bandanas?|suspenders?|accessor\w*)\b/.test(
       tail,
     )
   ) {

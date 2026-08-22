@@ -1154,8 +1154,13 @@ export const ITEM_CATEGORIES = [
 ] as const;
 
 // Human labels for the item_category picker. `accessories` here = non-garment
-// accessories sold standalone (hats, belts, sunglasses), distinct from the
+// accessories sold standalone (belts, scarves, sunglasses), distinct from the
 // clothing garment_type "accessories".
+//
+// US-2799: this said "hats, belts, sunglasses", two lines under the `headwear`
+// value that exists precisely so a hat is NOT one of these. The comment was
+// written before 00570 and outlived it, which is how three other files came to
+// route a cap here as well.
 export const ITEM_CATEGORY_LABELS: Record<
   (typeof ITEM_CATEGORIES)[number],
   string
