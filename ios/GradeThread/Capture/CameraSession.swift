@@ -238,11 +238,30 @@ public final class CameraSession: NSObject {
                 session.beginConfiguration()
                 session.sessionPreset = .photo
 
-                guard let device = AVCaptureDevice.default(
-                    .builtInWideAngleCamera,
-                    for: .video,
+                // US-2137 AC2: prefer macro-capable hardware. The discovery
+                // session returns devices in ITS order, so the choice is made by
+                // MacroCameraSelection rather than by taking the first one back
+                // - taking the first is how a wide-angle gets picked on a phone
+                // that has a triple, which downgrades every macro shot silently.
+                //
+                // Falls back to AVCaptureDevice.default(.builtInWideAngleCamera)
+                // when discovery finds nothing recognised, which is EXACTLY the
+                // previous behaviour on older hardware.
+                let discovered = AVCaptureDevice.DiscoverySession(
+                    deviceTypes: MacroCameraSelection.preferredTypes,
+                    mediaType: .video,
                     position: .back
-                ) else {
+                ).devices
+                let chosen: AVCaptureDevice? = MacroCameraSelection
+                    .indexOfPreferred(among: discovered.map(\.deviceType))
+                    .map { discovered[$0] }
+                    ?? AVCaptureDevice.default(
+                        .builtInWideAngleCamera,
+                        for: .video,
+                        position: .back
+                    )
+
+                guard let device = chosen else {
                     session.commitConfiguration()
                     cont.resume(throwing: CameraError.noVideoDevice)
                     return
