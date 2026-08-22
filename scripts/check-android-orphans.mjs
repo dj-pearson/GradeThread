@@ -107,8 +107,13 @@ if (files.length === 0) {
 }
 
 const isTest = (f) => /\/(test|androidTest)\//.test(rel(f));
+// ⚠ CRLF FIRST. Without it this does NOTHING on a Windows checkout: `.` never
+// matches `\r`, so `//.*$` cannot reach the end of a CRLF line and the replace
+// is a no-op — comments survive and prose counts as a reference. The iOS twin
+// of this function shipped without it and was green here while CI was red.
 const strip = (s) =>
   s
+    .replace(/\r\n?/g, "\n")
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))

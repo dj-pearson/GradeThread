@@ -64,6 +64,16 @@ const ALLOWED = {
     "UNREACHABLE (US-2504). Walk-around video grading. The recorder is wired " +
     "to this view and this view is opened by nothing, so the feature the " +
     "story calls web-only is in fact built on iOS and unreachable.",
+  GradeThreadApp:
+    "SYSTEM-DISCOVERED. `@main struct GradeThreadApp: App` — the Swift runtime " +
+    "finds it through the @main attribute and no code can construct it. There " +
+    "is no caller to add, ever.",
+  SalesStore:
+    "SUPERSEDED, and SalesView says so itself: it reads sales from SwiftData " +
+    "\"instead of a separate RemoteSale fetch via SalesStore that could drift " +
+    "from the numbers shown elsewhere\". Its only reference outside its own file " +
+    "is SalesTests calling the static decodeSalesResiliently, and a test is not " +
+    "a caller. 59 lines to delete from a machine that can run the iOS suite.",
   AIAttributeConfirmView:
     "UNREACHABLE (US-2791), and the starkest of the three: referenced nowhere " +
     "at all, not even by a test. US-826 closed on an AC reading \"AIExtractView " +
@@ -90,9 +100,23 @@ function swiftFiles(dir, out = []) {
   return out;
 }
 
-/** Source with comments removed, so a name in prose is not a reference. */
+/**
+ * Source with comments removed, so a name in prose is not a reference.
+ *
+ * ⚠ CRLF IS NORMALISED FIRST AND THAT LINE IS THE WHOLE POINT. Without it this
+ * function silently does NOTHING on a Windows checkout: `.` never matches `\r`,
+ * so `//.*$` cannot reach the end of a CRLF line and the replace is a no-op.
+ * Comments survive, prose counts as a reference, and the guard reports nothing.
+ *
+ * It shipped that way and CI caught it — green on Windows, red on Linux, with
+ * two real findings (GradeThreadApp and SalesStore) that this machine could not
+ * see. The ios/ tree is CRLF and every reference to both was a `///` doc
+ * comment. Same trap as extension-unified/test/sync-poll.test.cjs, which is
+ * recorded in CLAUDE.md, and I wrote it again anyway.
+ */
 function code(src) {
   return src
+    .replace(/\r\n?/g, "\n")
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))
