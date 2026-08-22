@@ -51,6 +51,53 @@ both the `coolify.*` labels and explicit `traefik.*` fallbacks.
 > falls through safely, because `""` is a placeholder); and a blank
 > `SOURCE_COMMIT` yields empty, which is the case that was live.
 
+> [!warning] 2026-08-22: MEASURED IN PRODUCTION, and the promise above did not hold
+>
+> `GET https://functions.gradethread.com/health` returns `release:"unknown"`
+> today, and the running image is NOT an old one. `/health/ready` reports
+> `schema.expected = "00649"`, and the commit that set
+> `EXPECTED_SCHEMA_VERSION = "00649"` is `008a7fc71` (2026-08-22 08:16), the tip
+> of `origin/main`. The Dockerfile fix above is `015d99d28` (2026-08-17), five
+> days EARLIER and an ancestor of it. So the deployed image was built with
+> `ARG SOURCE_COMMIT` declared, and the release is still unattributable.
+>
+> **Two candidates remain and this file already names one of them.** Either a
+> hand-made Coolify variable called `SOURCE_COMMIT` is shadowing Coolify's
+> built-in and resolving the chain to empty — the ⚠️ directly above, whose
+> symptom is exactly `unknown` no matter what else is set — or this deploy does
+> not receive Coolify's build arg at all. Nothing readable from outside the
+> host can tell those apart.
+>
+> **Check the first one first**, because it costs a glance: Coolify → the edge
+> service → Environment Variables. If a variable named `SOURCE_COMMIT` exists,
+> delete it and redeploy.
+
+### The one-field fallback that needs no build at all
+
+If deleting `SOURCE_COMMIT` does not fix it, set a **runtime** variable instead.
+This works today, on the image already running, and it is worth knowing why:
+`RELEASE_SHA` is baked into the image as the empty string, `""` is in
+`RELEASE_PLACEHOLDERS`, and `resolveRelease()` falls through a placeholder VALUE
+rather than only an unset key — so the next key in `RELEASE_ENV_KEYS` wins.
+
+In Coolify → the edge service → Environment Variables, add:
+
+```
+COMMIT_SHA=<the commit you deployed>
+```
+
+**`COMMIT_SHA`, not `SOURCE_COMMIT`.** `SOURCE_COMMIT` is the name Coolify uses
+for its own built-in, so a hand-made one shadows it and is the failure the ⚠️
+above describes. `COMMIT_SHA` is used by nothing else here, sits second in the
+precedence order behind the placeholder `RELEASE_SHA`, and cannot collide.
+
+It is a manual step and it has to be updated on each deploy, which is exactly
+the thing US-2001 exists to remove — so treat it as the stopgap that makes eight
+blocked stories measurable again, not as the fix.
+
+Confirm with `curl -s https://functions.gradethread.com/health` — `release` must
+be the SHA, not `unknown`.
+
 **The image must be built with the deployed commit reaching `GIT_SHA`**, or
 `RELEASE_SHA` is empty and every edge error, metric and `/health` response
 becomes unattributable to a build. Prod was measured serving `release:"dev"`, and

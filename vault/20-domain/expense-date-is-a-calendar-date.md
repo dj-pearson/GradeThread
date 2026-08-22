@@ -9,7 +9,7 @@ code_refs:
   - ios/GradeThread/Money/ExpenseStore.swift
   - services/edge-functions/src/lib/expense-recurrence.ts
   - scripts/audit-expense-date-drift.mjs
-reviewed: 2026-08-17
+reviewed: 2026-08-22
 tags: [money, flipdesk, timezone, contract]
 summary: flipdesk_expenses.spent_on is a date-only column, so every client reads and writes it in UTC — a device-zone read of any one surface walks the date backwards one day per save, and it has shipped that way on both mobile platforms.
 ---
