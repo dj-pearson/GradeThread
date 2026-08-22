@@ -2330,7 +2330,8 @@
         "Each of the four filters either gets a control in the admin UI that uses it, or is removed from the route with a note saying it was never reachable.",
         "Whichever way each one goes, the decision is per-filter: `unread_only` on a notification bell is obviously useful, and `include_archived` on ads may genuinely not be worth a control."
       ],
-      "priority": 900
+      "priority": 900,
+      "notes": "2026-08-22 ONE OF THE FOUR IS DONE: `unread_only`. The admin notification bell now offers an Unread only toggle, and useAdminNotifications takes an `unreadOnly` argument that reaches the ?unread_only=true the route has implemented and documented since US-909 and which no caller ever passed. TWO THINGS WORTH RECORDING, both about not breaking what was already right: - The unread COUNT is deliberately unaffected. The route computes it over the whole feed, so the badge keeps meaning \"unread\" rather than \"unread in the current view\", which is what filtering a badge would quietly turn it into. - The query key gained a third element and the mark-read invalidation still uses the two-element prefix. TanStack matches by prefix, so both the filtered and unfiltered caches invalidate; marking one read cannot leave the other view showing it unread. Commented at the call site because it is the kind of correctness that looks like an oversight. - State is local to the component, not persisted. A filter that outlives the popover is one somebody forgets is on and then reports the feed as empty. STILL OPEN: include_notes (admin-grading), include_resolved (admin-registered-numbers), include_archived (admin-ads). Each is its own UI decision about where a control belongs, per this story's AC2 — `unread_only` was the one whose home was obvious. VERIFIED: 6129 web tests / 501 files, tsc -b exit 0, eslint clean, ui:check 0 blocking."
     }
   ]
 }

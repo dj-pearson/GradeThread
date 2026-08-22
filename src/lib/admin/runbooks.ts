@@ -422,7 +422,16 @@ export const RUNBOOKS: Runbook[] = [
     // reason: this copy is the steps an operator runs, not the shape of the
     // backlog. US-2776 itself adds a public legal page, which §4's "the SEO
     // endpoints succeed" already covers and the prerender guards already test.
-    reviewed: "2026-08-21",
+    // Re-read 2026-08-22. One change, and nothing to carry — for a better
+    // reason than usual. The vault note RETIRED its
+    // `VITE_STRIPE_PUBLISHABLE_KEY` row: nothing reads that var, there is no
+    // @stripe/stripe-js dependency, and the row's own check ("checkout button
+    // loads Stripe") could neither pass nor fail. This copy never enumerated
+    // the individual VITE_* vars — §1 says only that the frontend "has its
+    // `VITE_*` set in Cloudflare Pages" — so the retired row was never here to
+    // remove. The generic line is why, and it is the same instinct that keeps
+    // the cron count out of §2: name the class, let the source hold the list.
+    reviewed: "2026-08-22",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:

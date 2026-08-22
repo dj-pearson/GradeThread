@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { Bell } from "lucide-react";
@@ -31,7 +32,12 @@ function relativeTime(iso: string): string {
 export function AdminNotificationBell() {
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const { data } = useAdminNotifications();
+  // US-2803: the route has supported ?unread_only=true since US-909 and no
+  // caller ever passed it. Local state, not persisted: a filter that outlives
+  // the popover is a filter somebody forgets is on and then reports the feed
+  // as empty.
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const { data } = useAdminNotifications(unreadOnly);
   const notifications = data?.notifications ?? [];
   const unread = data?.unread_count ?? 0;
 
@@ -43,6 +49,10 @@ export function AdminNotificationBell() {
         silentGate: true,
       });
       if (res.ok) {
+        // PREFIX match, which is what makes the US-2803 filter safe to add: the
+        // key gained a third element (unreadOnly) and this still invalidates
+        // both the filtered and unfiltered caches, so marking one read cannot
+        // leave the other view showing it as unread.
         await qc.invalidateQueries({ queryKey: ["admin-notifications", "feed"] });
       }
     } catch {
@@ -74,15 +84,27 @@ export function AdminNotificationBell() {
       <DropdownMenuContent align="end" className="w-80">
         <div className="flex items-center justify-between gap-2 px-2 py-1.5">
           <DropdownMenuLabel className="p-0">Notifications</DropdownMenuLabel>
-          {unread > 0 && (
+          <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => void markRead({ all: true })}
-              className="text-xs font-medium text-brand-red-text hover:underline"
+              onClick={() => setUnreadOnly((v) => !v)}
+              aria-pressed={unreadOnly}
+              className={`text-xs font-medium hover:underline ${
+                unreadOnly ? "text-brand-red-text" : "text-muted-foreground"
+              }`}
             >
-              Mark all read
+              {unreadOnly ? "Showing unread" : "Unread only"}
             </button>
-          )}
+            {unread > 0 && (
+              <button
+                type="button"
+                onClick={() => void markRead({ all: true })}
+                className="text-xs font-medium text-brand-red-text hover:underline"
+              >
+                Mark all read
+              </button>
+            )}
+          </div>
         </div>
         <DropdownMenuSeparator />
         {notifications.length === 0 ? (

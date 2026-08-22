@@ -19,13 +19,23 @@ export interface AdminNotificationsResult {
   unread_count: number;
 }
 
-export function useAdminNotifications() {
+/**
+ * US-2803: `unreadOnly` reaches the route's `?unread_only=true`, which has been
+ * implemented and documented in its own comment since US-909 and which no
+ * caller ever passed. The bell offers it as a toggle.
+ *
+ * The unread COUNT is unaffected by the filter — the route computes it over the
+ * whole feed — so the badge keeps meaning "unread", not "unread in the current
+ * view", which is what a filter on a badge would quietly turn it into.
+ */
+export function useAdminNotifications(unreadOnly = false) {
   return useQuery({
-    queryKey: ["admin-notifications", "feed"],
+    queryKey: ["admin-notifications", "feed", unreadOnly],
     queryFn: async (): Promise<AdminNotificationsResult> => {
-      const res = await edgeFetch("/api/admin/notifications?limit=30", {
-        silentGate: true,
-      });
+      const res = await edgeFetch(
+        `/api/admin/notifications?limit=30${unreadOnly ? "&unread_only=true" : ""}`,
+        { silentGate: true },
+      );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Failed to load notifications");
       return {
