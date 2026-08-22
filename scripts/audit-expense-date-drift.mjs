@@ -40,6 +40,11 @@
 
 import { execFileSync } from "node:child_process";
 
+// US-2788: this script is named in that story as one of the three that hung on
+// a wedged daemon. The catch below already turns a failure into null; without a
+// timeout there was never a failure to catch.
+import { DOCKER_QUERY_MS } from "./lib/docker-timeout.mjs";
+
 const CONTAINER = process.env.SUPABASE_DB_CONTAINER ?? "supabase_db_gradethread";
 
 function query(sql) {
@@ -52,6 +57,7 @@ function query(sql) {
     const raw = execFileSync(argv[0], argv.slice(1), {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      timeout: DOCKER_QUERY_MS,
     });
     return raw.trim() ? raw.trim().split("\n").map((l) => l.split("|")) : [];
   } catch {

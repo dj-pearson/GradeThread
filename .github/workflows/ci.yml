@@ -236,6 +236,15 @@ jobs:
       - name: Unwired src modules
         if: ${{ !cancelled() }}
         run: node scripts/check-web-unwired.mjs
+      # The same question of the two native clients, where it cannot be asked by
+      # an import graph at all: Swift and Kotlin need no import between files in
+      # a module, so a screen nobody opens compiles and lints clean. Both are
+      # one-second text scans and both found real features nobody could reach.
+      - name: Unreachable client code (iOS + Android)
+        if: ${{ !cancelled() }}
+        run: |
+          node scripts/check-ios-orphans.mjs
+          node scripts/check-android-orphans.mjs
       # US-417: guard the eager (landing/cold-load) chunk graph — fail the build
       # if the entry/eager gz size regresses past budget, or if a heavy primitive
       # (radix Dialog/Select/Popover, TipTap) stops being code-split and rides

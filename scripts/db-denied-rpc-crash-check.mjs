@@ -22,16 +22,34 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 
+// US-2788: every docker call here is bounded. A wedged daemon answers nothing,
+// and without a timeout this script hangs inside a lane that holds verify.lock.
+import {
+  DOCKER_PROBE_MS,
+  DOCKER_QUERY_MS,
+  dockerTimedOut,
+  wedgedDaemonError,
+} from "./lib/docker-timeout.mjs";
+
 const FN = "gt_denied_rpc_crash_check_us2403";
 
 function dockerPsqlContainer() {
-  const out = execFileSync("docker", [
-    "ps",
-    "--filter",
-    "name=supabase_db_",
-    "--format",
-    "{{.Names}}",
-  ], { encoding: "utf8" }).trim();
+  let out;
+  try {
+    out = execFileSync("docker", [
+      "ps",
+      "--filter",
+      "name=supabase_db_",
+      "--format",
+      "{{.Names}}",
+    ], { encoding: "utf8", timeout: DOCKER_PROBE_MS }).trim();
+  } catch (err) {
+    // ETIMEDOUT here is not "docker is missing" and not "no container". It is a
+    // daemon that is up and answering nothing, which needs a different action
+    // from the operator, so it gets a different sentence.
+    if (err?.code === "ETIMEDOUT") throw wedgedDaemonError("docker ps");
+    throw err;
+  }
   const name = out.split(/\r?\n/).filter(Boolean)[0];
   if (!name) {
     throw new Error(
@@ -61,8 +79,12 @@ function psql(container, sql, extraArgs = []) {
       "ON_ERROR_STOP=0",
       ...extraArgs,
     ],
-    { input: sql, encoding: "utf8" },
+    { input: sql, encoding: "utf8", timeout: DOCKER_QUERY_MS },
   );
+  // A timeout must THROW rather than return "". Callers assert on the TEXT, so
+  // an empty string from a wedged daemon would read as "the expected error was
+  // not present" and fail this check for the wrong reason.
+  if (dockerTimedOut(res)) throw wedgedDaemonError("psql inside the db container");
   return `${res.stdout ?? ""}${res.stderr ?? ""}`;
 }
 
@@ -80,10 +102,16 @@ function waitReady(container, attempts = 60) {
     try {
       execFileSync("docker", ["exec", container, "pg_isready", "-U", "postgres"], {
         stdio: "ignore",
+        timeout: DOCKER_PROBE_MS,
       });
       return true;
     } catch {
-      execFileSync("docker", ["exec", container, "sleep", "1"], { stdio: "ignore" });
+      // Bounded too: this is the SLEEP, so an unbounded call here would turn
+      // the retry loop into the hang it exists to survive.
+      execFileSync("docker", ["exec", container, "sleep", "1"], {
+        stdio: "ignore",
+        timeout: DOCKER_PROBE_MS,
+      });
     }
   }
   return false;
@@ -108,7 +136,9 @@ function crashMarkerCount() {
   const res = spawnSync("docker", ["logs", container], {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
+    timeout: DOCKER_PROBE_MS,
   });
+  if (dockerTimedOut(res)) throw wedgedDaemonError("docker logs");
   const log = `${res.stdout ?? ""}${res.stderr ?? ""}`;
   return (log.match(CRASH_MARKER) ?? []).length;
 }

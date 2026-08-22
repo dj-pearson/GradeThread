@@ -81,8 +81,22 @@ function takeLock() {
     }
     if (held?.pid && alive(held.pid)) {
       const mins = Math.round((Date.now() - (held.startedAt ?? Date.now())) / 60000);
+      // US-2788: which lane, and for how long. "pid 23936, ~176 min" says a run
+      // is old; it does not say whether it is WORKING. The lane heartbeat below
+      // is rewritten as each check starts, so a run stuck on one check for the
+      // whole 176 minutes names the thing that wedged — which for the run that
+      // prompted this story was a `docker info` that never returned.
+      const laneMins = held.laneStartedAt
+        ? Math.round((Date.now() - held.laneStartedAt) / 60000)
+        : null;
+      const laneLine = held.lane
+        ? `Currently in: \x1b[1m${held.lane}\x1b[0m` +
+          (laneMins !== null ? ` (${laneMins} min in this one check)` : "") +
+          ".\n"
+        : "";
       process.stderr.write(
         `\x1b[31mverify is already running\x1b[0m (pid ${held.pid}, ~${mins} min).\n` +
+          laneLine +
           "The lanes share dist/ and the coverage directory, so a second run " +
           "reports failures that are not real.\n" +
           "Wait for it, or re-run with --force if you know that run is dead.\n" +
@@ -143,6 +157,27 @@ function takeLock() {
 }
 
 const releaseLock = takeLock();
+
+/**
+ * Stamp the check that is about to run onto the lock file (US-2788).
+ *
+ * Cheap — one small write per check, a dozen or so per run — and it is what
+ * turns "is this run stuck?" from a judgement into a reading. Best-effort by
+ * design: a failure to write the heartbeat must never fail a verify run, and a
+ * lock that has been taken over by someone else is left alone.
+ */
+function noteLane(label) {
+  try {
+    const held = JSON.parse(readFileSync(lockPath, "utf8"));
+    if (held.pid !== process.pid) return;
+    writeFileSync(
+      lockPath,
+      JSON.stringify({ ...held, lane: label, laneStartedAt: Date.now() }),
+    );
+  } catch {
+    // No lock (--force), unreadable, or gone. Not worth a word.
+  }
+}
 
 const anyLaneFlag = ["--web", "--edge", "--db", "--security", "--e2e", "--vault", "--ios", "--android", "--all"]
   .some((f) => flags.has(f));
@@ -234,6 +269,7 @@ const degraded = [];
 // call". It is "time out the ones that cannot show you they are stuck".
 function run(name, cmd, opts = {}) {
   process.stdout.write(`\n\x1b[1m▶ ${name}\x1b[0m\n  $ ${cmd}${opts.cwd ? `   (in ${opts.cwd})` : ""}\n`);
+  noteLane(name);
   const started = Date.now();
   const r = spawnSync(cmd, { stdio: "inherit", shell: true, cwd: opts.cwd ?? root });
   const ok = r.status === 0;
@@ -245,6 +281,7 @@ function run(name, cmd, opts = {}) {
 // state (a vulnerable base image) where a hard gate would be red on arrival.
 function advisory(name, cmd, opts = {}) {
   process.stdout.write(`\n\x1b[1m▶ ${name}\x1b[0m \x1b[2m(advisory)\x1b[0m\n  $ ${cmd}\n`);
+  noteLane(`${name} (advisory)`);
   const r = spawnSync(cmd, { stdio: "inherit", shell: true, cwd: opts.cwd ?? root });
   if (r.status !== 0) warnings.push(name);
 }
@@ -430,6 +467,21 @@ if (on("ios")) {
       }
     }
   }
+}
+
+// ── Android reachability — DEFAULT set, not behind --android ────────────────
+//
+// A one-second text scan, so it rides with the iOS one rather than with the
+// Gradle lane below. Gating it behind --android would mean asking "can anyone
+// reach this?" only when someone opts into a five-minute build, and that is
+// exactly how a Google/Apple sign-in nobody can start, and a signup with no bot
+// challenge, both sat in the tree looking shipped (US-2792).
+//
+// Gated on `on("ios") || on("android")` so it runs in the default set (where
+// "ios" is on), on an explicit --android, and on --all — but not on a bare
+// --web, which has no business scanning a client tree.
+if ((on("ios") || on("android")) && existsSync(resolve(root, "android"))) {
+  run("android: no unreachable declarations", "node scripts/check-android-orphans.mjs");
 }
 
 // ── Android — mirrors android-ci.yml "build-and-test" (US-2502) ──────────────

@@ -20,14 +20,30 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 
+// US-2788: bounded, so a wedged daemon fails this lane instead of hanging it.
+import {
+  DOCKER_PROBE_MS,
+  DOCKER_QUERY_MS,
+  dockerTimedOut,
+  wedgedDaemonError,
+} from "./lib/docker-timeout.mjs";
+
 const MARK = "===GT-PLAN-BREAK===";
 
 function dbContainer() {
-  const out = execFileSync(
-    "docker",
-    ["ps", "--filter", "name=supabase_db_", "--format", "{{.Names}}"],
-    { encoding: "utf8" },
-  ).trim();
+  let out;
+  try {
+    out = execFileSync(
+      "docker",
+      ["ps", "--filter", "name=supabase_db_", "--format", "{{.Names}}"],
+      { encoding: "utf8", timeout: DOCKER_PROBE_MS },
+    ).trim();
+  } catch (err) {
+    // A wedged daemon is a different problem from an absent one, and the
+    // operator action is different too.
+    if (err?.code === "ETIMEDOUT") throw wedgedDaemonError("docker ps");
+    throw err;
+  }
   const name = out.split(/\r?\n/).filter(Boolean)[0];
   if (!name) {
     throw new Error(
@@ -43,8 +59,11 @@ function psql(container, sql) {
   const res = spawnSync(
     "docker",
     ["exec", "-i", container, "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1"],
-    { input: sql, encoding: "utf8" },
+    { input: sql, encoding: "utf8", timeout: DOCKER_QUERY_MS },
   );
+  // Throw rather than hand back a null status, which the caller would read as
+  // an ordinary psql failure and report as a plan difference.
+  if (dockerTimedOut(res)) throw wedgedDaemonError("psql inside the db container");
   return { text: `${res.stdout ?? ""}${res.stderr ?? ""}`, status: res.status };
 }
 

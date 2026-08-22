@@ -40,6 +40,9 @@
 // and the rest of the tool still runs without one.
 import { readdirSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+
+// US-2788: a docker call with no timeout hangs forever on a wedged daemon.
+import { DOCKER_QUERY_MS } from "./lib/docker-timeout.mjs";
 import { join, sep } from "node:path";
 
 const REPO = process.cwd();
@@ -185,7 +188,13 @@ export function foreignKeysFromCatalog(tables) {
 
   let raw;
   try {
-    raw = execFileSync(argv[0], argv.slice(1), { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    // US-2788: bounded, so a wedged daemon reaches the catch below instead of
+    // hanging here forever.
+    raw = execFileSync(argv[0], argv.slice(1), {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: DOCKER_QUERY_MS,
+    });
   } catch {
     return null;
   }
