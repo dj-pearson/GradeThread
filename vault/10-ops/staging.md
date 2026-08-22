@@ -57,9 +57,10 @@ accidentally pointed at prod.
    `whsec_…` in the staging env.
 4. **Frontend:** in the Cloudflare Pages project, add `staging` as a branch
    with the custom domain `staging.gradethread.com`. Set **Preview**-scope
-   env vars (`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` → staging Supabase,
-   `VITE_STRIPE_PUBLISHABLE_KEY` → `pk_test_…`) so previews and the staging
-   branch build against staging services, not prod.
+   env vars (`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` → staging Supabase)
+   so previews and the staging branch build against staging services, not prod.
+   This list used to include `VITE_STRIPE_PUBLISHABLE_KEY` → `pk_test_…`;
+   nothing reads it, so setting it staged nothing. See [[env-reference]].
 5. **CI:** set repo **Variables** (Settings → Secrets and variables → Actions
    → Variables): `STAGING_EDGE_URL`, `STAGING_WEB_URL`,
    `STAGING_SUPABASE_URL`. This activates `staging-smoke.yml`.

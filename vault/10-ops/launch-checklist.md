@@ -71,7 +71,7 @@ Each row: confirm `/health/ready` → `features.<group>` is `"ok"`.
 | Var | Where | Verify | By / Date |
 |---|---|---|---|
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | Pages | login works on the live site | ☐ |
-| `VITE_STRIPE_PUBLISHABLE_KEY` | Pages (Stripe) | checkout button loads Stripe | ☐ |
+| ~~`VITE_STRIPE_PUBLISHABLE_KEY`~~ | — | **NOT a prerequisite.** Nothing reads it, and there is no `@stripe/stripe-js` dependency; checkout is a server-minted Stripe Checkout URL. The "checkout button loads Stripe" check this row used to carry cannot pass or fail, because no browser code loads Stripe. See the warning in [[env-reference]]. | n/a |
 | `VITE_EDGE_API_URL` | Pages (`https://functions.gradethread.com`) | dashboard data loads (not 404) | ☐ |
 | `VITE_SENTRY_DSN` | Pages | a forced client error shows in Sentry | ☐ |
 | `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` | Pages | events appear in PostHog | ☐ |

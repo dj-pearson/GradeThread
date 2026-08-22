@@ -10,7 +10,7 @@ code_refs:
   - src/lib/garment-mapping.ts
   - src/lib/grading-readiness.ts
   - src/lib/measurement-templates.ts
-reviewed: 2026-08-21
+reviewed: 2026-08-22
 tags: [flipdesk, grading, ebay, contract]
 summary: An item carries three category axes that must agree; correcting one cascades into the others, and the specifics a change cannot carry are set aside rather than destroyed.
 ---
@@ -41,6 +41,21 @@ correction keeps the seller's own garment pick.
 
 That restraint is the point: the cascade exists to stop axes drifting apart, not
 to overwrite deliberate choices.
+
+> [!warning] The cascade can only be as right as the reverse map (US-2799)
+> A worked instance of this note's own thesis. `ebayPathToItemCategory` had no
+> `headwear` branch, and hats sat in the `accessories` one — so a seller who
+> deliberately picked eBay's "Men's Hats" had `item_category` cascaded from
+> headwear TO accessories, losing the rubric, the photo profile and the
+> measurement template in the same save. The most explicit statement available
+> about what an item is, translated into the wrong answer, by the mechanism
+> built to keep the axes together.
+>
+> Two things made it survive. The branch order: eBay files hats under a
+> Clothing parent on several paths, so both words sit in the tail and only
+> ORDER decides which wins — headwear now sits with `shoes` and `bags` above
+> `clothing`. And the test, which was titled "(belts/hats)" and asserted only
+> belts, so its name claimed coverage the assertion never had.
 
 **Both routes derive the garment axis the same way**, through
 `garmentPatchForCategoryChange(current, next)` in `src/lib/garment-mapping.ts`.
