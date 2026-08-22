@@ -1,5 +1,40 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-08-22: 00649_sales_predicted_parcel.sql
+
+US-2790. Applied by the owner and VERIFIED against the database rather than
+against this file, which is the rule this file's own header states:
+
+- `sales.predicted_parcel` is **PRESENT** in PostgREST's OpenAPI document for
+  production (37 columns on `sales`, read with the public anon key). Presence
+  is conclusive.
+- `GET /health/ready` reports
+  `{"expected":"00648","applied":"00649","status":"ahead","unexpected":["00649"]}`.
+  `ahead` and the `unexpected` entry only say the RUNNING edge build predates
+  the schema — this commit bumps `EXPECTED_SCHEMA_VERSION` to 00649, so the
+  next edge deploy resolves both.
+
+**What it does:** adds one nullable `jsonb` column, `sales.predicted_parcel`,
+plus a partial index on its `tableVersion` key. Nothing else.
+
+**Risk: LOW.** Additive, nullable, no default, no backfill, no data rewritten.
+`add column if not exists` and `create index if not exists`, so re-running the
+directory is safe. Every existing sale predates the estimator and correctly
+gets NULL — inventing a prediction for a shipment that already happened would
+poison the exact comparison the column exists to make.
+
+**Client-side read risk: NONE.** No frontend or edge code reads
+`predicted_parcel` yet. The writer is a later task. So the usual danger — the
+frontend auto-deploying on push and immediately reading a column prod does not
+have — does not apply here. `src/types/database.ts` is deliberately NOT
+updated in this commit for the same reason.
+
+**Apply order:** 00649 → `NOTIFY pgrst, 'reload schema';` (a column changed) →
+redeploy the edge, whose boot guard now expects 00649 → then OK the push.
+
+**Verify rather than trust this file:**
+`curl -fsS https://functions.gradethread.com/health/ready | jq .schema`
+
 > [!warning] HELD: none. 00646 and 00647 are both APPLIED and verified
 > (2026-08-21),
 > and the
