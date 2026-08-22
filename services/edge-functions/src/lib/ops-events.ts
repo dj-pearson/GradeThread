@@ -107,6 +107,31 @@ export function resolveAlertWebhook(config: OpsAlertConfig): string {
     "";
 }
 
+/**
+ * US-2003 AC2: is there any channel at all, from the ENVIRONMENT alone?
+ *
+ * Deliberately does NOT read system_settings. This answers a boot-time
+ * question, and the settings row needs a database round trip that a boot check
+ * has no business blocking on - a monitoring check that can hang the start-up
+ * of the thing it monitors is its own outage. The env half is also the half an
+ * operator sets, so it is the half worth shouting about.
+ *
+ * A settings-only configuration therefore reads as "none" here and still works
+ * at dispatch time. That is a false alarm in one direction, which is the safe
+ * direction for this particular alarm: it says "check your alert channels",
+ * and being told to check them when they are fine costs a minute.
+ */
+export function hasEnvAlertChannel(
+  get: (k: string) => string | undefined = (k) => Deno.env.get(k),
+): boolean {
+  const keys = [
+    "MONITOR_ALERT_WEBHOOK",
+    "MONITOR_ALERT_EMAIL",
+    "SMTP_ADMIN_EMAIL",
+  ];
+  return keys.some((k) => (get(k) ?? "").trim().length > 0);
+}
+
 export interface OpsEventInput {
   /** Human-readable one-liner for the feed. */
   title: string;
@@ -239,8 +264,51 @@ export async function dispatchOpsAlert(
     emailOk,
   };
 
-  if (!email && !webhook) {
-    recordMetric("ops_event.alert_undelivered", 1, { type });
+  // US-2003 AC2: an alert that reached NOBODY is LOUD, not a metric.
+  //
+  // THE ARGUMENT FOR CHANGING THIS. A monitoring system that cannot page is
+  // worse than none, because it produces false confidence - and the only record
+  // of that state was `ops_event.alert_undelivered`, a metric which itself has
+  // no alert. The one thing guaranteed not to reach anyone was the news that
+  // nothing reaches anyone.
+  //
+  // TWO WAYS IT HAPPENS, and only the first was recorded at all:
+  //   (a) NO channel is configured. The metric covered this.
+  //   (b) Channels ARE configured and every one of them FAILED. Nothing
+  //       recorded this. A webhook failure dead-letters, so that half is
+  //       visible; an email-only deployment whose send fails left a warn-level
+  //       exception and an outcome object nobody reads. That is the worse case
+  //       of the two, because the health line reports alerting: ok throughout.
+  //
+  // So the condition is "did this land anywhere", not "was anything set up".
+  if (!emailOk && !webhookOk) {
+    // Kept, and now it means the narrower thing it always said: nothing was
+    // even configured. That distinction is what tells an operator whether to
+    // set a variable or to go and look at a broken endpoint.
+    if (!email && !webhook) {
+      recordMetric("ops_event.alert_undelivered", 1, { type });
+    }
+    recordMetric("ops_event.alert_reached_nobody", 1, { type });
+
+    // captureException rather than a log line: this has to arrive somewhere a
+    // human looks, and Sentry is the one channel that does not depend on the
+    // configuration that just failed. Severity is the EVENT's own - a lost
+    // `info` event is not worth waking anyone, and treating it as critical is
+    // how a page becomes something people mute.
+    if (severity === "critical" || severity === "warning") {
+      captureException(
+        new Error(
+          `Ops alert reached no channel: ${type} (${severity}). ` +
+            (email || webhook
+              ? "Channels are configured and every one of them failed."
+              : "No alert channel is configured at all."),
+        ),
+        {
+          route: "ops-events.alert.reached_nobody",
+          level: severity === "critical" ? "error" : "warn",
+        },
+      );
+    }
   }
   return outcome;
 }

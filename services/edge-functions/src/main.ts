@@ -287,6 +287,7 @@ import {
   assertAdminMfaConfig,
   assertKnownEdgeEnv,
   assertNoProdDebugFlags,
+  isProduction,
 } from "./lib/env.ts";
 import { assertRequiredEnv, warnDeliverability, warnMissingFeatureGroups } from "./lib/env-validation.ts";
 import { assertSchemaVersion, checkSchemaCompleteness } from "./lib/schema-version.ts";
@@ -297,6 +298,7 @@ import {
   isPlaceholderRelease,
   unreadReleaseCandidates,
 } from "./lib/release-identity.ts";
+import { hasEnvAlertChannel } from "./lib/ops-events.ts";
 import { featureGate } from "./lib/feature-flags.ts";
 // US-9103: the origin allowlist moved to its own module so the MCP endpoint's
 // DNS-rebinding guard and CORS share one definition of a trusted origin.
@@ -2021,6 +2023,33 @@ logEvent("info", "edge.boot", {
 // NAMES ONLY. This lands in a deploy log; a value would put whatever the key
 // holds somewhere it was never meant to be. Only when the release is unknown,
 // so a healthy deploy logs nothing extra.
+// US-2003 AC2: a production deploy that cannot page anyone says so at boot.
+//
+// Every alert channel is optional and every one of them degrades to silence, so
+// the state "nothing can reach a human" was recorded only as an
+// `ops_event.alert_undelivered` metric - which itself has no alert. The one
+// message guaranteed not to arrive was the news that no message arrives.
+//
+// LOGGED, NOT FATAL, and that is the whole decision. AC2 offers "fail at boot
+// (or emit at critical)", and refusing to start would trade a blind monitor for
+// a dead service: the edge handles grading, payments and eBay writes, none of
+// which get safer by being off. A deploy that cannot page is a serious problem
+// and is not a reason to stop taking money.
+//
+// Env only, on purpose - see hasEnvAlertChannel. A settings-only setup reads as
+// "none" here and still works at dispatch, which is a false alarm in the safe
+// direction for an alarm that says "go and check your alert channels".
+if (isProduction() && !hasEnvAlertChannel()) {
+  logEvent("error", "edge.boot.no_alert_channel", {
+    checked: ["MONITOR_ALERT_WEBHOOK", "MONITOR_ALERT_EMAIL", "SMTP_ADMIN_EMAIL"],
+    hint:
+      "No alert channel is configured, so a SEV1 reaches nobody. Set " +
+      "MONITOR_ALERT_WEBHOOK on the edge resource. /health/ready reports " +
+      "alerting: ok whenever ANY of these is set, which is a claim about " +
+      "configuration and not about delivery - run the drill (US-2003 AC1).",
+  });
+}
+
 if (isPlaceholderRelease(bootRelease)) {
   const candidates = unreadReleaseCandidates(Object.entries(Deno.env.toObject()));
   logEvent("warn", "edge.boot.release_unknown", {
