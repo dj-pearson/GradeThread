@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!warning] HELD: 00645 and 00648. 00646 and 00647 are both APPLIED and verified
+> [!warning] HELD: none. 00646 and 00647 are both APPLIED and verified
 > (2026-08-21),
 > and the
 > 00627 tail (US-2729) is fully resolved — both its functions are confirmed
@@ -28,7 +28,25 @@
 > applied when prod had not — and both times it was trusted and prod was not
 > asked. One unauthenticated GET settles it.
 
-## HELD: 00648_lister_locales.sql (US-2777)
+## ✅ APPLIED 2026-08-22: 00648_lister_locales.sql (US-2777)
+
+**APPLIED AND THE CACHE HAS RELOADED.** Both measured against production rather
+than taken on trust, and the second is the half that usually gets assumed:
+
+- `GET /health/ready` reports `expected 00647, applied 00648, ahead` with **no
+  `missing` key**, so the applied set is complete. `ahead` only says the running
+  edge build predates the schema, which the next edge deploy resolves.
+- `lister_locales` appears in the `flipdesk_settings` definition of PostgREST's
+  OpenAPI document (`GET /rest/v1/` with `Accept: application/openapi+json` and
+  the public anon key), alongside `cross_post_channels` as a control. That
+  document IS the schema cache, so the column being in it settles the column and
+  the `NOTIFY pgrst, 'reload schema'` in one read. Presence is conclusive;
+  absence would not have been.
+
+Nothing further is required before this commit is pushed.
+
+Original entry follows.
+
 
 **Risk: LOW.** One nullable `jsonb` column added to `flipdesk_settings`. No
 backfill, no default, no constraint, no function, no data rewritten. Every
