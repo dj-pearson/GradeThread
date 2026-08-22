@@ -199,3 +199,93 @@ describe("the listings table names every per-row control (US-2450)", () => {
     expect(TABLE_SRC).not.toMatch(/\/\^item\\s\+\\d\+\$\/i\.test/);
   });
 });
+
+describe("the bulk-edit table names every per-row control too (US-2450)", () => {
+  /**
+   * US-2450 fixed the listings table and stopped there, so the SAME defect sat
+   * one table along for a fortnight: thirteen controls per row in the AutoLister
+   * bulk editor, every one of them a fixed string. "Select row", "Title",
+   * "Price", "Condition", "Brand", "Size", "Colour" — over a virtualized list of
+   * up to a few hundred drafts, which is the surface where a seller is most
+   * likely to be moving down a single column at speed.
+   *
+   * It was invisible to US-2335's count for the same reason as the first one:
+   * every control HAD a name. It was invisible to this file's guard because the
+   * guard read one path.
+   */
+  const BULK_SRC = readFileSync(
+    resolve(process.cwd(), "src/pages/flipdesk/autolister-bulk-edit.tsx"),
+    "utf8",
+  );
+
+  /** Rendered once per table, not once per row. Keep short and justified. */
+  const TABLE_LEVEL_LABELS = ["Find and replace scope", "Select all"];
+
+  it("reads the bulk-edit source", () => {
+    expect(BULK_SRC.length).toBeGreaterThan(10_000);
+    expect(BULK_SRC).toContain("virtualRows.map(");
+  });
+
+  it("has no fixed aria-label outside the table-level allowlist", () => {
+    const fixed = [...BULK_SRC.matchAll(/aria-label="([^"]*)"/g)]
+      .map((m) => m[1] ?? "")
+      .filter((v) => !TABLE_LEVEL_LABELS.includes(v));
+    expect(
+      fixed,
+      `These repeat identically for every draft on screen. Interpolate the row ` +
+        `identity via rowControlLabel, or add the control to TABLE_LEVEL_LABELS ` +
+        `if it really renders once per table.`,
+    ).toEqual([]);
+  });
+
+  it("derives the row identity ONCE per row, from the shared helper", () => {
+    expect(BULK_SRC).toContain('from "@/lib/item-row-label"');
+    // One object per row, threaded into every control. Two would be the door
+    // back to a row introducing itself differently to different controls, which
+    // is the drift that made the listings row announce "Open Item 42" while
+    // displaying "Nike Windbreaker".
+    expect((BULK_SRC.match(/const rowItem = \{/g) ?? []).length).toBe(1);
+  });
+
+  it("every per-row control is handed that identity", () => {
+    // Twelve rowControlLabel calls plus the checkbox's own phrasing. Asserted as
+    // a floor rather than an exact number so adding a column does not fail this,
+    // while removing the wiring from most of them does.
+    const used = (BULK_SRC.match(/rowControlLabel\("/g) ?? []).length;
+    expect(used).toBeGreaterThanOrEqual(12);
+    // Every aria-label in the file is now either allowlisted or an expression.
+    const dynamic = (BULK_SRC.match(/aria-label=\{/g) ?? []).length;
+    expect(dynamic).toBeGreaterThanOrEqual(13);
+  });
+
+  it("no control builds its OWN identity object to satisfy the call", () => {
+    // ADDED BECAUSE A SABOTAGE GOT PAST THE TWO ASSERTIONS ABOVE. Handing one
+    // control `rowControlLabel("Brand", { id: r.id })` leaves the
+    // single-derivation count at one and the call count unchanged, and that
+    // control then announces an id fragment while its twelve neighbours
+    // announce the title — the row introducing itself two ways, which is the
+    // precise drift the shared derivation exists to prevent.
+    //
+    // So the argument is pinned, not just the call.
+    const calls = BULK_SRC.match(/rowControlLabel\(/g) ?? [];
+    const wired = BULK_SRC.match(/rowControlLabel\("[^"]*", rowItem\)/g) ?? [];
+    expect(
+      wired.length,
+      `${calls.length} rowControlLabel calls but ${wired.length} pass rowItem. ` +
+        `One is building its own identity, so that control will announce a ` +
+        `different name from the rest of its row.`,
+    ).toBe(calls.length);
+    // The checkbox phrases itself, so it is checked separately rather than
+    // excused.
+    expect(BULK_SRC).toContain("`Select ${itemRowLabel(rowItem)}`");
+    expect((BULK_SRC.match(/itemRowLabel\(/g) ?? []).length).toBe(1);
+  });
+
+  it("the spoken name follows what the cell SHOWS, not the other way round", () => {
+    // The inputs render r.title and use the stored item title only as their
+    // placeholder. Passing them the other way round would make a row announce a
+    // name it is not displaying — the same class of bug as the activate label.
+    expect(BULK_SRC).toMatch(/item_title: r\.title/);
+    expect(BULK_SRC).toMatch(/listing_title: itemAttrs\[r\.itemId\]\?\.title/);
+  });
+});

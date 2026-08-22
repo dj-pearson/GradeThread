@@ -57,6 +57,7 @@ import { pruneSources, type AspectSourceMap } from "@/lib/aspect-provenance";
 
 import { changesFromItemDiff } from "@/lib/title-sync";
 import { buildTitleSyncPatch } from "@/lib/title-sync-patch";
+import { itemRowLabel, rowControlLabel } from "@/lib/item-row-label";
 
 const TITLE_MAX = 80;
 
@@ -1639,6 +1640,29 @@ export function FlipdeskAutolisterBulkEditPage() {
               const r = rows[vr.index];
               if (!r) return null;
               const issues = rowIssues(r);
+              // US-2450, same defect one table along. Every control below used
+              // to carry a fixed name - "Select row", "Title", "Price" - so a
+              // screen reader user moving down a column heard the same word on
+              // every one of up to a few hundred virtualized rows with nothing
+              // saying which garment. A name that does not distinguish is not a
+              // usable name; the listings table was fixed for exactly this and
+              // this table was left.
+              //
+              // Derived ONCE per row and threaded into every control, so the
+              // row cannot introduce itself one way to the checkbox and another
+              // way to the price field.
+              //
+              // The precedence mirrors what the cells SHOW: r.title is the
+              // value the inputs render and the item's own title is only their
+              // placeholder, so the edited title is item_title here and the
+              // stored one is the fallback. Getting that backwards would make a
+              // row announce a name it is not displaying, which is the second
+              // half of the bug the listings table had.
+              const rowItem = {
+                item_title: r.title,
+                listing_title: itemAttrs[r.itemId]?.title ?? null,
+                id: r.id,
+              };
               return (
                 <tr
                   key={r.id}
@@ -1658,11 +1682,11 @@ export function FlipdeskAutolisterBulkEditPage() {
                           return next;
                         })
                       }
-                      aria-label="Select row"
+                      aria-label={`Select ${itemRowLabel(rowItem)}`}
                     />
                   </td>
                   <td className="p-2">
-                    <Input aria-label="Title"
+                    <Input aria-label={rowControlLabel("Title", rowItem)}
                       value={r.title}
                       onChange={(e) => patchRow(r.id, { title: e.target.value })}
                       placeholder={itemAttrs[r.itemId]?.title ?? "Title"}
@@ -1704,7 +1728,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                     />
                   </td>
                   <td className="p-2">
-                    <Input aria-label="Price"
+                    <Input aria-label={rowControlLabel("Price", rowItem)}
                       type="number"
                       min="0"
                       step="0.01"
@@ -1733,7 +1757,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                   </td>
                   <td className="p-2">
                     <select
-                      aria-label="Condition"
+                      aria-label={rowControlLabel("Condition", rowItem)}
                       value={r.condition}
                       onChange={(e) => patchRow(r.id, { condition: e.target.value })}
                       className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm"
@@ -1771,7 +1795,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                   </td>
                   <td className="p-2">
                     <select
-                      aria-label="Department"
+                      aria-label={rowControlLabel("Department", rowItem)}
                       value={r.department}
                       onChange={(e) => patchRow(r.id, { department: e.target.value })}
                       className="h-8 w-full rounded-md border border-input bg-transparent px-2 text-sm"
@@ -1795,7 +1819,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                     )}
                   </td>
                   <td className="p-2">
-                    <Input aria-label="Brand"
+                    <Input aria-label={rowControlLabel("Brand", rowItem)}
                       value={r.brand}
                       onChange={(e) => patchRow(r.id, { brand: e.target.value })}
                       className="h-8"
@@ -1813,7 +1837,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                     )}
                   </td>
                   <td className="p-2">
-                    <Input aria-label="Size"
+                    <Input aria-label={rowControlLabel("Size", rowItem)}
                       value={r.size}
                       onChange={(e) => patchRow(r.id, { size: e.target.value })}
                       className="h-8"
@@ -1831,7 +1855,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                     )}
                   </td>
                   <td className="p-2">
-                    <Input aria-label="Color"
+                    <Input aria-label={rowControlLabel("Color", rowItem)}
                       value={r.color}
                       onChange={(e) => patchRow(r.id, { color: e.target.value })}
                       className="h-8"
@@ -1862,7 +1886,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                     />
                   </td>
                   <td className="p-2">
-                    <Input aria-label="Quantity"
+                    <Input aria-label={rowControlLabel("Quantity", rowItem)}
                       type="number"
                       min="1"
                       value={r.quantity}
@@ -1879,7 +1903,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                       type="checkbox"
                       checked={r.bestOffer}
                       onChange={(e) => patchRow(r.id, { bestOffer: e.target.checked })}
-                      aria-label="Best offer"
+                      aria-label={rowControlLabel("Best offer", rowItem)}
                     />
                     {r.bestOffer && (
                       <div className="mt-1 flex flex-col gap-1">
@@ -1893,7 +1917,7 @@ export function FlipdeskAutolisterBulkEditPage() {
                           }
                           placeholder="Auto-accept ≥"
                           title="Auto-accept offers at or above this price. Blank = review every offer yourself."
-                          aria-label="Best offer auto-accept price"
+                          aria-label={rowControlLabel("Best offer auto-accept price", rowItem)}
                           className="h-7 w-24 text-xs"
                         />
                         <Input
@@ -1906,14 +1930,14 @@ export function FlipdeskAutolisterBulkEditPage() {
                           }
                           placeholder="Auto-decline ≤"
                           title="Auto-decline offers at or below this price. Blank = review every offer yourself."
-                          aria-label="Best offer auto-decline price"
+                          aria-label={rowControlLabel("Best offer auto-decline price", rowItem)}
                           className="h-7 w-24 text-xs"
                         />
                       </div>
                     )}
                   </td>
                   <td className="p-2">
-                    <Input aria-label="Scheduled publish time"
+                    <Input aria-label={rowControlLabel("Scheduled publish time", rowItem)}
                       type="datetime-local"
                       value={r.scheduledAt}
                       onChange={(e) => patchRow(r.id, { scheduledAt: e.target.value })}
