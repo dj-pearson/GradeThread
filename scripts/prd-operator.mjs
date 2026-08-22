@@ -499,10 +499,49 @@ function rank(s) {
   return s.priority === undefined || s.priority === null ? "  -" : String(s.priority).padStart(3);
 }
 
+/**
+ * Every backlog file, not just prd.json.
+ *
+ * ⚠ THIS READ ONE FILE AND FOUR OPEN STORIES WERE INVISIBLE (2026-08-22).
+ * `prd-seo.json` and `prd-connector.json` are siblings holding their own
+ * programmes, and nothing in this queue looked at them — so US-9017's prod
+ * `--apply` and its dated 2026-10-17 Search Console follow-up, and US-9123's
+ * verification against real Claude clients, appeared in no operator list at
+ * all. They were not undeclared; they were unread.
+ *
+ * That is worse than an undeclared criterion, because an undeclared one at
+ * least shows up in the audit tail where somebody might notice it. A file the
+ * tool never opens produces no signal of any kind.
+ *
+ * Missing siblings are skipped rather than fatal: a partial checkout, or a
+ * programme that has been fully archived and its file removed, must not stop
+ * the queue printing.
+ */
+const BACKLOG_FILES = ["prd.json", "prd-seo.json", "prd-connector.json"];
+
+function loadBacklogs() {
+  const stories = [];
+  const read = [];
+  for (const file of BACKLOG_FILES) {
+    let raw;
+    try {
+      raw = fs.readFileSync(path.join(ROOT, file), "utf8");
+    } catch {
+      continue; // absent is fine — see the note above
+    }
+    const parsed = JSON.parse(raw);
+    const own = parsed.userStories ?? [];
+    // Tag the source so a reader can tell which programme an id belongs to.
+    for (const s of own) stories.push(file === "prd.json" ? s : { ...s, backlog: file });
+    read.push(`${file} (${own.filter((s) => !s.passes).length} open)`);
+  }
+  return { stories, read };
+}
+
 function main() {
   const argv = process.argv.slice(2);
-  const prd = JSON.parse(fs.readFileSync(path.join(ROOT, "prd.json"), "utf8"));
-  const { declared, undeclared, openCount, satisfied } = collect(prd.userStories ?? []);
+  const { stories, read } = loadBacklogs();
+  const { declared, undeclared, openCount, satisfied } = collect(stories);
 
   if (argv.includes("--sessions")) {
     const groups = groupBySession(declared, undeclared);
@@ -554,7 +593,10 @@ function main() {
   // The whole queue sorted by priority is a list; this is the shortest path
   // through it. Only DECLARED rows are ranked — an undeclared one is a guess at
   // what a person is needed for, and guessing twice does not make it a plan.
-  const namedBy = namedByCount(prd.userStories ?? []);
+  // Across ALL backlogs: a prd.json story can be waiting on a connector or SEO
+  // one, and counting only prd.json would under-rank exactly the cross-programme
+  // dependencies that are hardest to notice by reading.
+  const namedBy = namedByCount(stories);
   const ranked = declared
     .map((s) => ({ ...s, blocks: namedBy.get(s.id)?.size ?? 0 }))
     .filter((s) => s.blocks > 0)
