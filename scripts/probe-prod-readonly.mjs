@@ -193,6 +193,63 @@ async function main() {
           doc.paths[`/rpc/${fn}`] ? "ANSWERED — live" : "ANSWERED — missing, so its migration did not land");
       }
     }
+
+    // ── The same document answers COLUMNS, not just RPCs (2026-08-22) ──
+    //
+    // `definitions[table].properties` is every exposed column and
+    // `definitions[table].required` is its NOT NULL set. That settles a whole
+    // class of question filed as "one read-only SQL session against
+    // production": did this migration's column land, and is prod's nullability
+    // the nullability the migrations declare.
+    //
+    // Proven on US-2777 (lister_locales present => 00648 applied AND the
+    // PostgREST cache reloaded, in one read), US-2729 (four agent columns
+    // confirmed to have LEFT their required arrays) and US-2444 (the storefront
+    // column 00122 created, found by searching every table's columns after
+    // searching for its TABLE found nothing).
+    //
+    // ⚠ ONLY PRESENCE IS CONCLUSIVE. A missing column may be unexposed rather
+    // than absent, and this document shows no policies, indexes or defaults.
+    if (doc?.definitions) {
+      const col = (table, column) =>
+        Boolean(doc.definitions[table]?.properties?.[column]);
+      for (const [story, table, column, why] of [
+        ["US-2777", "flipdesk_settings", "lister_locales",
+          "00648 applied and the schema cache reloaded"],
+        ["US-2444", "users", "verified_show_listings",
+          "the column 00122 creates is live"],
+      ]) {
+        record(story, `is ${table}.${column} live`, col(table, column) ? "present" : "not exposed",
+          col(table, column)
+            ? `ANSWERED — ${why}`
+            : "INCONCLUSIVE — absence here is not absence in the database");
+      }
+    }
+
+    // ── pricing_plans is ANON-READABLE, so the money numbers are checkable ──
+    //
+    // US-2123 was filed as an operator SQL session and was one fetch. The live
+    // rows are the authority for what a plan grants, and a client that
+    // disagrees is telling a paying seller a number the server will not honour
+    // — which is exactly what iOS Settings did (pro 1000 vs the server's 750).
+    //
+    // Printed rather than judged: this script does not import the frontend's
+    // constants, and a mismatch is a decision about which side is wrong.
+    // src/test/ios-plan-quota-parity.test.ts holds the iOS side in CI.
+    const plans = await get(
+      `${API}/rest/v1/pricing_plans?select=key,ai_actions_per_month,included_standard_grades_per_month,active_listing_cap&order=sort_order`,
+      { apikey: anon, Authorization: `Bearer ${anon}` },
+    );
+    if (plans.ok) {
+      let rows = null;
+      try { rows = JSON.parse(plans.body); } catch { /* not json */ }
+      if (Array.isArray(rows) && rows.length) {
+        record("US-2123 / US-2117 / any pricing question",
+          "what does each plan actually grant in production",
+          rows.map((r) => `${r.key}:${r.ai_actions_per_month}ai/${r.included_standard_grades_per_month}gr`).join("  "),
+          "ANSWERED — these are the live rows; compare them to FLIPDESK_PLANS before filing a pricing bug");
+      }
+    }
   }
 
   // ── The guards, from the outside. No-argument functions only. ──
