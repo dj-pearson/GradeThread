@@ -288,6 +288,39 @@ pin the two together, because both halves look correct in isolation.
 Still unwired into the pipeline, still correct that it is. See
 [[blocked-work-gates]] for what Phase 2 is actually waiting on.
 
+**2026-08-22 — a third way to be dead: nothing can SAY the key.** US-2223 added
+a `headwear` rubric, a headwear photo profile and a headwear measurement
+template, and migration 00570 added `headwear` to the `item_category` enum,
+applied to production on 2026-08-09. Every one of those keys matched. The
+rubric still never ran, for two weeks, and a cap kept grading as an accessory.
+
+`rubric-parity_test.ts` — the guard written for the `handbags` case above — was
+green throughout, correctly. It pins `RUBRICS` keys to `PHOTO_PROFILES` keys,
+and both said `headwear`. What it cannot see is whether anything upstream is
+able to EMIT that value. Four hand-written copies of the category list had never
+learned it, and the load-bearing one is `ai-extract.ts`, which interpolates its
+copy into the extraction prompt AND uses it as the model's JSON-schema enum. A
+missing value there is not a rejected answer; it is an answer the model was
+never permitted to give. The prompt also instructed, in prose, that a hat is
+`accessories`.
+
+So the chain has three links, not two: something must PRODUCE the key, a lookup
+must CONTAIN it, and the thing it selects must EXIST. The `handbags` case broke
+link two and was pinned. This broke link one, which nothing was watching.
+
+The generalisation above still holds and needed widening: pin the PRODUCERS of
+a vocabulary to it as well as its consumers. `garment-taxonomy-copies.test.ts`
+now holds `ITEM_CATEGORIES` across every copy that keeps one, asserts the
+extraction prompt does not name the wrong category in words, and asserts every
+value has a `PHOTO_PROFILES` entry — reading the registry KEYS rather than the
+file text, because a whole-file match is satisfied by the comments explaining
+the bug.
+
+Two enum dimensions widened in the SAME migration and only one got a guard, so
+the other went stale in silence. When a migration touches more than one
+vocabulary, check each separately: the story that fixes one will describe
+itself as fixing "the" taxonomy drift.
+
 ### `brand-seed.ts` — the gate that could never have run
 
 The interesting one. Its header states that "the AI-assisted drafting job, the

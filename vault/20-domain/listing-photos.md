@@ -17,7 +17,7 @@ code_refs:
   - supabase/migrations/00587_item_photo_role_qualifier.sql
   - supabase/migrations/00589_submission_image_role.sql
   - services/edge-functions/src/routes/flipdesk-grading.ts
-reviewed: 2026-08-19
+reviewed: 2026-08-22
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
@@ -129,6 +129,16 @@ by somebody remembering both.
 Measurement roles are **derived** from `MEASUREMENT_TEMPLATES`, never hand
 listed. Adding a measurement field gets it a photo slot for free, in every
 client.
+
+> [!warning] A profile is only reachable if something can EMIT its key.
+> The `headwear` profile existed, matched a `headwear` rubric, and matched the
+> `item_category` enum value migration 00570 applied on 2026-08-09 — and never
+> served a single seller, because `ai-extract.ts` kept its own copy of the
+> category list, that copy never learned the value, and its prompt instructed
+> the model that a hat is `accessories` (US-2797). Adding a profile is three
+> links, not two: the key must exist here, in `RUBRICS`, **and** in every list
+> a classifier or importer picks from. `src/test/garment-taxonomy-copies.test.ts`
+> pins all of them now. See [[shipped-but-unwired]].
 
 ## A tag is not a slot with room for one photo (US-2501)
 

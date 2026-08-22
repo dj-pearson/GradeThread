@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/sheet-sync.ts
   - services/edge-functions/src/lib/sheet-map.ts
   - services/edge-functions/src/routes/flipdesk-google-sync.ts
-reviewed: 2026-08-14
+reviewed: 2026-08-22
 tags: [flipdesk, sync, google, contract]
 summary: One bidirectional 3-way merge where GradeThread wins conflicts, plus a mapped mode that writes into a seller's own spreadsheet and therefore carries hard safety rules.
 ---
@@ -93,6 +93,13 @@ need live Sheets plus Supabase.
 
 - **A dropdown that looked editable but was not writable** silently reverted the
   seller's edits. Tab setup now gates the category dropdown on `writable`.
+- **A dropdown built from a stale enum copy.** `ITEM_CATEGORY_VALUES` in
+  `sheet-sync.ts` does double duty: it rejects an out-of-list cell *and* becomes
+  the Sheets data-validation list, so a value missing from it is one the seller
+  cannot pick and cannot type. It sat two enum widenings behind the database —
+  missing `jewelry`/`bags`/`accessories` (00230) and `headwear` (00570) — until
+  US-2797. `src/test/garment-taxonomy-copies.test.ts` now holds it to
+  `ITEM_CATEGORIES`.
 - **Snapshot non-atomicity.** Pure-pull rows commit their snapshot *before* the
   Sheets cell-writes (`earlySnapshotUpserts`), closing the false-conflict window
   when the Sheets API fails mid-run. Pushed rows still snapshot after.
