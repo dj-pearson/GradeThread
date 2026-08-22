@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2787",
+  "nextId": "US-2788",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2381,80 +2381,6 @@
         "A guard fails if ListerPayload.locale has no producer. The unwired-module gate catches a module nobody imports; this is the same defect one level down - a FIELD nobody sets - and it survived because every layer that consumes it is correct."
       ],
       "priority": 31
-    },
-    {
-      "id": "US-2782",
-      "passes": false,
-      "priority": 22,
-      "title": "The style-code index only learns codes we have already met, so the page a reseller lands on is blank for the garment they are holding",
-      "description": "As a reseller, I want the style-code index filled brand-first from listings sellers already tagged with a structured style code, so that a code I have never listed is already answered when I type it.",
-      "acceptanceCriteria": [
-        "A new PURE module lib/style-code-discovery.ts decides what a discovery tick crawls and what it keeps. No eBay, no database, no clock, so every rule below is a unit test",
-        "pickDiscoveryTargets({brands, state, budget, now}) orders brands least-recently-crawled first, skips brands inside their cooldown, and wraps a brand whose cursor passed eBay's paging ceiling back to offset 0 with a long cooldown. It reports what it DEFERRED rather than truncating silently",
-        "harvestListing({listing, canonicalize, ownItemIds}) returns a find ONLY when the listing DECLARES a style code in a structured field. It reuses declaredStyleCode and declaredProductName from lib/style-code-aspects.ts verbatim — discovery does not get a softer copy of the US-2751 rule",
-        "A title never creates a code and never creates a name. A test asserts a listing whose TITLE contains a style code and whose aspects do not produces no find",
-        "Our own eBay listing ids are excluded before anything is harvested, the same read the sweep already makes, so our AI-written specifics cannot come back as market evidence",
-        "planDiscoveryWrites collapses one page to a single write per code: ten identical listings of one garment are one piece of evidence, not ten",
-        "lib/ebay-client.ts gains searchBrowseByBrand with an offset, scoped to category 11450 so eBay accepts the Brand aspect_filter, capping limit+offset at eBay's 10,000 ceiling. searchBrowseComps is NOT given a fifth optional argument — it is on the seller's hot path and does not page",
-        "src/tests/style-code-discovery_test.ts covers rotation order, cooldown, cursor wrap, deferral accounting, the declared-code accept, the title-only refusal, the one-word Model refusal, own-listing exclusion and per-page collapse"
-      ],
-      "dependsOn": []
-    },
-    {
-      "id": "US-2783",
-      "passes": false,
-      "priority": 23,
-      "title": "A discovery crawl with no cursor re-reads page one forever and reports success every night",
-      "description": "As whoever runs production, I want the brand crawl to remember where it stopped, so that a job which looks healthy is actually reaching new listings.",
-      "acceptanceCriteria": [
-        "Migration 00646 creates style_code_discovery_state: one row per brand_key holding the paging cursor, last_run_at, listings_seen, codes_found and a consecutive-empty-pass counter",
-        "Global reference data like the rest of the style-code tables: no owner column, RLS enabled with ZERO policies, and registered in SERVICE_ROLE_ONLY so rls-guard_test.ts covers it",
-        "record_style_code_discovery(...) upserts the state row and accumulates the counters server-side, so two ticks cannot clobber each other's totals",
-        "style_code_discovery_brands(p_limit) returns the brand rotation from brand_knowledge joined to state. A FUNCTION, not a client-side row scan: US-2029 and the 00627 scan both proved a cap on rows starves whichever keys sort late",
-        "The style_code_observations source check is widened to admit 'discovery' by DROP CONSTRAINT IF EXISTS then ADD, the same shape 00635 used on style_code_names. No backfill, no existing row touched",
-        "US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped to 00646 in the SAME commit, self-record footer",
-        "Entered in PENDING_MIGRATIONS.md with its verification queries, and NOT pushed until the owner has applied it",
-        "No CREATE TRIGGER without a DROP TRIGGER IF EXISTS guard. That is exactly how 00627 aborted half-applied and why US-2729 exists"
-      ],
-      "dependsOn": []
-    },
-    {
-      "id": "US-2784",
-      "passes": false,
-      "priority": 24,
-      "title": "Nothing crawls: the discovery module and its table exist with no job to run them",
-      "description": "As whoever runs production, I want a nightly discovery tick that spends a bounded eBay budget and says exactly what it left behind, so that the index fills without starving a seller mid-listing.",
-      "acceptanceCriteria": [
-        "routes/jobs-style-code-discovery.ts requires the job secret, then takes a job lock named style-code-discovery. A second tick arriving while the first runs does NOTHING — not a smaller crawl, not a retry",
-        "Sequential, never fanned out: these calls come from the same app-level eBay allowance the comps ladder and the seller Add flow draw on",
-        "Budget defaults to 3 brands and 20 item lookups per brand (63 eBay calls a night), both overridable by STYLE_CODE_DISCOVERY_BRANDS and STYLE_CODE_DISCOVERY_LOOKUPS so the rate changes without a deploy",
-        "Codes are written as observations with source 'discovery'. A name is written to style_code_names at source 'consensus' and its confidence band, so a discovered name sits below a seller correction and below a decoder hit and can never overrule one",
-        "The tick logs and returns brands considered / crawled / deferred, listings scanned, listings declaring a code, new codes, known codes, names written and own listings skipped. Deferred is reported explicitly",
-        "Registered in lib/cron-runs.ts at '10 3 * * *' with its healthy signature, and CRON_SETUP.md regenerated from the registry rather than hand-edited",
-        "Wired in main.ts at POST /api/jobs/style-code-discovery. It is job-secret gated rather than user-scoped, so it has no case in tenant-isolation_test.ts (which drives two real user sessions); the equivalent guarantee is a source assertion that the route NAMES no tenant table except listings, read for platform_listing_id only to EXCLUDE our own data",
-        "The lock acquirer is an injected seam, like the sweep's, so the concurrency guarantee is a test rather than a claim"
-      ],
-      "dependsOn": [
-        "US-2782",
-        "US-2783"
-      ]
-    },
-    {
-      "id": "US-2785",
-      "passes": false,
-      "priority": 25,
-      "title": "Discovery runs blind: nobody can see whether the crawl is finding codes or burning calls on empty listings",
-      "description": "As the operator, I want the discovery crawl's yield visible next to the brand knowledge it feeds, so that I can tell fewer-brands-deeper from more-calls before a month of quota is spent.",
-      "acceptanceCriteria": [
-        "The admin brand-knowledge page (src/pages/admin/brand-knowledge.tsx) shows per brand: last crawled, cursor depth, listings scanned, codes found and codes-per-lookup",
-        "Codes-per-lookup is the number that decides the budget question. It is shown as a rate, not a raw total, because a brand crawled twice as long is not a brand yielding twice as well",
-        "A brand whose cursor wrapped or whose last passes found nothing new is marked exhausted, so the pool of brands worth crawling is visible rather than inferred",
-        "Served by the existing admin-brand-knowledge route with its existing admin scope. No new auth surface",
-        "Read-only. Nothing on this page starts, stops or re-runs a crawl"
-      ],
-      "dependsOn": [
-        "US-2784"
-      ]
     },
     {
       "id": "US-2786",

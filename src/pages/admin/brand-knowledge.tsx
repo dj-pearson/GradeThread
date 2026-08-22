@@ -225,6 +225,11 @@ export function AdminBrandKnowledgePage() {
     staleTime: 30 * 1000,
   });
 
+  // US-2787: which brand's crawl is in flight, or "__rotation__" for the whole
+  // nightly rotation. One value rather than a boolean per row, because the job
+  // lock allows exactly one crawl at a time anyway.
+  const [crawling, setCrawling] = useState<string | null>(null);
+
   const {
     data: crawl,
     isLoading: crawlLoading,
@@ -242,6 +247,35 @@ export function AdminBrandKnowledgePage() {
     void queryClient.invalidateQueries({
       queryKey: ["admin-brand-kb", "style-codes"],
     });
+
+  async function runCrawl(brandKey?: string) {
+    setCrawling(brandKey ?? "__rotation__");
+    try {
+      const result = await api(
+        "/api/admin/brand-knowledge/style-codes/discovery/run",
+        "POST",
+        brandKey ? { brand_key: brandKey } : {},
+      );
+      if (result.skipped) {
+        // The job lock, not an error. Saying so keeps a second click from
+        // reading as a failure.
+        toast.info("A crawl is already running. Nothing was started.");
+      } else {
+        toast.success(
+          `Crawled ${result.crawled ?? 0} brand(s): ${result.newCodes ?? 0} new ` +
+            `code(s), ${result.names ?? 0} name(s) from ${result.inspected ?? 0} listings.`,
+        );
+      }
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-brand-kb", "discovery"],
+      });
+      refreshReview();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "The crawl failed to start");
+    } finally {
+      setCrawling(null);
+    }
+  }
 
   function openPromote(cand: ReviewCandidate) {
     setPromoteTarget(cand);
@@ -548,12 +582,26 @@ export function AdminBrandKnowledgePage() {
           nothing here starts, stops or re-runs a crawl. */}
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">Style-code discovery crawl</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            How far the nightly brand crawl has walked each brand's live eBay
-            listings, and what it got back. A brand is exhausted when its cursor
-            wrapped or several passes found nothing new.
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <CardTitle className="text-base">
+                Style-code discovery crawl
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                How far the nightly brand crawl has walked each brand's live eBay
+                listings, and what it got back. A brand is exhausted when its
+                cursor wrapped or several passes found nothing new.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={crawling !== null}
+              onClick={() => void runCrawl()}
+            >
+              {crawling === "__rotation__" ? "Crawling…" : "Run tonight's batch now"}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-2">
           {crawlError
@@ -588,6 +636,7 @@ export function AdminBrandKnowledgePage() {
                         Codes / listing
                       </th>
                       <th className="py-2 font-medium">State</th>
+                      <th className="py-2 pl-4 font-medium sr-only">Run</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -621,6 +670,16 @@ export function AdminBrandKnowledgePage() {
                             : row.exhausted
                             ? <Badge variant="secondary">exhausted</Badge>
                             : <Badge variant="outline">crawling</Badge>}
+                        </td>
+                        <td className="py-2 pl-4 text-right">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={crawling !== null}
+                            onClick={() => void runCrawl(row.brand_key)}
+                          >
+                            {crawling === row.brand_key ? "Crawling…" : "Crawl now"}
+                          </Button>
                         </td>
                       </tr>
                     ))}

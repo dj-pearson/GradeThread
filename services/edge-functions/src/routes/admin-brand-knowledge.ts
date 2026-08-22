@@ -12,6 +12,7 @@ import {
   EXHAUSTED_EMPTY_PASSES,
   MAX_DISCOVERY_OFFSET,
 } from "../lib/style-code-discovery.ts";
+import { runStyleCodeDiscovery } from "./jobs-style-code-discovery.ts";
 import { validateTellsForWrite } from "../lib/brand-authenticity.ts";
 import {
   groupStyleCodeRows,
@@ -397,6 +398,54 @@ adminBrandKnowledgeRoutes.get("/style-codes/discovery", async (c) => {
   });
 
   return c.json({ brands: rows });
+});
+
+// ── POST /style-codes/discovery/run — crawl now, without waiting for 3am ────
+//
+// US-2787: the same tick the cron runs, called by hand. It is the SAME function
+// (runStyleCodeDiscovery), not a second implementation, because a manual path
+// with its own copy of the budget, the lock and the own-listing exclusion is a
+// copy nobody would notice drifting.
+//
+// Body: { brand_key?: string }. With a brand, that brand is crawled now
+// regardless of its cooldown and it is the only one crawled. Without, the run is
+// exactly the nightly rotation.
+//
+// The job lock does the rate limiting: clicking the button three times while a
+// crawl is running returns skipped twice rather than tripling the eBay spend.
+adminBrandKnowledgeRoutes.post("/style-codes/discovery/run", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const brandKey = typeof body?.brand_key === "string"
+    ? body.brand_key.trim()
+    : "";
+
+  try {
+    const result = await runStyleCodeDiscovery(
+      brandKey
+        // One brand, and a budget of one so a manual run cannot quietly turn
+        // into a full nightly rotation the operator did not ask for.
+        ? { forceBrandKeys: [brandKey], budget: 1 }
+        : {},
+    );
+    await writeAuditLog(c, {
+      action: "brand_knowledge.run_style_code_discovery",
+      targetType: "style_code_discovery",
+      targetId: brandKey || null,
+      details: {
+        brand_key: brandKey || "rotation",
+        crawled: result.crawled ?? 0,
+        new_codes: result.newCodes ?? 0,
+        skipped: result.skipped ?? false,
+      },
+    });
+    return c.json(result);
+  } catch (err) {
+    console.error(
+      "[admin-brand-kb] manual discovery run failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "The crawl failed to start" }, 500);
+  }
 });
 
 adminBrandKnowledgeRoutes.get("/style-codes/review", async (c) => {

@@ -135,13 +135,38 @@ anything a first pass missed.
 
 Per tick: `brands x (1 search + N item lookups)`.
 
-Defaults: 3 brands, 20 item lookups each, so 63 eBay calls a night. Both are env
-overridable (`STYLE_CODE_DISCOVERY_BRANDS`, `STYLE_CODE_DISCOVERY_LOOKUPS`) so the
-rate can be raised once the real hit rate is known without a deploy.
+Defaults: **12 brands**, 20 item lookups each, so 252 eBay calls a night. Both are
+env overridable (`STYLE_CODE_DISCOVERY_BRANDS`, `STYLE_CODE_DISCOVERY_LOOKUPS`) so
+the rate changes without a deploy.
 
-The number to watch after the first week is codes-found per item-lookup. If most
-clothing sellers leave the Style Code field empty the lookups are the wrong place to
-spend, and the answer is fewer brands crawled deeper rather than more calls.
+It shipped at 3 and the first production run raised it. That run reported
+`considered: 230, crawled: 3, deferred: 227`: at three a night a single pass over the
+knowledge base takes 77 nights, so the seven-day cooldown never binds and the budget
+is the entire schedule. Twelve gives a full pass every 19 nights.
+
+The number to watch is codes-found per item-lookup, and the first run already says it
+varies enormously by brand. adidas declared a code on 8 of 20 listings; 7 For All
+Mankind and Abercrombie declared none on 20 each. Once every brand has had a pass,
+the answer is to drop the barren ones and crawl the productive ones deeper rather
+than to buy more calls.
+
+Only 3 of those 8 codes carried a product name. Sellers fill eBay's code field more
+often than they fill Model.
+
+## Running it by hand (US-2787)
+
+The tick body is `runStyleCodeDiscovery()`, which takes no Hono Context, so the 3am
+cron and the admin button are one function rather than two implementations of a
+budget, a lock and an own-listing exclusion.
+
+`POST /api/admin/brand-knowledge/style-codes/discovery/run` behind the file's
+existing `content:publish` scope. With `{brand_key}` it crawls that brand now,
+ignoring its cooldown, and nothing else; without, it runs the nightly rotation.
+Forcing skips the cooldown and only the cooldown — the cursor still wraps at eBay's
+ceiling.
+
+The job lock is the rate limit. A second click while a crawl is running returns
+`skipped`, and the UI reports that as information rather than as a failure.
 
 ## Reporting
 

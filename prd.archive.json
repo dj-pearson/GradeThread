@@ -40492,6 +40492,105 @@
         "US-2780"
       ],
       "notes": "Done 2026-08-21. lib/visual-style-names.ts is pure: mineStyleNames pulls 2-5 word phrases from comp titles after stripping brand, size, condition, department and colour tokens, requires 2 distinct non-own listings, and excludes our own ids BEFORE the tally rather than after. corroborateStyleName then demands a source that is NOT a title - a brand_styles row, a style code decoded off this garment's own tag, or a Model / Product Line item specific. Only a corroborated name becomes a style candidate, and the model can still reject it. This does not overturn the refusal at the top of style-code-aspects.ts; the change is one word wide, a title may GENERATE a candidate and may never CONFIRM one. AC NARROWED, deliberately: the AC said every uncorroborated name goes to the US-2216 review queue. That queue is keyed on a style code, so a name mined off a garment with no legible code has nothing to be filed UNDER and no way for a human to adjudicate it later. Uncorroborated names are filed against the code when the tag gave one, and otherwise dropped with a count in the log rather than written to a row nobody can ever resolve. 12 tests."
+    },
+    {
+      "id": "US-2782",
+      "passes": true,
+      "priority": 22,
+      "title": "The style-code index only learns codes we have already met, so the page a reseller lands on is blank for the garment they are holding",
+      "description": "As a reseller, I want the style-code index filled brand-first from listings sellers already tagged with a structured style code, so that a code I have never listed is already answered when I type it.",
+      "acceptanceCriteria": [
+        "A new PURE module lib/style-code-discovery.ts decides what a discovery tick crawls and what it keeps. No eBay, no database, no clock, so every rule below is a unit test",
+        "pickDiscoveryTargets({brands, state, budget, now}) orders brands least-recently-crawled first, skips brands inside their cooldown, and wraps a brand whose cursor passed eBay's paging ceiling back to offset 0 with a long cooldown. It reports what it DEFERRED rather than truncating silently",
+        "harvestListing({listing, canonicalize, ownItemIds}) returns a find ONLY when the listing DECLARES a style code in a structured field. It reuses declaredStyleCode and declaredProductName from lib/style-code-aspects.ts verbatim — discovery does not get a softer copy of the US-2751 rule",
+        "A title never creates a code and never creates a name. A test asserts a listing whose TITLE contains a style code and whose aspects do not produces no find",
+        "Our own eBay listing ids are excluded before anything is harvested, the same read the sweep already makes, so our AI-written specifics cannot come back as market evidence",
+        "planDiscoveryWrites collapses one page to a single write per code: ten identical listings of one garment are one piece of evidence, not ten",
+        "lib/ebay-client.ts gains searchBrowseByBrand with an offset, scoped to category 11450 so eBay accepts the Brand aspect_filter, capping limit+offset at eBay's 10,000 ceiling. searchBrowseComps is NOT given a fifth optional argument — it is on the seller's hot path and does not page",
+        "src/tests/style-code-discovery_test.ts covers rotation order, cooldown, cursor wrap, deferral accounting, the declared-code accept, the title-only refusal, the one-word Model refusal, own-listing exclusion and per-page collapse"
+      ],
+      "dependsOn": [],
+      "completionNote": "Done 2026-08-21. lib/style-code-discovery.ts is pure: pickDiscoveryTargets, harvestListing, planDiscoveryWrites, crawlBrand (dependency-injected), nextCursor, summarizeDiscovery. searchBrowseByBrand added to ebay-client.ts with an offset and the 9,950 ceiling; searchBrowseComps was left alone. declaredStyleCodeRaw was exported from style-code-aspects.ts so the crawl keeps the seller's spelling without a second copy of CODE_ASPECTS. The title-only refusal is an explicit test."
+    },
+    {
+      "id": "US-2783",
+      "passes": true,
+      "priority": 23,
+      "title": "A discovery crawl with no cursor re-reads page one forever and reports success every night",
+      "description": "As whoever runs production, I want the brand crawl to remember where it stopped, so that a job which looks healthy is actually reaching new listings.",
+      "acceptanceCriteria": [
+        "Migration 00646 creates style_code_discovery_state: one row per brand_key holding the paging cursor, last_run_at, listings_seen, codes_found and a consecutive-empty-pass counter",
+        "Global reference data like the rest of the style-code tables: no owner column, RLS enabled with ZERO policies, and registered in SERVICE_ROLE_ONLY so rls-guard_test.ts covers it",
+        "record_style_code_discovery(...) upserts the state row and accumulates the counters server-side, so two ticks cannot clobber each other's totals",
+        "style_code_discovery_brands(p_limit) returns the brand rotation from brand_knowledge joined to state. A FUNCTION, not a client-side row scan: US-2029 and the 00627 scan both proved a cap on rows starves whichever keys sort late",
+        "The style_code_observations source check is widened to admit 'discovery' by DROP CONSTRAINT IF EXISTS then ADD, the same shape 00635 used on style_code_names. No backfill, no existing row touched",
+        "US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped to 00646 in the SAME commit, self-record footer",
+        "Entered in PENDING_MIGRATIONS.md with its verification queries, and NOT pushed until the owner has applied it",
+        "No CREATE TRIGGER without a DROP TRIGGER IF EXISTS guard. That is exactly how 00627 aborted half-applied and why US-2729 exists"
+      ],
+      "dependsOn": [],
+      "completionNote": "Done 2026-08-21, APPLIED TO PROD and verified rather than assumed: /health/ready reports applied 00646, and the PostgREST OpenAPI read lists style_code_discovery_state, style_code_discovery_brands and record_style_code_discovery. The observations source check now admits 'discovery' via drop-and-add. Registered in SERVICE_ROLE_ONLY."
+    },
+    {
+      "id": "US-2784",
+      "passes": true,
+      "priority": 24,
+      "title": "Nothing crawls: the discovery module and its table exist with no job to run them",
+      "description": "As whoever runs production, I want a nightly discovery tick that spends a bounded eBay budget and says exactly what it left behind, so that the index fills without starving a seller mid-listing.",
+      "acceptanceCriteria": [
+        "routes/jobs-style-code-discovery.ts requires the job secret, then takes a job lock named style-code-discovery. A second tick arriving while the first runs does NOTHING — not a smaller crawl, not a retry",
+        "Sequential, never fanned out: these calls come from the same app-level eBay allowance the comps ladder and the seller Add flow draw on",
+        "Budget defaults to 3 brands and 20 item lookups per brand (63 eBay calls a night), both overridable by STYLE_CODE_DISCOVERY_BRANDS and STYLE_CODE_DISCOVERY_LOOKUPS so the rate changes without a deploy",
+        "Codes are written as observations with source 'discovery'. A name is written to style_code_names at source 'consensus' and its confidence band, so a discovered name sits below a seller correction and below a decoder hit and can never overrule one",
+        "The tick logs and returns brands considered / crawled / deferred, listings scanned, listings declaring a code, new codes, known codes, names written and own listings skipped. Deferred is reported explicitly",
+        "Registered in lib/cron-runs.ts at '10 3 * * *' with its healthy signature, and CRON_SETUP.md regenerated from the registry rather than hand-edited",
+        "Wired in main.ts at POST /api/jobs/style-code-discovery. It is job-secret gated rather than user-scoped, so it has no case in tenant-isolation_test.ts (which drives two real user sessions); the equivalent guarantee is a source assertion that the route NAMES no tenant table except listings, read for platform_listing_id only to EXCLUDE our own data",
+        "The lock acquirer is an injected seam, like the sweep's, so the concurrency guarantee is a test rather than a claim"
+      ],
+      "dependsOn": [
+        "US-2782",
+        "US-2783"
+      ],
+      "completionNote": "Done 2026-08-21. Live in prod and run by hand the same night: {considered:230, crawled:3, scanned:150, inspected:60, declared:8, codes:8, newCodes:8, names:3, failed:0}. All 8 codes came from adidas (8 of 20 listings); 7 For All Mankind and Abercrombie returned 0 of 20 each, which is the first real evidence that brand yield varies enormously and that codes-per-listing is the number worth watching. Only 3 of 8 codes carried a name: sellers fill the code field more often than Model."
+    },
+    {
+      "id": "US-2785",
+      "passes": true,
+      "priority": 25,
+      "title": "Discovery runs blind: nobody can see whether the crawl is finding codes or burning calls on empty listings",
+      "description": "As the operator, I want the discovery crawl's yield visible next to the brand knowledge it feeds, so that I can tell fewer-brands-deeper from more-calls before a month of quota is spent.",
+      "acceptanceCriteria": [
+        "The admin brand-knowledge page (src/pages/admin/brand-knowledge.tsx) shows per brand: last crawled, cursor depth, listings scanned, codes found and codes-per-lookup",
+        "Codes-per-lookup is the number that decides the budget question. It is shown as a rate, not a raw total, because a brand crawled twice as long is not a brand yielding twice as well",
+        "A brand whose cursor wrapped or whose last passes found nothing new is marked exhausted, so the pool of brands worth crawling is visible rather than inferred",
+        "Served by the existing admin-brand-knowledge route with its existing admin scope. No new auth surface",
+        "Read-only. Nothing on this page starts, stops or re-runs a crawl"
+      ],
+      "dependsOn": [
+        "US-2784"
+      ],
+      "completionNote": "Done 2026-08-21. The crawl table is on the admin brand-knowledge page: last crawled, cursor depth, listings scanned, codes found, codes per listing as a RATE, and an exhausted badge for a wrapped cursor or three empty passes. Served by GET /api/admin/brand-knowledge/style-codes/discovery behind the existing content:publish scope."
+    },
+    {
+      "id": "US-2787",
+      "passes": true,
+      "priority": 27,
+      "title": "The crawl only runs at 3am, so checking whether a brand yields anything means waiting a night",
+      "description": "As the operator, I want to run the discovery crawl on demand, and on one brand, so that I can see a brand's yield now instead of tomorrow.",
+      "acceptanceCriteria": [
+        "The tick body moves out of the cron handler into runStyleCodeDiscovery(), which takes no Hono Context. The cron and the button are the SAME function — a manual path with its own copy of the budget, the lock and the own-listing exclusion is the copy nobody notices drifting",
+        "POST /api/admin/brand-knowledge/style-codes/discovery/run, behind the file's existing content:publish scope. Body { brand_key? }: with a brand it crawls that brand now regardless of cooldown and nothing else; without, it runs the nightly rotation",
+        "pickDiscoveryTargets gains forceBrandKeys. Forcing skips the COOLDOWN and nothing else — the cursor still wraps at eBay's ceiling, and a test asserts a forced brand at the ceiling restarts at 0",
+        "A forced brand leads the queue outright rather than by age. Never-crawled brands also sort at the front, so ranking by age would hand an operator who clicked one brand a different brand entirely",
+        "Forcing more brands than the budget still crawls all of them; a manual run that reported success having crawled somebody else is the failure this prevents",
+        "The job lock is the rate limit: a second click while a crawl runs returns skipped, and the UI says so as info rather than as an error",
+        "The run is written to the admin audit log with the brand, brands crawled and new codes",
+        "Admin page gets one button per brand row and one for the whole rotation, both disabled while any crawl is in flight"
+      ],
+      "dependsOn": [
+        "US-2784"
+      ],
+      "completionNote": "Done 2026-08-21. The tick is runStyleCodeDiscovery() in routes/jobs-style-code-discovery.ts; the cron handler is now four lines around it. DEFAULT_BRANDS_PER_RUN also went 3 -> 12 here, driven by the first production run's own numbers: considered 230, crawled 3, deferred 227. At three a night one pass over the knowledge base takes 77 nights, so the seven-day cooldown never binds and the budget was the entire schedule. Twelve is 252 eBay calls a night and a full pass every 19 nights. 30 tests in style-code-discovery_test.ts."
     }
   ]
 }

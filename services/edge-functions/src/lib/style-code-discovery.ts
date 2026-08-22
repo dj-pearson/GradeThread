@@ -55,8 +55,14 @@ export const DISCOVERY_PAGE_SIZE = 50;
 
 /** Brands per tick, and item-specific lookups per brand. The tick costs
  *  brands x (1 search + lookups) eBay calls, drawn from the same app-level
- *  allowance the comps ladder and the seller Add flow use. */
-export const DEFAULT_BRANDS_PER_RUN = 3;
+ *  allowance the comps ladder and the seller Add flow use.
+ *
+ *  RAISED FROM 3 TO 12 after the first production run (2026-08-21), which
+ *  reported `considered: 230, crawled: 3, deferred: 227`. At three a night a
+ *  single pass over the knowledge base takes 77 nights, so the seven-day
+ *  cooldown never binds and the BUDGET is the whole schedule. Twelve is 252
+ *  calls a night and a full pass every 19 nights. */
+export const DEFAULT_BRANDS_PER_RUN = 12;
 export const DEFAULT_LOOKUPS_PER_BRAND = 20;
 
 /** A brand is not re-crawled inside this window. Listings do not turn over fast
@@ -137,15 +143,21 @@ export function pickDiscoveryTargets(args: {
   state: readonly DiscoveryStateRow[];
   budget: number;
   now: Date;
+  /** US-2787: brands an operator asked for by hand. Their cooldown is skipped —
+   *  a manual run exists precisely to look at a brand NOW — but nothing else
+   *  changes: the cursor still wraps at the ceiling, and a forced brand still
+   *  competes for the budget rather than being handed an extra eBay call. */
+  forceBrandKeys?: ReadonlySet<string>;
 }): DiscoveryWorkList {
   const { brands, state, budget, now } = args;
+  const forced = args.forceBrandKeys ?? new Set<string>();
 
   const byKey = new Map<string, DiscoveryStateRow>();
   for (const row of state) byKey.set(row.brand_key, row);
 
   let skippedCooldown = 0;
   let skippedExhausted = 0;
-  const eligible: Array<DiscoveryTarget & { age: number }> = [];
+  const eligible: Array<DiscoveryTarget & { age: number; forced: boolean }> = [];
   const seenBrands = new Set<string>();
 
   for (const brand of brands) {
@@ -164,7 +176,7 @@ export function pickDiscoveryTargets(args: {
     const cooldown = exhausted ? EXHAUSTED_COOLDOWN_DAYS : BRAND_COOLDOWN_DAYS;
     const age = daysSince(row?.last_run_at ?? null, now);
 
-    if (age < cooldown) {
+    if (age < cooldown && !forced.has(key)) {
       if (exhausted) skippedExhausted++;
       else skippedCooldown++;
       continue;
@@ -176,17 +188,31 @@ export function pickDiscoveryTargets(args: {
       offset: wrapped ? 0 : cursor,
       wrapped,
       age,
+      // A forced brand leads the queue outright. Ranking it by age instead
+      // would let 200 never-crawled brands push out the one an operator just
+      // clicked, which is the opposite of what they asked for.
+      forced: forced.has(key),
     });
   }
 
   // Oldest first; never-crawled brands carry Infinity and lead. Ties break on
   // the key so a tick is reproducible rather than dependent on table order.
   eligible.sort((a, b) =>
-    b.age - a.age || a.brandKey.localeCompare(b.brandKey)
+    Number(b.forced) - Number(a.forced) ||
+    b.age - a.age ||
+    a.brandKey.localeCompare(b.brandKey)
   );
 
-  const cap = Math.max(0, Math.floor(budget));
-  const targets = eligible.slice(0, cap).map(({ age: _age, ...t }) => t);
+  // A forced brand is guaranteed a slot even when the budget is smaller than
+  // the number of brands asked for; without this a manual run could report
+  // success having crawled somebody else entirely.
+  const cap = Math.max(
+    Math.max(0, Math.floor(budget)),
+    eligible.filter((e) => e.forced).length,
+  );
+  const targets = eligible
+    .slice(0, cap)
+    .map(({ age: _age, forced: _forced, ...t }) => t);
 
   return {
     targets,

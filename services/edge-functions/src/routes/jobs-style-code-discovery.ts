@@ -231,30 +231,51 @@ function makeLiveDeps(): DiscoveryDeps {
 /** The lock is a seam so the concurrency guarantee is a test, not a claim. */
 export type LockAcquirer = typeof acquireJobLock;
 
-export async function handleStyleCodeDiscoveryCron(
-  c: Context,
-  deps: DiscoveryDeps | null = null,
-  acquire: LockAcquirer = acquireJobLock,
-): Promise<Response> {
-  if (!(await requireJobSecret(c))) {
-    return c.json({ error: "Unauthorized" }, 401);
-  }
+export interface DiscoveryRunOptions {
+  deps?: DiscoveryDeps | null;
+  acquire?: LockAcquirer;
+  /** US-2787: crawl these brands regardless of cooldown. What an operator means
+   *  by "run it on adidas now". Empty for the nightly cron. */
+  forceBrandKeys?: readonly string[];
+  /** Overrides the env budget. Used by the admin single-brand run. */
+  budget?: number;
+}
+
+/**
+ * One discovery tick, with no Hono Context anywhere in it.
+ *
+ * US-2787 pulled this out of the cron handler so the admin "run now" button and
+ * the 3am cron are the SAME code path. A second implementation of a tick is a
+ * second place for the budget, the lock or the own-listing exclusion to be
+ * wrong, and the manual one is the copy nobody would notice drifting.
+ */
+export async function runStyleCodeDiscovery(
+  opts: DiscoveryRunOptions = {},
+): Promise<Record<string, unknown>> {
+  const deps = opts.deps ?? null;
+  const acquire = opts.acquire ?? acquireJobLock;
 
   // A second tick arriving while the first runs must do NOTHING — not a smaller
   // crawl, not a retry. Both would spend the shared eBay budget on the same
-  // offsets of the same brands.
+  // offsets of the same brands. This is also what stops an impatient operator
+  // clicking "run now" three times from tripling the eBay spend.
   const lock = await acquire("style-code-discovery", LOCK_TTL_SECONDS);
   if (!lock.acquired) {
-    return c.json({ ok: true, skipped: true, reason: lock.reason });
+    return { ok: true, skipped: true, reason: lock.reason };
   }
 
   try {
     const { brands, state } = await scanBrands();
+    const forceBrandKeys = new Set(
+      (opts.forceBrandKeys ?? []).map((k) => k.trim()).filter(Boolean),
+    );
     const work = pickDiscoveryTargets({
       brands,
       state,
-      budget: envInt("STYLE_CODE_DISCOVERY_BRANDS", DEFAULT_BRANDS_PER_RUN),
+      budget: opts.budget ??
+        envInt("STYLE_CODE_DISCOVERY_BRANDS", DEFAULT_BRANDS_PER_RUN),
       now: new Date(),
+      forceBrandKeys,
     });
 
     const effectiveDeps = deps ?? makeLiveDeps();
@@ -290,7 +311,7 @@ export async function handleStyleCodeDiscoveryCron(
         `own_skipped=${summary.ownSkipped} failed=${summary.failed}`,
     );
 
-    return c.json({
+    return {
       ok: true,
       considered: work.considered,
       deferred: work.deferred,
@@ -308,8 +329,19 @@ export async function handleStyleCodeDiscoveryCron(
         next_offset: o.nextOffset,
         failed: o.failed,
       })),
-    });
+    };
   } finally {
     await lock.release();
   }
+}
+
+export async function handleStyleCodeDiscoveryCron(
+  c: Context,
+  deps: DiscoveryDeps | null = null,
+  acquire: LockAcquirer = acquireJobLock,
+): Promise<Response> {
+  if (!(await requireJobSecret(c))) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  return c.json(await runStyleCodeDiscovery({ deps, acquire }));
 }

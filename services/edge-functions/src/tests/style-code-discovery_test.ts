@@ -560,3 +560,64 @@ Deno.test("US-2784: the route reads no tenant table but the own-listing exclusio
   // owner, no title, no price.
   assertEquals(src.includes('.select("platform_listing_id")'), true);
 });
+
+// ── forced brands: the admin "crawl now" button (US-2787) ───────────────────
+
+Deno.test("US-2787: a forced brand is crawled even inside its cooldown", () => {
+  const work = pickDiscoveryTargets({
+    brands: [brand("carhartt")],
+    state: [state("carhartt", { last_run_at: daysAgo(1) })],
+    budget: 5,
+    now: NOW,
+    forceBrandKeys: new Set(["carhartt"]),
+  });
+
+  assertEquals(work.targets.map((t) => t.brandKey), ["carhartt"]);
+  assertEquals(work.skippedCooldown, 0);
+});
+
+Deno.test("US-2787: a forced brand leads the queue, ahead of never-crawled ones", () => {
+  // Never-crawled brands also sort at the front. An operator who clicked one
+  // brand must get that brand, not the alphabetically-first stranger.
+  const work = pickDiscoveryTargets({
+    brands: [brand("aaa"), brand("bbb"), brand("carhartt")],
+    state: [state("carhartt", { last_run_at: daysAgo(1) })],
+    budget: 1,
+    now: NOW,
+    forceBrandKeys: new Set(["carhartt"]),
+  });
+
+  assertEquals(work.targets.map((t) => t.brandKey), ["carhartt"]);
+});
+
+Deno.test("US-2787: a forced brand still wraps its cursor at the ceiling", () => {
+  // Forcing skips the COOLDOWN and nothing else. A forced brand at the ceiling
+  // restarts at zero rather than paging past what eBay will serve.
+  const work = pickDiscoveryTargets({
+    brands: [brand("carhartt")],
+    state: [
+      state("carhartt", {
+        page_offset: MAX_DISCOVERY_OFFSET,
+        last_run_at: daysAgo(1),
+      }),
+    ],
+    budget: 5,
+    now: NOW,
+    forceBrandKeys: new Set(["carhartt"]),
+  });
+
+  assertEquals(work.targets[0]!.offset, 0);
+  assertEquals(work.targets[0]!.wrapped, true);
+});
+
+Deno.test("US-2787: forcing more brands than the budget still crawls all of them", () => {
+  const work = pickDiscoveryTargets({
+    brands: [brand("a"), brand("b"), brand("c")],
+    state: [],
+    budget: 1,
+    now: NOW,
+    forceBrandKeys: new Set(["a", "b"]),
+  });
+
+  assertEquals(work.targets.map((t) => t.brandKey).sort(), ["a", "b"]);
+});
