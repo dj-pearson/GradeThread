@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2789",
+  "nextId": "US-2790",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2281,6 +2281,20 @@
         "OPERATOR: Docker Desktop on this box was wedged for at least three hours - up, accepting connections and answering nothing. Restart it before running the db or security lanes, and note that CLAUDE.md tells agents to \"try it\" against the local stack, which will hang the same way."
       ],
       "priority": 25
+    },
+    {
+      "id": "US-2789",
+      "passes": false,
+      "title": "Fifty-nine guards scan the source where they could call it, and the money ones are among them",
+      "description": "Measured 2026-08-22 by scanning src/test for files that read source with toContain/toMatch/readFileSync and never call an application function: 59 of them. Many are correct - a parity check between two files, a route registry, a prerender manifest are all WIRING properties, and a scan is the right instrument for wiring. The problem is the ones holding LOGIC. A scan pins a spelling or a string position and stays green through any change that preserves them, which is how three separate guards in this repo were found blind while reading as coverage: US-2739 (six pinned cases asserting against a re-implementation, Math.floor left them green), US-2719 (ten scans caught 1 of 7 sabotages where a behavioural test caught 7), and US-2789 (submission-no-double-charge caught 0 of 6, including the exact US-2538 regression it was written for).",
+      "acceptanceCriteria": [
+        "DONE 2026-08-22 for the highest-stakes one. submission-no-double-charge.test.ts held the US-2538 double-charge fix by comparing STRING INDEXES in new-submission.tsx. decideSubmitAction is extracted to src/lib/submit-action.ts and called by 13 cases; the scan STAYS, updated, because it holds a property the call cannot see - where the decision sits relative to the multipart build. Measured on the same six sabotages: behavioural 6 of 6, scan 0 of 6.",
+        "Triage the remaining 58 rather than converting them wholesale. The question per file is whether it holds WIRING (a scan is right, leave it) or LOGIC (a scan is the wrong instrument). Candidates by shape: blog-pagination (arithmetic), help-gating (a decision), badge-status-parity and verified-achievements-parity (both compare two sources, so probably correct as scans).",
+        "A scan that holds logic gets its decision extracted as a pure function and called, the way US-2739 (stepPrice), US-2719 (buildSteps) and this story (decideSubmitAction) each did. The extraction is the fix; the test is the proof.",
+        "The measurement is repeatable, not a one-off count: a script reports how many guards scan without calling, so the number can be shown to fall rather than asserted to.",
+        "Do NOT delete the scans that are replaced. Each of the three conversions so far kept its scan for a property the behavioural test could not see. Deleting one trades a weak guard for no guard."
+      ],
+      "priority": 40
     }
   ]
 }
