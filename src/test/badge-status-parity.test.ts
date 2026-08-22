@@ -16,6 +16,13 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { INTEGRITY_TIER_BASIS, LEVEL_FLAIR_BASIS } from "@/lib/verified";
+// US-2789: the SSR copies, IMPORTED rather than grepped. status-basis.ts is a
+// plain two-constant module with no Workers types, so it imports cleanly here -
+// unlike a route, which would drag PagesFunction into the src tsconfig project.
+import {
+  INTEGRITY_TIER_BASIS as SSR_INTEGRITY_TIER_BASIS,
+  LEVEL_FLAIR_BASIS as SSR_LEVEL_FLAIR_BASIS,
+} from "../../functions/_shared/status-basis";
 
 const read = (p: string) => readFileSync(p, "utf8");
 
@@ -24,7 +31,6 @@ const certSsr = read("functions/cert/[id].ts");
 const certSpa = read("src/pages/certificate.tsx");
 const profileSsr = read("functions/verified/[handle].ts");
 const profileSpa = read("src/pages/verified-seller.tsx");
-const sharedBasis = read("functions/_shared/status-basis.ts");
 const verifiedLib = read("src/lib/verified.ts");
 const studio = read("src/components/verified/badge-studio.tsx");
 
@@ -33,8 +39,17 @@ describe("status tooltips (US-1913 AC2)", () => {
     // A tooltip that says something different on the crawled page than in the
     // app is a second definition of what the mark MEANS, which is the one thing
     // duplicated copy must never drift on.
-    expect(sharedBasis).toContain(INTEGRITY_TIER_BASIS);
-    expect(sharedBasis).toContain(LEVEL_FLAIR_BASIS);
+    //
+    // US-2789: compared as VALUES, not by grepping the SSR file for the SPA
+    // string. `toContain` on the file text passes when the SSR copy has extra
+    // words APPENDED to the same constant - verified: the two surfaces then say
+    // different things and the guard stays green, which is precisely the drift
+    // it exists to catch.
+    expect(SSR_INTEGRITY_TIER_BASIS).toEqual(INTEGRITY_TIER_BASIS);
+    expect(SSR_LEVEL_FLAIR_BASIS).toEqual(LEVEL_FLAIR_BASIS);
+    // The SPA constants still have to LIVE in verified.ts rather than be
+    // re-exported from the SSR module - Pages Functions cannot import from
+    // src/, so the duplicate is deliberate and this is what pins its home.
     expect(verifiedLib).toContain(INTEGRITY_TIER_BASIS);
     expect(verifiedLib).toContain(LEVEL_FLAIR_BASIS);
   });
