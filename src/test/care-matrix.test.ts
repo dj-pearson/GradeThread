@@ -97,6 +97,53 @@ describe("the matrix is wired and bounded", () => {
     expect(careMatrixRoutes()).toHaveLength(CARE_MATRIX.length);
   });
 
+  it("is LINKED TO from the parent flaw page, not merely registered", () => {
+    // MEASURED IN PRODUCTION 2026-08-22, before this existed: all 18 matrix
+    // pages were orphaned. Every one of the 11 parent flaw pages linked zero of
+    // its children — /care/rust-spots served 30283 bytes and not one
+    // href="/care/rust-spots/silk". The pages were in the sitemap and reachable
+    // by URL, and nothing pointed down at them.
+    //
+    // Registration is what the case above checks and it is not the same
+    // question. interlink-rules.ts states the policy this enforces: "a pillar
+    // links all its cluster children in a curated chapter block (enforced by
+    // the pillar page components)". Nothing enforced it.
+    //
+    // The tell was sitting in the audit the whole time, filed under the wrong
+    // heading: matrixEntriesForFlaw is documented "for the parent page to link
+    // down to" and had no callers, so audit-file-local-exports reported it as a
+    // DEAD EXPORT. It was a missing section.
+    //
+    // A SOURCE SCAN IS THE RIGHT SHAPE HERE and it is worth saying why, because
+    // it usually is not: the question is pure wiring — does the parent component
+    // render a link per child — and the rendering itself is a `.map` over the
+    // helper's return, which has its own cases above. What a scan cannot check
+    // is that the block is visible or well-placed, and nothing here claims it.
+    const page = readFileSync(
+      resolve(process.cwd(), "src/pages/marketing/flaw-library.tsx"),
+      "utf8",
+    );
+    expect(page).toContain("matrixEntriesForFlaw(flaw.slug)");
+    expect(page).toContain("to={matrixPath(entry)}");
+    // Derived once per page, so a second flaw's children cannot be rendered
+    // under the first.
+    expect((page.match(/matrixEntriesForFlaw\(/g) ?? []).length).toBe(1);
+  });
+
+  it("gives every parent flaw with children something to link", () => {
+    // The data half of the case above: if a flaw's children exist, the helper
+    // must return them. Guards the guard — a helper that returned [] for
+    // everything would leave the source scan passing over a page that renders
+    // nothing.
+    const parents = new Set(CARE_MATRIX.map((e) => e.flaw));
+    expect(parents.size).toBeGreaterThan(0);
+    for (const flaw of parents) {
+      const kids = CARE_MATRIX.filter((e) => e.flaw === flaw);
+      expect(kids.length, flaw).toBeGreaterThan(0);
+      expect(getFlawBySlug(flaw), `${flaw} has children but no parent page`).toBeDefined();
+    }
+  });
+
   it("lives under /care, so the containment guards apply to it too", () => {
     for (const e of CARE_MATRIX) {
       expect(matrixPath(e).startsWith("/care/")).toBe(true);

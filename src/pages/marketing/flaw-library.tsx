@@ -13,6 +13,11 @@ import {
   flawPath,
 } from "@/lib/seo/flaw-library";
 import {
+  FIBER_LABELS,
+  matrixEntriesForFlaw,
+  matrixPath,
+} from "@/lib/seo/care-matrix";
+import {
   flawJsonLd,
   flawBreadcrumbItems,
   flawHubJsonLd,
@@ -20,8 +25,8 @@ import {
   FLAW_HUB_FAQS,
 } from "@/pages/marketing/marketing-jsonld";
 
-// US-1683: the flaw library — a hub (/grading/flaws) + one page per flaw
-// (/grading/flaws/:flaw). Image-rich where the graded corpus supplies photos;
+// US-1683: the flaw library — a hub + one page per flaw. US-9012 moved both
+// from /grading/flaws to /care (/care and /care/:flaw); the old URLs 301. Image-rich where the graded corpus supplies photos;
 // certificates deep-link each detected flaw here (the internal-link flywheel).
 
 export function FlawLibraryHubPage() {
@@ -99,6 +104,10 @@ export function FlawPage({ slug: slugProp }: { slug?: string }) {
   const flaw = getFlawBySlug(slug);
 
   if (!flaw) return <NotFoundPage />;
+
+  // Empty for the seven flaws that have no fabric-specific page yet, so the
+  // section below renders nothing rather than an empty heading.
+  const fibreEntries = matrixEntriesForFlaw(flaw.slug);
 
   return (
     <MarketingLayout
@@ -241,6 +250,48 @@ export function FlawPage({ slug: slugProp }: { slug?: string }) {
         </section>
       ) : null}
 
+      {/* US-9014 down-links. Every /care/:flaw/:fabric page was ORPHANED: 18 of
+          them in the sitemap and not one internal link from the flaw page above
+          it, across all 11 parents. matrixEntriesForFlaw was written for exactly
+          this — "for the parent page to link down to" — and had no callers, so
+          the audit reported it as a dead export rather than as a missing
+          section, which is what it was.
+
+          Each row carries the child's own "what changes" line rather than just
+          its title. That is the same test the matrix uses to decide a
+          combination deserves a page at all: if you cannot write the line, the
+          page does not exist. Reusing it here means this block is worth reading
+          on its own, not a list of links wearing a heading. */}
+      {fibreEntries.length > 0 && (
+        <section className="border-t px-6 py-16">
+          <div className="mx-auto max-w-3xl">
+            <h2 className="text-2xl font-bold sm:text-3xl">
+              What changes by fabric
+            </h2>
+            <p className="mt-3 text-muted-foreground">
+              The method above is the general one. These fabrics need a
+              different approach.
+            </p>
+            <ul className="mt-6 space-y-4">
+              {fibreEntries.map((entry) => (
+                <li key={matrixPath(entry)}>
+                  <Link
+                    to={matrixPath(entry)}
+                    className="font-semibold underline-offset-4 hover:underline"
+                  >
+                    {entry.h1}
+                  </Link>
+                  <p className="mt-1 text-muted-foreground">
+                    <span className="capitalize">{FIBER_LABELS[entry.fiber]}</span>
+                    {" — "}
+                    {entry.differs}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
       <section className="border-t px-6 py-16">
         <div className="mx-auto max-w-3xl">
           <h2 className="text-2xl font-bold sm:text-3xl">How to spot it</h2>
