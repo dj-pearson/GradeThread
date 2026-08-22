@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2803",
+  "nextId": "US-2804",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2320,6 +2320,17 @@
         "The guard added alongside this (scripts/check-unfed-form-fields.mjs) drops these fields from its allowlist when they are genuinely fed."
       ],
       "priority": 24
+    },
+    {
+      "id": "US-2803",
+      "passes": false,
+      "title": "Four admin filters exist server-side and no admin page offers them",
+      "description": "Swept 2026-08-22 by the same method that found US-2802: compare every query parameter an edge route reads against every client that could send one. 68 parameters are read; 5 are mentioned by no client. One of those five is legitimate — `challenge_code` on flipdesk-webhooks is sent by eBay, not by us. The other four are admin filters with no control behind them:\n\n- `unread_only` (admin-notifications.ts:96). The route comment even documents it: \"?unread_only=true limits to unread\". Both callers, admin-notification-bell.tsx and use-admin-notifications.ts, pass only `limit`.\n- `include_notes` (admin-grading.ts)\n- `include_resolved` (admin-registered-numbers.ts)\n- `include_archived` (admin-ads.ts)\n\nSMALL ON PURPOSE, and filed rather than fixed for that reason. These are admin conveniences, not a seller-facing defect, and each is a UI decision about where a toggle belongs rather than a bug to repair. The value of the story is that the sweep found them; leaving them unrecorded is how they stay invisible for another year.\n\nThe reverse direction was swept too and is CLEAN: every field a client appends to a form is read by the edge. The only three the probe flagged were its own false positives — chart data keys and an HTML `name=\"robots\"` meta attribute matching a multipart-name pattern.",
+      "acceptanceCriteria": [
+        "Each of the four filters either gets a control in the admin UI that uses it, or is removed from the route with a note saying it was never reachable.",
+        "Whichever way each one goes, the decision is per-filter: `unread_only` on a notification bell is obviously useful, and `include_archived` on ads may genuinely not be worth a control."
+      ],
+      "priority": 900
     }
   ]
 }
