@@ -352,7 +352,7 @@ export function FlipdeskConsignmentPage() {
                         className="h-7 w-7"
                         onClick={() => setPayFor(c)}
                         disabled={!canManage}
-                        aria-label="Pay consignor"
+                        aria-label={`Pay ${c.name}`}
                       >
                         <Banknote className="h-3.5 w-3.5" />
                       </Button>
@@ -361,6 +361,7 @@ export function FlipdeskConsignmentPage() {
                         size="sm"
                         className="h-7 px-2 text-xs"
                         onClick={() => setHistoryFor(c)}
+                        aria-label={`Payout history for ${c.name}`}
                       >
                         History
                       </Button>
@@ -380,7 +381,7 @@ export function FlipdeskConsignmentPage() {
                           })
                         }
                         disabled={!canManage}
-                        aria-label="Edit consignor"
+                        aria-label={`Edit ${c.name}`}
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>

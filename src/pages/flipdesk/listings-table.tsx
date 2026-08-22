@@ -1187,6 +1187,7 @@ export function ListingsTable({
                               to={`/dashboard/flipdesk/autolister/queue?batch=${dm.batchId}`}
                               onClick={(e) => e.stopPropagation()}
                               className="inline-flex items-center gap-1 text-brand-red-text hover:underline"
+                              aria-label={`Open the AutoLister batch for ${rowLabel}`}
                               title="Open this batch (publish all / bulk edit)"
                             >
                               <Layers className="h-3 w-3" /> Queue

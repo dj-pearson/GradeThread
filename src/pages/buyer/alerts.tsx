@@ -82,6 +82,12 @@ function SavedSearchCard({
     });
   }
 
+  // The alert's own name, for the controls that have no value of their own to
+  // announce. Falls through to a brand or a keyword rather than to a constant:
+  // an unnamed alert saves as "Saved search", so a constant here would give
+  // every unnamed alert the same one.
+  const alertName = label.trim() || brands[0] || keywords[0] || "unnamed alert";
+
   async function toggle(patch: Partial<SavedSearchRow>) {
     await onSave(search.id, patch);
   }
@@ -111,7 +117,7 @@ function SavedSearchCard({
             size="icon"
             onClick={() => onDelete(search.id)}
             disabled={busy}
-            aria-label="Delete alert"
+            aria-label={`Delete alert: ${alertName}`}
           >
             <Trash2 className="h-4 w-4 text-destructive" />
           </Button>
@@ -432,6 +438,11 @@ export function BuyerAlertsPage() {
           ) : (
             watchlist.items.map((item) => {
               const link = watchTargetLink(item);
+              // Matches the title the card PRINTS one line down, so the spoken
+              // and printed names cannot drift. Brand is appended when there is
+              // one, because "Watched item" is what an unlabelled row displays
+              // and a list of them would otherwise share a name.
+              const watchedName = item.label ?? item.brand ?? "Watched item";
               return (
                 <Card key={item.id}>
                   <CardContent className="flex items-center justify-between gap-3 py-4">
@@ -451,14 +462,14 @@ export function BuyerAlertsPage() {
                     </div>
                     <div className="flex items-center gap-1">
                       {link && (
-                        <Button asChild variant="ghost" size="icon" aria-label="Open item">
+                        <Button asChild variant="ghost" size="icon" aria-label={`Open ${watchedName}`}>
                           <Link to={link}><ExternalLink className="h-4 w-4" /></Link>
                         </Button>
                       )}
                       <Button
                         variant="ghost"
                         size="icon"
-                        aria-label="Remove from watchlist"
+                        aria-label={`Remove ${watchedName} from your watchlist`}
                         onClick={() => watchlist.unwatch(item.target_type, item.target_id)}
                         disabled={watchlist.isMutating}
                       >
