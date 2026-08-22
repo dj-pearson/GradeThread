@@ -16,6 +16,7 @@ import {
   isKeywordResearchConfigured,
 } from "../lib/keyword-research.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import { requireFreshStepUp } from "../lib/step-up.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { performGoogleAdsSync } from "../lib/google-ads-sync-job.ts";
 import { analyzeAds } from "../lib/ads-analysis.ts";
@@ -533,6 +534,27 @@ adminAdsRoutes.post("/recommendations/:id/apply", async (c) => {
   if (c.get("adminRole") !== "super_admin") return c.json({ error: "Super-admin required." }, 403);
   const body = (await c.req.json().catch(() => ({}))) as { dryRun?: unknown };
   const dryRun = body.dryRun !== false; // default true — dry-run unless explicitly false
+  // US-2772: a fresh second factor, but ONLY for the live call.
+  //
+  // This route moves bids and budgets in the real Google/Apple ad accounts, so
+  // it belongs in requireFreshStepUp's tier alongside refunds and kill
+  // switches: "you verified this morning" is not evidence that you are at the
+  // keyboard now, and a borrowed super_admin session should not be able to
+  // change spend unchallenged.
+  //
+  // GATED ON dryRun BECAUSE THE DEFAULT IS A SIMULATION. `dryRun` defaults to
+  // true and a dry run changes nothing anywhere — prompting for TOTP on every
+  // preview would make the Ads Command Center's normal loop unusable, and a
+  // second factor people work around is worse than one they do not have. The
+  // check sits after the body parse for exactly that reason.
+  //
+  // The one thing this must never become is a check the CLIENT decides. dryRun
+  // arrives in the body, so a caller can set it to false — and that is the
+  // point: false is the live call, and the live call is the one that prompts.
+  if (!dryRun) {
+    const blocked = requireFreshStepUp(c);
+    if (blocked) return blocked;
+  }
   const recId = c.req.param("id");
   const result = await applyRecommendation({
     recId,
@@ -563,6 +585,11 @@ adminAdsRoutes.post("/recommendations/:id/apply", async (c) => {
 // US-1703: one-click rollback of a recommendation's latest applied change.
 adminAdsRoutes.post("/recommendations/:id/revert", async (c) => {
   if (c.get("adminRole") !== "super_admin") return c.json({ error: "Super-admin required." }, 403);
+  // US-2772: always. Revert has NO dry-run mode — every call moves live spend,
+  // so unlike /apply there is no preview to exempt. The direction differs from
+  // an apply; the blast radius does not.
+  const blocked = requireFreshStepUp(c);
+  if (blocked) return blocked;
   const { data } = await supabaseAdmin
     .from("ads_change_audit")
     .select("id")

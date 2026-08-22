@@ -23,31 +23,67 @@
 import { assert } from "@std/assert";
 
 /**
- * Mutating super_admin routes that carry no step-up today.
+ * Mutating super_admin routes that carry no step-up, and WHY each is allowed to.
  *
- * Measured 2026-08-21: 52 mutating super_admin handlers, 42 guarded, these 10
- * not. Nine are in one router, which is the same INCONSISTENCY US-2356 was
- * about — the bar an action clears depends on which file it happens to live in.
+ * Measured 2026-08-21: 52 mutating super_admin handlers, 42 guarded, 10 not.
+ * US-2772 decided them ONE AT A TIME rather than in bulk, and the decision was
+ * a split rather than a sweep.
  *
- * Two of them change live ad campaigns and therefore spend real money. They are
- * listed rather than fixed here because changing an admin auth requirement is a
- * product decision, not a test's call; US-2772 carries it.
+ * THE TWO THAT MOVE MONEY NOW STEP UP and have left this list: /apply (when
+ * dryRun is false) and /revert both call requireFreshStepUp — the short-window
+ * tier, beside refunds and kill switches. Those two change bids and budgets in
+ * the live Google/Apple accounts, and a borrowed super_admin session must not be
+ * able to do that unchallenged.
+ *
+ * THE OTHER EIGHT STAY, DELIBERATELY. A step-up on every one of them would make
+ * the Ads Command Center's normal loop a TOTP prompt per click, and a second
+ * factor people work around is worse than one they never had. The line drawn is
+ * "does this change an external system's live spend": nothing below does. Each
+ * reason states what the route actually does, so a later reader can disagree
+ * with the judgement rather than guess at it.
  */
 const KNOWN_GAPS: Array<[route: string, why: string]> = [
+  // Reads Google's API and writes an analysis row. Spends quota, not budget,
+  // and quota exhaustion is visible and self-correcting.
   ["admin-ads.ts POST /analyze", "spends Google Ads API quota; changes no campaign"],
-  ["admin-ads.ts POST /conversions/upload", "uploads conversion data to Google Ads"],
-  ["admin-ads.ts POST /recommendations/:id/approve", "records a decision"],
-  ["admin-ads.ts POST /recommendations/:id/dismiss", "records a decision"],
-  ["admin-ads.ts POST /recommendations/:id/snooze", "records a decision"],
-  ["admin-ads.ts POST /recommendations/:id/apply", "CHANGES A LIVE CAMPAIGN — real money"],
-  ["admin-ads.ts POST /recommendations/:id/revert", "CHANGES A LIVE CAMPAIGN — real money"],
-  ["admin-ads.ts POST /apple/sync", "pulls Apple Search Ads data"],
-  ["admin-ads.ts POST /google/sync", "pulls Google Ads data"],
-  ["admin-passport-integrity.ts POST /scan", "starts an integrity scan"],
+  // The one genuine judgement call of the eight: it does send data OUTWARD to
+  // Google. It sends conversions we already own, and it cannot change a bid, a
+  // budget or a campaign — the worst case is reporting noise, correctable by
+  // uploading again. Revisit if it ever gains the ability to write anything but
+  // conversions.
+  ["admin-ads.ts POST /conversions/upload", "uploads conversion data to Google Ads; cannot change spend"],
+  // These three write a row in our own database saying what an admin thought of
+  // a recommendation. Nothing reaches Google, and /apply is still the gate
+  // between an approval and any live change.
+  ["admin-ads.ts POST /recommendations/:id/approve", "records a decision locally; /apply is still the gate"],
+  ["admin-ads.ts POST /recommendations/:id/dismiss", "records a decision locally"],
+  ["admin-ads.ts POST /recommendations/:id/snooze", "records a decision locally"],
+  // Inbound pulls. They overwrite our copy of the ad platforms' own numbers,
+  // which the next sync restores.
+  ["admin-ads.ts POST /apple/sync", "pulls Apple Search Ads data inward"],
+  ["admin-ads.ts POST /google/sync", "pulls Google Ads data inward"],
+  // Reads passports and writes findings. Destroys nothing and spends nothing.
+  ["admin-passport-integrity.ts POST /scan", "starts a read-only integrity scan"],
 ];
 
 const SUPER_ADMIN_CHECK = /adminRole"\)\s*!==\s*"super_admin"/;
-const STEP_UP = /requireStepUp\(c\)|requireSensitive\(c\)/;
+/**
+ * Any of the three step-up helpers counts as guarded.
+ *
+ * requireFreshStepUp WAS MISSING and that is a hole rather than an omission:
+ * it is the STRICTER helper (STEP_UP_FRESH_SEC, the short window used for
+ * refunds and kill switches), so a route defended with the strongest available
+ * check read to this scan as defended with nothing. US-2772 hit it head-on -
+ * adding requireFreshStepUp to the two ad routes that move live spend left them
+ * still reported as gaps, which would have pushed the next person toward the
+ * weaker helper to make the suite go green.
+ *
+ * `requireFreshStepUp` is listed FIRST, and alternation order is why: a regex
+ * that tried `requireStepUp` first would still match inside the longer name
+ * were it not for the leading `require`, and depending on that is the kind of
+ * accident that survives until it does not.
+ */
+const STEP_UP = /requireFreshStepUp\(c\)|requireStepUp\(c\)|requireSensitive\(c\)/;
 /**
  * A route declaration at the start of a line.
  *
@@ -158,5 +194,90 @@ Deno.test("the kill-switch route two-person-controls missed is covered here", ()
     h.stepUp,
     "POST /deliverability/enforce lost its step-up — it mutates the newsletter " +
       "send kill-switch, which is exactly the class US-2356 is about",
+  );
+});
+
+// ── US-2772: the two routes that move live ad spend ────────────────────────
+//
+// /apply and /revert change bids and budgets in the real Google/Apple accounts.
+// They were the two named gaps of the ten and are now the only two of the ten
+// that gained a second factor, because they are the only two that spend money.
+//
+// These name the routes explicitly rather than relying on the derived scan
+// above. The scan proves nothing NEW ships unguarded; it cannot notice a
+// specific route quietly moving back into KNOWN_GAPS with a plausible reason
+// attached, and these two are the ones where that would matter.
+
+Deno.test("US-2772: applying an ads recommendation steps up", () => {
+  const h = superAdminHandlers().find(
+    (x) => x.key === "admin-ads.ts POST /recommendations/:id/apply",
+  );
+  assert(h, "the ads apply route was renamed or removed");
+  assert(
+    h.stepUp,
+    "POST /recommendations/:id/apply lost its step-up — it changes bids and " +
+      "budgets in the LIVE ad accounts, which is real money leaving the account",
+  );
+});
+
+Deno.test("US-2772: reverting an ads recommendation steps up", () => {
+  const h = superAdminHandlers().find(
+    (x) => x.key === "admin-ads.ts POST /recommendations/:id/revert",
+  );
+  assert(h, "the ads revert route was renamed or removed");
+  assert(
+    h.stepUp,
+    "POST /recommendations/:id/revert lost its step-up — the direction differs " +
+      "from an apply, the blast radius does not",
+  );
+});
+
+Deno.test("US-2772: the ads money routes use the SHORT window, not the working-day one", () => {
+  // requireStepUp's default window is a working day, which is right for
+  // ordinary sensitive actions and wrong here: "you verified this morning" is
+  // not evidence that you are at the keyboard now. Swapping requireFreshStepUp
+  // for requireStepUp would keep the derived scan above green while quietly
+  // widening the window on the only two routes that spend money.
+  const src = Deno.readTextFileSync(
+    new URL("../routes/admin-ads.ts", import.meta.url),
+  );
+  const code = src.split("\n").filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l)).join("\n");
+  const applyStart = code.indexOf('adminAdsRoutes.post("/recommendations/:id/apply"');
+  const revertStart = code.indexOf('adminAdsRoutes.post("/recommendations/:id/revert"');
+  assert(applyStart > -1 && revertStart > -1, "one of the two routes was renamed");
+
+  const applyBody = code.slice(applyStart, revertStart);
+  const revertBody = code.slice(revertStart, revertStart + 2000);
+  for (const [name, body] of [["apply", applyBody], ["revert", revertBody]] as const) {
+    assert(
+      body.includes("requireFreshStepUp(c)"),
+      `${name} no longer uses requireFreshStepUp — the short window is the ` +
+        `point, and requireStepUp would satisfy the derived scan while widening it`,
+    );
+  }
+});
+
+Deno.test("US-2772: a DRY RUN does not demand a second factor", () => {
+  // The reason /apply's step-up is conditional. dryRun defaults to true and a
+  // dry run changes nothing anywhere; prompting for TOTP on every preview would
+  // make the Ads Command Center's loop a prompt per click, and a second factor
+  // people work around is worse than one they never had.
+  //
+  // Pinned on the SHAPE of the guard rather than by calling the handler, which
+  // would need a signed AAL2 token: the check must sit inside `if (!dryRun)`,
+  // after the body parse.
+  const src = Deno.readTextFileSync(
+    new URL("../routes/admin-ads.ts", import.meta.url),
+  );
+  const code = src.split("\n").filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l)).join("\n");
+  const start = code.indexOf('adminAdsRoutes.post("/recommendations/:id/apply"');
+  const body = code.slice(start, code.indexOf('adminAdsRoutes.post("/recommendations/:id/revert"'));
+  const gate = body.indexOf("if (!dryRun)");
+  const check = body.indexOf("requireFreshStepUp(c)");
+  assert(gate > -1, "apply's step-up is no longer gated on dryRun");
+  assert(
+    check > gate && check - gate < 200,
+    "apply's requireFreshStepUp is no longer inside the `if (!dryRun)` block — " +
+      "either every preview now prompts, or the live call no longer does",
   );
 });
