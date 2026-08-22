@@ -116,7 +116,41 @@ describe("the screen now LINKS to where the connection happens (US-2531 AC2)", (
     // seller on a callback nothing in the app can receive.
     const s = read(MARKETPLACES);
     expect(s).toContain("https://gradethread.com/dashboard/flipdesk/marketplaces");
-    expect(s).toContain(".sheet(item: $webManagedChannel)");
+
+    // PINNED ON THE PRESENTATION, NOT ON A VARIABLE NAME. This used to assert
+    // the literal `.sheet(item: $webManagedChannel)` and went red when that
+    // binding was correctly removed: a SwiftUI view has ONE sheet slot, so the
+    // chained-sheet fix collapsed every `.sheet` on this screen into a single
+    // `$sheet` driven by a MarketplacesSheet enum. The feature never broke —
+    // the assertion named a spelling rather than a behaviour, which made a
+    // correct refactor look like a regression.
+    //
+    // What has to stay true: exactly one sheet slot, and the web-managed
+    // channel is one of the things it presents.
+    // CODE LINES ONLY. The view's own doc comments explain the one-slot rule and
+    // quote `.sheet(item:)` twice while doing it, so a whole-file count reads 3
+    // and this assertion fails against correct code — the exact fail-open shape
+    // the repo's guard notes warn about, arriving here as a fail-CLOSED one.
+    const code = s
+      .split("\n")
+      .filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l))
+      .join("\n");
+    expect(
+      code.match(/\.sheet\(item:/g) ?? [],
+      "a second .sheet on this view competes for the one slot the loser never wins",
+    ).toHaveLength(1);
+    expect(s).toContain(".sheet(item: $sheet)");
+
+    // SCOPED TO THE SHEET BODY, not the whole file. `case .webChannel(let
+    // channel):` also appears in MarketplacesSheet's `id` property, so a
+    // whole-file `toContain` is satisfied by the enum declaring the case even
+    // if the sheet stopped PRESENTING it — a scan passing on a sibling's
+    // correctness. The sabotage run caught exactly that.
+    const sheetBody = s.slice(s.indexOf(".sheet(item: $sheet)"));
+    expect(
+      sheetBody.slice(0, sheetBody.indexOf("case .sync:")),
+      "the sheet slot no longer presents the web-managed channel",
+    ).toContain("SafariView(url: channel.url)");
   });
 
   it("and it still is not an in-app connect flow", () => {
