@@ -50,7 +50,12 @@ final class ConsumerGradeFlow {
 
     private(set) var step: Step = .ready
 
-    private let submit: ([PhotoGradeImage], PhotoGradeRequest, @MainActor (Double) -> Void) async throws -> PhotoGradeOutcome
+    // `@escaping` on the progress callback, because that is what the thing it is
+    // handed to requires: `PhotoGradeUploadService.submit` takes
+    // `@MainActor @escaping (Double) -> Void` and holds it across the upload.
+    // A closure parameter of a closure TYPE is non-escaping by default, so
+    // without this the default `submit` below cannot forward its own argument.
+    private let submit: ([PhotoGradeImage], PhotoGradeRequest, @MainActor @escaping (Double) -> Void) async throws -> PhotoGradeOutcome
     private let pay: (String) async throws -> PhotoGradePayment.Outcome
     private let status: (String) async throws -> PhotoGradeStatus
     private let sleep: (Double) async -> Void
@@ -67,7 +72,7 @@ final class ConsumerGradeFlow {
     /// Seams injected so the whole journey is testable without a network. The
     /// defaults are the real calls.
     init(
-        submit: (([PhotoGradeImage], PhotoGradeRequest, @MainActor (Double) -> Void) async throws -> PhotoGradeOutcome)? = nil,
+        submit: (([PhotoGradeImage], PhotoGradeRequest, @MainActor @escaping (Double) -> Void) async throws -> PhotoGradeOutcome)? = nil,
         pay: ((String) async throws -> PhotoGradePayment.Outcome)? = nil,
         status: ((String) async throws -> PhotoGradeStatus)? = nil,
         sleep: ((Double) async -> Void)? = nil,
