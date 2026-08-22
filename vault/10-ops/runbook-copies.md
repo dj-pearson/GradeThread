@@ -5,7 +5,7 @@ status: current
 source_of_truth: code
 code_refs:
   - src/lib/admin/runbooks.ts
-reviewed: 2026-08-15
+reviewed: 2026-08-22
 tags: [ops, runbooks, duplication, migration]
 summary: Ops procedures are duplicated across repo root, docs/, and a shipped in-app admin feature — and the in-app copy is the one on-call actually reads.
 ---
@@ -26,7 +26,7 @@ which turned out not to be a stray comment.
 |---|---|---|
 | 1 | Repo root — DEPLOY.md, ROLLBACK.md, INCIDENT_RESPONSE.md, BACKUPS.md, LAUNCH_CHECKLIST.md | The documents everyone assumes are canonical. *(The three doubled ones were merged into the vault by US-2049; DEPLOY/BACKUPS/LAUNCH_CHECKLIST move in US-2051.)* |
 | 2 | `docs/` | Second copies of INCIDENT_RESPONSE, KEY_ROTATION, DATA_RETENTION, at different lengths — **resolved 2026-07-19 by US-2049** |
-| 3 | **`src/lib/admin/runbooks.ts`** | A 418-line `RUNBOOKS` array (US-910), **shipped in the frontend bundle** |
+| 3 | **`src/lib/admin/runbooks.ts`** | A `RUNBOOKS` array of **7 procedures** (US-910), **shipped in the frontend bundle** |
 | 4 | **`services/edge-functions/src/lib/integrations-watchdog.ts`** | `KEY_ROTATION_REGISTRY` — the rotation **schedule** encoded as structured data (found 2026-07-19, US-2049) |
 
 Copy 3 is not a link to the markdown. It is operational prose hand-distilled into
@@ -88,6 +88,24 @@ per note, which relocates the duplication rather than removing it.
 
 Also verified then: neither of the two WRONG EDGE_ENCRYPTION_KEY procedures found
 in US-2049 had been transcribed into either shipped copy.
+
+> **Re-reviewed 2026-08-22, and this time the drift found a real gap — in a
+> FOURTH place the note does not count.** `runbooks.ts` had changed because
+> US-2665/US-2609 landed an operator-facing fact in `deploy.md` and the shipped
+> copy: *a routine deploy produces exactly the signature of an edge event-loop
+> hang*, so someone who has not been told either escalates a rollover or shrugs
+> at a real hang.
+>
+> It reached `deploy.md` and the in-app runbook on 2026-08-17. It did **not**
+> reach [[edge-hang-vs-crash-loop]] — the note whose entire subject is telling
+> those two apart — until 2026-08-22. Anyone diagnosing a hang goes to the hang
+> note, and the fact was in the other two copies.
+>
+> That is the cost of this finding stated concretely: duplication is not just
+> maintenance, it decides WHICH copy a given reader will miss. The count in the
+> row above was also stale (it said 418 lines; the file is 502) and is now
+> stated as 7 procedures — this note warns twice below against quoting a count,
+> and was quoting one.
 
 **Do not "fix" this by deleting the in-app copy.** It is a deliberate feature
 with a good rationale.

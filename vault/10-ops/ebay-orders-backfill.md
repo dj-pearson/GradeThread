@@ -7,7 +7,7 @@ code_refs:
   - services/edge-functions/src/routes/flipdesk-ebay.ts
   - services/edge-functions/src/lib/sync-watermark.ts
   - services/edge-functions/src/routes/jobs-ebay-order-backstop.ts
-reviewed: 2026-08-15
+reviewed: 2026-08-22
 tags: [ebay, flipdesk, sync, recovery]
 summary: How to recover eBay orders that a pre-US-2320 sync skipped past, how to tell whether a seller lost any, and why the run status field is the wrong thing to check.
 ---
@@ -61,7 +61,7 @@ full sales history" action, run once per connection.
    clean up. One connection at a time, sequentially, is fine.
 4. Re-check after each run — but **`status: 'partial'` is not the signal.**
    `status` is `partial` whenever the run's `errors` bag is non-empty from **any**
-   phase (`flipdesk-ebay.ts:3767`), and that bag collects conflicts, orphan
+   phase (the `errors` bag in `flipdesk-ebay.ts`), and that bag collects conflicts, orphan
    orders, and a Feed-report failure that then succeeded via the paged path. A
    run can be `partial` and have pulled every order correctly.
 
@@ -69,9 +69,9 @@ full sales history" action, run once per connection.
    pass did not finish:
 
    - `orders: sync cursor NOT advanced (<reason>). This sync is PARTIAL…`
-     (`flipdesk-ebay.ts:3742`)
+     (grep the literal string in `flipdesk-ebay.ts`)
    - `orders: N order(s) not saved — sync cursor held at …`
-     (`flipdesk-ebay.ts:3729`)
+     (grep the literal string in `flipdesk-ebay.ts`)
 
    Either one ⇒ run it again. Post US-2320 the cursor never advances past what
    the run actually wrote, so re-running is safe and picks up where it stopped.
@@ -85,10 +85,21 @@ full sales history" action, run once per connection.
 
 The pull is idempotent: existing sales are matched by
 `(inventory_item_id, platform_order_id, line_item_id)` — the lookup is scoped by
-the item first (`flipdesk-ebay.ts:3286`) — and updated in place, so a re-run of a
+the item first (the `.from("listings")` lookup in `flipdesk-ebay.ts`) — and updated in place, so a re-run of a
 window that already imported cleanly writes nothing new. The two-column
 `(user_id, platform_order_id, line_item_id)` key belongs to a different table,
 `flipdesk_ebay_orphan_sales`; do not reach for it here.
+
+> [!warning] The line numbers in this note were all wrong (2026-08-22)
+> Every `flipdesk-ebay.ts:NNNN` pointer here — `:3767`, `:3742`, `:3729`,
+> `:3286`, `:3111` — resolved to unrelated code: a `case "REFUND":`, a
+> `payoutId: null`, a type field, a table name, a mid-sentence comment. The file
+> gained fifteen commits' worth of edits and the numbers slid with it, silently,
+> because nothing checks a line number.
+>
+> They are now anchored by symbol and by grep-able string. Follow that here: a
+> line number is a claim that expires without anyone touching the note, and this
+> is a runbook someone reads mid-incident.
 
 ## What it cannot recover
 
@@ -98,8 +109,8 @@ orders older than that, the only source left is their eBay Seller Hub export,
 imported manually.
 
 The two numbers in this note are not a contradiction: **eBay's limit is ~24
-months; our floor is 700 days (~23)**, `ebayLookbackFloor` at
-`flipdesk-ebay.ts:3111`. The month of margin is deliberate — asking right up to
+months; our floor is 700 days (~23)**, the `ebayLookbackFloor` constant in
+`flipdesk-ebay.ts`. The month of margin is deliberate — asking right up to
 eBay's edge earns a 30830 that fails the whole pass rather than trimming it.
 
 ## Why it cannot happen again

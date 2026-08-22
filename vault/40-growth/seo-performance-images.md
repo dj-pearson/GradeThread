@@ -9,7 +9,7 @@ code_refs:
   - wrangler.toml
   - lighthouserc.json
   - functions/_shared/sitemap.ts
-reviewed: 2026-08-15
+reviewed: 2026-08-22
 tags: [seo, performance, images, cwv]
 summary: The shipped performance levers, how responsive images are gated (ON since US-2333), and how the edge SSR cache and its purges actually work.
 ---
@@ -47,13 +47,18 @@ the note used to blur them:
 
 - `<Image>` (`src/components/responsive-image.tsx:7,61`) genuinely *requires*
   `width`/`height` props and emits them as attributes.
-- The blog SSR emits **neither**. `renderHeroImage`
-  (`blog-render.ts:1305`) writes only `class/src/srcset/sizes/alt/loading/
-  fetchpriority/decoding`; the hero's box is reserved by CSS instead
-  (`.hero { aspect-ratio: 16 / 9 }`, `blog-render.ts:410`). `rewriteContentImages`
-  (`blog-render.ts:1388`) *reads* dimensions the author supplied and, only when
-  both are absent and there is no `style=`, injects
+- The blog SSR emits **neither**. `renderHeroImage` in `blog-render.ts` writes
+  only `class/src/srcset/sizes/alt/loading/fetchpriority/decoding`; the hero's
+  box is reserved by CSS instead (the `.hero { aspect-ratio: 16 / 9 }` rule in
+  the same file). `rewriteContentImages` *reads* dimensions the author supplied
+  and, only when both are absent and there is no `style=`, injects
   `style="aspect-ratio:auto 16/9"`.
+
+  > Anchored by SYMBOL, not by line. This passage quoted `:1305`, `:410` and
+  > `:1388`, and on 2026-08-22 all three pointed at the wrong thing — a bare
+  > `}`, a table-cell CSS rule, and a comment. The file had moved under them.
+  > A line number in a note is a claim that expires without anyone editing the
+  > note; a symbol name fails loudly by not being found.
 
 The CLS outcome is the same; the mechanism is not. Anyone grepping the SSR for a
 `width=` attribute after reading the old sentence found nothing and had no way to
