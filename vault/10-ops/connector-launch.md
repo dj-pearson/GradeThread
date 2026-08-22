@@ -9,7 +9,8 @@ code_refs:
   - services/edge-functions/src/lib/oauth-metadata.ts
   - services/edge-functions/src/middleware/mcp-auth.ts
   - services/edge-functions/src/routes/oauth.ts
-reviewed: 2026-08-19
+  - services/edge-functions/src/routes/health.ts
+reviewed: 2026-08-22
 tags: [ops, connector, launch, runbook]
 summary: The two flags that gate the connector, the order to flip them in, and the checks that prove each step before the next one.
 ---
@@ -25,7 +26,7 @@ summary: The two flags that gate the connector, the order to flip them in, and t
 
 | Variable | What it opens | Default |
 |---|---|---|
-| `MCP_ENABLED` | `/mcp` itself. Off means **404**, not 503 — an endpoint that is not open should not advertise that it is coming. | off in production |
+| `MCP_ENABLED` | `/mcp` itself. Off means **404**, not 503 — an endpoint that is not open should not advertise that it is coming. That 404 is *inside* the route handler and is **not observable from outside** (see step 1); read `features.connector` on `/health/ready` instead. | off in production |
 | `MCP_OAUTH_ENABLED` | `/oauth/*`, `/api/oauth/*` and both discovery documents. Off means **404** on all of them. | off |
 
 Both live in Coolify's environment for the edge service. Neither needs a
@@ -44,16 +45,38 @@ Opens `/mcp` to anyone holding a GradeThread API key on Pro or Business.
 **Check, in this order:**
 
 ```bash
-# 404 before, 200-shaped JSON-RPC after. An unauthenticated call must still 401.
+# Did the flag actually reach the container? THIS is the question /mcp cannot
+# answer — see the warning below. `live` means serving; `off:` names the switch.
+curl -sS https://functions.gradethread.com/health/ready | jq .features.connector
+```
+
+> [!warning] `/mcp` cannot tell you whether the flag landed (US-2687)
+> This step used to read "404 before, 200-shaped JSON-RPC after", and treated a
+> 404 as proof the flag had not reached the container. **You will never see that
+> 404 from outside.** `main.ts` mounts `mcpAuthMiddleware` *before*
+> `app.route("/mcp", mcpRoutes)`, while the kill switch's 404 lives inside the
+> route handler — so an unauthenticated call is answered 401 by the middleware
+> before the kill switch is ever consulted. Dark and live are indistinguishable
+> at that endpoint.
+>
+> Following the old instruction, you would flip `MCP_ENABLED`, get a 401, read
+> it as "correct — unauthenticated callers get a challenge", and move to step 2
+> with the connector still dark. That is why the readiness field exists: it
+> reports both switches, and it distinguishes *three* states, because
+> `isFeatureEnabled` fails OPEN and a missing rule would otherwise read as
+> "live".
+
+Then the endpoint itself, which is still worth calling — just not as evidence
+about the flag:
+
+```bash
 curl -sS -X POST https://functions.gradethread.com/mcp \
   -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' -i | head -20
 ```
 
-- **401 with a `WWW-Authenticate: Bearer` header** — correct. Unauthenticated
-  callers get a challenge, not a tool list.
-- **404** — the flag has not reached the running container. Redeploy, do not
-  keep flipping.
+- **401 with a `WWW-Authenticate: Bearer` header** — expected, in both states.
+  Read `features.connector` above for the one you are actually in.
 - **A tool list with no credential** — stop. That is the one outcome that means
   something is wrong, and it means the auth middleware is not mounted.
 
@@ -155,6 +178,11 @@ the TTL each way.
 > runs before the gate, so an anonymous caller gets a credential challenge
 > either way. This is pre-existing and shared with `MCP_ENABLED`. Test with a
 > real API key, or you will conclude the switch is broken when it is working.
+>
+> Since US-2687 there is a probe that needs no key at all:
+> `curl -sS .../health/ready | jq .features.connector` names which switch is
+> off, or reports `live`. Use it to confirm the toggle landed, then the
+> authenticated `tools/list` to confirm what a caller actually gets.
 
 ### The slower one: the env vars
 
