@@ -6,6 +6,11 @@ back results programmatically. It is a paid feature — see **Access** below.
 - **Base URL:** `https://functions.gradethread.com/api/v1`
 - **Auth:** `X-API-Key: gt_sk_…` header on every request
 - **Content type:** `application/json`
+- **Full machine-readable spec:**
+  <https://functions.gradethread.com/api/v1/openapi.json> — served without a
+  key, and it is the COMPLETE surface. This page describes the grading
+  endpoints in prose; the spec covers all 16 paths including the ones listed
+  under *Not yet written up* below.
 
 ## Access
 
@@ -94,6 +99,28 @@ Query: `page` (default 1), `limit` (default 20, max 100), optional `status`.
 
 Body `{ "webhook_url": "https://…" | null }`. The URL is validated for SSRF
 safety at set-time and again at delivery-time. `null` clears it.
+
+### Not yet written up
+
+The API serves **16** paths; the four above are the ones documented in prose.
+These twelve are live, in the OpenAPI spec linked at the top, and have no
+prose section here yet. They are listed by name rather than left invisible,
+because an endpoint a paying customer cannot find is, to them, an endpoint
+that does not exist:
+
+| Path | What it is |
+| --- | --- |
+| `POST /grades/batch`, `GET /grades/batch/{id}` | Submit and poll a batch of garments |
+| `GET /items`, `GET /items/{id}` | Inventory items |
+| `GET /listings` | Marketplace listings |
+| `GET /sales` | Sales |
+| `GET /usage` | Your key's consumption against the rate tier |
+| `GET /price-guide`, `GET /price-guide/{slug}` | Condition-adjusted price guide |
+| `GET /sandbox/grades`, `GET /sandbox/grades/{id}` | Sandbox grading — no credit spend |
+| `GET /sandbox/price-guide`, `GET /sandbox/price-guide/{slug}` | Sandbox price guide |
+
+`src/test/public-api-doc-coverage.test.ts` holds this list to the spec: a new
+path must be documented or named here, and the count can only go down.
 
 ## Observability
 
