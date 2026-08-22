@@ -51,6 +51,12 @@ const NOT_A_PROCESSOR: Record<string, string> = {
   "www.tiktok.com": "an outbound share link the user clicks",
   "x.com": "an outbound share link the user clicks",
   "www.w3.org": "an XML namespace, not a request",
+  // US-2790: the PROVENANCE url for the USPS rate table, recorded in
+  // lib/shipping-rates.ts so a reader can check where the numbers came
+  // from. Nothing calls it at runtime — the rates are constants read off
+  // the page by hand and cross-checked, which is the whole point of
+  // docs/shipping/. No data of any kind goes to USPS.
+  "pe.usps.com": "a cited source URL for published rates, never called",
   "schema.org": "a JSON-LD vocabulary, not a request",
   "store.myshopify.com": "the Shopify host pattern — Shopify is listed",
   "example.com": "documentation and test fixtures",

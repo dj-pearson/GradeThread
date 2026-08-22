@@ -37,7 +37,8 @@ import {
 import { EBAY_CONDITION_OPTIONS, EBAY_DEPARTMENT_OPTIONS } from "@/lib/constants";
 import { cn, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
-import { priceForMargin } from "@/lib/listing-profit";
+import { marginFloorWithPostage } from "@/lib/margin-floor";
+import { useItemAttrs } from "./autolister/use-item-attrs";
 import {
   aiAspect,
   aiPriceInput,
@@ -210,63 +211,7 @@ export function FlipdeskAutolisterBulkEditPage() {
     () => (data ?? []).map((r) => r.inventory_item_id),
     [data],
   );
-  // The item's structured attributes back the placeholders below: when a row's
-  // Brand/Size/Color override is empty, the server derives the aspect from these
-  // columns, so showing them as placeholders tells the seller what will be used.
-  type ItemAttrs = {
-    title: string;
-    brand: string;
-    size: string;
-    color: string;
-    material: string;
-    style: string;
-    itemCategory: string | null;
-    attributes: Record<string, string | string[]> | null;
-    // US-553: cost basis (acquired_price) backs the forward P&L / margin column.
-    cost: number | null;
-  };
-  const { data: itemAttrs = {} } = useQuery<Record<string, ItemAttrs>>({
-    queryKey: ["autolister_bulk_item_attrs", batchId, itemIds.length],
-    enabled: itemIds.length > 0,
-    queryFn: async () => {
-      const { data: rows } = await supabase
-        .from("inventory_items")
-        .select(
-          "id, title, brand, size, color, material, style, item_category, attributes, acquired_price",
-        )
-        .in("id", itemIds);
-      const map: Record<string, ItemAttrs> = {};
-      for (
-        const r of (rows ?? []) as Array<
-          {
-            id: string;
-            title: string | null;
-            brand: string | null;
-            size: string | null;
-            color: string | null;
-            material: string | null;
-            style: string | null;
-            item_category: string | null;
-            attributes: Record<string, string | string[]> | null;
-            acquired_price: number | null;
-          }
-        >
-      ) {
-        map[r.id] = {
-          title: r.title ?? "",
-          brand: r.brand ?? "",
-          size: r.size ?? "",
-          color: r.color ?? "",
-          material: r.material ?? "",
-          style: r.style ?? "",
-          itemCategory: r.item_category,
-          attributes: r.attributes,
-          cost: r.acquired_price,
-        };
-      }
-      return map;
-    },
-  });
+  const { data: itemAttrs = {} } = useItemAttrs(batchId, itemIds);
 
   const [rows, setRows] = useState<EditRow[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -463,11 +408,22 @@ export function FlipdeskAutolisterBulkEditPage() {
     const pct = Number.parseFloat(marginFloorPct);
     if (!Number.isFinite(pct)) return;
     let unreachable = 0;
+    let noPostage = 0;
     applyToTargets((r) => {
-      const floor = priceForMargin({
-        targetMarginPct: pct,
-        costBasis: itemAttrs[r.itemId]?.cost ?? null,
-      });
+      // US-2790: postage was missing here, so the floor priced shipping at
+      // zero. Rule lives in lib/margin-floor.ts — three surfaces need it.
+      const attrs = itemAttrs[r.itemId];
+      const { floor, postageUnknown } = marginFloorWithPostage(
+        {
+          garmentCategory: attrs?.garmentCategory ?? null,
+          material: attrs?.material || null,
+          measurements: attrs?.measurements ?? null,
+          size: attrs?.size || null,
+        },
+        pct,
+        attrs?.cost ?? null,
+      );
+      if (postageUnknown) noPostage++;
       if (floor == null) {
         unreachable++;
         return {};
@@ -479,6 +435,13 @@ export function FlipdeskAutolisterBulkEditPage() {
     if (unreachable > 0) {
       toast.warning(
         `${pct}% margin is unreachable with eBay fees for ${unreachable} row${unreachable === 1 ? "" : "s"}.`,
+      );
+    }
+    // US-2790: these rows got the OLD free-postage behaviour, so say so.
+    if (noPostage > 0) {
+      toast.warning(
+        `${noPostage} row${noPostage === 1 ? "" : "s"} priced without a postage estimate ` +
+          `— heavier than any rate we have. Check those by hand.`,
       );
     }
   }
