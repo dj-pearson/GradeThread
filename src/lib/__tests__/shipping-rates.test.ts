@@ -167,17 +167,24 @@ describe("rateBreakWarning", () => {
   });
 });
 
-describe("US-2790: the edge mirror does not drift", () => {
-  it("services/edge-functions copy is byte-identical to the canonical file", () => {
-    const here = resolve(process.cwd(), "src/lib/shipping-rates.ts");
-    const mirror = resolve(
-      process.cwd(),
-      "services/edge-functions/src/lib/shipping-rates.ts",
-    );
-    expect(readFileSync(mirror, "utf8")).toBe(readFileSync(here, "utf8"));
-  });
-
-  it("the mirrored module imports nothing, so Deno can typecheck it", () => {
+describe("US-2790: this module is web-only, and stays mirror-ready", () => {
+  // ⚠ THERE IS DELIBERATELY NO EDGE MIRROR. One was created and then removed
+  // the same session: check-unwired-modules.mjs failed the build because
+  // nothing under services/edge-functions imports it, and it was right to.
+  //
+  // The edge does not price postage. flipdesk-logistics.ts needs the parcel
+  // WEIGHT (so parcel-estimate.ts IS mirrored and IS imported there), and eBay
+  // prices the label itself. The rate table exists for the web margin floor.
+  //
+  // Allowlisting it as PENDING would have been the other option, and the reason
+  // would have been "built ahead of its caller" — for a caller blocked on eBay
+  // documentation that has been unreachable for six attempts across three
+  // sessions. A dead mirror kept on that promise is what the guard is for.
+  //
+  // Restoring it is one `cp` plus a byte-identical assertion, whenever an edge
+  // consumer actually exists. The import-free rule below is what keeps that
+  // cheap, so it is enforced now rather than at the point of copying.
+  it("imports nothing, so a future Deno mirror type-checks unchanged", () => {
     const src = readFileSync(resolve(process.cwd(), "src/lib/shipping-rates.ts"), "utf8");
     const imports = src
       .split("\n")
