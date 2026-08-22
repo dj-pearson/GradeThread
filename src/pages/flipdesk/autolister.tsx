@@ -88,6 +88,8 @@ import {
   trackGroupEdit,
   trackGroupingOutcome,
 } from "@/lib/autolister-telemetry";
+import { tileLabel } from "@/lib/item-row-label";
+import { stagedSortName } from "./autolister/staged-sort-name";
 import {
   type StagedPhoto,
   type StagedUploadResult,
@@ -248,18 +250,6 @@ interface VerifyWindowGroup {
   id: string;
   photos: { id: string; storage_path: string }[];
   photoCount: number;
-}
-
-// Sort key for the name sort. Pre-sourceName photos recover the filename from
-// sourceSig (`name|size|mtime` — name may itself contain "|", so strip the
-// two known trailing segments). null = no name known (e.g. Google imports).
-function stagedSortName(p: StagedPhoto): string | null {
-  if (p.sourceName) return p.sourceName;
-  if (p.sourceSig) {
-    const parts = p.sourceSig.split("|");
-    if (parts.length >= 3) return parts.slice(0, -2).join("|");
-  }
-  return null;
 }
 
 // US-1550: user-selectable ungrouped-grid ordering. "shooting" is the US-1540
@@ -3046,7 +3036,7 @@ export function FlipdeskAutolisterPage() {
                   </button>
                   <button
                     type="button"
-                    aria-label="Dismiss proposal"
+                    aria-label={`Dismiss proposal of ${r.photoIds.length} photos, ${Math.round(r.confidence * 100)}% confident`}
                     onClick={() =>
                       setProposalReviews((prev) => prev.filter((x) => x.id !== r.id))
                     }
@@ -3085,7 +3075,15 @@ export function FlipdeskAutolisterPage() {
                 className="absolute left-0 top-0 grid w-full grid-cols-3 gap-2 sm:grid-cols-5 md:grid-cols-7"
                 style={{ transform: `translateY(${row.start - gridAnchor.offsetTop}px)` }}
               >
-                {gridRowItems(ungroupedSorted, row.index, gridColumns).map((p) => {
+                {gridRowItems(ungroupedSorted, row.index, gridColumns).map((p, col) => {
+              // US-2450: every tile used to announce the same two labels down
+              // a whole shoot. Position counts across the GRID, not within this
+              // row — see item-row-label.test.ts, which pins both.
+              const photoName = tileLabel(
+                stagedSortName(p),
+                "photo",
+                row.index * gridColumns + col + 1,
+              );
               const bgInFlight = bgProcessing.has(p.id);
               const enhancingInFlight = enhancing.has(p.id);
               const processing = bgInFlight || enhancingInFlight;
@@ -3105,7 +3103,7 @@ export function FlipdeskAutolisterPage() {
                   <button
                     type="button"
                     onClick={(e) => toggleSelect(p.id, e.shiftKey)}
-                    aria-label="Select photo (Shift-click selects the range)"
+                    aria-label={`Select ${photoName} (Shift-click selects the range)`}
                     className="absolute inset-0"
                   >
                     <StagedThumb
@@ -3124,7 +3122,7 @@ export function FlipdeskAutolisterPage() {
                   <button
                     type="button"
                     title="Delete photo"
-                    aria-label="Delete photo"
+                    aria-label={`Delete ${photoName}`}
                     onClick={() => removePhotos([p.id])}
                     disabled={processing}
                     className="absolute left-1 top-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 hover:bg-red-600 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30"
@@ -3464,7 +3462,7 @@ export function FlipdeskAutolisterPage() {
                       </button>
                       <button
                         type="button"
-                        aria-label="Dismiss suggestion"
+                        aria-label={`Dismiss suggestion: ${suggestionLabel(s, g.id)}`}
                         onClick={() => dismissSuggestion(s.id)}
                         className="rounded-full p-0.5 hover:bg-amber-500/20"
                       >

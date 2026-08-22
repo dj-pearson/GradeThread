@@ -94,3 +94,30 @@ export function itemRowLabel(it: ItemLike): string {
 export function rowControlLabel(action: string, it: ItemLike): string {
   return `${action} for ${itemRowLabel(it)}`;
 }
+
+/**
+ * A name for one tile in a repeated grid — a staged photo, not an item row.
+ *
+ * Same defect, different shape. The AutoLister photo grid gave every tile
+ * "Select photo (Shift-click selects the range)" and every delete button
+ * "Delete photo", down a virtualized grid of a whole shoot.
+ *
+ * PREFERS THE TILE'S OWN NAME because that is what the seller is looking at: a
+ * filename like IMG_9042.jpg is how they tell two shots of the same garment
+ * apart, and the grid already sorts by it. Falls back to POSITION rather than to
+ * an id fragment, which is the opposite choice from itemRowLabel and is right
+ * here: a photo has no title to fall back on, and position is exactly how a
+ * sighted user refers to one ("the third one"). An id fragment would be
+ * distinguishing and meaningless.
+ *
+ * Position is 1-based and follows the CURRENT sort, so it matches what is on
+ * screen rather than some stable underlying order. A label read on focus should
+ * describe the thing the user can see.
+ */
+export function tileLabel(
+  name: string | null | undefined,
+  kind: string,
+  position: number,
+): string {
+  return name?.trim() || `${kind} ${position}`;
+}

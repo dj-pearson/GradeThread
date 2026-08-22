@@ -19,7 +19,10 @@ const CEILINGS: Record<string, number> = {
   // autolister/workbench-toolbars.tsx — same mechanism, same answer. Lowered
   // again from 3698 when US-2769's missing-front check pushed it over and the
   // whole pre-generate checkpoint moved into autolister/group-warnings.ts.
-  "src/pages/flipdesk/autolister.tsx": 3657,
+  // Lowered again from 3657 when US-2450's per-photo labels pushed it over and
+  // stagedSortName moved into autolister/staged-sort-name.ts — a pure function
+  // that had just gained a second caller and now has its own tests.
+  "src/pages/flipdesk/autolister.tsx": 3655,
   "src/pages/flipdesk/autolister-bulk-edit.tsx": 2010,
   "src/pages/flipdesk/autolister-queue.tsx": 1120,
 };

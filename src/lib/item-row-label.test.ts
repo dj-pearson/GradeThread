@@ -9,7 +9,12 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { itemDisplayTitle, itemRowLabel, rowControlLabel } from "./item-row-label";
+import {
+  itemDisplayTitle,
+  itemRowLabel,
+  rowControlLabel,
+  tileLabel,
+} from "./item-row-label";
 
 const TABLE_SRC = readFileSync(
   resolve(process.cwd(), "src/pages/flipdesk/listings-table.tsx"),
@@ -197,6 +202,96 @@ describe("the listings table names every per-row control (US-2450)", () => {
     // the two derivations can drift again.
     expect(TABLE_SRC).toContain("itemDisplayTitle(it)");
     expect(TABLE_SRC).not.toMatch(/\/\^item\\s\+\\d\+\$\/i\.test/);
+  });
+});
+
+describe("tileLabel, for a grid tile that has no title to fall back on", () => {
+  it("prefers the tile's own name", () => {
+    expect(tileLabel("IMG_9042.jpg", "photo", 3)).toBe("IMG_9042.jpg");
+  });
+
+  it("trims, because the name is spoken and not rendered", () => {
+    expect(tileLabel("  IMG_9042.jpg  ", "photo", 3)).toBe("IMG_9042.jpg");
+  });
+
+  it("falls back to POSITION, not to an id fragment", () => {
+    // The opposite choice from itemRowLabel, and deliberate: a photo has no
+    // title, and position is how a sighted user refers to one. An id fragment
+    // would distinguish and mean nothing.
+    expect(tileLabel(null, "photo", 7)).toBe("photo 7");
+    expect(tileLabel(undefined, "photo", 7)).toBe("photo 7");
+    expect(tileLabel("   ", "photo", 7)).toBe("photo 7");
+  });
+
+  it("gives two unnamed tiles DIFFERENT names", () => {
+    // The whole point. Google Photos imports arrive with no filename, so a
+    // shared constant here would rebuild the defect for exactly the import
+    // path most likely to produce a screenful of them.
+    expect(tileLabel(null, "photo", 1)).not.toBe(tileLabel(null, "photo", 2));
+  });
+
+  it("is 1-based, so it matches what a person would count", () => {
+    expect(tileLabel(null, "photo", 1)).toBe("photo 1");
+  });
+});
+
+describe("the AutoLister photo grid and chips name themselves (US-2450)", () => {
+  const AUTO_SRC = readFileSync(
+    resolve(process.cwd(), "src/pages/flipdesk/autolister.tsx"),
+    "utf8",
+  );
+
+  /**
+   * Rendered ONCE, not once per item: a region wrapper, the triage panel, its
+   * filter toolbar and the jump nav. A landmark's name is supposed to be fixed —
+   * that is what makes it a landmark.
+   */
+  const CONTAINER_LABELS = [
+    "Proposed items to review",
+    "Group triage overview",
+    "Filter groups by condition",
+    "Jump to group",
+  ];
+
+  it("reads the source", () => {
+    expect(AUTO_SRC.length).toBeGreaterThan(10_000);
+    expect(AUTO_SRC).toContain("gridRowItems(ungroupedSorted");
+  });
+
+  it("has no fixed aria-label outside the container allowlist", () => {
+    const fixed = [...AUTO_SRC.matchAll(/aria-label="([^"]*)"/g)]
+      .map((m) => m[1] ?? "")
+      .filter((v) => !CONTAINER_LABELS.includes(v));
+    expect(
+      fixed,
+      `Each of these renders once per photo, proposal or suggestion, so a ` +
+        `screen reader user hears it repeatedly with nothing saying which one. ` +
+        `Interpolate the tile's identity, or add it to CONTAINER_LABELS if it ` +
+        `really is a landmark.`,
+    ).toEqual([]);
+  });
+
+  it("the photo name is derived once per tile and shared by both controls", () => {
+    expect(AUTO_SRC).toContain('from "@/lib/item-row-label"');
+    expect((AUTO_SRC.match(/const photoName = tileLabel\(/g) ?? []).length).toBe(1);
+    // Select and Delete sit on the same tile; if they derive separately they can
+    // disagree, which is the row-introduces-itself-twice bug in miniature.
+    expect(AUTO_SRC).toContain("`Select ${photoName} (Shift-click selects the range)`");
+    expect(AUTO_SRC).toContain("`Delete ${photoName}`");
+  });
+
+  it("the position counts across the whole grid, not within one row", () => {
+    // The map slices ONE grid row, so `col` alone would restart at 1 on every
+    // row and give seven photos per screen the same name — the defect rebuilt,
+    // and the kind that looks fixed because the labels are now dynamic.
+    expect(AUTO_SRC).toContain("row.index * gridColumns + col + 1");
+  });
+
+  it("the chips reuse the identity already on screen", () => {
+    // suggestionLabel is what the chip RENDERS. Inventing a second description
+    // for the same chip is how a spoken name drifts from a printed one.
+    expect(AUTO_SRC).toContain("`Dismiss suggestion: ${suggestionLabel(s, g.id)}`");
+    expect(AUTO_SRC).toMatch(/Dismiss proposal of \$\{r\.photoIds\.length\} photos/);
   });
 });
 
