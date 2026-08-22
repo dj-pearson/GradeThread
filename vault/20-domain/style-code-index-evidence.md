@@ -8,6 +8,9 @@ code_refs:
   - services/edge-functions/src/lib/style-code-names.ts
   - services/edge-functions/src/lib/style-code-aspects.ts
   - services/edge-functions/src/routes/jobs-style-code-sweep.ts
+  - services/edge-functions/src/lib/style-code-discovery.ts
+  - services/edge-functions/src/routes/jobs-style-code-discovery.ts
+  - supabase/migrations/00646_style_code_discovery.sql
   - supabase/migrations/00628_style_code_names.sql
   - supabase/migrations/00635_style_code_submissions.sql
   - supabase/migrations/00638_drop_lulufanatics_catalog.sql
@@ -95,6 +98,37 @@ So even a permitted, perfect crawl yields id → name while we need code → nam
 There is no join, and scraping harder does not create one. `--fetch` in
 `scripts/seed-official-style-names.mjs` re-measures all four facts on demand, so
 this claim can be rechecked rather than believed.
+
+## Two directions fill the index, and only one of them starts from a code
+
+The **sweep** (`jobs-style-code-sweep`, hourly) is reactive. It takes codes we
+have already met — off a tag a seller photographed, or already in the index —
+and asks the market what they are. Its ceiling is the set of garments that have
+passed through the building.
+
+The **crawl** (`jobs-style-code-discovery`, nightly, US-2782) runs the other
+direction. It pages a brand's live listings and keeps whatever codes sellers
+have already typed into eBay's structured fields, so a code nobody here has
+listed can be answered before anyone asks for it. A per-brand cursor
+(`style_code_discovery_state`) is what makes it a crawl rather than a nightly
+re-read of page one.
+
+**The evidence rule does not change between them.** Both call
+`declaredStyleCode` and `declaredProductName` from `lib/style-code-aspects.ts`;
+neither has a softer copy. A title cannot create a code and cannot create a
+name, in either direction. Both exclude our own eBay listing ids first, so our
+AI-written specifics cannot come back as independent market corroboration.
+
+What differs is the observation `source`: the crawl writes `discovery` and the
+sweep writes `market_verify`. Same quality of evidence, different act, and the
+index is worth less if a found code and a verified code are indistinguishable.
+Names from both enter at `consensus`, sharing one confidence band
+(`aspectNameConfidence`) so the two cannot drift apart.
+
+The crawl's brand pool is `brand_knowledge` — every brand we hold background
+knowledge on, not Lululemon alone (owner decision, 2026-08-21). Widening the
+crawl is not widening the public `/style/:code` surface, which stays
+Lululemon-only until a brand-collision rule exists.
 
 ## Related
 

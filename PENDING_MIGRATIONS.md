@@ -1,8 +1,8 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!warning] HELD: 00645 and 00646, plus one operator step that is not a
-> migration at all (the tail of 00627, US-2729). Everything through 00644
-> is applied.
+> [!warning] HELD: 00645. 00646 is APPLIED (verified 2026-08-21), and one
+> operator step that is not a migration at all (the tail of 00627, US-2729)
+> is partly resolved. Everything through 00644 is applied.
 > Everything through **00644** is applied. Verified by asking the database
 > rather than this file: `GET /health/ready` reports
 > `{"expected":"00642","applied":"00644","status":"ahead","unexpected":["00643","00644"]}`
@@ -25,9 +25,19 @@
 > applied when prod had not — and both times it was trusted and prod was not
 > asked. One unauthenticated GET settles it.
 
-## HELD: 00646 — style_code_discovery (US-2783)
+## APPLIED 2026-08-21: 00646 — style_code_discovery (US-2783)
 
-**NOT APPLIED. Do not push the commit that carries it until this has run.**
+**APPLIED, owner-confirmed and then verified against prod rather than taken on
+trust.** `GET /health/ready` reports
+`{"expected":"00644","applied":"00646","status":"ahead","unexpected":["00645","00646"]}`
+with no `missing` key, and the PostgREST OpenAPI document (anon key, a pure
+read) lists all three new objects: `/style_code_discovery_state`,
+`/rpc/style_code_discovery_brands` and `/rpc/record_style_code_discovery`.
+
+`expected: 00644` only says the RUNNING edge build predates the schema, which the
+next Coolify deploy resolves. Still to do on the operator side: add the Coolify
+scheduled task `10 3 * * *` against `/api/jobs/style-code-discovery`, or the
+crawl never fires.
 
 **Risk: LOW.** One new table with no foreign keys, two new functions, and one
 CHECK constraint widened to admit an extra value. No backfill, no existing row
@@ -89,10 +99,30 @@ select count(*) from public.style_code_discovery_brands(10);      -- runs, retur
 
 ## OPERATOR STEP (no new migration): re-run the TAIL of 00627 — US-2729
 
-**This is not a new file. It is the half of 00627 that never applied in prod,
-and it is the reason `/api/jobs/style-code-sweep` has errored on every hourly
-run since it shipped.** The discovery crawl above is worth much less while the
-sweep is dead, so run this first.
+**PARTLY RESOLVED, 2026-08-21.** `style_code_sweep_candidates` is now PRESENT in
+prod — confirmed by the same OpenAPI read as above — so the error that broke
+every hourly sweep tick is gone.
+
+**One thing still needs one query.** That same read does NOT list
+`/rpc/record_style_code_sweep`, which 00627 also creates and which the sweep
+calls to record cooldowns. The absence is not proof: the OpenAPI document only
+shows what the anon role may execute, and 00503's `record_style_code_observation`
+is missing from it for exactly that reason (00503 REVOKEs it). But 00627 contains
+no REVOKE, and its other function IS listed, so the asymmetry is unexplained.
+
+Settle it with one query before assuming the sweep is whole:
+
+```sql
+select proname, pronargs from pg_proc
+where proname in ('record_style_code_sweep', 'record_style_code_observation');
+```
+
+If `record_style_code_sweep` is absent, re-run just its
+`CREATE OR REPLACE FUNCTION` block and `GRANT` from 00627 (idempotent), then
+`NOTIFY pgrst, 'reload schema';`. Without it the sweep re-asks the same codes
+every hour instead of cooling them off.
+
+Original write-up follows.
 
 The prod schema audit (2026-08-20) found `style_code_sweeps`, both its indexes
 and `record_style_code_sweep` all present, and the LAST two objects the file

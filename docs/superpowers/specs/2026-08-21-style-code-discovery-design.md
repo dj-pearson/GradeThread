@@ -1,7 +1,7 @@
 # Style-code discovery: filling the index brand-first
 
 Date: 2026-08-21
-Status: approved, ready for implementation
+Status: BUILT 2026-08-21. Migration 00646 applied to prod and verified.
 Owner decision recorded: crawl **every brand we hold background knowledge on**, not
 Lululemon alone. When that pool is exhausted, widening the brand pool itself becomes
 the next piece of work, not a change to this design.
@@ -20,10 +20,13 @@ building. The codes worth knowing are the ones nobody here has listed yet: the
 garment a reseller is holding right now, the one the public `/style/:code` page
 gets a visit for and cannot answer.
 
-There is a second, quieter problem. `style_code_sweep_candidates` does not exist in
-production (US-2729, migration 00627 half-applied), so the reactive sweep has
-errored on every hourly run since it shipped. Discovery is worth nothing while that
-is true, and it is a prerequisite rather than a nice-to-have.
+There was a second, quieter problem. `style_code_sweep_candidates` did not exist in
+production (US-2729, migration 00627 half-applied), so the reactive sweep errored on
+every hourly run from the day it shipped. RESOLVED 2026-08-21: the function is now
+present in prod, confirmed by reading the PostgREST OpenAPI document. One loose end
+remains and is written up in PENDING_MIGRATIONS.md - `record_style_code_sweep`, the
+other function 00627 creates, does not appear in that same read, and one query
+settles whether it is genuinely absent or merely not executable by `anon`.
 
 ## What discovery does
 
@@ -92,7 +95,7 @@ what makes the results a brand crawl rather than a keyword search.
 
 eBay caps `limit + offset` at 10,000. The module treats 9,950 as the ceiling.
 
-### `supabase/migrations/00646_style_code_discovery.sql`
+### `supabase/migrations/00646_style_code_discovery.sql` (applied)
 
 - `style_code_discovery_state`: one row per brand holding the cursor, when it last
   ran, how many listings and codes the last pass saw, and how many consecutive
@@ -155,11 +158,12 @@ covered everything" on a run that covered a fraction.
   cooldown, cursor wrap at the ceiling, deferral accounting, harvest accepting a
   declared code, harvest refusing a title that contains a code, harvest refusing a
   one-word Model value, own-listing exclusion, per-page collapse.
-- `src/tests/tenant-isolation_test.ts`: a case asserting the discovery route reads
-  and writes no tenant table. It reads `brand_knowledge` and its own state table and
-  writes the non-tenant index. The one tenant table it touches is `listings`, read
-  for `platform_listing_id` only, which is the same read the sweep already makes and
-  exists precisely to exclude our own data rather than to use it.
+- The route is job-secret gated rather than user-scoped, so it gets no case in
+  `tenant-isolation_test.ts` (that suite drives two real user sessions against a
+  running edge). The equivalent guarantee is a source assertion in the discovery
+  test: the route NAMES exactly two tables, `listings` and
+  `style_code_observations`, and the `listings` read selects `platform_listing_id`
+  and nothing else, existing precisely to EXCLUDE our own data rather than use it.
 - The route's lock behaviour, via the injected acquirer seam the sweep established.
 
 ## What this is not

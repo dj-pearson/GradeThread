@@ -6,7 +6,7 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - scripts/ops/edge-watchdog.sh
-reviewed: 2026-08-20
+reviewed: 2026-08-21
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
