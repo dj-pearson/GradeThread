@@ -103,7 +103,7 @@ export function AuthorsPage() {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
-                            aria-label="View author page"
+                            aria-label={`View ${a.name}'s author page`}
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
                           </Button>
@@ -113,7 +113,7 @@ export function AuthorsPage() {
                           size="icon"
                           className="h-7 w-7 text-destructive"
                           title="Delete"
-                          aria-label="Delete author"
+                          aria-label={`Delete ${a.name}`}
                           disabled={del.isPending}
                           onClick={async (e) => {
                             e.stopPropagation();

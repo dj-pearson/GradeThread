@@ -271,7 +271,7 @@ export function BlogListPage() {
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
-                            aria-label="View live post"
+                            aria-label={`View ${p.title || p.slug} live`}
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
                           </Button>
@@ -282,7 +282,7 @@ export function BlogListPage() {
                         size="icon"
                         className="h-7 w-7 text-destructive"
                         title="Delete"
-                        aria-label="Delete post"
+                        aria-label={`Delete ${p.title || p.slug}`}
                         disabled={del.isPending}
                         onClick={async () => {
                           if (

@@ -661,6 +661,7 @@ export function AdminSubmissionsPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-7 w-7 p-0"
+                                aria-label={`View the AI raw analysis for ${s.title}`}
                                 title="View AI raw analysis"
                                 onClick={() => setViewingRawAnalysis(r)}
                               >
@@ -672,6 +673,7 @@ export function AdminSubmissionsPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-7 w-7 p-0"
+                                aria-label={`Re-trigger grading for ${s.title}`}
                                 title="Re-trigger grading"
                                 onClick={() => setRetriggerTarget(s)}
                               >
@@ -683,6 +685,7 @@ export function AdminSubmissionsPage() {
                                 variant="ghost"
                                 size="sm"
                                 className="h-7 w-7 p-0 text-red-600 dark:text-red-400"
+                                aria-label={`Mark ${s.title} as failed`}
                                 title="Mark as failed"
                                 onClick={() => setMarkFailedTarget(s)}
                               >
@@ -780,6 +783,7 @@ export function AdminSubmissionsPage() {
                           size="sm"
                           className="h-7 w-7 p-0"
                           title="Re-trigger grading"
+                          aria-label={`Re-trigger grading for ${item.submission.title}`}
                           onClick={() => setRetriggerTarget(item.submission)}
                         >
                           <RefreshCw className="h-3.5 w-3.5" />

@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { TruncatedNotice } from "@/components/flipdesk/truncated-notice";
 import { fetchCapped } from "@/lib/paged-read";
+import { itemRowLabel } from "@/lib/item-row-label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
@@ -764,6 +765,15 @@ export function FlipdeskAutolisterDraftsPage() {
                     const pub = bulkPublish.results[d.inventory_item_id];
                     const isActive = idx === activeIndex;
                     const isSelected = selectedIds.has(d.id);
+                    // US-2450. titleFor() is the VISIBLE title and falls back to
+                    // "Untitled draft" — correct to print and wrong to speak,
+                    // because a screen of fresh drafts would all be called that.
+                    // itemRowLabel refuses that placeholder and falls through to an
+                    // id fragment: ugly to hear, distinguishing, which is the job.
+                    const draftName = itemRowLabel({
+                      item_title: titleFor(d),
+                      id: d.id,
+                    });
                     const isEditing = editingId === d.id;
                     return (
                     <Fragment key={d.id}>
@@ -995,6 +1005,7 @@ export function FlipdeskAutolisterDraftsPage() {
                           >
                             <Link
                               to={`/dashboard/flipdesk/autolister/queue?batch=${d.batch_id}`}
+                              aria-label={`Open the AutoLister batch for ${draftName}`}
                               title="Open this batch (publish all / bulk edit)"
                             >
                               <Layers className="mr-1 h-3 w-3" />
@@ -1009,6 +1020,7 @@ export function FlipdeskAutolisterDraftsPage() {
                             size="sm"
                             variant="ghost"
                             className="h-7 px-2"
+                            aria-label={`Edit ${draftName}`}
                             title="Edit inline (e)"
                             onClick={(e) => {
                               e.stopPropagation();

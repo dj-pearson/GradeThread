@@ -36,7 +36,7 @@ import { join, resolve, sep } from "node:path";
 //     direction of over-reporting, which is why the baseline is a number rather
 //     than zero.
 
-const BASELINE = 77;
+const BASELINE = 61;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {

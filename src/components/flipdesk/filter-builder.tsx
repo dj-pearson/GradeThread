@@ -145,7 +145,7 @@ export function FilterBuilder({
               No rules. Add one below.
             </div>
           )}
-          {query.rules.map((rule) => {
+          {query.rules.map((rule, ruleIndex) => {
             const ops = opsForField(rule.field);
             const needsValue = rule.op !== "isnull" && rule.op !== "notnull";
             const isEnum = ENUM_FIELDS.has(rule.field);
@@ -159,7 +159,7 @@ export function FilterBuilder({
                     patchRule(rule.id, { field: v as FilterField })
                   }
                 >
-                  <SelectTrigger className="h-8 w-32 text-xs" aria-label="Filter field">
+                  <SelectTrigger className="h-8 w-32 text-xs" aria-label={`Field for rule ${ruleIndex + 1}`}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -176,7 +176,7 @@ export function FilterBuilder({
                     patchRule(rule.id, { op: v as FilterOp })
                   }
                 >
-                  <SelectTrigger className="h-8 w-28 text-xs" aria-label="Filter operator">
+                  <SelectTrigger className="h-8 w-28 text-xs" aria-label={`Operator for rule ${ruleIndex + 1}`}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -194,7 +194,7 @@ export function FilterBuilder({
                     value={rule.value}
                     onValueChange={(v) => patchRule(rule.id, { value: v })}
                   >
-                    <SelectTrigger className="h-8 flex-1 text-xs" aria-label="Filter value">
+                    <SelectTrigger className="h-8 flex-1 text-xs" aria-label={`Value for rule ${ruleIndex + 1}`}>
                       <SelectValue placeholder="Select…" />
                     </SelectTrigger>
                     <SelectContent>
@@ -208,7 +208,7 @@ export function FilterBuilder({
                 ) : isDate ? (
                   <Input
                     type="date"
-                    aria-label="Filter value"
+                    aria-label={`Value for rule ${ruleIndex + 1}`}
                     value={rule.value}
                     onChange={(e) =>
                       patchRule(rule.id, { value: e.target.value })
@@ -217,7 +217,7 @@ export function FilterBuilder({
                   />
                 ) : (
                   <Input
-                    aria-label="Filter value"
+                    aria-label={`Value for rule ${ruleIndex + 1}`}
                     value={rule.value}
                     onChange={(e) =>
                       patchRule(rule.id, { value: e.target.value })
@@ -235,7 +235,7 @@ export function FilterBuilder({
                   size="icon"
                   className="h-8 w-8 flex-shrink-0"
                   onClick={() => removeRule(rule.id)}
-                  aria-label="Remove rule"
+                  aria-label={`Remove rule ${ruleIndex + 1}`}
                 >
                   <X className="h-3.5 w-3.5" />
                 </Button>
