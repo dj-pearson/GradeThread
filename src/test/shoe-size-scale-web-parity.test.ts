@@ -79,6 +79,35 @@ describe("US-2796: the web's stated-scale parser matches the edge's", () => {
     );
   });
 
+  it("usableCandidates is mirrored too, which is the gap that caused this", () => {
+    // THE SAME MISTAKE ONE LEVEL DOWN, and it is why this case exists rather
+    // than only the one above. US-2813 records that the web and edge
+    // measurements.ts are mirrors and that nothing compared them until it added
+    // a check — but that check covers MEASUREMENT_SPECS, the DATA. The resolver
+    // was never compared, which is how the edge grew a five-argument
+    // resolveMeasurementAspects and the web kept a four-argument one for an hour
+    // while every suite stayed green and a UK size kept reaching live listings.
+    //
+    // usableCandidates is the rule those two copies now share. Comparing it is
+    // cheap and it closes the exact class of gap that produced this file.
+    const edge = readFileSync(
+      resolve(process.cwd(), "services/edge-functions/src/lib/measurements.ts"),
+      "utf8",
+    );
+    const web = readFileSync(resolve(process.cwd(), "src/lib/measurements.ts"), "utf8");
+    const code = (src: string) => {
+      const start = src.indexOf("function usableCandidates(");
+      expect(start, "usableCandidates is gone").toBeGreaterThan(-1);
+      const end = src.indexOf("\n}", start);
+      return src
+        .slice(start, end + 2)
+        .split(/\r?\n/)
+        .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+        .join("\n");
+    };
+    expect(code(web)).toEqual(code(edge));
+  });
+
   it("declares the same five scales as the edge, in the same order", () => {
     const edge = readFileSync(EDGE, "utf8");
     const listed = /SHOE_SIZE_SCALES: readonly ShoeSizeScale\[\] = \[([\s\S]*?)\]/.exec(edge);
