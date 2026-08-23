@@ -116,6 +116,33 @@ const SellerScorecardCard = lazy(() =>
     default: m.SellerScorecardCard,
   })),
 );
+// US-2827: your sizes against the cohort's sizes, on the Return reduction tab
+// because what it actually costs is returns.
+const MeasurementDriftSection = lazy(() =>
+  import("@/components/flipdesk/measurement-drift-section").then((m) => ({
+    default: m.MeasurementDriftSection,
+  })),
+);
+// US-2824 + US-2825: the two "what should I buy more of" reports, at the foot
+// of the Sell-through tab. Lazy because capital velocity reads the projected
+// item list and the other tabs have no use for it.
+const SourceYieldCard = lazy(() =>
+  import("@/components/flipdesk/sourcing-section").then((m) => ({
+    default: m.SourceYieldCard,
+  })),
+);
+const CapitalVelocityCard = lazy(() =>
+  import("@/components/flipdesk/sourcing-section").then((m) => ({
+    default: m.CapitalVelocityCard,
+  })),
+);
+// US-2823: factor-level and disclosure-level return attribution, under the
+// grade bands on the Return reduction tab.
+const ReturnAttributionSection = lazy(() =>
+  import("@/components/flipdesk/return-attribution-section").then((m) => ({
+    default: m.ReturnAttributionSection,
+  })),
+);
 // US-2821: the Defect Cost Ledger, on the Grading ROI tab.
 const DefectCostSection = lazy(() =>
   import("@/components/flipdesk/defect-cost-section").then((m) => ({
@@ -538,6 +565,16 @@ function SellThroughReport() {
           </Card>
         </>
       )}
+
+      {/* US-2824 + US-2825: the buy side and the hold side of the same
+          question. Source yield windows on the purchase date; capital velocity
+          reuses this tab's grouping control. */}
+      <Suspense fallback={null}>
+        <SourceYieldCard periodStart={periodStart} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <CapitalVelocityCard groupKey={groupKey} />
+      </Suspense>
     </div>
   );
 }
@@ -1095,6 +1132,17 @@ function ReturnReductionReport() {
               </Card>
             ) : null;
           })()}
+
+          {/* US-2823: the grade band says returns happen; this says which part
+              of the condition, and whether disclosing it helped. */}
+          <Suspense fallback={null}>
+            <ReturnAttributionSection periodStart={periodStart} />
+          </Suspense>
+
+          {/* US-2827: the other thing that comes back, and it is not condition. */}
+          <Suspense fallback={null}>
+            <MeasurementDriftSection />
+          </Suspense>
 
           <Card>
             <CardHeader>

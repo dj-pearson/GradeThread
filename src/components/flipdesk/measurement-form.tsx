@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
-import { ExternalLink } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ExternalLink, Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +12,13 @@ import {
   sizeGuideUrl,
   type MeasurementField,
 } from "@/lib/measurement-templates";
+import { useAuthStore } from "@/stores/auth-store";
+import {
+  bandFor,
+  EMPTY_DRIFT,
+  isOutsideBand,
+  type MeasurementDrift,
+} from "@/lib/measurement-drift";
 
 type MeasurementValues = Record<string, number | string>;
 
@@ -30,6 +38,14 @@ interface Props {
    * `measurements.<field>` and render an "AI" badge on those fields.
    */
   aiSources?: Record<string, AiSourceMeta> | null;
+  /**
+   * US-2827: the item's size. Supplying it turns on the live cohort check —
+   * a value outside what other sellers record for the same size and garment
+   * gets a note under the field. Omitted, the form behaves exactly as before.
+   */
+  size?: string | null;
+  /** The garment category the cohort is keyed on. Defaults to `category`. */
+  garmentCategory?: string | null;
 }
 
 function unitSuffix(field: MeasurementField, lengthUnit: "in" | "cm"): string {
@@ -44,7 +60,24 @@ export function MeasurementForm({
   values,
   onChange,
   aiSources,
+  size,
+  garmentCategory,
 }: Props) {
+  const user = useAuthStore((s) => s.user);
+  const cohortKey = (garmentCategory ?? category ?? "").trim() || null;
+  const sizeKey = (size ?? "").trim().toUpperCase() || null;
+
+  // US-2827: cohort bands for THIS size. Enabled only when both keys exist, so
+  // a surface that does not pass a size never issues the query at all.
+  const { data: drift = EMPTY_DRIFT } = useQuery<MeasurementDrift>({
+    queryKey: ["measurement-drift", "bands", user?.id, cohortKey, sizeKey],
+    enabled: !!user && !!cohortKey && !!sizeKey,
+    staleTime: 30 * 60 * 1000,
+    queryFn: async () => {
+      const { fetchMeasurementDrift } = await import("@/lib/measurement-drift");
+      return fetchMeasurementDrift(cohortKey, sizeKey);
+    },
+  });
   const { unit, setUnit } = useMeasurementPrefs();
   const group = measurementGroupFor(category);
   const template = MEASUREMENT_TEMPLATES[group];
@@ -67,6 +100,10 @@ export function MeasurementForm({
   // (We don't persist the cleared state back to ai_field_sources; the
   // audit trail stays in the DB even after the badge goes away.)
   const [touched, setTouched] = useState<Set<string>>(new Set());
+
+  // US-2827: fields whose cohort note the seller waved off this session. It is
+  // a check, not an error, so it must be silenceable.
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
 
   function set(key: string, raw: string) {
     const next = { ...values };
@@ -135,6 +172,16 @@ export function MeasurementForm({
       <div className="grid gap-3 sm:grid-cols-2">
         {template.map((field) => {
           const ai = aiMetaFor(field.key);
+          // Only `length` fields have a comparable cohort; a US shoe size and a
+          // case diameter are different quantities. `null` from isOutsideBand
+          // means "no band to check against", which is not a pass and renders
+          // nothing rather than a reassurance.
+          const band =
+            field.unit === "length" && !dismissed.has(field.key)
+              ? bandFor(drift, field.key)
+              : null;
+          const raw = Number(values[field.key]);
+          const outside = band ? isOutsideBand(raw, band) : null;
           return (
             <div key={field.key} className="space-y-1">
               <Label htmlFor={`${fieldIdBase}-${field.key}`} className="flex items-center gap-1.5 text-xs">
@@ -166,6 +213,28 @@ export function MeasurementForm({
                   {unitSuffix(field, unit)}
                 </span>
               </div>
+              {outside === true && band && (
+                <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                  <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span>
+                    Most size {sizeKey} measure {band.cohortP25}&quot; to{" "}
+                    {band.cohortP75}&quot; here. Worth a second look.{" "}
+                    <button
+                      type="button"
+                      className="underline underline-offset-2"
+                      // Every field renders one of these, so the visible word
+                      // alone announces "Dismiss" five times with nothing to
+                      // say which. US-2450's guard counts exactly this.
+                      aria-label={`Dismiss the size check on ${field.label}`}
+                      onClick={() =>
+                        setDismissed((prev) => new Set(prev).add(field.key))
+                      }
+                    >
+                      Dismiss
+                    </button>
+                  </span>
+                </p>
+              )}
             </div>
           );
         })}

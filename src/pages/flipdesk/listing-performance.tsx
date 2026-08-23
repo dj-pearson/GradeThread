@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -42,6 +42,13 @@ import { useEbayConnection } from "@/hooks/use-ebay";
 import { usePerformanceSuggestions } from "@/hooks/use-repricing";
 import { cn } from "@/lib/utils";
 import { CHART_PALETTE } from "@/lib/constants";
+
+// US-2826: photo count / quality score / grade against first-14-day traffic.
+const ListingQualityLiftSection = lazy(() =>
+  import("@/components/flipdesk/listing-quality-lift-section").then((m) => ({
+    default: m.ListingQualityLiftSection,
+  })),
+);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -378,6 +385,12 @@ export function FlipdeskListingPerformancePage(
           />
         );
       })()}
+
+      {/* US-2826: the same listing_metrics history this page shows per listing,
+          read against how each listing was built. */}
+      <Suspense fallback={null}>
+        <ListingQualityLiftSection periodStart={null} />
+      </Suspense>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>

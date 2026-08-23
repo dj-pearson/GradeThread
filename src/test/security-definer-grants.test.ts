@@ -215,6 +215,9 @@ const BODY_GUARDED = [
   "flipdesk_price_gap",
   "flipdesk_defect_cost",
   "seller_scorecard",
+  // 00658 (US-2827). The only wave-2 aggregate that reads other sellers' rows;
+  // its four siblings are SECURITY INVOKER and need no entry.
+  "measurement_drift",
 ];
 
 const UNGRANTED_DEBT = [

@@ -1,5 +1,58 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ HELD 2026-08-23: 00655-00658 — seller analytics, wave 2 (US-2823..2827)
+
+Four migrations, all **additive function definitions**. No table, column, index,
+enum, policy or grant on any existing object is touched, so nothing that runs
+today changes behaviour when these apply.
+
+| File | Function | Security | Reads |
+|---|---|---|---|
+| 00655 | `flipdesk_return_attribution(date)` | INVOKER | own items, listings, sales, grade_reports, item_photos |
+| 00656 | `flipdesk_source_yield(date)` | INVOKER | `items_full` |
+| 00657 | `flipdesk_listing_quality_lift(date)` | INVOKER | own listings, listing_metrics, item_photos |
+| 00658 | `measurement_drift(text, text)` | **DEFINER** | every seller's `inventory_items.measurements` |
+
+**Apply in NNNNN order, then `NOTIFY pgrst, 'reload schema';`** — all four are
+reached by name through PostgREST, so without the reload they 404 rather than
+answering.
+
+**Risk: LOW.** Every one is `create or replace function` on a NEW name; a
+re-run replaces its own definition and nothing else. No REVOKE anywhere
+(US-2403: a denied call segfaults this Postgres image).
+
+**The one to read before applying is 00658.** It is the only SECURITY DEFINER
+function in the set, because measurement drift has no meaning without other
+sellers' rows. Its posture is the same as `condition_price_curve` (00651):
+a `gt_require_role('measurement_drift','authenticated')` body guard, an
+explicit GRANT to authenticated and service_role, and every cross-seller figure
+behind the k-anonymity floor read from `system_settings.community_min_cohort_sellers`
+and hard-clamped with `greatest(5, ...)`. The caller's own medians are returned
+at any sample size, because those are their own data.
+
+**Client-side read risk on push: NONE.** Cloudflare Pages auto-deploys the
+frontend the moment this is pushed, and every one of the four surfaces reads its
+RPC through a client wrapper that returns an EMPTY report on error and renders
+nothing rather than an error state. If the frontend deploys before the SQL
+applies, the four new panels are simply absent. They appear on the next load
+after the RPCs exist. No blank page, no toast, no thrown error.
+
+**One performance note, said plainly.** 00658 scans `inventory_items`
+platform-wide and unnests each row's `measurements` jsonb. There is no index
+that helps a jsonb unnest and adding one would not pay for itself at current
+volume. It is a STABLE read behind an authenticated guard, called from two
+surfaces at a 5-minute and a 30-minute staleTime. Revisit if the table grows an
+order of magnitude.
+
+**Verification plan, same as wave 1 and better than a local stack:** after the
+apply, all four are confirmed PRESENT in the live PostgREST OpenAPI document,
+refused with 401/42501 to the anon key (00658 only — the other three are
+SECURITY INVOKER and answer with an empty result under RLS), and called with a
+real signed-in JWT to prove the bodies execute.
+
+---
+
+
 ## ✅ APPLIED 2026-08-22: 00650_items_full_parcel_inputs.sql
 
 US-2790. Applied by the owner and VERIFIED against the database rather than

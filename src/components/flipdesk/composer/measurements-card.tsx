@@ -39,6 +39,8 @@ export function MeasurementsCard({
           values={measurements}
           onChange={setMeasurements}
           aiSources={item.ai_field_sources ?? null}
+          size={item.size}
+          garmentCategory={item.garment_category ?? category}
         />
         {/* US-1574: calibrated photo measuring — renders only when the
             item has a MeasureCard shot; drag-adjust + save syncs the
