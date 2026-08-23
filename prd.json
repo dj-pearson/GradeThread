@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2833",
+  "nextId": "US-2834",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2604,6 +2604,21 @@
         "OPERATOR, SEPARATE AND BIGGER: run scripts/prod-schema-audit.sql against prod. 00134 was half-applied and nothing noticed for months; that script reports every missing table, column, index and function in one read-only pass, and it is the only way to know whether anything else below 00254 is missing too."
       ],
       "priority": 12
+    },
+    {
+      "id": "US-2833",
+      "passes": false,
+      "title": "Four UI tells are policy and nothing checks them: the browser-scoped rules need a runner",
+      "description": "Filed 2026-08-23 after commit a986bc905 found that four of the UI gate's seven ENFORCED rule ids could never produce a finding.  WHAT WAS WRONG AND IS NOW HONEST. `icon-tile-grid` and `uppercase-eyebrow` are not names impeccable uses - it calls those tells `icon-tile-stack` and `hero-eyebrow-chip`. `border-and-shadow` exists under no spelling. `nested-cards` is a real rule but lives in detect-antipatterns-browser.js with scopes: ['layout'], so it needs a RENDERED PAGE and a source scan cannot raise it. An id matching no rule is not an error in that tool; it is simply absent from the findings, which is indistinguishable from a clean codebase. The gate enforced three tells while reporting seven.  THE GATE IS FIXED AND SELF-CHECKING NOW: scripts/fixtures/ui-antipatterns/ holds one deliberately-bad file per enforced rule and selfCheck() fails if any enforced id stops coming back, so a rename cannot disarm one silently again.  WHAT THIS STORY IS FOR: the four tells are still policy and nothing machine-checks them. CLAUDE.md's craft floor names all four - cards nested in cards, grids of same-size icon-tile cards, a 1px border under a wide soft shadow, and a tracked uppercase eyebrow over every section - and three of them are among the most common defaults a model reaches for. They are exactly the rules most likely to be broken by generated UI and least likely to be caught by review.  CATCHING THEM NEEDS A RENDERED PAGE, which is a different runner: `impeccable detect <url>` against a running dev server or a preview deploy, not a directory scan. That is why it is a story rather than a line in the gate.",
+      "acceptanceCriteria": [
+        "Decide whether a browser-scoped UI scan is worth running at all, and where. The candidates are a local dev server in a pre-push lane, the Cloudflare Pages preview URL in CI, or nothing - and nothing is a legitimate answer if the cost outweighs four rules.",
+        "If it runs: `impeccable detect <url>` against a small, fixed set of representative pages rather than the whole site. The public marketing pages, the certificate page and one dense app screen (the composer) cover the layouts these four rules are about.",
+        "The browser-scoped rule ids get the same treatment the source ones now have: an enforced set, and a fixture or a known page that proves each one still fires. A rule that stops firing must fail loudly rather than read as clean.",
+        "NOT_SOURCE_CHECKABLE in scripts/check-ui-antipatterns.mjs shrinks by whatever this covers, and the entries that remain keep their stated reason.",
+        "Findings are reconciled the way the source gate does it: a NAMED allowlist entry per permitted finding with a reason, never a numeric baseline. A count permits any N findings; a list permits exactly those.",
+        "OPERATOR: AC1 is the decision and it is about cost, not correctness. A browser scan means standing up a page in CI, which is slower and flakier than reading files. Worth knowing before you answer: the four uncaught tells are among the most common defaults generated UI reaches for, and the gate has been reporting them as enforced since US-2336, so any confidence they were being checked was misplaced."
+      ],
+      "priority": 35
     }
   ]
 }
