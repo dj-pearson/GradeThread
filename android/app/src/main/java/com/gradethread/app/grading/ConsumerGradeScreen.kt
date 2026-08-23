@@ -50,6 +50,21 @@ fun ConsumerGradeScreen(
 ) {
     val step by viewModel.flow.step.collectAsState()
     val draft by viewModel.draft.collectAsState()
+    // US-2802: which slot the camera is open for, or null.
+    var cameraSlot by remember { mutableStateOf<String?>(null) }
+
+    val slot = cameraSlot
+    if (slot != null) {
+        GradeCameraSheet(
+            onCapture = { bytes ->
+                viewModel.addCameraShot(bytes, slot)
+                cameraSlot = null
+            },
+            onCancel = { cameraSlot = null },
+            modifier = modifier,
+        )
+        return
+    }
 
     if (step is ConsumerGradeFlow.Step.Ready) {
         // State hoisted rather than the ViewModel forwarded: DraftStep takes
@@ -60,6 +75,7 @@ fun ConsumerGradeScreen(
             onTypeChange = viewModel::setType,
             onCategoryChange = viewModel::setCategory,
             onPick = viewModel::addShot,
+            onTakePhoto = { cameraSlot = it },
             onSubmit = viewModel::submit,
             modifier = modifier,
         )
@@ -75,6 +91,7 @@ private fun DraftStep(
     onTypeChange: (String) -> Unit,
     onCategoryChange: (String) -> Unit,
     onPick: (android.net.Uri, String) -> Unit,
+    onTakePhoto: (String) -> Unit,
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -122,13 +139,14 @@ private fun DraftStep(
                     PhotoGradeError.friendlyName(slot).replaceFirstChar { it.uppercase() },
                     modifier = Modifier.weight(1f),
                 )
+                TextButton(onClick = { onTakePhoto(slot) }) { Text("Take") }
                 TextButton(onClick = {
                     pendingSlot = slot
                     picker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                     )
                 }) {
-                    Text(if (draft.shots.containsKey(slot)) "Replace" else "Add")
+                    Text(if (draft.shots.containsKey(slot)) "Replace" else "Library")
                 }
             }
         }
@@ -142,6 +160,25 @@ private fun DraftStep(
                 } else {
                     "Still needed: " +
                         draft.missing.joinToString(", ") { PhotoGradeError.friendlyName(it) }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        item {
+            // US-2802: a STATUS, not an advert. Live Capture is earned by how
+            // the photos were taken, so the honest thing to show is which
+            // side of that line this submission is on.
+            Text(
+                if (draft.isLiveCapture) {
+                    "Every photo was taken here — this qualifies for the " +
+                        "stronger Live-Verified check."
+                } else {
+                    "Take the photos here instead of adding them from your " +
+                        "library and this qualifies for the stronger " +
+                        "Live-Verified check. Your grade is never lowered for " +
+                        "adding them."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -217,11 +254,7 @@ private const val VISIBLE_VALUES = 4
  * a credits prompt are both no-charge and both are commonly read as failures.
  */
 @Composable
-private fun ProgressStep(
-    step: ConsumerGradeFlow.Step,
-    onViewGrade: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun ProgressStep(step: ConsumerGradeFlow.Step, onViewGrade: (String) -> Unit, modifier: Modifier = Modifier) {
     Column(
         modifier.fillMaxSize().padding(Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.md),

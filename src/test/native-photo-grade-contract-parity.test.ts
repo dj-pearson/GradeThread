@@ -105,3 +105,28 @@ describe("the tag/label rename survives on both", () => {
     expect(read(QUALITY)).toContain('"label"');
   });
 });
+
+describe("the live-capture source string is the server's own", () => {
+  const VERIFIED = "services/edge-functions/src/lib/verified-capture.ts";
+
+  it("Android sends the literal the server compares against", () => {
+    // A SABOTAGE FOUND THIS GAP. Every Kotlin test referenced the constant
+    // symbolically, so changing its VALUE to the video tier's string
+    // (in_app_recorder) left them all green — and the whole tier would have
+    // earned nothing, silently, because the server compares against its own
+    // literal and simply calls it not-live.
+    const server = read(VERIFIED).match(
+      /IN_APP_CAPTURE_SOURCE = "([^"]+)"/,
+    );
+    expect(server, "the server constant was renamed").toBeTruthy();
+    expect(read(KOTLIN)).toContain(`IN_APP_CAPTURE_SOURCE = "${server?.[1]}"`);
+  });
+
+  it("and it is not the video tier's string, which is a DIFFERENT check", () => {
+    // 360 video frames get their own source. Sending that one earns the
+    // video tier's treatment for a still photo. Quoted, because the
+    // contract's own comment names the string it is distinguishing itself
+    // from, and that sentence is worth keeping.
+    expect(read(KOTLIN)).not.toContain('"in_app_recorder"');
+  });
+});

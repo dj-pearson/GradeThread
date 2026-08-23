@@ -10,6 +10,14 @@ class PhotoGradeImage(
      *  Build it with [PhotoGradeContract.gradingImageType]. */
     val gradingType: String,
     val jpeg: ByteArray,
+    /**
+     * US-2802: where this photo came from.
+     *
+     * Defaults to LIBRARY, which FAILS CLOSED: an origin nobody recorded
+     * must not be reported as live. The opposite default would hand out the
+     * strongest provenance badge on a bookkeeping slip.
+     */
+    val captureSource: String = PhotoGradeContract.LIBRARY_CAPTURE_SOURCE,
 )
 
 /** Everything the route needs that is not a photo. */
@@ -64,14 +72,16 @@ object PhotoGradeFields {
 
 /** Why a submission was refused before it was sent. */
 sealed class PhotoGradeError(val message: String) {
-    class MissingRequired(val types: List<String>) : PhotoGradeError(
-        "Add the ${types.joinToString(", ") { friendlyName(it) }} photo before grading. " +
-            "The grader needs those to score condition.",
-    )
+    class MissingRequired(val types: List<String>) :
+        PhotoGradeError(
+            "Add the ${types.joinToString(", ") { friendlyName(it) }} photo before grading. " +
+                "The grader needs those to score condition.",
+        )
 
-    class TooManyImages(val count: Int) : PhotoGradeError(
-        "That's $count photos. A grade takes at most ${PhotoGradeContract.MAX_IMAGES}.",
-    )
+    class TooManyImages(val count: Int) :
+        PhotoGradeError(
+            "That's $count photos. A grade takes at most ${PhotoGradeContract.MAX_IMAGES}.",
+        )
 
     object NoImages : PhotoGradeError("Add photos before grading.")
 
@@ -104,10 +114,7 @@ sealed class PhotoGradeError(val message: String) {
  */
 class PhotoGradeUploader(private val api: EdgeApi) {
 
-    suspend fun submit(
-        images: List<PhotoGradeImage>,
-        request: PhotoGradeRequest,
-    ): PhotoSubmitResponse {
+    suspend fun submit(images: List<PhotoGradeImage>, request: PhotoGradeRequest): PhotoSubmitResponse {
         validate(images)?.let { throw IllegalArgumentException(it.message) }
         return api.decode(api.postMultipart(PATH, body(images, request)))
     }
@@ -137,13 +144,20 @@ class PhotoGradeUploader(private val api: EdgeApi) {
          * confidently wrong. The iOS uploader carries the same warning above
          * the same loop.
          */
-        internal fun body(
-            images: List<PhotoGradeImage>,
-            request: PhotoGradeRequest,
-        ): List<EdgeApi.Part> {
+        internal fun body(images: List<PhotoGradeImage>, request: PhotoGradeRequest): List<EdgeApi.Part> {
             val parts = mutableListOf<EdgeApi.Part>()
             PhotoGradeFields.fields(request).forEach { (name, value) ->
                 parts += EdgeApi.Part.Field(name, value)
+            }
+            // US-2802: the live tier. DERIVED, never a checkbox — the claim
+            // is a fact about how the photos were taken. Deriving it also
+            // means we can never send the one combination grade.ts rejects:
+            // opted in with a library photo in the set.
+            if (PhotoGradeContract.qualifiesForLiveCapture(images.map { it.captureSource })) {
+                parts += EdgeApi.Part.Field(
+                    PhotoGradeContract.LIVE_CAPTURE_OPT_IN_FIELD,
+                    "true",
+                )
             }
             images.forEachIndexed { index, image ->
                 parts += EdgeApi.Part.File(
@@ -153,6 +167,11 @@ class PhotoGradeUploader(private val api: EdgeApi) {
                     bytes = image.jpeg,
                 )
                 parts += EdgeApi.Part.Field("image_types", image.gradingType)
+                // Parallel to images/image_types, same loop, same reason.
+                parts += EdgeApi.Part.Field(
+                    PhotoGradeContract.CAPTURE_SOURCES_FIELD,
+                    image.captureSource,
+                )
             }
             return parts
         }

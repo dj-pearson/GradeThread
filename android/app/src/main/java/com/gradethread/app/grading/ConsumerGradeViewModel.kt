@@ -40,6 +40,11 @@ class ConsumerGradeViewModel @Inject constructor(
         val garmentCategory: String = DEFAULT_CATEGORY,
         /** gradingType -> the compressed JPEG bytes. */
         val shots: Map<String, ByteArray> = emptyMap(),
+        /**
+         * US-2802: gradingType -> where that shot came from. Absent means
+         * library, which is the fail-closed default.
+         */
+        val sources: Map<String, String> = emptyMap(),
         val loadFailed: Boolean = false,
     ) {
         val missing: List<String>
@@ -47,6 +52,14 @@ class ConsumerGradeViewModel @Inject constructor(
 
         /** A blank title is the one field the route will not fill in for us. */
         val canSubmit: Boolean get() = missing.isEmpty() && title.isNotBlank()
+
+        /** Every shot taken in the app. Shown, never chosen. */
+        val isLiveCapture: Boolean
+            get() = PhotoGradeContract.qualifiesForLiveCapture(
+                PhotoGradeContract.requiredGradingTypes.map {
+                    sources[it] ?: PhotoGradeContract.LIBRARY_CAPTURE_SOURCE
+                },
+            ) && missing.isEmpty()
     }
 
     private val uploader = PhotoGradeUploader(api)
@@ -84,6 +97,21 @@ class ConsumerGradeViewModel @Inject constructor(
      * ignores the EXIF rotation flag, so a raw read ships sideways photos to
      * the one place known to mishandle them.
      */
+    /**
+     * US-2802: a shot taken IN THE APP. The only path that may claim the
+     * in-app source — everything else defaults to library.
+     */
+    fun addCameraShot(bytes: ByteArray, gradingType: String) {
+        draftFlow.update {
+            it.copy(
+                shots = it.shots + (gradingType to bytes),
+                sources = it.sources +
+                    (gradingType to PhotoGradeContract.IN_APP_CAPTURE_SOURCE),
+                loadFailed = false,
+            )
+        }
+    }
+
     fun addShot(uri: Uri, gradingType: String) {
         viewModelScope.launch {
             val outputDir = File(context.filesDir, "consumer-grade")
@@ -100,7 +128,15 @@ class ConsumerGradeViewModel @Inject constructor(
                 return@launch
             }
             draftFlow.update {
-                it.copy(shots = it.shots + (gradingType to bytes), loadFailed = false)
+                it.copy(
+                    shots = it.shots + (gradingType to bytes),
+                    // A library pick REPLACES any in-app source for this slot:
+                    // retaking from the library after a camera shot must not
+                    // keep the live claim.
+                    sources = it.sources +
+                        (gradingType to PhotoGradeContract.LIBRARY_CAPTURE_SOURCE),
+                    loadFailed = false,
+                )
             }
         }
     }
@@ -112,7 +148,14 @@ class ConsumerGradeViewModel @Inject constructor(
             // Ordered by the contract rather than by map order, so the parts
             // arrive in the sequence the strip showed them.
             val images = PhotoGradeContract.requiredGradingTypes.mapNotNull { type ->
-                current.shots[type]?.let { PhotoGradeImage(type, it) }
+                current.shots[type]?.let {
+                    PhotoGradeImage(
+                        type,
+                        it,
+                        current.sources[type]
+                            ?: PhotoGradeContract.LIBRARY_CAPTURE_SOURCE,
+                    )
+                }
             }
             flow.start(
                 images,

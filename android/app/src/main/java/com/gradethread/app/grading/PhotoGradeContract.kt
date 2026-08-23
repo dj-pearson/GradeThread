@@ -53,4 +53,43 @@ object PhotoGradeContract {
      * uncapped count is a direct AI-cost multiplier.
      */
     const val MAX_IMAGES = 14
+
+    /**
+     * US-2802: where one photo came from.
+     *
+     * Mirrors IN_APP_CAPTURE_SOURCE in verified-capture.ts and the web
+     * contract in src/lib/photo-capture-contract.ts. The server lowercases
+     * before comparing, but send the literal.
+     *
+     * ⚠ NOT the video tier is vocabulary. The walk-around clip uses
+     * `in_app_recorder`; this is `in_app_camera`. Different strings for
+     * different tiers, each compared against its own literal server-side, so
+     * swapping them silently earns nothing.
+     */
+    const val IN_APP_CAPTURE_SOURCE = "in_app_camera"
+
+    /**
+     * Chosen from the library. Honest and ordinary - it simply earns no
+     * live-capture badge. There is no third value: anything the app did not
+     * watch being taken is a library photo.
+     */
+    const val LIBRARY_CAPTURE_SOURCE = "library"
+
+    const val LIVE_CAPTURE_OPT_IN_FIELD = "live_capture_opt_in"
+    const val CAPTURE_SOURCES_FIELD = "capture_sources"
+
+    /**
+     * Whether this submission may claim the live tier.
+     *
+     * DELIBERATELY NOT A CHECKBOX, matching the web: the claim is a statement
+     * of fact about how the photos were taken, not a preference. Deriving it
+     * also means the client can never send the one combination grade.ts
+     * rejects - opted in with a library photo in the set.
+     *
+     * An EMPTY set is NOT live: `all` on an empty collection is vacuously
+     * true, and a submission with no photos claiming the strongest provenance
+     * tier is exactly the vacuous pass this refuses.
+     */
+    fun qualifiesForLiveCapture(sources: Collection<String>): Boolean =
+        sources.isNotEmpty() && sources.all { it == IN_APP_CAPTURE_SOURCE }
 }
