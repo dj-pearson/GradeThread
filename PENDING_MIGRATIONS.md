@@ -1,5 +1,49 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🔒 HELD: 00659 — seller digest ledger + opt-out (US-2828)
+
+One table and one column, both additive. Nothing existing changes shape or
+behaviour; no REVOKE anywhere (US-2403).
+
+| Object | What | Risk |
+|---|---|---|
+| `public.seller_digest_log` | new table: one row per seller per weekly digest period | LOW |
+| `public.users.seller_digest_opt_out` | new `boolean NOT NULL DEFAULT false` column | LOW |
+
+**Apply, then `NOTIFY pgrst, 'reload schema';`** — the table and the column are
+both reached by name through PostgREST, so without the reload a read of either
+404s rather than answering.
+
+**⚠ THIS ONE HAS NOT BEEN RUN AGAINST A POSTGRES, and that is unusual for this
+file.** Docker Desktop's engine service (`com.docker.service`) is STOPPED on the
+dev box, so `npm run verify:db` — the lane whose whole job is proving a migration
+applies to a fresh schema — could not run. Starting it needs elevation the agent
+does not have. What HAS been checked:
+
+- `migrations-lint` passes (656 migrations, no gaps, no duplicate versions).
+- `schema-version_test.ts` passes: `EXPECTED_SCHEMA_VERSION` is `00659`, bumped in
+  the same commit, and the shipped manifest was regenerated.
+- `rls-guard_test.ts` passes, and it CAUGHT A REAL DEFECT here: the policy was
+  first written as bare `auth.uid() = user_id`, copied from 00412. US-1927
+  requires `(select auth.uid())`, which the planner hoists into a single InitPlan
+  instead of re-evaluating per candidate row. Fixed before commit.
+- The self-record footer is present.
+
+So the STRUCTURE is checked and the SQL has not been executed. Turn Docker on and
+run `npm run verify:db` before applying, or accept that a syntax error would
+surface at apply time — the statements are all `IF NOT EXISTS` / `DROP ... IF
+EXISTS` forms, so a failed run is re-runnable rather than half-applied.
+
+**Why the column is on `users` and not a preferences table.** AC6 requires the
+opt-out to be honoured in the SAME query that selects recipients rather than
+filtered afterwards, and the recipient scan already reads `users`. A join is one
+more thing that can be forgotten in exactly the way AC6 is written to prevent.
+
+**Nothing in the same commit reads either object from the client**, so a frontend
+auto-deploy before this applies changes nothing. The job that will use them is
+not built yet — only the pure composition (`seller-digest.ts`) and the anomaly
+rule (`seller-anomaly.ts`) are, and neither touches the database.
+
 ## ✅ APPLIED 2026-08-23: 00655-00658 — seller analytics, wave 2 (US-2823..2827)
 
 Four migrations, all **additive function definitions**. No table, column, index,
