@@ -56,10 +56,6 @@ const ALLOWED = {
   GradeThreadAppShortcuts:
     "SYSTEM-DISCOVERED. An AppShortcutsProvider is found by iOS through its " +
     "conformance; app code never constructs one. No caller exists to add.",
-  ConsumerGradeFlow:
-    "UNREACHABLE (US-2016). The paid consumer grading path — submit, pay, " +
-    "poll, result — is built and unit-tested and no view presents it. Needs " +
-    "an entry point, which is a product decision recorded on that story.",
   WalkAroundGradeView:
     "UNREACHABLE (US-2504). Walk-around video grading. The recorder is wired " +
     "to this view and this view is opened by nothing, so the feature the " +

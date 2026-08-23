@@ -2006,6 +2006,14 @@ struct SettingsView: View {
             } label: {
                 Label("Trust score", systemImage: "rosette")
             }
+            // US-2815: the consumer grading path. ConsumerGradeFlow has been
+            // complete and unit-tested since US-2016 and presented by nothing —
+            // every reference to it in the repo was in its own test file.
+            NavigationLink {
+                ConsumerGradeView()
+            } label: {
+                Label("Grade a garment", systemImage: "tshirt")
+            }
             NavigationLink {
                 BuyerPortfolioView()
             } label: {
