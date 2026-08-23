@@ -56,7 +56,29 @@ export const BACKLOGS = {
   main: "../prd.json",
   connector: "../prd-connector.json",
   seo: "../prd-seo.json",
+  // WRITABLE BY `note` ONLY — see NOTE_ONLY_BACKLOGS below.
+  //
+  // Closing a story does not end the need to correct its record. US-2802's AC5
+  // had to fix US-1283's closure and did it by hand; US-2796 closed today saying
+  // AC3 was met and it was met on one of two paths, with nowhere to say so. A
+  // correction that lives only in a commit message is a correction the next
+  // reader of the story will not find.
+  //
+  // Checked before allowing this: prd.archive.json round-trips byte-identically
+  // through `serialize`, so appending one note produces a one-story diff rather
+  // than reformatting 7.8 MB.
+  archive: "../prd.archive.json",
 };
+
+/**
+ * Backlogs that only `note` may write.
+ *
+ * `new` in the archive would mint an id nothing tracks, and `done` on a story
+ * that is already `passes: true` and already archived is a no-op that reads like
+ * an action. Both refuse, naming the reason, rather than doing something
+ * surprising to the biggest file in the repo.
+ */
+export const NOTE_ONLY_BACKLOGS = new Set(["archive"]);
 
 /**
  * Resolve a --backlog value to one of the named files.
@@ -257,6 +279,22 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     // Inside the try: a bad --backlog is bad INPUT, and this script answers bad
     // input with one line rather than a stack trace.
     backlogRel = resolveBacklog(flags.backlog);
+    // A note-only backlog refuses every other command, naming the reason. This
+    // is checked BEFORE the file is read, so a mistyped command cannot even open
+    // the archive for writing.
+    const backlogName = Object.keys(BACKLOGS).find((k) => BACKLOGS[k] === backlogRel);
+    if (NOTE_ONLY_BACKLOGS.has(backlogName) && cmd !== "note" && cmd !== "show") {
+      throw new Error(
+        `--backlog ${backlogName} accepts only \`note\` (and \`show\`). ` +
+          `\`${cmd}\` there would ` +
+          (cmd === "new"
+            ? "mint an id nothing tracks"
+            : cmd === "done"
+              ? "re-close a story that is already closed and already archived"
+              : "edit a finished story's criteria, which is what a new story is for") +
+          `. A CORRECTION to a closed story is what \`note\` is for.`,
+      );
+    }
     isMain = backlogRel === BACKLOGS.main;
     TARGET_URL = new URL(backlogRel, import.meta.url);
     prd = JSON.parse(readFileSync(TARGET_URL, "utf8"));
