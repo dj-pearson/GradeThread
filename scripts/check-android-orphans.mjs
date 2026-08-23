@@ -12,14 +12,6 @@
 // WHAT IT FOUND FIRST RUN, and the shape is worth keeping because it is not
 // "dead code" in the usual sense:
 //
-//   OAuthSignIn        US-1311 built Google and Apple sign-in through Chrome
-//                      Custom Tabs. The RETURN leg is fully wired -
-//                      AuthCallbackActivity is in the manifest as an App Link
-//                      and completes the PKCE exchange. The DEPARTURE leg is
-//                      not: nothing calls OAuthSignIn.launch(), and AuthScreen
-//                      renders email fields and no provider button. Half a
-//                      feature, and the half that shipped is the half nobody
-//                      looks at.
 //
 // THREE KINDS OF DECLARATION ARE EXCLUDED BY MECHANISM, NOT BY NAME, because
 // on Android most things nothing calls are called by something that is not code:
@@ -50,10 +42,6 @@ const rel = (f) => relative(ROOT, f).split(sep).join("/");
  * reason out with it.
  */
 const ALLOWED = {
-  OAuthSignIn:
-    "UNREACHABLE (US-2792). Google and Apple sign-in through Custom Tabs. The " +
-    "callback half is wired and in the manifest; nothing calls launch(), and " +
-    "AuthScreen offers no provider button, so neither can be started.",
 };
 
 function walk(dir, out = []) {

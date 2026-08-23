@@ -104,6 +104,17 @@ class AuthViewModel @Inject constructor(
     fun setFullName(value: String) = update { it.copy(fullName = value) }
 
     /**
+     * US-2792: open a provider's consent page.
+     *
+     * Failures surface through the same lastError collector as email sign-in,
+     * so a provider that refuses reads like any other auth failure rather
+     * than doing nothing visible.
+     */
+    fun signInWithProvider(context: android.content.Context, provider: OAuthSignIn.Provider) {
+        viewModelScope.launch { auth.startOAuth(context, provider) }
+    }
+
+    /**
      * US-2792: record the challenge outcome.
      *
      * DELIBERATELY DOES NOT GATE THE BUTTON. Making canSubmit wait on a token

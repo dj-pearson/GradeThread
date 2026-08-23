@@ -102,6 +102,18 @@ class AuthRepository @Inject constructor(
 
     // ── Actions ──────────────────────────────────────────────────────────────
 
+    /**
+     * US-2792: start a provider sign-in.
+     *
+     * Lives here because this class owns the SupabaseClient. The RETURN leg
+     * was already complete — AuthCallbackActivity is a manifest App Link and
+     * finishes the PKCE exchange — so this is the missing half, not a new
+     * flow.
+     */
+    suspend fun startOAuth(context: android.content.Context, provider: OAuthSignIn.Provider) {
+        OAuthSignIn.launch(context, client, provider)
+    }
+
     suspend fun signIn(email: String, password: String, captchaToken: String? = null) {
         run {
             client.auth.signInWith(Email) {

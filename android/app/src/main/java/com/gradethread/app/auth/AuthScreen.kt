@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -42,6 +43,8 @@ import com.gradethread.app.ui.theme.Spacing
 @Composable
 fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+    // US-2792: the Custom Tab needs an Activity context to launch from.
+    val context = LocalContext.current
     var passwordVisible by remember { mutableStateOf(false) }
 
     Column(
@@ -176,6 +179,8 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
         // Invisible without a site key - the composable reports NotConfigured
         // and builds no WebView at all, so a dev or CI build behaves exactly as
         // it did before this existed.
+        ProviderSignIn(onProvider = { viewModel.signInWithProvider(context, it) })
+
         SignUpCaptcha(state.isSignUp, viewModel::setCaptcha)
 
         BrandPrimaryButton(
@@ -216,4 +221,39 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
 private fun SignUpCaptcha(isSignUp: Boolean, onResult: (TurnstileResult) -> Unit) {
     if (!isSignUp) return
     TurnstileChallenge(onResult = onResult)
+}
+
+/**
+ * US-2792: the provider entry points.
+ *
+ * US-1311 built OAuthSignIn.launch() over Chrome Custom Tabs and wired the
+ * RETURN leg properly — AuthCallbackActivity is a manifest App Link that
+ * completes the PKCE exchange. Nothing ever called launch(), so half a feature
+ * shipped and the half that shipped is the half nobody looks at.
+ *
+ * FILTERED BY isAvailable, whose own doc says "whether the provider's entry
+ * point should render at all" — the seam was designed for this. Google stays
+ * hidden until AppConfig.googleSignInEnabled is turned on, which waits on the
+ * provider being configured in the self-hosted GoTrue. Apple is available
+ * today, so this ships a working button rather than a disabled one.
+ *
+ * Renders nothing when no provider is available, so the row cannot become an
+ * empty gap with a divider above it.
+ */
+@Composable
+private fun ProviderSignIn(onProvider: (OAuthSignIn.Provider) -> Unit) {
+    val available = OAuthSignIn.Provider.entries.filter(OAuthSignIn::isAvailable)
+    if (available.isEmpty()) return
+
+    available.forEach { provider ->
+        BrandSecondaryButton(
+            text = stringResource(
+                when (provider) {
+                    OAuthSignIn.Provider.GOOGLE -> R.string.auth_continue_google
+                    OAuthSignIn.Provider.APPLE -> R.string.auth_continue_apple
+                },
+            ),
+            modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
+        ) { onProvider(provider) }
+    }
 }

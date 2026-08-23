@@ -117,6 +117,8 @@
 
     <!-- Auth (US-2369) -->
     <string name="auth_sign_in">Sign in</string>
+    <string name="auth_continue_google">Continue with Google</string>
+    <string name="auth_continue_apple">Continue with Apple</string>
     <string name="auth_create_account">Create account</string>
     <string name="auth_subtitle">Grade, list and track your resale inventory.</string>
     <string name="auth_name">Your name</string>
