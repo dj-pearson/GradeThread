@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2832",
+  "nextId": "US-2833",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2587,6 +2587,22 @@
         "OPERATOR: AC1 is the decision and it is a product one, not a technical one. The honest summary: today a photo taken in the GradeThread browser tab and a photo taken in the iPhone app earn the same badge, and the iPhone one could prove more than it currently claims. Deciding nothing is fine and leaves a working, honestly-earned tier in place; deciding to split it is a promise every future client has to keep."
       ],
       "priority": 70
+    },
+    {
+      "id": "US-2832",
+      "passes": false,
+      "title": "The listings.draft_id prod repair exists only in a markdown file, so no audit can prove it was applied",
+      "description": "Filed 2026-08-23 from a gap PENDING_MIGRATIONS.md flags about itself at line 906: 'The 00134 repair leaves no durable record. It is SQL in a markdown file, so scripts/apply-prod-migrations.sh will never run it and no applied_migrations row will ever mark it done. A future audit cannot tell a repaired production from one that still has the gap.'  WHAT HAPPENED. US-2726 found production had no listings.draft_id, so every extension cross-listing writeback failed with PGRST204. The column comes from 00134, which is pre-footer-era, so the boot guard never checked it - applied_migrations only records 00254 and up. 00134 could not simply be re-run because its CREATE TRIGGER and three CREATE POLICY statements have no guards; the 42710 it raises is itself the proof that the rest of 00134 DID apply and only the column was missing. So the missing half was applied by hand as two statements pasted from a markdown file.  THE STATE IS NOW UNKNOWABLE FROM THE DATABASE. Production has the column, and nothing in the schema records why or when. Re-running apply-prod-migrations.sh on a fresh environment does not produce it. A second environment - a staging stack, a restored backup, a new region - would silently lack it again, and the only symptom is that every writeback fails.  THE FIX IS SMALL AND ITS COST IS ZERO ON A REPAIRED PROD: a numbered idempotent 'ensure' migration carrying exactly the two statements already applied by hand, plus the US-1108 triple. ADD COLUMN IF NOT EXISTS and CREATE INDEX IF NOT EXISTS are both no-ops where the column already exists, so applying it to production changes nothing and leaves an applied_migrations row behind. That row is the whole point.  NOT DONE WHEN FOUND, and the reason is worth recording rather than repeating. A concurrent agent had migrations 00651 and 00652 uncommitted in the working tree with EXPECTED_SCHEMA_VERSION already bumped to 00652 and the manifest regenerated. The US-1108 triple requires the version bump in the SAME commit as the migration, so writing 00653 would have meant editing another agent's uncommitted line and sweeping their work into this commit. The numbering hazard is real and recorded on US-2670 too, where a migration written as 00619 on a stale main had to be renumbered to 00624 before pushing.  THE BIGGER QUESTION THIS IS A CORNER OF, already flagged in PENDING_MIGRATIONS.md and not answered: how a pre-00254 migration came to be half-applied, and whether anything else below 00254 is missing from production. scripts/prod-schema-audit.sql exists for exactly that and reports every missing table, column, index and function in one read-only pass.",
+      "acceptanceCriteria": [
+        "A numbered migration carries the two statements from PENDING_MIGRATIONS.md verbatim: ADD COLUMN IF NOT EXISTS listings.draft_id uuid REFERENCES public.listings(id) ON DELETE SET NULL, and CREATE INDEX IF NOT EXISTS idx_listings_draft_id ON public.listings (draft_id) WHERE draft_id IS NOT NULL.",
+        "It carries the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer, and node scripts/gen-migration-manifest.mjs re-run.",
+        "Take the number LAST, immediately before writing the file, and check the working tree for uncommitted migrations from a concurrent agent as well as the committed ones. This story was deferred once for exactly that reason.",
+        "The 00134 repair section in PENDING_MIGRATIONS.md is rewritten to point at the migration instead of carrying loose SQL, so the next reader is not handed a paste-this block that leaves no trace.",
+        "A test asserts the migration is a no-op against a schema that already has the column - it is applied twice against the local stack and the second run succeeds. This is what makes it safe to apply to a production that was already repaired by hand.",
+        "OPERATOR: apply it to prod. It changes nothing there - the column exists - and the point is the applied_migrations row, so that a future audit, a restored backup or a staging stack can tell a repaired database from a broken one. Then NOTIFY pgrst, 'reload schema'.",
+        "OPERATOR, SEPARATE AND BIGGER: run scripts/prod-schema-audit.sql against prod. 00134 was half-applied and nothing noticed for months; that script reports every missing table, column, index and function in one read-only pass, and it is the only way to know whether anything else below 00254 is missing too."
+      ],
+      "priority": 12
     }
   ]
 }

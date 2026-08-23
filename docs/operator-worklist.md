@@ -1,6 +1,6 @@
 # What the backlog is waiting on you for
 
-Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 114 of 141 open stories carry at least one OPERATOR criterion — a step only you can take.
+Regenerate with: node scripts/operator-worklist.mjs. Built from prd.json, where 115 of 153 open stories carry at least one OPERATOR criterion — a step only you can take.
 
 This is not a list of blocked work. Most of these stories have buildable criteria before the operator step, and several were finished this session right up to it. It is a list of the last mile.
 
@@ -9,7 +9,7 @@ This is not a list of blocked work. Most of these stories have buildable criteri
 Most of these are not separate sittings. Grouped by what you need open:
 
 - **Somewhere else (read the step)** — 32 steps
-- **Production database (psql or the Supabase SQL editor)** — 21 steps
+- **Production database (psql or the Supabase SQL editor)** — 23 steps
 - **Coolify, or a deploy + env change** — 21 steps
 - **A marketplace account, logged in** — 12 steps
 - **A lawyer** — 9 steps
@@ -39,12 +39,6 @@ priority 8
 
 the fix only affects newly generated variants. Existing drafts carry the stored 0 - press Regenerate on the Listing Kit to pick up the price.
 
-### US-2792 — Android: seven built features nobody can reach, including Google/Apple sign-in and signup bot protection
-
-priority 12
-
-the auth ones need judgement this cannot supply. Google is gated behind AppConfig.googleSignInEnabled, which is off until the provider is configured on the self-hosted GoTrue - so AC1 is partly a provisioning question, not only a button. And a Turnstile site key has to exist for Android before AC2 can be more than a rendered widget.
-
 ### US-2788 — A wedged Docker daemon holds verify.lock forever, silently blocking every push on the machine
 
 priority 25
@@ -62,6 +56,18 @@ exercise the fulfillment call against a Shopify sandbox store (AC3). AC1 and AC2
 priority 58
 
 choose a daily spend ceiling and set PER_IMAGE_SHADOW_DAILY_VISION_CAP to it. Unset is 0 and 0 is off, so this is the switch that makes everything below actually run.
+
+### US-2830 — The consumer grade flow quotes a price and has no way to pay it, on both phones
+
+priority 60
+
+AC1 is the only real decision and it is small - does the consumer flow re-charge to detect the grant, or ask for a balance? Everything else follows from it. Worth knowing before you answer: nobody can currently spend money at this screen, so whatever the consumer conversion rate looks like today, it was measured with the buy button missing.
+
+### US-2831 — Live Capture earns one badge for three different strengths of evidence
+
+priority 70
+
+AC1 is the decision and it is a product one, not a technical one. The honest summary: today a photo taken in the GradeThread browser tab and a photo taken in the iPhone app earn the same badge, and the iPhone one could prove more than it currently claims. Deciding nothing is fine and leaves a working, honestly-earned tier in place; deciding to split it is a promise every future client has to keep.
 
 ### US-2457 — Buyer audit rows are indistinguishable from seller ones, so the reconciler reads a buyer cancellation as a seller cancellation
 
@@ -177,12 +183,6 @@ priority 1993
 
 answer one product question - is a non-English-speaking seller a customer on iOS? Android already answers yes: it ships values-es plus a CI lane that fails the build on MissingTranslation, so a new English string cannot land without its Spanish counterpart. iOS answers no by omission, which is what makes this a DECISION rather than a cleanup - nobody chose English-only, it is just what happened. The cost of each answer differs sharply and is worth knowing before choosing: yes means localising the whole iOS string catalogue and adding the same CI gate, which is real ongoing work on every string thereafter; no means saying so on purpose, and it is a defensible answer for a US-first product. What is not defensible is the current state, where the two clients disagree and neither says why. AC4 was always independent of this and is unaffected.
 
-### US-2716 — Android has none of the paid consumer grading path
-
-priority 1993
-
-AC1 is a product decision and it is first for a reason - implementing the consumer path would be MAKING that call by writing code, which is the one thing this story asks nobody to do. The question: does the paid consumer grading path belong on Android? The answer for iOS (US-2016 AC1) does not automatically carry over. Either answer creates work and AC4 is mechanical both ways: src/test/grading-pipeline-parity.test.ts currently REQUIRES Android to be missing the consumer endpoints, so whichever way this goes, that expectation is rewritten in the same commit or the guard keeps asserting the old world. If YES, the Play credit-pack products need checking against the server CREDIT_PACKS sizes - a suggested pack the store does not sell is a purchase button that cannot work. If NO, write down why and confirm the dispute surface still stands on its own, because filing a dispute against a grade you cannot buy on that device is reachable today.
-
 ### US-2103 — Organization.sameAs is effectively empty — no brand profiles to resolve against
 
 priority 1996
@@ -274,6 +274,18 @@ apply 00625 to production and confirm with `select key, gate_flags->>'connectorA
 priority 6
 
 decide whether anyone was actually turned away. The connector is dark in production behind MCP_ENABLED, so the likely answer is nobody - but that is worth confirming rather than assuming, and the mcp audit rows record a `plan_required` denial reason.
+
+### US-2832 — The listings.draft_id prod repair exists only in a markdown file, so no audit can prove it was applied
+
+priority 12
+
+apply it to prod. It changes nothing there - the column exists - and the point is the applied_migrations row, so that a future audit, a restored backup or a staging stack can tell a repaired database from a broken one. Then NOTIFY pgrst, 'reload schema'.
+
+### US-2832 — The listings.draft_id prod repair exists only in a markdown file, so no audit can prove it was applied
+
+priority 12
+
+, SEPARATE AND BIGGER: run scripts/prod-schema-audit.sql against prod. 00134 was half-applied and nothing noticed for months; that script reports every missing table, column, index and function in one read-only pass, and it is the only way to know whether anything else below 00254 is missing too.
 
 ### US-2618 — The Help Center is live and empty: 83 articles are written and none are in the database
 
