@@ -92,6 +92,13 @@ const PINNED: Record<string, string> = {
     "(services/edge-functions/src/lib/title-sync.ts) — the web composer saves " +
     "direct to supabase with no edge round-trip, so the logic necessarily " +
     "exists twice.",
+  // US-1995: only the EDGE half carries the marker; src/lib/title-sync-patch.ts
+  // has no lockstep comment, so registering it would be a stale entry.
+  "services/edge-functions/src/lib/title-sync-patch.ts":
+    "src/test/fixtures/title-sync-patch-cases.json — read by BOTH suites, " +
+    "services/edge-functions/src/tests/title-sync-patch_test.ts and " +
+    "src/lib/__tests__/title-sync-patch.test.ts. The fixture landed WITH the " +
+    "second copy rather than after it, so this pair has never been unguarded.",
   // Only the EDGE half carries the marker here — the web copy
   // (src/lib/reputation-perks.ts) has no lockstep comment, so registering it
   // would be a stale entry by this guard's own rule. Caught by that rule.
