@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2819",
+  "nextId": "US-2830",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2375,21 +2375,6 @@
       "priority": 880
     },
     {
-      "id": "US-2815",
-      "passes": false,
-      "title": "iOS has a finished consumer photo-grade client that no screen can reach, and Android has none",
-      "description": "Found 2026-08-22 while trying to add Live Capture to iOS (US-2802). The wiring job turned out to have nothing to wire to.  iOS HAS A COMPLETE CONSUMER PHOTO-GRADE CLIENT AND NO CALLER. ios/GradeThread/Grading/ carries PhotoGradeUploader.swift (the multipart writer, PhotoGradeImage, the PhotoGradeFields list, PhotoGradeError with written seller-facing copy, PhotoGradeCopy translating the grader's vocabulary into the seller's), PhotoGradeSubmit.swift posting to POST /api/grade/submit, PhotoGradeStatus.swift polling it, and ConsumerGradeFlow.swift orchestrating submit -> pay -> poll. There are 12 references to ConsumerGradeFlow in the repo and all 12 are in ios/GradeThreadTests/ConsumerGradeFlowTests.swift. Not one SwiftUI view constructs it or calls start(images:request:). PhotoGradeImage is likewise only ever constructed by tests.  So the tests pass, the code compiles, and no human being can reach any of it.  WHAT IS WIRED IS A DIFFERENT ROUTE. CertifiedGradeSection opens GradeRequestSheet -> GradeRequestStore -> GradingService, and that posts JSON to /api/flipdesk/grading/submit against an inventory item whose photos are already uploaded. It never sends image bytes. Android is the same shape: grading/GradingService.kt knows only the three /api/flipdesk/grading paths and there is no multipart photo-grade client in the tree at all.  TWO CONSEQUENCES, and the second is the reason this is filed separately rather than noted:   1. The multipart grade route's per-submission features are unreachable from      any phone. capture_source lives on submission_images (migration 00314)      and is written by routes/grade.ts from the multipart body; item_photos      has no such column, so the FlipDesk path has nowhere to put provenance      even if a client measured it.   2. Any story that says 'add X to the iOS grade submission' is really asking      for a surface first. US-2802 hit exactly that.  NOT A CLAIM THAT THE CODE IS WRONG. It is good code with tests; it is a finished component nobody mounted. The question is whether the consumer photo-grade flow is still wanted on phones now that both native clients grade through FlipDesk items instead.",
-      "acceptanceCriteria": [
-        "Decide whether native clients should submit consumer photo grades at all. Both already grade through /api/flipdesk/grading against an inventory item, so the multipart flow may be a surface the product moved past — deleting it is a legitimate outcome and is cheaper than mounting it.",
-        "If it is wanted: a real iOS entry point that builds PhotoGradeImage values and calls ConsumerGradeFlow.start, reachable from a view a seller can actually get to. Android needs the equivalent client, which does not exist in any form today.",
-        "If it is not wanted: the orphaned files are removed together (PhotoGradeUploader, PhotoGradeSubmit, ConsumerGradeFlow, PhotoGradeStatus and their tests), and the note records that they were built and never mounted rather than leaving the next sweep to rediscover them.",
-        "Either way US-2802's native half is unblocked or explicitly re-scoped, since Live Capture needs a client that posts image bytes and neither phone has one.",
-        "If native grading stays on the FlipDesk route AND Live Capture is still wanted there, that is a THIRD path and it needs its own decision: item_photos would need a capture_source column of its own plus a migration, and flipdesk-grading would have to carry provenance into the grading pipeline the way routes/grade.ts does."
-      ],
-      "priority": 25,
-      "notes": "2026-08-22 OWNER REVERSED THE DELETE AND THE IOS HALF IS BUILT. Commit 98a80e14b.  THE DECISION TRAIL, recorded because it moved twice in one session and a reader deserves both halves. I first proposed deleting the orphaned client; the owner agreed. Then a test header surfaced an OWNER DECISION FROM 2026-08-19 saying this path belongs on the phone - three days old, by the same person. I stopped, restored the files uncommitted, and asked rather than quietly overwriting it. The owner chose to BUILD. Nothing was lost either way, and the pause cost two minutes.  SHIPPED: ConsumerGradeView (garment details + one photo slot per required shot), ConsumerGradeProgressView (every non-ready state), GarmentVocabulary (the vendored lists), and a row in the buyer menu beside Closet and Trust score. ConsumerGradeFlow is reachable and its orphan entry is gone.  THREE OBVIOUS-LOOKING MISTAKES, each caught by something the repo already knew, and each worth carrying to the Android port:   1. A raw jpegData encode. no-raw-jpeg-encode.py exists because      PhotoCompressor bakes orientation upright BEFORE encoding and the grading      pipeline ignores the EXIF flag; the guard header records a seller dispute      shipping rotated evidence.   2. SwiftUI PhotosPicker + loadTransferable. That API appears NOWHERE else in      the codebase, so it was unverifiable without a toolchain. The app has      PhotoLibraryPicker, which omits the photoLibrary: argument on purpose      (US-1013) so there is no library permission and no all-photos prompt. A      hand-rolled picker opts the screen out of that silently.   3. Inventing the garment list. grade.ts:445 validates garment_category and      rejects AFTER the upload. Vendored with a parity test whose parser strips      COMMENTS first - a first pass scraped three values out of an explanatory      comment inside the array and reported 26 categories with duplicates.      There are 22.  THE ORPHAN GUARD CAUGHT ME MOVING THE ORPHAN rather than removing it: with the flow wired but the menu row not yet added, ConsumerGradeView itself became the unreachable type. Exactly the failure this story is about, on the fix for it.  VERIFIED: ten iOS source guards pass, ios-orphans OK, 8 new wiring tests + 4 parity tests green. Eight mutations, each applied and each red, green control either side. ONE SURVIVED THE FIRST RUN and it was the money one - deleting the required-shot check from canSubmit left the suite green because the same expression appears in a footer LABEL below it. An assertion satisfiable by a label does not guard a button.  ⚠ SWIFT IS NOT COMPILED HERE. Every symbol was checked by hand against its declaration - the first draft called PackOffer.label, which does not exist (it carries credits and priceCents) - and every API used has a working sibling in this codebase. iOS CI is the real check for anything that has to build.  STILL OPEN: THE ANDROID HALF, which is the bigger one. Android has no multipart photo-grade client at all - grading/GradingService.kt knows only the three /api/flipdesk/grading paths. That is a port of the whole chain (uploader, payment, status polling, the flow) rather than a screen. It is also the half that CAN be compiled and tested on this machine, unlike iOS."
-    },
-    {
       "id": "US-2817",
       "passes": false,
       "title": "Re-run AI identification on drafts already catalogued",
@@ -2425,6 +2410,189 @@
       ],
       "priority": 3,
       "notes": "2026-08-22 BUILT, NOT YET COMPILED — Swift needs macOS, so `iOS CI` is the gate on this one.\n\nNEW: ios/GradeThread/Marketplaces/Publish/ListingDescriptionTemplate.swift is the Swift mirror of src/lib/listing-templates.ts (per-GarmentGroup templates, the measurements block with the worn-and-flat circumference lines, gradeBlock/ensureGradeLine, splitSellerCredentials/ensureSellerCredentials, and garmentDescriptor mirroring the web garmentDescriptorFor). ios/GradeThread/Marketplaces/Publish/ListingRewriteService.swift wraps POST /api/flipdesk/ai/rewrite.\n\nONE DELIBERATE DIVERGENCE FROM THE WEB, and it is an improvement rather than drift: interpolateDescription on the web fills color and material with an em dash because items_full exposes neither column. iOS reads the item row directly, so it fills the real values and only falls back to the dash when the field is blank.\n\nTHE STATUS HALF IS THE ONE WORTH READING. iOS derives 'drafted' from ItemWorkflow.Facts.hasDraftListing, which is `!itemListings.isEmpty` — a real listings row. The photo-first intake never creates one, so an item that had been through the whole AI pass sat on 'photographed' and the seller's Drafted tab stayed empty. The web does not derive it at all: composer.tsx composerItemPatch passes `hasDraftListing: true` unconditionally, because on the web the composer IS the listing draft. So the fix is not a new fact — it is saying out loud that the AI pass is the drafting step. New ItemWorkflow.advanced(current:to:) is forward-only and refuses anything outside prepStatuses, so a background extract that lands after the seller listed or sold the item cannot walk it back.\n\nAN ITEM THAT REACHES 'drafted' WITH AN EMPTY DESCRIPTION IS NOT DRAFTED, so AIItemFieldWriter.seedDescriptionIfEmpty runs first, after the extract has written brand/size/colour/material/measurements — the template has real values to interpolate by then rather than a column of dashes. It never overwrites: an existing description is the seller's or a previous rewrite's.\n\nPHOTO TAGGING: PhotoIntakeStore.autoAssignTargets(count:) is the web bulkUpload rule (photo-uploader.tsx) — open required slots first in profile order so the required set completes and 'photographed' is still earned, then ordinary listing slots. Defect and measurement slots are excluded on purpose: a wrong tag on either is worse than no photo, since one tells a buyer the garment is damaged and the other is the MeasureCard calibration frame the measurement pipeline reads. Both stay reachable from the per-photo menu, which is now labelled 'Tag' and demoted below 'Add all'.\n\nALSO FIXED IN PASSING: ListingRewriteService sends X-Workspace-Owner. The route re-binds every read to the workspace owner, so without it a member acting inside a shared workspace 404s on their own item. ListingCopyService (the older /listing-copy caller) still does NOT send it and has the same latent bug — not touched here, out of scope, worth its own story.\n\nVERIFIED HERE: all 9 ios/Scripts guards pass; the four iOS-scanning vitest files (ios-accessibility-ratchet, ios-guard-lane, ios-ungated-print, ios-environment-keypath) 33/33; brace/paren balance clean on all 13 touched files; no invisible or bidi characters in the new sources.\n\nNOT VERIFIED HERE, which is why passes stays false: nothing compiled. The new XCTest files (ListingDescriptionTemplateTests, plus additions to ItemWorkflowTests, PhotoIntakeTests and ListingComposerTests) have never been run. Concurrency isolation is the likeliest compile failure — ListingRewriteService is @MainActor and its decode/mapError are marked nonisolated with Request/Envelope moved to file scope so a non-@MainActor XCTestCase can call decode; if the SDK disagrees, mark ListingComposerTests @MainActor instead."
+    },
+    {
+      "id": "US-2819",
+      "passes": false,
+      "title": "Condition Price Curve: what a half grade point is actually worth, per brand and category",
+      "description": "As a reseller, I want to see median realized sale price and median days-to-sell at each half grade point for a given brand or category, blended from my own sales and the anonymized seller cohort, so that I can price a graded item from evidence instead of a guess.",
+      "acceptanceCriteria": [
+        "New SECURITY DEFINER RPC public.condition_price_curve(p_brand text, p_category text, p_period_start date) returns jsonb with one bucket per 0.5 grade step from 1.0 to 10.0, each carrying: grade, own_count, own_median_price, own_median_days, cohort_sellers, cohort_count, cohort_median_price, cohort_median_days.",
+        "The caller's own numbers are returned at any sample size; every cohort figure is suppressed (nulled, with cohort_count still reported) unless distinct sellers behind it meets the same k-anonymity floor community_benchmarks() reads from system_settings key community_min_cohort_sellers, hard-clamped with greatest(5, ...) in SQL.",
+        "The RPC uses the positive authorization form `if not (auth.role() = 'service_role' or auth.uid() is not null) then raise ... errcode 42501`, so an anonymous caller gets 401/42501 and never a document. A case in src/test/permissive-admin-guard.test.ts (or its sibling guard) covers the new function name.",
+        "Grade source is inventory_items.grade_value (denormalized on items_full), NOT grade_tier: the curve has 19 buckets, not 7. Sale figures count only sales with sale_status = 'completed'.",
+        "Client wrapper in src/lib/condition-price-curve.ts is pure over the RPC payload and has unit tests covering: empty cohort, cohort below k-anonymity, own-data-only, and a bucket where own median differs from cohort median.",
+        "A new 'Price curve' tab renders at /dashboard/flipdesk/analytics/price-curve, registered in the tab set in src/pages/flipdesk/analytics.tsx with a real path (not ?tab=), and lazy-mounted only when active like the performance and community tabs.",
+        "The chart plots price against grade with the cohort as a band and the seller's own points overlaid; it states plainly in copy when a bucket is cohort-suppressed rather than silently dropping it.",
+        "npm run ui:check stays at zero findings for src/.",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit (services/edge-functions/src/lib/schema-version.ts), and a self-record footer. No REVOKE statement appears in the new migration (copy the no-revoke block from 00609)."
+      ],
+      "priority": 60
+    },
+    {
+      "id": "US-2820",
+      "passes": false,
+      "title": "Money Left On The Table: every sold item scored against its own condition price curve",
+      "description": "As a reseller, I want one monthly dollar figure for what I underpriced, the ten worst items behind it, and a flag on live listings priced below their grade's curve, so that I can recover money I am currently giving away.",
+      "acceptanceCriteria": [
+        "New RPC public.flipdesk_price_gap(p_period_start date) returns jsonb with: total_gap_dollars, items_scored, worst (up to 10 sold items with id, title, brand, grade_value, sale_price, curve_median, gap_dollars), and live (up to 25 currently-listed items whose list_price is below the curve median for their grade/brand/category, with the same shape).",
+        "The predicted price comes from the condition price curve (US-2819), NOT from repricing_suggestions.comp_median_cents. Reason recorded in the migration header: that column holds the CURRENT suggestion for a listing rather than a snapshot at grade time, as established in US-2280's notes, so it cannot characterize a past sale.",
+        "An item is scored only when its (grade, brand-or-category) bucket has at least MIN_CURVE_SAMPLE usable observations; unscored items are counted and reported as unscored rather than silently excluded.",
+        "Every read is tenant-scoped to auth.uid(); the RPC returns no row belonging to another seller, and a case in services/edge-functions/src/tests/tenant-isolation_test.ts covers it if an edge route fronts the RPC.",
+        "Dollar amounts are proven by a unit test with a fixed fixture: the summed gap equals the sum of the per-item gaps, and a sale ABOVE the curve contributes zero rather than a negative offset (the figure is 'left on the table', not net variance).",
+        "The figure renders on the Sell-through tab as a headline card that links into the worst-items list, and each live-listing row has a one-click path to the composer for that item.",
+        "Copy never states the gap as recoverable revenue; it is labeled an estimate against the seller's own realized curve.",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit (services/edge-functions/src/lib/schema-version.ts), and a self-record footer. No REVOKE statement appears in the new migration (copy the no-revoke block from 00609)."
+      ],
+      "priority": 61,
+      "dependsOn": [
+        "US-2819"
+      ]
+    },
+    {
+      "id": "US-2821",
+      "passes": false,
+      "title": "Defect Cost Ledger: price grade_reports.defects_found against realized sales",
+      "description": "As a reseller, I want to know what each kind of defect actually costs me in realized price and days-to-sell, so that I can decide which flaws to repair, which to discount, and which to simply photograph and ignore.",
+      "acceptanceCriteria": [
+        "New RPC public.flipdesk_defect_cost(p_period_start date) returns jsonb with one row per (defect type, severity) present in the seller's graded-and-sold items: occurrences, median_price_ratio (realized price divided by the condition-curve median for that item's grade band), median_days_delta, and a cohort comparison subject to the same k-anonymity floor as US-2819.",
+        "The join is grade_reports -> submissions.id -> flipdesk_grading_submissions.submission_id -> inventory_items -> sales, the path already proven in US-2280's notes. No new link table is added.",
+        "Defect rows come from grade_reports.defects_found (migration 00058). Rows where defects_found is an empty array are counted as a 'no defects recorded' control group, and rows from grades predating 00058 are excluded and reported as excluded rather than treated as defect-free.",
+        "Price impact is expressed as a RATIO against the item's own grade-band curve median, not as a raw dollar average, so the result is not just 'expensive garments cost more'. A unit test proves that scaling every price in a fixture by 10 leaves every ratio unchanged.",
+        "No (type, severity) row is reported below MIN_DEFECT_SAMPLE occurrences; below that the row is listed with counts and null impact figures, never with a number.",
+        "detected_style_attributes are explicitly excluded and a comment says why: they are intentional design features that did not lower the grade, so pricing them as defects would be wrong.",
+        "Renders as a sortable table in a 'Defect cost' section on the Grading ROI tab, with a plain-English lead line naming the single most expensive defect type the seller actually has.",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit (services/edge-functions/src/lib/schema-version.ts), and a self-record footer. No REVOKE statement appears in the new migration (copy the no-revoke block from 00609)."
+      ],
+      "priority": 62,
+      "dependsOn": [
+        "US-2819"
+      ]
+    },
+    {
+      "id": "US-2822",
+      "passes": false,
+      "title": "Seller Scorecard: five cohort percentiles and one line naming the biggest gap",
+      "description": "As a reseller, I want a single card that ranks me against comparable sellers on sell-through, price realization, days-to-sell, return rate and grade yield, and tells me which one is my worst, so that I know what to fix without reading five tabs.",
+      "acceptanceCriteria": [
+        "New RPC public.seller_scorecard(p_period_start date) returns jsonb with five metrics, each carrying: own_value, cohort_p25, cohort_median, cohort_p75, own_percentile (0-100), cohort_sellers, and direction ('higher_is_better' or 'lower_is_better').",
+        "The five metrics are: sell-through rate, price realization (sale_price / list_price), median days-to-sell, return rate (refunded / fulfilled sales), and grade yield (median grade_value of items sourced in the period).",
+        "own_percentile is null, and the metric renders as 'not enough peers', whenever cohort_sellers is below the community_min_cohort_sellers floor clamped with greatest(5, ...). No percentile is ever computed against fewer than 5 distinct sellers.",
+        "A pure function pickBiggestGap() in src/lib/seller-scorecard.ts returns the single weakest metric by percentile, with deterministic tie-breaking, and has unit tests covering: all-null percentiles, an exact tie, and a lower_is_better metric winning.",
+        "The diagnosis line is generated from a fixed template table keyed on the metric, not from an AI call, so it is testable and costs nothing per view.",
+        "The card renders at the top of /dashboard/flipdesk/analytics and each metric links to the tab that explains it.",
+        "The RPC carries the positive authorization form and refuses an anonymous caller with 42501.",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit (services/edge-functions/src/lib/schema-version.ts), and a self-record footer. No REVOKE statement appears in the new migration (copy the no-revoke block from 00609)."
+      ],
+      "priority": 63
+    },
+    {
+      "id": "US-2823",
+      "passes": false,
+      "title": "Return attribution by grade factor and undisclosed defect, past the grade band",
+      "description": "As a reseller, I want to know which of the five grade factors and which undisclosed defects actually predict a return, so that I can fix my listing disclosures instead of guessing at my grade bands.",
+      "acceptanceCriteria": [
+        "flipdesk_return_reduction (migration 00168) is extended, or a sibling RPC added, returning return rate broken out by each of the five factor scores (fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score) banded at low/mid/high, alongside the existing grade bands.",
+        "A defect-disclosure split is reported: for each defect type, the return rate when the defect appears in the listing description or a tagged 'defect' item_photos row, versus when it does not. Disclosure detection is a documented, testable rule, not a heuristic buried in SQL.",
+        "MIN_RETURN_SAMPLE (currently 10, src/lib/flipdesk-returns-analytics.ts) gates every new band the same way it gates the existing ones; a low-n band shows counts and no rate.",
+        "The existing ReturnReductionSummary shape is extended, not replaced, and the existing tests in src/test/return-analytics-claim-rules.test.ts still pass unchanged.",
+        "The Return reduction tab gains a 'What actually predicts your returns' section naming the top factor and the top undisclosed defect in plain English.",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit (services/edge-functions/src/lib/schema-version.ts), and a self-record footer. No REVOKE statement appears in the new migration (copy the no-revoke block from 00609)."
+      ],
+      "priority": 70
+    },
+    {
+      "id": "US-2824",
+      "passes": false,
+      "title": "Source condition yield: cost per grade point by sourcing venue",
+      "description": "As a reseller, I want average grade, grade-adjusted profit and cost per grade point for each place I source from, so that I can tell which venues are worth the drive.",
+      "acceptanceCriteria": [
+        "New RPC public.flipdesk_source_yield(p_period_start date) returns one row per sources row (plus an 'No source' bucket) with: items_sourced, avg_purchase_price, median_grade_value, graded_share, cost_per_grade_point (avg_purchase_price / median_grade_value), median_net_profit, sell_through, and median_days_to_sell.",
+        "Only items whose purchase_date falls in the window are counted as sourced, matching how flipdesk_sell_through defines its window.",
+        "Venues with fewer than MIN_SOURCE_SAMPLE items sourced in the window are listed with counts and null derived figures.",
+        "Every read is scoped to auth.uid(); sources are per-seller and no cross-seller aggregate is exposed by this RPC.",
+        "Renders on the Sell-through tab as a 'By source' view alongside the existing category and brand grouping, reusing the existing GroupKey control rather than adding a new one where possible.",
+        "Values are exportable through the tab's existing exportCsv() path.",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit (services/edge-functions/src/lib/schema-version.ts), and a self-record footer. No REVOKE statement appears in the new migration (copy the no-revoke block from 00609)."
+      ],
+      "priority": 71
+    },
+    {
+      "id": "US-2825",
+      "passes": false,
+      "title": "Capital velocity: profit per dollar per day held, ranked by category, brand and source",
+      "description": "As a reseller, I want to see the return each dollar of buying money earns per day it stays tied up, so that I buy more of what turns and stop buying what sits.",
+      "acceptanceCriteria": [
+        "New pure module src/lib/capital-velocity.ts computes, per group: deployed_capital (sum of purchase_price), realized_profit (sum of net_profit on completed sales), median_days_held (purchase_date to sale_date), and velocity = realized_profit / deployed_capital / median_days_held, expressed as a percent per day.",
+        "Items with a null or zero purchase_price are excluded from the velocity figure and counted separately, so a free or unpriced item cannot produce an infinite return.",
+        "Unsold items still holding capital are reported as a separate 'capital parked' figure per group with median days held so far, because excluding them would make a group that never sells look good.",
+        "Unit tests cover: zero purchase price, a group with no sales, a same-day sale (days held 0 clamps to a documented minimum rather than dividing by zero), and the ranking order.",
+        "Renders as a ranked table on the Sell-through tab with the top three and bottom three groups called out in one sentence each.",
+        "The module imports no supabase client and no env, so it is testable without a database (same posture as src/lib/flipdesk-analytics.ts)."
+      ],
+      "priority": 72
+    },
+    {
+      "id": "US-2826",
+      "passes": false,
+      "title": "Listing quality lift: read listing_metrics history against photo count, quality score and the grade badge",
+      "description": "As a reseller, I want to see how photo count, my Listing Quality Score and showing a grade actually move impressions, CTR and watchers, so that I know which listing work pays and which is busywork.",
+      "acceptanceCriteria": [
+        "New RPC or edge reader aggregates public.listing_metrics (migration 00159) per listing over its first 14 days live, joined to items_full photo_count, quality_score and grade_value, returning median impressions, median CTR and median watchers bucketed by photo count band, quality score band, and graded vs ungraded.",
+        "The comparison controls for category: buckets are reported within category, and an all-category rollup is labeled as uncontrolled rather than presented as the headline.",
+        "Copy states the relationship as association, never as cause. No sentence in the UI claims that adding photos caused a lift.",
+        "Listings with fewer than 7 days of listing_metrics rows are excluded and the exclusion count is reported.",
+        "Every read is tenant-scoped to auth.uid() / c.get('workspaceOwnerId'), and if an edge route fronts it, a case is added to services/edge-functions/src/tests/tenant-isolation_test.ts (US-268).",
+        "Renders inside the existing Listing performance tab rather than as a new tab.",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit (services/edge-functions/src/lib/schema-version.ts), and a self-record footer. No REVOKE statement appears in the new migration (copy the no-revoke block from 00609)."
+      ],
+      "priority": 73
+    },
+    {
+      "id": "US-2827",
+      "passes": false,
+      "title": "Measurement drift: your size M against the cohort size M, tied to your return rate",
+      "description": "As a reseller, I want to know when my measurements for a given size and garment type sit outside what other sellers record, so that I can catch a mis-measured listing before it becomes a return.",
+      "acceptanceCriteria": [
+        "New RPC public.measurement_drift(p_garment_category text) returns, per (garment_category, size, measurement key), the seller's own median and the cohort median plus p25/p75, subject to the greatest(5, ...) k-anonymity floor on distinct sellers.",
+        "Measurement keys are read from inventory_items.measurements (exposed on items_full) and normalized through the existing measurement key vocabulary rather than a new list invented here; the source of that vocabulary is named in the migration header.",
+        "A drift figure is only reported when the seller has at least MIN_MEASURE_SAMPLE items for that (category, size, key); below it the row shows counts only.",
+        "The seller's return rate for items more than one inch off the cohort median is reported beside the return rate for items within one inch, gated by MIN_RETURN_SAMPLE.",
+        "A live warning appears in the composer measurement form when a just-entered value is outside the cohort p25-p75 for that size and garment type, worded as a check rather than an error, and dismissible.",
+        "No cohort figure is derived from fewer than 5 distinct sellers, proven by a test.",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit (services/edge-functions/src/lib/schema-version.ts), and a self-record footer. No REVOKE statement appears in the new migration (copy the no-revoke block from 00609)."
+      ],
+      "priority": 74
+    },
+    {
+      "id": "US-2828",
+      "passes": false,
+      "title": "Weekly analytics digest and anomaly alerts: push the finding instead of waiting for a visit",
+      "description": "As a reseller, I want a short weekly summary and an alert when one of my numbers moves sharply against my own trailing baseline, so that I find out about a problem in days rather than when I next open a tab.",
+      "acceptanceCriteria": [
+        "A scheduled job composes a weekly per-seller digest containing: the Seller Scorecard biggest gap (US-2822), money left on the table for the week (US-2820), the week's best and worst group by capital velocity (US-2825), and any triggered anomaly.",
+        "An anomaly fires when a metric moves more than a configured number of standard deviations from that seller's own trailing 90-day baseline, with the threshold stored in system_settings (00207/00208 registry) so it is tunable without a deploy.",
+        "No anomaly fires for a seller below a minimum activity floor, so a seller with three sales never gets an alert about a 100 percent swing.",
+        "Delivery reuses the existing alert-channel plumbing rather than adding a new sender, and the digest is a no-op (logged, not sent) when the seller has nothing to report that week.",
+        "US-2003 is respected: the job records a delivery outcome per seller per channel, so 'nobody was paged' is provable rather than assumed.",
+        "The digest is opt-out from settings, and the opt-out is honored by the job in the same query that selects recipients, not filtered afterwards."
+      ],
+      "priority": 80
+    },
+    {
+      "id": "US-2829",
+      "passes": false,
+      "title": "Analytics over the API and CSV parity across every analytics surface",
+      "description": "As a reseller with my own spreadsheets, I want every analytics view available as CSV in the UI and over the existing API key, so that my data is mine and not trapped in a chart.",
+      "acceptanceCriteria": [
+        "Every tab on /dashboard/flipdesk/analytics has a working CSV export, including the tabs added by this epic; a test asserts that each registered analytics view has an export handler.",
+        "New read-only endpoints under /api/v1/analytics/* expose the same payloads to an API key, authenticated through the existing api_keys path used by /api/v1 routes.",
+        "Every endpoint is tenant-scoped to the key's owning user, and a case per endpoint is added to services/edge-functions/src/tests/tenant-isolation_test.ts (US-268).",
+        "Cohort figures returned over the API carry the same k-anonymity suppression as the UI; a test proves an API response cannot expose a cohort figure the UI would hide.",
+        "Endpoints are rate-limited through the existing limiter rather than a new one, and are documented in the existing API reference surface.",
+        "CSV column headers match the UI column labels exactly, so a seller can map them without a guide."
+      ],
+      "priority": 81
     }
   ]
 }
