@@ -42,6 +42,7 @@ const AdminCategoryMapPage = lazy(() => import("@/pages/admin/category-map").the
 const AdminListingCoveragePage = lazy(() => import("@/pages/admin/listing-coverage").then(m => ({ default: m.AdminListingCoveragePage })));
 const AdminIdentificationProvenancePage = lazy(() => import("@/pages/admin/identification-provenance").then(m => ({ default: m.AdminIdentificationProvenancePage })));
 const AdminBrandKnowledgePage = lazy(() => import("@/pages/admin/brand-knowledge").then(m => ({ default: m.AdminBrandKnowledgePage })));
+const AdminRegisteredNumbersPage = lazy(() => import("@/pages/admin/registered-numbers").then(m => ({ default: m.AdminRegisteredNumbersPage })));
 const AdminSubmissionsPage = lazy(() => import("@/pages/admin/submissions").then(m => ({ default: m.AdminSubmissionsPage })));
 const AdminGradingQueuePage = lazy(() => import("@/pages/admin/grading").then(m => ({ default: m.AdminGradingQueuePage })));
 const AdminAuthenticityPage = lazy(() => import("@/pages/admin/authenticity").then(m => ({ default: m.AdminAuthenticityPage })));
@@ -113,6 +114,7 @@ export function AdminRoutes() {
       <Route path="listing-coverage" element={<SuspenseWrapper><AdminListingCoveragePage /></SuspenseWrapper>} />
       <Route path="identification-provenance" element={<SuspenseWrapper><AdminIdentificationProvenancePage /></SuspenseWrapper>} />
       <Route path="brand-knowledge" element={<SuspenseWrapper><AdminBrandKnowledgePage /></SuspenseWrapper>} />
+      <Route path="registered-numbers" element={<SuspenseWrapper><AdminRegisteredNumbersPage /></SuspenseWrapper>} />
       <Route path="users/:id" element={<SuspenseWrapper><AdminUserDetailPage /></SuspenseWrapper>} />
       <Route path="submissions" element={<SuspenseWrapper><AdminSubmissionsPage /></SuspenseWrapper>} />
       {/* US-2505: /admin/reviews and /admin/grading were two UIs over the SAME

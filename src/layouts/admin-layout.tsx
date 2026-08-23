@@ -78,6 +78,7 @@ const adminNavItems = [
   { to: "/admin/category-map", icon: Map, label: "Category Map", end: false, superAdminOnly: false },
   { to: "/admin/identification-provenance", icon: ScanSearch, label: "Visual Identification", end: false, superAdminOnly: false },
   { to: "/admin/brand-knowledge", icon: BookMarked, label: "Brand Knowledge", end: false, superAdminOnly: false },
+  { to: "/admin/registered-numbers", icon: Tag, label: "Registered Numbers", end: false, superAdminOnly: false },
   { to: "/admin/submissions", icon: FileText, label: "Submissions", end: false, superAdminOnly: false },
   { to: "/admin/grading", icon: ClipboardCheck, label: "Review Queue", end: false, superAdminOnly: false },
   { to: "/admin/authenticity", icon: ShieldCheck, label: "Authenticity", end: false, superAdminOnly: false },
