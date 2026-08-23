@@ -37,6 +37,7 @@ import com.gradethread.app.billing.PlanStepHost
 import com.gradethread.app.ui.state.Restorable
 import com.gradethread.app.marketplaces.reconciliation.ReconcileBanner
 import com.gradethread.app.sync.PersistenceHealthHost
+import com.gradethread.app.sync.SyncStatusHost
 import com.gradethread.app.plangate.PlanGateHost
 import androidx.navigation.compose.rememberNavController
 import com.gradethread.app.R
@@ -184,6 +185,10 @@ fun AppShell(
                 // so a Room write failing on a full disk was counted and shown
                 // to nobody. Renders nothing until failures are persistent.
                 PersistenceHealthHost()
+                // US-2792: 119 lines of sync UI that no screen rendered since
+                // US-1322. It returns early on IDLE, so it is invisible unless
+                // there is queued or stuck work, or the link is down.
+                SyncStatusHost()
                 if (reconcileBanner != null) {
                     reconcileBanner()
                 } else {

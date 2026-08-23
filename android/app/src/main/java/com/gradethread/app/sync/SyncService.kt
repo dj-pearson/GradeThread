@@ -41,6 +41,18 @@ class SyncService @Inject constructor(
     private val watermark = SyncWatermark(context)
     private val merger = SyncMerger(db)
 
+    /**
+     * US-2792: "a pull is in flight", observable.
+     *
+     * SyncCoordinator.isRunning is the same fact but reads mutex.isLocked,
+     * which nothing can subscribe to — and the coordinator is built PER PULL
+     * inside [pull], so a flow on it would belong to an object nothing
+     * outside can reach. This class is the @Singleton, so the flag lives
+     * here, where a ViewModel can actually observe it.
+     */
+    private val syncingFlow = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val syncing: kotlinx.coroutines.flow.StateFlow<Boolean> = syncingFlow
+
     /** Active workspace, else self — matching every other tenant-scoped read. */
     private fun ownerId(): String? =
         client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
@@ -51,7 +63,14 @@ class SyncService @Inject constructor(
      */
     suspend fun pull(): SyncCoordinator.Outcome? = withContext(Dispatchers.IO) {
         val owner = ownerId() ?: return@withContext null
-        coordinator(owner).pullAll()
+        syncingFlow.value = true
+        try {
+            coordinator(owner).pullAll()
+        } finally {
+            // finally, not after the call: a thrown pull must not leave the
+            // bar saying "Syncing…" for the rest of the session.
+            syncingFlow.value = false
+        }
     }
 
     private fun coordinator(owner: String) = SyncCoordinator(

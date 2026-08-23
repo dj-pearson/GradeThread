@@ -283,6 +283,21 @@ interface PendingMutationDao {
 
     @Query("DELETE FROM pending_mutations")
     suspend fun clearAll()
+
+    /**
+     * US-2792: counts for the shell's sync bar, PUSHED rather than polled.
+     *
+     * Pending deliberately EXCLUDES stuck rows. They are counted separately
+     * and mean something different to a seller - queued work will go on its
+     * own once there is a connection, whereas stuck work has exhausted its
+     * retries and needs a deliberate retry or discard. Counting a stuck row
+     * as pending would promise it is still trying.
+     */
+    @Query("SELECT COUNT(*) FROM pending_mutations WHERE retryCount < :maxRetries")
+    fun observePendingCount(maxRetries: Int): kotlinx.coroutines.flow.Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM pending_mutations WHERE retryCount >= :maxRetries")
+    fun observeStuckCount(maxRetries: Int): kotlinx.coroutines.flow.Flow<Int>
 }
 
 @Dao

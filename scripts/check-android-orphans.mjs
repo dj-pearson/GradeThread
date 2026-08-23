@@ -20,7 +20,6 @@
 //                      renders email fields and no provider button. Half a
 //                      feature, and the half that shipped is the half nobody
 //                      looks at.
-//   SyncStatusBar      119 lines of sync UI nothing shows.
 //
 // THREE KINDS OF DECLARATION ARE EXCLUDED BY MECHANISM, NOT BY NAME, because
 // on Android most things nothing calls are called by something that is not code:
@@ -55,8 +54,6 @@ const ALLOWED = {
     "UNREACHABLE (US-2792). Google and Apple sign-in through Custom Tabs. The " +
     "callback half is wired and in the manifest; nothing calls launch(), and " +
     "AuthScreen offers no provider button, so neither can be started.",
-  SyncStatusBar:
-    "UNREACHABLE (US-2792). Sync status UI no screen shows.",
   Moment:
     "UNREACHABLE (US-2792). PushPermission.Moment carries three hand-written " +
     "rationales for asking at the right time - first sale, first grade, eBay " +
