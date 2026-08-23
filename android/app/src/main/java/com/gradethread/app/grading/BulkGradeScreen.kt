@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.billing.CreditPackSheet
+import com.gradethread.app.billing.TopUpSurface
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -90,7 +91,9 @@ fun BulkGradeScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                BrandPrimaryButton(text = stringResource(R.string.bulkgrade_done), modifier = Modifier.fillMaxWidth()) { onClose() }
+                BrandPrimaryButton(text = stringResource(R.string.bulkgrade_done), modifier = Modifier.fillMaxWidth()) {
+                    onClose()
+                }
             }
 
             is BulkGradeMachine.Phase.Empty -> Column(
@@ -98,17 +101,30 @@ fun BulkGradeScreen(
             ) {
                 // No "Try again": an empty selection can never validate.
                 Text(phase.message, style = MaterialTheme.typography.bodyMedium)
-                BrandPrimaryButton(text = stringResource(R.string.bulkgrade_close), modifier = Modifier.fillMaxWidth()) { onClose() }
+                BrandPrimaryButton(
+                    text = stringResource(R.string.bulkgrade_close),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    onClose()
+                }
             }
 
             is BulkGradeMachine.Phase.Failed -> Column(
                 verticalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
                 Text(phase.message, style = MaterialTheme.typography.bodyMedium)
-                BrandSecondaryButton(text = stringResource(R.string.bulkgrade_try_again), modifier = Modifier.fillMaxWidth()) {
+                BrandSecondaryButton(
+                    text = stringResource(R.string.bulkgrade_try_again),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     viewModel.load()
                 }
-                BrandPrimaryButton(text = stringResource(R.string.bulkgrade_close), modifier = Modifier.fillMaxWidth()) { onClose() }
+                BrandPrimaryButton(
+                    text = stringResource(R.string.bulkgrade_close),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    onClose()
+                }
             }
         }
     }
@@ -136,7 +152,9 @@ fun BulkGradeScreen(
                     ),
                 )
             },
-            confirmButton = { TextButton(onClick = viewModel::confirmTier) { Text(stringResource(R.string.bulkgrade_use_credits)) } },
+            confirmButton = {
+                TextButton(onClick = viewModel::confirmTier) { Text(stringResource(R.string.bulkgrade_use_credits)) }
+            },
             dismissButton = {
                 TextButton(onClick = viewModel::cancelTierConfirm) { Text(stringResource(R.string.bulkgrade_cancel)) }
             },
@@ -246,7 +264,7 @@ private fun ReadyBody(state: BulkGradeViewModel.State, viewModel: BulkGradeViewM
             creditsRequired = state.validation?.creditsRequired ?: 0,
             creditBalance = state.creditBalance,
             onGranted = { viewModel.revalidate() },
-            surface = "bulk",
+            surface = TopUpSurface.BULK,
         )
     } else {
         BrandPrimaryButton(

@@ -50,9 +50,7 @@ fun CreditPackSheet(
     creditBalance: Int,
     onGranted: suspend () -> Unit,
     modifier: Modifier = Modifier,
-    /** "single" or "bulk" — keeps the two funnels distinguishable. */
-    // no-bare-strings: wire value, not copy — it tags the funnel in telemetry.
-    surface: String = "single",
+    surface: String = TopUpSurface.SINGLE,
     viewModel: CreditTopUpViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -141,8 +139,11 @@ fun CreditPackSheet(
     }
 }
 
+// internal, not private: the consumer top-up sheet in this same package
+// renders the identical row and duplicating it would be a second price list
+// to keep in step.
 @Composable
-private fun PackRow(offer: CreditPackOffer, enabled: Boolean, onClick: () -> Unit) {
+internal fun PackRow(offer: CreditPackOffer, enabled: Boolean, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -163,7 +164,7 @@ private fun PackRow(offer: CreditPackOffer, enabled: Boolean, onClick: () -> Uni
  * Play's purchase flow needs the hosting Activity, and a Compose `LocalContext`
  * is frequently a ContextWrapper rather than the Activity itself.
  */
-private tailrec fun Context.findActivity(): Activity? = when (this) {
+internal tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null

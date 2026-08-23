@@ -59,7 +59,8 @@ class ConsumerGradeViewModel @Inject constructor(
                 PhotoGradeContract.requiredGradingTypes.map {
                     sources[it] ?: PhotoGradeContract.LIBRARY_CAPTURE_SOURCE
                 },
-            ) && missing.isEmpty()
+            ) &&
+                missing.isEmpty()
     }
 
     private val uploader = PhotoGradeUploader(api)
@@ -141,6 +142,24 @@ class ConsumerGradeViewModel @Inject constructor(
         }
     }
 
+    /**
+     * US-2830: a credit purchase completed on the device.
+     *
+     * Hands straight to the flow, which re-calls POST /api/grade/pay/:id.
+     * That route is idempotent per submission, so asking again after a
+     * purchase cannot double-charge — and its answer is the only thing
+     * that decides whether this submission is now paid. Nothing here
+     * concludes it from the purchase alone.
+     */
+    fun creditsPurchased(submissionId: String) {
+        viewModelScope.launch { flow.creditsPurchased(submissionId) }
+    }
+
+    /** The "check again" behind CreditsDelayed. Same call, same reason. */
+    fun recheckCredits(submissionId: String) {
+        viewModelScope.launch { flow.recheckCredits(submissionId) }
+    }
+
     fun submit() {
         val current = draftFlow.value
         if (!current.canSubmit) return
@@ -166,10 +185,6 @@ class ConsumerGradeViewModel @Inject constructor(
                 ),
             )
         }
-    }
-
-    fun creditsPurchased(submissionId: String) {
-        viewModelScope.launch { flow.creditsPurchased(submissionId) }
     }
 
     private fun MutableStateFlow<Draft>.update(block: (Draft) -> Draft) {

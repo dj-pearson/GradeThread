@@ -51,9 +51,9 @@ class CreditTopUpViewModel @Inject constructor(
      * "single" or "bulk" — the funnel is compared across the two surfaces, so
      * they must be distinguishable and must use the same event names.
      */
-    private var surface: String = "single"
+    private var surface: String = TopUpSurface.SINGLE
 
-    fun open(itemId: String, tier: GradeTier, creditsRequired: Int, surface: String = "single") {
+    fun open(itemId: String, tier: GradeTier, creditsRequired: Int, surface: String = TopUpSurface.SINGLE) {
         this.itemId = itemId
         this.tier = tier
         this.surface = surface
@@ -128,11 +128,7 @@ class CreditTopUpViewModel @Inject constructor(
         }
     }
 
-    private suspend fun settle(
-        purchases: List<PlayPurchase>,
-        baseline: Int,
-        onGranted: suspend () -> Unit,
-    ) {
+    private suspend fun settle(purchases: List<PlayPurchase>, baseline: Int, onGranted: suspend () -> Unit) {
         val outcomes = purchases.map { billing.verifyAndSettle(it) }
         val failure = outcomes.filterIsInstance<BillingRepository.PurchaseOutcome.Failed>()
             .firstOrNull()

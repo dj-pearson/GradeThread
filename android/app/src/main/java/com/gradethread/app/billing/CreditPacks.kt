@@ -12,6 +12,21 @@ package com.gradethread.app.billing
  * [credits] is shown, never trusted: the grant comes from the server's own
  * mapping after it verifies the token with Google.
  */
+/**
+ * Which purchase funnel a top-up belongs to.
+ *
+ * Named rather than spelled inline at each call site: the funnel is compared
+ * ACROSS surfaces, so a typo would not fail anything — it would quietly open
+ * a fourth funnel that nobody is charting.
+ */
+object TopUpSurface {
+    const val SINGLE = "single"
+    const val BULK = "bulk"
+
+    /** US-2830: the consumer photo-grade flow. */
+    const val CONSUMER = "consumer"
+}
+
 enum class CreditPack(val productId: String, val credits: Int, val fallbackPriceCents: Int) {
     PACK_10("credits_10", 10, 2499),
     PACK_25("credits_25", 25, 5999),
@@ -33,8 +48,7 @@ enum class CreditPack(val productId: String, val credits: Int, val fallbackPrice
     companion object {
         val productIds: List<String> = entries.map { it.productId }
 
-        fun fromProductId(productId: String?): CreditPack? =
-            entries.firstOrNull { it.productId == productId }
+        fun fromProductId(productId: String?): CreditPack? = entries.firstOrNull { it.productId == productId }
     }
 }
 

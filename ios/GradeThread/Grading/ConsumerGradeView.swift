@@ -28,6 +28,8 @@ struct ConsumerGradeView: View {
     var onGraded: (String) -> Void = { _ in }
 
     @Environment(\.dismiss) private var dismiss
+    /// US-2830: whose credits a top-up buys. Same read as GradeRequestSheet.
+    @Environment(AuthStore.self) private var authStore
     @State private var flow = ConsumerGradeFlow()
     @State private var shots: [String: Data] = [:]
     /// US-2802: slot -> where that shot came from. Absent means library,
@@ -78,6 +80,11 @@ struct ConsumerGradeView: View {
         // A blank title is the one field the route will not fill in for us.
         missing.isEmpty && !title.trimmingCharacters(in: .whitespaces).isEmpty
             && flow.step == .ready
+    }
+
+    private var currentUserId: UUID? {
+        if case let .signedIn(user) = authStore.phase { return user.id }
+        return nil
     }
 
     /// Built here rather than taken as a parameter: the plain entry point has
@@ -135,7 +142,17 @@ struct ConsumerGradeView: View {
         case .ready:
             pickStep
         default:
-            ConsumerGradeProgressView(step: flow.step, onDone: finish)
+            ConsumerGradeProgressView(
+                step: flow.step,
+                onDone: finish,
+                userId: currentUserId,
+                onPurchased: { submissionId in
+                    Task { await flow.creditsPurchased(submissionId: submissionId, baseline: 0) }
+                },
+                onRecheck: { submissionId in
+                    Task { await flow.recheckCredits(submissionId: submissionId, baseline: 0) }
+                }
+            )
         }
     }
 

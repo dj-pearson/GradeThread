@@ -29,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.ai.AiItemFields
+import com.gradethread.app.billing.ConsumerCreditPackSheet
+import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 
 /**
@@ -80,7 +82,13 @@ fun ConsumerGradeScreen(
             modifier = modifier,
         )
     } else {
-        ProgressStep(step, onViewGrade, modifier)
+        ProgressStep(
+            step = step,
+            onViewGrade = onViewGrade,
+            onPurchase = viewModel::creditsPurchased,
+            onRecheck = viewModel::recheckCredits,
+            modifier = modifier,
+        )
     }
 }
 
@@ -254,7 +262,13 @@ private const val VISIBLE_VALUES = 4
  * a credits prompt are both no-charge and both are commonly read as failures.
  */
 @Composable
-private fun ProgressStep(step: ConsumerGradeFlow.Step, onViewGrade: (String) -> Unit, modifier: Modifier = Modifier) {
+private fun ProgressStep(
+    step: ConsumerGradeFlow.Step,
+    onViewGrade: (String) -> Unit,
+    onPurchase: (String) -> Unit,
+    onRecheck: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier.fillMaxSize().padding(Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
@@ -274,11 +288,20 @@ private fun ProgressStep(step: ConsumerGradeFlow.Step, onViewGrade: (String) -> 
 
             is ConsumerGradeFlow.Step.Paying -> Busy("Checking your grades")
 
-            is ConsumerGradeFlow.Step.NeedsCredits -> Notice(
-                title = "You are out of grades",
-                body = step.offer?.let { "A ${it.credits}-grade pack covers this one." }
-                    ?: "Top up to grade this garment.",
-            )
+            // US-2830: a price and a way to pay it. This used to be the
+            // notice alone — the flow quoted a pack size and offered no
+            // control of any kind, after the seller had already uploaded
+            // every photo.
+            is ConsumerGradeFlow.Step.NeedsCredits -> {
+                Notice(
+                    title = "You are out of grades",
+                    body = step.offer?.let { "A ${it.credits}-grade pack covers this one." }
+                        ?: "Top up to grade this garment.",
+                )
+                ConsumerCreditPackSheet(
+                    onPurchase = { onPurchase(step.submissionId) },
+                )
+            }
 
             // NOT a bare spinner: the purchase completed on the device and the
             // balance moves server-side, so someone who just paid is owed a
@@ -286,10 +309,19 @@ private fun ProgressStep(step: ConsumerGradeFlow.Step, onViewGrade: (String) -> 
             is ConsumerGradeFlow.Step.AwaitingCredits ->
                 Busy("Purchase received, adding your grades")
 
-            is ConsumerGradeFlow.Step.CreditsDelayed -> Notice(
-                title = "Your grades are taking a moment",
-                body = "The purchase went through. This usually lands within a minute.",
-            )
+            is ConsumerGradeFlow.Step.CreditsDelayed -> {
+                Notice(
+                    title = "Your grades are taking a moment",
+                    body = "The purchase went through. This usually lands within a minute.",
+                )
+                // The state says "check again" and, until now, gave nobody
+                // anything to check with. A grant that missed the poll
+                // window is not a failure and may already have landed.
+                BrandSecondaryButton(
+                    text = "Check again",
+                    modifier = Modifier.fillMaxWidth(),
+                ) { onRecheck(step.submissionId) }
+            }
 
             // Indeterminate on purpose: the server sends nothing until it is
             // done, so a percentage here would be invented.
