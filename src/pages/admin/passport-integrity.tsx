@@ -567,6 +567,7 @@ export function AdminPassportIntegrityPage() {
                             {" · "}{new Date(lk.createdAt).toLocaleDateString()}
                           </span>
                           <Button size="sm" variant="outline" disabled={busy} onClick={() => severLink(selected, lk.id)}>
+                          aria-label={`Sever the ${lk.eventType} link`}
                             <Scissors className="h-3.5 w-3.5 text-destructive" /> Sever
                           </Button>
                         </li>

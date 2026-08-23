@@ -372,6 +372,7 @@ export function GrowthCampaignsPage() {
                       <TableCell className="text-right">
                         {canSend && (
                           <Button
+                          aria-label={`Send ${c.name}`}
                             size="sm"
                             className="mr-1"
                             disabled={sendingId === c.id}

@@ -405,6 +405,7 @@ export function GrowthReferralsPage() {
                           {isSuperAdmin && (
                             <TableCell className="text-right">
                               <Button size="sm" disabled={working} onClick={() => grant(q.id)}>
+                              aria-label={`Grant the reward for ${q.referrer_email}`}
                                 Grant
                               </Button>
                             </TableCell>

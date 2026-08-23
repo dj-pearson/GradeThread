@@ -434,6 +434,7 @@ export function AdminOpsActivityPage() {
                 {!ev.acknowledged_at && (
                   <div className="flex shrink-0">
                     <Button variant="outline" size="sm" disabled={busy} onClick={() => acknowledge(ev)}>
+                    aria-label={`Acknowledge ${ev.title}`}
                       <Check className="h-3.5 w-3.5" /> Acknowledge
                     </Button>
                   </div>

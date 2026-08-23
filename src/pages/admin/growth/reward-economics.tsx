@@ -559,6 +559,7 @@ export function GrowthRewardEconomicsPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
+                        aria-label={`Resolve the breach for ${b.subject_user_id ?? "the platform"}`}
                           size="sm"
                           variant="outline"
                           disabled={resolveBreach.isPending}
