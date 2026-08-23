@@ -22,10 +22,7 @@ object PhotoGradePayment {
 
     /** The pack the route names when nothing covers the grade. */
     @Serializable
-    data class PackOffer(
-        val credits: Int = 0,
-        val priceCents: Int = 0,
-    )
+    data class PackOffer(val credits: Int = 0, val priceCents: Int = 0)
 
     @Serializable
     data class Payment(

@@ -44,7 +44,12 @@ object AiItemFields {
      * so they are validated client-side before the write rather than trusted.
      */
     val garmentTypes: Set<String> = setOf(
-        "tops", "bottoms", "outerwear", "dresses", "footwear", "accessories",
+        "tops",
+        "bottoms",
+        "outerwear",
+        "dresses",
+        "footwear",
+        "accessories",
     )
 
     /**

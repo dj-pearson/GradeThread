@@ -15,8 +15,7 @@ import org.junit.Test
  */
 class ConsumerGradeEntryWiringTest {
 
-    private fun source(path: String) =
-        File("src/main/java/com/gradethread/app/$path").readText()
+    private fun source(path: String) = File("src/main/java/com/gradethread/app/$path").readText()
 
     @Test
     fun theToolsHubOffersIt() {

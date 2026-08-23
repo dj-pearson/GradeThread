@@ -13,11 +13,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
  * Home, Inventory, Add, Money, Marketplaces). One place owns routes, labels,
  * and icons so the bottom bar, the rail, and the nav graph can never drift.
  */
-enum class ShellSection(
-    val route: String,
-    val label: String,
-    val icon: ImageVector,
-) {
+enum class ShellSection(val route: String, val label: String, val icon: ImageVector) {
     HOME("home", "Home", Icons.Outlined.Home),
     INVENTORY("inventory", "Inventory", Icons.Outlined.List),
 
@@ -164,5 +160,4 @@ enum class NavKind { BOTTOM_BAR, RAIL }
  * (tablets, unfolded foldables) switch to a rail — the Android analog of the
  * iPad NavigationSplitView behavior.
  */
-fun navKindForWidth(isCompactWidth: Boolean): NavKind =
-    if (isCompactWidth) NavKind.BOTTOM_BAR else NavKind.RAIL
+fun navKindForWidth(isCompactWidth: Boolean): NavKind = if (isCompactWidth) NavKind.BOTTOM_BAR else NavKind.RAIL

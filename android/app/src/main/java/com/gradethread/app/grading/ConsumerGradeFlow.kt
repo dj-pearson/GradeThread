@@ -43,10 +43,7 @@ class ConsumerGradeFlow(
          * Neither covered it. NOT an error — an offer, and the pack is the one
          * the route named.
          */
-        data class NeedsCredits(
-            val submissionId: String,
-            val offer: PhotoGradePayment.PackOffer?,
-        ) : Step()
+        data class NeedsCredits(val submissionId: String, val offer: PhotoGradePayment.PackOffer?) : Step()
 
         /**
          * The purchase went through and the server has not credited the account
@@ -74,11 +71,7 @@ class ConsumerGradeFlow(
         data class Grading(val submissionId: String, val statusText: String) : Step()
 
         /** The gate abstained. Nothing was charged. */
-        data class NeedsPhotos(
-            val submissionId: String,
-            val messages: List<String>,
-            val slots: List<String>,
-        ) : Step()
+        data class NeedsPhotos(val submissionId: String, val messages: List<String>, val slots: List<String>) : Step()
 
         data class Graded(val submissionId: String) : Step()
 
@@ -163,19 +156,18 @@ class ConsumerGradeFlow(
         stepFlow.value = Step.Grading(submissionId, "Still grading. This one is taking a while.")
     }
 
-    private fun terminalStep(status: PhotoGradeStatus, submissionId: String): Step =
-        when (status.status) {
-            "completed" -> Step.Graded(submissionId)
-            "needs_photos" -> Step.NeedsPhotos(
-                submissionId,
-                // The gate's own wording. Re-deriving copy from `issues` would
-                // be building worse sentences out of better data.
-                status.qualityFeedback?.photoRequests
-                    ?: listOfNotNull(status.qualityFeedback?.summary),
-                status.qualityFeedback?.photoSlots ?: emptyList(),
-            )
-            else -> Step.Failed(PhotoGradeStatus.terminalMessage(status.status))
-        }
+    private fun terminalStep(status: PhotoGradeStatus, submissionId: String): Step = when (status.status) {
+        "completed" -> Step.Graded(submissionId)
+        "needs_photos" -> Step.NeedsPhotos(
+            submissionId,
+            // The gate's own wording. Re-deriving copy from `issues` would
+            // be building worse sentences out of better data.
+            status.qualityFeedback?.photoRequests
+                ?: listOfNotNull(status.qualityFeedback?.summary),
+            status.qualityFeedback?.photoSlots ?: emptyList(),
+        )
+        else -> Step.Failed(PhotoGradeStatus.terminalMessage(status.status))
+    }
 
     private fun message(error: Throwable): String =
         error.message?.takeIf { it.isNotBlank() } ?: "Something went wrong. Try again."

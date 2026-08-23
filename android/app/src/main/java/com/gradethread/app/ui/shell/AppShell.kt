@@ -21,7 +21,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -696,10 +695,7 @@ private fun ShellNavHost(navController: NavHostController) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AddMethodSheet(
-    onDismiss: () -> Unit,
-    onPick: (String) -> Unit,
-) {
+private fun AddMethodSheet(onDismiss: () -> Unit, onPick: (String) -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         androidx.compose.foundation.layout.Column(
             Modifier.padding(horizontal = Spacing.md).padding(bottom = Spacing.xl),

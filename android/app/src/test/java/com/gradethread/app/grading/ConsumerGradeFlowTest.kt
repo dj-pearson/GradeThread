@@ -165,7 +165,10 @@ class ConsumerGradeFlowTest {
     @Test
     fun anIncompleteSetNeverUploads() = runTest {
         var uploaded = false
-        val f = flow(submit = { _, _, _ -> uploaded = true; PhotoSubmitResponse("sub-1") })
+        val f = flow(submit = { _, _, _ ->
+            uploaded = true
+            PhotoSubmitResponse("sub-1")
+        })
         f.start(listOf(image("front")), request)
         assertTrue("an incomplete set was uploaded", !uploaded)
         assertTrue(f.step.value is ConsumerGradeFlow.Step.Failed)

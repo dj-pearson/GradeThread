@@ -80,7 +80,10 @@ class EdgeApi(
     private val sleeper: suspend (Long) -> Unit = { delay(it) },
 ) {
 
-    val json: Json = Json { ignoreUnknownKeys = true; isLenient = true }
+    val json: Json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     private val cache = TtlCache(maxEntries = 64, maxBytes = 4 * 1024 * 1024)
 
@@ -129,11 +132,7 @@ class EdgeApi(
 
     /** GET returning the raw body; `cacheTtlMillis > 0` serves fresh cached
      *  entries and stores successes (idempotent GETs only — US-638). */
-    suspend fun getRaw(
-        path: String,
-        query: Map<String, String> = emptyMap(),
-        cacheTtlMillis: Long = 0,
-    ): String {
+    suspend fun getRaw(path: String, query: Map<String, String> = emptyMap(), cacheTtlMillis: Long = 0): String {
         // US-2496: the owner is resolved ONCE, before the request, and the same
         // key is used for the read and the write. Resolving it twice would file
         // a response under a tenant it was not fetched for if the workspace
@@ -259,38 +258,24 @@ class EdgeApi(
 
         /** Not a data class: it holds an array, whose generated `equals` would
          *  compare identity and read as if it compared content. */
-        class File(
-            val name: String,
-            val fileName: String,
-            val mimeType: String,
-            val bytes: ByteArray,
-        ) : Part()
+        class File(val name: String, val fileName: String, val mimeType: String, val bytes: ByteArray) : Part()
     }
+
     /** One image part. Not a data class: it holds an array, whose generated
      *  `equals` would compare identity and read as if it compared content. */
-    class ImagePart(
-        val fieldName: String,
-        val fileName: String,
-        val mimeType: String,
-        val bytes: ByteArray,
-    )
+    class ImagePart(val fieldName: String, val fileName: String, val mimeType: String, val bytes: ByteArray)
 
     /** Decode helper shared by the reified entry points. */
-    inline fun <reified T> decode(raw: String): T =
-        try {
-            json.decodeFromString<T>(raw)
-        } catch (e: Exception) {
-            throw EdgeApiError.Decoding(e.message ?: "decode failed")
-        }
+    inline fun <reified T> decode(raw: String): T = try {
+        json.decodeFromString<T>(raw)
+    } catch (e: Exception) {
+        throw EdgeApiError.Decoding(e.message ?: "decode failed")
+    }
 
     // ── Core send loop ───────────────────────────────────────────────────────
 
-    private suspend fun perform(
-        method: String,
-        path: String,
-        query: Map<String, String>,
-        body: RequestBody?,
-    ): String = send(method, path, query, body, allowTransientRetry = true)
+    private suspend fun perform(method: String, path: String, query: Map<String, String>, body: RequestBody?): String =
+        send(method, path, query, body, allowTransientRetry = true)
 
     private suspend fun send(
         method: String,
@@ -395,36 +380,34 @@ class EdgeApi(
         val retryAfterSeconds: Long?,
     )
 
-    private suspend fun execute(request: Request): WireResponse =
-        suspendCancellableCoroutine { cont ->
-            val call = client.newCall(request)
-            cont.invokeOnCancellation { call.cancel() }
-            call.enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    cont.resumeWithException(
-                        EdgeApiError.Network(e.message ?: e.javaClass.simpleName),
+    private suspend fun execute(request: Request): WireResponse = suspendCancellableCoroutine { cont ->
+        val call = client.newCall(request)
+        cont.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                cont.resumeWithException(
+                    EdgeApiError.Network(e.message ?: e.javaClass.simpleName),
+                )
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    cont.resume(
+                        WireResponse(
+                            code = it.code,
+                            body = it.body?.string() ?: "",
+                            planWarningHeader = it.header("X-Plan-Warning"),
+                            retryAfterSeconds = it.header("Retry-After")?.toLongOrNull(),
+                        ),
                     )
                 }
-
-                override fun onResponse(call: Call, response: Response) {
-                    response.use {
-                        cont.resume(
-                            WireResponse(
-                                code = it.code,
-                                body = it.body?.string() ?: "",
-                                planWarningHeader = it.header("X-Plan-Warning"),
-                                retryAfterSeconds = it.header("Retry-After")?.toLongOrNull(),
-                            ),
-                        )
-                    }
-                }
-            })
-        }
+            }
+        })
+    }
 
     /** The cache key. [owner] leads so the tenant can never be optional. */
-    private fun cacheKey(owner: String, path: String, query: Map<String, String>): String =
-        owner + "|" + path + "?" +
-            query.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }
+    private fun cacheKey(owner: String, path: String, query: Map<String, String>): String = owner + "|" + path + "?" +
+        query.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }
 }
 
 /**
@@ -440,8 +423,7 @@ class TtlCache(
     private data class Entry(val value: String, val expiresAt: Long)
 
     private val entries = object : LinkedHashMap<String, Entry>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>): Boolean =
-            size > maxEntries
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>): Boolean = size > maxEntries
     }
     private var totalBytes = 0
 
