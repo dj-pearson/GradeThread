@@ -1,6 +1,13 @@
 import { assertEquals } from "@std/assert";
 import { resolveShoeSizeScale } from "../lib/shoe-size-scale.ts";
 import { SIZING_CHARTS } from "../lib/sizing-charts.ts";
+import {
+  inferDepartment,
+  resolveDepartment,
+  resolveItemAspects,
+  type RegistryAspect,
+  type RegistryItem,
+} from "../lib/aspect-registry.ts";
 import { detectSizeSystem } from "../lib/size-systems.ts";
 import { shoeSizeToUsMen } from "../lib/parcel-estimate.ts";
 
@@ -255,9 +262,9 @@ Deno.test("US-2796: the parcel route is the one producer, and it feeds the scale
       "shoe back on the read-it-as-US-men's assumption",
   );
   assertEquals(
-    /inferDepartment\(/.test(route),
+    /resolveDepartment\(/.test(route),
     true,
-    "the department is no longer inferred, so 22 of 26 footwear brands resolve to null",
+    "the department is no longer resolved, so 22 of 26 footwear brands resolve to null",
   );
 
   // THE SILENT FAILURE THIS EXISTS FOR. resolveShoeSizeScale returns null for a
@@ -271,7 +278,16 @@ Deno.test("US-2796: the parcel route is the one producer, and it feeds the scale
     "the inventory_items select in predictedParcel no longer names the brand " +
       "column. The resolver would be handed null forever and answer null forever.",
   );
-  for (const column of ["brand", "title", "style", "description", "condition_notes"]) {
+  // `attributes` matters as much as `brand`: it is where the capture pass
+  // writes a stated department, and resolveDepartment prefers it over the text.
+  for (const column of [
+    "brand",
+    "title",
+    "style",
+    "description",
+    "condition_notes",
+    "attributes",
+  ]) {
     assertEquals(
       select![1].includes(column),
       true,
@@ -302,5 +318,65 @@ Deno.test("US-2796: estimateParcel has exactly one edge caller", async () => {
     ["src/routes/flipdesk-logistics.ts"],
     "estimateParcel gained an edge caller. It must resolve a sizeScale too, or " +
       "it prices a UK-stamped boot as a US men's one.",
+  );
+});
+
+Deno.test("US-2796: resolveDepartment matches what the aspect resolver fills", () => {
+  // TWO PATHS TO ONE ANSWER, pinned together rather than trusted to stay in step.
+  // resolveDepartment is canonicalValues' precedence for the department entry
+  // lifted out; if the registry's precedence changes and this does not, the
+  // parcel path starts disagreeing with the published eBay aspect about which
+  // department the item is.
+  const aspects: RegistryAspect[] = [
+    { name: "Department", mode: "FREE_TEXT", multi: false },
+  ];
+
+  const cases: RegistryItem[] = [
+    // Stated, and the text says nothing.
+    { item_category: "shoes", attributes: { department: "Women" }, title: "New Balance 574" },
+    // Stated, and the text DISAGREES. The stated value must win: this is the
+    // case that made the change worth making.
+    { item_category: "shoes", attributes: { department: "Women" }, title: "Men's New Balance 574" },
+    // Nothing stated, inferred from the title.
+    { item_category: "shoes", attributes: {}, title: "Women's UGG Classic" },
+    // Nothing stated and nothing to infer.
+    { item_category: "shoes", attributes: null, title: "New Balance 574" },
+    // Stated but blank, which must fall through rather than answer with "".
+    { item_category: "shoes", attributes: { department: "   " }, title: "Men's UGG" },
+    // Stated as an array, the shape attributes columns actually take.
+    { item_category: "shoes", attributes: { department: ["Men"] }, title: "UGG" },
+  ];
+
+  for (const item of cases) {
+    const filled = resolveItemAspects(item, aspects, {})["Department"]?.[0] ?? null;
+    assertEquals(
+      resolveDepartment(item),
+      filled,
+      "resolveDepartment disagrees with the Department aspect for " +
+        JSON.stringify(item.attributes) + " / " + item.title,
+    );
+  }
+
+  // And the specific behaviour the parcel path depends on, asserted directly
+  // rather than only through the agreement above - which would pass if BOTH
+  // paths regressed the same way.
+  assertEquals(
+    resolveDepartment({ item_category: "shoes", attributes: { department: "Women" }, title: "Men's New Balance" }),
+    "Women",
+    "a stated department lost to the title text",
+  );
+  assertEquals(
+    inferDepartment({ item_category: "shoes", title: "Men's New Balance" }),
+    "Men",
+    "guards the guard: the title above really does infer Men, so the case above is a real conflict",
+  );
+
+  // The scale that conflict produces, end to end.
+  assertEquals(
+    resolveShoeSizeScale(
+      "New Balance",
+      resolveDepartment({ item_category: "shoes", attributes: { department: "Women" }, title: "Men's New Balance 574" }),
+    ),
+    "us_women",
   );
 });

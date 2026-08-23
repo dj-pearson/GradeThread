@@ -7,7 +7,7 @@ import {
   type ParcelGarmentCategory,
 } from "../lib/parcel-estimate.ts";
 import { resolveShoeSizeScale } from "../lib/shoe-size-scale.ts";
-import { inferDepartment } from "../lib/aspect-registry.ts";
+import { resolveDepartment } from "../lib/aspect-registry.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { isEbayConfigured, isLogisticsScopeAvailable } from "../lib/ebay-client.ts";
 import {
@@ -328,7 +328,7 @@ async function predictedParcel(
     const { data, error } = await supabaseAdmin
       .from("inventory_items")
       .select(
-        "garment_category, material, measurements, size, brand, title, style, description, condition_notes, item_category",
+        "garment_category, material, measurements, size, brand, title, style, description, condition_notes, item_category, attributes",
       )
       .eq("id", inventoryItemId)
       .eq("user_id", ownerId)
@@ -345,6 +345,7 @@ async function predictedParcel(
       description: string | null;
       condition_notes: string | null;
       item_category: string | null;
+      attributes: Record<string, string | string[]> | null;
     };
     return estimateParcel({
       garmentCategory: row.garment_category,
@@ -362,8 +363,9 @@ async function predictedParcel(
       // row was recorded under.
       sizeScale: resolveShoeSizeScale(
         row.brand,
-        inferDepartment({
+        resolveDepartment({
           item_category: row.item_category,
+          attributes: row.attributes,
           title: row.title,
           style: row.style,
           description: row.description,

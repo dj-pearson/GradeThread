@@ -408,6 +408,28 @@ export function inferDepartment(item: RegistryItem): string | null {
   return null;
 }
 
+/**
+ * The item's department: what it SAYS, falling back to what its text implies.
+ *
+ * This is the precedence `canonicalValues` already applies to the department
+ * entry (a single-valued attribute with `infer: "department"`), lifted out so a
+ * caller outside the aspect resolver cannot invent a second one. US-2796's
+ * parcel path needs it, and it was reading only the inferred half - so an item
+ * whose capture pass had already written department="Women" was re-derived from
+ * its title, and a title that never says "women's" lost the answer the row was
+ * carrying.
+ *
+ * A guard in shoe-size-scale_test.ts pins this against what resolveItemAspects
+ * actually fills for "Department", so the two cannot drift.
+ */
+export function resolveDepartment(item: RegistryItem): string | null {
+  const raw = item.attributes?.department;
+  const first = Array.isArray(raw) ? raw[0] : raw;
+  const stated = typeof first === "string" ? first.trim() : "";
+  if (stated) return stated;
+  return inferDepartment(item);
+}
+
 // ─── Resolver ──────────────────────────────────────────────────────
 
 // Effective (lowercased) aspect-name candidates for an entry in a vertical:
