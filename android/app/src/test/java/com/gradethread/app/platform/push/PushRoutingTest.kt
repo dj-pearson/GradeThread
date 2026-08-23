@@ -338,10 +338,7 @@ class PushRoutingTest {
         )
     }
 
-    @Test
-    fun `every ask moment says what the seller gets`() {
-        PushPermission.Moment.entries.forEach {
-            assertTrue(it.name, it.rationale.isNotBlank())
-        }
-    }
+    // US-2792: `every ask moment says what the seller gets` was here. It
+    // asserted that three rationale strings were non-blank — a test of copy
+    // for a prompt nothing could show. Removed with the enum.
 }

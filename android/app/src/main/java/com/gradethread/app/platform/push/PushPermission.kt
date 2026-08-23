@@ -20,12 +20,18 @@ import androidx.core.content.ContextCompat
  */
 object PushPermission {
 
-    /** The moments worth asking on, in the order they usually happen. */
-    enum class Moment(val rationale: String) {
-        FIRST_SALE("Want a heads-up the moment something sells? We'll tell you here."),
-        FIRST_GRADE("We'll let you know as soon as a grade is ready."),
-        EBAY_CONNECTED("We'll warn you before your eBay connection expires, so sync never stops."),
-    }
+    // US-2792: there WAS a Moment enum here — three written rationales for
+    // asking again at first sale, first grade and eBay connected — and no
+    // function ever took one. Deleted rather than wired, owner's call.
+    //
+    // The argument for it was the one in this file's header: asking on the
+    // launch screen is a stranger asking for a favour. But the app never did
+    // that. OnboardingHost asks through an ACTIVATION CHECKLIST ROW the person
+    // taps deliberately, which is already the good version — so a second,
+    // opportunistic prompt would only re-ask someone who had already declined.
+    //
+    // If contextual asking is ever wanted, the rationales are in this commit's
+    // parent. Do not re-add them without a caller.
 
     /** Below API 33 notifications need no runtime grant. */
     val required: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU

@@ -54,12 +54,6 @@ const ALLOWED = {
     "UNREACHABLE (US-2792). Google and Apple sign-in through Custom Tabs. The " +
     "callback half is wired and in the manifest; nothing calls launch(), and " +
     "AuthScreen offers no provider button, so neither can be started.",
-  Moment:
-    "UNREACHABLE (US-2792). PushPermission.Moment carries three hand-written " +
-    "rationales for asking at the right time - first sale, first grade, eBay " +
-    "connected. No function takes one. Its only other mention in the repo is a " +
-    "test iterating entries, which proves the strings exist rather than that " +
-    "anything asks.",
 };
 
 function walk(dir, out = []) {
