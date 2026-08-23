@@ -1352,7 +1352,7 @@ function GarmentBaselinesCard() {
                       injected into the grading prompt, and the row header above
                       names the brand rather than the field. */}
                   <Textarea
-                    aria-label="Baseline brief"
+                    aria-label={`Baseline brief for ${row.brand} ${row.garment_category}`}
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
                     rows={6}

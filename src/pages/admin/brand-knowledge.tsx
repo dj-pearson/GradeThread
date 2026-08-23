@@ -607,13 +607,13 @@ export function AdminBrandKnowledgePage() {
                                     </Button>
                                   )
                                   : null}
-                                <Button size="icon" variant="ghost" aria-label="Edit fact" onClick={() => openEdit(section.table, fact)}>
+                                <Button size="icon" variant="ghost" aria-label={`Edit fact: ${factTitle(section, fact)}`} onClick={() => openEdit(section.table, fact)}>
                                   <Pencil className="h-3.5 w-3.5" />
                                 </Button>
                                 <Button
                                   size="icon"
                                   variant="ghost"
-                                  aria-label="Delete fact"
+                                  aria-label={`Delete fact: ${factTitle(section, fact)}`}
                                   onClick={() => setDeleteTarget({ table: section.table, fact })}
                                 >
                                   <Trash2 className="h-3.5 w-3.5 text-destructive" />

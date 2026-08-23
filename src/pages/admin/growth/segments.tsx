@@ -226,7 +226,7 @@ function RuleBuilder({
               size="icon"
               className="ml-auto"
               onClick={() => removeCondition(i)}
-              aria-label="Remove condition"
+              aria-label={`Remove condition: ${meta.label}`}
             >
               <X className="h-4 w-4" />
             </Button>

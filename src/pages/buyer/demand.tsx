@@ -206,7 +206,7 @@ export function BuyerDemandPage() {
                   {w.status === "active" && (
                     <Button variant="ghost" size="sm" onClick={() => setStatus(w.id, "expired")}>Expire</Button>
                   )}
-                  <Button variant="ghost" size="icon" aria-label="Delete want" onClick={() => removeWant(w.id)}>
+                  <Button variant="ghost" size="icon" aria-label={`Delete want: ${[...w.brands, ...w.categories, ...w.keywords].join(", ") || "Any item"}`} onClick={() => removeWant(w.id)}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>

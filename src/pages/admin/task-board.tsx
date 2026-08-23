@@ -740,7 +740,7 @@ function TaskDetailDialog({
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6 flex-shrink-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                      aria-label="Delete comment"
+                      aria-label={`Delete comment: ${c.body.slice(0, 40)}`}
                       onClick={() =>
                         deleteComment.mutate({ id: c.id, taskId: task.id })
                       }

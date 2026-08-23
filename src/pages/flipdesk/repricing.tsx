@@ -499,7 +499,7 @@ function RepriceRulesCard() {
                     size="icon"
                     variant="ghost"
                     className="h-8 w-8 text-muted-foreground"
-                    aria-label="Delete rule"
+                    aria-label={`Delete rule: ${r.name}`}
                     disabled={del.isPending}
                     onClick={() => void onDelete(r)}
                   >

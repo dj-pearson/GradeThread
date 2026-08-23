@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
+import { auditDistinctness } from "../../scripts/audit-control-labels.mjs";
 
 // US-2450: a name that does not DISTINGUISH is not a usable name.
 //
@@ -36,7 +37,11 @@ import { join, resolve, sep } from "node:path";
 //     direction of over-reporting, which is why the baseline is a number rather
 //     than zero.
 
-const BASELINE = 36;
+// 36 → 20 on 2026-08-23 (US-2834). Sixteen of the sixteen removed were the
+// one shape a scan can be certain about — a constant string aria-label on a
+// control inside a `.map()` — and that subset now holds at ZERO below, so
+// this number only covers the shapes the header calls conservative.
+const BASELINE = 20;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -160,6 +165,51 @@ describe("a repeated control names its own row (US-2450)", () => {
       );
     }
     expect(total).toBeLessThanOrEqual(BASELINE);
+  });
+
+  it("the shape a scan can be SURE about is zero, not inside the budget", () => {
+    // The baseline above is a budget, and its header explains honestly why:
+    // this scan over-reports on text inputs, whose value is announced along
+    // with the label. A budget of 20 permits twenty NEW ones to hide under the
+    // existing count.
+    //
+    // One subset has no ambiguity at all — a CONSTANT string aria-label on a
+    // control rendered inside a `.map()` callback. Every row announces the
+    // same words, every time, and there is no reading of it that is fine. So
+    // it is held at zero here instead of sharing the budget.
+    //
+    // Fifteen of these existed on 2026-08-23, across admin, buyer and FlipDesk:
+    // "Delete want", "Delete rule", "Remove filter", "Edit fact". Most were
+    // destructive, which is the case that matters — a missing name reads as
+    // unknown, a repeated one reads as understood.
+    const hits: string[] = [];
+    for (const f of files) {
+      for (const h of auditDistinctness(readFileSync(f, "utf8"))) {
+        hits.push(`${f.split(`${sep}src${sep}`)[1] ?? f}:${h.line} "${h.name}"`);
+      }
+    }
+    expect(
+      hits,
+      "a per-row control with a constant label announces the same words on " +
+        "every row. Interpolate whatever the row already shows on screen.",
+    ).toEqual([]);
+  });
+
+  it("that subset check is not vacuous", () => {
+    // Both directions, because a scan that matches nothing forever reads
+    // exactly like a clean codebase — the defect this repo keeps finding.
+    expect(files.length).toBeGreaterThan(200);
+    const bad = `<ul>{rows.map((r) => (<li key={r.id}>` +
+      `<Button aria-label="Delete row" /></li>))}</ul>`;
+    expect(auditDistinctness(bad).length).toBe(1);
+    // An interpolated label is correct by construction and must stay unreported;
+    // a rule that flags every label in a list is the version that gets deleted.
+    const good = "<ul>{rows.map((r) => (<li key={r.id}>" +
+      "<Button aria-label={`Delete ${r.name}`} /></li>))}</ul>";
+    expect(auditDistinctness(good)).toEqual([]);
+    // And a constant label on a control rendered ONCE is fine: the defect is
+    // repetition, not constancy.
+    expect(auditDistinctness('<div><Button aria-label="Close" /></div>')).toEqual([]);
   });
 
   it("the baseline is not slack", () => {

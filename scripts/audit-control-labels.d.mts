@@ -22,3 +22,23 @@ export function isLabelled(attrs: string, htmlForIds: Set<string>): boolean;
 
 /** Every control in `src` with no resolvable accessible name. */
 export function auditFile(src: string): UnlabelledControl[];
+
+/** One control that will announce the same words on every row of a list. */
+export interface RepeatedName {
+  tag: string;
+  /** The constant aria-label value, as written. */
+  name: string;
+  line: number;
+}
+
+/** Start/end offsets of every `.map(` callback, paren-matched. */
+export function mapBodies(src: string): Array<[number, number]>;
+
+/**
+ * US-2834: controls inside a `.map()` whose aria-label is a constant literal.
+ *
+ * The second floor under `auditFile`: that one asks whether a name EXISTS,
+ * this one whether it DISTINGUISHES. Interpolated labels are correct by
+ * construction and never reported.
+ */
+export function auditDistinctness(src: string): RepeatedName[];

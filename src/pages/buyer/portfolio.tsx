@@ -387,7 +387,7 @@ export function BuyerPortfolioPage() {
                   <Button
                     variant="ghost"
                     size="icon"
-                    aria-label="Remove item"
+                    aria-label={`Remove ${item.title ?? item.garment_type ?? "item"}`}
                     onClick={() => onRemove(item.id)}
                     disabled={isRemoving}
                   >

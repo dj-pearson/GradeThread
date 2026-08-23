@@ -1163,7 +1163,7 @@ export function FlipdeskListingsPage() {
                   })
                 }
                 className="text-muted-foreground hover:text-foreground"
-                aria-label="Remove filter"
+                aria-label={`Remove filter: ${describeRule(rule)}`}
               >
                 <X className="h-3 w-3" />
               </button>

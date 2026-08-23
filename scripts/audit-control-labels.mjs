@@ -187,6 +187,70 @@ export function auditFile(src) {
   return unlabelled;
 }
 
+// ── US-2834: the second floor — names that DISTINGUISH ─────────────────────
+//
+// Everything above measures whether a control HAS a name. US-2450 proved that
+// is only half the property: every control in a FlipDesk listings row was
+// named the same thing, this audit reported zero for that file, and the table
+// was still unusable with a screen reader. Someone arrowing through eight rows
+// heard "Delete rule, button" eight times with nothing to say which rule.
+//
+// A missing name at least reads as unknown. A repeated one reads as
+// UNDERSTOOD, which is worse in front of a destructive control.
+//
+// The detectable shape is narrow on purpose: a CONSTANT string aria-label on a
+// control rendered inside a `.map()` callback. Interpolated labels are correct
+// by construction and never reported, matching the conservative stance the
+// rest of this file takes — an audit that over-reports gets argued with and
+// then ignored.
+
+/** Buttons count here even though they are not in CONTROL: a per-row delete is
+ *  the case this exists for, and it is almost always a button. */
+const ROW_CONTROL =
+  /<(input|textarea|Input|Textarea|SelectTrigger|Checkbox|Switch|RadioGroupItem|button|Button)\b/g;
+
+/** Start and end offsets of every `.map(` callback, paren-matched. */
+export function mapBodies(src) {
+  const out = [];
+  for (const m of src.matchAll(/\.map\s*\(/g)) {
+    let depth = 0;
+    let i = m.index + m[0].length - 1;
+    for (; i < src.length; i++) {
+      if (src[i] === "(") depth++;
+      else if (src[i] === ")") {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    if (i < src.length) out.push([m.index, i]);
+  }
+  return out;
+}
+
+/** Controls in `src` that will announce the same words on every row. */
+export function auditDistinctness(src) {
+  const bodies = mapBodies(src);
+  if (bodies.length === 0) return [];
+  const hits = [];
+  ROW_CONTROL.lastIndex = 0;
+  for (const m of src.matchAll(ROW_CONTROL)) {
+    if (inComment(src, m.index)) continue;
+    if (!bodies.some(([a, b]) => m.index > a && m.index < b)) continue;
+    const attrs = tagAttrs(src, m.index);
+    // `"[^"{]*"` rather than `"[^"]*"`: a label built with a template literal
+    // inside quotes is not a thing, but being explicit here documents that an
+    // interpolation anywhere in the value makes it fine.
+    const lit = /\baria-label\s*=\s*"([^"{]*)"/.exec(attrs);
+    if (!lit) continue;
+    hits.push({
+      tag: m[1],
+      name: lit[1],
+      line: src.slice(0, m.index).split("\n").length,
+    });
+  }
+  return hits;
+}
+
 function main() {
   const rows = [];
   let total = 0;
@@ -207,6 +271,20 @@ function main() {
     }
   }
   if (rows.length > 25) console.log(`  … and ${rows.length - 25} more files`);
+
+  const repeated = [];
+  for (const file of walk(SRC)) {
+    for (const h of auditDistinctness(readFileSync(file, "utf8"))) {
+      repeated.push({ ...h, file: file.replace(`${SRC}\\`, "").replace(`${SRC}/`, "") });
+    }
+  }
+  console.log(
+    `\nPer-row controls whose name is the SAME on every row: ${repeated.length}`,
+  );
+  console.log("(a constant aria-label inside a .map() — US-2834)\n");
+  for (const h of repeated) {
+    console.log(`  ${h.file}:${h.line}  <${h.tag}> aria-label="${h.name}"`);
+  }
 }
 
 if (process.argv[1]?.endsWith("audit-control-labels.mjs")) main();

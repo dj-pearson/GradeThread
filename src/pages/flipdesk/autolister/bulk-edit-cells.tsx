@@ -175,7 +175,7 @@ export function SpecificsCell({
               >
                 {name}
               </span>
-              <Input aria-label="Item specific values"
+              <Input aria-label={`${name} values`}
                 value={(values ?? []).join(", ")}
                 onChange={(e) => setValues(name, e.target.value)}
                 placeholder="value(s), comma-separated"

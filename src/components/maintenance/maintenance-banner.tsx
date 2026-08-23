@@ -119,7 +119,7 @@ export function MaintenanceBanner() {
             </div>
             {canDismiss && (
               <button
-                aria-label="Dismiss"
+                aria-label={`Dismiss notice: ${w.message}`}
                 onClick={() => dismiss(w.id)}
                 className="flex-shrink-0 rounded p-1 opacity-60 transition-opacity hover:opacity-100"
               >
