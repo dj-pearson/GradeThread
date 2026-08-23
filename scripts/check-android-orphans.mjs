@@ -20,10 +20,6 @@
 //                      renders email fields and no provider button. Half a
 //                      feature, and the half that shipped is the half nobody
 //                      looks at.
-//   TurnstileChallenge The bot-protection challenge. Rendered by nothing, so
-//                      Android signup has none. TurnstileHtml under it has a
-//                      test asserting the site key is escaped against XSS - a
-//                      security test for code that never runs.
 //   SyncStatusBar      119 lines of sync UI nothing shows.
 //
 // THREE KINDS OF DECLARATION ARE EXCLUDED BY MECHANISM, NOT BY NAME, because
@@ -59,10 +55,6 @@ const ALLOWED = {
     "UNREACHABLE (US-2792). Google and Apple sign-in through Custom Tabs. The " +
     "callback half is wired and in the manifest; nothing calls launch(), and " +
     "AuthScreen offers no provider button, so neither can be started.",
-  TurnstileChallenge:
-    "UNREACHABLE (US-2792). The bot-protection challenge, rendered by nothing, " +
-    "so Android signup has none. TurnstileHtml beneath it is tested for XSS " +
-    "escaping of the site key, which is a security test for unreached code.",
   SyncStatusBar:
     "UNREACHABLE (US-2792). Sync status UI no screen shows.",
   PersistenceHealth:

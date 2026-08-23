@@ -166,6 +166,18 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
             }
         }
 
+        // US-2792: bot protection on signup, which web and iOS both have and
+        // Android did not. TurnstileChallenge and its XSS-escaping test have
+        // existed since US-1312 with nothing rendering either.
+        //
+        // SIGNUP ONLY: sign-in is a credential check against an account that
+        // already exists, and what this stops is bulk account CREATION.
+        //
+        // Invisible without a site key - the composable reports NotConfigured
+        // and builds no WebView at all, so a dev or CI build behaves exactly as
+        // it did before this existed.
+        SignUpCaptcha(state.isSignUp, viewModel::setCaptcha)
+
         BrandPrimaryButton(
             text = stringResource(
                 when {
@@ -190,4 +202,18 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
             )
         }
     }
+}
+
+/**
+ * US-2792: the signup-only bot challenge.
+ *
+ * A composable rather than an `if` inside AuthScreen because that screen was
+ * already AT detekt's cyclomatic-complexity ceiling of 20 - adding one branch
+ * to it failed the build. Holding the condition here keeps the decision next to
+ * the thing it decides and gives AuthScreen a plain call.
+ */
+@Composable
+private fun SignUpCaptcha(isSignUp: Boolean, onResult: (TurnstileResult) -> Unit) {
+    if (!isSignUp) return
+    TurnstileChallenge(onResult = onResult)
 }

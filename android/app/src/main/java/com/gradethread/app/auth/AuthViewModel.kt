@@ -32,6 +32,16 @@ class AuthViewModel @Inject constructor(
         val error: FriendlyAuthError? = null,
         /** A one-off confirmation, e.g. "we've sent that link again". */
         val notice: String? = null,
+        /**
+         * US-2792: the solved Turnstile token, sent as gotrue's captcha_token.
+         *
+         * Null covers three situations on purpose, none of which should stop
+         * someone signing up: no site key is configured (dev, CI, any build
+         * without the secret), the widget has not finished, or it failed.
+         * GoTrue is the authority either way - it only rejects a missing token
+         * in an environment where captcha is actually switched on.
+         */
+        val captchaToken: String? = null,
     ) {
         /** Only once they have typed something — an error on an empty field nags. */
         val emailError: String?
@@ -79,6 +89,9 @@ class AuthViewModel @Inject constructor(
             password = "",
             error = null,
             notice = null,
+            // US-2792: single-use, and the widget remounts on the way back.
+            // Keeping it would send a consumed token on the next attempt.
+            captchaToken = null,
         )
         auth.clearError()
     }
@@ -90,6 +103,31 @@ class AuthViewModel @Inject constructor(
 
     fun setFullName(value: String) = update { it.copy(fullName = value) }
 
+    /**
+     * US-2792: record the challenge outcome.
+     *
+     * DELIBERATELY DOES NOT GATE THE BUTTON. Making canSubmit wait on a token
+     * would let a wedged widget lock signup completely, on a screen with no
+     * way past it - worse than one rejected attempt, since Turnstile solves in
+     * about a second and the form takes longer than that to fill. A rejection
+     * surfaces through the existing error collector and the widget issues a
+     * fresh token for the retry.
+     *
+     * Failed and NotConfigured both CLEAR the token rather than leaving a
+     * stale one. Turnstile tokens are single-use, so a token carried into a
+     * second attempt fails validation while looking like it was sent - which
+     * is harder to diagnose than sending none.
+     */
+    fun setCaptcha(result: TurnstileResult) = update {
+        it.copy(
+            captchaToken = when (result) {
+                is TurnstileResult.Token -> result.token
+                is TurnstileResult.Failed -> null
+                TurnstileResult.NotConfigured -> null
+            },
+        )
+    }
+
     fun submit() {
         val current = _state.value
         if (!current.canSubmit) return
@@ -100,6 +138,7 @@ class AuthViewModel @Inject constructor(
                     email = current.email.trim(),
                     password = current.password,
                     fullName = current.fullName.trim().takeIf { it.isNotEmpty() },
+                    captchaToken = current.captchaToken,
                 )
                 Telemetry.event("auth_sign_up_attempt", emptyMap())
             } else {
