@@ -56,43 +56,13 @@
 // US-2801 is the record instead. Catching that needs dataflow, not a search.
 
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { ALLOWED } from "./lib/unfed-form-fields.mjs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, relative, resolve } from "node:path";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SKIP = new Set(["node_modules", "dist", "build", ".git", "coverage"]);
 
-/**
- * Fields the server parses that nothing sends, ON PURPOSE or pending work.
- *
- * Shrink-only, like the repo's other baselines: an entry that stops matching
- * FAILS, so a field that gets wired cannot keep its excuse. Every entry names
- * the story that owns it.
- */
-const ALLOWED = {
-  // live_capture_opt_in and capture_sources were here and are now WIRED
-  // (US-2802): the web camera dialog stamps each photo's origin and
-  // new-submission.tsx sends both, from src/lib/photo-capture-contract.ts.
-  // Their removal is this list doing its job.
-  verified_360_opt_in:
-    "US-2802. Still unfed, and not for want of a decision: verified-360.ts " +
-    "scores photogrammetric/LiDAR coverage metrics, which a BROWSER cannot " +
-    "measure. Web has nothing honest to send. It waits on the iOS/Android " +
-    "half, where the sensors exist.",
-  capture_360:
-    "US-2802. The device-reported metrics that verified_360_opt_in gates. " +
-    "Same blocker, and deliberately NOT declared in photo-capture-contract.ts " +
-    "meanwhile — naming it under src/ would read as fed here and disarm this " +
-    "very entry.",
-
-  forensic_grade:
-    "Exercised by the edge suite only. The forensic add-on is chosen at grade " +
-    "time through the tier/add-on path rather than as its own form field, so " +
-    "the parser is a compatibility shim rather than a missing client.",
-  regrade_of:
-    "Exercised by the edge suite only. A regrade is initiated server-side " +
-    "from the prior submission, not posted by a client.",
-};
 
 /** Directories a CLIENT could send a field from. */
 const CLIENT_ROOTS = ["src", "ios", "android", "extension-unified", "functions", "e2e"];
