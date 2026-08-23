@@ -58,8 +58,13 @@ enum InventoryAspectSync {
         // right for everything else — but those five are projections of a column
         // the seller just edited, so protecting them stranded the edit and the
         // seller had to retype it in the specifics editor too. The server names
-        // them (`columnOwned` / `columnCleared`); web does the same thing
-        // locally via projectColumnAspects.
+        // them (`columnOwned` / `columnCleared`), which is deliberate: the
+        // column-to-aspect mapping lives in ONE place, on the server, so iOS
+        // cannot drift from it. Web does the same projection locally via
+        // `projectColumnAspectsForSpec` (src/lib/ebay-prefill.ts). This comment
+        // used to say `projectColumnAspects`, which was deleted 2026-08-01 with
+        // its only caller; the `-ForSpec` suffix is load-bearing, since that
+        // function needs a loaded category spec.
         result = SpecificsEditorModel.applyColumnAuthority(
             to: result,
             derived: res.derived,
