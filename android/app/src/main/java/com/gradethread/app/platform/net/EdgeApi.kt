@@ -220,6 +220,52 @@ class EdgeApi(
         return send("POST", path, emptyMap(), multipart, allowTransientRetry = false)
     }
 
+    /**
+     * US-2815: a multipart body whose part ORDER and REPEATS are both
+     * significant.
+     *
+     * [postMultipartImages] cannot express this. Its `fields` is a Map, so a
+     * name can appear once, and it writes every field before every file — but
+     * `POST /api/grade/submit` reads `images` and `image_types` as POSITIONAL
+     * arrays and zips images[i] with image_types[i].
+     *
+     * Writing them in two passes is how a reorder silently mislabels every
+     * photo, and a back shot graded as a tag is a WRONG GRADE rather than an
+     * error — nothing fails, a customer is charged, and the certificate is
+     * confidently wrong. The iOS uploader carries the same warning above the
+     * same loop.
+     *
+     * So the caller supplies one ordered list and this writes it verbatim.
+     */
+    suspend fun postMultipart(path: String, parts: List<Part>): String {
+        val multipart = MultipartBody.Builder().setType(MultipartBody.FORM).apply {
+            parts.forEach { part ->
+                when (part) {
+                    is Part.Field -> addFormDataPart(part.name, part.value)
+                    is Part.File -> addFormDataPart(
+                        part.name,
+                        part.fileName,
+                        part.bytes.toRequestBody(part.mimeType.toMediaType()),
+                    )
+                }
+            }
+        }.build()
+        return send("POST", path, emptyMap(), multipart, allowTransientRetry = false)
+    }
+
+    /** One entry in an ordered multipart body. */
+    sealed class Part {
+        class Field(val name: String, val value: String) : Part()
+
+        /** Not a data class: it holds an array, whose generated `equals` would
+         *  compare identity and read as if it compared content. */
+        class File(
+            val name: String,
+            val fileName: String,
+            val mimeType: String,
+            val bytes: ByteArray,
+        ) : Part()
+    }
     /** One image part. Not a data class: it holds an array, whose generated
      *  `equals` would compare identity and read as if it compared content. */
     class ImagePart(
