@@ -12,17 +12,20 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { GARMENT_CATEGORIES } from "@/lib/constants";
 import type { GarmentCategory } from "@/types/database";
+import { SHOE_SIZES } from "@/lib/size-conversion";
 import {
   BASE_WEIGHT_OZ,
   DIM_DIVISOR,
   DIM_THRESHOLD_CU_IN,
   dimensionalWeightOz,
   dimensionalWeightOzForCubicInches,
+  shoeSizeToUsMen,
   estimateParcel,
   PACK_DIMENSIONS,
   PACKAGING_WEIGHT_OZ,
   sizeFactor,
   type ParcelGarmentCategory,
+  type ShoeSizeScale,
 } from "../parcel-estimate";
 
 // ── The category union cannot drift from the database enum ────────────────
@@ -428,6 +431,69 @@ describe("footwear scales by shoe size, not by a tape measurement", () => {
     // were anywhere else, every seeded base would silently mean a different
     // shoe than the person who chose it intended.
     expect(sizeFactor(shoe("boots", 9))).toBeCloseTo(1, 5);
+  });
+
+  // ── US-2796: which scale is that number on? ───────────────────────────
+  //
+  // Every case ABOVE passes no sizeScale, so their continued passing is the
+  // compatibility promise: a row recorded before this field existed still
+  // produces the identical factor. That is the whole of AC4 and it is worth
+  // more than a dedicated assertion, because it is the real call shape.
+
+  const scaled = (size_us: number, sizeScale: ShoeSizeScale | null) => ({
+    ...shoe("sneakers", size_us),
+    sizeScale,
+  });
+
+  it("the EU/JP anchors still agree with the canonical SHOE_SIZES table", () => {
+    // parcel-estimate.ts may not import size-conversion.ts — it is mirrored
+    // verbatim into the Deno tree and must stay dependency-free — so the two
+    // copies of this fact are held together HERE or not at all. If someone
+    // corrects SHOE_SIZES and not the anchors, this is what says so.
+    expect(SHOE_SIZES.length).toBeGreaterThan(5); // not vacuous
+    for (const row of SHOE_SIZES) {
+      const men = Number(row.usMen);
+      expect(shoeSizeToUsMen(Number(row.usWomen), "us_women"), `usWomen ${row.usWomen}`)
+        .toBeCloseTo(men, 6);
+      expect(shoeSizeToUsMen(Number(row.uk), "uk"), `uk ${row.uk}`).toBeCloseTo(men, 6);
+      expect(shoeSizeToUsMen(Number(row.eu), "eu"), `eu ${row.eu}`).toBeCloseTo(men, 6);
+      expect(shoeSizeToUsMen(Number(row.jp), "jp"), `jp ${row.jp}`).toBeCloseTo(men, 6);
+    }
+  });
+
+  it("an absent, null or explicit US men's scale are the same number", () => {
+    const bare = sizeFactor(shoe("sneakers", 11))!;
+    expect(sizeFactor(scaled(11, null))).toBe(bare);
+    expect(sizeFactor(scaled(11, "us_men"))).toBe(bare);
+  });
+
+  it("a women's 9 is lighter than a men's 9 — the point of the story", () => {
+    // 1.5 sizes and roughly an inch of last length apart. Read as men's it
+    // overstated the parcel; the error is small, and it was silent.
+    const womens = sizeFactor(scaled(9, "us_women"))!;
+    const mens = sizeFactor(scaled(9, "us_men"))!;
+    expect(womens).toBeLessThan(mens);
+    // ...and it is the SAME shoe as a men's 7.5, not merely 'less'.
+    expect(womens).toBeCloseTo(sizeFactor(scaled(7.5, "us_men"))!, 10);
+  });
+
+  it("interpolates a size the table does not list, and stays monotone", () => {
+    // EU steps irregularly (41 -> 42.5 -> 44), so 43 has to be reasoned about
+    // rather than looked up. It must land between its neighbours.
+    const eu = [39, 41, 43, 46.5].map((v) => shoeSizeToUsMen(v, "eu"));
+    for (let i = 1; i < eu.length; i++) {
+      expect(eu[i]!, `EU step ${i}`).toBeGreaterThan(eu[i - 1]!);
+    }
+    expect(shoeSizeToUsMen(43, "eu")).toBeGreaterThan(9);
+    expect(shoeSizeToUsMen(43, "eu")).toBeLessThan(10);
+  });
+
+  it("clamps outside the table rather than extrapolating to nonsense", () => {
+    // A toddler EU 20 is not a US men's -6. Clamping keeps the weight model
+    // inside the range its exponent was fitted on.
+    expect(shoeSizeToUsMen(20, "eu")).toBe(4);
+    expect(shoeSizeToUsMen(60, "eu")).toBe(13);
+    expect(sizeFactor(scaled(20, "eu"))).not.toBeNull();
   });
 
   it("falls back to the category alone when no size is recorded", () => {

@@ -119,14 +119,86 @@ const REFERENCE_WAIST_IN = 17;
  * about 2-3% per half size, which is what 0.6 reproduces over this range —
  * a US 13 lands near 1.2x a US 8 rather than the 1.6x a linear rule gives.
  *
- * US MEN'S is the reference scale because that is what `size_us` holds
- * (measurement-templates.ts: shoes -> size_us, "US size", required). A
- * women's-scale number read as men's overstates by 1.5 sizes, which is inside
- * the clamp and worth roughly 4% — real, and far smaller than ignoring size
- * altogether. Fixing it needs a size TYPE on the item, which is US-2796.
+ * US MEN'S is the reference scale because that is what `size_us` held when
+ * this was written (measurement-templates.ts: shoes -> size_us, "US size",
+ * required) and it stays the reference: `sizeScale` now says which scale the
+ * number is on and it is normalised to US men's before the exponent (US-2796).
+ * An ABSENT scale still means US men's, so every stored row keeps the exact
+ * number it produced before — that is a deliberate compatibility promise and
+ * it is test-guarded, not an oversight.
  */
 const REFERENCE_SHOE_US_MEN = 9;
 const SHOE_SIZE_EXPONENT = 0.6;
+
+/** The scale a stored `size_us` number is actually on. */
+export type ShoeSizeScale = "us_men" | "us_women" | "uk" | "eu" | "jp";
+
+/**
+ * EU/JP anchors -> US men's. Only these two scales need a table: US women's
+ * and UK are exactly linear against US men's across the whole run
+ * (usMen = usWomen - 1.5, usMen = uk + 0.5), while EU steps irregularly
+ * (36,37,38.5,40,41,42.5,...) and JP is a foot length in cm.
+ *
+ * DUPLICATION IS DELIBERATE AND PINNED. The canonical table is SHOE_SIZES in
+ * src/lib/size-conversion.ts, which this module may not import: it is mirrored
+ * verbatim into the Deno edge tree and has to stay dependency-free. So these
+ * anchors are checked against SHOE_SIZES by a test rather than by the type
+ * system — see parcel-estimate.test.ts. Change the canonical table and that
+ * test fails until this one follows.
+ */
+const EU_TO_US_MEN: readonly (readonly [number, number])[] = [
+  [36, 4], [37, 5], [38.5, 6], [40, 7], [41, 8],
+  [42.5, 9], [44, 10], [45, 11], [46, 12], [47.5, 13],
+];
+const JP_TO_US_MEN: readonly (readonly [number, number])[] = [
+  [22.5, 4], [23.5, 5], [24, 6], [25, 7], [26, 8],
+  [27, 9], [28, 10], [29, 11], [30, 12], [31, 13],
+];
+
+/** Piecewise-linear lookup, clamped to the table's ends. */
+function interpolate(
+  table: readonly (readonly [number, number])[],
+  value: number,
+): number {
+  const first = table[0]!;
+  const last = table[table.length - 1]!;
+  if (value <= first[0]) return first[1];
+  if (value >= last[0]) return last[1];
+  for (let i = 1; i < table.length; i++) {
+    const [x1, y1] = table[i]!;
+    if (value <= x1) {
+      const [x0, y0] = table[i - 1]!;
+      // x1 > x0 for every adjacent pair in both tables, so this cannot
+      // divide by zero; the guard above already handled value <= x0.
+      return y0 + ((value - x0) / (x1 - x0)) * (y1 - y0);
+    }
+  }
+  return last[1];
+}
+
+/**
+ * Convert a shoe size on any supported scale to the US men's number the
+ * weight model is calibrated against. A null/unknown scale is treated as US
+ * men's, which is what every row recorded before US-2796 meant.
+ */
+export function shoeSizeToUsMen(
+  value: number,
+  scale: ShoeSizeScale | null | undefined,
+): number {
+  if (!Number.isFinite(value)) return value;
+  switch (scale) {
+    case "us_women":
+      return value - 1.5;
+    case "uk":
+      return value + 0.5;
+    case "eu":
+      return interpolate(EU_TO_US_MEN, value);
+    case "jp":
+      return interpolate(JP_TO_US_MEN, value);
+    default:
+      return value;
+  }
+}
 
 /** Categories sized by shoe size rather than by a tape measurement. */
 const SHOE_SIZED: ReadonlySet<string> = new Set([
@@ -234,6 +306,12 @@ export interface ParcelInput {
   material: string | null;
   measurements: Record<string, number | string> | null;
   size: string | null;
+  /**
+   * Which scale `measurements.size_us` is on (US-2796). OPTIONAL on purpose:
+   * callers that predate the field keep their exact previous output, because
+   * absent means US men's.
+   */
+  sizeScale?: ShoeSizeScale | null;
 }
 
 export interface ParcelEstimate {
@@ -279,8 +357,12 @@ export function sizeFactor(input: ParcelInput): number | null {
   if (!cat) return null;
 
   if (SHOE_SIZED.has(cat)) {
-    const us = numeric(input.measurements, "size_us");
-    if (us == null) return null;
+    const raw = numeric(input.measurements, "size_us");
+    if (raw == null) return null;
+    // Normalise to US men's first: a women's 9 and a men's 9 are about an inch
+    // of last length apart, and the exponent below assumes one scale.
+    const us = shoeSizeToUsMen(raw, input.sizeScale);
+    if (!(us > 0)) return null;
     const ratio = Math.pow(us / REFERENCE_SHOE_US_MEN, SHOE_SIZE_EXPONENT);
     return clamp(ratio, SIZE_FACTOR_MIN, SIZE_FACTOR_MAX);
   }
