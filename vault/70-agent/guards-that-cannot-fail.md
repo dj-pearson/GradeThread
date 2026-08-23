@@ -6,9 +6,9 @@ source_of_truth: vault
 code_refs:
   - src/test/step-price.test.ts
   - src/test/numeric-or.test.ts
-reviewed: 2026-08-21
+reviewed: 2026-08-23
 tags: [testing, ci, agent, verification]
-summary: This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the shapes it took, the two habits that catch them, and why a fixture that works exactly once is indistinguishable from one that works.
+summary: This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the thirteen shapes it took, the habits that catch them, and what a systematic sweep of eight guards found (four had holes).
 ---
 
 # Guards that cannot fail
@@ -42,7 +42,7 @@ This note exists so the eighth instance gets recognised instead of rediscovered.
 > something the guard no longer checks. It was verified by making it fail on
 > purpose before it was committed, which is the habit below.
 
-## The nine shapes it took
+## The thirteen shapes it took
 
 1. **The gate that hid the other gates.** CI ran `lint` first with default step
    semantics, so three style errors meant type-check, tests, coverage, build and
@@ -321,6 +321,99 @@ founder decision six days earlier; two cited GDPR-export sites that were
 load-bearing rather than wasteful. One suspicion was the agent's own — that a
 grading copy path could smuggle HEIC into the private bucket — and it was
 checked before filing rather than after. It was wrong.
+
+## The sweep, 2026-08-23: probe every guard instead of waiting for one to fail
+
+Every shape above was found while working on something else. This section is
+what happened when the guards were probed **systematically** rather than
+opportunistically: pick a guard, write a textbook instance of the thing it
+exists to stop, and see whether it says anything.
+
+**Eight guards probed. Four had holes. Four were solid.** That ratio is the
+argument for doing it deliberately — none of the four holes was going to be
+found by the work that happened to pass nearby, because a green guard reads
+the same whether it is watching or not.
+
+### Solid, so nobody needs to re-audit them blind
+
+- **`rls-guard_test.ts`** — five probes, all caught: a `user_id` table with no
+  RLS, `USING (true)`, a policy gated on bare `authenticated`, a zero-policy
+  table not declared service-role-only, and the subtle one, a correct SELECT
+  policy beside an `INSERT WITH CHECK (true)`.
+- **`schema-version_test.ts`** — the US-1108 triple. Caught a new migration
+  with no version bump, one with no self-record footer, and one whose footer
+  recorded the wrong version.
+- **`check-chained-sheets.py`** — caught two `.sheet` modifiers on one view
+  *including* when other modifiers separated them.
+- **`no-raw-jpeg-encode.py`** — caught a bare `jpegData(compressionQuality:)`.
+
+### Four new shapes, numbered on from the nine above
+
+10. **The rule id that names nothing.** The UI anti-pattern gate listed seven
+    ENFORCED ids. Four could never fire: two were not the tool's names at all
+    (`icon-tile-grid` and `uppercase-eyebrow`; impeccable calls them
+    `icon-tile-stack` and `hero-eyebrow-chip`), one existed under no spelling,
+    and one was browser-scoped so a source scan cannot raise it. **An id that
+    matches no rule is not an error in that tool — it is simply absent from
+    the findings, which is byte-identical to a clean codebase.** The gate
+    reported seven and enforced three, and a green run was read as evidence
+    for all seven. Fixed by making the gate scan a fixture per enforced rule
+    and fail when one stops firing. *(commit a986bc905)*
+
+11. **Two lists where the property is one.** `prod-diagnostics-safety.test.ts`
+    checked the psql copy of the operator script against twelve write verbs
+    and the CONSOLE copy against six. TRUNCATE, GRANT, REVOKE, COPY, VACUUM
+    and REINDEX were forbidden in the file that runs through a client and
+    permitted in the file a human pastes into the Supabase editor — **the
+    weaker check guarding the more dangerous path.** `SELECT ... INTO` walked
+    past both: it creates a table, names none of the banned verbs, and the
+    copy it leaves behind carries user rows with no RLS. *(commit 1d1b44b21)*
+
+12. **The scan pinned to one file when the property spans a corpus.**
+    `sync-payload-guard_test.ts` says in its own header that its column
+    allowlist "stops a future migration adding somewhere to put" buyer PII. It
+    read 00632 alone and parsed only its `CREATE TABLE`, so an
+    `ALTER TABLE ... ADD COLUMN buyer_name text` in any later migration was
+    invisible. Three probes — buyer name, shipping address, and a generic
+    jsonb payload — all passed. *(commit 3e3044b56)*
+
+13. **One value of the dimension the rule gates on.** The 100%-failure
+    detector from US-2668 compares `http_status >= 400`. Every test used 500,
+    so narrowing it to `>= 500` broke nothing — **and trial-expiry, the
+    incident the detector was written for, answered HTTP 400.** The guard had
+    no test at the status that caused it. Its sibling gap: the file tested
+    1-of-6 and 6-of-6 with nothing between, so `=== runs.length` could become
+    `> runs.length / 2` undetected. *(commit ce033ae62)*
+
+### A fifth, which is shape #2 wearing a list
+
+`ui-check-scope.test.ts` asserted `ENFORCED.has(rule)` for four named tells
+and passed the entire time two of them enforced nothing. **Membership in a Set
+is not the property anyone cares about.** The same shape appeared twice more
+the same day in guards written *during* this sweep: an enum check that looped
+over a hardcoded `["sneakers","boots","sandals"]` stayed green when one of
+three call sites was changed to a non-member, and a column check that looped
+over a hand-listed set stayed green when a column was renamed to one that
+exists nowhere. Both were fixed the same way: **extract the values the
+artifact actually uses, then check those.**
+
+### The probe is the part to get right
+
+Two probes in this sweep were wrong rather than the guard:
+
+- Renaming `api/grade/submit` to `api/grade/submitt` left a parity guard green
+  — correctly, because the check is a substring test and `submitt` **contains**
+  `submit`. Nothing had been removed. A mutation must remove the property, not
+  decorate it.
+- `.limit(50).order("id")` passed the mutation-qualifier guard and looked like
+  a blind spot. It is legal: both methods are `searchParams.set()` followed by
+  `return this`, so the JS call order never reaches the wire. Checked against
+  the installed `postgrest-js` source rather than assumed. Reporting it would
+  have been a false finding, and "tightening" the guard would have rejected
+  correct code.
+
+So the control matters in both directions: a probe that stays green may mean
+the guard is blind **or** that the probe did not break anything.
 
 ## Related
 
