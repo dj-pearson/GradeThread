@@ -161,13 +161,30 @@ export function AdminGuaranteePoolPage() {
                     )}
                   </div>
                   <div className="flex gap-2">
-                    <Button size="sm" disabled={resolve.isPending} onClick={() => resolve.mutate({ id: cl.id, action: "approve" })}>
+                    <Button
+                      size="sm"
+                      disabled={resolve.isPending}
+                      aria-label={`Approve the ${usd(cl.remedy_cents)} claim`}
+                      onClick={() => resolve.mutate({ id: cl.id, action: "approve" })}
+                    >
                       Approve
                     </Button>
-                    <Button size="sm" variant="outline" disabled={resolve.isPending} onClick={() => resolve.mutate({ id: cl.id, action: "reject" })}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={resolve.isPending}
+                      aria-label={`Reject the ${usd(cl.remedy_cents)} claim`}
+                      onClick={() => resolve.mutate({ id: cl.id, action: "reject" })}
+                    >
                       Reject
                     </Button>
-                    <Button size="sm" variant="destructive" disabled={resolve.isPending} onClick={() => resolve.mutate({ id: cl.id, action: "reject_fraud" })}>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={resolve.isPending}
+                      aria-label={`Reject the ${usd(cl.remedy_cents)} claim as fraud`}
+                      onClick={() => resolve.mutate({ id: cl.id, action: "reject_fraud" })}
+                    >
                       Fraud
                     </Button>
                   </div>

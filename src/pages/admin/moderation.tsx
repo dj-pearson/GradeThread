@@ -477,6 +477,7 @@ function SubmissionsTab() {
                       variant="outline"
                       disabled={busy}
                       onClick={() => handleApprove(entry)}
+                      aria-label={`Approve ${entry.submission.title}`}
                     >
                       {busy ? (
                         <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
@@ -490,6 +491,7 @@ function SubmissionsTab() {
                       variant="outline"
                       disabled={busy}
                       onClick={() => handleReject(entry)}
+                      aria-label={`Reject and refund ${entry.submission.title}`}
                     >
                       <XCircle className="mr-1.5 h-4 w-4 text-destructive" />
                       Reject &amp; refund
@@ -499,6 +501,7 @@ function SubmissionsTab() {
                       variant="destructive"
                       disabled={busy || !entry.user || entry.user.suspended}
                       onClick={() => setBanTarget(entry)}
+                      aria-label={`Ban the seller behind ${entry.submission.title}`}
                     >
                       <Ban className="mr-1.5 h-4 w-4" />
                       Ban user
@@ -853,6 +856,7 @@ function ListingsTab() {
                       size="sm"
                       variant="outline"
                       disabled={busy}
+                      aria-label={`Notify the owner about ${row.title ?? row.url}`}
                       onClick={() => {
                         setNotifyTarget(row);
                         setNotifyMsg("");
@@ -1374,6 +1378,7 @@ function CertificatesTab() {
                       variant="outline"
                       disabled={busy || !row.submissionId}
                       onClick={() => act(row.certificateId, "restore")}
+                      aria-label={`Restore certificate ${row.certificateId}`}
                     >
                       Restore
                     </Button>
@@ -1383,6 +1388,7 @@ function CertificatesTab() {
                       variant="destructive"
                       disabled={busy || !row.submissionId}
                       onClick={() => act(row.certificateId, "withhold")}
+                      aria-label={`Withhold certificate ${row.certificateId}`}
                     >
                       Withhold
                     </Button>

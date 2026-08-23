@@ -48,6 +48,24 @@ import { auditDistinctness, auditRepeatedText } from "../../scripts/audit-contro
 // So it PARSES instead of matching. TypeScript is already a dependency and
 // hands over the tag boundary, the attribute list and the children for free.
 //
+// A KNOWN FALSE NEGATIVE, found 2026-08-23 by the count being off by one.
+// `auditRepeatedText` excuses any button with an interpolated child, on the
+// reasoning that the interpolation names the row. That is usually true and is
+// what keeps the check usable. It is NOT true when the interpolation renders an
+// ICON:
+//
+//     <Button onClick={() => handleApprove(entry)}>
+//       {busy ? <Loader2 /> : <CheckCircle2 />}
+//       Approve
+//     </Button>
+//
+// A spinner is not a name. Every row of that list announced "Approve" and the
+// scan said nothing, because the conditional counted as interpolation. The fix
+// would be to look at what the expression RESOLVES to, and the version that
+// guesses will start excusing real names or flagging real fixes — so it is
+// recorded rather than attempted. It biases the count DOWN, which is the safe
+// direction for a budget.
+//
 // WHAT THIS STILL CANNOT SEE, stated so nobody reads more into a green run:
 //   • a text INPUT, whose value is announced along with its label, so
 //     aria-label="Alert name" on a field containing "Nike jackets" already
@@ -67,7 +85,7 @@ const BASELINE = 20;
 // promotion and unscheduling the wrong drop all cost money, so those went
 // first. A budget rather than a floor (see the case that uses it), and it only
 // goes down.
-const TEXT_BASELINE = 73;
+const TEXT_BASELINE = 62;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {

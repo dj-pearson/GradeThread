@@ -372,17 +372,35 @@ export function AdminWaitlistPage() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1">
                         {e.status !== "approved" && e.status !== "invited" && (
-                          <Button size="sm" variant="ghost" disabled={working} onClick={() => patchEntry(e.id, { status: "approved" }, "Approved")}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={working}
+                            aria-label={`Approve ${e.email}`}
+                            onClick={() => patchEntry(e.id, { status: "approved" }, "Approved")}
+                          >
                             <CheckCircle2 className="mr-1 h-3.5 w-3.5" /> Approve
                           </Button>
                         )}
                         {e.status !== "invited" && (
-                          <Button size="sm" variant="ghost" disabled={working} onClick={() => run(() => edgeFetch("/api/admin/waitlist/invite", { method: "POST", json: { ids: [e.id] }, silentGate: true }), "Invited")}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={working}
+                            aria-label={`Invite ${e.email}`}
+                            onClick={() => run(() => edgeFetch("/api/admin/waitlist/invite", { method: "POST", json: { ids: [e.id] }, silentGate: true }), "Invited")}
+                          >
                             <Send className="mr-1 h-3.5 w-3.5" /> Invite
                           </Button>
                         )}
                         {e.status !== "rejected" && (
-                          <Button size="sm" variant="ghost" disabled={working} onClick={() => patchEntry(e.id, { status: "rejected" }, "Rejected")}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={working}
+                            aria-label={`Reject ${e.email}`}
+                            onClick={() => patchEntry(e.id, { status: "rejected" }, "Rejected")}
+                          >
                             <XCircle className="mr-1 h-3.5 w-3.5" /> Reject
                           </Button>
                         )}
