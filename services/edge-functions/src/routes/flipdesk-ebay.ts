@@ -205,6 +205,7 @@ import {
   getMarketplaceId,
   getSellerStandardsProfile,
   getTrafficReport,
+  TrafficReportShapeError,
   getUserAccessToken,
   isAnalyticsAccessDenied,
   getUserIdentityFromToken,
@@ -869,6 +870,19 @@ async function syncListingPerformanceForUser(
         .eq("marketplace", "ebay");
       return { updated: 0, accessDenied: true };
     }
+    // US-2835: a response we cannot parse is now LOUD and is not fatal to the
+    // batch. It must not take down every other seller's sync, and it must not
+    // be swallowed either — the whole point of the story is that this failure
+    // mode previously produced plausible zeros and no signal at all.
+    if (err instanceof TrafficReportShapeError) {
+      console.error(
+        "[flipdesk-ebay] traffic_report shape not understood for user",
+        userId,
+        "-",
+        err.message,
+      );
+      return { updated: 0, accessDenied: false };
+    }
     throw err;
   }
 
@@ -925,14 +939,27 @@ async function syncListingPerformanceForUser(
       last_metrics_synced_at: nowIso,
     };
 
-    if (metrics) {
+    // US-2835: views/impressions are now `number | null`, where null means eBay
+    // did not report the metric rather than reported it as nothing. A listing
+    // with neither is skipped entirely: writing it as 0/0 is what produced
+    // 7,352 rows of zeros that read exactly like six weeks of no traffic.
+    //
+    // ⚠ THE REMAINING `?? 0` IS A KNOWN, BOUNDED COMPROMISE. listing_metrics
+    // and the listings snapshot columns are `integer NOT NULL DEFAULT 0`
+    // (00136/00159), so a half-reported record cannot store its missing half
+    // honestly without a migration to make them nullable. That case is only
+    // reachable when eBay sends one metric and withholds another, which the
+    // all-null skip above already excludes the common form of. Making those
+    // columns nullable is the proper fix and is deliberately not smuggled into
+    // a bug fix.
+    if (metrics && (metrics.views != null || metrics.impressions != null)) {
       // Rolling 7-day sparkline series: one point per day, latest snapshot
       // wins, keep the most recent 7.
       const prev = Array.isArray(row.view_trend_7d) ? row.view_trend_7d : [];
       const trend = prev.filter((p) => p && p.date !== today);
-      trend.push({ date: today, views: metrics.views });
-      patch.views_total = metrics.views;
-      patch.impressions_7d = metrics.impressions;
+      trend.push({ date: today, views: metrics.views ?? 0 });
+      patch.views_total = metrics.views ?? 0;
+      patch.impressions_7d = metrics.impressions ?? 0;
       patch.click_through_rate = metrics.clickThroughRate;
       patch.view_trend_7d = trend.slice(-7);
 
@@ -940,8 +967,8 @@ async function syncListingPerformanceForUser(
         listing_id: row.id,
         user_id: userId,
         metric_date: today,
-        impressions: metrics.impressions,
-        views: metrics.views,
+        impressions: metrics.impressions ?? 0,
+        views: metrics.views ?? 0,
         watchers: row.watchers ?? 0,
         click_through_rate: metrics.clickThroughRate,
       });

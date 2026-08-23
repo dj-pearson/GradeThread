@@ -572,21 +572,58 @@ export function isAnalyticsAccessDenied(err: unknown): boolean {
 export interface ListingTraffic {
   /** eBay listing id (platform_listing_id). */
   listingId: string;
-  views: number;
-  impressions: number;
-  /** Click-through-rate as a fraction (0–1), or null when eBay omits it. */
+  /**
+   * ⚠ NULL MEANS "eBay DID NOT REPORT IT", AND ZERO MEANS ZERO. These were
+   * plain numbers until US-2835, and a metric eBay never sent arrived as 0 —
+   * which is how six weeks of unparsed reports read as six weeks of no traffic.
+   * A caller that needs a number must decide what an absent one means; it is
+   * not this function's decision to make it a 0.
+   */
+  views: number | null;
+  impressions: number | null;
+  /** Click-through-rate as a fraction (0-1), or null when eBay omits it. */
   clickThroughRate: number | null;
 }
 
-interface TrafficReportResponse {
+/**
+ * The shape eBay's sell/analytics traffic_report actually returns.
+ *
+ * ⚠ `metrics` IS THE REAL FIELD. eBay's srl:Header type carries `dimensionKeys`
+ * and `metrics`; `metricKeys` was this file's invention and is why US-2835
+ * happened. It stays here, optional, so a body carrying the old spelling still
+ * parses rather than becoming zeros — but nothing in production sends it.
+ *
+ * Every field is optional because eBay omits them freely, and that permissive-
+ * ness is exactly what let a wrong name go unnoticed: `header.metricKeys` on a
+ * body that has no such key is `undefined`, not a type error. The parser now
+ * refuses instead of coping.
+ */
+export interface TrafficReportResponse {
   header?: {
     dimensionKeys?: Array<{ key?: string }>;
+    /** eBay's real spelling. */
+    metrics?: Array<{ key?: string }>;
+    /** Legacy/defensive. Never sent by the live API. */
     metricKeys?: Array<{ key?: string }>;
   };
   records?: Array<{
     dimensionValues?: Array<{ value?: string }>;
-    metricValues?: Array<{ value?: string | null }>;
+    metricValues?: Array<{ applicable?: boolean; value?: string | null }>;
   }>;
+}
+
+/**
+ * Thrown when a traffic report carries records but no metric header we can map.
+ *
+ * The whole point of US-2835: the old code answered that case with zeros, which
+ * is indistinguishable from a seller having no traffic. An exception reaches a
+ * log; 7,352 rows of zeros did not.
+ */
+export class TrafficReportShapeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TrafficReportShapeError";
+  }
 }
 
 /**
@@ -627,33 +664,81 @@ export async function getTrafficReport(
     `/sell/analytics/v1/traffic_report?${qs.toString()}`,
   );
 
-  // Map header metric keys → column index so we don't depend on eBay echoing
-  // our requested order.
+  return parseTrafficReport(report);
+}
+
+/**
+ * Turn one traffic_report body into rows. Pure: no eBay, no database, no clock.
+ *
+ * US-2835 EXTRACTED THIS SO IT COULD BE TESTED AT ALL. It lived inline inside
+ * getTrafficReport, behind a token and a network call, and had no test of any
+ * kind — which is how it read the wrong header field for six weeks while
+ * writing 7,352 rows of zeros that looked exactly like "no traffic".
+ */
+export function parseTrafficReport(
+  report: TrafficReportResponse,
+): ListingTraffic[] {
+  // Map header metric keys -> column index so we don't depend on eBay echoing
+  // our requested order. `metrics` is eBay's real field; `metricKeys` is the
+  // name this file used to read and is kept only as a fallback.
   const metricCols = new Map<string, number>();
-  (report.header?.metricKeys ?? []).forEach((m, i) => {
-    if (m.key) metricCols.set(m.key, i);
+  const defs = report.header?.metrics ?? report.header?.metricKeys ?? [];
+  defs.forEach((m, i) => {
+    if (m?.key) metricCols.set(m.key, i);
   });
-  const num = (vals: Array<{ value?: string | null }>, key: string): number => {
+
+  const records = report.records ?? [];
+
+  // THE REFUSAL THAT WOULD HAVE SAVED SIX WEEKS. Records but no mappable metric
+  // header means the response shape is not the one this parser understands.
+  // Returning zeros for it is indistinguishable from a seller with no traffic,
+  // which is precisely why nobody noticed. An empty report with no records is
+  // not this case: there is nothing to map and nothing that needed mapping.
+  if (records.length > 0 && metricCols.size === 0) {
+    throw new TrafficReportShapeError(
+      "traffic_report returned " + records.length +
+        " record(s) but no mappable metric header. Expected header.metrics " +
+        "(eBay srl:Header); saw keys: " +
+        JSON.stringify(Object.keys(report.header ?? {})),
+    );
+  }
+
+  /** The metric, or null when eBay did not report a usable value for it. */
+  const num = (
+    vals: Array<{ applicable?: boolean; value?: string | null }>,
+    key: string,
+  ): number | null => {
     const i = metricCols.get(key);
-    if (i == null) return 0;
-    const n = Number(vals[i]?.value ?? 0);
-    return Number.isFinite(n) ? n : 0;
+    if (i == null) return null;
+    const cell = vals[i];
+    if (!cell) return null;
+    // eBay's Value type carries `applicable`; false means the metric does not
+    // apply to this row. Reading that as 0 is the same lie by a smaller margin.
+    if (cell.applicable === false) return null;
+    if (cell.value == null || cell.value === "") return null;
+    const n = Number(cell.value);
+    return Number.isFinite(n) ? n : null;
   };
 
   const out: ListingTraffic[] = [];
-  for (const rec of report.records ?? []) {
+  for (const rec of records) {
     const listingId = rec.dimensionValues?.[0]?.value;
     if (!listingId) continue;
     const vals = rec.metricValues ?? [];
-    const ctrRaw = num(vals, "CLICK_THROUGH_RATE");
+    const impressions = num(vals, "LISTING_IMPRESSION_TOTAL");
+    const views = num(vals, "LISTING_VIEWS_TOTAL");
+    const ctr = num(vals, "CLICK_THROUGH_RATE");
+
+    // A record eBay reported nothing usable for carries no information. It used
+    // to become a row of zeros, and 7,352 of those is what this story is about.
+    if (impressions == null && views == null && ctr == null) continue;
+
     out.push({
       listingId,
-      impressions: Math.round(num(vals, "LISTING_IMPRESSION_TOTAL")),
-      views: Math.round(num(vals, "LISTING_VIEWS_TOTAL")),
+      impressions: impressions == null ? null : Math.round(impressions),
+      views: views == null ? null : Math.round(views),
       // eBay returns CTR as a percentage (e.g. 4.2 = 4.2%); store a fraction.
-      clickThroughRate: metricCols.has("CLICK_THROUGH_RATE")
-        ? ctrRaw / 100
-        : null,
+      clickThroughRate: ctr == null ? null : ctr / 100,
     });
   }
   return out;
