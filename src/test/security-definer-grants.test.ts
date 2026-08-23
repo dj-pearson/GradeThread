@@ -205,6 +205,16 @@ const BODY_GUARDED = [
   "reserve_ai_action",
   "reserve_buyer_meter",
   "style_code_sweep_candidates",
+  // 00651-00654 (US-2819..2822). The seller-analytics aggregates. Each carries
+  // an explicit GRANT as well, so the first assertion above would pass without
+  // these entries; they are here for the SECOND one, which re-reads the newest
+  // definition and fails if a future CREATE OR REPLACE drops the guard. These
+  // four read platform-wide sale prices to build a cohort, so an unguarded
+  // replacement is the one regression worth catching by name.
+  "condition_price_curve",
+  "flipdesk_price_gap",
+  "flipdesk_defect_cost",
+  "seller_scorecard",
 ];
 
 const UNGRANTED_DEBT = [

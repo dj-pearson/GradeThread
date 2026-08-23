@@ -95,6 +95,33 @@ const AnalyticsTrendChart = lazy(() =>
     default: m.AnalyticsTrendChart,
   })),
 );
+// US-2819. Its own module rather than another report function in this file: the
+// page is already the largest in FlipDesk, and the curve pulls a Recharts
+// composed chart that only this tab needs.
+const PriceCurveReport = lazy(() =>
+  import("@/components/flipdesk/price-curve-report").then((m) => ({
+    default: m.PriceCurveReport,
+  })),
+);
+// US-2820. Lazy for the same reason: the gap RPC is a cross-seller scan, and
+// the card renders nothing when the report cannot honestly produce a figure.
+const PriceGapCard = lazy(() =>
+  import("@/components/flipdesk/price-gap-card").then((m) => ({
+    default: m.PriceGapCard,
+  })),
+);
+// US-2822: the scorecard fronts the whole page, above the tab set.
+const SellerScorecardCard = lazy(() =>
+  import("@/components/flipdesk/seller-scorecard-card").then((m) => ({
+    default: m.SellerScorecardCard,
+  })),
+);
+// US-2821: the Defect Cost Ledger, on the Grading ROI tab.
+const DefectCostSection = lazy(() =>
+  import("@/components/flipdesk/defect-cost-section").then((m) => ({
+    default: m.DefectCostSection,
+  })),
+);
 
 const usd = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `$${n.toFixed(2)}`;
@@ -165,7 +192,12 @@ const csvDate = (): string => new Date().toISOString().slice(0, 10);
 // date range"). What actually broke the carry-across was the tab navigation:
 // it pushed a bare pathname and dropped the whole query string, so the range a
 // seller had just set vanished on the next tab.
-const RANGE_TABS = new Set(["sell-through", "grading-roi", "returns"]);
+const RANGE_TABS = new Set([
+  "sell-through",
+  "grading-roi",
+  "price-curve",
+  "returns",
+]);
 
 function RangeSelect() {
   const [preset, setPreset] = usePresetParam();
@@ -192,13 +224,15 @@ export function FlipdeskAnalyticsPage() {
   // the existing tabs (not ?tab=) so every deep link stays a real URL.
   const tab = location.pathname.endsWith("/grading-roi")
     ? "grading-roi"
-    : location.pathname.endsWith("/returns")
-      ? "returns"
-      : location.pathname.endsWith("/performance")
-        ? "performance"
-        : location.pathname.endsWith("/community")
-          ? "community"
-          : "sell-through";
+    : location.pathname.endsWith("/price-curve")
+      ? "price-curve"
+      : location.pathname.endsWith("/returns")
+        ? "returns"
+        : location.pathname.endsWith("/performance")
+          ? "performance"
+          : location.pathname.endsWith("/community")
+            ? "community"
+            : "sell-through";
 
   return (
     <div className="space-y-6">
@@ -209,6 +243,11 @@ export function FlipdeskAnalyticsPage() {
         actions={RANGE_TABS.has(tab) ? <RangeSelect /> : null}
       />
 
+      {/* US-2822: one diagnosis above five tabs of numbers. */}
+      <Suspense fallback={null}>
+        <ScorecardHost />
+      </Suspense>
+
       <Tabs
         value={tab}
         onValueChange={(v) =>
@@ -218,19 +257,22 @@ export function FlipdeskAnalyticsPage() {
           navigate(
             (v === "grading-roi"
               ? "/dashboard/flipdesk/analytics/grading-roi"
-              : v === "returns"
-                ? "/dashboard/flipdesk/analytics/returns"
-                : v === "performance"
-                  ? "/dashboard/flipdesk/analytics/performance"
-                  : v === "community"
-                    ? "/dashboard/flipdesk/analytics/community"
-                    : "/dashboard/flipdesk/analytics") + location.search,
+              : v === "price-curve"
+                ? "/dashboard/flipdesk/analytics/price-curve"
+                : v === "returns"
+                  ? "/dashboard/flipdesk/analytics/returns"
+                  : v === "performance"
+                    ? "/dashboard/flipdesk/analytics/performance"
+                    : v === "community"
+                      ? "/dashboard/flipdesk/analytics/community"
+                      : "/dashboard/flipdesk/analytics") + location.search,
           )
         }
       >
         <TabsList>
           <TabsTrigger value="sell-through">Sell-through</TabsTrigger>
           <TabsTrigger value="grading-roi">Grading ROI</TabsTrigger>
+          <TabsTrigger value="price-curve">Price curve</TabsTrigger>
           <TabsTrigger value="returns">Return reduction</TabsTrigger>
           <TabsTrigger value="performance">Listing performance</TabsTrigger>
           <TabsTrigger value="community">Community</TabsTrigger>
@@ -242,6 +284,17 @@ export function FlipdeskAnalyticsPage() {
 
         <TabsContent value="grading-roi" className="mt-6">
           <GradingRoiReport />
+        </TabsContent>
+
+        {/* Lazy + mounted only when active: the curve is a cross-seller
+            aggregate, and firing it on every Analytics visit would cost every
+            seller a cohort scan they did not ask for. */}
+        <TabsContent value="price-curve" className="mt-6">
+          {tab === "price-curve" && (
+            <Suspense fallback={<Loading />}>
+              <PriceCurveTab />
+            </Suspense>
+          )}
         </TabsContent>
 
         <TabsContent value="returns" className="mt-6">
@@ -269,6 +322,21 @@ export function FlipdeskAnalyticsPage() {
       </Tabs>
     </div>
   );
+}
+
+// The range preset lives in the URL and is read by every tab that windows its
+// data; the curve reads it here so its module never has to know about presets.
+// Reads the shared range preset so the scorecard windows with everything else.
+function ScorecardHost() {
+  const [preset] = usePresetParam();
+  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  return <SellerScorecardCard periodStart={periodStart} />;
+}
+
+function PriceCurveTab() {
+  const [preset] = usePresetParam();
+  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  return <PriceCurveReport periodStart={periodStart} />;
 }
 
 function Loading() {
@@ -362,6 +430,11 @@ function SellThroughReport() {
           Export CSV
         </Button>
       </div>
+
+      {/* US-2820: the one dollar figure, above the charts that explain it. */}
+      <Suspense fallback={null}>
+        <PriceGapCard periodStart={periodStart} />
+      </Suspense>
 
       {trend.length > 1 && (
         <Card>
@@ -554,6 +627,11 @@ function GradingRoiReport() {
         </Button>
       </div>
       <RoiHeadline summary={summary} />
+
+      {/* US-2821: what each flaw costs, measured within its own grade band. */}
+      <Suspense fallback={null}>
+        <DefectCostSection periodStart={periodStart} />
+      </Suspense>
 
       <Card>
         <CardContent className="pt-6">

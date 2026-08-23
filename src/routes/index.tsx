@@ -107,6 +107,7 @@ const WhereToSellPage = lazy(() => import("@/pages/marketing/where-to-sell").the
 const CrosslistingAppsPage = lazy(() => import("@/pages/marketing/crosslisting-apps").then(m => ({ default: m.CrosslistingAppsPage })));
 const CompetitorAlternativePage = lazy(() => import("@/pages/marketing/competitor-alternative").then(m => ({ default: m.CompetitorAlternativePage })));
 const ConditionChartPage = lazy(() => import("@/pages/marketing/condition-chart").then(m => ({ default: m.ConditionChartPage })));
+const ChangelogPage = lazy(() => import("@/pages/marketing/changelog").then(m => ({ default: m.ChangelogPage })));
 // US-2506: SPA renderers for the public Condition Index. Prod serves the
 // edge-SSR Pages Function (functions/condition-index/[[path]].ts); these routes
 // are the dev / in-app fallback. Without them the footer's "Condition Index"
@@ -430,6 +431,7 @@ export const router = createBrowserRouter([
       { path: "/grading/platform-standards/:platform", element: <SuspenseWrapper><PlatformStandardPage /></SuspenseWrapper> },
       // US-1678: free printable condition chart (static, before /grading/:slug).
       { path: "/grading/condition-chart", element: <SuspenseWrapper><ConditionChartPage /></SuspenseWrapper> },
+      { path: "/changelog", element: <SuspenseWrapper><ChangelogPage /></SuspenseWrapper> },
       // US-1687: free grade-checker tool.
       { path: "/tools/grade-checker", element: <SuspenseWrapper><GradeCheckerPage /></SuspenseWrapper> },
       // US-1771: free authenticity-check tool.
@@ -603,6 +605,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/analytics", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/analytics/grading-roi", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/analytics/returns", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/analytics/price-curve", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/analytics/performance", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
               // US-2161: Community Insights is an Analytics tab now; the old path keeps
               // working via the analytics host, which reads the tab off the pathname.
