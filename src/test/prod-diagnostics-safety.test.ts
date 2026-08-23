@@ -55,6 +55,56 @@ const CONSOLE_SQL = readFileSync(
   "utf8",
 );
 
+/**
+ * Anything that writes, in ONE list used by both copies.
+ *
+ * ⚠ IT WAS TWO LISTS, AND THE CONSOLE COPY'S WAS SHORTER — INSERT, UPDATE,
+ * DELETE, CREATE, ALTER, DROP and nothing else. So TRUNCATE, GRANT, REVOKE,
+ * COPY, VACUUM and REINDEX were all forbidden in the psql file and permitted in
+ * the console file, which is the copy a person pastes into the Supabase SQL
+ * editor against production. The weaker check guarded the more dangerous paste.
+ *
+ * Found by sabotage 2026-08-23, not by review: `truncate public.users;` appended
+ * to the console copy left this suite green.
+ */
+const WRITE_VERBS = [
+  "INSERT",
+  "UPDATE",
+  "DELETE",
+  "TRUNCATE",
+  "CREATE",
+  "ALTER",
+  "DROP",
+  "GRANT",
+  "REVOKE",
+  "COPY",
+  "VACUUM",
+  "REINDEX",
+  // ⚠ INTO IS NOT A TIDINESS ADDITION. `select * into public.scratch from
+  // public.users` CREATES A TABLE and names none of the verbs above, so it
+  // walked straight through this check. Worse than the table itself: the copy
+  // it leaves behind carries user rows and has no RLS, because nothing
+  // declared any.
+  //
+  // Safe to ban outright rather than pattern-match around `INSERT INTO`:
+  // INSERT is already forbidden, and neither file uses INTO anywhere today
+  // (checked, both copies, executable lines only).
+  "INTO",
+  // Same reasoning. A read-only diagnostics script has no business running a
+  // procedural block, and a DO block can assemble a write verb from string
+  // pieces no keyword scan will ever see. The sabotage that used one was
+  // caught only because it happened to spell TRUNCATE in a literal;
+  // `format('%s', 'trun' || 'cate')` would not have been.
+  "DO",
+];
+
+/** Word-boundary matched so `updated_at` does not read as UPDATE. */
+function writesFoundIn(body: string): string[] {
+  return WRITE_VERBS.filter((verb) =>
+    new RegExp(`\\b${verb}\\b`, "i").test(body),
+  );
+}
+
 describe("prod-diagnostics.sql is safe to paste into prod", () => {
   it("the console copy carries no psql meta-commands", () => {
     // THE REPORT: pasting the original into a SQL editor failed with
@@ -104,34 +154,17 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     const body = CONSOLE_SQL.split("\n")
       .filter((l) => !l.trim().startsWith("--"))
       .join("\n");
-    const found = ["INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP"]
-      .filter((verb) => new RegExp(`\\b${verb}\\b`, "i").test(body));
-    expect(found).toEqual([]);
+    expect(
+      writesFoundIn(body),
+      "the console copy is the one pasted into the Supabase SQL editor, so it " +
+        "is held to the SAME list as the psql file, not a shorter one",
+    ).toEqual([]);
   });
 
   it("contains no statement that writes", () => {
     const body = executableSql();
-    // Word-boundary matched so `updated_at` does not read as UPDATE and
-    // `created_at` does not read as CREATE.
-    const writes = [
-      "INSERT",
-      "UPDATE",
-      "DELETE",
-      "TRUNCATE",
-      "CREATE",
-      "ALTER",
-      "DROP",
-      "GRANT",
-      "REVOKE",
-      "COPY",
-      "VACUUM",
-      "REINDEX",
-    ];
-    const found = writes.filter((verb) =>
-      new RegExp(`\\b${verb}\\b`, "i").test(body),
-    );
     expect(
-      found,
+      writesFoundIn(body),
       "prod-diagnostics.sql must stay read-only — an operator runs this on " +
         "production on the strength of that promise, and the review that " +
         "established it happened once while the file keeps changing.",
