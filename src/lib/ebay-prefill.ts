@@ -14,6 +14,7 @@ import registry from "@/lib/ebay-aspect-registry.json";
 import { normalizeAspectValue } from "@/lib/aspect-normalize";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { type Measurements, resolveMeasurementAspects } from "@/lib/measurements";
+import { statedShoeSizeScale } from "@/lib/shoe-size-scale";
 
 /** A value the composer rewrote to match eBay's allowed list ("M" → "Medium"). */
 export interface AspectRewrite {
@@ -400,6 +401,16 @@ export function remapAspectsForCategory(
       item.measurements,
       categoryAspects,
       existing,
+      "in",
+      // US-2796 AC3: a UK/EU/JP number must not land in "US Shoe Size". This
+      // matters MORE here than on the edge: the edge only fills BLANK aspects,
+      // so whatever this prefills arrives at publish as an existing value and is
+      // never corrected. Stated scale only — the brand-chart inference lives on
+      // the edge and is deliberately not mirrored (see lib/shoe-size-scale.ts).
+      statedShoeSizeScale(
+        (item as { attributes?: Record<string, string | string[]> | null })
+          .attributes,
+      ),
     );
     for (const [name, values] of Object.entries(measured)) {
       derived[name] = values;

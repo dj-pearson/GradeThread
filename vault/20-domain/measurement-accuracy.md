@@ -6,10 +6,21 @@ source_of_truth: code
 code_refs:
   - src/lib/measurements.ts
   - services/edge-functions/src/lib/measurements.ts
-reviewed: 2026-08-18
+reviewed: 2026-08-23
 tags: [measurement, contract]
 summary: Tolerances the measurement pipeline must hold and how accuracy is validated.
 ---
+
+> **Re-reviewed 2026-08-23.** Drift flagged the edge `measurements.ts` for
+> `89febbb5b` — US-2796's shoe-scale rule. `resolveMeasurementAspects` gained an
+> optional shoe-size scale, and a UK/EU/JP number is now refused entry to a
+> US-named aspect ("US Shoe Size") and falls through to the scale-neutral one.
+> **The contract here is unaffected**: this changes which aspect NAME a shoe
+> number may fill, never the number, never a tolerance, and nothing on the
+> length-measurement path. `size_us` is a `kind: "shoe"` spec and carries no
+> tolerance on this page — the tolerances, the delta methodology and the
+> percentile validation are all defined over flat LENGTH measurements. The change
+> to watch for remains the one named below: stored values ceasing to be flat.
 
 > **Re-reviewed 2026-08-17.** Drift flagged both `measurements.ts` copies again,
 > for `96835f80` — flat-vs-worn doubling (US-2630). A garment measured flat gives

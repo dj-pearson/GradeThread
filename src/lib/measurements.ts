@@ -12,6 +12,8 @@
 
 export type MeasurementKind = "length" | "shoe" | "mm";
 
+import type { ShoeSizeScale } from "@/lib/shoe-size-scale";
+
 export interface MeasurementSpec {
   kind: MeasurementKind;
   label: string;
@@ -347,6 +349,7 @@ export function resolveMeasurementAspects(
   categoryAspects: Record<string, string[]>,
   existing: Record<string, string[]> = {},
   unit: LengthUnit = "in",
+  shoeSizeScale?: ShoeSizeScale | null,
 ): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   if (!measurements || typeof measurements !== "object") return out;
@@ -363,7 +366,7 @@ export function resolveMeasurementAspects(
     if (!(key in measurements)) continue;
     const formatted = formatListingMeasurement(key, measurements[key], unit);
     if (!formatted) continue;
-    for (const candidate of spec.aspects) {
+    for (const candidate of usableCandidates(spec, shoeSizeScale)) {
       const lower = candidate.toLowerCase();
       const canonical = freeTextByLower.get(lower);
       if (!canonical) continue;
@@ -373,4 +376,35 @@ export function resolveMeasurementAspects(
     }
   }
   return out;
+}
+
+/**
+ * US-2796 AC3, mirroring the edge: never put a non-US number in a US-named aspect.
+ *
+ * WHY THE WEB NEEDS THIS AT ALL. The edge's own copy only fills aspects that are
+ * still BLANK, so anything this prefills arrives at publish as an existing value
+ * and is never corrected. A UK 9 the composer put into "US Shoe Size" reaches the
+ * live listing even though the edge's publish path would have refused it.
+ *
+ * It DROPS the US-named candidate rather than converting the number: "US Shoe
+ * Size" means the US size in THIS category's department, and eBay splits shoe
+ * categories by department, so a women's 9 is already right and converting it to
+ * a men's 7.5 would introduce the error. Only uk/eu/jp are unambiguously wrong,
+ * and they fall through to the scale-neutral "Shoe Size".
+ *
+ * Both guards below are individually inert today and that is measured, not
+ * assumed — no non-shoe aspect name holds "us" as a WORD, and no shoe candidate
+ * holds it as a substring. Together they matter: "Bust" and "Bust Size" contain
+ * "us", so a version with neither would strip a bust measurement off any listing
+ * whose shoe scale happened to be UK.
+ */
+function usableCandidates(
+  spec: MeasurementSpec,
+  shoeSizeScale: ShoeSizeScale | null | undefined,
+): string[] {
+  if (spec.kind !== "shoe") return spec.aspects;
+  if (!shoeSizeScale || shoeSizeScale === "us_men" || shoeSizeScale === "us_women") {
+    return spec.aspects;
+  }
+  return spec.aspects.filter((a) => !/\bus\b/i.test(a));
 }
