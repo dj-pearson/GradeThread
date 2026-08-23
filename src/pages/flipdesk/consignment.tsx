@@ -317,6 +317,7 @@ export function FlipdeskConsignmentPage() {
                           size="sm"
                           className="h-7 px-2 text-xs"
                           onClick={() => setIntakeFor(c)}
+                          aria-label={`Sign the intake agreement for ${c.name}`}
                           disabled={!canManage}
                         >
                           <PenLine className="mr-1 h-3.5 w-3.5" /> Sign

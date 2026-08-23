@@ -380,7 +380,13 @@ export function BuyerPortfolioPage() {
                       </Link>
                     </Button>
                   ) : (
-                    <Button variant="ghost" size="sm" disabled={isListing} onClick={() => onList(item.id)}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={isListing}
+                      aria-label={`List ${item.title ?? item.garment_type ?? "item"} for sale`}
+                      onClick={() => onList(item.id)}
+                    >
                       <Tag className="mr-1 h-3.5 w-3.5" /> List
                     </Button>
                   )}

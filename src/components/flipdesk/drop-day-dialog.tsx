@@ -167,6 +167,7 @@ export function DropDayDialog({
                     size="sm"
                     variant="ghost"
                     onClick={() => setEditing(null)}
+                    aria-label={`Cancel editing ${d.title}`}
                   >
                     Cancel
                   </Button>
@@ -177,6 +178,7 @@ export function DropDayDialog({
                     size="sm"
                     variant="outline"
                     disabled={busy}
+                    aria-label={`Reschedule ${d.title}`}
                     onClick={() => {
                       setEditing(d.id);
                       setDraftAt(isoToZonedInput(d.scheduled_publish_at, timeZone));
@@ -189,6 +191,7 @@ export function DropDayDialog({
                     size="sm"
                     variant="ghost"
                     disabled={busy}
+                    aria-label={`Unschedule ${d.title}`}
                     onClick={async () => {
                       try {
                         await cancel.mutateAsync({ id: d.id });

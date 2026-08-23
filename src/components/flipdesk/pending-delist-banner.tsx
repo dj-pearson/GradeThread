@@ -137,6 +137,7 @@ export function PendingDelistBanner() {
                       className="h-7"
                       disabled={busy}
                       onClick={() => void handleEnd(item)}
+                      aria-label={`End the listing for ${item.item_title ?? "untitled item"}`}
                     >
                       {runDelist.isPending ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -151,6 +152,7 @@ export function PendingDelistBanner() {
                       className="h-7 text-xs text-muted-foreground"
                       disabled={busy}
                       onClick={() => void handleMarkDone(item)}
+                      aria-label={`Mark ${item.item_title ?? "untitled item"} ended in FlipDesk`}
                     >
                       Mark ended
                     </Button>
