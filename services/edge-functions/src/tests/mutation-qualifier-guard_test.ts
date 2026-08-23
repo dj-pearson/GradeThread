@@ -76,6 +76,17 @@ function mutationChains(raw: string): string[] {
   return chains;
 }
 
+// CALL ORDER DOES NOT MATTER, and the check is deliberately written that way.
+// `.limit(50).order("id")` and `.order("id").limit(50)` build the SAME request:
+// both methods are `this.url.searchParams.set(...)` followed by `return this`
+// (@supabase/postgrest-js PostgrestTransformBuilder), so the JS call sequence
+// never reaches the wire. PostgREST only asks whether `order` is present.
+//
+// Checked against the installed source, not assumed — a sabotage probe of
+// `.limit().order()` passed this guard and the first reading was that the guard
+// was blind. It is not; that shape is legal and reporting it would have been a
+// false alarm. Recorded here so the next person does not "tighten" this into
+// requiring a call order and break working code.
 Deno.test("no mutation carries a limit without an explicit order", () => {
   const offenders: string[] = [];
   for (const file of tsFiles(SRC)) {
@@ -92,7 +103,7 @@ Deno.test("no mutation carries a limit without an explicit order", () => {
     "PostgREST answers PGRST109 / HTTP 400 to a limit on a mutation with no " +
       "order, so these return an error on EVERY run and their handler reports " +
       "a 500 that no test can see: " + offenders.join(", ") +
-      ". Add .order(\"<unique column>\") before .limit().",
+      ". Add .order(\"<unique column>\") to the chain.",
   );
 });
 
