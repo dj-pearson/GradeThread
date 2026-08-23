@@ -76,6 +76,19 @@ export const ALLOWED_DEAD_MODULES = {
   // entry stopped being true. Left as a comment rather than deleted silently,
   // because the entry it replaced said in as many words that being on this list
   // was not a verdict that nothing was wrong — and it was right.
+  "seller-digest.ts":
+    "PENDING, and the gate caught it the same day it landed. US-2828 shipped the "+
+    "EDITORIAL half: composeSellerDigest is a pure function that decides whether "+
+    "a seller has anything worth an email this week (NEWS -> send, CONTEXT only "+
+    "-> null). What does NOT exist is the job that gathers DigestInputs and "+
+    "delivers it, and it is blocked on two things named on the story: migration "+
+    "00659 (seller_digest_log, the send ledger and the opt-out column) is HELD "+
+    "and unapplied in prod, and the five analytics RPCs a job would naturally "+
+    "read scope by auth.uid(), which is NULL under the service-role client the "+
+    "edge uses, so they return nothing. seller-anomaly.ts is dead the same way "+
+    "and is not listed separately because this module is its only importer, so "+
+    "the audit reports the root and not the branch. Remove this entry when the "+
+    "job imports composeSellerDigest; the gate fails if you forget.",
   "content-ai-email.ts":
     "SUPERSEDED. Zero test refs as well as zero callers, which is the one " +
     "combination that is safe to ignore: nothing is claiming it works.",
