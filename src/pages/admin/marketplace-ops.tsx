@@ -806,6 +806,7 @@ export function AdminMarketplaceOpsPage() {
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
                               <Button
+                              aria-label={`Open ${row.listing_title ?? row.item_title ?? "the listing"} in FlipDesk`}
                                 size="sm"
                                 variant="outline"
                                 disabled={!isSuperAdmin || busy}
@@ -815,6 +816,7 @@ export function AdminMarketplaceOpsPage() {
                                 FlipDesk
                               </Button>
                               <Button
+                              aria-label={`Open ${row.listing_title ?? row.item_title ?? "the listing"} on eBay`}
                                 size="sm"
                                 variant="outline"
                                 disabled={!isSuperAdmin || busy}

@@ -1159,6 +1159,7 @@ function ReviewQueueCard({
                       {entry.candidates.length === 1 ? "" : "s"}
                     </span>
                     <Button
+                    aria-label={`Dismiss the ${fmtMoney(entry.payout_import.amount)} payout`}
                       variant="ghost"
                       size="sm"
                       className="h-7 px-2 text-[10px]"

@@ -778,6 +778,7 @@ export function FlipdeskReconcilePage() {
                   <div key={c.itemId} className="flex items-center justify-between rounded border px-3 py-1.5 text-sm">
                     <span>{c.label}</span>
                     <Button
+                    aria-label={`Generate for ${c.label}`}
                       size="sm"
                       variant="ghost"
                       onClick={() => generate([c.itemId])}

@@ -877,6 +877,7 @@ export function AdminMonitoringPage() {
                           </TableCell>
                           <TableCell className="text-right">
                             <Button
+                            aria-label={`Open the flagged message: ${m.flag_reason ?? "flagged"}`}
                               size="sm"
                               variant="ghost"
                               onClick={() =>

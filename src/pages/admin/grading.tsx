@@ -1216,6 +1216,7 @@ function ExemplarSetsCard() {
             <div className="ml-auto flex gap-2">
               {row.is_active ? (
                 <Button
+                aria-label={`Deactivate ${row.version_name}`}
                   size="sm"
                   variant="outline"
                   disabled={busyId === row.id}
@@ -1335,6 +1336,7 @@ function GarmentBaselinesCard() {
                 </span>
                 <Badge variant="outline">{row.prompt_version}</Badge>
                 <Button
+                aria-label={`Edit the baseline for ${row.brand} ${row.garment_category}`}
                   size="sm"
                   variant="outline"
                   className="ml-auto h-7"
@@ -1366,6 +1368,7 @@ function GarmentBaselinesCard() {
                       {saving ? "Saving…" : "Save"}
                     </Button>
                     <Button
+                    aria-label={`Cancel editing ${row.brand} ${row.garment_category}`}
                       size="sm"
                       variant="ghost"
                       onClick={() => setEditing(null)}

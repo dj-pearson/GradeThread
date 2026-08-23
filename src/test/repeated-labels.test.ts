@@ -95,7 +95,7 @@ const BASELINE = 20;
 //
 // Worth knowing generally: a file at its ceiling cannot take an accessibility
 // fix, however small. That is the trade US-2520 chose deliberately.
-const TEXT_BASELINE = 25;
+const TEXT_BASELINE = 17;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
