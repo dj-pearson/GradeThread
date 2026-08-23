@@ -6,6 +6,8 @@ import {
   type ParcelEstimate,
   type ParcelGarmentCategory,
 } from "../lib/parcel-estimate.ts";
+import { resolveShoeSizeScale } from "../lib/shoe-size-scale.ts";
+import { inferDepartment } from "../lib/aspect-registry.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { isEbayConfigured, isLogisticsScopeAvailable } from "../lib/ebay-client.ts";
 import {
@@ -325,7 +327,9 @@ async function predictedParcel(
   try {
     const { data, error } = await supabaseAdmin
       .from("inventory_items")
-      .select("garment_category, material, measurements, size")
+      .select(
+        "garment_category, material, measurements, size, brand, title, style, description, condition_notes, item_category",
+      )
       .eq("id", inventoryItemId)
       .eq("user_id", ownerId)
       .maybeSingle();
@@ -335,12 +339,38 @@ async function predictedParcel(
       material: string | null;
       measurements: Record<string, number | string> | null;
       size: string | null;
+      brand: string | null;
+      title: string | null;
+      style: string | null;
+      description: string | null;
+      condition_notes: string | null;
+      item_category: string | null;
     };
     return estimateParcel({
       garmentCategory: row.garment_category,
       material: row.material,
       measurements: row.measurements,
       size: row.size,
+      // US-2796: which scale the stamped shoe number is on, read from the
+      // brand's curated chart. Resolved unconditionally because it is cheap and
+      // because sizeFactor() only consults it inside its shoe branch — passing
+      // it for a hoodie is inert, and gating here would mean a third copy of
+      // the SHOE_SIZED list to keep in step with parcel-estimate's.
+      //
+      // Null for anything uncertain, and null is exactly today's behaviour: a
+      // shoe with no scale is read as US men's, which is what every existing
+      // row was recorded under.
+      sizeScale: resolveShoeSizeScale(
+        row.brand,
+        inferDepartment({
+          item_category: row.item_category,
+          title: row.title,
+          style: row.style,
+          description: row.description,
+          condition_notes: row.condition_notes,
+          size: row.size,
+        }),
+      ),
     });
   } catch {
     return null;
