@@ -2,18 +2,8 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowUpDown,
-  Eye,
-  ExternalLink,
-  Info,
-  Lightbulb,
-  Loader2,
-  RefreshCw,
-  Repeat,
-} from "lucide-react";
+import { downloadCsv } from "@/lib/csv-export";
+import { ArrowDown, ArrowUp, ArrowUpDown, Download, ExternalLink, Eye, Info, Lightbulb, Loader2, RefreshCw, Repeat } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -271,6 +261,66 @@ export function FlipdeskListingPerformancePage(
   );
 
   const total = pageData?.total ?? 0;
+
+  // US-2829 AC1/AC6: the seller can take this table away.
+  //
+  // ⚠ IT RE-QUERIES INSTEAD OF EXPORTING `pageRows`, and that is the whole
+  // point. This table is SERVER-PAGED at 50, so writing the rows on screen
+  // would produce a file that looks complete and holds one page of a catalog
+  // that may run to hundreds. A truncated export is worse than none: nothing
+  // in the file says it is partial, and the seller reconciles against it.
+  //
+  // The same search, no-view filter and sort are passed, so the file matches
+  // what the seller is looking at rather than some canonical ordering they did
+  // not ask for. And when the cap bites, the toast SAYS SO with both numbers —
+  // silence there would reintroduce the exact bug this comment is about.
+  const EXPORT_MAX = 5000;
+
+  async function exportCsv() {
+    const { data, error } = await supabase.rpc(
+      "flipdesk_listing_performance_page",
+      {
+        p_search: search.trim() || null,
+        p_no_view_days: noViewDays ?? 0,
+        p_sort: sortKey === "days_listed" ? "listed_at" : sortKey,
+        p_desc: sortKey === "days_listed" ? sortDir === "asc" : sortDir === "desc",
+        p_limit: EXPORT_MAX,
+        p_offset: 0,
+      } as never,
+    );
+    if (error) {
+      toast.error("Could not build the export.");
+      return;
+    }
+    const rows = (data ?? []) as PerfRow[];
+    downloadCsv(
+      `flipdesk-listing-performance-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        "Listing",
+        "Views",
+        "Watchers",
+        "Impr. (7d)",
+        "CTR",
+        "Listed",
+        "7-day trend",
+      ],
+      rows.map((r) => [
+        r.title,
+        r.views_total,
+        r.watchers_count,
+        r.impressions_7d,
+        r.click_through_rate ?? "",
+        daysListed(r.listed_at),
+        (r.view_trend_7d ?? []).map((d) => d.views).join(" "),
+      ]),
+    );
+    if (rows.length < total) {
+      toast.warning(
+        `Exported the first ${rows.length} of ${total} listings.`,
+        { description: "Narrow the search or the filter to export the rest." },
+      );
+    }
+  }
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   // Clamped rather than trusted: a seller on page 9 who then types a search that
   // matches three listings must not be left staring at an empty page 9.
@@ -537,6 +587,17 @@ export function FlipdeskListingPerformancePage(
                   {n} days
                 </button>
               ))}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={() => void exportCsv()}
+                disabled={total === 0}
+                aria-label="Export active listing performance as CSV"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Export CSV
+              </Button>
             </div>
           </div>
         </CardHeader>

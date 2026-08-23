@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, CircleDollarSign, Pencil, Tag } from "lucide-react";
+import { ArrowRight, CircleDollarSign, Download, Pencil, Tag } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { downloadCsv } from "@/lib/csv-export";
 import { useAuthStore } from "@/stores/auth-store";
 import {
   basisLabel,
@@ -112,6 +113,51 @@ export function PriceGapDetail({ periodStart }: { periodStart: string | null }) 
   const { data = EMPTY_PRICE_GAP } = usePriceGap(periodStart);
   const worst = useMemo(() => worstFirst(data.worst), [data.worst]);
 
+  // US-2829: TWO exports, not one, and that is AC6 rather than laziness.
+  //
+  // The two tables answer different questions and label the same column
+  // differently: a live listing is "Asking / Under by", a sold one is
+  // "Sold for / Short by". AC6 requires the CSV headers to match the on-screen
+  // labels exactly so a seller can map them without a guide, and one merged
+  // file would have to invent neutral wording for both — which is precisely the
+  // decoder the criterion exists to avoid.
+  //
+  // The seller-facing difference is real too: the live list is work they can
+  // still do, and the sold list is a receipt. Merging them buries the first.
+  const csvDate = () => new Date().toISOString().slice(0, 10);
+
+  function exportLiveCsv() {
+    downloadCsv(
+      `flipdesk-underpriced-live-${csvDate()}.csv`,
+      ["Item", "Brand", "Basis", "Grade", "Asking", "Curve", "Under by"],
+      data.live.map((r) => [
+        r.title,
+        r.brand,
+        basisLabel(r.basis),
+        r.grade.toFixed(1),
+        r.listPrice,
+        r.curveMedian ?? "",
+        r.gapDollars ?? "",
+      ]),
+    );
+  }
+
+  function exportSoldCsv() {
+    downloadCsv(
+      `flipdesk-shortfalls-sold-${csvDate()}.csv`,
+      ["Item", "Brand", "Basis", "Grade", "Sold for", "Curve", "Short by"],
+      worst.map((r) => [
+        r.title,
+        r.brand,
+        basisLabel(r.basis),
+        r.grade.toFixed(1),
+        r.salePrice ?? "",
+        r.curveMedian ?? "",
+        r.gapDollars ?? "",
+      ]),
+    );
+  }
+
   if (worst.length === 0 && data.live.length === 0) return null;
 
   return (
@@ -119,14 +165,27 @@ export function PriceGapDetail({ periodStart }: { periodStart: string | null }) 
       {data.live.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Tag className="h-4 w-4" />
-              Live listings priced under their grade
-            </CardTitle>
-            <CardDescription>
-              Still for sale, and asking less than the curve for that grade.
-              These are the ones you can still change.
-            </CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Tag className="h-4 w-4" />
+                  Live listings priced under their grade
+                </CardTitle>
+                <CardDescription>
+                  Still for sale, and asking less than the curve for that grade.
+                  These are the ones you can still change.
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportLiveCsv}
+                aria-label="Export the underpriced live listings as CSV"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Export CSV
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="px-0">
             <Table>
@@ -185,13 +244,26 @@ export function PriceGapDetail({ periodStart }: { periodStart: string | null }) 
       {worst.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">
-              Biggest shortfalls, already sold
-            </CardTitle>
-            <CardDescription>
-              Nothing to do about these. They are here so the total above has a
-              list behind it.
-            </CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="text-base">
+                  Biggest shortfalls, already sold
+                </CardTitle>
+                <CardDescription>
+                  Nothing to do about these. They are here so the total above has
+                  a list behind it.
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportSoldCsv}
+                aria-label="Export the biggest sold shortfalls as CSV"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Export CSV
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="px-0">
             <Table>

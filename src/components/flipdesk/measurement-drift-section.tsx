@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Ruler } from "lucide-react";
+import { Download, Ruler } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -17,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { downloadCsv } from "@/lib/csv-export";
 import { useAuthStore } from "@/stores/auth-store";
 import {
   driftReturnFinding,
@@ -56,20 +58,74 @@ export function MeasurementDriftSection() {
   const significant = useMemo(() => significantDrift(data), [data]);
   const returnFinding = useMemo(() => driftReturnFinding(data), [data]);
 
+  // US-2829 AC6: headers match the on-screen column labels exactly.
+  //
+  // ⚠ THE SUPPRESSION TRAVELS WITH THE DATA. When a row's cohort is below the
+  // k-anonymity floor the table shows "N of M sellers" instead of a median, and
+  // the CSV must not quietly hand over the number the screen refused. Writing
+  // `r.cohortMedian` here would leak, per row, exactly what the UI suppresses —
+  // the hazard US-2829 AC4 names for the API, one surface earlier and easier to
+  // miss because nothing about a CSV looks like an endpoint.
+  //
+  // The suppressed cell carries the same sentence the table shows, so the file
+  // says WHY it is empty rather than looking like missing data.
+  function exportCsv() {
+    downloadCsv(
+      `flipdesk-measurement-drift-${new Date().toISOString().slice(0, 10)}.csv`,
+      [
+        "Garment",
+        "Size",
+        "Measurement",
+        "Yours",
+        "Your items",
+        "Cohort",
+        "Typical range",
+        "Drift",
+      ],
+      data.rows.map((r) => [
+        r.garmentCategory,
+        r.size,
+        measurementLabel(r.key),
+        r.ownMedian ?? "",
+        r.ownCount,
+        r.cohortSuppressed
+          ? `${r.cohortSellers} of ${data.minSellers} sellers`
+          : r.cohortMedian ?? "",
+        r.cohortP25 != null && r.cohortP75 != null
+          ? `${r.cohortP25} to ${r.cohortP75}`
+          : "",
+        r.driftInches ?? "",
+      ]),
+    );
+  }
+
   if (data.rows.length === 0) return null;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Ruler className="h-4 w-4" />
-          Measurement drift
-        </CardTitle>
-        <CardDescription>
-          Your median measurement for each size against what other sellers
-          record for the same size and garment. Sizes are a brand's opinion; a
-          tape measure is not.
-        </CardDescription>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Ruler className="h-4 w-4" />
+              Measurement drift
+            </CardTitle>
+            <CardDescription>
+              Your median measurement for each size against what other sellers
+              record for the same size and garment. Sizes are a brand's opinion;
+              a tape measure is not.
+            </CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportCsv}
+            aria-label="Export the measurement drift table as CSV"
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4 px-0">
         <div className="space-y-1 px-6 text-sm">

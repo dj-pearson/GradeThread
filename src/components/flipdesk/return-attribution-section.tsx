@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Crosshair } from "lucide-react";
+import { Crosshair, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -17,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { downloadCsv } from "@/lib/csv-export";
 import { useAuthStore } from "@/stores/auth-store";
 import {
   EMPTY_ATTRIBUTION,
@@ -65,9 +67,63 @@ export function ReturnAttributionSection({
 
   if (data.overall.fulfilled === 0) return null;
 
+  // US-2829 AC6: one export per TABLE, headers matching that table's own
+  // on-screen labels. The two answer different questions — which grade factor
+  // predicts a return, and whether SAYING SO changed anything — and their
+  // columns share no wording, so a merged file would need invented headers.
+  //
+  // A null rate is left EMPTY rather than written as 0. The screen shows a dash
+  // because the band is under MIN_ATTRIBUTION_SAMPLE, and a zero in a
+  // spreadsheet reads as 'no returns' — the opposite of 'not enough sales to
+  // say'. The sold counts travel beside each rate so the blank has a reason.
+  const csvDate = () => new Date().toISOString().slice(0, 10);
+
+  function exportFactorsCsv() {
+    downloadCsv(
+      `flipdesk-return-attribution-${csvDate()}.csv`,
+      ["Factor", "Band", "Fulfilled", "Returns", "Rate"],
+      data.factors.flatMap((f) =>
+        f.bands.map((b) => [
+          FACTOR_LABEL[f.factor],
+          b.label,
+          b.fulfilled,
+          b.returns,
+          b.rate ?? "",
+        ]),
+      ),
+    );
+  }
+
+  function exportDisclosureCsv() {
+    downloadCsv(
+      `flipdesk-defect-disclosure-${csvDate()}.csv`,
+      [
+        "Defect",
+        "Severity",
+        "Disclosed",
+        "Disclosed sold",
+        "Not disclosed",
+        "Not disclosed sold",
+        "Difference",
+      ],
+      data.defects.map((d) => [
+        defectLabel(d.defect),
+        d.severity,
+        d.disclosedRate ?? "",
+        d.disclosedCount,
+        d.undisclosedRate ?? "",
+        d.undisclosedCount,
+        d.disclosedRate != null && d.undisclosedRate != null && d.disclosedRate > 0
+          ? (d.undisclosedRate / d.disclosedRate).toFixed(1)
+          : "",
+      ]),
+    );
+  }
   return (
     <Card>
       <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
         <CardTitle className="flex items-center gap-2 text-base">
           <Crosshair className="h-4 w-4" />
           What actually predicts your returns
@@ -76,6 +132,30 @@ export function ReturnAttributionSection({
           The overall grade is one number. These are the five parts of it, and
           whether saying a flaw out loud in the listing changes anything.
         </CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportFactorsCsv}
+              aria-label="Export return rate by grade factor as CSV"
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Export CSV
+            </Button>
+            {data.defects.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportDisclosureCsv}
+                aria-label="Export the defect disclosure comparison as CSV"
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Disclosure CSV
+              </Button>
+            )}
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4 px-0">
         <div className="space-y-2 px-6 text-sm">

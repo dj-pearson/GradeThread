@@ -1,8 +1,10 @@
 import { useMemo } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Gauge } from "lucide-react";
+import { Download, Gauge } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { downloadCsv } from "@/lib/csv-export";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth-store";
 import {
@@ -50,15 +52,48 @@ export function SellerScorecardCard({
   const worst = useMemo(() => pickBiggestGap(data), [data]);
   const line = useMemo(() => diagnosisLine(data), [data]);
 
+  // US-2829: headers match the on-screen labels exactly (AC6), so a seller
+  // mapping the file to their own sheet does not need a decoder.
+  //
+  // The two columns the CARD shows as one line are split here. On screen a
+  // metric reads "42nd percentile" OR "3 of 8 peers" depending on whether it
+  // ranked; a spreadsheet needs both facts in their own cells, because
+  // "" in Percentile means unranked and that is a different thing from a low
+  // one. Cohort sellers travels beside it so the reason is visible.
+  function exportCsv() {
+    downloadCsv(
+      `flipdesk-scorecard-${new Date().toISOString().slice(0, 10)}.csv`,
+      ["Metric", "Your value", "Percentile", "Cohort sellers", "Biggest gap"],
+      metrics.map((m) => [
+        METRIC_LABEL[m.metric],
+        formatMetricValue(m.metric, m.ownValue),
+        m.ownPercentile ?? "",
+        m.cohortSellers,
+        worst?.metric === m.metric ? "yes" : "",
+      ]),
+    );
+  }
+
   if (metrics.length === 0) return null;
 
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Gauge className="h-4 w-4" />
-          Your scorecard
-        </CardTitle>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Gauge className="h-4 w-4" />
+            Your scorecard
+          </CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={exportCsv}
+            aria-label="Export your scorecard percentiles as CSV"
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm">

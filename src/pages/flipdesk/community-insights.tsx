@@ -12,7 +12,9 @@ import {
   Clock,
   BarChart3,
   Tags,
+  Download,
 } from "lucide-react";
+import { downloadCsv } from "@/lib/csv-export";
 import {
   Card,
   CardContent,
@@ -138,6 +140,69 @@ export function FlipdeskCommunityInsightsPage(
     queryFn: () => fetchCommunityBenchmarks(periodStart, activeFilters),
     staleTime: 5 * 60 * 1000,
   });
+
+  // US-2829 AC1/AC6: the two TABLES on this page, exportable with the same
+  // headers they show.
+  //
+  // ⚠ THIS PAGE IS NOT THE SELLER'S OWN DATA, which changes what a safe export
+  // means. Community Insights is a cross-seller aggregate, and every figure on
+  // it has already passed the k-anonymity floor — a brand or category below
+  // `meta.minSellers` is not rendered at all, and the per-cohort
+  // medianRealization / medianDaysToSell arrive null when their own sub-cohort
+  // is too thin. So the rule here is simple and strict: write EXACTLY what the
+  // table shows and nothing the table withheld. A null stays empty rather than
+  // becoming a zero, because zero is a claim and blank is an absence.
+  //
+  // Only the two tables export. The rest of the page is distributions and
+  // sparklines whose on-screen form has no columns to match, and inventing
+  // headers for them would be the decoder AC6 exists to avoid.
+  const csvDate = () => new Date().toISOString().slice(0, 10);
+
+  function exportBrandsCsv() {
+    if (!data) return;
+    downloadCsv(
+      `gradethread-community-brands-${csvDate()}.csv`,
+      [
+        "Brand",
+        "Sell-through",
+        "Avg sale",
+        "Realization",
+        "Days to sell",
+        "Sellers",
+      ],
+      data.topBrands.map((b) => [
+        b.brand,
+        b.sellThrough ?? "",
+        b.avgSalePrice ?? "",
+        b.medianRealization ?? "",
+        b.medianDaysToSell ?? "",
+        b.sellers,
+      ]),
+    );
+  }
+
+  function exportCategoriesCsv() {
+    if (!data) return;
+    downloadCsv(
+      `gradethread-community-categories-${csvDate()}.csv`,
+      [
+        "Category",
+        "Sell-through",
+        "Avg sale",
+        "Realization",
+        "Days to sell",
+        "Sellers",
+      ],
+      data.categories.map((c) => [
+        c.category,
+        c.sellThrough ?? "",
+        c.avgSalePrice ?? "",
+        c.medianRealization ?? "",
+        c.medianDaysToSell ?? "",
+        c.sellers,
+      ]),
+    );
+  }
 
   const filtersActive = hasActiveFilters(activeFilters);
   function applyFilters() {
@@ -659,12 +724,28 @@ export function FlipdeskCommunityInsightsPage(
           {/* Top brands by sell-through */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Award className="h-4 w-4" /> Top brands by sell-through
-              </CardTitle>
-              <CardDescription>
-                Brands moving fastest across the community — your sourcing shortlist.
-              </CardDescription>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Award className="h-4 w-4" /> Top brands by sell-through
+                  </CardTitle>
+                  <CardDescription>
+                    Brands moving fastest across the community — your sourcing
+                    shortlist.
+                  </CardDescription>
+                </div>
+                {data.topBrands.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={exportBrandsCsv}
+                    aria-label="Export the community top brands table as CSV"
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Export CSV
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {data.topBrands.length === 0 ? (
@@ -710,12 +791,28 @@ export function FlipdeskCommunityInsightsPage(
           {/* Top categories by sell-through (deep-dive) */}
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Tags className="h-4 w-4" /> Top categories by sell-through
-              </CardTitle>
-              <CardDescription>
-                Which garment categories move fastest and at what realization.
-              </CardDescription>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Tags className="h-4 w-4" /> Top categories by sell-through
+                  </CardTitle>
+                  <CardDescription>
+                    Which garment categories move fastest and at what
+                    realization.
+                  </CardDescription>
+                </div>
+                {data.categories.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={exportCategoriesCsv}
+                    aria-label="Export the community top categories table as CSV"
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Export CSV
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {data.categories.length === 0 ? (
