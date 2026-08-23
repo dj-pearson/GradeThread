@@ -331,10 +331,12 @@ export function AdminMaintenancePage() {
                   <div className="flex shrink-0 items-center gap-2">
                     {w.is_active ? (
                       <Button variant="outline" size="sm" disabled={busy} onClick={() => endNow(w)}>
+                      aria-label={`End the window now: ${w.message}`}
                         <Power className="h-3.5 w-3.5" /> End now
                       </Button>
                     ) : (
                       <Button variant="outline" size="sm" disabled={busy} onClick={() => reactivate(w)}>
+                      aria-label={`Activate the window: ${w.message}`}
                         <Power className="h-3.5 w-3.5" /> Activate
                       </Button>
                     )}

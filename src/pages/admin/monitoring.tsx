@@ -565,6 +565,7 @@ export function AdminMonitoringPage() {
                                 </TableCell>
                                 <TableCell className="text-right">
                                   <Button
+                                  aria-label={`Open conversation ${row.conversation_id.slice(0, 8)}`}
                                     size="sm"
                                     variant="ghost"
                                     onClick={() =>
@@ -799,6 +800,7 @@ export function AdminMonitoringPage() {
                             {ev.conversation_id
                               ? (
                                 <Button
+                                aria-label={`Open conversation ${ev.conversation_id}`}
                                   size="sm"
                                   variant="ghost"
                                   onClick={() =>

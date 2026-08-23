@@ -438,6 +438,7 @@ export function AdminKnowledgeBasePage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
+                        aria-label={`Edit ${a.title}`}
                           size="sm"
                           variant="outline"
                           onClick={(e) => {

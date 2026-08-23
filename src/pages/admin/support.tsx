@@ -355,6 +355,7 @@ export function AdminSupportPage() {
                       </TableCell>
                       <TableCell className="text-right">
                         <Button
+                        aria-label={`Open ${conv.subject || "the untitled conversation"}`}
                           size="sm"
                           variant="outline"
                           onClick={(e) => {

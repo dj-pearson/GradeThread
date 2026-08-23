@@ -187,6 +187,7 @@ function BankTab({
                 </div>
                 <div className="flex shrink-0 gap-2">
                   <Button
+                  aria-label={`Reject ${t.title}`}
                     variant="outline"
                     size="sm"
                     disabled={reject.isPending}
@@ -195,6 +196,7 @@ function BankTab({
                     <X className="mr-1 h-3.5 w-3.5" /> Reject
                   </Button>
                   <Button
+                  aria-label={`Promote ${t.title}`}
                     size="sm"
                     disabled={promote.isPending}
                     onClick={() => handlePromote(t.id)}

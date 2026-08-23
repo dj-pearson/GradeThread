@@ -296,6 +296,7 @@ export function AdminJobsPage() {
                           <div className="flex justify-end gap-2">
                             {j.can_retry && (
                               <Button
+                              aria-label={`Retry ${j.label}`}
                                 size="sm"
                                 variant="outline"
                                 onClick={() => setPending({ row: j, action: "retry" })}
@@ -305,6 +306,7 @@ export function AdminJobsPage() {
                             )}
                             {j.can_cancel && (
                               <Button
+                              aria-label={`Cancel ${j.label}`}
                                 size="sm"
                                 variant="ghost"
                                 className="text-destructive"
