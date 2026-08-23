@@ -160,18 +160,26 @@ describe("the two grading pipelines are scored separately (US-2016 AC4)", () => 
     ).toEqual([]);
   });
 
-  it("Android's gap is RECORDED, not hidden", () => {
-    // Deliberately not a failure. Whether the consumer path belongs on Android
-    // is the same product question US-2016 AC1 asked about iOS, and nobody has
-    // answered it - so this asserts the SHAPE of the gap so that answering it
-    // is a decision rather than a discovery.
+  it("Android has EVERY endpoint of both, which it did not before US-2716", () => {
+    // THIS CASE USED TO ASSERT THE OPPOSITE, and the flip is the point.
+    //
+    // Until 2026-08-23 it REQUIRED Android to be missing consumer endpoints,
+    // because whether the paid consumer path belonged on Android was an
+    // unanswered product question (US-2716 AC1) and a guard must not settle a
+    // product question by passing. The owner answered it on US-2815 by
+    // choosing to build; Android got the whole chain; and US-2716 AC4 said
+    // this line gets rewritten in the same commit either way.
+    //
+    // Asserted per ENDPOINT, never as a count, for the reason spelled out in
+    // the iOS case above: one number standing in for a journey reads complete
+    // while half of it is missing.
     expect(missing("android", "reseller"), render(m)).toEqual([]);
     expect(
-      missing("android", "consumer").length,
-      "Android gained the WHOLE consumer grading path. That is good - but it " +
-        "means this expectation is now stale, and the story tracking the " +
-        "decision should be closed rather than this line relaxed.\n" + render(m),
-    ).toBeGreaterThan(0);
+      missing("android", "consumer"),
+      "Android lost part of the consumer grading path. It was added by " +
+        "US-2716 after the owner decided the paid consumer journey belongs " +
+        "on the phone." + "\n" + render(m),
+    ).toEqual([]);
   });
 
   it("the dispute half is scored with the pipeline it belongs to", () => {
