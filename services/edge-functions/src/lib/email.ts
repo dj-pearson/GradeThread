@@ -74,15 +74,6 @@ interface EmailOptions {
   skipSuppressionRecord?: boolean;
 }
 
-interface GradeCompleteData {
-  userName: string;
-  submissionTitle: string;
-  overallScore: number;
-  gradeTier: string;
-  submissionId: string;
-  certificateId: string | null;
-}
-
 interface GradePreliminaryData {
   userName: string;
   submissionTitle: string;
@@ -433,60 +424,6 @@ function ctaButton(text: string, url: string): string {
 }
 
 // ─── Email Templates ────────────────────────────────────────────────
-
-/**
- * Grade complete email: sent after grading pipeline finishes.
- */
-export async function sendGradeCompleteEmail(
-  to: string,
-  data: GradeCompleteData
-): Promise<boolean> {
-  const reportUrl = `${SITE_URL}/dashboard/submissions/${data.submissionId}`;
-  const certUrl = data.certificateId
-    ? `${SITE_URL}/cert/${data.certificateId}`
-    : null;
-
-  const firstName = escapeHtml(data.userName.split(" ")[0] || data.userName);
-  const content = `
-    <p style="margin:0 0 10px;color:${BRAND_RED};font-size:12px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;">Grade complete</p>
-    <h2 class="gt-heading" style="margin:0 0 12px;color:${EMAIL_BRAND.ink};font-size:24px;font-weight:800;letter-spacing:-0.2px;line-height:1.15;">
-      Your grade is ready, ${firstName}
-    </h2>
-    <p class="gt-text" style="margin:0 0 20px;color:${EMAIL_BRAND.body};font-size:15.5px;line-height:1.6;">
-      We finished grading <strong style="color:${EMAIL_BRAND.ink};">&ldquo;${escapeHtml(data.submissionTitle)}&rdquo;</strong>. Here&rsquo;s how it scored.
-    </p>
-
-    ${
-    emailScoreCard({
-      score: data.overallScore,
-      tier: data.gradeTier,
-      summary: "Open the full report for factor-by-factor scores and the AI condition analysis.",
-    })
-  }
-
-    ${
-    certUrl
-      ? emailCertificateCard({
-        certId: data.certificateId ?? "",
-        certUrl,
-        title: "Shareable, public condition report",
-        subtitle: "Add it to your listing to boost buyer trust and resale value.",
-      })
-      : ""
-  }
-
-    ${ctaButton("View full report", reportUrl)}
-  `;
-
-  return await sendEmail({
-    to,
-    subject: `Grade Ready: ${data.submissionTitle} — ${data.overallScore.toFixed(1)} (${data.gradeTier})`,
-    html: emailLayout(content, {
-      preheader: `${data.submissionTitle} scored ${data.overallScore.toFixed(1)} — ${data.gradeTier}.`,
-    }),
-    category: "grade_ready", // US-498: critical → durable retry on failure
-  });
-}
 
 /**
  * Preliminary grade email (seller): the AI grade is ready but UNOFFICIAL —
@@ -2627,19 +2564,6 @@ export function buildBroadcastEmailHtml(
   return emailLayout(content, { unsubscribeUrl });
 }
 
-export async function sendBroadcastEmail(
-  to: string,
-  data: BroadcastEmailData,
-): Promise<boolean> {
-  const unsubscribeUrl = await marketingUnsubscribeUrl(data.userId);
-
-  return await sendEmail({
-    to,
-    subject: data.subject,
-    html: buildBroadcastEmailHtml(data, unsubscribeUrl),
-  });
-}
-
 // ─── Durable, tracked drip-step send (US-938) ───────────────────────
 
 export interface TrackedDripEmailOptions {
@@ -2675,9 +2599,10 @@ export interface TrackedDripEmailResult {
  * from emailLayout's marketing footer. Suppression (US-914) is enforced inside
  * deliverEmail, and again (recorded) by the engine before this is ever called.
  *
- * Intentionally NOT a transactional `send*Email` — like sendBroadcastEmail it is
- * marketing/bulk, so it carries its own per-send tracking instead of riding the
- * transactional categorization convention.
+ * Intentionally NOT a transactional `send*Email`: like the campaign broadcast
+ * in routes/admin-growth.ts it is marketing/bulk, so it carries its own
+ * per-send tracking instead of riding the transactional categorization
+ * convention.
  */
 export async function sendDripStepEmail(
   opts: TrackedDripEmailOptions,
