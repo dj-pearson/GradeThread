@@ -1,5 +1,11 @@
 import { assertEquals } from "@std/assert";
-import { resolveShoeSizeScale } from "../lib/shoe-size-scale.ts";
+import {
+  resolveShoeSizeScale,
+  resolveShoeSizeScaleForItem,
+  SHOE_SIZE_SCALE_ATTRIBUTE,
+  SHOE_SIZE_SCALES,
+  statedShoeSizeScale,
+} from "../lib/shoe-size-scale.ts";
 import { SIZING_CHARTS } from "../lib/sizing-charts.ts";
 import {
   inferDepartment,
@@ -250,21 +256,34 @@ Deno.test("US-2796: the parcel route is the one producer, and it feeds the scale
 
   assertEquals(
     route.includes(
-      'import { resolveShoeSizeScale } from "../lib/shoe-size-scale.ts";',
+      'import { resolveShoeSizeScaleForItem } from "../lib/shoe-size-scale.ts";',
     ),
     true,
     "flipdesk-logistics no longer imports the resolver",
   );
   assertEquals(
-    /sizeScale: resolveShoeSizeScale\(/.test(route),
+    /sizeScale: resolveShoeSizeScaleForItem\(/.test(route),
     true,
     "estimateParcel is called without a resolved sizeScale, which puts every " +
       "shoe back on the read-it-as-US-men's assumption",
   );
+
+  // THE DEPARTMENT MOVED, so this follows it rather than staying pointed at a
+  // line that is no longer in this file. resolveShoeSizeScaleForItem owns the
+  // stated-then-inferred precedence now, and resolveDepartment is its fallback.
+  // Asserting the ROUTE still calls resolveDepartment would fail against correct
+  // code, which is how a guard stops protecting anything and starts obstructing.
+  const lib = await Deno.readTextFile("src/lib/shoe-size-scale.ts");
   assertEquals(
-    /resolveDepartment\(/.test(route),
+    /resolveDepartment\(item\)/.test(lib),
     true,
     "the department is no longer resolved, so 22 of 26 footwear brands resolve to null",
+  );
+  assertEquals(
+    /statedShoeSizeScale\(item\.attributes\)/.test(lib),
+    true,
+    "a stated scale is no longer read, so attributes.shoe_size_scale does nothing " +
+      "and a seller cannot correct a wrong inference",
   );
 
   // THE SILENT FAILURE THIS EXISTS FOR. resolveShoeSizeScale returns null for a
@@ -379,4 +398,112 @@ Deno.test("US-2796: resolveDepartment matches what the aspect resolver fills", (
     ),
     "us_women",
   );
+});
+
+// ── US-2796 AC1: where a STATED scale lives, and that it wins ──────────────
+//
+// Owner's decision 2026-08-23: inventory_items.attributes, NOT the shoes
+// measurement template the criterion originally named. A scale is a string and
+// both phones store measurements as a NUMERIC map - Android's decode drops a
+// non-numeric value on a round trip, and iOS loses EVERY measurement on the item
+// because one string makes the whole decode throw. Storing it beside
+// `department` keeps it away from every measurement decoder.
+
+const SHOE = (attrs: Record<string, string | string[]> | null) => ({
+  item_category: "shoes",
+  brand: "New Balance",
+  title: "New Balance 990v5 Men's Running Shoe",
+  attributes: attrs,
+});
+
+Deno.test("US-2796: a stated scale beats what the brand chart would infer", () => {
+  // New Balance with a men's title infers us_men. The seller is holding the
+  // shoe; the chart is a generalisation about a catalogue, and 22 of the 26
+  // charted footwear brands publish BOTH a men's and a women's chart - so the
+  // inference leans on department, which is itself often inferred from a title.
+  // Two inferences deep is not something to prefer over an answer.
+  assertEquals(resolveShoeSizeScaleForItem(SHOE(null)), "us_men");
+  assertEquals(
+    resolveShoeSizeScaleForItem(SHOE({ [SHOE_SIZE_SCALE_ATTRIBUTE]: "us_women" })),
+    "us_women",
+  );
+});
+
+Deno.test("US-2796: a stated scale works for a brand with no chart at all", () => {
+  // The point of storing it. resolveShoeSizeScale refuses an uncharted brand,
+  // and refusing is right when guessing is the alternative - but not when the
+  // seller has already told us.
+  const uncharted = {
+    item_category: "shoes",
+    brand: "Some Tiny Cordwainer",
+    attributes: null as Record<string, string | string[]> | null,
+  };
+  assertEquals(resolveShoeSizeScaleForItem(uncharted), null);
+  assertEquals(
+    resolveShoeSizeScaleForItem({
+      ...uncharted,
+      attributes: { [SHOE_SIZE_SCALE_ATTRIBUTE]: "uk" },
+    }),
+    "uk",
+  );
+});
+
+Deno.test("US-2796 AC4: an unrecognised stated value reads as ABSENT, not as an error", () => {
+  // AC4's promise is that a shoe with no usable scale behaves EXACTLY as it does
+  // today. Throwing would fail an estimate that used to work; guessing at "mens"
+  // would invent a meaning the seller never chose. Both are worse than falling
+  // through to the inference that already ran.
+  for (const junk of ["", "   ", "mens", "US Mens", "womens", "cm", "42", "true"]) {
+    assertEquals(
+      statedShoeSizeScale({ [SHOE_SIZE_SCALE_ATTRIBUTE]: junk }),
+      null,
+      JSON.stringify(junk) + " should not parse as a scale",
+    );
+    assertEquals(
+      resolveShoeSizeScaleForItem(SHOE({ [SHOE_SIZE_SCALE_ATTRIBUTE]: junk })),
+      "us_men",
+      "junk must fall through to the inference, not replace it",
+    );
+  }
+});
+
+Deno.test("US-2796: only case, spaces and hyphens are normalised", () => {
+  // Typing variants of one token, not different answers. Anything looser starts
+  // deciding what a seller meant.
+  for (const v of ["us_women", "US_WOMEN", " us women ", "US-Women"]) {
+    assertEquals(statedShoeSizeScale({ [SHOE_SIZE_SCALE_ATTRIBUTE]: v }), "us_women", v);
+  }
+  // An array takes the first element - the same shape resolveDepartment reads,
+  // because attributes values are string | string[].
+  assertEquals(statedShoeSizeScale({ [SHOE_SIZE_SCALE_ATTRIBUTE]: ["eu", "uk"] }), "eu");
+});
+
+Deno.test("US-2796: every declared scale round-trips, and converts", () => {
+  // Guards the guard. If SHOE_SIZE_SCALES and the parser drift, one is silently
+  // narrower than the other and a legitimate value starts reading as absent -
+  // which fails toward today's behaviour and would never be noticed.
+  assertEquals(SHOE_SIZE_SCALES.length, 5);
+  for (const scale of SHOE_SIZE_SCALES) {
+    assertEquals(statedShoeSizeScale({ [SHOE_SIZE_SCALE_ATTRIBUTE]: scale }), scale);
+    // And every one must be a scale shoeSizeToUsMen can actually convert, or the
+    // parcel path would accept a value it cannot use.
+    assertEquals(typeof shoeSizeToUsMen(9, scale), "number", scale);
+  }
+});
+
+Deno.test("US-2796: no attributes at all is identical to the old call", () => {
+  // The compatibility promise, asserted against the OLD function rather than
+  // against a remembered number.
+  for (const dep of ["Men", "Women", null]) {
+    const item = {
+      item_category: "shoes",
+      brand: "New Balance",
+      attributes: dep ? { department: dep } : null,
+    };
+    assertEquals(
+      resolveShoeSizeScaleForItem(item),
+      resolveShoeSizeScale(item.brand, resolveDepartment(item)),
+      "department=" + dep,
+    );
+  }
 });

@@ -41,6 +41,7 @@
 
 import { findSizingCharts, type SizingChart } from "./sizing-charts.ts";
 import { detectSizeSystem, normalizeDepartment } from "./size-systems.ts";
+import { resolveDepartment } from "./aspect-registry.ts";
 import type { ShoeSizeScale } from "./parcel-estimate.ts";
 
 /**
@@ -104,4 +105,85 @@ export function resolveShoeSizeScale(
   if (dep === "Women") return "us_women";
   if (dep === "Men") return "us_men";
   return null;
+}
+
+/**
+ * The attribute key a seller's stated scale is stored under.
+ *
+ * `inventory_items.attributes` and NOT the shoes measurement template, which is
+ * what US-2796 AC1 originally asked for. That was measured and it destroys data:
+ * a scale is a string and both phones store measurements as a NUMERIC map.
+ * Android's MeasurementCatalog.decode keeps a key only when doubleOrNull is
+ * non-null, so a round trip through the phone DELETES the scale. iOS is worse -
+ * decodeMeasurements is `try? JSONDecoder().decode([String: Double].self ...)`,
+ * so ONE string makes the whole decode throw and every other measurement on the
+ * item vanishes from the canvas. Owner's decision 2026-08-23: store it beside
+ * department, where no measurement decoder ever touches it.
+ */
+export const SHOE_SIZE_SCALE_ATTRIBUTE = "shoe_size_scale";
+
+/** The five scales, as stored. Exported so a writer cannot invent a sixth. */
+export const SHOE_SIZE_SCALES: readonly ShoeSizeScale[] = [
+  "us_men",
+  "us_women",
+  "uk",
+  "eu",
+  "jp",
+];
+
+/**
+ * A stated scale, or null when nothing usable is stored.
+ *
+ * STRICT, AND AN UNRECOGNISED VALUE READS AS ABSENT rather than as an error.
+ * That is AC4's promise: a shoe with no scale must behave exactly as it does
+ * today. Throwing, or guessing at "mens" or "US Women", would both break it -
+ * one by failing an estimate that used to work, the other by inventing a
+ * meaning the seller did not choose. Normalisation is limited to case, spaces
+ * and hyphens, which are typing variants of the same token rather than
+ * different answers.
+ */
+export function statedShoeSizeScale(
+  attributes: Record<string, string | string[]> | null | undefined,
+): ShoeSizeScale | null {
+  const raw = attributes?.[SHOE_SIZE_SCALE_ATTRIBUTE];
+  const first = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof first !== "string") return null;
+  // [\s-] — WHITESPACE and hyphen. This shipped for a few minutes as [s-],
+  // which matches the LETTER s, so "us_women" normalised to "u__women" and
+  // every scale but "uk" and "eu" silently stopped parsing. The tests caught it;
+  // the cause was writing source through a shell heredoc, which eats one
+  // backslash level. Source files go through the editor, not a heredoc.
+  const token = first.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return (SHOE_SIZE_SCALES as readonly string[]).includes(token)
+    ? (token as ShoeSizeScale)
+    : null;
+}
+
+/**
+ * What scale this item's shoe number is on: what it SAYS, else what its brand
+ * chart implies.
+ *
+ * Same precedence as `resolveDepartment`, and for the same reason. The seller
+ * is holding the shoe; the brand chart is a generalisation about a catalogue.
+ * A curated chart cannot know that this particular pair is a women's colourway
+ * of a unisex last, and 22 of the 26 charted footwear brands publish BOTH a
+ * men's and a women's chart - so the inference leans on department, which is
+ * itself often inferred from a title. Two inferences deep is not something to
+ * prefer over an answer.
+ *
+ * Null when neither says, which sizeFactor already reads as US men's.
+ */
+export function resolveShoeSizeScaleForItem(item: {
+  brand?: string | null;
+  attributes?: Record<string, string | string[]> | null;
+  item_category: string | null;
+  size?: string | null;
+  style?: string | null;
+  title?: string | null;
+  description?: string | null;
+  condition_notes?: string | null;
+}): ShoeSizeScale | null {
+  const stated = statedShoeSizeScale(item.attributes);
+  if (stated) return stated;
+  return resolveShoeSizeScale(item.brand, resolveDepartment(item));
 }

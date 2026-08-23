@@ -6,8 +6,7 @@ import {
   type ParcelEstimate,
   type ParcelGarmentCategory,
 } from "../lib/parcel-estimate.ts";
-import { resolveShoeSizeScale } from "../lib/shoe-size-scale.ts";
-import { resolveDepartment } from "../lib/aspect-registry.ts";
+import { resolveShoeSizeScaleForItem } from "../lib/shoe-size-scale.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { isEbayConfigured, isLogisticsScopeAvailable } from "../lib/ebay-client.ts";
 import {
@@ -352,27 +351,26 @@ async function predictedParcel(
       material: row.material,
       measurements: row.measurements,
       size: row.size,
-      // US-2796: which scale the stamped shoe number is on, read from the
-      // brand's curated chart. Resolved unconditionally because it is cheap and
-      // because sizeFactor() only consults it inside its shoe branch — passing
-      // it for a hoodie is inert, and gating here would mean a third copy of
-      // the SHOE_SIZED list to keep in step with parcel-estimate's.
+      // US-2796: which scale the stamped shoe number is on — what the item SAYS
+      // (attributes.shoe_size_scale), else what its brand's curated chart
+      // implies. Resolved unconditionally because it is cheap and because
+      // sizeFactor() only consults it inside its shoe branch — passing it for a
+      // hoodie is inert, and gating here would mean a third copy of the
+      // SHOE_SIZED list to keep in step with parcel-estimate's.
       //
       // Null for anything uncertain, and null is exactly today's behaviour: a
       // shoe with no scale is read as US men's, which is what every existing
       // row was recorded under.
-      sizeScale: resolveShoeSizeScale(
-        row.brand,
-        resolveDepartment({
-          item_category: row.item_category,
-          attributes: row.attributes,
-          title: row.title,
-          style: row.style,
-          description: row.description,
-          condition_notes: row.condition_notes,
-          size: row.size,
-        }),
-      ),
+      sizeScale: resolveShoeSizeScaleForItem({
+        brand: row.brand,
+        attributes: row.attributes,
+        item_category: row.item_category,
+        title: row.title,
+        style: row.style,
+        description: row.description,
+        condition_notes: row.condition_notes,
+        size: row.size,
+      }),
     });
   } catch {
     return null;
