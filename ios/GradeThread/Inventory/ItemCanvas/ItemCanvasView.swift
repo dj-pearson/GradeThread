@@ -139,6 +139,12 @@ struct ItemCanvasView: View {
     // failure message.
     @State private var aiManager = AIExtractionManager.shared
     @State private var aiRerunMessage: String?
+    // US-2818: the web composer's description card — per-garment template plus
+    // the two AI rewrite passes (tighten, regenerate-from-photos).
+    @State private var descriptionRewriteRunning: ListingRewriteAction?
+    @State private var descriptionAiMessage: String?
+    @State private var confirmingDescriptionTemplate = false
+    private let descriptionRewriteService: ListingRewriting = ListingRewriteService()
 
     // US-650 item-level actions
     @State private var showingDeleteConfirmation = false
@@ -536,14 +542,17 @@ struct ItemCanvasView: View {
             if showPrepChecklist {
                 prepChecklistSection(scroll: proxy)
             }
-            identitySection(state: state)
-            storageSection(state: state)
-            pricingSection(state: state)
-            if let pnl = realizedPnL {
-                pnlSection(pnl)
-            }
+            // US-2818: the web composer's card order, which is the order the
+            // work happens in — shoot, measure, name it, grade it, price it,
+            // write the copy, then the bookkeeping. iOS led with the identity
+            // form and put Photos in the middle, so the two apps disagreed
+            // about what a seller does next on the same item.
             photosSection
                 .id(ItemPrepChecklist.Step.photos)
+            measurementsSection(state: state)
+            measurePhotoRow(state: state)
+                .id(ItemPrepChecklist.Step.measurements)
+            identitySection(state: state)
             CertifiedGradeSection(
                 item: item,
                 // US-746: a graded, still-publishable item can jump straight to
@@ -554,14 +563,16 @@ struct ItemCanvasView: View {
                     : nil
             )
             .id(ItemPrepChecklist.Step.grade)
-            measurementsSection(state: state)
-            measurePhotoRow(state: state)
-                .id(ItemPrepChecklist.Step.measurements)
+            pricingSection(state: state)
+            if let pnl = realizedPnL {
+                pnlSection(pnl)
+            }
             compsSection(state: state)
                 .id(ItemPrepChecklist.Step.comps)
             compSetSection(state: state)
             notesSection(state: state)
             descriptionSection(state: state)
+            storageSection(state: state)
             statusSection(state: state)
             if !itemListings.isEmpty {
                 listingsSection
@@ -675,6 +686,29 @@ struct ItemCanvasView: View {
             Button("OK", role: .cancel) { aiRerunMessage = nil }
         } message: {
             Text(aiRerunMessage ?? "")
+        }
+        // US-2818: description template + AI rewrite outcomes.
+        .alert(
+            "AI rewrite",
+            isPresented: Binding(
+                get: { descriptionAiMessage != nil },
+                set: { if !$0 { descriptionAiMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { descriptionAiMessage = nil }
+        } message: {
+            Text(descriptionAiMessage ?? "")
+        }
+        .alert(
+            "Replace the description?",
+            isPresented: $confirmingDescriptionTemplate
+        ) {
+            Button("Replace", role: .destructive) {
+                if let state { applyDescriptionTemplate(state: state) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The template writes a fresh description from this item's attributes, measurements and grade. What's in the box now is replaced.")
         }
         // US-687: camera capture into this item.
         .fullScreenCover(isPresented: $showingCameraCapture) {
@@ -1130,9 +1164,10 @@ struct ItemCanvasView: View {
             }
             TextField("Brand", text: $state.draft.brand)
                 .textInputAutocapitalization(.words)
-            TextField("SKU", text: $state.draft.sku)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+            // US-2818: SKU moved to "Storage & consignment" for web parity -
+            // it lives in the web composer's Storage & SKU card, next to the
+            // bin and the container, because all three answer "where is this
+            // thing and what is written on it", not "what is it".
             TextField("Size", text: $state.draft.size)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -1373,6 +1408,13 @@ struct ItemCanvasView: View {
     private func storageSection(state: ItemCanvasState) -> some View {
         @Bindable var state = state
         return Section("Storage & consignment") {
+            // US-2818: web parity - the composer's "Storage & SKU" card leads
+            // with the SKU, and the label says "Item #" too because that is the
+            // number printed on the tag the seller is holding.
+            TextField("SKU / Item #", text: $state.draft.sku)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+
             TextField("Location / bin", text: $state.draft.locationBin)
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
@@ -1428,28 +1470,40 @@ struct ItemCanvasView: View {
             // value isn't silently dropped on Save (which, for a live GradeThread
             // listing, also revises the eBay price). Reuses the details-intake
             // help pattern (US-754).
+            // US-2818: "Target price" and "Cost" sat one above the other with
+            // nothing but the words to tell them apart, so two filled fields
+            // read as two prices. Each now carries the web's own wording plus
+            // the one-line explanation the web cards put underneath.
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(currencyFormatter.symbol).foregroundStyle(.secondary)
-                    TextField("Target price", text: $state.draft.targetPriceText)
+                    TextField("Listing price (what buyers pay)",
+                              text: $state.draft.targetPriceText)
                         .keyboardType(.decimalPad)
                 }
                 if let help = MoneyFieldValidation.optionalPriceHelp(
                     state.draft.targetPriceText, formatter: currencyFormatter
                 ) {
                     Text(help).font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    Text("What you're asking for this item.")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
             }
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(currencyFormatter.symbol).foregroundStyle(.secondary)
-                    TextField("Cost", text: $state.draft.acquiredPriceText)
+                    TextField("Purchase price (what you paid)",
+                              text: $state.draft.acquiredPriceText)
                         .keyboardType(.decimalPad)
                 }
                 if let help = MoneyFieldValidation.optionalPriceHelp(
                     state.draft.acquiredPriceText, formatter: currencyFormatter
                 ) {
                     Text(help).font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    Text("Your cost basis. Never shown to buyers - it drives profit and margin.")
+                        .font(.footnote).foregroundStyle(.secondary)
                 }
             }
             // Acquisition date (web parity). Optional — the toggle controls
@@ -1973,14 +2027,152 @@ struct ItemCanvasView: View {
     /// pushed to marketplaces, distinct from the internal condition notes above.
     private func descriptionSection(state: ItemCanvasState) -> some View {
         @Bindable var state = state
+        let group = ListingDescriptionTemplate.group(for: descriptionFacts(state: state))
         return Section {
             TextField("Listing description…", text: $state.draft.itemDescription, axis: .vertical)
-                .lineLimit(4...10)
+                .lineLimit(6...18)
+
+            // US-2818: the web composer's description card, ported. iOS could
+            // only ever get a description out of the publish dialog's one-shot
+            // AI call, which is why the copy read thinner than the web's: the
+            // structured per-garment template, the tighten pass and the
+            // regenerate-from-photos pass all existed only on the web.
+            Button {
+                AppRouter.haptic()
+                requestDescriptionTemplate(state: state)
+            } label: {
+                Label("Apply \(group.rawValue) template", systemImage: "wand.and.stars")
+            }
+            .disabled(descriptionRewriteRunning != nil)
+
+            Menu {
+                Button {
+                    AppRouter.haptic()
+                    Task { await runDescriptionRewrite(.descriptionTighten, state: state) }
+                } label: {
+                    Label(ListingRewriteAction.descriptionTighten.label,
+                          systemImage: "textformat")
+                }
+                .disabled(state.draft.itemDescription
+                    .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                Button {
+                    AppRouter.haptic()
+                    Task { await runDescriptionRewrite(.descriptionRegen, state: state) }
+                } label: {
+                    Label(ListingRewriteAction.descriptionRegen.label,
+                          systemImage: "photo.on.rectangle.angled")
+                }
+                .disabled(allPhotos.isEmpty)
+            } label: {
+                HStack(spacing: 6) {
+                    if descriptionRewriteRunning != nil {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "sparkles")
+                    }
+                    Text(descriptionRewriteRunning == nil
+                        ? "AI rewrite"
+                        : "Rewriting…")
+                }
+            }
+            .disabled(descriptionRewriteRunning != nil)
         } header: {
             Text("Listing description")
         } footer: {
-            Text("Shown to buyers on the marketplace listing.")
-                .font(.caption)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Shown to buyers on the marketplace listing.")
+                if allPhotos.isEmpty {
+                    Text("Add a photo to unlock \u{201C}Regenerate from photos\u{201D}.")
+                }
+            }
+            .font(.caption)
+        }
+    }
+
+    /// The item facts a description template interpolates. Reads the LIVE draft
+    /// rather than the persisted row, so a brand the seller just typed is in the
+    /// description they generate a second later.
+    private func descriptionFacts(state: ItemCanvasState) -> ListingDescriptionTemplate.Facts {
+        ListingDescriptionTemplate.Facts(
+            brand: state.draft.brand,
+            title: state.draft.title,
+            size: state.draft.size,
+            color: state.draft.color,
+            material: state.draft.material,
+            conditionNotes: state.draft.conditionNotes,
+            gradeLabel: item.gradeLabel ?? "",
+            gradeValue: item.gradeValue,
+            measurements: state.draft.measurements,
+            garmentDescriptor: descriptionGarmentDescriptor(state: state)
+        )
+    }
+
+    private func descriptionGarmentDescriptor(state: ItemCanvasState) -> String {
+        ListingDescriptionTemplate.garmentDescriptor(
+            garmentCategory: state.draft.garmentCategory,
+            garmentType: state.draft.garmentType,
+            itemCategory: state.draft.category?.rawValue,
+            style: state.draft.style,
+            title: state.draft.title
+        )
+    }
+
+    /// Applying the template REPLACES what is in the box, and there is no undo
+    /// on a phone - so confirm first when there is something to lose. Mirrors
+    /// the publish dialog's own template guard (US-1264).
+    private func requestDescriptionTemplate(state: ItemCanvasState) {
+        if state.draft.itemDescription
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            applyDescriptionTemplate(state: state)
+        } else {
+            confirmingDescriptionTemplate = true
+        }
+    }
+
+    private func applyDescriptionTemplate(state: ItemCanvasState) {
+        let facts = descriptionFacts(state: state)
+        // The server-appended "Verified Seller" block survives the replacement:
+        // it is HTML the template knows nothing about, and losing it silently
+        // downgrades the listing the seller is about to publish.
+        state.draft.itemDescription = ListingDescriptionTemplate.ensureSellerCredentials(
+            ListingDescriptionTemplate.build(facts: facts),
+            original: state.draft.itemDescription
+        )
+        HapticFeedback.success()
+        actionToast = "Applied the \(ListingDescriptionTemplate.group(for: facts).rawValue) template."
+    }
+
+    /// One AI rewrite pass over the description. The result is applied straight
+    /// to the draft (the seller still has to Save), with the grade line and the
+    /// credentials block re-asserted - a regenerate writes fresh copy that drops
+    /// both, and publish would then re-add a grade the preview never showed.
+    private func runDescriptionRewrite(
+        _ action: ListingRewriteAction,
+        state: ItemCanvasState
+    ) async {
+        guard descriptionRewriteRunning == nil else { return }
+        descriptionRewriteRunning = action
+        defer { descriptionRewriteRunning = nil }
+        do {
+            let result = try await descriptionRewriteService.rewrite(
+                itemId: item.id,
+                action: action,
+                title: state.draft.title,
+                description: state.draft.itemDescription
+            )
+            let withGrade = ListingDescriptionTemplate.ensureGradeLine(
+                result.value, gradeValue: item.gradeValue
+            )
+            state.draft.itemDescription = ListingDescriptionTemplate.ensureSellerCredentials(
+                withGrade, original: state.draft.itemDescription
+            )
+            HapticFeedback.success()
+            actionToast = "AI rewrote the description. Save to keep it."
+        } catch {
+            HapticFeedback.error()
+            descriptionAiMessage = (error as? LocalizedError)?.errorDescription
+                ?? error.localizedDescription
         }
     }
 

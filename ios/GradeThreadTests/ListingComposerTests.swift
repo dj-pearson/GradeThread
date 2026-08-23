@@ -173,4 +173,52 @@ final class ListingComposerTests: XCTestCase {
         XCTAssertEqual(copy.title, "Patagonia Better Sweater Fleece Jacket Mens M")
         XCTAssertTrue(copy.description.hasPrefix("Excellent"))
     }
+
+    // MARK: - AI rewrite decoding (US-2818)
+
+    /// `/ai/rewrite` answers in the `/extract` envelope so the web composer can
+    /// reuse its review panel. iOS wants the one suggestion out of it.
+    func test_rewrite_decodes_theSuggestionForTheActionsField() throws {
+        let json = #"""
+        {"suggestions":{"description":{"value":"Tightened copy.","confidence":0.82,
+          "source":"ai:description_tighten"}},
+         "condition_summary":null,"conflicts":[],"measurements":null,
+         "model":"claude-3","log_id":"abc","actions_remaining":4,"ebay":null}
+        """#
+        let result = try ListingRewriteService.decode(
+            Data(json.utf8), action: .descriptionTighten
+        )
+        XCTAssertEqual(result.field, .description)
+        XCTAssertEqual(result.value, "Tightened copy.")
+        XCTAssertEqual(result.confidence, 0.82, accuracy: 0.001)
+    }
+
+    /// Keyed on the ACTION's field, not on "whatever came back": a title
+    /// suggestion answering a description rewrite must not be dropped into the
+    /// description box.
+    func test_rewrite_throws_whenTheEnvelopeCarriesADifferentField() {
+        let json = #"""
+        {"suggestions":{"title":{"value":"A title","confidence":0.9}}}
+        """#
+        XCTAssertThrowsError(
+            try ListingRewriteService.decode(Data(json.utf8), action: .descriptionRegen)
+        )
+    }
+
+    func test_rewrite_throws_onAnEmptySuggestion() {
+        let json = #"""
+        {"suggestions":{"description":{"value":"   ","confidence":0.4}}}
+        """#
+        XCTAssertThrowsError(
+            try ListingRewriteService.decode(Data(json.utf8), action: .descriptionTighten)
+        )
+    }
+
+    func test_rewriteAction_mapsToTheFieldItRewrites() {
+        XCTAssertEqual(ListingRewriteAction.titleSeo.field, .title)
+        XCTAssertEqual(ListingRewriteAction.titleShorten.field, .title)
+        XCTAssertEqual(ListingRewriteAction.titleKeywords.field, .title)
+        XCTAssertEqual(ListingRewriteAction.descriptionTighten.field, .description)
+        XCTAssertEqual(ListingRewriteAction.descriptionRegen.field, .description)
+    }
 }

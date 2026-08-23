@@ -134,6 +134,44 @@ final class ItemWorkflowTests: XCTestCase {
         XCTAssertFalse(ItemPrepChecklist.hasRequiredPhotos(photoTypes: []))
     }
 
+    // MARK: - advanced(current:to:) — US-2818 post-AI drafting
+
+    func test_advanced_movesAPrepItemForward() {
+        XCTAssertEqual(
+            ItemWorkflow.advanced(current: "photographed", to: ItemWorkflow.aiDraftedStatus),
+            "drafted")
+        XCTAssertEqual(
+            ItemWorkflow.advanced(current: "cataloged", to: "drafted"), "drafted")
+    }
+
+    func test_advanced_refusesToRepeatOrRegress() {
+        // Already there.
+        XCTAssertNil(ItemWorkflow.advanced(current: "drafted", to: "drafted"))
+        // Further along the prep pipeline than the target.
+        XCTAssertNil(ItemWorkflow.advanced(current: "comped", to: "measured"))
+    }
+
+    /// The AI extract runs in the background, so the seller may have listed or
+    /// sold the item while it ran. Stepping one of those back to "drafted" would
+    /// unlist a live listing in every view that reads status.
+    func test_advanced_neverTouchesAnItemThatLeftThePrepPipeline() {
+        for status in ["listed", "sold", "shipped", "completed", "archived", "keeping"] {
+            XCTAssertNil(
+                ItemWorkflow.advanced(current: status, to: "drafted"),
+                status)
+        }
+    }
+
+    /// Once "drafted" is set, nothing in the canvas's own auto-advance walks it
+    /// back — resolveStatus takes the furthest of current / picked / earned, and
+    /// the earned status of an item with no listing row is only "photographed".
+    func test_resolveStatus_doesNotRegressAnAiDraftedItem() {
+        let facts = ItemWorkflow.Facts(hasRequiredPhotos: true)
+        XCTAssertEqual(
+            ItemWorkflow.resolveStatus(current: "drafted", selected: "drafted", facts: facts),
+            "drafted")
+    }
+
     // MARK: - Checklist rendering (AC4)
 
     func test_checklist_brandNewItem_allIncomplete() {

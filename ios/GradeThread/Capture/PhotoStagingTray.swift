@@ -2,10 +2,15 @@ import SwiftUI
 
 /// Sheet shown after PHPicker dismisses. Each picked image is compressed
 /// on import (same pipeline as the camera flow) and parked in the tray
-/// until the user assigns it to a slot. Discard removes the photo
-/// entirely. When the tray empties the sheet dismisses automatically and
-/// the user returns to the camera with whatever they assigned now in the
-/// slot strip.
+/// until it lands in a slot. Discard removes the photo entirely. When the
+/// tray empties the sheet dismisses automatically and the user returns to
+/// the camera with whatever they added now in the slot strip.
+///
+/// US-2818: tagging every photo BEFORE the item exists was the slowest step in
+/// listing one item, and the web stopped asking for it long ago — its bulk add
+/// auto-assigns a provisional tag and lets the seller correct it afterwards
+/// (photo-uploader.tsx `bulkUpload`). "Add all" is now the primary action here
+/// and per-photo assignment is the option, not the toll gate.
 struct PhotoStagingTray: View {
     @Environment(\.dismiss) private var dismiss
     let staged: [PhotoCapture]
@@ -13,6 +18,12 @@ struct PhotoStagingTray: View {
     /// to "still empty" plus the next revealable defect slot when relevant.
     let availableSlots: (PhotoCapture) -> [CaptureSlot]
 
+    /// How many of the staged photos "Add all" can actually place. Fewer than
+    /// `staged.count` when the profile runs out of slots — said out loud rather
+    /// than silently dropping the tail.
+    let autoAssignCapacity: Int
+
+    let onAssignAll: () -> Void
     let onAssign: (PhotoCapture, CaptureSlot) -> Void
     let onDiscard: (PhotoCapture) -> Void
 
@@ -25,7 +36,7 @@ struct PhotoStagingTray: View {
                     list
                 }
             }
-            .navigationTitle("Assign photos")
+            .navigationTitle("Add photos")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -40,8 +51,38 @@ struct PhotoStagingTray: View {
         }
     }
 
+    private var placeableCount: Int { min(autoAssignCapacity, staged.count) }
+
     private var list: some View {
         List {
+            Section {
+                Button {
+                    AppRouter.haptic()
+                    onAssignAll()
+                } label: {
+                    HStack {
+                        Image(systemName: "square.stack.3d.down.forward")
+                        Text(placeableCount == 1
+                             ? "Add 1 photo"
+                             : "Add all \(placeableCount) photos")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                    }
+                }
+                .disabled(placeableCount == 0)
+            } footer: {
+                if placeableCount == 0 {
+                    Text("Every slot is full. Assign a photo over an existing one below, or discard some.")
+                        .font(.footnote)
+                } else if placeableCount < staged.count {
+                    Text("Front and back go first, then the rest become listing photos. There's room for \(placeableCount) of your \(staged.count) — assign or discard the others below. You can change any tag later under Manage.")
+                        .font(.footnote)
+                } else {
+                    Text("Front and back go first, then the rest become listing photos. You can change any tag later under Manage.")
+                        .font(.footnote)
+                }
+            }
+
             Section {
                 ForEach(staged) { photo in
                     HStack(spacing: 12) {
@@ -78,19 +119,21 @@ struct PhotoStagingTray: View {
                                 Label("Discard", systemImage: "trash")
                             }
                         } label: {
-                            Text("Assign")
+                            Text("Tag")
                                 .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Color.brandNavy)
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 8)
-                                .background(Color.brandNavy)
+                                .background(Color.brandNavy.opacity(0.1))
                                 .clipShape(Capsule())
                         }
                     }
                     .padding(.vertical, 4)
                 }
+            } header: {
+                Text("Or tag them one at a time")
             } footer: {
-                Text("\(staged.count) photo\(staged.count == 1 ? "" : "s") waiting. Pick a slot for each.")
+                Text("\(staged.count) photo\(staged.count == 1 ? "" : "s") waiting.")
                     .font(.footnote)
             }
         }

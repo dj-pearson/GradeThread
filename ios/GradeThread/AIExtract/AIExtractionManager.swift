@@ -551,6 +551,43 @@ final class AIExtractionManager {
             }
         }
 
+        // US-2818: an item that reaches "drafted" with an empty description is
+        // not drafted. Fill it from the per-garment listing template now that
+        // brand/size/colour/material and the measurements have just been
+        // written, so the seller opens a finished draft instead of a blank box
+        // and a Generate button. Never overwrites an existing description.
+        do {
+            try await AIItemFieldWriter.seedDescriptionIfEmpty(itemId: itemId)
+        } catch {
+            Telemetry.breadcrumb(
+                "AI description seed failed: \(error.localizedDescription)",
+                category: "ai-extract"
+            )
+        }
+
+        // US-2818: the AI pass IS the drafting step, so the item ends on
+        // `drafted` the way the same item does on the web. It used to stop at
+        // `photographed` — iOS derives "drafted" from a `listings` row and the
+        // photo-first intake never creates one, so the Drafted tab stayed empty
+        // no matter how many items had been through the AI. Forward-only and
+        // best-effort: a failure here must not discard the extraction above.
+        do {
+            let advanced = try await AIItemFieldWriter.advanceStatus(
+                itemId: itemId, to: ItemWorkflow.aiDraftedStatus
+            )
+            if advanced != nil {
+                // The local mirror is written by the sync pull, not from here —
+                // the manager holds no model context by design (it outlives the
+                // views that do).
+                NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+            }
+        } catch {
+            Telemetry.breadcrumb(
+                "AI status advance to drafted failed: \(error.localizedDescription)",
+                category: "ai-extract"
+            )
+        }
+
         // Auto-present the review when the user opens the item.
         if review.hasSomethingToReview {
             AIFillReviewStore.shared.register(review, autoPresent: true)

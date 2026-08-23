@@ -314,6 +314,144 @@ enum AIItemFieldWriter {
         }
     }
 
+    // MARK: - Pipeline status (US-2818)
+
+    /// Move the item forward to `target` after the AI pass, matching where the
+    /// web composer leaves an item it has just drafted. Reads the CURRENT status
+    /// first rather than trusting a caller's copy: the extract runs in the
+    /// background and the seller may have moved the item (or sold it) while it
+    /// ran, and ``ItemWorkflow/advanced(current:to:)`` refuses anything that has
+    /// left the prep pipeline.
+    ///
+    /// Returns the new status, or nil when nothing was written.
+    @discardableResult
+    static func advanceStatus(itemId: String, to target: String) async throws -> String? {
+        let rows: [StatusRow] = try await SupabaseShared.client
+            .from("inventory_items")
+            .select("status")
+            .eq("id", value: itemId)
+            .limit(1)
+            .execute()
+            .value
+        guard let current = rows.first?.status,
+              let next = ItemWorkflow.advanced(current: current, to: target)
+        else { return nil }
+
+        try await SupabaseShared.client
+            .from("inventory_items")
+            .update(StatusUpdate(status: next))
+            .eq("id", value: itemId)
+            .execute()
+        return next
+    }
+
+    private struct StatusRow: Decodable { let status: String? }
+
+    private struct StatusUpdate: Encodable { let status: String }
+
+    // MARK: - Description seed (US-2818)
+
+    /// Fill `inventory_items.description` from the per-garment listing template
+    /// when the item has none yet. Runs after the AI pass has written brand,
+    /// size, colour, material and the measurements, so the template has real
+    /// values to interpolate rather than a row of em dashes.
+    ///
+    /// NEVER overwrites: an existing description is the seller's, or a previous
+    /// AI rewrite's, and the template is a starting point rather than an
+    /// improvement on either. Returns true when it wrote one.
+    @discardableResult
+    static func seedDescriptionIfEmpty(itemId: String) async throws -> Bool {
+        let rows: [DescriptionSeedRow] = try await SupabaseShared.client
+            .from("inventory_items")
+            .select(
+                "title,brand,size,color,material,style,description,condition_notes,"
+                + "garment_type,garment_category,item_category,measurements,"
+                + "grade_value,grade_label"
+            )
+            .eq("id", value: itemId)
+            .limit(1)
+            .execute()
+            .value
+        guard let row = rows.first else { return false }
+        guard (row.description ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return false }
+
+        let unit = AppPreferences.measurementUnit
+        let facts = ListingDescriptionTemplate.Facts(
+            brand: row.brand ?? "",
+            title: row.title ?? "",
+            size: row.size ?? "",
+            color: row.color ?? "",
+            material: row.material ?? "",
+            conditionNotes: row.condition_notes ?? "",
+            gradeLabel: row.grade_label ?? "",
+            gradeValue: row.grade_value,
+            measurements: row.measurements ?? [:],
+            garmentDescriptor: ListingDescriptionTemplate.garmentDescriptor(
+                garmentCategory: row.garment_category,
+                garmentType: row.garment_type,
+                itemCategory: row.item_category,
+                style: row.style,
+                title: row.title
+            )
+        )
+        let description = ListingDescriptionTemplate.build(facts: facts, unit: unit)
+        guard !description.isEmpty else { return false }
+
+        try await SupabaseShared.client
+            .from("inventory_items")
+            .update(DescriptionUpdate(description: description))
+            .eq("id", value: itemId)
+            .execute()
+        return true
+    }
+
+    private struct DescriptionSeedRow: Decodable {
+        let title: String?
+        let brand: String?
+        let size: String?
+        let color: String?
+        let material: String?
+        let style: String?
+        let description: String?
+        let condition_notes: String?
+        let garment_type: String?
+        let garment_category: String?
+        let item_category: String?
+        let measurements: [String: Double]?
+        let grade_value: Double?
+        let grade_label: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case title, brand, size, color, material, style, description
+            case condition_notes, garment_type, garment_category, item_category
+            case measurements, grade_value, grade_label
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            title = try c.decodeIfPresent(String.self, forKey: .title)
+            brand = try c.decodeIfPresent(String.self, forKey: .brand)
+            size = try c.decodeIfPresent(String.self, forKey: .size)
+            color = try c.decodeIfPresent(String.self, forKey: .color)
+            material = try c.decodeIfPresent(String.self, forKey: .material)
+            style = try c.decodeIfPresent(String.self, forKey: .style)
+            description = try c.decodeIfPresent(String.self, forKey: .description)
+            condition_notes = try c.decodeIfPresent(String.self, forKey: .condition_notes)
+            garment_type = try c.decodeIfPresent(String.self, forKey: .garment_type)
+            garment_category = try c.decodeIfPresent(String.self, forKey: .garment_category)
+            item_category = try c.decodeIfPresent(String.self, forKey: .item_category)
+            grade_value = try c.decodeIfPresent(Double.self, forKey: .grade_value)
+            grade_label = try c.decodeIfPresent(String.self, forKey: .grade_label)
+            // Lenient, like the sync engine's row decode: one odd measurement
+            // must not cost the whole description.
+            measurements = try? c.decodeIfPresent([String: Double].self, forKey: .measurements)
+        }
+    }
+
+    private struct DescriptionUpdate: Encodable { let description: String }
+
     // MARK: - Backwards title sync (US-1995 AC3)
     //
     // An AI fill that CORRECTS brand/size/color/style used to update the item

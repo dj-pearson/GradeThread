@@ -514,6 +514,56 @@ final class PhotoIntakeTests: XCTestCase {
         XCTAssertNotEqual(PhotoProfile.slotKey("tag", "brand"), PhotoProfile.slotKey("tag", "size"))
     }
 
+    // MARK: - Auto-assign (US-2818)
+
+    /// The web bulk-add rule: required slots first, in profile order, so the
+    /// required set completes and the item still earns "photographed".
+    func test_autoAssignTargets_fillsRequiredSlotsFirst() {
+        let store = PhotoIntakeStore()
+        let targets = store.autoAssignTargets(count: 2)
+        XCTAssertEqual(targets.map(\.serverPhotoType), ["front", "back"])
+    }
+
+    /// Past the required set the batch lands on ordinary listing slots, in the
+    /// profile's own order, and never on a slot that is already taken.
+    func test_autoAssignTargets_skipsFilledSlots_andContinuesDownTheStrip() {
+        let store = PhotoIntakeStore()
+        store.setPhoto(makeCapture(), for: store.visibleSlots[0])  // front taken
+
+        let targets = store.autoAssignTargets(count: 4)
+        XCTAssertEqual(targets.first?.serverPhotoType, "back")
+        XCTAssertFalse(targets.contains(store.visibleSlots[0]))
+        XCTAssertEqual(Set(targets).count, targets.count, "no slot offered twice")
+    }
+
+    /// A wrong tag on either of these is worse than no photo: a defect slot
+    /// tells a buyer the garment is damaged, and the MeasureCard frame is a
+    /// calibration shot the measurement pipeline reads rather than a listing
+    /// photo. Both stay reachable from the per-photo menu.
+    func test_autoAssignTargets_neverPicksDefectOrMeasurementSlots() {
+        let store = PhotoIntakeStore()
+        store.revealNextDefectSlot()
+
+        let targets = store.autoAssignTargets(count: 40)
+        XCTAssertFalse(targets.contains { $0.isDefect })
+        XCTAssertFalse(targets.contains { $0.serverPhotoType == "measurement" })
+    }
+
+    func test_autoAssignTargets_isBoundedByTheBatchSize() {
+        let store = PhotoIntakeStore()
+        XCTAssertEqual(store.autoAssignTargets(count: 1).count, 1)
+        XCTAssertTrue(store.autoAssignTargets(count: 0).isEmpty)
+    }
+
+    /// Capacity is finite, and the tray reports the real number so the tail is
+    /// left in the tray to be tagged or discarded rather than dropped.
+    func test_autoAssignTargets_capsAtTheAvailableSlots() {
+        let store = PhotoIntakeStore()
+        let unbounded = store.autoAssignTargets(count: 999)
+        XCTAssertLessThan(unbounded.count, 999)
+        XCTAssertGreaterThanOrEqual(unbounded.count, store.requiredSlots.count)
+    }
+
     // MARK: - Helpers
 
     private func makeImage(size: CGSize) -> UIImage {

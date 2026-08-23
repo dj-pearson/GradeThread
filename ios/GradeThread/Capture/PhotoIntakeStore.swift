@@ -144,6 +144,41 @@ public final class PhotoIntakeStore {
         hiddenExtraSlots.filter { $0.serverPhotoType != "measurement" && !$0.isDefect }
     }
 
+    // MARK: - Auto-assign (US-2818)
+
+    /// Slots an UNLABELLED batch of photos should land in, in order, so the
+    /// seller never has to tag a photo before the item exists.
+    ///
+    /// This is the web `bulkUpload` rule (photo-uploader.tsx): the first photos
+    /// fill whatever REQUIRED slots are still empty — in profile order, so the
+    /// required set completes and the item still earns "photographed" — and the
+    /// rest land on ordinary listing slots the seller corrects afterwards.
+    ///
+    /// Two kinds of slot are deliberately never auto-filled, because a wrong tag
+    /// on either is worse than no photo at all: DEFECT slots, which tell a buyer
+    /// the garment is damaged, and MEASUREMENT slots, whose MeasureCard frame is
+    /// a calibration shot the pipeline reads rather than a photo anyone lists.
+    /// Both stay available from the tray's per-photo menu.
+    public func autoAssignTargets(count: Int) -> [CaptureSlot] {
+        guard count > 0 else { return [] }
+        func isSafeFiller(_ slot: CaptureSlot) -> Bool {
+            !slot.isDefect && slot.serverPhotoType != "measurement"
+        }
+        var targets: [CaptureSlot] = []
+        var taken = Set<CaptureSlot>()
+        func offer(_ slot: CaptureSlot) {
+            guard targets.count < count, !taken.contains(slot) else { return }
+            taken.insert(slot)
+            targets.append(slot)
+        }
+        for slot in requiredSlots where photos[slot] == nil { offer(slot) }
+        for slot in visibleSlots where photos[slot] == nil && isSafeFiller(slot) {
+            offer(slot)
+        }
+        for slot in hiddenGeneralSlots { offer(slot) }
+        return targets
+    }
+
     // MARK: - Mutations
 
     /// Stores a photo in the currently-active slot and advances to the

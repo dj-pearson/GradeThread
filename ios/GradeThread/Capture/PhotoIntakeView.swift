@@ -321,6 +321,8 @@ struct PhotoIntakeView: View {
             PhotoStagingTray(
                 staged: stagedPhotos,
                 availableSlots: availableSlots(for:),
+                autoAssignCapacity: store.autoAssignTargets(count: stagedPhotos.count).count,
+                onAssignAll: assignAllStagedPhotos,
                 onAssign: assign(stagedPhoto:to:),
                 onDiscard: { photo in
                     stagedPhotos.removeAll { $0.id == photo.id }
@@ -915,6 +917,23 @@ struct PhotoIntakeView: View {
     private func availableSlots(for _: PhotoCapture) -> [CaptureSlot] {
         store.visibleSlots.filter { store.photos[$0] == nil }
             + store.hiddenExtraSlots
+    }
+
+    /// US-2818: place the whole batch without asking for a tag, the way the web
+    /// bulk add does. Required slots fill first (so the item still earns
+    /// "photographed"), the rest become ordinary listing photos, and anything
+    /// that did not fit stays in the tray to be tagged or discarded rather than
+    /// being dropped.
+    private func assignAllStagedPhotos() {
+        let targets = store.autoAssignTargets(count: stagedPhotos.count)
+        guard !targets.isEmpty else { return }
+        for (photo, slot) in zip(stagedPhotos, targets) {
+            store.setPhoto(photo, for: slot)
+        }
+        let placed = Set(stagedPhotos.prefix(targets.count).map(\.id))
+        stagedPhotos.removeAll { placed.contains($0.id) }
+        HapticFeedback.success()
+        announce("Added \(targets.count) photo\(targets.count == 1 ? "" : "s").")
     }
 
     private func assign(stagedPhoto: PhotoCapture, to slot: CaptureSlot) {

@@ -77,6 +77,29 @@ enum ItemWorkflow {
         return "cataloged"
     }
 
+    /// US-2818: where an item lands once the AI has read its photos and written
+    /// its listing fields.
+    ///
+    /// The web has always ended this step on `drafted`: its composer save passes
+    /// `hasDraftListing: true` unconditionally (composer.tsx composerItemPatch),
+    /// because on the web the composer IS the listing draft. iOS derives the
+    /// same fact from an actual `listings` row, which the photo-first intake
+    /// never creates — so an item that had been through the whole AI pass sat on
+    /// `photographed`, one stage behind the identical item on the web, and the
+    /// seller's Drafted tab was empty.
+    static let aiDraftedStatus = "drafted"
+
+    /// A forward-only advance to `target`. Returns nil — meaning "leave it
+    /// alone" — when the item has already reached or passed `target`, or when it
+    /// has left the prep pipeline entirely (listed, sold, archived, …): those
+    /// statuses are only ever set by explicit action, and stepping one back to
+    /// `drafted` would unlist a live listing in every view that reads status.
+    static func advanced(current: String, to target: String) -> String? {
+        guard prepStatuses.contains(current) else { return nil }
+        guard rank(target) > rank(current) else { return nil }
+        return target
+    }
+
     /// Resolve the status to persist. Auto-advances forward from completed work,
     /// never regresses, and lets a manual pick of a non-prep status win outright.
     /// Mirrors the web `resolveStatus`.
