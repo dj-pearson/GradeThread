@@ -167,6 +167,40 @@ import {
   type Measurements,
   resolveMeasurementAspects,
 } from "../lib/measurements.ts";
+import { resolveShoeSizeScaleForItem } from "../lib/shoe-size-scale.ts";
+import type { ShoeSizeScale } from "../lib/parcel-estimate.ts";
+
+/**
+ * US-2796 AC3: which scale this item's stamped shoe number is on.
+ *
+ * The rows reaching the publish and revise paths are read with wide selects and
+ * typed loosely, so this narrows once instead of at each call site. Every field
+ * is optional and the resolver returns null when it cannot tell - which is
+ * exactly today's behaviour, so a row that happens to be missing a column loses
+ * nothing that was working.
+ */
+function shoeScaleOf(item: unknown): ShoeSizeScale | null {
+  const row = (item ?? {}) as {
+    brand?: string | null;
+    attributes?: Record<string, string | string[]> | null;
+    item_category?: string | null;
+    size?: string | null;
+    style?: string | null;
+    title?: string | null;
+    description?: string | null;
+    condition_notes?: string | null;
+  };
+  return resolveShoeSizeScaleForItem({
+    brand: row.brand,
+    attributes: row.attributes,
+    item_category: row.item_category ?? null,
+    size: row.size,
+    style: row.style,
+    title: row.title,
+    description: row.description,
+    condition_notes: row.condition_notes,
+  });
+}
 import {
   type AspectCoverage,
   type AspectSourceMap,
@@ -2190,6 +2224,10 @@ flipdeskEbayRoutes.post("/category/:id/derive-aspects", async (c) => {
         meas,
         allowedAspectsFromSpec(list),
         { ...known, ...derived },
+        "in",
+        // US-2796 AC3: a UK or EU number must not fill "US Shoe Size". Absent
+        // scale = today's behaviour, so nothing changes for a US shoe.
+        shoeScaleOf(item),
       );
       for (const [k, v] of Object.entries(measAspects)) derived[k] = v;
     }
@@ -6589,6 +6627,10 @@ async function reviseOneListing(
           meas,
           allowedAspectsFromSpec(reviseAspectList ?? []),
           aspects,
+          "in",
+          // US-2796 AC3, same rule on the revise path: a revise that re-derived
+          // measurement aspects would otherwise put the US-named aspect back.
+          shoeScaleOf(item),
         );
         for (const [k, v] of Object.entries(measAspects)) aspects[k] = v;
         desc = applyMeasurementsBlock(desc, meas, "in", {

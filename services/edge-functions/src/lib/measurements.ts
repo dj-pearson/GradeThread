@@ -21,6 +21,12 @@
 /** Stored unit semantics per measurement key. */
 export type MeasurementKind = "length" | "shoe" | "mm";
 
+// Type-only, and parcel-estimate.ts imports nothing from here, so there is no
+// cycle in either direction. The scale is a PARAMETER rather than something this
+// module resolves: measurements.ts is a leaf that formats numbers, and giving it
+// a reason to read brands and sizing charts would make it one.
+import type { ShoeSizeScale } from "./parcel-estimate.ts";
+
 export interface MeasurementSpec {
   /** Stored-value semantics — drives unit conversion + formatting. */
   kind: MeasurementKind;
@@ -440,6 +446,7 @@ export function resolveMeasurementAspects(
   categoryAspects: Record<string, string[]>,
   existing: Record<string, string[]> = {},
   unit: LengthUnit = "in",
+  shoeSizeScale?: ShoeSizeScale | null,
 ): Record<string, string[]> {
   const out: Record<string, string[]> = {};
   if (!measurements || typeof measurements !== "object") return out;
@@ -457,7 +464,7 @@ export function resolveMeasurementAspects(
     if (!(key in measurements)) continue;
     const formatted = formatListingMeasurement(key, measurements[key], unit);
     if (!formatted) continue;
-    for (const candidate of spec.aspects) {
+    for (const candidate of usableCandidates(spec, shoeSizeScale)) {
       const lower = candidate.toLowerCase();
       const canonical = freeTextByLower.get(lower);
       if (!canonical) continue;
@@ -467,4 +474,57 @@ export function resolveMeasurementAspects(
     }
   }
   return out;
+}
+
+/**
+ * US-2796 AC3: never publish a non-US number into a US-named aspect.
+ *
+ * `size_us` holds whatever number is stamped on the shoe, and US-2796 added the
+ * SCALE that number is on. The candidate list for that key is
+ * ["US Shoe Size", "Shoe Size"], so a Dr. Martens UK 9 filled "US Shoe Size"
+ * with 9 - and a UK 9 is about a US men's 9.5-10. The buyer reads a size that is
+ * a full size off, on the one field a shoe listing is searched by.
+ *
+ * WHY THIS DROPS THE ASPECT RATHER THAN CONVERTING THE NUMBER. Converting looks
+ * like the better fix and is a trap: "US Shoe Size" means "the US size in THIS
+ * category's department", and eBay splits its shoe categories by department. A
+ * women's 9 is already correct under a women's category, so converting it to a
+ * men's 7.5 would introduce the very error this is preventing. Only the
+ * non-US-scale cases are unambiguously wrong, and for those the honest move is
+ * to leave the US-named aspect empty and let the scale-neutral "Shoe Size"
+ * candidate take the number - which is what the fall-through does. If the
+ * category has no neutral candidate, the aspect stays blank and eBay's own
+ * required-aspect gap-fill surfaces it to the seller, which is a question rather
+ * than a wrong answer.
+ *
+ * `us_men` and `us_women` are untouched, as is an ABSENT scale - so every
+ * existing call, all of which pass nothing, behaves exactly as before. That is
+ * AC4's compatibility promise reaching this function too.
+ */
+function usableCandidates(
+  spec: MeasurementSpec,
+  shoeSizeScale: ShoeSizeScale | null | undefined,
+): string[] {
+  // Keyed on spec.kind rather than on the key NAME, deliberately. `size_us` is
+  // the only "shoe" spec today, but a second one added later would inherit this
+  // rule for free instead of needing someone to remember the name here.
+  //
+  // ⚠ BOTH GUARDS BELOW ARE DEFENSIVE AND INDIVIDUALLY INERT TODAY, which is
+  // worth stating rather than leaving them looking load-bearing. Sabotage
+  // measured it: removing the kind check alone changes no result, because no
+  // non-shoe aspect name in MEASUREMENT_SPECS contains "us" as a WORD. Dropping
+  // the word boundary alone changes no result either, because none of the shoe
+  // candidates contains "us" as a mere substring.
+  //
+  // Together they do matter, and that is the case the tests pin: "Bust" and
+  // "Bust Size" contain "us", so a version with neither guard would strip a
+  // bust measurement off any listing whose shoe scale happened to be UK. Each
+  // is cheap, and the pair is the actual protection.
+  if (spec.kind !== "shoe") return spec.aspects;
+  if (!shoeSizeScale || shoeSizeScale === "us_men" || shoeSizeScale === "us_women") {
+    return spec.aspects;
+  }
+  // uk / eu / jp: the stored number is not a US size, so a US-named aspect
+  // cannot carry it. Matched on the WORD "us" so "Shoe Size" survives.
+  return spec.aspects.filter((a) => !/\bus\b/i.test(a));
 }

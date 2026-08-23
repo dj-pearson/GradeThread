@@ -293,3 +293,102 @@ Deno.test("US-2630: a blank measurement still yields nothing", () => {
   assertEquals(listingMeasurementValue("waist", 0), null);
   assertEquals(listingMeasurementValue("waist", "not a number"), null);
 });
+
+// ── US-2796 AC3: a non-US number must never fill a US-named aspect ─────────
+//
+// size_us holds whatever number is stamped on the shoe, and US-2796 added the
+// SCALE it is on. Its candidates are ["US Shoe Size", "Shoe Size"], so before
+// this a Dr. Martens UK 9 filled "US Shoe Size" with 9 - and a UK 9 is around a
+// US men's 9.5-10. That is a full size wrong on the one field a shoe listing is
+// searched by.
+//
+// The fix DROPS the US-named candidate rather than converting the number.
+// Converting is the trap: "US Shoe Size" means the US size in THIS category's
+// department, and eBay splits shoe categories by department, so a women's 9 is
+// already correct under a women's category and converting it to a men's 7.5
+// would introduce the error. Only uk/eu/jp are unambiguously wrong.
+
+const SHOE_SPEC_BOTH = { "US Shoe Size": [], "Shoe Size": [] };
+const SHOE_SPEC_US_ONLY = { "US Shoe Size": [] };
+
+Deno.test("US-2796 AC3: a UK size falls through to the scale-neutral aspect", () => {
+  const out = resolveMeasurementAspects(
+    { size_us: 9 },
+    SHOE_SPEC_BOTH,
+    {},
+    "in",
+    "uk",
+  );
+  assertEquals(out["US Shoe Size"], undefined, "a UK 9 must not publish as a US 9");
+  assertEquals(out["Shoe Size"], ["US 9"]);
+});
+
+Deno.test("US-2796 AC3: with only a US-named aspect, a UK size fills nothing", () => {
+  // Blank is a question eBay's required-aspect gap-fill puts to the seller.
+  // A wrong number is an answer nobody asked for.
+  const out = resolveMeasurementAspects(
+    { size_us: 9 },
+    SHOE_SPEC_US_ONLY,
+    {},
+    "in",
+    "eu",
+  );
+  assertEquals(out, {});
+});
+
+Deno.test("US-2796 AC3: US scales are untouched, including us_women", () => {
+  // us_women is CORRECT under a women's category, which is why it is not
+  // converted. Treating it as non-US would empty an aspect that was right.
+  for (const scale of ["us_men", "us_women"] as const) {
+    const out = resolveMeasurementAspects({ size_us: 9 }, SHOE_SPEC_BOTH, {}, "in", scale);
+    assertEquals(out["US Shoe Size"], ["US 9"], scale);
+  }
+});
+
+Deno.test("US-2796 AC4: passing no scale is identical to the old four-argument call", () => {
+  // The compatibility promise, asserted against the call every existing caller
+  // makes rather than against a remembered value.
+  const legacy = resolveMeasurementAspects({ size_us: 9 }, SHOE_SPEC_BOTH, {}, "in");
+  for (const scale of [undefined, null] as const) {
+    assertEquals(
+      resolveMeasurementAspects({ size_us: 9 }, SHOE_SPEC_BOTH, {}, "in", scale),
+      legacy,
+      String(scale),
+    );
+  }
+  assertEquals(legacy["US Shoe Size"], ["US 9"]);
+});
+
+Deno.test("US-2796 AC3: the scale does not touch a non-shoe measurement", () => {
+  // The rule is keyed on spec.kind === "shoe". A garment measurement passing
+  // through the same loop must be unaffected whatever the scale says.
+  const out = resolveMeasurementAspects(
+    { chest: 21 },
+    { "Chest Size": [] },
+    {},
+    "in",
+    "uk",
+  );
+  assertEquals(out["Chest Size"], ["42 in"]);
+});
+
+Deno.test("US-2796 AC3: Bust survives a non-US scale, which is what the two guards protect", () => {
+  // NEITHER GUARD IN usableCandidates FIRES ON ITS OWN TODAY - sabotage measured
+  // that and the source says so. Removing the spec.kind check alone changes
+  // nothing, because no non-shoe aspect name holds "us" as a WORD. Removing the
+  // word boundary alone changes nothing, because no shoe candidate holds "us" as
+  // a mere substring.
+  //
+  // This is the case where the PAIR matters. "Bust" and "Bust Size" contain
+  // "us", so a version with neither guard strips a bust measurement off any
+  // listing whose shoe scale happens to be UK - a garment field deleted by a
+  // footwear rule.
+  const out = resolveMeasurementAspects(
+    { bust: 20 },
+    { "Bust": [], "Bust Size": [] },
+    {},
+    "in",
+    "uk",
+  );
+  assertEquals(out["Bust"], ["40 in"], "a bust measurement was filtered by a shoe rule");
+});
