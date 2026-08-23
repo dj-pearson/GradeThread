@@ -510,6 +510,7 @@ export function TeamPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => copyInviteLink(inv.token)}
+                          aria-label={`Copy the invitation link for ${inv.email}`}
                         >
                           <Copy className="mr-1 h-3.5 w-3.5" />
                           Copy link

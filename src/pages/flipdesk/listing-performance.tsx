@@ -467,6 +467,7 @@ export function FlipdeskListingPerformancePage(
                     variant="outline"
                     className="shrink-0"
                     onClick={() => handleSellSimilar(s.inventory_item_id)}
+                    aria-label={`Sell an item similar to ${s.title}`}
                   >
                     <Repeat className="mr-1 h-3.5 w-3.5" />
                     Sell Similar

@@ -67,7 +67,7 @@ const BASELINE = 20;
 // promotion and unscheduling the wrong drop all cost money, so those went
 // first. A budget rather than a floor (see the case that uses it), and it only
 // goes down.
-const TEXT_BASELINE = 76;
+const TEXT_BASELINE = 73;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {

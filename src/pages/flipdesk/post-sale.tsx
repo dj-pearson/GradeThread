@@ -273,6 +273,7 @@ function DisputesCard() {
                     size="sm"
                     variant="outline"
                     disabled={!!busy}
+                    aria-label={`Grade pack for order ${d.orderId ?? "unknown"}`}
                     onClick={() =>
                       setPackFor(
                         packFor === d.paymentDisputeId ? null : d.paymentDisputeId,
