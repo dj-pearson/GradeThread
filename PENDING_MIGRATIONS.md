@@ -1,6 +1,17 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🔒 HELD: 00659 — seller digest ledger + opt-out (US-2828)
+## ✅ APPLIED 2026-08-23: 00659 — seller digest ledger + opt-out (US-2828)
+
+Owner applied it (with the rest of the outstanding set) on 2026-08-23, and it
+was CONFIRMED here rather than taken on trust: prod's live PostgREST schema
+document at api.gradethread.com/rest/v1/ names `seller_digest_log` and
+`seller_digest_opt_out`. That is a read-only probe and it answers two questions
+at once, because PostgREST only advertises what its schema cache holds, so the
+`NOTIFY pgrst, 'reload schema'` below happened too.
+
+The caveat below about never having been run against a Postgres is now moot for
+this migration. It is left in place because the reason it existed is still true
+of the dev box, and the next held migration inherits the same gap.
 
 One table and one column, both additive. Nothing existing changes shape or
 behaviour; no REVOKE anywhere (US-2403).
