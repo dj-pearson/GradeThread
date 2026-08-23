@@ -7,7 +7,7 @@ source_of_truth: code
 code_refs:
   - src/components/breadcrumbs.tsx
   - src/lib/seo/public-routes.ts
-reviewed: 2026-08-21
+reviewed: 2026-08-23
 tags: [accessibility, compliance, wcag, vpat]
 summary: WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a published artifact that must stay true, not a snapshot.
 ---

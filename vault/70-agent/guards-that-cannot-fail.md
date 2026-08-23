@@ -8,7 +8,7 @@ code_refs:
   - src/test/numeric-or.test.ts
 reviewed: 2026-08-23
 tags: [testing, ci, agent, verification]
-summary: This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the thirteen shapes it took, the habits that catch them, and what a systematic sweep of eight guards found (four had holes).
+summary: This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the sixteen shapes it took, the habits that catch them, what a systematic sweep of eight guards found (four had holes), and the day five new guards each had a hole and four were the same idea.
 ---
 
 # Guards that cannot fail
@@ -42,7 +42,7 @@ This note exists so the eighth instance gets recognised instead of rediscovered.
 > something the guard no longer checks. It was verified by making it fail on
 > purpose before it was committed, which is the habit below.
 
-## The thirteen shapes it took
+## The sixteen shapes it took
 
 1. **The gate that hid the other gates.** CI ran `lint` first with default step
    semantics, so three style errors meant type-check, tests, coverage, build and
@@ -414,6 +414,104 @@ Two probes in this sweep were wrong rather than the guard:
 
 So the control matters in both directions: a probe that stays green may mean
 the guard is blind **or** that the probe did not break anything.
+
+## The day the guards read their own documentation, 2026-08-23
+
+Five new guards were written in one session. **Sabotage found a hole in every
+one of them**, and four of the holes were the same idea wearing different
+clothes: the check matched text that DESCRIBES the property instead of text that
+IS the property. Three are new shapes. The fourth is shape #8 recurring — in a
+guard written by an agent that had read this note the same day, which is the
+thesis of the opening paragraph demonstrating itself.
+
+14. **The comment counted as the code.** Four times, in three files, in one day.
+    The clearest: `public-changelog-page.test.ts` asserted the page still passes
+    `audience=all` to the changelog API. Deleting that parameter from the real
+    fetch left the suite GREEN, because the page's own comment heading reads
+    `WHY THIS PASSES audience=all` — **the explanation outlived the thing it
+    explained.** The same file had two more: a case asserting the admin page does
+    not promise an unbuilt panel failed immediately, on a comment written to
+    record that the promise is ABSENT; and a case asserting the admin copy names
+    the public page would have passed on the header comment alone while the
+    subtitle a person reads said nothing. *(commit 3c8b3be6a)*
+
+    The fix is three lines — strip comment lines before scanning — and the
+    trap is that it looks unnecessary until it isn't. **Only what a reader can
+    read counts as a claim.** ⚠ In `registered-numbers-admin-page.test.ts` the
+    same stripper is present and NOT load-bearing: removing it changes nothing,
+    because no comment there contains a string an assertion looks for. It is
+    documented as defensive rather than left looking proven, which is the honest
+    treatment for a guard you cannot demonstrate.
+
+15. **The identifier counted as the copy.** `badge-claims-match-capability.test.ts`
+    holds a rule with real consequences: a provenance badge may not be advertised
+    while no client can earn it. Its live pattern was
+    `/live[\s-]?verified|live[\s-]?capture/` and the second alternative matches
+    the IDENTIFIER `qualifiesForLiveCapture`, imported on line 54 of
+    `new-submission.tsx` and called on line 933. So deleting the actual seller
+    copy — the words offering the badge — left the guard green on a function
+    name. **When the property is what a PERSON reads, matching machine text
+    cannot distinguish the copy from the plumbing.** Patterns are badge names
+    now. *(commit 5b4ceb55d)*
+
+16. **The allowlist as the escape hatch.** A guard refusing non-numeric
+    measurement units carried its allowed set as a hand-written literal,
+    `["length","shoe","mm"]`. Widening it to include `"scale"` and adding the
+    field turns the guard green and ships the bug — **and the allowlist is the
+    easiest thing to edit when a guard complains**, which is the wrong incentive
+    to leave lying around. Distinct from shape #3: that list went stale by
+    neglect; this one is the lever a person reaches for on purpose. Fixed by
+    parsing the list out of the Kotlin `enum class Kind(val unit: String)` that
+    imposes the constraint, so widening it now means widening the phone's own
+    catalog. *(commit e95a569c7)*
+
+    Same session, same principle, different artifact: `granted-rpc-has-caller.test.ts`
+    keeps a named exemption list and asserts it stays **at or under five
+    entries**, with a failure message saying to delete the guard rather than keep
+    feeding it. A guard with thirty exemptions guards nothing, and the ceiling is
+    a test rather than an intention. *(commit 540f9949f)*
+
+**And shape #8 again, whose fix was already written above.** The
+registered-numbers guard asserted that `grading-pipeline.ts` mentions
+`recordRegisteredNumberSighting`. Replacing the real call with a no-op left it
+green: the import at the top of the file still carried the name. That is
+"a scheduler check searching for a bare identifier, which the surviving import
+line satisfied" — shape #8's second bullet, verbatim, and its prescribed fix
+("match a call, `name(` with the paren, which an import cannot satisfy") is
+exactly what closed it. *(commit 9e6af431d)*
+
+### What the fifth hole was, since it was not this family
+
+`granted-rpc-has-caller.test.ts` treated a **backticked** name in a comment as a
+caller, so deleting both real call sites of an RPC left it green on the phrase
+"Backed by the \`inventory_status_counts\` RPC" in that file's own header. A
+markdown-backticked name is prose. Dropping the backtick branch is safe only
+because no backtick-literal RPC call exists in the repo, which is asserted rather
+than assumed — and a second case pins that a backticked mention is NOT a caller,
+because sabotage showed that helpfully restoring the branch turns the guard green
+against a dead function, silently. *(commit 540f9949f)*
+
+### The probe was wrong five times, and that is not a small number
+
+Across this session five mutations reported nothing useful, and each failure mode
+is worth recognising because a bad probe reads exactly like a clean guard:
+
+- **Did not apply.** Three copied whitespace or indentation that did not match
+  the file. The harness printed "MUTATION DID NOT APPLY — PROVES NOTHING",
+  which is the only reason they were not counted as passes.
+- **Applied to the wrong line.** A closed-dependency probe targeted
+  `if (!s) return true` inside `blocked()` when the rule it meant to break
+  lives in the dep lookup's own ternary. It reddened nothing and looked like a
+  blind spot in the code. **A mutation that lands on the wrong line proves less
+  than nothing — it manufactures a finding.**
+- **Matched more than once.** A probe whose anchor appeared three times in the
+  file silently mutated the first occurrence.
+- **Vacuous by construction.** Widening a hand-written allowlist changed no
+  behaviour until a field used the new value; the meaningful probe was widening
+  it AND adding the field.
+- **Mutating the test instead of the subject.** Replacing a computed value in
+  the assertion with `[]` always passes. You cannot sabotage a test by editing
+  the test — only by editing what it watches.
 
 ## Related
 

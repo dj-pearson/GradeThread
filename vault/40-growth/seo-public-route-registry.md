@@ -9,7 +9,7 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-08-21
+reviewed: 2026-08-23
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
@@ -54,6 +54,25 @@ built from the same source, so it can only find a typo.
 Set `pageModule` on the registry entry when several slugs share one file, and
 note that `src/test/route-page-modules-exist.test.ts` now resolves every module
 id against the filesystem.
+
+> [!note] Re-reviewed 2026-08-23 against /changelog (US-2809)
+> The first page added since this list was last checked, and it is a clean
+> instance: data module, component, `PUBLIC_ROUTES` **and**
+> `ROUTE_LAST_MODIFIED`, `PAGES` **and** `ROUTE_PAGE_MODULES`, router entry.
+> Steps 3, 6 and 8 did not apply — no bespoke JSON-LD, not a `/grading/*` or
+> `/reselling/*` path, no share card.
+>
+> **Step 7's hazard was checked rather than assumed**, because the note says
+> CI does not catch it: every dynamic route in `routes/index.tsx` is
+> namespaced (`/passport/:slug`, `/reselling/:slug`, `/compare/:slug`,
+> `/condition-index/:slug`, `/grading/:slug`) and there is no bare top-level
+> `/:slug`, so a new root-level path cannot be swallowed by one.
+>
+> One thing worth copying: the write-it-twice hazard at the end of this
+> section disappears if both writes read the same constant. `/changelog`
+> passes `CHANGELOG_META.description` to the route generator and to
+> `MarketingLayout`, so the two cannot disagree by construction rather than
+> by a test.
 
 ## Adding a public static page
 

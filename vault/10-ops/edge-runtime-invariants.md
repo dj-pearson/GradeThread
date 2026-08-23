@@ -7,20 +7,25 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-08-22
+reviewed: 2026-08-23
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
 
 # Edge runtime invariants
 
-> **Re-reviewed 2026-08-22.** Drift flagged `schema-version.ts` for the THIRD
-> consecutive time, and for the third time nothing in this note moved:
-> `EXPECTED_SCHEMA_VERSION` went 00647 -> 00648 with migration 00648, its bump in
-> the same commit. The note names the RULE, not a version. Three flags in a row
-> saying the same thing is itself the finding — a bump-only change to
-> `schema-version.ts` can never invalidate this note, and the next reader should
-> expect to confirm that rather than to re-derive it.
+> **Re-reviewed 2026-08-23.** Drift has now flagged `schema-version.ts` FOUR
+> consecutive times, and four times nothing in this note has moved:
+> `EXPECTED_SCHEMA_VERSION` went 00647 -> 00648 with migration 00648, and
+> 00648 -> 00658 across the seller-analytics migrations, each bump in the same
+> commit as its migration. The note names the RULE, not a version.
+>
+> Four flags in a row saying the same thing is the finding, and the previous
+> callout predicted this one. A bump-only change to `schema-version.ts` can
+> never invalidate this note; confirm that and move on rather than re-deriving
+> it. What WOULD invalidate it is the rule changing — the boot guard, the
+> grace window, or the same-commit requirement — none of which a version
+> number can express.
 >
 > Previously re-reviewed 2026-08-21. Drift flagged `schema-version.ts` then, and for
 > the same reason: `EXPECTED_SCHEMA_VERSION` moved 00640 -> 00642 across two

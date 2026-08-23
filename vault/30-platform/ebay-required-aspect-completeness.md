@@ -11,7 +11,7 @@ code_refs:
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-08-22
+reviewed: 2026-08-23
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
@@ -131,6 +131,24 @@ Cropped Pants"* carries none, so `Department` must come from
 specifics editor and the item fields have to live in the same editor
 (`src/pages/flipdesk/composer.tsx` is the only item editor) — a seller told
 "Department is missing" needs one obvious place to supply it.
+
+> [!note] The precedence is one exported helper now (US-2796, 2026-08-23)
+> This section describes two sources for `Department` — the stated
+> `attributes.department`, and `inferDepartment` reading the item's own text
+> — and the order between them mattered in a second place: the parcel
+> estimator needs the department to decide whether a shoe's stamped number is
+> a US men's or US women's size.
+>
+> That caller read only the INFERRED half, so an item whose capture pass had
+> already written `department: "Women"` was re-derived from its title, and a
+> title reading "Men's" overrode the stored value outright.
+>
+> `resolveDepartment(item)` in `aspect-registry.ts` is that precedence lifted
+> out of `canonicalValues` — stated first, inferred as the fallback. It is not
+> a new rule and it does not change what the aspect resolver fills; it exists
+> so a caller outside the resolver cannot invent a second order. A test walks
+> six items through both paths and asserts they agree, including the case
+> where the stated value and the title disagree.
 
 ## Re-categorising a LIVE listing is a three-step swap, not a two-step one
 
