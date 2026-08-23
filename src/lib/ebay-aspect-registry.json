@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "entries": [
     {
       "key": "brand",
@@ -22,6 +22,9 @@
         "shoes": [
           "US Shoe Size",
           "Shoe Size"
+        ],
+        "headwear": [
+          "Hat Size"
         ]
       }
     },

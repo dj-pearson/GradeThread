@@ -64,7 +64,7 @@ export interface AspectRegistry {
 
 // Bump `version` whenever entries change so a served/cached copy is versioned.
 export const ASPECT_REGISTRY: AspectRegistry = {
-  version: 3,
+  version: 4,
   entries: [
     // ── Legacy structured columns ──
     { key: "brand", source: "column", column: "brand", multi: false, aspects: ["Brand"] },
@@ -74,7 +74,22 @@ export const ASPECT_REGISTRY: AspectRegistry = {
       column: "size",
       multi: false,
       aspects: ["Size"],
-      byCategory: { shoes: ["US Shoe Size", "Shoe Size"] },
+      // US-2812: `headwear` had no entry anywhere in this registry, so a hat
+      // listing could only ever fill the generic "Size". Adding a candidate is
+      // SAFE rather than a guess — ownedAspectName resolves against the real
+      // aspect list eBay returns for the chosen category, so a name that
+      // category does not have is never matched. A name is a proposal; only
+      // eBay's own vocabulary is ever used.
+      //
+      // ONLY "Hat Size", deliberately. "Size Type" was the other obvious
+      // candidate and is left out: on eBay's apparel categories it means
+      // Regular/Petite/Plus, and if a hat leaf carries it as FREE TEXT then
+      // "7 3/8" would fill it and publish a size where a fit class belongs.
+      // A candidate is only safe when its meaning cannot be mistaken.
+      byCategory: {
+        shoes: ["US Shoe Size", "Shoe Size"],
+        headwear: ["Hat Size"],
+      },
     },
     { key: "color", source: "column", column: "color", multi: false, aspects: ["Color", "Colour"] },
     {
