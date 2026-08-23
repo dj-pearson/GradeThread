@@ -80,6 +80,20 @@ function nativeSpecKeys(src: string, lang: "swift" | "kotlin"): Set<string> {
   return new Set([...src.matchAll(re)].map((m) => m[1]!));
 }
 
+/** Every native Spec, with the label and unit it actually renders. */
+function nativeSpecs(
+  src: string,
+  lang: "swift" | "kotlin",
+): Map<string, { label: string; unit: string }> {
+  const re =
+    lang === "swift"
+      ? /Spec\(key: "([a-z_]+)", label: "([^"]*)", kind: \.([a-z]+)\)/g
+      : /Spec\("([a-z_]+)", "([^"]*)", Kind\.([A-Z]+)\)/g;
+  return new Map(
+    [...src.matchAll(re)].map((m) => [m[1]!, { label: m[2]!, unit: m[3]!.toLowerCase() }]),
+  );
+}
+
 describe("US-2812: the native measurement catalogs match the web templates", () => {
   const cases: Array<[string, string, "swift" | "kotlin"]> = [
     ["iOS", IOS, "swift"],
@@ -122,6 +136,86 @@ describe("US-2812: the native measurement catalogs match the web templates", () 
     );
     const missing = [...offered].filter((k) => !specs.has(k));
     expect(missing, `offered with no Spec entry: ${missing.join(", ")}`).toEqual([]);
+  });
+
+// The label is the entire reason the Spec table exists, and the test above
+  // only proves an entry is PRESENT. A Spec reading "Cap height" where the web
+  // reads "Crown height" satisfies every assertion up to this point.
+  //
+  // Scoped to the six routed categories, and within them exactly ONE key is
+  // ambiguous: the web calls a bag's `width` "Width (base)" and an accessory's
+  // plain "Width". The native table is keyed by key ALONE and structurally
+  // cannot hold both, so it is named here rather than skipped quietly.
+  const ROUTED_LABEL_EXCEPTIONS = ["width"];
+
+  it.each(cases)("%s uses the web's exact label for every unambiguous key", (_n, rel, lang) => {
+    const specs = nativeSpecs(read(rel), lang);
+    expect(specs.size, "no Spec entries parsed").toBeGreaterThan(10);
+
+    const byKey = new Map<string, Set<string>>();
+    for (const group of Object.values(CATEGORY_TO_GROUP)) {
+      for (const f of MEASUREMENT_TEMPLATES[group]) {
+        const labels = byKey.get(f.key) ?? new Set<string>();
+        labels.add(f.label);
+        byKey.set(f.key, labels);
+      }
+    }
+
+    expect(
+      [...byKey].filter(([, l]) => l.size > 1).map(([k]) => k).sort(),
+      "a routed key gained a second web label. The native table is keyed by key " +
+        "alone and cannot hold two, so decide which wording the phones show " +
+        "before adding it to ROUTED_LABEL_EXCEPTIONS.",
+    ).toEqual(ROUTED_LABEL_EXCEPTIONS);
+
+    for (const [key, labels] of byKey) {
+      if (ROUTED_LABEL_EXCEPTIONS.includes(key)) continue;
+      const want = [...labels][0]!;
+      expect(
+        specs.get(key)?.label,
+        `${key}: the web renders "${want}". A near-miss here is invisible in ` +
+          `review and wrong in the seller's hand.`,
+      ).toBe(want);
+    }
+  });
+
+  it.each(cases)("%s uses the web's unit for every key it defines", (_n, rel, lang) => {
+    // Unit is unambiguous per key across EVERY group, routed or not, so this
+    // reaches the clothing Specs the label check has to leave alone.
+    const specs = nativeSpecs(read(rel), lang);
+    const webUnit = new Map<string, string>();
+    for (const fields of Object.values(MEASUREMENT_TEMPLATES)) {
+      for (const f of fields) webUnit.set(f.key, f.unit);
+    }
+
+    const wrong = [...specs]
+      .filter(([k]) => webUnit.has(k))
+      .filter(([k, s]) => s.unit !== webUnit.get(k))
+      .map(([k, s]) => `${k}: native ${s.unit}, web ${webUnit.get(k)}`);
+    expect(
+      wrong,
+      `unit drift picks the wrong input control (a millimetre field asking for ` +
+        `inches): ${wrong.join("; ")}`,
+    ).toEqual([]);
+  });
+
+  it("required-ness is web-only, and the phones lose it", () => {
+    // The web marks a bag's width, height and depth REQUIRED because depth is
+    // what separates a tote from a clutch (US-2225). Neither native Spec
+    // carries a required flag, so both phones offer all three as equally
+    // optional and a seller can skip the one that matters.
+    //
+    // Asserted rather than commented so it cannot rot: if someone adds the
+    // flag natively this fails, and the fix is to extend the parity check
+    // above to cover it, not to delete this case.
+    expect(MEASUREMENT_TEMPLATES.bag.filter((f) => f.required).map((f) => f.key)).toEqual([
+      "width",
+      "height",
+      "depth",
+    ]);
+    for (const rel of [IOS, ANDROID]) {
+      expect(read(rel), `${rel} now knows about required fields`).not.toMatch(/required/i);
+    }
   });
 
   it("clothing is exempt on purpose, not by omission", () => {
