@@ -1,5 +1,37 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🔒 HELD: 00661 — drop inventory_distinct_brands and its index (US-2814)
+
+**Risk: LOW, and NOT applying it has an ongoing cost.** One function and one
+index, both dead. `public.inventory_distinct_brands()` (00482) was written for
+the Inventory brand dropdown; US-958 rewrote that page into a lazy view router
+and the dropdown went with it. Nothing has called the function since - not a
+client, not an edge route, not another SQL function - while
+`idx_inventory_items_user_brand` has been maintained on **every** inventory_items
+insert and every brand update to serve a DISTINCT scan nobody runs.
+
+| Object | What | Risk |
+|---|---|---|
+| `public.inventory_distinct_brands()` | dropped | LOW - zero callers, verified |
+| `idx_inventory_items_user_brand` | dropped | LOW - exists only for that function |
+
+**DROP, not REVOKE, and the difference matters here.** A REVOKE on a function
+`anon` or `authenticated` can still reach segfaults this Postgres (US-2403),
+which is why no new migration in this repo revokes. Dropping removes the
+function outright: a call would answer `42883 function does not exist`, an
+ordinary error, and there is no caller to make one.
+
+**No `NOTIFY pgrst` strictly needed** - nothing reads it - but send one anyway so
+the schema cache stops advertising a function that is gone.
+
+**Owner decided this on 2026-08-23**, choosing drop over keeping it unwired. The
+reasoning survives if it is ever wanted back: 00482's header explains why
+PostgREST cannot express DISTINCT, and US-2814's notes carry the rest, so
+re-adding it is a small migration rather than a rediscovery.
+
+**Nothing in the same commit reads it from the client.** Nothing read it before.
+
+
 ## 🔒 HELD: 00660 — ensure listings.draft_id has a durable record (US-2832)
 
 **Risk: NONE on this production, and that is the point.** Production already has

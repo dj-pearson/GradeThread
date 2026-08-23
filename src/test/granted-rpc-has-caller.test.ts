@@ -65,13 +65,14 @@ const TEST_PATH =
  * must be REMOVED, or this becomes the place dead functions go to be forgotten.
  */
 const UNCALLED_ON_PURPOSE: Record<string, string> = {
-  inventory_distinct_brands:
-    "US-2814. Built for the Inventory brand dropdown (00482), orphaned when US-958 " +
-    "rewrote that page into a view router. Kept unwired pending the owner's call: a " +
-    "future server-paginated view wanting a COMPLETE brand list needs exactly this, " +
-    "and PostgREST cannot express DISTINCT, so dropping it means rewriting it. The " +
-    "two brand dropdowns that still exist de-duplicate over row sets already loaded " +
-    "in full, so nothing is currently filtering incompletely.",
+  // EMPTY, and it got here the right way round. inventory_distinct_brands came
+  // OFF this list on 2026-08-23: the owner chose to drop it rather than keep it
+  // unwired, so 00661 drops the function and idx_inventory_items_user_brand with
+  // it, and `droppedForGood` now excludes it from the granted set entirely.
+  //
+  // An entry left behind here would have been worse than none: it would still
+  // read as a live decision about a function that no longer exists, and the next
+  // sweep would have to re-derive that nothing is wrong.
 };
 
 function walk(dir: string, out: string[] = []): string[] {
