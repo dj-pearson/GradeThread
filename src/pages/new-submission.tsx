@@ -40,6 +40,13 @@ import {
   VIDEO_SLOT_MARKS_FIELD,
 } from "@/lib/video-grading-contract";
 import {
+  STYLE_ATTRIBUTES,
+  STYLE_ATTRIBUTE_LABELS,
+  STYLE_ATTRIBUTES_FIELD,
+  sanitizeStyleAttributes,
+  type StyleAttribute,
+} from "@/lib/style-attributes";
+import {
   CAPTURE_SOURCES_FIELD,
   IN_APP_CAPTURE_SOURCE,
   LIVE_CAPTURE_OPT_IN,
@@ -302,6 +309,18 @@ export function NewSubmissionPage() {
 
   const [linkedItemId, setLinkedItemId] = useState<string>(
     () => searchParams.get("item") ?? retakeState?.linkedItemId ?? "none"
+  );
+
+  // US-2801: the seller's declared design features.
+  //
+  // AC3 is satisfied by the initialiser rather than an effect: RetakeBridgeState
+  // has carried a styleAttributes field the whole time and this page — its only
+  // consumer — ignored it, so a retake silently dropped the declaration.
+  // Sanitized on the way in because these values come from a PRIOR submission
+  // and a token retired since then would otherwise be re-sent and dropped
+  // server-side, which looks to the seller like it carried when it did not.
+  const [styleAttributes, setStyleAttributes] = useState<StyleAttribute[]>(
+    () => sanitizeStyleAttributes(retakeState?.styleAttributes),
   );
 
   // US-1841: the buyer's closet item this grade answers a question about. Passed
@@ -920,6 +939,15 @@ export function NewSubmissionPage() {
       }
       // US-601: authenticity add-on opt-in. Only sent true when the tier supports
       // it; the server re-checks the tier + the feature flag before honoring it.
+      // US-2801: the seller's design declaration. Appended once per value;
+      // grade.ts reads it with getAll and filters against its own allowlist,
+      // so anything stale or invented is dropped rather than trusted. Nothing
+      // is appended when nothing is declared, which is what keeps the composite
+      // prompt byte-identical to today (AC2) — ai-grading.ts builds an empty
+      // styleHintLine from an empty list.
+      for (const attr of styleAttributes) {
+        formData.append(STYLE_ATTRIBUTES_FIELD, attr);
+      }
       formData.append(
         "authenticity_addon",
         authenticityAddonOptIn && tierSupportsAuthenticityAddon(tier) ? "true" : "false"
@@ -1458,6 +1486,70 @@ export function NewSubmissionPage() {
 
               <Separator />
 
+              {/* US-2801: the seller says which features are DESIGN.
+                  routes/grade.ts has filtered these against a 14-value
+                  allowlist since it was written and no client ever sent one,
+                  so factory distressing, raw hems and acid wash were read as
+                  wear. The values are the wire tokens; the labels are the
+                  words a seller would use.
+
+                  A DECLARATION CANNOT MOVE THE GRADE, and that is not a
+                  choice made here — ai-grading.ts sanitizes each value, caps
+                  it, fences it as untrusted (US-346) and puts it under a
+                  header reading "seller-supplied reference only — must NOT
+                  affect scoring". It reaches the grader as a hint to verify
+                  visually, which is the only safe thing a seller-supplied
+                  string may be. */}
+              {captureMode !== "video" && (
+                <>
+                  <div className="space-y-2">
+                    <div>
+                      <p className="text-sm font-medium">
+                        Any of this on purpose?
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Tell the grader which features are design, not damage,
+                        so factory distressing isn&apos;t scored as wear. The
+                        grader still checks the photos. Optional.
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {STYLE_ATTRIBUTES.map((attr) => {
+                        const on = styleAttributes.includes(attr);
+                        return (
+                          <button
+                            key={attr}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() =>
+                              setStyleAttributes((prev) =>
+                                prev.includes(attr)
+                                  ? prev.filter((a) => a !== attr)
+                                  : // Kept in allowlist order rather than
+                                    // click order, so the same declaration
+                                    // always serializes the same way.
+                                    STYLE_ATTRIBUTES.filter(
+                                      (a) => a === attr || prev.includes(a),
+                                    ),
+                              )
+                            }
+                            className={cn(
+                              "rounded-full border px-3 py-1 text-xs transition-colors",
+                              on
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "hover:border-primary/40",
+                            )}
+                          >
+                            {STYLE_ATTRIBUTE_LABELS[attr]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <Separator />
+                </>
+              )}
               {/* Verified Capture opt-in (US-340) — a positive provenance
                   booster. Only offered when every photo carries device +
                   timestamp metadata; otherwise we explain it isn't available
