@@ -271,6 +271,7 @@ function LinkPrompt({ venues }: { venues: PersonalStore[] }) {
                       if (!sourceId) return;
                       link.mutate({ sourceId, venueId: venue.venue_id });
                     }}
+                    aria-label={`Link a source to ${venue.name}`}
                   >
                     Link
                   </Button>

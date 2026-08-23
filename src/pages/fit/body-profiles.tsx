@@ -205,11 +205,21 @@ export function BodyProfilesPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     {!p.is_default && (
-                      <Button size="sm" variant="ghost" onClick={() => makeDefault(p.id)}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Make ${p.name} the default profile`}
+                        onClick={() => makeDefault(p.id)}
+                      >
                         Set default
                       </Button>
                     )}
-                    <Button size="sm" variant="outline" onClick={() => setDraft(draftFromProfile(p, unit))}>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      aria-label={`Edit ${p.name}`}
+                      onClick={() => setDraft(draftFromProfile(p, unit))}
+                    >
                       Edit
                     </Button>
                     <Button

@@ -313,6 +313,7 @@ export function VideoWalkaround({
                           size="sm"
                           disabled={uploading}
                           onClick={() => seekTo(at)}
+                          aria-label={`Go to the ${prompt.label} mark`}
                         >
                           Go to
                         </Button>
@@ -322,6 +323,7 @@ export function VideoWalkaround({
                           size="sm"
                           disabled={uploading}
                           onClick={() => clearSlot(prompt.key)}
+                          aria-label={`Clear the ${prompt.label} mark`}
                         >
                           Clear
                         </Button>
@@ -333,6 +335,7 @@ export function VideoWalkaround({
                         size="sm"
                         className="shrink-0"
                         disabled={uploading}
+                        aria-label={`Mark the ${prompt.label} here`}
                         onClick={() => markSlot(prompt.key)}
                       >
                         Mark here
