@@ -46,6 +46,15 @@ object ShellRoutes {
     /** US-1341: the certified-grades history, reached from [TOOLS]. */
     const val GRADES = "grades"
 
+    /**
+     * US-2815: grade one garment from photos, reached from [TOOLS].
+     *
+     * Distinct from [GRADES], which lists grades already earned, and from
+     * the FlipDesk path, which grades an inventory item whose photos are
+     * already uploaded. This one starts from nothing but photos.
+     */
+    const val CONSUMER_GRADE = "consumer-grade"
+
     /** US-1371: the sales list, reached from [ShellSection.MONEY]. */
     const val SALES = "sales"
 

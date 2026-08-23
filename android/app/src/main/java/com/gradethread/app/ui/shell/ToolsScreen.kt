@@ -26,6 +26,8 @@ import com.gradethread.app.ui.theme.Spacing
 fun ToolsScreen(
     onSnap: () -> Unit,
     onGrades: () -> Unit = {},
+    /** US-2815: grade one garment from photos, with no inventory item. */
+    onGradeAGarment: () -> Unit = {},
     onAnalytics: () -> Unit = {},
     onConsignors: () -> Unit = {},
     onTemplates: () -> Unit = {},
@@ -55,6 +57,13 @@ fun ToolsScreen(
             title = stringResource(R.string.tools_certified_grades),
             subtitle = stringResource(R.string.tools_every_graded_item_its_report),
             onClick = onGrades,
+        )
+        // US-2815: above the history, because grading something is the verb
+        // and the list is what it produces.
+        ToolRow(
+            title = stringResource(R.string.tools_grade_a_garment),
+            subtitle = stringResource(R.string.tools_grade_a_garment_subtitle),
+            onClick = onGradeAGarment,
         )
         ToolRow(
             title = stringResource(R.string.tools_radar),

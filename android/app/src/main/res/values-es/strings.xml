@@ -643,6 +643,8 @@
     <string name="tools_what_s_worth">¿Cuánto vale?</string>
     <string name="tools_snap_one_photo_instant_condition">Toma una foto y obtén al instante la nota de condición y el rango de reventa</string>
     <string name="tools_certified_grades">Notas certificadas</string>
+    <string name="tools_grade_a_garment">Calificar una prenda</string>
+    <string name="tools_grade_a_garment_subtitle">Sube fotos y obtén una calificación de estado. No hace falta publicar.</string>
     <string name="tools_every_graded_item_its_report">Cada artículo evaluado, su informe y su certificado</string>
     <string name="tools_analytics">Analíticas</string>
     <string name="tools_grades_brands_sell_through_inventory">Notas, marcas, rotación, valor del inventario y rendimiento de los anuncios</string>

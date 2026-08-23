@@ -498,6 +498,7 @@ private fun ShellNavHost(navController: NavHostController) {
             ToolsScreen(
                 onSnap = { navController.navigate(ShellRoutes.SNAP) },
                 onGrades = { navController.navigate(ShellRoutes.GRADES) },
+                onGradeAGarment = { navController.navigate(ShellRoutes.CONSUMER_GRADE) },
                 onAnalytics = { navController.navigate(ShellRoutes.ANALYTICS) },
                 onConsignors = { navController.navigate(ShellRoutes.CONSIGNORS) },
                 onTemplates = { navController.navigate(ShellRoutes.TEMPLATES) },
@@ -623,6 +624,13 @@ private fun ShellNavHost(navController: NavHostController) {
             com.gradethread.app.passport.PassportScreen(
                 itemId = entry.arguments?.getString("itemId").orEmpty(),
                 onClose = { navController.popBackStack() },
+            )
+        }
+        // US-2815: grade one garment from photos. The whole client below
+        // this screen existed on iOS and nowhere here.
+        composable(ShellRoutes.CONSUMER_GRADE) {
+            com.gradethread.app.grading.ConsumerGradeScreen(
+                onViewGrade = { navController.navigate(ShellRoutes.GRADES) },
             )
         }
         // US-1341: the certified-grades history.

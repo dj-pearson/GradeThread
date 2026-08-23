@@ -721,6 +721,8 @@
     <string name="tools_what_s_worth">What\'s it worth?</string>
     <string name="tools_snap_one_photo_instant_condition">Snap one photo for an instant condition grade and resale range</string>
     <string name="tools_certified_grades">Certified grades</string>
+    <string name="tools_grade_a_garment">Grade a garment</string>
+    <string name="tools_grade_a_garment_subtitle">Photos in, condition grade out. No listing needed.</string>
     <string name="tools_every_graded_item_its_report">Every graded item, its report and its certificate</string>
     <string name="tools_analytics">Analytics</string>
     <string name="tools_grades_brands_sell_through_inventory">Grades, brands, sell-through, inventory value and listing performance</string>
