@@ -41,6 +41,9 @@ const ROOT = process.cwd();
 const IOS = "ios/GradeThread/Inventory/ItemCanvas/MeasurementCatalog.swift";
 const ANDROID =
   "android/app/src/main/java/com/gradethread/app/inventory/MeasurementCatalog.kt";
+const IOS_DRAFT = "ios/GradeThread/Inventory/ItemCanvas/ItemDraft.swift";
+const ANDROID_DRAFT =
+  "android/app/src/main/java/com/gradethread/app/inventory/ItemDraft.kt";
 
 const read = (rel: string) =>
   readFileSync(resolve(ROOT, rel), "utf8").replace(/\r\n?/g, "\n");
@@ -216,6 +219,109 @@ describe("US-2812: the native measurement catalogs match the web templates", () 
     for (const rel of [IOS, ANDROID]) {
       expect(read(rel), `${rel} now knows about required fields`).not.toMatch(/required/i);
     }
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // EVERY MEASUREMENT MUST BE A NUMBER, and this is a data-loss guard rather
+  // than a style rule.
+  //
+  // US-2796 AC1 asks the shoes template to capture a size SCALE alongside
+  // size_us — US men's, US women's, UK, EU or JP. A scale is a STRING, and
+  // both phones store measurements as a numeric map. Measured 2026-08-23:
+  //
+  //   Android  ItemDraft.measurements is Map<String, Double>, and
+  //            MeasurementCatalog.decode keeps a key only when
+  //            jsonPrimitive.doubleOrNull is non-null and > 0. A string value
+  //            is DROPPED. encode then writes back only what survived, so a
+  //            round trip through the phone DELETES the field.
+  //   iOS      worse, and not by a little. ItemDraft.measurements is
+  //            [String: Double] and decodeMeasurements is
+  //            `try? JSONDecoder().decode([String: Double].self, …)`. One
+  //            non-numeric value makes the WHOLE decode throw, `try?` turns
+  //            that into nil, and `?? [:]` leaves an EMPTY map — so a single
+  //            string scale makes every other measurement on the item vanish
+  //            from the canvas.
+  //
+  // So the field US-2796 AC1 describes cannot live in `measurements` as
+  // written. It is not a missing picker; it is silent deletion on one client
+  // and total loss on the other. The scale belongs in
+  // inventory_items.attributes, beside shoe_width and shoe_shaft_height,
+  // which are already canonical shoe attributes with eBay aspect mappings and
+  // no numeric coupling.
+  //
+  // This case exists so that constraint is enforced rather than remembered.
+  // The parity guard above REQUIRES the natives to mirror every template key,
+  // so without this a new string field would be dutifully copied into both
+  // numeric catalogs and the loss would ship looking like parity.
+
+  /**
+   * The units a phone can actually store, READ OFF THE PHONE.
+   *
+   * ⚠ NOT A HAND-WRITTEN LIST, and the first draft was one. Sabotage widening
+   * it to ["length","shoe","mm","scale"] and adding a scale field would have
+   * turned the guard green and shipped the loss — the allowlist was the easiest
+   * thing to change when the guard complained, which is the wrong incentive to
+   * leave lying around.
+   *
+   * Parsed from the Kotlin `enum class Kind(val unit: String)`, which is the
+   * thing that imposes the constraint. Widening it now means widening the
+   * phone's own catalog, which is exactly the conversation this should force.
+   */
+  const NUMERIC_UNITS = (() => {
+    const kt = read(ANDROID);
+    const block = kt.slice(kt.indexOf("enum class Kind"), kt.indexOf("data class Spec"));
+    const members = [...block.matchAll(/^\s*([A-Z_]+)\("([^"]*)"\)/gm)].map((m) =>
+      m[1]!.toLowerCase(),
+    );
+    expect(members.length, "the Kotlin Kind enum did not parse").toBeGreaterThan(2);
+    return members;
+  })();
+
+  it("the derived unit list matches the web's own union type", () => {
+    // Both sides of the mirror, so a unit added to one and not the other is a
+    // failure here rather than a silent mismatch at runtime.
+    const web = read("src/lib/measurement-templates.ts");
+    const union = /export type MeasurementUnit =([^;]+);/.exec(web)?.[1] ?? "";
+    const webUnits = [...union.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]!);
+    expect(
+      webUnits.slice().sort(),
+      "MeasurementUnit and the Kotlin Kind enum disagree about what a " +
+        "measurement can be. Adding a unit to the web without a matching Kind " +
+        "means the phones cannot render or store it.",
+    ).toEqual(NUMERIC_UNITS.slice().sort());
+  });
+
+  it("no template field asks for a value the phones cannot store", () => {
+    const offenders = Object.entries(MEASUREMENT_TEMPLATES).flatMap(([group, fields]) =>
+      fields
+        .filter((f) => !NUMERIC_UNITS.includes(f.unit))
+        .map((f) => `${group}.${f.key} (unit: ${f.unit})`),
+    );
+    expect(
+      offenders,
+      "a measurement template field uses a non-numeric unit. Both phones store " +
+        "measurements as a numeric map: Android DROPS the key on decode and " +
+        "writes back without it, and iOS fails the whole decode and shows an " +
+        "EMPTY measurement set. Put the value in inventory_items.attributes " +
+        "instead, where shoe_width and shoe_shaft_height already live.",
+    ).toEqual([]);
+  });
+
+  it("the phones really do still store measurements as numbers", () => {
+    // Guards the guard. The case above is only worth having while the native
+    // maps are numeric; if someone widens them, this fails and points at the
+    // rule to revisit rather than leaving a stale prohibition in place.
+    // The STORED PROPERTY, not any occurrence of the type. ItemDraft.swift
+    // also names it in the memberwise initialiser's default, so a check for
+    // the bare string passed while the property itself had changed.
+    expect(
+      /\bvar measurements:\s*\[String:\s*Double\]/.test(read(IOS_DRAFT)),
+      "the iOS draft no longer STORES measurements as [String: Double]",
+    ).toBe(true);
+    expect(
+      read(ANDROID_DRAFT),
+      "the Android draft no longer stores measurements as Map<String, Double>",
+    ).toContain("val measurements: Map<String, Double>");
   });
 
   it("clothing is exempt on purpose, not by omission", () => {
