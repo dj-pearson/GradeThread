@@ -321,6 +321,38 @@ Deno.test("per-vertical: shoes size maps to US Shoe Size; material to Upper Mate
   );
 });
 
+// US-2812: the shoe test above uses FREE_TEXT aspects, and a real eBay shoe
+// leaf does not — US Shoe Size is SELECTION_ONLY with a half-size pick list.
+// The SELECTION_ONLY mechanism is covered generally (Department, above); what
+// is shoe-specific is the DECIMAL token, and the owner is about to list shoes.
+//
+// Verified by running the resolver against a realistic leaf before this was
+// written, which is also how the shape of RegistryAspect got confirmed: it is
+// FLAT (name/mode/allowedValues), not eBay's nested
+// aspectConstraint/aspectValues, and a probe using the API shape made every
+// aspect read as free text and an out-of-list size appear to fill.
+const SHOE_SIZES = ["8", "8.5", "9", "9.5", "10", "10.5", "11"];
+
+Deno.test("shoes: a SELECTION_ONLY US Shoe Size matches whole and half sizes", () => {
+  for (const size of ["9", "9.5", "10.5"]) {
+    const item: RegistryItem = { item_category: "shoes", size };
+    assertEquals(
+      resolveItemAspects(item, [sel("US Shoe Size", SHOE_SIZES)], {}),
+      { "US Shoe Size": [size] },
+      `size ${size} did not fill`,
+    );
+  }
+});
+
+Deno.test("shoes: a size the leaf does not offer fills NOTHING", () => {
+  // The property that matters at publish. eBay rejects an out-of-list value
+  // on a SELECTION_ONLY aspect, so inventing one turns a listing into a
+  // publish error — and silently coercing 13 to 11 would be worse: a buyer
+  // would receive the wrong shoe.
+  const item: RegistryItem = { item_category: "shoes", size: "13" };
+  assertEquals(resolveItemAspects(item, [sel("US Shoe Size", SHOE_SIZES)], {}), {});
+});
+
 Deno.test("per-vertical: clothing does NOT use the shoe-only candidates", () => {
   const item: RegistryItem = { item_category: "clothing", size: "M" };
   // "US Shoe Size" is shoes-only — not a candidate for clothing.
