@@ -2397,21 +2397,6 @@
       "priority": 71
     },
     {
-      "id": "US-2825",
-      "passes": false,
-      "title": "Capital velocity: profit per dollar per day held, ranked by category, brand and source",
-      "description": "As a reseller, I want to see the return each dollar of buying money earns per day it stays tied up, so that I buy more of what turns and stop buying what sits.",
-      "acceptanceCriteria": [
-        "New pure module src/lib/capital-velocity.ts computes, per group: deployed_capital (sum of purchase_price), realized_profit (sum of net_profit on completed sales), median_days_held (purchase_date to sale_date), and velocity = realized_profit / deployed_capital / median_days_held, expressed as a percent per day.",
-        "Items with a null or zero purchase_price are excluded from the velocity figure and counted separately, so a free or unpriced item cannot produce an infinite return.",
-        "Unsold items still holding capital are reported as a separate 'capital parked' figure per group with median days held so far, because excluding them would make a group that never sells look good.",
-        "Unit tests cover: zero purchase price, a group with no sales, a same-day sale (days held 0 clamps to a documented minimum rather than dividing by zero), and the ranking order.",
-        "Renders as a ranked table on the Sell-through tab with the top three and bottom three groups called out in one sentence each.",
-        "The module imports no supabase client and no env, so it is testable without a database (same posture as src/lib/flipdesk-analytics.ts)."
-      ],
-      "priority": 72
-    },
-    {
       "id": "US-2826",
       "passes": false,
       "title": "Listing quality lift: read listing_metrics history against photo count, quality score and the grade badge",
