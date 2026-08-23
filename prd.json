@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2814",
+  "nextId": "US-2815",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2406,6 +2406,20 @@
         "resolveMeasurementAspects fills a CONSTRAINED aspect too, or the limitation is written down: it currently only fills free-text aspects, so a mapping onto a pick-list aspect would still not fill."
       ],
       "priority": 610
+    },
+    {
+      "id": "US-2814",
+      "passes": false,
+      "title": "A distinct-brands RPC and its index are maintained for a page that no longer exists",
+      "description": "Found 2026-08-22 by sweeping every Postgres function GRANTed to a caller against every .rpc() call in src/, services/edge-functions/src/ and functions/. 75 functions are granted execute; one is called by nothing at all, in SQL or in code.  public.inventory_distinct_brands() (migration 00482, US-2023 AC2) has exactly three references in the entire repo: its CREATE, its COMMENT and its GRANT. It is not called from any client, any edge route, or any other SQL function.  It was not built speculatively. Its own header records a real problem: the Inventory brand dropdown selected `brand` for EVERY inventory_items row in the tenant and de-duplicated ~200 strings in the browser, and the header argues carefully that PostgREST cannot express DISTINCT and that a LIMIT or sampling workaround would 'silently DROP brands from the filter'. The function is well made - SECURITY INVOKER on purpose so RLS scopes it to the caller, and no user_id parameter for exactly that reason.  WHAT HAPPENED IS US-958. The page it was written for, src/pages/flipdesk/ inventory.tsx, is now a 2.4 KB view ROUTER that lazy-loads Triage / Grid / Kanban / Prep. The brand dropdown it fed went with the rewrite, and no successor view calls the RPC.  CHECKED, and the feared regression did NOT happen - record it so nobody has to re-derive it. The two brand dropdowns that still exist de-duplicate over row sets the page has already loaded in full, so they are complete and free:   - bulk-pricing.tsx:118 de-dupes `rows`, which comes from fetchAllPages     (US-2169 specifically fixed the short-page truncation there). Its `page`     state paginates the DISPLAY over a complete in-memory set.   - pipeline.tsx:250 de-dupes the kanban's loaded `items`.   - listings.tsx, the default Triage view and the one that is genuinely     server-paginated, has NO brand dropdown at all: brand is reachable only     through the free-text search box. So there is no incomplete-filter bug to fix. This is dead weight, not a defect.  THE COST IS NOT ZERO, which is why it is worth filing rather than shrugging at. 00482 also creates idx_inventory_items_user_brand on inventory_items(user_id, brand) WHERE brand IS NOT NULL, referenced by nothing else in the repo. That index is maintained on every inventory_items insert and every brand update, for a reader that does not exist. And the COMMENT on the function still tells the next reader it serves 'the Inventory brand filter', which is now false.",
+      "acceptanceCriteria": [
+        "Decide whether a server-side distinct-brand list is still wanted. If a future view wants a complete brand dropdown over server-paginated rows, this function is exactly right and should be WIRED rather than dropped - deleting it would only mean rewriting it later.",
+        "If it is not wanted: drop the function AND idx_inventory_items_user_brand in one migration, since the index exists solely to support the function's DISTINCT scan and outliving it has no purpose.",
+        "If it is kept unwired for now, its COMMENT stops claiming it serves the Inventory brand filter and says instead that it is unwired and why, so the next sweep does not rediscover it as a mystery.",
+        "MIGRATION HOLD: any drop here is a migration, so it follows the standing rule - committed locally, packaged in PENDING_MIGRATIONS.md, and never pushed until the owner has applied it to prod.",
+        "The sweep that found this is worth keeping if it is cheap: a guard asserting every function GRANTed to authenticated is called from SQL or from code, with a named shrink-only allowlist for deliberate exceptions. Only add it if the allowlist stays small - a guard with 30 exemptions guards nothing."
+      ],
+      "priority": 880
     }
   ]
 }
