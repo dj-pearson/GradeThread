@@ -560,6 +560,7 @@ function ChargeList({ charges, refunding, refundingChargeId, onRefund }: ChargeL
                 />
                 <div className="flex justify-end gap-2">
                   <Button
+                  aria-label={`Cancel the refund for the ${dollars(ch.amount, ch.currency)} charge`}
                     size="sm"
                     variant="ghost"
                     onClick={() => {

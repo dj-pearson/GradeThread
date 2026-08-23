@@ -1375,6 +1375,7 @@ function SoldSyncSection() {
                           <ClaimControl review={r} />
                         )}
                         <Button
+                        aria-label={`Dismiss ${r.title ?? "the untitled listing"}`}
                           variant="ghost"
                           size="sm"
                           disabled={dismiss.isPending}

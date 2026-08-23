@@ -212,6 +212,7 @@ export function FlipdeskPlanComparison({
               <CardFooter>
                 {isCurrent ? (
                   <Button variant="outline" className="w-full" disabled>
+                  aria-label={`${plan.name} is your current plan`}
                     Current plan
                   </Button>
                 ) : (

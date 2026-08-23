@@ -641,6 +641,7 @@ function ReturnsCard() {
                     it is a different eBay call with a different outcome — this
                     one leaves the return open. */}
                 <Button
+                aria-label={`Partial refund for ${r.reason?.replace(/_/g, " ") ?? "the return"}`}
                   size="sm"
                   variant="outline"
                   disabled={!!busy}
@@ -655,6 +656,7 @@ function ReturnsCard() {
                     nothing until the seller reads the verdict and clicks — the
                     useful outcome of this feature is often "do not fight". */}
                 <Button
+                aria-label={`Evidence for ${r.reason?.replace(/_/g, " ") ?? "the return"}`}
                   size="sm"
                   variant="outline"
                   disabled={!!busy}

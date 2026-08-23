@@ -95,7 +95,22 @@ const BASELINE = 20;
 //
 // Worth knowing generally: a file at its ceiling cannot take an accessibility
 // fix, however small. That is the trade US-2520 chose deliberately.
-const TEXT_BASELINE = 10;
+// 96 -> 4 over 2026-08-23. The FOUR that remain are not a backlog; each is
+// parked for a stated reason, so treat a drop below 4 as suspicious rather
+// than as progress:
+//
+//   autolister.tsx x2   Create and Apply on the proposal rows. The labels are
+//                       written and were REVERTED: that file sits exactly on
+//                       its US-2520 line-count ceiling, so two attribute
+//                       lines push it over. The ceiling says to extract a
+//                       piece rather than raise the number, and that is a
+//                       refactor of a 3,600-line page, not a label fix.
+//   bulk-ai-enrich      Review. The row keys on r.item_id and no
+//   autolister-drafts   Cancel. Same: keyed on d.id.
+//                       human-readable title is in scope for either. Naming
+//                       them means threading a value through the component,
+//                       and an id read aloud is worse than the repeated verb.
+const TEXT_BASELINE = 4;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {

@@ -497,6 +497,7 @@ export function AdminReliabilityPage() {
                                 }
                               />
                               <Button size="sm" onClick={() => submitRating(q.id)}>
+                              aria-label={`Save the grade for ${q.brand || q.garment_category || "garment"}`}
                                 Save
                               </Button>
                             </>
