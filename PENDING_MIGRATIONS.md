@@ -1,6 +1,12 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🔒 HELD: 00661 — drop inventory_distinct_brands and its index (US-2814)
+## ✅ APPLIED 2026-08-23: 00661 — drop inventory_distinct_brands and its index (US-2814)
+
+**CONFIRMED, not assumed.** `/health/ready` reports schema
+`{expected: 00661, applied: 00661, status: match}`, and `inventory_distinct_brands`
+is GONE from prod's live PostgREST schema document - zero occurrences, where it
+had 3 before. That second read is the conclusive one: PostgREST only advertises
+what its schema cache holds, so the function is dropped AND the cache reloaded.
 
 **Risk: LOW, and NOT applying it has an ongoing cost.** One function and one
 index, both dead. `public.inventory_distinct_brands()` (00482) was written for
@@ -32,7 +38,13 @@ re-adding it is a small migration rather than a rediscovery.
 **Nothing in the same commit reads it from the client.** Nothing read it before.
 
 
-## 🔒 HELD: 00660 — ensure listings.draft_id has a durable record (US-2832)
+## ✅ APPLIED 2026-08-23: 00660 — ensure listings.draft_id has a durable record (US-2832)
+
+**CONFIRMED.** Schema version reads 00661, which is past this one, and
+`listings.draft_id` is still present in the live PostgREST schema - which is
+exactly right, since this migration is a no-op wherever the column already
+exists. Its whole deliverable is the `applied_migrations` row, and the boot
+guard reporting `match` at 00661 with no `missing` key is that row being read.
 
 **Risk: NONE on this production, and that is the point.** Production already has
 `listings.draft_id` (repaired by hand 2026-08-20, re-confirmed 2026-08-23 by
