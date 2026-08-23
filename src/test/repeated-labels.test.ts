@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
-import { auditDistinctness } from "../../scripts/audit-control-labels.mjs";
+import { auditDistinctness, auditRepeatedText } from "../../scripts/audit-control-labels.mjs";
 
 // US-2450: a name that does not DISTINGUISH is not a usable name.
 //
@@ -26,29 +26,29 @@ import { auditDistinctness } from "../../scripts/audit-control-labels.mjs";
 // findings after every control in it had been fixed — a number that would have
 // gone into a work list as though it were work.
 //
-// WHAT THIS CANNOT SEE, stated so nobody reads more into a green run:
-//   • visible button text. Detecting "every row's button says Generate" needs to
-//     know the element repeats AND that the text is static, and the version that
-//     tried it flagged every button on every page. The three found by hand are
-//     fixed; there is no guard on that shape.
+// VISIBLE BUTTON TEXT — UNGUARDED SINCE US-2450, GUARDED SINCE 2026-08-23.
 //
-//     ATTEMPTED AGAIN 2026-08-23 AND ABANDONED TWICE, recorded so a third
-//     attempt does not start from scratch. Scoping to `.map()` bodies —
-//     which is what US-2834 added and what fixes the "every button on every
-//     page" half — is necessary and not sufficient. The hard part is finding
-//     where the OPENING TAG ENDS:
+// This header used to end "there is no guard on that shape". There is one now:
+// `auditRepeatedText`, which found 96 on the day it was written. How it got
+// there is worth keeping, because three attempts failed first.
+//
+// Two halves have to be right. Scoping to `.map()` bodies is what stops it
+// flagging every button on every page, and that half was the easy one. The hard
+// half is finding where the OPENING TAG ENDS:
 //       1. `<Button([^>]*)>` breaks on `onClick={() => setPeriod(p)}`, whose
 //          `>` is not the tag's. It reported button bodies like
 //          `setPeriod(p)}\n >` across a dozen admin files — the same garbage
 //          the earlier attempt produced, from the same cause.
-//       2. Reusing `tagAttrs`, which brace-counts correctly, still failed:
-//          its return does not line up with an offset you can add back to
-//          find the `>`, so the scan matched nothing at all and reported a
-//          confident ZERO. A broken scan and a clean codebase are the same
-//          output, which is the whole reason this file self-tests its probes.
-//     Doing this properly means an actual JSX parse. The TypeScript compiler
-//     API is already a dependency and would give the tag boundary for free;
-//     a third regex will not.
+//       2. Reusing `tagAttrs`, which brace-counts correctly, failed WORSE: the
+//          scan matched nothing at all and reported a confident ZERO. A broken
+//          scan and a clean codebase produce identical output, and the only
+//          thing that told them apart was the probe's own self-test against a
+//          synthetic positive. That is why the case below pins four directions.
+//
+// So it PARSES instead of matching. TypeScript is already a dependency and
+// hands over the tag boundary, the attribute list and the children for free.
+//
+// WHAT THIS STILL CANNOT SEE, stated so nobody reads more into a green run:
 //   • a text INPUT, whose value is announced along with its label, so
 //     aria-label="Alert name" on a field containing "Nike jackets" already
 //     distinguishes. Those are counted here anyway — conservative in the
@@ -60,6 +60,11 @@ import { auditDistinctness } from "../../scripts/audit-control-labels.mjs";
 // control inside a `.map()` — and that subset now holds at ZERO below, so
 // this number only covers the shapes the header calls conservative.
 const BASELINE = 20;
+
+// US-2834: the visible-text shape, guarded for the first time on 2026-08-23.
+// 96 on the day it was added. A budget rather than a floor — see the case
+// that uses it for why — and it only goes down.
+const TEXT_BASELINE = 96;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
@@ -228,6 +233,81 @@ describe("a repeated control names its own row (US-2450)", () => {
     // And a constant label on a control rendered ONCE is fine: the defect is
     // repetition, not constancy.
     expect(auditDistinctness('<div><Button aria-label="Close" /></div>')).toEqual([]);
+  });
+
+  it("a per-row button named only by its visible text is counted", () => {
+    // THE SHAPE THE HEADER SAYS IS UNGUARDED. It is guarded now, and the
+    // difference is the tool rather than the effort: this PARSES with the
+    // TypeScript compiler instead of matching. Three regex attempts across
+    // two sessions failed on the same thing — `onClick={() => f(x)}` holds a
+    // `>` that is not the tag's — and the last one failed silently, matching
+    // nothing and reporting a confident zero.
+    //
+    // A BUDGET, not a floor, and deliberately: 96 is too many to fix in one
+    // pass, several are genuinely fine (a map over a fixed set of actions is
+    // not a list of garments), and a number that fails today teaches people
+    // to delete the check. It ratchets — the companion case below refuses to
+    // let it sit slack.
+    let total = 0;
+    const worst: Array<[string, number]> = [];
+    for (const f of files) {
+      const hits = auditRepeatedText(readFileSync(f, "utf8"), f);
+      if (hits.length) {
+        total += hits.length;
+        worst.push([f.split(`${sep}src${sep}`)[1] ?? f, hits.length]);
+      }
+    }
+    if (total > TEXT_BASELINE) {
+      worst.sort((a, b) => b[1] - a[1]);
+      throw new Error(
+        `${total} per-row buttons are named only by static visible text, ` +
+          `baseline ${TEXT_BASELINE}. Every row announces the same word — ` +
+          `"Refund", "Reject", "End" — with nothing to say which one. Give ` +
+          `the button an aria-label carrying the row's identity. Worst: ` +
+          worst.slice(0, 5).map(([f, n]) => `${f} (${n})`).join(", "),
+      );
+    }
+    expect(total).toBeLessThanOrEqual(TEXT_BASELINE);
+  });
+
+  it("the visible-text baseline is not slack either", () => {
+    let total = 0;
+    for (const f of files) {
+      total += auditRepeatedText(readFileSync(f, "utf8"), f).length;
+    }
+    expect(
+      TEXT_BASELINE - total,
+      `the count is ${total} and the baseline is ${TEXT_BASELINE} — lower it`,
+    ).toBeLessThan(10);
+  });
+
+  it("the visible-text scan is not vacuous, in four directions", () => {
+    // A parse that matches nothing reports the same zero as a clean codebase.
+    // The previous attempt at this shape did exactly that, so every direction
+    // is pinned rather than assumed.
+    const hit = auditRepeatedText(
+      "const A = () => <ul>{rows.map((r) => (<li key={r.id}>" +
+        "<Button onClick={() => go(r)}>Generate</Button></li>))}</ul>;",
+    );
+    expect(hit.length, "a static-text button inside a map must be found").toBe(1);
+    expect(hit[0]?.text).toBe("Generate");
+
+    // An aria-label names the row: correct, not reported.
+    expect(auditRepeatedText(
+      "const A = () => <ul>{rows.map((r) => (<li key={r.id}>" +
+        "<Button aria-label={`Go ${r.name}`}>Generate</Button></li>))}</ul>;",
+    )).toEqual([]);
+
+    // An interpolated child IS the row's identity: correct, not reported.
+    expect(auditRepeatedText(
+      "const A = () => <ul>{rows.map((r) => (<li key={r.id}>" +
+        "<Button>{r.name}</Button></li>))}</ul>;",
+    )).toEqual([]);
+
+    // Outside a map, one button saying Close is perfectly clear.
+    expect(auditRepeatedText(
+      "const A = () => <div><Button onClick={() => x()}>Close</Button></div>;",
+    )).toEqual([]);
   });
 
   it("the baseline is not slack", () => {

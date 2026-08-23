@@ -22,6 +22,7 @@
 // audit that over-reports gets argued with and then ignored; one that
 // under-reports still gives a floor worth fixing.
 
+import ts from "typescript";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -249,6 +250,85 @@ export function auditDistinctness(src) {
     });
   }
   return hits;
+}
+
+// ── US-2834: the shape a regex could not see ───────────────────────────────
+//
+// A per-row button whose only name is its VISIBLE TEXT. Every row announces
+// "Refund", or "Reject", or "End", and nothing says which one.
+//
+// repeated-labels.test.ts has recorded this as unguarded since US-2450,
+// because the version that tried it flagged every button on every page. Two
+// more regex attempts on 2026-08-23 failed the same way and then failed
+// worse — one matched nothing and reported a confident zero, which is
+// indistinguishable from a clean codebase.
+//
+// The blocker was always the same: finding where the opening tag ENDS.
+// `onClick={() => setPeriod(p)}` contains a `>` that is not the tag's. So
+// this parses instead of matching. TypeScript is already a dependency and
+// hands over the tag boundary, the attribute list and the children.
+
+const TEXT_NAMED = new Set(["Button", "button"]);
+
+/**
+ * Controls inside a `.map()` whose accessible name is static visible text.
+ *
+ * Three things make a hit, and dropping any one of them is what produced the
+ * earlier false-positive floods:
+ *   1. it is inside a `.map()` callback, so it repeats;
+ *   2. it carries no aria-label / aria-labelledby, so the text IS the name;
+ *   3. its children are static text with no interpolation — an interpolated
+ *      child already names the row and is correct.
+ */
+export function auditRepeatedText(src, fileName = "x.tsx") {
+  const sf = ts.createSourceFile(
+    fileName,
+    src,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  const out = [];
+  let mapDepth = 0;
+
+  const isMapCall = (n) =>
+    ts.isCallExpression(n) &&
+    ts.isPropertyAccessExpression(n.expression) &&
+    n.expression.name.text === "map";
+
+  function visit(node) {
+    if (isMapCall(node)) mapDepth++;
+    if (mapDepth > 0 && ts.isJsxElement(node)) {
+      const tag = node.openingElement.tagName.getText(sf);
+      if (TEXT_NAMED.has(tag)) {
+        const named = node.openingElement.attributes.properties.some(
+          (a) =>
+            ts.isJsxAttribute(a) &&
+            /^aria-label(ledby)?$/.test(a.name.getText(sf)),
+        );
+        const interpolated = node.children.some(
+          (c) => ts.isJsxExpression(c) && c.expression,
+        );
+        const text = node.children
+          .filter((c) => ts.isJsxText(c))
+          .map((c) => c.text.trim())
+          .filter(Boolean)
+          .join(" ");
+        if (!named && !interpolated && text) {
+          out.push({
+            tag,
+            text,
+            line: sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1,
+          });
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+    if (isMapCall(node)) mapDepth--;
+  }
+
+  visit(sf);
+  return out;
 }
 
 function main() {

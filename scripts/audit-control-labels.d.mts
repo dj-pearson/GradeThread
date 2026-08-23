@@ -42,3 +42,21 @@ export function mapBodies(src: string): Array<[number, number]>;
  * construction and never reported.
  */
 export function auditDistinctness(src: string): RepeatedName[];
+
+/** A per-row control whose accessible name is its static visible text. */
+export interface RepeatedText {
+  tag: string;
+  /** The static text that is announced on every row. */
+  text: string;
+  line: number;
+}
+
+/**
+ * US-2834: per-row buttons named only by static visible text.
+ *
+ * PARSES with the TypeScript compiler rather than matching. Three regex
+ * attempts failed on the same thing — `onClick={() => f(x)}` holds a `>` that
+ * is not the tag's — and the last failed silently, matching nothing and
+ * reporting a confident zero.
+ */
+export function auditRepeatedText(src: string, fileName?: string): RepeatedText[];
