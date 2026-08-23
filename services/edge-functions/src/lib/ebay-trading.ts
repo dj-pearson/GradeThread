@@ -18,6 +18,7 @@ import { XMLParser } from "fast-xml-parser";
 import {
   ebayResilientFetch,
   getConnectionAccessToken,
+  getEbayAccountHandle,
   getEbayEnv,
   getMarketplaceId,
   getUserAccessToken,
@@ -505,7 +506,27 @@ export interface IncomingBestOffer {
   expiresAt: string | null;
 }
 
-/// Lists active incoming best offers across the seller's listings.
+/**
+ * Lists active INCOMING best offers across the seller's listings.
+ *
+ * US-2816: GetBestOffers, called without an ItemID, returns offers this
+ * account SENT as a buyer alongside the ones it received, and the response
+ * carries no direction field. Every row used to be mapped straight to an
+ * inbound offer, so the owner was emailed "You have a new offer" naming
+ * THEMSELVES as the buyer, and the offers page invited them to Accept or
+ * Decline their own bid.
+ *
+ * The only thing separating the two is whether the offer's Buyer is this
+ * account, so that is the filter. It is applied HERE rather than in the two
+ * callers (the notification poll and GET /negotiation/offers) because two
+ * copies of a direction rule are two chances to disagree about it.
+ *
+ * FAILS OPEN, deliberately: an unknown account_handle means the comparison
+ * cannot be made, and the old behaviour is restored rather than dropping
+ * everything. account_handle is nullable and has a US-315 backfill, so
+ * 'unknown' is a real state — and hiding every genuine offer would be a far
+ * worse bug than the one being fixed.
+ */
 export async function getBestOffers(userId: string): Promise<IncomingBestOffer[]> {
   const body = [
     `<?xml version="1.0" encoding="utf-8"?>`,
@@ -519,6 +540,29 @@ export async function getBestOffers(userId: string): Promise<IncomingBestOffer[]
   if (!ok) {
     throw new Error(`eBay GetBestOffers failed (${status}): ${text.slice(0, 300)}`);
   }
+  // Read before parsing: one lookup, not one per offer.
+  const ownHandle = await getEbayAccountHandle(userId);
+  return parseBestOffers(text, ownHandle);
+}
+
+/**
+ * Parse a GetBestOffers response and keep only the offers this account
+ * RECEIVED.
+ *
+ * US-2816: separated from the network call on purpose. The direction rule is
+ * the part that was wrong and the part with no test — it decided that an offer
+ * the owner SENT was one to email them about and offer them an Accept button.
+ * Pure in, pure out: a recorded response and a handle, no eBay and no database.
+ *
+ * `ownHandle` null means the account's own username is unknown, and then
+ * NOTHING is filtered. That is the safe direction: the cost of keeping a sent
+ * offer is a wrong email, the cost of dropping wrongly is every real offer
+ * disappearing in silence.
+ */
+export function parseBestOffers(
+  text: string,
+  ownHandle: string | null,
+): IncomingBestOffer[] {
   const root = (offersParser.parse(text) as {
     GetBestOffersResponse?: {
       Ack?: string;
@@ -531,8 +575,10 @@ export async function getBestOffers(userId: string): Promise<IncomingBestOffer[]
       `eBay GetBestOffers (Failure): ${root?.Errors?.[0]?.LongMessage ?? "no message"}`,
     );
   }
+  const own = ownHandle?.trim().toLowerCase() || null;
   const groups = root.ItemBestOffersArray?.ItemBestOffers ?? [];
   const out: IncomingBestOffer[] = [];
+  let sentByUs = 0;
   for (const group of groups) {
     const itemId = asString(group.Item?.ItemID) ?? "";
     const itemTitle = asString(group.Item?.Title);
@@ -540,12 +586,19 @@ export async function getBestOffers(userId: string): Promise<IncomingBestOffer[]
     for (const offer of offers) {
       const id = asString(offer.BestOfferID);
       if (!id) continue;
+      const buyer = asString(offer.Buyer?.UserID);
+      // An offer whose buyer is this very account is one we SENT. eBay
+      // usernames are case-insensitive, so compare folded.
+      if (own && buyer && buyer.toLowerCase() === own) {
+        sentByUs++;
+        continue;
+      }
       const price = asPriceValue(offer.Price);
       out.push({
         bestOfferId: id,
         itemId,
         itemTitle,
-        buyerUsername: asString(offer.Buyer?.UserID),
+        buyerUsername: buyer,
         price: price.value,
         currency: price.currency,
         quantity: asNumber(offer.Quantity),
@@ -554,6 +607,14 @@ export async function getBestOffers(userId: string): Promise<IncomingBestOffer[]
         expiresAt: asString(offer.ExpirationTime),
       });
     }
+  }
+  if (sentByUs > 0) {
+    // Worth a line: it is the only evidence that the filter is doing anything,
+    // and its absence in a log where offers ARE being dropped would mean the
+    // handle went missing.
+    console.log(
+      `[ebay-trading] getBestOffers dropped ${sentByUs} offer(s) this account sent`,
+    );
   }
   return out;
 }

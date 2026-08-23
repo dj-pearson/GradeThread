@@ -150,6 +150,32 @@ export function isEbayConfigured(): boolean {
 // shows enough for a human to spot env-var problems (env, host, RuName format).
 // When `userId` is provided, the snapshot includes per-user connection state
 // (account_handle presence) so US-315 backfill can be verified at a glance.
+/**
+ * The eBay username of this user's active connection, or null.
+ *
+ * US-2816: needed to tell an offer the seller RECEIVED from one they SENT.
+ * GetBestOffers returns both, with no direction field, and the only thing
+ * separating them is whether the offer's Buyer is this account.
+ *
+ * Returns null rather than throwing when there is no connection, no handle,
+ * or the read fails: every caller must treat null as 'cannot tell' and leave
+ * behaviour unchanged. Guessing wrong here silently hides real offers.
+ */
+export async function getEbayAccountHandle(
+  userId: string,
+): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("account_handle")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+  if (error || !data) return null;
+  const handle = (data as { account_handle: string | null }).account_handle;
+  return handle?.trim() || null;
+}
 export async function debugSnapshot(
   userId?: string,
 ): Promise<{
@@ -191,18 +217,7 @@ export async function debugSnapshot(
   // a non-null account_handle. null when no userId was passed (env-only view).
   let accountHandlePresent: boolean | null = null;
   if (userId) {
-    const { data } = await supabaseAdmin
-      .from("marketplace_connections")
-      .select("account_handle")
-      .eq("user_id", userId)
-      .eq("marketplace", "ebay")
-      .eq("is_active", true)
-      .limit(1)
-      .maybeSingle();
-    if (data) {
-      accountHandlePresent =
-        (data as { account_handle: string | null }).account_handle != null;
-    }
+    accountHandlePresent = (await getEbayAccountHandle(userId)) != null;
   }
 
   // Asked HERE rather than on a schedule because this is the surface an
