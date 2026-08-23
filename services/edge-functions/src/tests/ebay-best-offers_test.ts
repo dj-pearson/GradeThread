@@ -97,6 +97,26 @@ Deno.test("eBay usernames compare case-insensitively, on BOTH sides", () => {
   assertEquals(parseBestOffers(mixed, "PEARSONPERFORM").length, 1);
 });
 
+Deno.test("a seller COUNTERING our own offer is still ours, not an inbound one", () => {
+  // Owner-reported the day this shipped: they made an offer as a BUYER, the
+  // seller countered, and the counter arrived as a received-offer email.
+  //
+  // The counter continues the same Best Offer thread, so the Buyer on the
+  // record is still us. The filter keys on WHO THE BUYER IS rather than on
+  // Status, which is why it covers this without a second rule - and this case
+  // exists so that stays true if anyone ever reaches for a status check.
+  // Both statuses flip: the assertion is about WHO, not about status, and a
+  // fixture where only one changed would leave that ambiguous.
+  const countered = response().replaceAll(
+    "<Status>Active</Status>",
+    "<Status>Countered</Status>",
+  );
+  const offers = parseBestOffers(countered, OWN);
+  // Only the genuinely inbound one survives, whatever its status.
+  assertEquals(offers.length, 1);
+  assertEquals(offers[0].buyerUsername, "some_buyer_99");
+});
+
 Deno.test("an UNKNOWN own handle filters NOTHING, rather than everything", () => {
   // The safe direction, and the whole reason the filter is written this way.
   // account_handle is nullable, so "cannot tell" is a real state — and dropping
