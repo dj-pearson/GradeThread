@@ -39,6 +39,20 @@
 // but it does not pin instance counts, and pretending otherwise would be the
 // numeric baseline AC5 exists to prevent, wearing a list's clothes.
 //
+// AND YOU CANNOT RECONSTRUCT THE POSITION EITHER - tried 2026-08-23, twice.
+// Text mode is no better than JSON for this rule: other rules quote their
+// context (low-contrast prints the sentence it measured), nested-cards prints
+// the literal words "Card inside card" and nothing else. A class-based walk over
+// the prerendered HTML, approximating a card as a rounded container with a
+// border or a raised background, does not reproduce the tool either: it found 15
+// on /pricing against the browser's 14, 19 on / against 8, and ZERO on
+// /flipdesk, /verify and /grading-standard against 8, 1 and 1. Disagreeing in
+// BOTH directions is what makes it useless as a locator rather than merely
+// noisy - it is not a superset to filter down.
+//
+// So the practical cost of acting on a finding here is a human opening the page
+// and looking. That belongs in AC1's decision, not discovered after it.
+//
 // Usage:
 //   node scripts/check-ui-browser.mjs              # report, exit 0
 //   node scripts/check-ui-browser.mjs --enforce    # fail on un-allowlisted
