@@ -9243,8 +9243,12 @@ flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
     const offers = await getBestOffers(userId);
     // US-2236 AC2: attach the item's acquisition cost so the counter UI can show
     // the resulting margin (a counter below break-even is otherwise invisible).
-    // The offers come from THIS seller's eBay account, so their itemIds are the
-    // seller's own listings; the cost lookup is still tenant-scoped via the
+    // US-2816: this used to assert that the returned itemIds are necessarily
+    // the seller's own listings. They are not - GetBestOffers also returns
+    // offers this account SENT on OTHER people's listings, which is how a
+    // seller came to be emailed their own $12 bid with an Accept button.
+    // getBestOffers now drops those, so what arrives here is inbound only.
+    // The cost lookup is still tenant-scoped via the
     // owner-verified parent (inventory_items.user_id — the loadListingOwned
     // pattern, US-268) as defence in depth. acquired_price is numeric(10,2)
     // dollars, matching the eBay offer/counter price units.
