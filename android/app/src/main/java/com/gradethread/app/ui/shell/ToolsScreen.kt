@@ -25,6 +25,7 @@ import com.gradethread.app.ui.theme.Spacing
 @Composable
 fun ToolsScreen(
     onSnap: () -> Unit,
+    modifier: Modifier = Modifier,
     onGrades: () -> Unit = {},
     /** US-2815: grade one garment from photos, with no inventory item. */
     onGradeAGarment: () -> Unit = {},
@@ -42,7 +43,6 @@ fun ToolsScreen(
     onMyStores: () -> Unit = {},
     /** US-2492: what everyone else has found in the shops near you. */
     onRadar: () -> Unit = {},
-    modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier.fillMaxSize().padding(vertical = Spacing.sm),

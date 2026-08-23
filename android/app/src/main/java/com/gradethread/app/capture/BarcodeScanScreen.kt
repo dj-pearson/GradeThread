@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import android.annotation.SuppressLint
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,11 +48,16 @@ import java.util.concurrent.Executors
  * the first hit and the caller dismisses — so it is safe to treat as
  * single-shot.
  */
+// LINT SUPPRESSED WITH A REASON, not to quieten a gate. The check wants
+// FEATURE_CAMERA_ANY so a ChromeOS device with only a front camera still
+// qualifies. For a BARCODE SCANNER that is the wrong trade: a camera facing
+// the user cannot read a tag on a garment held in front of it, so a
+// selfie-only device would pass the check and then fail at the only thing it
+// was opened to do. The rear-camera requirement is the product behaviour and
+// the message below depends on it — see the comment at the call.
+@SuppressLint("UnsupportedChromeOsCameraSystemFeature")
 @Composable
-fun BarcodeScanScreen(
-    onScanned: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
+fun BarcodeScanScreen(onScanned: (String) -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val haptics = rememberHapticFeedback()
@@ -161,11 +167,7 @@ fun BarcodeScanScreen(
 
 /** Error / permission fallback — mirrors the iOS denied explainer. */
 @Composable
-private fun ScannerMessage(
-    message: String,
-    settingsRecoverable: Boolean,
-    onDismiss: () -> Unit,
-) {
+private fun ScannerMessage(message: String, settingsRecoverable: Boolean, onDismiss: () -> Unit) {
     val context = LocalContext.current
     Column(
         modifier = Modifier.fillMaxSize().padding(Spacing.xl),

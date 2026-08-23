@@ -315,12 +315,12 @@ fun SettingsScreen(
         // their owner's 2FA policy is looking for a way to comply, and burying
         // that under Sign out and Delete account puts the fix in the section
         // people are told not to touch.
-        SectionHeader("Security")
+        SectionHeader(stringResource(R.string.settings_section_security))
         Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
             TextButton(
                 onClick = { twoFactorOpen = true },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Two-factor authentication") }
+            ) { Text(stringResource(R.string.settings_two_factor)) }
         }
 
         // ── Danger zone ──────────────────────────────────────────────────────

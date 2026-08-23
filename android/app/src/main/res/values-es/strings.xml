@@ -246,6 +246,7 @@
     <string name="settings_section_security">Seguridad</string>
     <string name="settings_section_help">Ayuda</string>
     <string name="settings_section_diagnostics">Diagnóstico</string>
+    <string name="settings_two_factor">Autenticación de dos factores</string>
     <string name="settings_section_danger">Acciones de la cuenta</string>
     <string name="settings_plan">Plan</string>
     <string name="settings_plan_loading">Cargando tu plan…</string>

@@ -286,6 +286,7 @@
     <string name="settings_section_security">Security</string>
     <string name="settings_section_help">Help</string>
     <string name="settings_section_diagnostics">Diagnostics</string>
+    <string name="settings_two_factor">Two-factor authentication</string>
     <string name="settings_section_danger">Account actions</string>
     <string name="settings_plan">Plan</string>
     <string name="settings_plan_loading">Loading your plan…</string>

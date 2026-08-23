@@ -119,7 +119,6 @@ SCOPE = [
     "ui/components/LabeledDropdown.kt",
     "ui/components/Skeleton.kt",
     "ui/components/StatusBadge.kt",
-    "ui/shell/SectionPlaceholder.kt",
     "ui/shell/SyncStatusBar.kt",
     "ui/theme/Components.kt",
     "ui/theme/Theme.kt",
