@@ -1,6 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { Image } from "imagescript";
 import {
+  bustedThumbnailUrl,
   generateThumbnail,
   THUMBNAIL_MAX_EDGE,
   thumbnailStoragePath,
@@ -48,4 +49,29 @@ Deno.test("thumbnailStoragePath inserts thumbs/ and forces .jpg, preserving owne
   );
   // No directory → still namespaced under thumbs/
   assertEquals(thumbnailStoragePath("lonely.jpg"), "thumbs/lonely.jpg");
+});
+
+// US-2836: the regenerated thumbnail lands on the SAME deterministic storage
+// path every time, so its public URL never changes even though its bytes do.
+// Supabase serves public objects with `cache-control: max-age=14400`, so after a
+// seller rotates or crops a photo the browser (and the Cloudflare edge) keep
+// serving the PRE-EDIT thumbnail for four hours — the grid and the listing
+// preview show the original while the full-size view, which reads the
+// `?v=`-busted photo_url, shows the edit.
+Deno.test("bustedThumbnailUrl makes a re-uploaded thumbnail a new URL", () => {
+  const base =
+    "https://api.gradethread.com/storage/v1/object/public/item-photos/u/i/thumbs/front_1.jpg";
+  assertEquals(bustedThumbnailUrl(base, 1700000000000), `${base}?v=1700000000000`);
+  // Two generations of the same object must not collide.
+  assertEquals(
+    bustedThumbnailUrl(base, 1) === bustedThumbnailUrl(base, 2),
+    false,
+  );
+});
+
+Deno.test("bustedThumbnailUrl keeps an existing query string intact", () => {
+  assertEquals(
+    bustedThumbnailUrl("https://x/y.jpg?token=abc", 9),
+    "https://x/y.jpg?token=abc&v=9",
+  );
 });

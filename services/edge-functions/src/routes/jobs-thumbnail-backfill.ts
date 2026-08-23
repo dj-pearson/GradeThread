@@ -34,7 +34,11 @@ import {
   ITEM_PHOTOS_BUCKET,
   SENSITIVE_ITEM_PHOTO_TYPES,
 } from "../lib/item-photo-storage.ts";
-import { generateThumbnail, thumbnailStoragePath } from "../lib/thumbnail.ts";
+import {
+  bustedThumbnailUrl,
+  generateThumbnail,
+  thumbnailStoragePath,
+} from "../lib/thumbnail.ts";
 
 // Bounded so one run is a short, predictable unit of work (each row = a full-image
 // download + decode + resize + thumb upload). The scheduler drains the backlog
@@ -132,9 +136,14 @@ export async function handleThumbnailBackfillCron(c: Context): Promise<Response>
           failed++;
           continue;
         }
-        const thumbUrl = supabaseAdmin.storage
-          .from(ITEM_PHOTOS_BUCKET)
-          .getPublicUrl(thumbPath).data.publicUrl;
+        // US-2836: the path is deterministic, so a REGENERATED thumbnail reuses
+        // the same public URL and every cached copy of the pre-edit image keeps
+        // winning for the four hours Supabase advertises. Bust it, the same way
+        // persistPhotoEdit already busts photo_url.
+        const thumbUrl = bustedThumbnailUrl(
+          supabaseAdmin.storage.from(ITEM_PHOTOS_BUCKET).getPublicUrl(thumbPath)
+            .data.publicUrl,
+        );
 
         const { error: updErr } = await supabaseAdmin
           .from("item_photos")

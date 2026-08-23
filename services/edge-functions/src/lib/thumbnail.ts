@@ -68,3 +68,29 @@ export function thumbnailStoragePath(storagePath: string): string {
   const stem = dot >= 0 ? file.slice(0, dot) : file;
   return dir ? `${dir}/thumbs/${stem}.jpg` : `thumbs/${stem}.jpg`;
 }
+
+/**
+ * Append a cache-buster to a regenerated thumbnail's public URL (US-2836).
+ *
+ * THE BUG THIS FIXES: `thumbnailStoragePath` is deterministic, so every
+ * regeneration of a given photo's thumbnail lands on the SAME object key and
+ * therefore the same public URL. After a seller rotates or crops a photo,
+ * `persistPhotoEdit` nulls `thumbnail_url` and deletes the object; the backfill
+ * cron then rebuilds it from the new pixels and wrote back the identical URL.
+ * Supabase serves public objects with `cache-control: max-age=14400`, so the
+ * browser and the Cloudflare edge kept handing out the PRE-EDIT thumbnail for
+ * four hours.
+ *
+ * The seller saw exactly that split: every surface reading `thumbnail_url` (the
+ * composer photo grid, the eBay listing-preview thumb rail, inventory covers)
+ * showed the original, while the full-size view and the preview hero — which
+ * read `photo_url`, and `persistPhotoEdit` already busts that one with `?v=` —
+ * showed the edit. Same convention here, for the same reason.
+ */
+export function bustedThumbnailUrl(
+  publicUrl: string,
+  now: number = Date.now(),
+): string {
+  const sep = publicUrl.includes("?") ? "&" : "?";
+  return `${publicUrl}${sep}v=${now}`;
+}

@@ -14,6 +14,8 @@ code_refs:
   - src/lib/images.ts
   - src/lib/item-photo-url.ts
   - services/edge-functions/src/lib/item-photo-storage.ts
+  - services/edge-functions/src/lib/thumbnail.ts
+  - services/edge-functions/src/routes/jobs-thumbnail-backfill.ts
   - supabase/migrations/00587_item_photo_role_qualifier.sql
   - supabase/migrations/00589_submission_image_role.sql
   - services/edge-functions/src/routes/flipdesk-grading.ts
@@ -268,19 +270,38 @@ Rotation is a canvas re-encode producing a new JPEG — **not** a
 `rotation_degrees` column or a CSS transform. The save handlers upload the
 rotated blob over `storage_path` and cache-bust `photo_url`.
 
-`thumbnail_url` is generated **once at upload** and is not regenerated. Since
 `itemPhotoThumb()` (`src/lib/images.ts`) prefers `thumbnail_url` and only falls
-back to `photo_url` when it is null, every thumbnail surface — the manager grid,
-the uploader tile, the listings cover, the eBay preview strip — served the
-**pre-rotation** image, while zoom and the actual eBay export (both `photo_url`)
-were correct. A photo that looks right where you check it and wrong everywhere
-else is the signature.
+back to `photo_url` when it is null. So when the thumbnail held pre-rotation
+pixels, every thumbnail surface (the manager grid, the uploader tile, the
+listings cover, the eBay preview strip) served the **pre-rotation** image, while
+zoom and the actual eBay export, both `photo_url`, were correct. **A photo that
+looks right where you check it and wrong everywhere else is the signature**, and
+it has now shown up twice for two different reasons.
 
-The fix nulls `thumbnail_url` and `thumbnail_storage_path` on edit-save and
-best-effort deletes the orphaned object, so the thumb falls back to the
-cache-busted full image. The trade is that edited photos load full-res in
-galleries — acceptable because it only affects edited photos. Regenerating the
-thumbnail from the rotated blob is the better fix if that ever matters.
+**US-2093 (the first one).** `thumbnail_url` was written once at upload and never
+regenerated, so an edit left it pointing at the old object. `persistPhotoEdit`
+nulls `thumbnail_url` and `thumbnail_storage_path` on save and best-effort
+deletes the orphan, so the thumb falls back to the cache-busted full image.
+
+**US-2836 (the same signature, one layer down).** "Never regenerated" stopped
+being true when US-1518 added the thumbnail-backfill cron
+(`routes/jobs-thumbnail-backfill.ts`), which picks up exactly the rows
+`persistPhotoEdit` just nulled and rebuilds them from the current bytes. That
+part is correct. What was not: `thumbnailStoragePath()` is **deterministic**, so
+the rebuilt object lands on the same key and the cron wrote back a byte-identical
+public URL. Supabase serves public objects with `cache-control: max-age=14400`,
+so for four hours the browser and the Cloudflare edge kept handing out the
+pre-edit thumbnail from cache while the row and the object were both correct.
+
+> **A writer that changes an object's bytes must change its URL.** The cron now
+> appends `?v=<ms>` via `bustedThumbnailUrl()` (`lib/thumbnail.ts`), the same
+> convention `persistPhotoEdit` already used for `photo_url` and iOS
+> `PhotoRotateService` already used for both. Rows written before the fix are not
+> repaired; they correct themselves when the 4h max-age expires.
+
+Between the save and the next cron tick an edited photo loads full-res in
+galleries. That is the deliberate trade, and it is bounded by the cron interval
+rather than permanent.
 
 ## Which bucket a photo is in is a fact about the bytes, not about its type
 
