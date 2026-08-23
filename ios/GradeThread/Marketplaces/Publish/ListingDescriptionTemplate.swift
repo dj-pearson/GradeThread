@@ -110,7 +110,7 @@ enum ListingDescriptionTemplate {
 
             Condition: {{condition}}
 
-            Sold as a two-piece set - jacket and trousers together.
+            Sold as a two-piece set — jacket and trousers together.
 
             Measurements (each piece laid flat):
             {{measurements}}
