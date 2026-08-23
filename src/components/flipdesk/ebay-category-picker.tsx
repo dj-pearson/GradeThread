@@ -224,6 +224,7 @@ export function CategoryCandidateList({
               size="sm"
               className="shrink-0"
               onClick={() => onUse(c.categoryId, c.categoryPath ?? null)}
+              aria-label={`Use ${c.categoryPath ?? `category ${c.categoryId}`}`}
             >
               Use this
             </Button>

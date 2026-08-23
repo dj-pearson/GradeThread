@@ -107,6 +107,7 @@ export function QualityCard({
                         size="sm"
                         className="h-7 shrink-0 px-2"
                         onClick={() => onFocusSurface(anchorId)}
+                        aria-label={`Fix: ${fix.label}`}
                       >
                         Fix
                         <ArrowRight className="ml-1 h-3 w-3" aria-hidden="true" />

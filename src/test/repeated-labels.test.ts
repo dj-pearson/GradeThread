@@ -85,7 +85,17 @@ const BASELINE = 20;
 // promotion and unscheduling the wrong drop all cost money, so those went
 // first. A budget rather than a floor (see the case that uses it), and it only
 // goes down.
-const TEXT_BASELINE = 62;
+// ⚠ 59, NOT 57, AND THE TWO MISSING ONES ARE A REAL CONSTRAINT RATHER THAN
+// AN OVERSIGHT. autolister.tsx carries a shrink-only LINE-COUNT ceiling from
+// US-2520 and sits exactly on it, so the two aria-labels its proposal rows
+// need (Create, Apply) could not be added without pushing the file over. The
+// ceiling says to extract a piece rather than raise the number, and it is
+// right — but that is a refactor of a 3600-line file, not a label fix. The
+// labels were written, the ceiling caught them, and they were reverted.
+//
+// Worth knowing generally: a file at its ceiling cannot take an accessibility
+// fix, however small. That is the trade US-2520 chose deliberately.
+const TEXT_BASELINE = 59;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {

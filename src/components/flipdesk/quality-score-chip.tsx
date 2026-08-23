@@ -168,6 +168,7 @@ export function QualityScoreBreakdown({
               <button
                 type="button"
                 onClick={() => onFix(c.fixSurface)}
+                aria-label={`Fix: ${c.label}`}
                 className="shrink-0 text-primary underline-offset-2 hover:underline"
               >
                 Fix
