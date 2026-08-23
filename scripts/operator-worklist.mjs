@@ -37,16 +37,79 @@ out.push(
 );
 out.push("");
 
+// Group by WHERE the work happens, not by story.
+//
+// 120 steps read as an impossible list. They are not 120 sittings: most are
+// queries against one database, and a dozen more are one console each. Sorting
+// by venue turns the list into "open this, do these" — which is how someone
+// actually works through it.
+//
+// Order matters: the first match wins, so the more specific venues are listed
+// before the generic "read something in a browser".
+const VENUES = [
+  // Specific systems first. A step naming two venues is filed under the one you
+  // have to open FIRST, which is why the deploy rules sit above the bare-"prod"
+  // rule: "set the variable, redeploy, then confirm in prod" starts at Coolify.
+  ["A lawyer", /counsel|lawyer|legal review|terms clause|substantiation/i],
+  ["App Store Connect", /App Store|StoreKit|appstore|sandbox purchase|TestFlight/i],
+  ["Google Play Console", /Play Console|googleplay|Google Play/i],
+  ["eBay developer or seller account", /eBay (developer|seller|sandbox)|developer\.ebay|restricted scope|sell\.logistics/i],
+  ["A marketplace account, logged in", /Poshmark|Mercari|Grailed|Vinted|Depop|Etsy|Facebook Marketplace|logged-in|signed in|Check selectors|popup selector/i],
+  ["Coolify, or a deploy + env change", /Coolify|redeploy|after deploy|env(ironment)? var|Pages variable|set the .* variable|flip .* flag|rclone|the DB host|SSH|container/i],
+  ["Cloudflare dashboard", /Cloudflare|Pages (real-time )?log|\bDNS\b/i],
+  ["Sentry or PostHog", /Sentry|PostHog/i],
+  ["Email or SES", /\bSES\b|SMTP|confirmation mail|deliverab/i],
+  ["A phone, in your hands", /real device|on an? (iPhone|Android)|screen reader|NVDA|VoiceOver|hold the camera|take a photo/i],
+  ["A grading run that costs real money", /golden-set|canary|real vision calls|eval gate/i],
+  // Now the database. Deliberately broad and deliberately LAST among systems,
+  // so a step that merely CONFIRMS something in prod after doing the real work
+  // elsewhere is filed where the real work is.
+  ["Production database (psql or the Supabase SQL editor)", /prod-diagnostics|\bprod\b|production|psql|SELECT |pg_constraint|supautils|apply (supabase\/migrations|00\d{3})|NOTIFY pgrst/i],
+  // A judgement call with nothing to log into.
+  ["A decision, with nothing to open", /^decide\b|\bdecide whether\b|choose whether|confirm whether .* wanted/i],
+];
+
+function venueOf(text) {
+  for (const [name, re] of VENUES) if (re.test(text)) return name;
+  return "Somewhere else (read the step)";
+}
+
+const byVenue = new Map();
 for (const { s, ops } of rows) {
-  out.push(`## ${s.id} — ${s.title ?? ""}`);
-  out.push("");
-  out.push(`priority ${s.priority ?? "unranked"}`);
-  out.push("");
   for (const op of ops) {
     const clean = op.replace(/^\s*OPERATOR:?\s*/i, "").trim();
-    out.push(`- ${clean}`);
+    const v = venueOf(clean);
+    if (!byVenue.has(v)) byVenue.set(v, []);
+    byVenue.get(v).push({ s, clean });
   }
+}
+
+// Venues with the most work first — that is the order that clears the list.
+const venues = [...byVenue.entries()].sort((a, b) => b[1].length - a[1].length);
+
+out.push("## Where the work happens");
+out.push("");
+out.push("Most of these are not separate sittings. Grouped by what you need open:");
+out.push("");
+for (const [venue, items] of venues) {
+  out.push(`- **${venue}** — ${items.length} step${items.length === 1 ? "" : "s"}`);
+}
+out.push("");
+out.push("---");
+out.push("");
+
+for (const [venue, items] of venues) {
+  out.push(`## ${venue}`);
   out.push("");
+  items.sort((a, b) => (a.s.priority ?? 1e9) - (b.s.priority ?? 1e9));
+  for (const { s, clean } of items) {
+    out.push(`### ${s.id} — ${s.title ?? ""}`);
+    out.push("");
+    out.push(`priority ${s.priority ?? "unranked"}`);
+    out.push("");
+    out.push(clean);
+    out.push("");
+  }
 }
 
 const path = ROOT + "docs/operator-worklist.md";
