@@ -47,11 +47,24 @@ object AiItemFields {
         "tops", "bottoms", "outerwear", "dresses", "footwear", "accessories",
     )
 
+    /**
+     * US-2815: `neckwear` and `gloves` were MISSING here while the server
+     * accepted both. This set filters fields BEFORE the write, so an AI
+     * extraction that correctly read a tie came back as neckwear, failed the
+     * check, and was dropped - leaving the tie uncategorised. Failing safe, and
+     * still the exact outcome US-2224 added those values to prevent: a tie
+     * filed as `other` lands in the clothing rubric rather than the accessories
+     * one.
+     *
+     * Held to src/lib/constants.ts by
+     * src/test/native-garment-vocabulary-parity.test.ts.
+     */
     val garmentCategories: Set<String> = setOf(
         "t-shirt", "shirt", "blouse", "sweater", "hoodie",
         "jacket", "coat", "jeans", "pants", "shorts",
         "skirt", "dress", "sneakers", "boots", "sandals",
-        "hat", "bag", "belt", "scarf", "other",
+        "hat", "bag", "belt", "scarf", "neckwear",
+        "gloves", "other",
     )
 
     /** Enum-typed columns and their permitted vocabularies. */

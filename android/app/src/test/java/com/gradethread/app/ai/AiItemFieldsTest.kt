@@ -83,14 +83,32 @@ class AiItemFieldsTest {
         assertEquals(setOf("garment_category"), routed.rejected.keys)
     }
 
+    /**
+     * US-2815: this used to be called enumVocabulariesMatchTheMigration and it
+     * NEVER READ A MIGRATION. It asserted a hardcoded count, so it matched only
+     * its own past self - and when 00570 added `neckwear` and `gloves` to the
+     * garment_category enum, this test kept passing at 20 while the phone
+     * silently dropped both values before every write.
+     *
+     * The name is the part that made it invisible: a reader checking whether
+     * the vocabularies were pinned to the schema would have read this name and
+     * stopped looking. Renamed to what it does.
+     *
+     * The claim the old name made is now real, and lives where it can be:
+     * src/test/native-garment-vocabulary-parity.test.ts reads
+     * src/lib/constants.ts and BOTH native vocabularies.
+     */
     @Test
-    fun enumVocabulariesMatchTheMigration() {
+    fun enumVocabulariesHaveTheExpectedShape() {
         assertTrue("outerwear" in AiItemFields.garmentTypes)
         assertTrue("accessories" in AiItemFields.garmentTypes)
         assertEquals(6, AiItemFields.garmentTypes.size)
         assertTrue("t-shirt" in AiItemFields.garmentCategories)
         assertTrue("other" in AiItemFields.garmentCategories)
-        assertEquals(20, AiItemFields.garmentCategories.size)
+        // 22 since migration 00570 (neckwear, gloves).
+        assertTrue("neckwear" in AiItemFields.garmentCategories)
+        assertTrue("gloves" in AiItemFields.garmentCategories)
+        assertEquals(22, AiItemFields.garmentCategories.size)
     }
 
     @Test

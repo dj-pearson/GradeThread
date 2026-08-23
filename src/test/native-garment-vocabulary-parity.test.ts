@@ -12,6 +12,7 @@ import { GARMENT_CATEGORIES, GARMENT_TYPES } from "@/lib/constants";
 // registry, fail on any difference.
 
 const SWIFT = "ios/GradeThread/Grading/GarmentVocabulary.swift";
+const KOTLIN = "android/app/src/main/java/com/gradethread/app/ai/AiItemFields.kt";
 
 function read(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf8");
@@ -67,5 +68,46 @@ describe("the iOS garment picker offers exactly what the route accepts", () => {
     // safely offer anything. Worth knowing that day rather than later.
     const route = read("services/edge-functions/src/routes/grade.ts");
     expect(route).toContain("GARMENT_CATEGORIES.includes(garmentCategory");
+  });
+});
+
+describe("the ANDROID vocabulary matches too", () => {
+  // Found while porting: Android had 20 categories to the server 22, missing
+  // `neckwear` and `gloves`. That set filters fields BEFORE the write, so an AI
+  // extraction that correctly read a tie was DROPPED - the exact outcome
+  // US-2224 added those values to prevent. It failed safe and it failed
+  // silently, which is why it survived.
+  //
+  // A Set here, not a List: Kotlin declares it unordered and comparing order
+  // would fail on a harmless reshuffle.
+  function kotlinSet(name: string): string[] {
+    const src = read(KOTLIN);
+    const start = src.indexOf(`val ${name}: Set<String> = setOf(`);
+    expect(start, `${name} missing from ${KOTLIN}`).toBeGreaterThan(-1);
+    const end = src.indexOf(")", start);
+    const body = src
+      .slice(start, end)
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/[^\n]*/g, "");
+    return [...body.matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
+  }
+
+  it("categories match the registry", () => {
+    const kotlin = kotlinSet("garmentCategories");
+    expect(kotlin.length, "parsed nothing").toBeGreaterThan(10);
+    expect([...kotlin].sort()).toEqual([...GARMENT_CATEGORIES].sort());
+  });
+
+  it("types match the registry", () => {
+    const kotlin = kotlinSet("garmentTypes");
+    expect(kotlin.length, "parsed nothing").toBeGreaterThan(3);
+    expect([...kotlin].sort()).toEqual([...GARMENT_TYPES].sort());
+  });
+
+  it("the two natives agree with each other", () => {
+    // Transitive through the registry, but asserted directly because a reader
+    // debugging a phone wants the comparison they are actually making.
+    const swift = swiftArray(read(SWIFT), "categories");
+    expect([...kotlinSet("garmentCategories")].sort()).toEqual([...swift].sort());
   });
 });
