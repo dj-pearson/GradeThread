@@ -2359,28 +2359,6 @@
       "priority": 880
     },
     {
-      "id": "US-2817",
-      "passes": false,
-      "title": "Re-run AI identification on drafts already catalogued",
-      "description": "Identification has improved materially since a lot of stock was catalogued, and there was no way to benefit from that. Both AI entry points only ever filled BLANKS: /extract drops any suggestion for a field the caller lists in known_fields, and bulk-extract writes only into empty columns while feeding the item's own old values back to the model as ground truth. So a seller with months-old drafts could spend an AI action per item and provably change nothing. Adds a re-identify mode on both surfaces. Provenance decides everything: a value carrying an ai_field_sources entry was written by an earlier pass, so it is withheld from the prompt and may be overwritten; a value with no entry was typed by the seller, so it is sent as evidence and is never overwritten, only surfaced for review. Generated copy (title/description) is also withheld when there are photos to read instead, since an AutoLister title names the brand under review.",
-      "acceptanceCriteria": [
-        "AC1: POST /api/flipdesk/ai/bulk-extract accepts mode: 'gap_fill' | 'reidentify'. Absent or unknown values behave exactly as before (gap_fill), so an older client is unaffected.",
-        "AC2: In reidentify mode the model is NOT shown the item's AI-written column values as known_fields, and title/description are withheld from the prompt whenever the item has photos. Seller-typed values are still sent.",
-        "AC3: In reidentify mode a suggestion at or above the auto-apply confidence floor overwrites a column whose current value is AI-owned. A column the seller typed is never overwritten; it returns in `pending`.",
-        "AC4: A suggestion identical to the current value counts as neither applied nor pending, so a run where the AI agreed does not report every item as needing review.",
-        "AC5: Canonical attributes follow the same provenance rule as columns.",
-        "AC6: The response carries per-item `replaced` and a batch `summary.replaced`, so the UI can answer 'did anything actually change?'.",
-        "AC7: The AutoLister Drafts page has a header select-all (scoped to the filtered rows) and a 'Re-run AI on N' button that opens the bulk dialog in reidentify mode, invalidating the draft list, the draft item meta and items_full when it completes.",
-        "AC8: The composer offers a re-run. When fields are missing it sits beside 'Complete with AI'; when nothing is missing it is the only AI offer on the card, with the date the AI last read the item. Results go through the existing review panel, so nothing is saved until the seller accepts it.",
-        "AC9: A 402 FEATURE_LOCKED from the bulk gate reads as 'Bulk AI needs a Pro plan', not as an AI-action cap.",
-        "AC10: bulk-extract accepts overwrite_untracked (reidentify only, default false). With it on, a column carrying NO ai_field_sources entry counts as AI-written and may be replaced. This exists because per-column provenance was never recorded before this story: brand/style/size/color/material are applied client-side after review, so on every pre-existing draft they read as seller-typed and the pass would correct nothing.",
-        "AC11: the bulk dialog exposes that as an opt-in checkbox, off by default and reset on close, worded so the seller knows their own typing could be replaced. When a re-identify run overwrites nothing and the box was off, the result says so and points at the box.",
-        "AC12: the composer's Apply now records ai_field_sources + ai_enriched_at for every accepted field, so values written from here stop looking seller-typed and AC10's opt-in stops being needed for anything catalogued after this story.",
-        "AC13: a replaced brand/size/color/style is carried into the listing titles that quote it, through an edge port of buildTitleSyncPatch. eBay-origin listings are refused, both A/B variants move, and a hand-edited or live title is flagged rather than rewritten. The two copies of that orchestration are pinned by a shared fixture."
-      ],
-      "priority": 40
-    },
-    {
       "id": "US-2818",
       "passes": false,
       "title": "iOS item composer parity: photo tagging, description templates, section order, post-AI drafted status",
