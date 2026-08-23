@@ -91,18 +91,22 @@ function draftToInput(d: Draft): ChangelogInput {
 // entries, audience-gated). Auto-capture drafts entries from recently published
 // blog posts for human-light curation.
 //
-// US-2809: this said the entries also power "the public /changelog feed". They
-// do not. There is no /changelog route and none in public-routes.ts, and
-// nothing on web, iOS or Android fetches /api/changelog —
-// src/hooks/use-changelog.ts only ever calls the ADMIN endpoint. The public API
-// itself IS built (changelogPublicRoutes, cursor-paginated, with an ?audience=
-// filter whose own comment describes an in-app panel nobody wrote), so the gap
-// is a reader, not a server.
+// US-2809, in two passes. This claimed the entries also power "the public
+// /changelog feed", which was false: the API was built and no reader ever was.
+// An earlier pass took the honest short road and DELETED the claim, on the
+// grounds that telling an admin their post goes somewhere public when it does
+// not is worse than telling them nothing — and it left a note saying the line
+// comes back if the feed is built.
 //
-// Corrected rather than left aspirational because this is the copy an ADMIN
-// reads while deciding whether to publish. Telling them a post goes somewhere
-// public when it does not is worse than telling them nothing. If the feed gets
-// built, this line comes back — US-2809 has both outcomes as live options.
+// It is built. src/pages/marketing/changelog.tsx reads /api/changelog and is
+// registered in public-routes.ts and entry-server.tsx, so /changelog prerenders
+// like any other public page. The claim is restored because it is now true, and
+// this history stays because the sequence is the point: the copy was corrected
+// DOWN to the truth and then back UP as the truth changed, rather than being
+// left aspirational in between.
+//
+// The in-app "What's New" panel is still unbuilt, and no copy here claims it.
+// That is the surface the ?audience= filter was designed for.
 export function ChangelogPage() {
   const confirm = useConfirm();
   const { data: entries, isLoading } = useChangelogEntries();
@@ -150,11 +154,14 @@ export function ChangelogPage() {
         title="What's New"
         subtitle={
           <>
-            Product changelog powering the autonomous newsletter. Only{" "}
-            <strong>published</strong> entries are sent; entries are
-            audience-gated so grading-only users never get FlipDesk-only news.
-            There is no public changelog page yet, so publishing here reaches
-            subscribers and nobody else.
+            Product changelog powering the public{" "}
+            <a href="/changelog" className="underline" target="_blank" rel="noreferrer">
+              /changelog
+            </a>{" "}
+            page and the autonomous newsletter. Only <strong>published</strong>{" "}
+            entries appear in either. The public page shows every audience;
+            the newsletter is audience-gated, so grading-only subscribers never
+            get FlipDesk-only news.
           </>
         }
         actions={

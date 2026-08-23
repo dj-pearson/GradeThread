@@ -139,7 +139,9 @@ import {
 } from "@/lib/seo/competitor-alternatives";
 import { CompetitorAlternativePage } from "@/pages/marketing/competitor-alternative";
 import { CONDITION_CHART_PATH } from "@/lib/seo/condition-chart";
+import { CHANGELOG_PATH } from "@/lib/seo/changelog";
 import { ConditionChartPage } from "@/pages/marketing/condition-chart";
+import { ChangelogPage } from "@/pages/marketing/changelog";
 import { GRADE_CHECKER_PATH } from "@/lib/seo/grade-checker";
 import { GradeCheckerPage } from "@/pages/tools/grade-checker";
 import { AUTHENTICITY_CHECK_PATH } from "@/lib/seo/authenticity-check";
@@ -337,6 +339,7 @@ const PAGES: Record<string, React.ReactNode> = {
   ),
   // Free printable condition chart (US-1678).
   [CONDITION_CHART_PATH]: <ConditionChartPage />,
+  [CHANGELOG_PATH]: <ChangelogPage />,
   // Free grade-checker tool (US-1687).
   [GRADE_CHECKER_PATH]: <GradeCheckerPage />,
   // Free authenticity-check tool (US-1771).
@@ -486,6 +489,7 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
     ]),
   ),
   [CONDITION_CHART_PATH]: `${M}marketing/condition-chart`,
+  [CHANGELOG_PATH]: `${M}marketing/changelog`,
   [GRADE_CHECKER_PATH]: `${M}tools/grade-checker`,
   [AUTHENTICITY_CHECK_PATH]: `${M}tools/authenticity-check`,
   [FIT_CHECKER_PATH]: `${M}tools/fit-checker`,

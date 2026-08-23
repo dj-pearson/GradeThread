@@ -33,6 +33,7 @@ import { whereToSellRoute } from "./where-to-sell";
 import { crosslistAppsRoute } from "./crosslisting-apps";
 import { competitorAlternativeRoutes } from "./competitor-alternatives";
 import { conditionChartRoute } from "./condition-chart";
+import { changelogRoute } from "./changelog";
 import { gradeCheckerRoute } from "./grade-checker";
 import { authenticityCheckRoute } from "./authenticity-check";
 import { fitCheckerRoute } from "./fit-checker";
@@ -175,6 +176,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/reselling/crosslist-alternative": "2026-07-20",
   // Free printable condition chart (US-1678).
   "/grading/condition-chart": "2026-07-06",
+  "/changelog": "2026-08-23",
   // Free grade-checker tool (US-1687).
   "/tools/grade-checker": "2026-07-06",
   // Free authenticity-check tool (US-1771).
@@ -684,6 +686,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   ...competitorAlternativeRoutes(),
   // Free printable condition chart (US-1678).
   conditionChartRoute(),
+  changelogRoute(),
   // Free grade-checker tool (US-1687).
   gradeCheckerRoute(),
   // Free authenticity-check tool (US-1771).
