@@ -341,6 +341,11 @@ if (on("web")) {
   // the files present, and would have gone unseen for another year behind a
   // check most runs skip.
   run("web: migrations lint", "node scripts/migrations-lint.mjs");
+  // The SQL itself, parsed with libpg_query (Postgres's own grammar, via WASM).
+  // verify:db is the real proof and it needs Docker; when Docker is down that
+  // lane SKIPS, and on 2026-08-23 a migration reached origin having never been
+  // near a Postgres in any form. This is the half that always runs.
+  run("web: migrations parse", "node scripts/migrations-parse.mjs");
   run("web: script tests (prd-lint/digest)", "npm run test:scripts");
   run("web: eslint", "npm run lint");
   // US-1879: the browser extensions' zero-dep node tests (pure adapter helpers +

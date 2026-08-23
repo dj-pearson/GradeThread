@@ -238,6 +238,15 @@ jobs:
       - name: Migrations lint
         if: ${{ !cancelled() }}
         run: node scripts/migrations-lint.mjs
+      # The SQL itself, parsed with libpg_query — Postgres's own grammar as WASM,
+      # so a pass means real Postgres rather than a regex someone wrote. The DB
+      # Migrations workflow APPLIES these for real and is the stronger proof; it
+      # is also a separate workflow that does not gate this one, and the local
+      # verify:db lane SKIPS when Docker is down. On 2026-08-23 a migration was
+      # written, committed and pushed having never been parsed by anything.
+      - name: Migrations parse
+        if: ${{ !cancelled() }}
+        run: node scripts/migrations-parse.mjs
       # US-2402: same gap again. The UI anti-pattern gate (US-2336) was a verify
       # lane only, so the hook was stricter than CI and a --no-verify push shed
       # it entirely — for a gate whose ENFORCED rules block on the tells the
