@@ -659,6 +659,7 @@ export function EbaySkuMatch() {
                           <Button
                             size="sm"
                             onClick={() => setCreateTarget(listing)}
+                            aria-label={`Create an item for ${listing.title || "untitled listing"}`}
                           >
                             <Plus className="mr-1.5 h-3.5 w-3.5" />
                             Create
@@ -667,6 +668,7 @@ export function EbaySkuMatch() {
                             size="sm"
                             variant="outline"
                             onClick={() => setLinkTarget(listing)}
+                            aria-label={`Link ${listing.title || "untitled listing"} to an item`}
                           >
                             <Link2 className="mr-1.5 h-3.5 w-3.5" />
                             Link
@@ -675,6 +677,7 @@ export function EbaySkuMatch() {
                             size="sm"
                             variant="ghost"
                             onClick={() => void ignore(listing)}
+                            aria-label={`Ignore ${listing.title || "untitled listing"}`}
                           >
                             <EyeOff className="mr-1.5 h-3.5 w-3.5" />
                             Ignore
@@ -780,6 +783,7 @@ export function EbaySkuMatch() {
                         size="sm"
                         variant="ghost"
                         onClick={() => void unignore(listing)}
+                        aria-label={`Restore ${listing.title || listing.ebay_item_id}`}
                       >
                         <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
                         Restore

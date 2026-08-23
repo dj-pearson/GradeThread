@@ -348,6 +348,7 @@ function ListingConflictCard({
                   size="sm"
                   className="h-6 px-2 text-[10px]"
                   disabled={busy}
+                  aria-label={`Mark ${group.title} ended in FlipDesk`}
                   onClick={() =>
                     void onResolve([{ conflict_id: c.id, source: "ebay" }])
                   }

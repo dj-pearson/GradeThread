@@ -137,6 +137,7 @@ export function EbayPromotionsCard() {
                             size="sm"
                             variant="ghost"
                             onClick={() => openEdit(p.promotionId)}
+                            aria-label={`Edit ${p.name ?? typeLabel(p.promotionType)}`}
                           >
                             Edit
                           </Button>
@@ -144,6 +145,7 @@ export function EbayPromotionsCard() {
                             size="sm"
                             variant="ghost"
                             className="text-destructive hover:text-destructive"
+                            aria-label={`End ${p.name ?? typeLabel(p.promotionType)}`}
                             onClick={() =>
                               setConfirmEnd({
                                 id: p.promotionId,

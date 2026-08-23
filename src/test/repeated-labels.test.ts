@@ -62,9 +62,12 @@ import { auditDistinctness, auditRepeatedText } from "../../scripts/audit-contro
 const BASELINE = 20;
 
 // US-2834: the visible-text shape, guarded for the first time on 2026-08-23.
-// 96 on the day it was added. A budget rather than a floor — see the case
-// that uses it for why — and it only goes down.
-const TEXT_BASELINE = 96;
+// 96 when the check landed, 89 an hour later once the seller-facing eBay
+// lifecycle rows were named — linking the wrong listing, ending the wrong
+// promotion and unscheduling the wrong drop all cost money, so those went
+// first. A budget rather than a floor (see the case that uses it), and it only
+// goes down.
+const TEXT_BASELINE = 89;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
