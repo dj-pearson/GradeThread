@@ -41,15 +41,18 @@ const NOT_A_LANE_CHECK: Record<string, string> = {
     "a commit-msg HOOK (.githooks/commit-msg), not a lane check. It reads the " +
     "message being written, which neither verify nor CI has.",
   "check-ui-browser.mjs":
-    "NOT YET A GATE, on purpose, and this entry is the reason rather than an " +
-    "excuse. It drives a real browser over nine LIVE pages, which is slower and " +
-    "flakier than reading files and needs a URL that is up. US-2833 AC1 makes " +
-    "whether to run it at all an owner decision about cost, and 'nothing' is " +
-    "named there as a legitimate answer. It is report-only today (exit 0 " +
-    "without --enforce) and production carries 32 nested-cards findings, so " +
-    "wiring it in as-is would redden every push for a UI backlog nobody has " +
-    "agreed to clear. Delete this entry when AC1 is answered either way: yes " +
-    "means it belongs in verify.mjs and a workflow, no means the script goes.",
+    "NOT A GATE, DECIDED. US-2833 AC1 was answered by the owner on 2026-08-23: " +
+    "keep it as a tool that is run deliberately, out of verify and out of CI. " +
+    "It drives a real browser over nine LIVE pages, so it is slower and flakier " +
+    "than reading files and needs a URL that is up. The deciding fact is that " +
+    "it reports counts it cannot LOCATE - the tool gives nested-cards no " +
+    "selector, no line and the snippet 'Card inside card', and a reconstruction " +
+    "from the rendered HTML disagreed with it in both directions, so it is not " +
+    "even a superset to filter. Production carries 32 findings that can only be " +
+    "triaged by opening the pages, so gating on it would redden every push " +
+    "against a backlog nobody can work from the output. Run it with " +
+    "`node scripts/check-ui-browser.mjs` when you are changing one of those " +
+    "pages; `--enforce` makes it fail if you want that locally.",
 };
 
 function guards(): string[] {
