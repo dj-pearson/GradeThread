@@ -821,6 +821,7 @@ export function AdminBrandKnowledgePage() {
                         <td className="py-2 text-right">
                           <div className="flex justify-end gap-1">
                             <Button
+                              aria-label={`Mark ${cand.brand_label} curated`}
                               size="sm"
                               variant="ghost"
                               disabled={busyId === cand.id}
@@ -829,6 +830,7 @@ export function AdminBrandKnowledgePage() {
                               Mark curated
                             </Button>
                             <Button
+                              aria-label={`Mark ${cand.brand_label} not worth it`}
                               size="sm"
                               variant="ghost"
                               disabled={busyId === cand.id}
@@ -941,6 +943,7 @@ export function AdminBrandKnowledgePage() {
                               Promote
                             </Button>
                             <Button
+                              aria-label={`Reject ${cand.name}`}
                               size="sm"
                               variant="ghost"
                               disabled={busyId === cand.id}

@@ -546,6 +546,7 @@ function RunsTab({ agents, visible }: { agents: AgentRow[]; visible: boolean }) 
                       <TableCell className="text-right text-xs">${r.cost_usd.toFixed(4)}</TableCell>
                       <TableCell className="text-right">
                         <Button variant="ghost" size="sm" onClick={() => setOpenRun(r.id)}>
+                          aria-label={`Transcript for ${keyById.get(r.agent_id) ?? r.agent_id.slice(0, 8)}`}
                           Transcript
                         </Button>
                       </TableCell>
@@ -733,6 +734,7 @@ function ProposalsTab({ agents, visible }: { agents: AgentRow[]; visible: boolea
                   {p.status === "pending" && (
                     <div className="flex shrink-0 gap-2">
                       <Button
+                        aria-label={`Approve ${p.title}`}
                         size="sm"
                         disabled={busy === p.id}
                         onClick={() => void approve(p)}
@@ -740,6 +742,7 @@ function ProposalsTab({ agents, visible }: { agents: AgentRow[]; visible: boolea
                         <Check className="h-3.5 w-3.5" /> Approve
                       </Button>
                       <Button
+                        aria-label={`Reject ${p.title}`}
                         size="sm"
                         variant="outline"
                         disabled={busy === p.id}
