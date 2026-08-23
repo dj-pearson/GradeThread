@@ -58,6 +58,16 @@ const CHECKED_ELSEWHERE: Array<{ prefix: string; by: string }> = [
     by: "Deno, not Node — the root config would resolve its imports wrongly.",
   },
   {
+    prefix: "scripts/fixtures/ui-antipatterns",
+    by:
+      "Nothing, and that is the point. These are deliberately-bad components " +
+      "that exist ONLY to be read as text by `impeccable detect` in " +
+      "check-ui-antipatterns.mjs selfCheck(), which proves each enforced rule " +
+      "still fires. They are never imported, never rendered and never built. " +
+      "Typechecking them would be checking a fixture whose whole job is to be " +
+      "wrong.",
+  },
+  {
     prefix: "scripts/backfill-stripe-state.ts",
     by: "A one-shot operator script run with tsx; it imports no app module. If it ever does, move it into a project rather than widening this.",
   },

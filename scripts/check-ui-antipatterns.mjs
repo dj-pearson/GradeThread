@@ -35,12 +35,46 @@ import { spawnSync } from "node:child_process";
 export const ENFORCED = new Set([
   "side-tab",
   "gradient-text",
-  "nested-cards",
-  "icon-tile-grid",
-  "border-and-shadow",
   "bounce-easing",
-  "uppercase-eyebrow",
 ]);
+
+/**
+ * ⚠ FOUR IDS WERE REMOVED FROM `ENFORCED` ON 2026-08-23 BECAUSE THEY COULD
+ * NEVER FIRE, and the removal makes this gate weaker on paper and identical in
+ * practice. Read this before adding any of them back.
+ *
+ * The set used to also carry `nested-cards`, `icon-tile-grid`,
+ * `border-and-shadow` and `uppercase-eyebrow`. A textbook instance of each was
+ * written into a probe component and scanned: none produced a single finding.
+ * Checked against the tool's own source, not inferred:
+ *
+ *   • `icon-tile-grid` and `uppercase-eyebrow` ARE NOT THE TOOL'S NAMES. It
+ *     calls them `icon-tile-stack` and `hero-eyebrow-chip`. An id that matches
+ *     no rule is not an error anywhere — it simply never appears in the
+ *     findings, so the entry sat in the set looking like enforcement.
+ *   • `border-and-shadow` exists under no spelling at all.
+ *   • `nested-cards` is real, and it lives in `detect-antipatterns-browser.js`
+ *     with `scopes: ['layout']`. It needs a RENDERED PAGE. `impeccable detect
+ *     <dir>` reads source files, so a browser-scoped rule cannot fire here
+ *     however bad the markup is. The same is true of the two renamed ones.
+ *
+ * So the gate enforced three tells while claiming seven. The other four are
+ * still repo policy — CLAUDE.md's craft floor names every one of them — they
+ * are just not machine-checkable by a source scan, and pretending otherwise is
+ * what let this sit. Catching them needs `impeccable detect <url>` against a
+ * running page, which is a different job with a different runner.
+ *
+ * `selfCheck()` below exists so this cannot recur silently.
+ */
+export const NOT_SOURCE_CHECKABLE = new Map([
+  ["nested-cards", "browser-scoped (scopes: ['layout']) — needs a rendered page"],
+  ["icon-tile-stack", "browser-scoped; the set used to spell it `icon-tile-grid`"],
+  ["hero-eyebrow-chip", "browser-scoped; the set used to spell it `uppercase-eyebrow`"],
+  ["border-and-shadow", "no rule of this name exists in the tool, under any spelling"],
+]);
+
+/** One deliberately-bad file per enforced rule. */
+const SELF_CHECK_DIR = "scripts/fixtures/ui-antipatterns";
 
 /**
  * The trees that get scored, and the non-enforced findings each one is allowed
@@ -133,9 +167,47 @@ function detect(root) {
   }
 }
 
+/**
+ * Prove every ENFORCED rule can still fire.
+ *
+ * A rule id that matches nothing is not an error in this tool — it is simply
+ * absent from the findings, which reads exactly like a clean codebase. That is
+ * how four ids sat in `ENFORCED` enforcing nothing (see NOT_SOURCE_CHECKABLE),
+ * and a rename in the tool would do it again tomorrow.
+ *
+ * So the gate scans a directory of deliberately-bad fixtures and requires each
+ * enforced id to come back. If the tool renames a rule, drops one, or moves it
+ * behind the browser engine, THIS fails loudly instead of the codebase quietly
+ * passing.
+ */
+function selfCheck() {
+  const emitted = new Set(detect(SELF_CHECK_DIR).map((f) => f.antipattern));
+  const dead = [...ENFORCED].filter((id) => !emitted.has(id));
+  if (dead.length === 0) return true;
+  console.error(
+    `\x1b[31m\x1b[1m[ui-antipatterns] ${dead.length} enforced rule(s) no longer ` +
+      `fire on their own fixture\x1b[0m`,
+  );
+  for (const id of dead) {
+    console.error(
+      `  ${id} — ${SELF_CHECK_DIR}/${id}.tsx is a textbook instance and the ` +
+        `detector said nothing about it.`,
+    );
+  }
+  console.error(
+    "  Either the tool renamed or removed the rule, or it moved behind the\n" +
+      "  browser engine. Do NOT delete the fixture to make this pass: the\n" +
+      "  point is that an id enforcing nothing looks identical to a clean\n" +
+      "  codebase. Fix the id, or move it to NOT_SOURCE_CHECKABLE with a reason.",
+  );
+  return false;
+}
+
 function main() {
   let failed = false;
   const summary = [];
+
+  if (!selfCheck()) process.exit(1);
 
   for (const root of ROOTS) {
     const { enforced, other } = partition(detect(root.path));

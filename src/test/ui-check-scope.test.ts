@@ -14,9 +14,28 @@
 // suite that runs on every push, rather than left to a comment in the script.
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { ENFORCED, ROOTS, matchesNoise, reconcileNoise } from "../../scripts/check-ui-antipatterns.mjs";
+import {
+  ENFORCED,
+  NOT_SOURCE_CHECKABLE,
+  ROOTS,
+  matchesNoise,
+  reconcileNoise,
+} from "../../scripts/check-ui-antipatterns.mjs";
+
+/**
+ * The names the project's guidance uses, against the ids the TOOL uses.
+ *
+ * Two of the four tells named in CLAUDE.md were carried in ENFORCED under
+ * names impeccable has never emitted, which is why they enforced nothing. The
+ * mapping is kept so the guidance can keep its own vocabulary while this test
+ * checks against the tool's.
+ */
+const RENAMED_TO: Record<string, string> = {
+  "uppercase-eyebrow": "hero-eyebrow-chip",
+  "icon-tile-grid": "icon-tile-stack",
+};
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
@@ -31,11 +50,50 @@ describe("US-2623: the UI anti-pattern gate scores every tree that renders UI", 
     expect(paths).toContain("functions");
   });
 
-  it("the tells the guidance names are all still blocking", () => {
-    // Not an exhaustive rule list — these are the ones the project's own UI
-    // guidance calls out by name, so a quiet removal is a policy change.
+  it("every tell the guidance names is either blocking or recorded as uncheckable", () => {
+    // ⚠ THIS USED TO ASSERT ONLY `ENFORCED.has(rule)`, AND IT PASSED FOR
+    // MONTHS WHILE TWO OF THE FOUR NAMES ENFORCED NOTHING. Membership in a Set
+    // is not the property anyone cares about; the property is that a bad
+    // component gets stopped. `uppercase-eyebrow` was never one of the tool's
+    // rule ids at all — it calls that tell `hero-eyebrow-chip` — and
+    // `nested-cards` is real but browser-scoped, so a source scan can never
+    // raise it. An id matching no rule produces no finding, which reads exactly
+    // like a clean codebase.
+    //
+    // Found 2026-08-23 by writing a textbook instance of each tell into a probe
+    // component and scanning it: four of the seven enforced ids said nothing.
+    //
+    // So the check now demands an ANSWER for each named tell rather than a
+    // membership: it blocks, or it is written down as not source-checkable with
+    // a reason. Removing one from both places is still a policy change and
+    // still fails here.
     for (const rule of ["side-tab", "gradient-text", "nested-cards", "uppercase-eyebrow"]) {
-      expect(ENFORCED.has(rule), `${rule} must stay blocking`).toBe(true);
+      const blocking = ENFORCED.has(rule);
+      const recorded = [...NOT_SOURCE_CHECKABLE.keys()].some(
+        (id) => id === rule || RENAMED_TO[rule] === id,
+      );
+      expect(
+        blocking || recorded,
+        `${rule} is neither enforced nor recorded as uncheckable — it has ` +
+          `silently stopped being policy`,
+      ).toBe(true);
+    }
+  });
+
+  it("every enforced rule is proven alive by a fixture, not just listed", () => {
+    // The other half, and the one that would have caught the above. selfCheck()
+    // in the gate scans scripts/fixtures/ui-antipatterns/ and requires each
+    // enforced id to come back from the detector. Here we assert the fixtures
+    // exist and cover the set, so nobody can satisfy selfCheck() by shrinking
+    // ENFORCED to nothing.
+    expect(ENFORCED.size, "the enforced set has been emptied").toBeGreaterThan(2);
+    for (const rule of ENFORCED) {
+      const fixture = `scripts/fixtures/ui-antipatterns/${rule}.tsx`;
+      expect(
+        existsSync(join(process.cwd(), fixture)),
+        `${rule} is enforced but has no fixture at ${fixture}, so nothing ` +
+          `proves the detector still raises it`,
+      ).toBe(true);
     }
   });
 

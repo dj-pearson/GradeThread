@@ -4,6 +4,16 @@
 
 export const ENFORCED: Set<string>;
 
+/**
+ * Rule ids that a SOURCE scan can never raise, each with the reason.
+ *
+ * Four ids sat in `ENFORCED` enforcing nothing until 2026-08-23: two were not
+ * the tool's names at all, one exists under no spelling, and one is
+ * browser-scoped. They live here now so the policy stays visible without the
+ * gate claiming to check it.
+ */
+export const NOT_SOURCE_CHECKABLE: Map<string, string>;
+
 /** A finding as impeccable reports it. Only the fields the gate reads. */
 export interface Finding {
   file?: string;
