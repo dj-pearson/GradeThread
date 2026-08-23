@@ -2458,22 +2458,6 @@
         "OPERATOR: AC1 is the decision and it is about cost, not correctness. A browser scan means standing up a page in CI, which is slower and flakier than reading files. Worth knowing before you answer: the four uncaught tells are among the most common defaults generated UI reaches for, and the gate has been reporting them as enforced since US-2336, so any confidence they were being checked was misplaced."
       ],
       "priority": 35
-    },
-    {
-      "id": "US-2835",
-      "passes": false,
-      "title": "eBay traffic sync has written 7,352 rows since 12 July and every single value is zero",
-      "description": "As a reseller, I want the Listing Performance page to show my real eBay traffic, so that I can tell a dud listing from a good one. Right now every number on it is zero and has been since the table started filling.",
-      "acceptanceCriteria": [
-        "MEASURED ON PRODUCTION 2026-08-23, not inferred: public.listing_metrics holds 7,352 rows dating from 2026-07-12 to today, and the count of rows with impressions > 0 is ZERO. Same for views > 0, watchers > 0, and click_through_rate IS NOT NULL. The snapshot columns the same sync writes are equally empty: listings with views_total > 0 is 0, listings with watchers_count > 0 is 0.",
-        "The sync is RUNNING and is matching listings correctly. It writes one row per listing per day on schedule (newest metric_date is today), so this is not a cron failure, an auth failure or a join failure. It is a data failure: the rows arrive empty.",
-        "LEAD HYPOTHESIS, from the shape of the failure rather than from a guess. getTrafficReport (services/edge-functions/src/lib/ebay-client.ts:598) builds metricCols from report.header.metricKeys, then reads every metric through num(), which returns 0 when the key is missing. clickThroughRate is separately set to null when metricCols.has('CLICK_THROUGH_RATE') is false. An EMPTY metricCols therefore produces exactly what production shows: every count 0 AND ctr null, together. Nothing else in that function produces that specific pair. Confirm by logging report.header for one real call before changing anything.",
-        "num() must stop returning 0 for a metric key eBay did not send. A missing key and a genuine zero are different facts and the function currently cannot tell them apart, which is why six weeks of empty data looked like six weeks of no traffic.",
-        "The sync must refuse to write a row it knows is meaningless: if metricCols is empty, or the report carries no records, log and skip rather than upserting zeros. A zero row is indistinguishable from a real one downstream.",
-        "OPERATOR: before any fix, capture one raw traffic_report response from the live eBay account (headers included) and attach it to this story. The whole diagnosis above rests on what eBay actually returns in header.metricKeys, and that is the one thing that cannot be read from this repo.",
-        "US-2826's Listing quality lift panel reads the same table and will start reporting the moment this is fixed; nothing in it needs to change. It currently renders every median as 0, correctly, because that is what the data says."
-      ],
-      "priority": 12
     }
   ]
 }
