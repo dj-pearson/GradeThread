@@ -232,6 +232,7 @@ export function GradingEvalCandidatesPanel() {
                     variant="outline"
                     disabled={busyId === c.id}
                     onClick={() => act(c.id, "approve")}
+                    aria-label={`Approve ${c.label || "the untitled candidate"}`}
                   >
                     <Check className="mr-1 h-4 w-4" />
                     Approve
@@ -241,6 +242,7 @@ export function GradingEvalCandidatesPanel() {
                     variant="ghost"
                     disabled={busyId === c.id}
                     onClick={() => act(c.id, "reject")}
+                    aria-label={`Reject ${c.label || "the untitled candidate"}`}
                   >
                     <X className="mr-1 h-4 w-4" />
                     Reject

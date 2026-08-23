@@ -540,6 +540,7 @@ function ChargeList({ charges, refunding, refundingChargeId, onRefund }: ChargeL
                     size="sm"
                     variant="ghost"
                     onClick={() => setRefundOpen(ch.id)}
+                    aria-label={`Refund the ${dollars(ch.amount, ch.currency)} charge`}
                     disabled={isRefunding}
                   >
                     <RotateCcw className="mr-1 h-3 w-3" />

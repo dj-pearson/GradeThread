@@ -510,7 +510,12 @@ export function GrowthSegmentsPage() {
                   {s.rules.conditions.length} condition{s.rules.conditions.length === 1 ? "" : "s"}
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => openEdit(s)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Edit ${s.name}`}
+                    onClick={() => openEdit(s)}
+                  >
                     <Pencil className="mr-1 h-3.5 w-3.5" /> Edit
                   </Button>
                   <Button
