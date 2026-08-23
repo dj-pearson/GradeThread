@@ -141,6 +141,51 @@ const MIGRATION = new URL(
   import.meta.url,
 );
 
+const MIGRATIONS_DIR = new URL(
+  "../../../../supabase/migrations/",
+  import.meta.url,
+);
+
+/**
+ * Columns a LATER migration adds to `table`, anywhere in the corpus.
+ *
+ * ⚠ WITHOUT THIS THE STORAGE HALF OF THIS FILE GUARDED NOTHING, and the header
+ * above claims otherwise: "it stops a PII column existing at all". It read one
+ * file and parsed only its CREATE TABLE, so a one-line
+ * `ALTER TABLE public.marketplace_sync_observations ADD COLUMN buyer_name text`
+ * in any later migration was invisible. Found by sabotage 2026-08-23 — three
+ * probes (buyer_name, shipping_address, and a generic raw_payload jsonb) all
+ * left this suite green.
+ *
+ * That is the exact change this guard exists to stop. A Poshmark order page
+ * prints the buyer's name and their shipping address; the whole argument for
+ * reading those pages is that there is nowhere in the schema to put either.
+ */
+function addedColumnsOf(table: string): string[] {
+  const out: string[] = [];
+  for (const entry of Deno.readDirSync(MIGRATIONS_DIR)) {
+    if (!entry.isFile || !entry.name.endsWith(".sql")) continue;
+    const sql = Deno.readTextFileSync(new URL(entry.name, MIGRATIONS_DIR))
+      .replace(/--[^\n]*/g, "");
+    // One ALTER may add several columns, comma-separated, so each statement is
+    // taken whole and then split rather than matched a column at a time.
+    const stmt = new RegExp(
+      `ALTER\\s+TABLE\\s+(?:ONLY\\s+)?(?:public\\.)?${table}\\b([^;]*);`,
+      "gis",
+    );
+    for (const m of sql.matchAll(stmt)) {
+      const add = /ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)/gi;
+      for (const c of (m[1] ?? "").matchAll(add)) out.push(c[1]!.toLowerCase());
+    }
+  }
+  return out;
+}
+
+/** Everything the table holds today: created plus added. */
+function allColumnsOf(sql: string, table: string): string[] {
+  return [...new Set([...columnsOf(sql, table), ...addedColumnsOf(table)])];
+}
+
 function columnsOf(rawSql: string, table: string): string[] {
   // Strip line comments FIRST. A comment containing a comma or a paren -- and
   // one of them contains both -- otherwise splits a column off mid-sentence and
@@ -187,7 +232,7 @@ function columnsOf(rawSql: string, table: string): string[] {
 Deno.test("the sync tables have exactly the columns they are allowed", async () => {
   const sql = await Deno.readTextFile(MIGRATION);
 
-  assertEquals(columnsOf(sql, "marketplace_sync_observations").sort(), [
+  assertEquals(allColumnsOf(sql, "marketplace_sync_observations").sort(), [
     "created_at",
     "dedupe_key",
     "id",
@@ -198,7 +243,7 @@ Deno.test("the sync tables have exactly the columns they are allowed", async () 
     "user_id",
   ]);
 
-  assertEquals(columnsOf(sql, "marketplace_sync_reviews").sort(), [
+  assertEquals(allColumnsOf(sql, "marketplace_sync_reviews").sort(), [
     "cap",
     "claimed",
     "created_at",
@@ -218,7 +263,7 @@ Deno.test("the sync tables have exactly the columns they are allowed", async () 
     "user_id",
   ]);
 
-  assertEquals(columnsOf(sql, "marketplace_sync_state").sort(), [
+  assertEquals(allColumnsOf(sql, "marketplace_sync_state").sort(), [
     "failure_reason",
     "id",
     "last_ok_at",
@@ -242,7 +287,7 @@ Deno.test("no sync table has a column whose name is a forbidden key", () => {
   ];
   const sql = Deno.readTextFileSync(new URL(MIGRATION));
   for (const table of tables) {
-    for (const col of columnsOf(sql, table)) {
+    for (const col of allColumnsOf(sql, table)) {
       assertEquals(
         findForbiddenKey({ [col]: 1 }),
         null,
