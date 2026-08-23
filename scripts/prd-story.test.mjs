@@ -5,10 +5,12 @@ import {
   addCriteria,
   addNote,
   appendNote,
+  BACKLOGS,
   createStory,
   markDone,
   parseArgs,
   parseIdNum,
+  resolveBacklog,
 } from "./prd-story.mjs";
 // The operator queue's own matcher, imported rather than copied: if the
 // convention changes there, the `ac` cases here redden instead of drifting.
@@ -187,5 +189,52 @@ describe("ac: declaring work that needs a person", () => {
     const { prd } = addCriteria(base(), "US-100", ["OPERATOR: run the thing"]);
     const declared = prd.userStories[0].acceptanceCriteria.filter((a) => DECLARED_RE.test(a));
     expect(declared).toHaveLength(1);
+  });
+});
+
+describe("resolveBacklog", () => {
+  // The flag exists because `show US-9127` used to answer "story not found"
+  // for a story that exists — it lives in prd-connector.json, which this
+  // script could not read.
+
+  it("defaults to the main backlog", () => {
+    expect(resolveBacklog(undefined)).toBe(BACKLOGS.main);
+    // `--backlog` with no value parses as boolean true; that is a bare flag,
+    // not a request for a file named "true".
+    expect(resolveBacklog(true)).toBe(BACKLOGS.main);
+  });
+
+  it("accepts the shorthand", () => {
+    expect(resolveBacklog("connector")).toBe(BACKLOGS.connector);
+    expect(resolveBacklog("seo")).toBe(BACKLOGS.seo);
+    expect(resolveBacklog("main")).toBe(BACKLOGS.main);
+  });
+
+  it("accepts the filename, because both are things a person types", () => {
+    expect(resolveBacklog("prd-connector.json")).toBe(BACKLOGS.connector);
+    expect(resolveBacklog("prd-seo.json")).toBe(BACKLOGS.seo);
+    expect(resolveBacklog("prd.json")).toBe(BACKLOGS.main);
+  });
+
+  it("trims, because a shell quote leaves whitespace", () => {
+    expect(resolveBacklog("  connector  ")).toBe(BACKLOGS.connector);
+  });
+
+  it("THROWS on anything else rather than falling back to main", () => {
+    // The one failure mode worse than not having the flag: a typo silently
+    // editing the main backlog. The message names the options.
+    expect(() => resolveBacklog("nope")).toThrow(/unknown --backlog/);
+    expect(() => resolveBacklog("nope")).toThrow(/main, connector, seo/);
+    expect(() => resolveBacklog("prd.archive.json")).toThrow(/unknown --backlog/);
+    expect(() => resolveBacklog("../../etc/passwd")).toThrow(/unknown --backlog/);
+  });
+
+  it("every registered backlog is a distinct sibling path", () => {
+    const paths = Object.values(BACKLOGS);
+    expect(new Set(paths).size).toBe(paths.length);
+    for (const p of paths) {
+      expect(p.startsWith("../")).toBe(true);
+      expect(p.includes("/", 3)).toBe(false); // no nesting, no traversal
+    }
   });
 });

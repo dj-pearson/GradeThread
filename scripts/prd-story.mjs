@@ -14,6 +14,10 @@
 //   node scripts/prd-story.mjs ac   US-1234 --ac "OPERATOR: run … against prod"
 //   node scripts/prd-story.mjs show US-1234
 //
+// Every command takes [--backlog main|connector|seo] (default main). `show`
+// searches all three plus the archive regardless, so you need the flag only
+// when WRITING to a side backlog.
+//
 // `new` takes the id from prd.json.nextId and bumps it — never max(id)+1, since
 // the high-id completed stories live in prd.archive.json and that would reuse
 // ids. Notes are APPEND-ONLY (" | " segments), because prd-lint's deferral guard
@@ -27,6 +31,52 @@ import { fileURLToPath } from "node:url";
 
 const PRD_URL = new URL("../prd.json", import.meta.url);
 const ARCHIVE_URL = new URL("../prd.archive.json", import.meta.url);
+
+/**
+ * The backlogs this script may edit, and the shorthand each answers to.
+ *
+ * prd.json is not the only one. prd-connector.json (31 stories) and
+ * prd-seo.json (18) are deliberately separate — the connector's own header says
+ * it is held out of prd.json "so the Ralph loop can never collide with it" — and
+ * until now this script could not read or write either.
+ *
+ * WHAT THAT COST, on 2026-08-23: `show US-9127` answered "story not found in
+ * prd.json or prd.archive.json", for a story that exists. This file already
+ * argues, about the archive, that reading as "that story never existed" is the
+ * worst possible answer. The same sentence applies to a story sitting in a
+ * sibling file. Appending a note to it meant hand-rolling a script with its own
+ * round-trip integrity check, which is exactly the ~90 single-use scripts this
+ * one replaced.
+ *
+ * A NAMED SET, not a glob: these are the files whose shape is known to be
+ * { userStories: [...] } with 2-space serialisation. A glob would pick up
+ * anything named prd-*.json later, including something with a different shape.
+ */
+export const BACKLOGS = {
+  main: "../prd.json",
+  connector: "../prd-connector.json",
+  seo: "../prd-seo.json",
+};
+
+/**
+ * Resolve a --backlog value to one of the named files.
+ *
+ * Accepts the shorthand ("connector") or the filename ("prd-connector.json"),
+ * because both are things a person reasonably types. Anything else THROWS
+ * naming the options — a typo must not silently edit the main backlog, which is
+ * the one failure mode that would be worse than not having this flag.
+ */
+export function resolveBacklog(value) {
+  if (value === undefined || value === true) return BACKLOGS.main;
+  const raw = String(value).trim();
+  if (Object.hasOwn(BACKLOGS, raw)) return BACKLOGS[raw];
+  const byFile = Object.values(BACKLOGS).find((p) => p === `../${raw}` || p.endsWith(`/${raw}`));
+  if (byFile) return byFile;
+  throw new Error(
+    `unknown --backlog ${JSON.stringify(raw)} — expected one of: ` +
+      Object.keys(BACKLOGS).join(", "),
+  );
+}
 
 /** prd.json is written 2-space + trailing newline; keep diffs to real changes. */
 export const serialize = (prd) => JSON.stringify(prd, null, 2) + "\n";
@@ -197,10 +247,19 @@ export function archiveNow() {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const { positional, flags } = parseArgs(process.argv.slice(2));
   const [cmd, ...ids] = positional;
-  const prd = JSON.parse(readFileSync(PRD_URL, "utf8"));
+  let backlogRel;
+  let isMain;
+  let TARGET_URL;
+  let prd;
   const note = typeof flags.note === "string" ? flags.note : undefined;
 
   try {
+    // Inside the try: a bad --backlog is bad INPUT, and this script answers bad
+    // input with one line rather than a stack trace.
+    backlogRel = resolveBacklog(flags.backlog);
+    isMain = backlogRel === BACKLOGS.main;
+    TARGET_URL = new URL(backlogRel, import.meta.url);
+    prd = JSON.parse(readFileSync(TARGET_URL, "utf8"));
     if (cmd === "new") {
       const priority = flags.priority ? Number(flags.priority) : undefined;
       const { id } = createStory(prd, {
@@ -210,24 +269,30 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
         priority: Number.isFinite(priority) ? priority : undefined,
         dependsOn: asArray(flags.depends),
       });
-      writeFileSync(PRD_URL, serialize(prd));
+      writeFileSync(TARGET_URL, serialize(prd));
       console.log(`created ${id} (prd.json.nextId bumped to ${prd.nextId})`);
     } else if (cmd === "done") {
       if (!ids.length) throw new Error("usage: prd-story.mjs done US-#### [US-#### …] --note '…'");
       const { touched } = markDone(prd, ids, note);
-      writeFileSync(PRD_URL, serialize(prd));
+      writeFileSync(TARGET_URL, serialize(prd));
       console.log(`passes:true → ${touched.join(", ")}${note ? " (note appended)" : ""}`);
       if (flags["no-archive"]) console.log("--no-archive: left in prd.json");
-      else archiveNow();
+      // archive-passing-stories.mjs moves rows from prd.json to
+      // prd.archive.json and knows about no other pair. Running it after
+      // closing a connector or SEO story would report "0 archived" and read as
+      // a failure of THIS close, so it is skipped with the reason.
+      else if (!isMain) {
+        console.log(`closed in ${backlogRel.replace("../", "")}; that backlog has no archive, so nothing was moved`);
+      } else archiveNow();
     } else if (cmd === "note") {
       if (ids.length !== 1) throw new Error("usage: prd-story.mjs note US-#### --note '…'");
       addNote(prd, ids[0], note);
-      writeFileSync(PRD_URL, serialize(prd));
+      writeFileSync(TARGET_URL, serialize(prd));
       console.log(`note appended → ${ids[0]}`);
     } else if (cmd === "ac") {
       if (ids.length !== 1) throw new Error("usage: prd-story.mjs ac US-#### --ac '…' [--ac '…']");
       const { added } = addCriteria(prd, ids[0], asArray(flags.ac));
-      writeFileSync(PRD_URL, serialize(prd));
+      writeFileSync(TARGET_URL, serialize(prd));
       console.log(
         added.length
           ? `${added.length} criterion(a) appended → ${ids[0]}`
@@ -235,6 +300,22 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       );
     } else if (cmd === "show") {
       let story = prd.userStories.find((s) => s.id === ids[0]);
+      // Every backlog, not just the target: someone asking about a story does
+      // not necessarily know which file holds it, and "not found" for a story
+      // that exists is the answer this file already calls the worst possible
+      // one.
+      if (!story) {
+        for (const [name, rel] of Object.entries(BACKLOGS)) {
+          if (rel === backlogRel) continue;
+          const other = JSON.parse(readFileSync(new URL(rel, import.meta.url), "utf8"));
+          const hit = other.userStories.find((s) => s.id === ids[0]);
+          if (hit) {
+            console.log(`// from ${rel.replace("../", "")} (--backlog ${name})`);
+            story = hit;
+            break;
+          }
+        }
+      }
       // Closing now moves the story to prd.archive.json in the same breath, so
       // `show` on anything already finished would otherwise report it missing —
       // which reads as "that story never existed", the worst possible answer.
@@ -243,10 +324,14 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
         story = archive.userStories.find((s) => s.id === ids[0]);
         if (story) console.log("// from prd.archive.json (completed)");
       }
-      if (!story) throw new Error(`story not found in prd.json or prd.archive.json: ${ids[0]}`);
+      if (!story) {
+        throw new Error(
+          `story not found in any backlog (${Object.keys(BACKLOGS).join(", ")}) or prd.archive.json: ${ids[0]}`,
+        );
+      }
       console.log(JSON.stringify(story, null, 2));
     } else {
-      console.error(readFileSync(new URL(import.meta.url), "utf8").split("\n").slice(6, 18).join("\n"));
+      console.error(readFileSync(new URL(import.meta.url), "utf8").split("\n").slice(6, 22).join("\n"));
       process.exit(1);
     }
   } catch (err) {
