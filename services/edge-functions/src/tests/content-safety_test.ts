@@ -63,7 +63,7 @@ Deno.test("parseSafetyVerdict: non-string reasons are dropped, capped at 10", ()
 
 Deno.test("htmlToReviewText: strips tags, scripts, and entities", () => {
   const text = htmlToReviewText(
-    "<h1>Title</h1><script>alert(1)</script><p>Hello&nbsp;&amp; <b>world</b></p>",
+    "<h1>Title</h1><script>alert(1)</script><p>Hello&nbsp;&amp; <b>world</b></p>",
   );
   assertEquals(text.includes("alert"), false);
   assertEquals(text.includes("<"), false);

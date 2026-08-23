@@ -56,6 +56,31 @@ const INVISIBLE = new RegExp(
 const TAG_BLOCK = /[\u{E0000}-\u{E007F}]/u;
 
 /**
+ * Spaces that are not the space character.
+ *
+ * CLAUDE.md forbids these by name and says why: a no-break space "breaks shell
+ * word-splitting, `grep` and column parsing while looking exactly like a space".
+ * They render, so the file above's argument — that review cannot see these —
+ * applies differently: a reader SEES a space and is right to. What they cannot
+ * see is that `grep 'foo bar'` will never match it.
+ *
+ * ⚠ THIS CLASS WAS ADDED 2026-08-23 AFTER SABOTAGE, and it is worth saying how.
+ * Five characters were injected into a source file to check this guard caught
+ * them: a backspace, a zero-width space, a bidi override, a tag-block character
+ * — all four CAUGHT — and a no-break space, which was NOT. The rule was in
+ * CLAUDE.md and the guard did not implement it, which is the gap between a
+ * documented rule and an enforced one.
+ *
+ * Exactly ONE file in the repo carried one: a stray U+00A0 in a
+ * content-safety HTML fixture, between `&amp;` and `<b>`, invisible and
+ * asserted on by nothing. Fixed in the same commit rather than allowlisted, so
+ * this class adopts at zero.
+ */
+const FAKE_SPACE = new RegExp(
+  "[\\u00A0\\u2000-\\u200A\\u202F\\u205F\\u3000]",
+);
+
+/**
  * Files that legitimately contain one of these, with the reason.
  *
  * SHRINK-ONLY in spirit: an entry whose file stops containing the character
@@ -88,7 +113,14 @@ function offenders(): Map<string, string[]> {
   for (const f of walk(ROOT)) {
     let src: string;
     try { src = readFileSync(f, "utf8"); } catch { continue; }
-    if (!C0.test(src) && !INVISIBLE.test(src) && !TAG_BLOCK.test(src)) continue;
+    if (
+      !C0.test(src) &&
+      !INVISIBLE.test(src) &&
+      !TAG_BLOCK.test(src) &&
+      !FAKE_SPACE.test(src)
+    ) {
+      continue;
+    }
     const rel = f.replace(/\\/g, "/").replace(/^\.\//, "");
     const points = new Set<string>();
     src.split("\n").forEach((line, i) => {
@@ -97,6 +129,7 @@ function offenders(): Map<string, string[]> {
         const bad =
           (cp <= 0x1f && cp !== 0x09 && cp !== 0x0d) ||
           INVISIBLE.test(ch) ||
+          FAKE_SPACE.test(ch) ||
           (cp >= 0xe0000 && cp <= 0xe007f);
         if (bad) points.add(`U+${cp.toString(16).toUpperCase().padStart(4, "0")} line ${i + 1}`);
       }
