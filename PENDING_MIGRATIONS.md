@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ HELD 2026-08-23: 00655-00658 — seller analytics, wave 2 (US-2823..2827)
+## ✅ APPLIED 2026-08-23: 00655-00658 — seller analytics, wave 2 (US-2823..2827)
 
 Four migrations, all **additive function definitions**. No table, column, index,
 enum, policy or grant on any existing object is touched, so nothing that runs
@@ -44,11 +44,28 @@ volume. It is a STABLE read behind an authenticated guard, called from two
 surfaces at a 5-minute and a 30-minute staleTime. Revisit if the table grows an
 order of magnitude.
 
-**Verification plan, same as wave 1 and better than a local stack:** after the
-apply, all four are confirmed PRESENT in the live PostgREST OpenAPI document,
-refused with 401/42501 to the anon key (00658 only — the other three are
-SECURITY INVOKER and answer with an empty result under RLS), and called with a
-real signed-in JWT to prove the bodies execute.
+**VERIFIED, not assumed.** Applied by the owner and measured against production
+the same day:
+
+- All four PRESENT in the live PostgREST OpenAPI document — **107 rpc paths**,
+  up from 103. `measurement_drift` lists **both** `p_garment_category` and
+  `p_size`, which proves the two-argument definition applied rather than
+  leaving a one-argument overload behind.
+- `measurement_drift` answers the anon key with **HTTP 401 / 42501**
+  `measurement_drift: authenticated required`.
+- The three SECURITY INVOKER functions answer anon with **HTTP 200 and an empty
+  document**. Walked the whole JSON tree: every data array is empty and the only
+  non-zero numbers are the sample floors the payload carries. No seller data
+  reaches an unauthenticated caller.
+- All four answered **HTTP 200 with real data** to a signed-in JWT.
+  `flipdesk_return_attribution` reports 158 fulfilled / 3 returns / 1.9%, which
+  is the **same 0.019** `seller_scorecard` computes by a different route.
+
+**One thing this apply surfaced:** `flipdesk_listing_quality_lift` found that
+`listing_metrics` has 7,352 rows since 12 July and **every value is zero**.
+That is a real six-week production bug in the eBay traffic sync, filed as
+US-2835. Nothing about these migrations caused it and nothing here needs to
+change.
 
 ---
 
