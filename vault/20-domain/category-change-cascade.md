@@ -10,10 +10,21 @@ code_refs:
   - src/lib/garment-mapping.ts
   - src/lib/grading-readiness.ts
   - src/lib/measurement-templates.ts
-reviewed: 2026-08-22
+reviewed: 2026-08-23
 tags: [flipdesk, grading, ebay, contract]
 summary: An item carries three category axes that must agree; correcting one cascades into the others, and the specifics a change cannot carry are set aside rather than destroyed.
 ---
+
+> **Re-reviewed 2026-08-23.** Drift flagged `src/lib/ebay-prefill.ts` for
+> `e28975d32` — US-2796's shoe-scale rule reaching the composer prefill. The
+> measurement fold-in now passes the item's stated shoe-size scale, so a UK or EU
+> number stops filling eBay's "US Shoe Size". **The cascade contract here is
+> unaffected**: this changes which aspect NAME a shoe number may fill, and it
+> reads `attributes.shoe_size_scale`, which is not one of the three category axes
+> and does not participate in the cascade. Nothing about what a category change
+> carries, sets aside or re-derives is touched — including §"What the
+> measurements read", which is about `garmentDescriptorFor` choosing a TEMPLATE
+> and is a different part of this file.
 
 # Changing a category — what cascades, and what the seller keeps
 

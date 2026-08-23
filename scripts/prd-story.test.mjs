@@ -1,6 +1,8 @@
 // Coverage for the generic prd.json editor (Node env — vitest.scripts.config.mjs).
 // Fixtures are inline prd objects; nothing here touches the real prd.json.
 import { describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import {
   addCriteria,
   addNote,
@@ -224,9 +226,25 @@ describe("resolveBacklog", () => {
     // The one failure mode worse than not having the flag: a typo silently
     // editing the main backlog. The message names the options.
     expect(() => resolveBacklog("nope")).toThrow(/unknown --backlog/);
-    expect(() => resolveBacklog("nope")).toThrow(/main, connector, seo/);
-    expect(() => resolveBacklog("prd.archive.json")).toThrow(/unknown --backlog/);
+    expect(() => resolveBacklog("nope")).toThrow(/main, connector, seo, archive/);
     expect(() => resolveBacklog("../../etc/passwd")).toThrow(/unknown --backlog/);
+  });
+
+  it("the archive resolves, and it did not before", () => {
+    // ⚠ THIS ASSERTION IS THE REVERSE OF WHAT IT SAID, and the reversal is
+    // deliberate rather than a test bent to fit. It used to require
+    // `prd.archive.json` to THROW, which was right while nothing could write
+    // there. It is a registered backlog now because closing a story does not
+    // end the need to correct its record: US-2802's AC5 had to fix US-1283's
+    // closure by hand, and US-2796 closed saying an AC was met when it was met
+    // on one path of two, with nowhere on the story to say so.
+    //
+    // The protection did not go away, it moved. `--backlog archive` accepts
+    // ONLY `note` (and `show`); `new`, `done` and `ac` are refused by name with
+    // a reason. That refusal is asserted below by running the CLI, because it
+    // lives in main() and no test over these constants would notice it going.
+    expect(resolveBacklog("archive")).toBe(BACKLOGS.archive);
+    expect(resolveBacklog("prd.archive.json")).toBe(BACKLOGS.archive);
   });
 
   it("every registered backlog is a distinct sibling path", () => {
@@ -236,5 +254,68 @@ describe("resolveBacklog", () => {
       expect(p.startsWith("../")).toBe(true);
       expect(p.includes("/", 3)).toBe(false); // no nesting, no traversal
     }
+  });
+});
+
+// ── The archive is writable by `note` only ────────────────────────────────
+//
+// These run the SCRIPT rather than importing it, deliberately. The refusal lives
+// inside main(), so a test over BACKLOGS and NOTE_ONLY_BACKLOGS would pass with
+// the check deleted — the exact shape this repo keeps writing guards about.
+//
+// They live here, beside the rest of prd-story's coverage, rather than in
+// src/test/: someone editing this script runs this file, and a second home for
+// one script's tests is how half of a rule gets updated.
+
+describe("a closed story can still be corrected", () => {
+  const SCRIPT = new URL("./prd-story.mjs", import.meta.url).pathname.replace(/^\//, "");
+
+  const run = (args) => {
+    try {
+      const out = execFileSync(process.execPath, [SCRIPT, ...args], {
+        cwd: new URL("..", import.meta.url).pathname.replace(/^\//, ""),
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      return { code: 0, out };
+    } catch (err) {
+      return { code: err.status ?? 1, out: `${err.stdout ?? ""}${err.stderr ?? ""}` };
+    }
+  };
+
+  it("refuses every command but note and show on the archive", () => {
+    // Each refusal must NAME why: "not allowed" sends the next person looking
+    // for a workaround rather than for `note`.
+    for (const [cmd, extra, because] of [
+      ["done", ["US-2796", "--note", "x"], "already closed"],
+      ["new", ["--title", "t", "--description", "d", "--ac", "a"], "mint an id"],
+      ["ac", ["US-2796", "--ac", "x"], "criteria"],
+    ]) {
+      const { code, out } = run([cmd, ...extra, "--backlog", "archive"]);
+      expect(code, `${cmd} should have failed`).not.toBe(0);
+      expect(out).toContain("accepts only");
+      expect(out.toLowerCase(), `${cmd}'s refusal does not say why`).toContain(because);
+    }
+  });
+
+  it("a bad --backlog still refuses rather than editing the main one", () => {
+    const { code, out } = run(["show", "US-2796", "--backlog", "archiv"]);
+    expect(code).not.toBe(0);
+    expect(out).toContain("unknown --backlog");
+  });
+
+  it("show reads the archive without being told to", () => {
+    const { code, out } = run(["show", "US-2796"]);
+    expect(code).toBe(0);
+    expect(out).toContain("US-2796");
+  });
+
+  it("the archive round-trips through the serializer, so a note is a one-line diff", () => {
+    // The reason writing to a 7.8 MB file is safe at all. If this stops holding,
+    // appending one note reformats the whole archive and the diff becomes
+    // unreviewable — the point at which this feature should be removed rather
+    // than tolerated.
+    const raw = readFileSync(new URL("../prd.archive.json", import.meta.url), "utf8");
+    expect(`${JSON.stringify(JSON.parse(raw), null, 2)}\n`).toEqual(raw);
   });
 });
