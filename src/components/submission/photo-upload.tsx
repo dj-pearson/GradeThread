@@ -11,6 +11,11 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  IN_APP_CAPTURE_SOURCE,
+  LIBRARY_CAPTURE_SOURCE,
+  type PhotoCaptureSource,
+} from "@/lib/photo-capture-contract";
 import { validateImage, compressImage, extractExif } from "@/lib/image-utils";
 import {
   assessMacroPhoto,
@@ -41,6 +46,11 @@ export interface PhotoUploadItem {
   // it could not be measured. Sent with the upload so authenticity confidence
   // can read a MEASURE instead of "a file exists in the macro slot".
   qualityScore?: number | null;
+  // US-2802: where this photo came from. NOT optional, and never inferred —
+  // the live-capture badge is a fraud claim, so an unknown origin has to be
+  // spelled `library` by whoever put the file here rather than left absent
+  // for a reader to guess at.
+  captureSource: PhotoCaptureSource;
 }
 
 type SlotGroup = "required" | "more" | "measurements" | "defects";
@@ -309,6 +319,8 @@ interface SlotState {
   originalFile?: File;
   // US-2136 AC4: the assessment's continuous score, kept on pass AND fail.
   qualityScore?: number | null;
+  // US-2802: set when the file lands; absent on an empty slot.
+  captureSource?: PhotoCaptureSource;
 }
 
 const DEFAULT_SLOT_STATE: SlotState = {
@@ -384,6 +396,10 @@ export function PhotoUpload({
             exif: state.exif,
             originalFile: state.originalFile,
             qualityScore: state.qualityScore ?? null,
+            // Fails CLOSED: an origin nobody recorded is a library photo, not
+            // a live one. The opposite default would hand out the strongest
+            // provenance badge on a bookkeeping slip.
+            captureSource: state.captureSource ?? LIBRARY_CAPTURE_SOURCE,
           });
         }
       }
@@ -393,7 +409,14 @@ export function PhotoUpload({
   );
 
   const processFile = useCallback(
-    async (slotKey: string, rawFile: File) => {
+    async (
+      slotKey: string,
+      rawFile: File,
+      // US-2802: defaulted so the picker, the drop target and the US-952
+      // seeding path need no change AND state the truth — none of them
+      // watched the photo being taken. Only the camera dialog overrides it.
+      captureSource: PhotoCaptureSource = LIBRARY_CAPTURE_SOURCE,
+    ) => {
       setSlots((prev) => {
         const next = new Map(prev);
         const current = getSlot(prev, slotKey);
@@ -489,6 +512,7 @@ export function PhotoUpload({
             exif,
             originalFile: file,
             qualityScore: macro.score,
+            captureSource,
           });
           emitChange(next);
           return next;
@@ -843,7 +867,10 @@ export function PhotoUpload({
         onCapture={(file) => {
           const key = cameraSlotKey;
           setCameraSlotKey(null);
-          if (key) processFile(key, file);
+          // US-2802: the ONLY site that may claim in-app capture. Everything
+          // else defaults to `library`, so this line is the whole difference
+          // between a photo that can earn the live badge and one that cannot.
+          if (key) processFile(key, file, IN_APP_CAPTURE_SOURCE);
         }}
         onFallback={() => {
           const key = cameraSlotKey;

@@ -39,6 +39,13 @@ import {
   VIDEO_GRADING_OPT_IN,
   VIDEO_SLOT_MARKS_FIELD,
 } from "@/lib/video-grading-contract";
+import {
+  CAPTURE_SOURCES_FIELD,
+  IN_APP_CAPTURE_SOURCE,
+  LIVE_CAPTURE_OPT_IN,
+  LIVE_CAPTURE_OPT_IN_FIELD,
+  qualifiesForLiveCapture,
+} from "@/lib/photo-capture-contract";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
@@ -388,6 +395,25 @@ export function NewSubmissionPage() {
         p.exif?.model &&
         (p.exif?.dateTimeOriginal || p.exif?.dateTime)
     );
+
+  // US-2802: every photo came from the in-app camera dialog.
+  //
+  // THIS IS NOT provenanceAvailable, AND IT CANNOT BE. A camera capture is a
+  // canvas.toBlob JPEG (camera-capture-dialog.tsx), which carries no EXIF at
+  // all — so a seller who shot every photo in the app failed the provenance
+  // check above and got the opt-in control DISABLED, while a seller who
+  // uploaded library files with intact metadata got it enabled. The stronger
+  // evidence was treated as the weaker one. The disabled-state copy has also
+  // been promising 'available when photos are taken in-app' the whole time,
+  // which was not true of this page.
+  const allPhotosInApp =
+    photos.length > 0 &&
+    photos.every((p) => p.captureSource === IN_APP_CAPTURE_SOURCE);
+
+  // Either kind of evidence earns the right to opt in. They are different
+  // proofs of the same claim: metadata says the file is what it says it is,
+  // in-app capture says we watched it happen.
+  const provenanceEligible = provenanceAvailable || allPhotosInApp;
 
   // US-949: prefill garment info from the prior submission when retaking and no
   // inventory item drives the defaults. Enum fields are only carried when valid.
@@ -876,6 +902,22 @@ export function NewSubmissionPage() {
         "verified_capture_opt_in",
         verifiedCaptureOptIn && provenanceAvailable ? "true" : "false"
       );
+      // US-2802: the live tier. DERIVED, never a checkbox — see
+      // qualifiesForLiveCapture. The seller consents to the provenance path
+      // once, and whether that reaches the stronger tier is a fact about how
+      // they shot the photos, not a second preference. Deriving it also means
+      // we can never send the one combination grade.ts rejects (opted in with
+      // a library photo in the set), so nobody is shown a submit-time error
+      // for a box they were invited to tick.
+      if (
+        !videoMode &&
+        qualifiesForLiveCapture(
+          photos.map((p) => p.captureSource),
+          verifiedCaptureOptIn
+        )
+      ) {
+        formData.append(LIVE_CAPTURE_OPT_IN_FIELD, LIVE_CAPTURE_OPT_IN);
+      }
       // US-601: authenticity add-on opt-in. Only sent true when the tier supports
       // it; the server re-checks the tier + the feature flag before honoring it.
       formData.append(
@@ -927,6 +969,9 @@ export function NewSubmissionPage() {
           "quality_scores",
           typeof photo.qualityScore === "number" ? String(photo.qualityScore) : ""
         );
+        // US-2802: per-image provenance, parallel to the arrays above. The
+        // badge needs BOTH this and the opt-in; either alone earns nothing.
+        formData.append(CAPTURE_SOURCES_FIELD, photo.captureSource);
       }
 
       // US-339: optional original-image retention for server-side forensic /
@@ -1421,7 +1466,7 @@ export function NewSubmissionPage() {
                 <label
                   className={cn(
                     "flex items-start gap-3 rounded-lg border p-3",
-                    provenanceAvailable
+                    provenanceEligible
                       ? "cursor-pointer hover:border-primary/40"
                       : "opacity-60"
                   )}
@@ -1429,8 +1474,8 @@ export function NewSubmissionPage() {
                   <input
                     type="checkbox"
                     className="mt-1 h-4 w-4 accent-primary"
-                    checked={verifiedCaptureOptIn && provenanceAvailable}
-                    disabled={!provenanceAvailable}
+                    checked={verifiedCaptureOptIn && provenanceEligible}
+                    disabled={!provenanceEligible}
                     onChange={(e) =>
                       setVerifiedCaptureOptIn(e.target.checked)
                     }
@@ -1448,26 +1493,44 @@ export function NewSubmissionPage() {
                   </div>
                 </label>
 
-                {/* Live Capture explainer (US-1283) — the flagship fraud-proof
-                    tier. Live Capture is in-app-camera-only (device-attested),
-                    which a browser file upload can't provide, so on web we
-                    explain the value and point sellers to the app rather than
-                    offering a toggle that can't truly attest. */}
+                {/* Live Capture status (US-1283, rewritten by US-2802).
+                    THIS USED TO BE AN ADVERT, and for a tier no client could
+                    earn. It read "grade in the GradeThread app with Live
+                    Capture", on the stated grounds that a browser file upload
+                    cannot device-attest — true of an upload, and it sent
+                    sellers to an app where Live Capture was equally unbuilt.
+                    Now the camera dialog on this page feeds capture_sources, so
+                    this says where the seller actually stands instead of
+                    selling them something. */}
                 <div className="flex items-start gap-3 rounded-lg border border-brand-red/30 bg-brand-red/5 p-3">
                   <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0 text-brand-red-text" />
                   <div className="space-y-0.5">
                     <p className="text-sm font-medium">
-                      Want un-fakeable condition proof?
+                      {allPhotosInApp
+                        ? "Every photo was taken here, live"
+                        : "Want un-fakeable condition proof?"}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      Grade in the GradeThread app with{" "}
-                      <span className="font-medium">Live Capture</span> — every
-                      photo is taken live in-app and device-attested, so your
-                      condition proof can&apos;t be Photoshopped or pulled from a
-                      stock listing. Submissions that pass every provenance and
-                      manipulation check earn the stronger{" "}
-                      <span className="font-medium">Live-Verified</span>{" "}
-                      certificate badge.
+                    <p className="text-xs text-brand-red-text/80">
+                      {allPhotosInApp ? (
+                        <>
+                          Opt in above and this submission is checked for the
+                          stronger{" "}
+                          <span className="font-medium">Live-Verified</span>{" "}
+                          badge — proof the photos came straight from your
+                          camera rather than a stock listing. Uploading even one
+                          photo from your library returns you to the standard
+                          check.
+                        </>
+                      ) : (
+                        <>
+                          Use the camera button on every photo slot instead of
+                          uploading files, and this submission qualifies for the
+                          stronger{" "}
+                          <span className="font-medium">Live-Verified</span>{" "}
+                          badge. Your grade is never lowered for uploading
+                          instead.
+                        </>
+                      )}
                     </p>
                   </div>
                 </div>

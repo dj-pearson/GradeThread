@@ -9,8 +9,8 @@
 //
 // FOUND BY THE FIRST RUN, 2026-08-22, all in routes/grade.ts:
 //
-//   live_capture_opt_in    evaluateLiveCapture opens `if (!liveCaptureOptIn)
-//   capture_sources        return`, so the `live_verified` badge the pipeline
+//   live_capture_opt_in    WIRED 2026-08-22 by US-2802 (web). Kept in this
+//   capture_sources        header because the shape is the lesson: the badge
 //                          calls "the strongest provenance tier" has never been
 //                          issued once. Its confidence boost has never applied.
 //   verified_360_opt_in    same shape, same route, same sweep.
@@ -70,19 +70,20 @@ const SKIP = new Set(["node_modules", "dist", "build", ".git", "coverage"]);
  * the story that owns it.
  */
 const ALLOWED = {
-  live_capture_opt_in:
-    "US-2802. The photo Live Capture tier has no client half — no .swift or " +
-    ".kt file in the repo mentions live capture at all. Deciding which client " +
-    "ships it is the story's first AC, because it is a capture MODE with fraud " +
-    "claims attached rather than a checkbox.",
-  capture_sources:
-    "US-2802. The second gate behind the same badge: every image's " +
-    "capture_source must be the in-app value. Unfed for the same reason, and " +
-    "wiring the opt-in alone would earn nothing.",
+  // live_capture_opt_in and capture_sources were here and are now WIRED
+  // (US-2802): the web camera dialog stamps each photo's origin and
+  // new-submission.tsx sends both, from src/lib/photo-capture-contract.ts.
+  // Their removal is this list doing its job.
   verified_360_opt_in:
-    "US-2802. Same shape, same route, found in the same sweep.",
+    "US-2802. Still unfed, and not for want of a decision: verified-360.ts " +
+    "scores photogrammetric/LiDAR coverage metrics, which a BROWSER cannot " +
+    "measure. Web has nothing honest to send. It waits on the iOS/Android " +
+    "half, where the sensors exist.",
   capture_360:
-    "US-2802. The device-reported 360 metrics that verified_360_opt_in gates.",
+    "US-2802. The device-reported metrics that verified_360_opt_in gates. " +
+    "Same blocker, and deliberately NOT declared in photo-capture-contract.ts " +
+    "meanwhile — naming it under src/ would read as fed here and disarm this " +
+    "very entry.",
 
   forensic_grade:
     "Exercised by the edge suite only. The forensic add-on is chosen at grade " +
