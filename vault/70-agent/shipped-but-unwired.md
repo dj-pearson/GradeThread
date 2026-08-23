@@ -15,7 +15,7 @@ code_refs:
   - scripts/audit-unwired-exports.mjs
   - scripts/check-unwired-modules.mjs
   - scripts/check-web-unwired.mjs
-reviewed: 2026-08-22
+reviewed: 2026-08-23
 tags: [quality, testing, dead-code, gotcha]
 summary: Modules that pass their tests while nothing calls them; one was a real unenforced guarantee now half-wired, one was ruled uncalled-by-design and that ruling turned out to be wrong, one was a policy retirement that got deleted once a live switch started promising it, one was assumed correct because being unwired hid a broken table, and one was a UI component whose absence left a lockout switch armed — telling the shapes apart is the point.
 ---
@@ -64,10 +64,11 @@ boot warning reports ungated for every version until real labeled cases exist.
 
 ## Three modules have since graduated, which is the thesis holding
 
-The allowlist in `scripts/check-unwired-modules.mjs` is down to four entries:
-`drip-trigger.ts`, `rubric.ts`, `brand-seed.ts`, `content-ai-email.ts`. Three
-names left it between 2026-08-15 and 2026-08-20, and each left the same way —
-the codebase changed around a verdict that had been correct when written:
+The allowlist in `scripts/check-unwired-modules.mjs` holds five entries:
+`drip-trigger.ts`, `rubric.ts`, `brand-seed.ts`, `content-ai-email.ts` and
+`seller-digest.ts`. Three names left it between 2026-08-15 and 2026-08-20, and
+each left the same way — the codebase changed around a verdict that had been
+correct when written:
 
 - **`grading-reliability.ts`** (2026-08-15, US-2035). The env-gated job that
   feeds it live re-grades now exists as `routes/jobs-grading-self-consistency.ts`,
@@ -85,6 +86,36 @@ Each was left in the script as a COMMENT rather than deleted, so the next reader
 sees a module that graduated instead of a name that quietly vanished. That is
 worth copying: a silently shrinking allowlist and a correctly shrinking one look
 identical in a diff nobody reads.
+
+The fifth entry, `seller-digest.ts`, arrived on 2026-08-23 and is the gate
+catching something the DAY it landed rather than months later. US-2828 shipped
+the editorial half of the weekly seller digest — a pure function deciding whether
+a seller has anything worth an email this week — and the job that would gather
+its inputs and send the mail does not exist yet. Verdict PENDING, with both
+blockers named in the entry itself. Its sibling `seller-anomaly.ts` is dead in
+exactly the same way and is deliberately NOT listed, because `seller-digest.ts`
+is its only importer: the audit reports the root of a dead subtree, not every
+branch, which is worth knowing before someone reads a one-line report as a
+complete census.
+
+## One level down, the dead EXPORTS
+
+The gate covers whole MODULES. The same audit also reports exported functions
+inside live modules that nothing calls, and nothing gated on that until
+2026-08-23. Reading it once found two: `sendGradeCompleteEmail` and
+`sendBroadcastEmail`, the only 2 of 46 exported senders in `email.ts` with no
+caller. Both were SUPERSEDED rather than half-wired, and checking which is the
+whole exercise — `GradeCompleteData` was a strict subset of `GradeFinalizedData`,
+and the live pipeline's preliminary email even reads the
+`notification_preferences.grade_complete` setting the dead function was named
+after. Deleted, then pinned by `email-senders-wired_test.ts`, which asserts ZERO
+with no allowlist.
+
+That gate is deliberately narrow. The full dead-export set is about 75 entries
+and most are legitimate — test-only resets, port probes, mirror-suite helpers —
+so gating it needs a baseline, and a baseline nobody has to justify becomes a
+budget. An email nobody sends has one right answer, so that family gets a rule
+and the rest stays a report.
 
 ## Judged "uncalled by design" — and judged wrong
 
