@@ -820,6 +820,7 @@ function StepCard({
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" variant="outline" disabled={previewing} onClick={() => doPreview(v.id)}>
+                aria-label={`Preview variant ${v.id}`}
                   <Eye className="h-4 w-4" /> Preview
                 </Button>
                 <Button
@@ -832,6 +833,7 @@ function StepCard({
                   Test send
                 </Button>
                 <Button
+                aria-label={`Regenerate variant ${v.id}`}
                   size="sm"
                   variant="outline"
                   disabled={disabled || busyVariant === v.id}

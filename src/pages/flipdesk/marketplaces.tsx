@@ -1442,6 +1442,7 @@ function ExtensionQueueSection() {
                   </span>
                 </span>
                 <Button
+                aria-label={`Cancel ${describe(job.kind, job.platform)}`}
                   variant="ghost"
                   size="sm"
                   disabled={cancel.isPending}

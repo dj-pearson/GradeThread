@@ -77,6 +77,7 @@ export function ContentSettingsPage() {
                   onChange={(e) => setField(field, e.target.value || null)}
                 />
                 <Button
+                aria-label={`Test the ${label} webhook`}
                   type="button"
                   variant="outline"
                   disabled={!draft[field] || test.isPending}
@@ -378,6 +379,7 @@ function RecentDeliveries() {
                   <td className="py-2 text-right">
                     {!d.succeeded && (
                       <Button
+                      aria-label={`Retry the delivery that returned ${d.http_status ?? "an error"}`}
                         size="sm"
                         variant="ghost"
                         disabled={retry.isPending}

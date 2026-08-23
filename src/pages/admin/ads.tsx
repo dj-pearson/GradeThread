@@ -630,10 +630,12 @@ export function AdminAdsPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <Button variant="outline" size="sm" onClick={() => downloadExport(cv.id, "csv")}>
+                  aria-label={`Download the CSV for ${cv.name || "the untitled conversion"}`}
                     <Download className="mr-1 h-4 w-4" /> CSV
                   </Button>
                   {cv.platform === "google_ads" && (
                     <Button variant="outline" size="sm" onClick={() => downloadExport(cv.id, "ads_editor")}>
+                    aria-label={`Open ${cv.name || "the untitled conversion"} in Ads Editor`}
                       <Download className="mr-1 h-4 w-4" /> Ads Editor
                     </Button>
                   )}
