@@ -550,11 +550,13 @@ export function AdsCommandCenter() {
                         {/* Approve only makes sense for executable recs (report-only can't be applied). */}
                         {EXECUTABLE_CHANGE_TYPES.has(r.change_type) ? (
                           <Button size="sm" variant="outline" disabled={recAction.isPending}
+                            aria-label={`Un-snooze and approve ${r.target_name ?? r.target_type}`}
                             onClick={() => recAction.mutate({ id: r.id, action: "approve" })}>
                             Un-snooze / Approve
                           </Button>
                         ) : null}
                         <Button size="sm" variant="ghost" disabled={recAction.isPending}
+                          aria-label={`Dismiss ${r.target_name ?? r.target_type}`}
                           onClick={() => recAction.mutate({ id: r.id, action: "dismiss" })}>
                           Dismiss
                         </Button>
@@ -563,6 +565,7 @@ export function AdsCommandCenter() {
                       <>
                         {EXECUTABLE_CHANGE_TYPES.has(r.change_type) ? (
                           <Button size="sm" variant="outline" disabled={recAction.isPending}
+                            aria-label={`Approve ${r.target_name ?? r.target_type}`}
                             onClick={() => recAction.mutate({ id: r.id, action: "approve" })}>
                             Approve
                           </Button>
@@ -570,10 +573,12 @@ export function AdsCommandCenter() {
                           <span className="text-xs text-muted-foreground">Report-only</span>
                         )}
                         <Button size="sm" variant="ghost" disabled={recAction.isPending}
+                          aria-label={`Dismiss ${r.target_name ?? r.target_type}`}
                           onClick={() => recAction.mutate({ id: r.id, action: "dismiss" })}>
                           Dismiss
                         </Button>
                         <Button size="sm" variant="ghost" disabled={recAction.isPending}
+                          aria-label={`Snooze ${r.target_name ?? r.target_type} for 7 days`}
                           onClick={() => recAction.mutate({
                             id: r.id,
                             action: "snooze",
@@ -587,16 +592,19 @@ export function AdsCommandCenter() {
                     ) : r.status === "approved" ? (
                       <>
                         <Button size="sm" variant="outline" disabled={recAction.isPending}
+                          aria-label={`Dry-run ${r.target_name ?? r.target_type}`}
                           onClick={() => recAction.mutate({ id: r.id, action: "apply", dryRun: true })}>
                           Dry-run
                         </Button>
                         <Button size="sm" disabled={recAction.isPending}
+                          aria-label={`Apply ${r.target_name ?? r.target_type}`}
                           onClick={() => recAction.mutate({ id: r.id, action: "apply", dryRun: false })}>
                           Apply
                         </Button>
                       </>
                     ) : r.status === "applied" ? (
                       <Button size="sm" variant="outline" disabled={recAction.isPending}
+                        aria-label={`Roll back ${r.target_name ?? r.target_type}`}
                         onClick={() => recAction.mutate({ id: r.id, action: "revert" })}>
                         Roll back
                       </Button>
