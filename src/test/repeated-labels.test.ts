@@ -31,6 +31,24 @@ import { auditDistinctness } from "../../scripts/audit-control-labels.mjs";
 //     know the element repeats AND that the text is static, and the version that
 //     tried it flagged every button on every page. The three found by hand are
 //     fixed; there is no guard on that shape.
+//
+//     ATTEMPTED AGAIN 2026-08-23 AND ABANDONED TWICE, recorded so a third
+//     attempt does not start from scratch. Scoping to `.map()` bodies —
+//     which is what US-2834 added and what fixes the "every button on every
+//     page" half — is necessary and not sufficient. The hard part is finding
+//     where the OPENING TAG ENDS:
+//       1. `<Button([^>]*)>` breaks on `onClick={() => setPeriod(p)}`, whose
+//          `>` is not the tag's. It reported button bodies like
+//          `setPeriod(p)}\n >` across a dozen admin files — the same garbage
+//          the earlier attempt produced, from the same cause.
+//       2. Reusing `tagAttrs`, which brace-counts correctly, still failed:
+//          its return does not line up with an offset you can add back to
+//          find the `>`, so the scan matched nothing at all and reported a
+//          confident ZERO. A broken scan and a clean codebase are the same
+//          output, which is the whole reason this file self-tests its probes.
+//     Doing this properly means an actual JSX parse. The TypeScript compiler
+//     API is already a dependency and would give the tag boundary for free;
+//     a third regex will not.
 //   • a text INPUT, whose value is announced along with its label, so
 //     aria-label="Alert name" on a field containing "Nike jackets" already
 //     distinguishes. Those are counted here anyway — conservative in the
