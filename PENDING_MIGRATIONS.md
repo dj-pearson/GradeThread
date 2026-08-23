@@ -1,5 +1,32 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🔒 HELD: 00660 — ensure listings.draft_id has a durable record (US-2832)
+
+**Risk: NONE on this production, and that is the point.** Production already has
+`listings.draft_id` (repaired by hand 2026-08-20, re-confirmed 2026-08-23 by
+reading the live PostgREST schema). Both statements are `IF NOT EXISTS` forms,
+so applying this is a no-op against the data and the schema. The only thing it
+changes is that `applied_migrations` gains a `00660` row.
+
+| Object | What | Risk |
+|---|---|---|
+| `public.listings.draft_id` | re-assert the column from 00134 | NONE (already present) |
+| `idx_listings_draft_id` | re-assert the partial index from 00134 | NONE (already present) |
+
+**Why it exists.** 00134 is pre-footer-era, so the boot guard never checked it,
+and production turned out to have its trigger and policies but not this column.
+The missing half was pasted from this file, leaving the repair recorded nowhere
+in the database. A restored backup, a staging stack or a new region would
+silently lack the column again, and the only symptom is that every extension
+cross-listing writeback fails with PGRST204.
+
+**No `NOTIFY pgrst` needed on the current production**, because the column is
+already in the schema cache. Send it anyway on any environment where this
+migration actually adds the column.
+
+**Nothing in the same commit reads anything new from the client.** The column
+has been readable for days; this only records how it got there.
+
 ## ✅ APPLIED 2026-08-23: 00659 — seller digest ledger + opt-out (US-2828)
 
 Owner applied it (with the rest of the outstanding set) on 2026-08-23, and it
@@ -1028,13 +1055,12 @@ the error and limping on to the INSERT. So an edge deploy that lands before the
 the 00134 `draft_id` repair → `NOTIFY pgrst, 'reload schema';` → edge redeploy →
 push.
 
-**⚠ The 00134 repair leaves no durable record.** It is SQL in a markdown file,
-so `scripts/apply-prod-migrations.sh` will never run it and no
-`applied_migrations` row will ever mark it done. A future audit cannot tell a
-repaired production from one that still has the gap. Worth promoting to a
-numbered idempotent "ensure" migration before launch; not done here because
-production already has the column and another prod apply was not worth the churn
-mid-incident.
+**✅ The 00134 repair now has a durable record: `00660`.** This paragraph used
+to say the repair was SQL in a markdown file that `apply-prod-migrations.sh`
+would never run, so no `applied_migrations` row would ever mark it done and a
+future audit could not tell a repaired production from one that still has the
+gap. US-2832 fixed that: `00660_ensure_listings_draft_id.sql` carries the two
+statements and nothing else. See the HELD section at the top of this file.
 
 ## ⚠️ PROD REPAIR (not a new migration): listings.draft_id was missing (US-2726)
 
@@ -1049,18 +1075,15 @@ which is pre-footer-era and therefore never checked by the boot guard —
 `42710: trigger "set_flipdesk_settings_updated_at" ... already exists`. That
 error also proves the REST of 00134 did apply — only the column was missing.
 
-Apply just the missing half:
+**The SQL that used to sit here is now `00660_ensure_listings_draft_id.sql`**
+(US-2832). It carries exactly these two statements and nothing else, so run the
+migration rather than pasting from this file. A paste leaves no
+`applied_migrations` row, which is the whole problem this section documented
+and then reproduced.
 
-```sql
-ALTER TABLE public.listings
-  ADD COLUMN IF NOT EXISTS draft_id uuid
-  REFERENCES public.listings(id) ON DELETE SET NULL;
-
-CREATE INDEX IF NOT EXISTS idx_listings_draft_id
-  ON public.listings (draft_id) WHERE draft_id IS NOT NULL;
-
-NOTIFY pgrst, 'reload schema';
-```
+Production was repaired by hand on 2026-08-20 and still has the column -
+confirmed 2026-08-23 by reading `listings.draft_id` out of the live PostgREST
+schema document. So 00660 changes nothing there; the row it writes is the point.
 
 **Open question worth answering before launch:** how a pre-00254 migration
 came to be half-applied, and whether anything else below 00254 is missing.
