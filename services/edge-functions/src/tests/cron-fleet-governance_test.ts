@@ -261,6 +261,45 @@ Deno.test("US-2668: a job that failed EVERY run is separated from one that faile
   assertEquals(some.scorecards[0].always_failing, false);
 });
 
+Deno.test("US-2668: a 4xx counts, because the incident that wrote this rule WAS a 400", () => {
+  // FOUND BY SABOTAGE. Every case above uses 500, so narrowing the threshold
+  // from >= 400 to >= 500 left the whole file green — and trial-expiry, the
+  // job whose cause this story proved, answered PGRST109 / HTTP 400. The
+  // guard written for that incident had no test at the status the incident
+  // actually produced.
+  const report = reportForStatuses([400, 400, 400, 400, 400, 400]);
+  assertEquals(report.always_failing.map((s) => s.name), ["payouts"]);
+  assertEquals(report.scorecards[0].hard_failed_runs, 6);
+  assertEquals(report.scorecards[0].hard_failure_rate, 1);
+
+  // And the boundary itself: 399 is not a failure, 400 is.
+  const justUnder = reportForStatuses([399, 399, 399, 399, 399, 399]);
+  assertEquals(justUnder.scorecards[0].hard_failed_runs, 0);
+  assertEquals(justUnder.always_failing, []);
+});
+
+Deno.test("US-2668: MOST is not EVERY — a majority failure stays out of the 100% bucket", () => {
+  // ALSO FOUND BY SABOTAGE. The cases above test 1-of-6 and 6-of-6, and
+  // nothing sat between them, so replacing `=== runs.length` with
+  // `> runs.length / 2` stayed green. That mutation is the story's own
+  // failure mode running backwards: a job failing four times in six is bad
+  // luck or a partial outage, and escalating it as a deterministic bug is
+  // how the 100% signal stops meaning anything.
+  const most = reportForStatuses([500, 500, 500, 500, 200, 200]);
+  assertEquals(most.scorecards[0].hard_failed_runs, 4);
+  assertEquals(most.scorecards[0].hard_failure_rate, 0.6667);
+  assertEquals(most.always_failing, [], "4 of 6 is not every run");
+  // Still `failing`, so the existing warning keeps covering it — the subset
+  // rule this file already asserts.
+  assertEquals(most.failing.map((s) => s.name), ["payouts"]);
+
+  // One short of every run is the tightest case, and the one a boundary
+  // slip would land on first.
+  const allButOne = reportForStatuses([500, 500, 500, 500, 500, 200]);
+  assertEquals(allButOne.scorecards[0].hard_failed_runs, 5);
+  assertEquals(allButOne.always_failing, [], "5 of 6 is still not every run");
+});
+
 Deno.test("US-2668: always_failing stays a SUBSET of failing, so nothing loses its existing alert", () => {
   const report = reportForStatuses([502, 502, 502, 502, 502, 502]);
   assertEquals(report.failing.map((s) => s.name), ["payouts"]);
