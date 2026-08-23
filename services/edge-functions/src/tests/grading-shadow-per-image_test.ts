@@ -35,6 +35,10 @@ const {
   tiersAgree,
 } = await import("../lib/grading-shadow-per-image.ts");
 
+// prompt-blocks.ts transitively imports the service-role client too, so it
+// goes through the same dynamic import, after the dummy env above.
+const { PROMPT_BLOCK_KEYS } = await import("../lib/prompt-blocks.ts");
+
 type Cand = PerImageShadowCandidate;
 type Deps = PerImageShadowDeps;
 type Ctx = PerImageShadowContext;
@@ -418,3 +422,110 @@ Deno.test("runPerImageShadowGrades: the second candidate still runs after the fi
   assertEquals(rows[1].error, null);
   assertEquals(rows[1].agreement, true);
 });
+
+// ── US-2810 AC4: shadow changes no published grade ─────────────────────
+//
+// The module's own header says 'nothing here reads or writes grade_reports'
+// and until now that was a COMMENT. It is the whole safety argument for
+// running a candidate on live traffic before any eval gate has cases for it:
+// the seller's grade is already written and delivered by the time this runs.
+//
+// A source scan is the right shape here because the property is about WIRING
+// - which tables this module touches - not about logic. The deps seam takes
+// an `insert(row)` that names no table, so a behavioural fake cannot see the
+// table name at all; liveDeps is where it lives, and that is source.
+
+const SHADOW_SRC = Deno.readTextFileSync(
+  new URL("../lib/grading-shadow-per-image.ts", import.meta.url),
+);
+
+/** Every `.from("table")` in the module, in order. */
+function tablesTouched(src: string): string[] {
+  // Comments stripped first: a table named in prose is not an access, and
+  // this file's header names grade_reports precisely to say it does NOT use
+  // it. Scanning raw text would fail on the sentence promising the property.
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/[^\n]*$/gm, "");
+  return [...code.matchAll(/\.from\("([^"]+)"\)/g)].map((m) => m[1]);
+}
+
+Deno.test("US-2810 AC4: the shadow path touches no table but its own three", () => {
+  // ai_prompt_versions and ai_prompt_block_versions are READ to find the
+  // candidate; grading_shadow_results is the only thing written. Anything
+  // else appearing here means shadow grew a side effect, and the one that
+  // matters is a published grade moving under a seller who was never told a
+  // candidate was running.
+  const allowed = new Set([
+    "ai_prompt_versions",
+    "ai_prompt_block_versions",
+    "grading_shadow_results",
+  ]);
+  const touched = new Set(tablesTouched(SHADOW_SRC));
+  assert(touched.size > 0, "no table access found at all - the scan is broken");
+  for (const t of touched) {
+    assert(allowed.has(t), `shadow now touches ${t}, which AC4 forbids`);
+  }
+});
+
+Deno.test("US-2810 AC4: grade_reports and submissions are not named in code", () => {
+  // Named explicitly rather than left to the allow-list above, because these
+  // two are the ones the safety argument is ABOUT, and because the allow-list
+  // only sees `.from(`: an RPC name or a raw SQL string would slip past it.
+  //
+  // MATCHED AS A QUOTED LITERAL, which the first version was not. A bare
+  // substring check failed on `submissionsPerDay`, a local variable in the
+  // cost projection - a guard that fires on an identifier teaches the next
+  // reader to widen it rather than to look.
+  const code = SHADOW_SRC
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/[^\n]*$/gm, "");
+  for (const table of ["grade_reports", "submissions"]) {
+    const quoted = JSON.stringify(table);
+    assert(
+      !code.includes(quoted),
+      `shadow names ${table} as a string literal, which AC4 forbids`,
+    );
+  }
+});
+
+Deno.test("US-2810 AC4: the only write verb is on grading_shadow_results", () => {
+  const code = SHADOW_SRC
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/[^\n]*$/gm, "");
+  // Each write verb must be preceded by a .from() naming the results table.
+  // Matching the verb ALONE would pass on a write to anything, which is the
+  // failure this whole case exists to rule out.
+  const writes = [...code.matchAll(/\.(insert|update|upsert|delete)\(/g)];
+  assert(writes.length > 0, "no write found - the scan is broken");
+  for (const w of writes) {
+    const before = code.slice(0, w.index ?? 0);
+    const lastFrom = before.lastIndexOf(".from(");
+    const table = before.slice(lastFrom).match(/\.from\("([^"]+)"\)/)?.[1];
+    assertEquals(
+      table,
+      "grading_shadow_results",
+      `a ${w[1]} runs against ${table}, not the shadow results table`,
+    );
+  }
+});
+
+Deno.test("US-2810 AC2: category_criteria is a real block key, not a typo", () => {
+  // A block_key the code does not know is INERT, never an error - so an
+  // operator row carrying a typo silently does nothing and reads exactly like
+  // a sampling window that found no traffic. The operator SQL copies this
+  // string; this pins that it still exists.
+  assert(
+    Object.keys(PROMPT_BLOCK_KEYS).includes("category_criteria"),
+    "category_criteria left PROMPT_BLOCK_KEYS - the operator rows are now inert",
+  );
+  assertEquals(
+    PROMPT_BLOCK_KEYS.category_criteria.stage,
+    "per_image",
+  );
+  assertEquals(
+    PROMPT_BLOCK_KEYS.category_criteria.scopeDimension,
+    "garment_category",
+  );
+});
+
