@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Browser-scoped UI tell fixture</title>
+<!--
+  FIXTURE, deliberately bad. See scripts/check-ui-browser.mjs selfCheck().
+
+  One page that must raise all FOUR browser-scoped tells CLAUDE.md's craft floor
+  bans. If any of them stops appearing here, the rule was renamed, removed or
+  broken, and the scan below would go quiet against a site that had got worse.
+  That is the exact failure US-2336's source gate shipped with for months.
+
+  Do not tidy this page. Every ugly thing in it is load-bearing:
+    hero-eyebrow-chip            the tracked uppercase label above the h1
+    nested-cards                 .card inside .card
+    icon-tile-stack              rounded-square icon tile above a heading, x3
+    gpt-thin-border-wide-shadow  1px border under a wide diffuse shadow
+
+  The border/shadow rule has a THRESHOLD, not a pattern: of six hand-written
+  variants only two triggered it, so the two that work are kept verbatim rather
+  than tidied into one shared class.
+-->
+<style>
+  body { font-family: system-ui, sans-serif; margin:0; padding:40px; background:#f8fafc; color:#0f172a; }
+  h1 { font-size: 56px; line-height: 1.05; margin: 0 0 24px; font-weight: 800; }
+  h2 { font-size: 22px; margin: 0 0 10px; }
+  h3 { margin:0 0 6px; font-size:17px; }
+  p { margin:0; color:#475569; font-size:15px; line-height:1.6; }
+  section { margin-bottom: 40px; }
+  .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+
+  .eyebrow { font-size:12px; text-transform:uppercase; letter-spacing:0.16em; font-weight:700; color:#64748b; margin:0 0 12px; }
+
+  /* The two border+shadow forms that actually trip the threshold. */
+  .b1 { border:1px solid #e2e8f0; box-shadow:0 24px 64px rgba(0,0,0,0.10); border-radius:14px; padding:28px; background:#fff; }
+  .b4 { border:1px solid #eee; box-shadow:0 30px 90px -20px rgba(0,0,0,0.15); border-radius:20px; padding:28px; background:#fff; }
+
+  .card { border:1px solid rgba(15,23,42,0.08); box-shadow:0 24px 64px rgba(0,0,0,0.10); border-radius:14px; padding:24px; background:#fff; margin-bottom:24px; }
+
+  .tile-a { width:48px;height:48px;border-radius:12px;background:#eef2ff;display:flex;align-items:center;justify-content:center;margin-bottom:14px; }
+  .tile-b { width:40px;height:40px;border-radius:10px;background:#e0f2fe;display:inline-flex;align-items:center;justify-content:center;margin-bottom:12px; }
+  .tile-c { width:56px;height:56px;border-radius:16px;background:#fef3c7;display:grid;place-items:center;margin-bottom:16px; }
+</style></head>
+<body>
+  <p class="eyebrow">Built for resellers</p>
+  <h1>Every browser-scoped tell, on one page</h1>
+
+  <section>
+    <h2>Cards inside cards</h2>
+    <div class="card">
+      <h3>Outer card</h3>
+      <div class="card"><h3>Inner card</h3><p>A card inside a card.</p></div>
+      <div class="card"><h3>Second inner card</h3><p>Another card inside the same outer card.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Hairline border under a wide shadow</h2>
+    <div class="row">
+      <div class="b1"><h3>One</h3><p>Border plus a wide diffuse shadow.</p></div>
+      <div class="b4"><h3>Two</h3><p>Border plus a wide diffuse shadow.</p></div>
+      <div class="b1"><h3>Three</h3><p>Border plus a wide diffuse shadow.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Icon tile above a heading</h2>
+    <div class="row">
+      <div class="b1"><div class="tile-a"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#4f46e5" stroke-width="2"><path d="M3 12h18M12 3v18"/></svg></div><h3>Grade it</h3><p>Icon tile above a heading above body text.</p></div>
+      <div class="b1"><div class="tile-b"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0284c7" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg></div><h3>List it</h3><p>Icon tile above a heading above body text.</p></div>
+      <div class="b1"><div class="tile-c"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/></svg></div><h3>Ship it</h3><p>Icon tile above a heading above body text.</p></div>
+    </div>
+  </section>
+</body></html>

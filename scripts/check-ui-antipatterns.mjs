@@ -53,6 +53,13 @@ export const ENFORCED = new Set([
  *     no rule is not an error anywhere — it simply never appears in the
  *     findings, so the entry sat in the set looking like enforcement.
  *   • `border-and-shadow` exists under no spelling at all.
+ *     ⚠ WRONG, corrected 2026-08-23 (US-2833). It exists, spelled
+ *     `gpt-thin-border-wide-shadow`, and it fires — on a rendered page. The
+ *     conclusion (not source-checkable) held; the reason did not, and a wrong
+ *     reason is the more expensive error, because nobody re-checks a rule they
+ *     have been told is imaginary. It carries no `scopes` field, so it reads as
+ *     source-checkable; the same border-plus-shadow markup produced zero
+ *     findings from a directory scan and one from a URL scan.
  *   • `nested-cards` is real, and it lives in `detect-antipatterns-browser.js`
  *     with `scopes: ['layout']`. It needs a RENDERED PAGE. `impeccable detect
  *     <dir>` reads source files, so a browser-scoped rule cannot fire here
@@ -70,8 +77,22 @@ export const NOT_SOURCE_CHECKABLE = new Map([
   ["nested-cards", "browser-scoped (scopes: ['layout']) — needs a rendered page"],
   ["icon-tile-stack", "browser-scoped; the set used to spell it `icon-tile-grid`"],
   ["hero-eyebrow-chip", "browser-scoped; the set used to spell it `uppercase-eyebrow`"],
-  ["border-and-shadow", "no rule of this name exists in the tool, under any spelling"],
+  // ⚠ CORRECTED 2026-08-23 (US-2833). This entry read "no rule of this name
+  // exists in the tool, under any spelling" and that was WRONG. The rule exists,
+  // spelled `gpt-thin-border-wide-shadow`, and it fires. The old entry was right
+  // that a source scan cannot raise it, and wrong about why — which is the worse
+  // error of the two, because nobody re-checks a rule they have been told does
+  // not exist. It carries no `scopes` field, so it READS as source-checkable; a
+  // fixture with the exact border-plus-shadow pattern in both .tsx and .css
+  // produced zero findings from `impeccable detect <dir>`, and the same pattern
+  // served over http produced one.
+  ["gpt-thin-border-wide-shadow", "browser-scoped in practice; the set used to spell it `border-and-shadow` and recorded it as nonexistent"],
 ]);
+
+// All four of the above now have a runner: scripts/check-ui-browser.mjs, whose
+// fixture proves each one still fires before it trusts a quiet scan. This list
+// did not shrink (US-2833 AC4), because none of them became source-checkable —
+// what changed is that being on it no longer means being unchecked.
 
 /** One deliberately-bad file per enforced rule. */
 const SELF_CHECK_DIR = "scripts/fixtures/ui-antipatterns";

@@ -40,6 +40,16 @@ const NOT_A_LANE_CHECK: Record<string, string> = {
   "check-close-claims.mjs":
     "a commit-msg HOOK (.githooks/commit-msg), not a lane check. It reads the " +
     "message being written, which neither verify nor CI has.",
+  "check-ui-browser.mjs":
+    "NOT YET A GATE, on purpose, and this entry is the reason rather than an " +
+    "excuse. It drives a real browser over nine LIVE pages, which is slower and " +
+    "flakier than reading files and needs a URL that is up. US-2833 AC1 makes " +
+    "whether to run it at all an owner decision about cost, and 'nothing' is " +
+    "named there as a legitimate answer. It is report-only today (exit 0 " +
+    "without --enforce) and production carries 32 nested-cards findings, so " +
+    "wiring it in as-is would redden every push for a UI backlog nobody has " +
+    "agreed to clear. Delete this entry when AC1 is answered either way: yes " +
+    "means it belongs in verify.mjs and a workflow, no means the script goes.",
 };
 
 function guards(): string[] {
