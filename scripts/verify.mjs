@@ -242,7 +242,21 @@ function dockerSkip(lane, cmd) {
   if (state === "up") return null;
   return state === "wedged"
     ? `${lane}: Docker is UP but WEDGED — \`docker info\` did not answer in 20s. ` +
-        `Restart Docker Desktop (starting it will not help; it is already running), then \`${cmd}\`.`
+        `Restart Docker Desktop (starting it will not help; it is already running), then \`${cmd}\`. ` +
+        // Diagnosed on this machine 2026-08-23. The wedge has a specific shape
+        // and naming it saves the next person the same twenty minutes: the
+        // ENGINE service is stopped while the GUI keeps running.
+        //   Get-Service com.docker.service   -> Stopped
+        //   Get-Process 'Docker Desktop'     -> 3 processes, all alive
+        // So the tray icon looks healthy and every `docker` command hangs
+        // talking to a daemon that is not there. `Start-Service
+        // com.docker.service` is the direct fix and it needs ELEVATION -
+        // unprivileged it fails with "Cannot open com.docker.service service on
+        // computer '.'", which reads like the service is missing rather than
+        // like a permission problem. Restarting Docker Desktop as
+        // administrator restarts the service with it.
+        `If it stays wedged: Get-Service com.docker.service is probably Stopped while ` +
+        `the GUI runs — restart Docker Desktop AS ADMINISTRATOR.`
     : `${lane}: Docker daemon is not running — start Docker Desktop, then \`${cmd}\`.`;
 }
 
