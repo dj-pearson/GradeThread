@@ -1,0 +1,139 @@
+{
+  "_readme": [
+    "US-2817: the SHARED behavioural fixture for the title-sync ORCHESTRATION.",
+    "",
+    "title-sync-cases.json already pins the substitution half against its two copies. This",
+    "file does the same job one layer up, for buildTitleSyncPatch — the decisions wrapped",
+    "around the substitution: refuse an eBay-origin listing, move both A/B variants, flag a",
+    "hand-edited or live title instead of rewriting it silently, and return an EMPTY patch",
+    "when nothing would actually change.",
+    "",
+    "There was one copy (src/lib/title-sync-patch.ts) until US-2817 added the edge one, and",
+    "the edge copy exists because bulk re-identify is the first edge writer that replaces an",
+    "OLD field value with a NEW one. Two copies with no shared assertion is how the",
+    "substitution half drifted before, so this went in with the second copy rather than after.",
+    "",
+    "Consumed by services/edge-functions/src/tests/title-sync-patch_test.ts and",
+    "src/lib/__tests__/title-sync-patch.test.ts. Add a case here, not to one suite."
+  ],
+  "buildTitleSyncPatch": [
+    {
+      "name": "substitutes the changed field into the title",
+      "input": {
+        "baseTitle": "Patagonia Better Sweater Fleece Jacket",
+        "changes": [{ "field": "brand", "from": "Patagonia", "to": "Arc'teryx" }]
+      },
+      "expected": { "listing_title": "Arc'teryx Better Sweater Fleece Jacket" }
+    },
+    {
+      "name": "refuses to touch an ebay-origin listing",
+      "input": {
+        "baseTitle": "Patagonia Better Sweater Fleece Jacket",
+        "listingOrigin": "ebay",
+        "changes": [{ "field": "brand", "from": "Patagonia", "to": "Arc'teryx" }]
+      },
+      "expected": {}
+    },
+    {
+      "name": "moves both A/B variants",
+      "input": {
+        "baseTitle": "Patagonia Fleece Jacket",
+        "variants": [
+          { "label": "a", "title": "Patagonia Fleece Jacket" },
+          { "label": "b", "title": "Patagonia Fleece Jacket Navy Medium" }
+        ],
+        "changes": [{ "field": "brand", "from": "Patagonia", "to": "Arc'teryx" }]
+      },
+      "expected": {
+        "listing_title": "Arc'teryx Fleece Jacket",
+        "title_variants": [
+          { "label": "a", "title": "Arc'teryx Fleece Jacket" },
+          { "label": "b", "title": "Arc'teryx Fleece Jacket Navy Medium" }
+        ]
+      }
+    },
+    {
+      "name": "leaves a non-string variant entry untouched instead of crashing",
+      "input": {
+        "baseTitle": "Patagonia Fleece Jacket",
+        "variants": [null, { "label": "b" }, { "label": "c", "title": "Patagonia Tee" }],
+        "changes": [{ "field": "brand", "from": "Patagonia", "to": "Arc'teryx" }]
+      },
+      "expected": {
+        "listing_title": "Arc'teryx Fleece Jacket",
+        "title_variants": [null, { "label": "b" }, { "label": "c", "title": "Arc'teryx Tee" }]
+      }
+    },
+    {
+      "name": "flags a hand-edited title for review rather than silently rewriting it",
+      "input": {
+        "baseTitle": "Patagonia Fleece Jacket RARE vintage colourway",
+        "snapshotTitle": "Patagonia Better Sweater Fleece Jacket",
+        "changes": [{ "field": "brand", "from": "Patagonia", "to": "Arc'teryx" }]
+      },
+      "expected": {
+        "listing_title": "Arc'teryx Fleece Jacket RARE vintage colourway",
+        "needs_review": true
+      }
+    },
+    {
+      "name": "does not flag when the title still matches the AI snapshot",
+      "input": {
+        "baseTitle": "Patagonia Better Sweater Fleece Jacket",
+        "snapshotTitle": "Patagonia Better Sweater Fleece Jacket",
+        "changes": [{ "field": "brand", "from": "Patagonia", "to": "Arc'teryx" }]
+      },
+      "expected": { "listing_title": "Arc'teryx Better Sweater Fleece Jacket" }
+    },
+    {
+      "name": "flags a live listing because buyers already see that title",
+      "input": {
+        "baseTitle": "Patagonia Better Sweater Fleece Jacket",
+        "snapshotTitle": "Patagonia Better Sweater Fleece Jacket",
+        "isLive": true,
+        "changes": [{ "field": "brand", "from": "Patagonia", "to": "Arc'teryx" }]
+      },
+      "expected": {
+        "listing_title": "Arc'teryx Better Sweater Fleece Jacket",
+        "needs_review": true
+      }
+    },
+    {
+      "name": "empty patch when the old value is not in the title",
+      "input": {
+        "baseTitle": "Nike Tee",
+        "changes": [{ "field": "brand", "from": "Patagonia", "to": "Arc'teryx" }]
+      },
+      "expected": {}
+    },
+    {
+      "name": "empty patch when there are no changes",
+      "input": { "baseTitle": "Patagonia Tee", "changes": [] },
+      "expected": {}
+    },
+    {
+      "name": "empty patch when there is no base title",
+      "input": {
+        "baseTitle": "",
+        "changes": [{ "field": "brand", "from": "Patagonia", "to": "Arc'teryx" }]
+      },
+      "expected": {}
+    },
+    {
+      "name": "empty patch when a size widens into a value containing the old one",
+      "input": {
+        "baseTitle": "Nike Windrunner Jacket L",
+        "changes": [{ "field": "size", "from": "L", "to": "L" }]
+      },
+      "expected": {}
+    },
+    {
+      "name": "a size change moves the size token without touching XL-like words",
+      "input": {
+        "baseTitle": "Nike Windrunner Jacket Size L Long Sleeve",
+        "changes": [{ "field": "size", "from": "L", "to": "XL" }]
+      },
+      "expected": { "listing_title": "Nike Windrunner Jacket Size XL Long Sleeve" }
+    }
+  ]
+}

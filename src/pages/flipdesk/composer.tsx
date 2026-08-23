@@ -76,6 +76,7 @@ import {
 import { resolveStatus, factsOf, nextAction } from "@/lib/workflow";
 import { errorMessage, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { estimateListingProfit } from "@/lib/listing-profit";
+import { buildComposerAiInput } from "@/lib/composer-ai-input";
 import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
 import {
   mapEbayCondition,
@@ -2054,7 +2055,7 @@ export function FlipdeskComposerPage({
   // resolves the eBay category + item specifics and persists them on the item,
   // which is why a successful fill remounts the specifics picker below (its
   // `key`) — otherwise the picker would keep showing the values it seeded with.
-  async function handleCompleteWithAi() {
+  async function handleCompleteWithAi(mode: "gap_fill" | "reidentify" = "gap_fill") {
     if (!item) return;
     const photoRefs = photos.map((ph) => ({
       url: supabase.storage
@@ -2062,16 +2063,23 @@ export function FlipdeskComposerPage({
         .getPublicUrl(ph.storage_path ?? "").data.publicUrl,
       type: ph.photo_type,
     }));
-    const text = [title, description, conditionDesc]
-      .filter((t) => t.trim())
-      .join("\n");
+    // US-2817: gap-fill sends the filled fields as known (so only blanks come
+    // back); re-identify sends none of them and withholds the item's own
+    // generated copy, so the model reads the garment instead of confirming what
+    // an older model said about it. See lib/composer-ai-input.ts.
+    const { text, known } = buildComposerAiInput(
+      {
+        title,
+        description,
+        conditionNotes: conditionDesc,
+        fields: ENRICHABLE,
+        photoCount: photoRefs.length,
+      },
+      mode,
+    );
     if (photoRefs.length === 0 && !text.trim()) {
       toast.error("Add photos or a description for the AI to work from.");
       return;
-    }
-    const known: Record<string, unknown> = {};
-    for (const f of ENRICHABLE) {
-      if (String(f.value ?? "").trim()) known[f.key] = f.value;
     }
     try {
       const result = await aiExtract.mutateAsync({
@@ -2115,12 +2123,28 @@ export function FlipdeskComposerPage({
   async function applyAiFill(accepted: AcceptedField[]) {
     if (!item || accepted.length === 0) return;
     const patch: Record<string, unknown> = {};
+    // US-2817: record WHERE each value came from, which this path never did.
+    // The server stamps provenance for canonical attributes, but brand, style,
+    // size, colour and material are applied here, after review — so every value
+    // this screen ever wrote looked seller-typed to anything reading
+    // ai_field_sources later. That is why a re-identify pass over old stock
+    // needs an explicit opt-in: the record it would consult was never written.
+    const sources: Record<string, unknown> = {
+      ...(item.ai_field_sources ?? {}),
+    };
     for (const f of accepted) {
       const v = f.value.trim();
       if (!v) continue;
       patch[f.field === "item_category" ? "item_category" : f.field] = v;
+      sources[f.field] = {
+        source: f.source,
+        confidence: f.confidence,
+        accepted: true,
+      };
     }
     if (Object.keys(patch).length === 0) return;
+    patch.ai_field_sources = sources;
+    patch.ai_enriched_at = new Date().toISOString();
     const { error } = await supabase
       .from("inventory_items")
       .update(patch as never)
@@ -3031,6 +3055,8 @@ export function FlipdeskComposerPage({
             canComplete={canCompleteWithAi}
             completing={aiExtract.isPending}
             onCompleteWithAi={() => void handleCompleteWithAi()}
+            onReidentify={() => void handleCompleteWithAi("reidentify")}
+            aiEnrichedAt={item.ai_enriched_at}
             sizeMissing={!String(item.size ?? "").trim()}
             sizeEstimating={sizeAi.isPending}
             onEstimateSize={() => void handleEstimateSize()}

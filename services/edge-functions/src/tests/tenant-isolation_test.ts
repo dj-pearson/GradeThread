@@ -366,6 +366,52 @@ Deno.test({
   },
 });
 Deno.test({
+  // US-2817. Bulk re-identify is the first AI path that OVERWRITES an
+  // existing brand/size/color/style rather than filling a blank, and it
+  // follows the write through to the listing titles that quote the old
+  // value. Both halves act on item ids straight from the body, so an
+  // unscoped version would let B rewrite the identity of A's garment AND
+  // A's live listing title.
+  //
+  // This route answers 200 with a PER-ITEM result rather than a 4xx, so
+  // assertDenied does not apply: the denial to assert is that A's item is
+  // reported failed and never enriched. A 402 is also a pass - B may not
+  // carry the Pro plan the bulk gate requires, and that gate runs first.
+  name: "B cannot bulk re-identify A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ai/bulk-extract`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ item_ids: [itemId], mode: "reidentify" }),
+    });
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      assert(
+        DENIED.has(res.status) || res.status === 402 || res.status === 429,
+        `POST ai/bulk-extract (foreign item_id): expected a denial, a plan gate or a quota stop, got ${res.status}`,
+      );
+      return;
+    }
+    const body = await res.json() as {
+      results?: { item_id: string; status: string; applied?: string[] }[];
+    };
+    const row = (body.results ?? []).find((r) => r.item_id === itemId);
+    assert(row, "bulk-extract returned no result row for the foreign item");
+    assertEquals(
+      row.status,
+      "failed",
+      "B's bulk re-identify of A's item must fail, not enrich",
+    );
+    assertEquals(
+      row.applied ?? [],
+      [],
+      "no field may be written on a foreign item",
+    );
+  },
+});
+Deno.test({
   // The aspects write-back folds specifics-editor values into an item's
   // Brand/Size/Color/Material/Style COLUMNS. Unscoped, B could overwrite the
   // identity of A's garment — and those columns are the write-authority at

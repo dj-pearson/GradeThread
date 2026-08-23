@@ -46,6 +46,19 @@
 //   iOS ................... THE ONE REMAINING GAP, and it cannot consume this
 //                           module — it needs a Swift port (AIItemFieldWriter)
 //
+// US-2817 (2026-08-22) added a writer this audit had no row for, and it landed
+// in the exempt column rather than the wired one. Bulk re-identify
+// (flipdesk-ai.ts /bulk-extract, mode 'reidentify') REPLACES an AI-written
+// brand/size/color/style with a better one, so the CSV-import reasoning above
+// ("fill-only, the old value is always blank") is exactly what stops applying.
+// It is wired, through a new edge title-sync-patch.ts that ports the web
+// orchestration; the two copies are pinned behaviourally by
+// src/test/fixtures/title-sync-patch-cases.json.
+//
+// Worth reading the shape of the N/A rows before adding one: each argues from a
+// property of the CALLER, and a new caller is free not to have that property.
+// They are dated observations, not exemptions.
+//
 // This file is also one half of the behavioural parity fixture
 // (src/test/fixtures/title-sync-cases.json) asserted by BOTH the deno and
 // vitest suites, which is what keeps it honest against the web copy.

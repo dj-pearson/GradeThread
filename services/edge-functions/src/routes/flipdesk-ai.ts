@@ -63,6 +63,17 @@ import {
   refundAiAction,
   reserveAiActionSafe,
 } from "../lib/ai-metering.ts";
+import {
+  buildExtractText,
+  buildKnownFields,
+  decideField,
+  isAiOwned,
+  isEmptyValue,
+  type ExtractMode,
+  type UntrackedPolicy,
+} from "../lib/reextract-policy.ts";
+import { changesFromItemDiff } from "../lib/title-sync.ts";
+import { buildTitleSyncPatch } from "../lib/title-sync-patch.ts";
 
 const MAX_PHOTOS = 8;
 
@@ -1552,16 +1563,83 @@ flipdeskAiRoutes.post("/rewrite", async (c) => {
 });
 
 /**
+ * US-2817: push a re-identified item value through to the titles that quote
+ * it. Runs the same orchestration the three web save paths use
+ * (buildTitleSyncPatch): an eBay-origin listing is refused outright because
+ * eBay owns its title, both A/B variants move together, and a title the
+ * seller hand-edited or that buyers are already looking at is FLAGGED rather
+ * than silently rewritten.
+ *
+ * No-ops when the write changed no syncable field, which is every gap-fill
+ * run — filling a blank leaves nothing in the title to substitute.
+ */
+async function syncListingTitles(
+  itemId: string,
+  userId: string,
+  before: Record<string, unknown>,
+  update: Record<string, unknown>,
+): Promise<void> {
+  const after = { ...before, ...update };
+  const changes = changesFromItemDiff(before, after);
+  if (changes.length === 0) return;
+
+  // Tenant-scoped through the parent item (US-268): the id came from an
+  // ownership-verified row, and the filter is repeated here rather than
+  // trusted, because this runs on the service-role client.
+  const { data: listings } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, listing_title, title_variants, ai_generated_snapshot, listing_origin, listing_status, is_active",
+    )
+    .eq("inventory_item_id", itemId)
+    .eq("user_id", userId);
+
+  for (const row of (listings ?? []) as Array<{
+    id: string;
+    listing_title: string | null;
+    title_variants: unknown;
+    ai_generated_snapshot: { title?: string | null } | null;
+    listing_origin: string | null;
+    listing_status: string | null;
+    is_active: boolean | null;
+  }>) {
+    const patch = buildTitleSyncPatch({
+      baseTitle: row.listing_title,
+      variants: row.title_variants,
+      changes,
+      snapshotTitle: row.ai_generated_snapshot?.title ?? null,
+      isLive: row.is_active === true || row.listing_status === "active",
+      listingOrigin: row.listing_origin,
+    });
+    if (Object.keys(patch).length === 0) continue;
+    await supabaseAdmin.from("listings").update(patch).eq("id", row.id);
+  }
+}
+
+/**
  * POST /bulk-extract
- * Body: { item_ids: string[] }. Enriches many items; high-confidence gap
- * fields auto-apply, uncertain ones are returned for per-item review.
+ * Body: { item_ids: string[], mode?: "gap_fill" | "reidentify" }.
+ *
+ * `gap_fill` (the default, and the only behaviour before US-2817) enriches many
+ * items: high-confidence values land in EMPTY columns, uncertain ones come back
+ * for per-item review, and anything already filled is left alone.
+ *
+ * `reidentify` re-runs identification on items the AI has already seen — the
+ * "my drafts are from three months ago and the model is better now" case. It
+ * withholds the AI's own past answers from the prompt and lets a confident new
+ * value overwrite an AI-written one; seller-typed values are never overwritten,
+ * only surfaced. See lib/reextract-policy.ts for the provenance rules.
  */
 flipdeskAiRoutes.post("/bulk-extract", async (c) => {
   // Re-bind userId to the active workspace owner. For solo users this is
   // identical to the caller's id; for a member acting in someone else's
   // workspace, all reads/writes/quota lookups must target the owner.
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  let body: { item_ids?: unknown };
+  let body: {
+    item_ids?: unknown;
+    mode?: unknown;
+    overwrite_untracked?: unknown;
+  };
   try {
     body = await c.req.json();
   } catch {
@@ -1573,6 +1651,20 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
   if (itemIds.length === 0) {
     return c.json({ error: "item_ids is required" }, 400);
   }
+  // Unknown values fall back to gap-fill: an older client that doesn't send the
+  // field must keep the behaviour it was written against.
+  const mode: ExtractMode = body.mode === "reidentify"
+    ? "reidentify"
+    : "gap_fill";
+  // Opt-in, per run, and only meaningful under reidentify. Drafts made
+  // before US-2817 have no per-column provenance, so without this the pass
+  // reads every one of their values as seller-typed and corrects nothing --
+  // which is the exact stock the feature exists for. The seller turns it on
+  // because only they know which of those values they typed themselves.
+  const untracked: UntrackedPolicy =
+    mode === "reidentify" && body.overwrite_untracked === true
+      ? "treat_as_ai"
+      : "respect";
 
   // US-382: bulk extraction is a gated "bulk actions" feature (Pro+). Enforce
   // server-side before spending any AI quota — a Free/Starter caller gets 402
@@ -1600,6 +1692,8 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
     status: "enriched" | "needs_review" | "failed";
     applied: string[];
     pending: string[];
+    /** Subset of `applied` that OVERWROTE an earlier AI value (US-2817). */
+    replaced: string[];
     reason?: string;
   }[] = [];
 
@@ -1618,6 +1712,7 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
           status: "failed",
           applied: [],
           pending: [],
+          replaced: [],
           reason: "Item not found",
         });
         return;
@@ -1632,20 +1727,34 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
           status: "failed",
           applied: [],
           pending: [],
+          replaced: [],
           reason: "Monthly AI limit reached",
         });
         return;
       }
 
       const photos = await loadItemPhotos(itemId);
-      const text = [item.title, item.description, item.condition_notes]
-        .filter((t): t is string => !!t && t.trim() !== "")
-        .join("\n");
-      const known: Record<string, unknown> = {};
-      for (const col of ENRICHABLE_COLUMNS) {
-        const v = (item as Record<string, unknown>)[col];
-        if (v && String(v).trim()) known[col] = v;
-      }
+      // US-2817: provenance is read BEFORE the prompt is built, not just
+      // before the write. In re-identify mode it decides what the model is
+      // allowed to SEE as well as what it is allowed to overwrite.
+      const aiSources =
+        (item.ai_field_sources as Record<string, unknown>) ?? {};
+      const text = buildExtractText(
+        {
+          title: item.title,
+          description: item.description,
+          conditionNotes: item.condition_notes,
+        },
+        photos.length > 0,
+        mode,
+      );
+      const known = buildKnownFields(
+        item as unknown as Record<string, unknown>,
+        ENRICHABLE_COLUMNS,
+        aiSources,
+        mode,
+        untracked,
+      );
 
       const start = Date.now();
       const extraction = await extractItemFields({
@@ -1656,10 +1765,9 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
       const latencyMs = Date.now() - start;
 
       const update: Record<string, unknown> = {};
-      const aiSources =
-        (item.ai_field_sources as Record<string, unknown>) ?? {};
       const applied: string[] = [];
       const pending: string[] = [];
+      const replaced: string[] = [];
       const conflictFields = new Set(
         extraction.conflicts.map((cf) => cf.field)
       );
@@ -1668,25 +1776,31 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
         if (!(ENRICHABLE_COLUMNS as readonly string[]).includes(field)) {
           continue;
         }
-        const currentlyEmpty = !String(
-          (item as Record<string, unknown>)[field] ?? ""
-        ).trim();
-        // Only auto-apply confident, non-conflicting values into empty gaps.
-        if (
-          currentlyEmpty &&
-          sug.confidence >= AUTO_APPLY_CONFIDENCE &&
-          !conflictFields.has(field)
-        ) {
-          update[field] = sug.value;
-          aiSources[field] = {
-            source: sug.source,
-            confidence: sug.confidence,
-            accepted: true,
-          };
-          applied.push(field);
-        } else {
+        // Gap-fill writes only into empty columns. Re-identify may also
+        // write over a value an earlier AI pass put there, never over one
+        // the seller typed - that comes back as `pending` (US-2817).
+        const decision = decideField({
+          current: (item as Record<string, unknown>)[field],
+          suggested: sug.value,
+          confidence: sug.confidence,
+          autoApplyConfidence: AUTO_APPLY_CONFIDENCE,
+          conflicted: conflictFields.has(field),
+          aiOwned: isAiOwned(aiSources, field, untracked),
+          mode,
+        });
+        if (decision === "skip") continue;
+        if (decision === "pending") {
           pending.push(field);
+          continue;
         }
+        update[field] = sug.value;
+        aiSources[field] = {
+          source: sug.source,
+          confidence: sug.confidence,
+          accepted: true,
+        };
+        applied.push(field);
+        if (decision === "replace") replaced.push(field);
       }
 
       // US-821: gap-fill canonical attributes (existing/user values win) and
@@ -1709,11 +1823,16 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
       let attributesChanged = false;
       for (const [key, value] of Object.entries(suggestedAttrs)) {
         const cur = existingAttrs[key];
-        const isEmpty =
-          cur === undefined ||
-          cur === null ||
-          (Array.isArray(cur) ? cur.length === 0 : String(cur).trim() === "");
-        if (!isEmpty) continue;
+        // US-2817: same provenance rule as the columns above. Gap-fill only
+        // fills blanks; re-identify may also refresh an attribute a prior AI
+        // pass wrote, and still never touches one the seller set.
+        const mayWrite = isEmptyValue(cur) ||
+          (mode === "reidentify" && isAiOwned(aiSources, key, untracked));
+        if (!mayWrite) continue;
+        if (!isEmptyValue(cur) && JSON.stringify(cur) === JSON.stringify(value)) {
+          continue;
+        }
+        if (!isEmptyValue(cur)) replaced.push(key);
         mergedAttrs[key] = value;
         const sug = allAttrSuggestions[key];
         aiSources[key] = {
@@ -1762,11 +1881,27 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
           .eq("user_id", userId);
       }
 
+      // US-2817: a REPLACED brand/size/color/style leaves the listing title
+      // saying the old one, and the title is the field buyers search
+      // hardest. Gap-fill never hit this (the old value was blank, so the
+      // substitution was a no-op), which is why no edge writer carried the
+      // sync before. Best-effort: a title that does not move must never cost
+      // the seller a correctly re-identified item.
+      try {
+        await syncListingTitles(itemId, userId, item as Record<string, unknown>, update);
+      } catch (err) {
+        console.error(
+          "[flipdesk-ai] bulk-extract title sync failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+
       results.push({
         item_id: itemId,
         status: pending.length > 0 ? "needs_review" : "enriched",
         applied,
         pending,
+        replaced,
       });
     } catch (err) {
       // US-387: the action was reserved before the AI call — refund it so a
@@ -1777,6 +1912,7 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
         status: "failed",
         applied: [],
         pending: [],
+        replaced: [],
         reason: err instanceof Error ? err.message : "Extraction failed",
       });
     }
@@ -1797,7 +1933,13 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
         .length,
       failed: results.filter((r) => r.status === "failed").length,
       skipped: skipped.length,
+      // US-2817: how many fields this run OVERWROTE (always 0 in gap-fill).
+      // The seller-facing question after a re-identify is "did anything
+      // actually change?", and applied-count alone cannot answer it.
+      replaced: results.reduce((n, r) => n + r.replaced.length, 0),
     },
+    mode,
+    overwrite_untracked: untracked === "treat_as_ai",
     results,
     skipped,
   });

@@ -157,9 +157,18 @@ function aiErrorToast(err: ApiError): void {
     // The plan gate answers with a machine code (CAP_REACHED / FEATURE_LOCKED)
     // rather than seller-facing text, so err.message can't be shown here. These
     // hooks bypass edgeFetch, so nothing else catches a 402 for them either.
-    toast.error("Your plan is out of AI actions.", {
-      description: "Raise the limit from Billing to keep using AI.",
-    });
+    // The two codes mean different things and used to read the same: a Starter
+    // seller clicking a bulk action was told to raise a limit that is not what
+    // is stopping them.
+    if (err.message === "FEATURE_LOCKED") {
+      toast.error("Bulk AI needs a Pro plan.", {
+        description: "Upgrade from Billing, or run items one at a time.",
+      });
+    } else {
+      toast.error("Your plan is out of AI actions.", {
+        description: "Raise the limit from Billing to keep using AI.",
+      });
+    }
   } else if (err.status === 502) {
     toast.error("AI is temporarily unavailable. Please try again.");
   } else {
@@ -295,11 +304,20 @@ export function useAiRewrite() {
   });
 }
 
+// US-2817: "gap_fill" is the original behaviour — fill blanks, touch nothing
+// else. "reidentify" re-runs identification on items the AI has already seen:
+// the model is NOT shown its own earlier answers, and a confident new value may
+// overwrite an AI-written one. Seller-typed values are never overwritten in
+// either mode; they come back as `pending`.
+export type BulkExtractMode = "gap_fill" | "reidentify";
+
 export interface BulkExtractResult {
   item_id: string;
   status: "enriched" | "needs_review" | "failed";
   applied: string[];
   pending: string[];
+  /** Subset of `applied` that replaced an earlier AI value (US-2817). */
+  replaced?: string[];
   reason?: string;
 }
 
@@ -309,13 +327,33 @@ export interface BulkExtractResponse {
     needs_review: number;
     failed: number;
     skipped: number;
+    /** Total fields overwritten across the batch. Always 0 in gap-fill. */
+    replaced?: number;
   };
+  mode?: BulkExtractMode;
+  /** Echoes what the server actually applied, not what the client asked for. */
+  overwrite_untracked?: boolean;
   results: BulkExtractResult[];
   skipped: string[];
 }
 
 export function useBulkExtract() {
-  return useMutation<BulkExtractResponse, ApiError, { item_ids: string[] }>({
+  return useMutation<
+    BulkExtractResponse,
+    ApiError,
+    {
+      item_ids: string[];
+      mode?: BulkExtractMode;
+      /**
+       * Reidentify only. Per-column provenance is only recorded from US-2817
+       * on, so older drafts carry none and every value on them reads as
+       * seller-typed. With this on, a value with no recorded source counts as
+       * the AI's and can be replaced. Opt-in per run: it cannot tell a stale
+       * AI answer from something the seller typed by hand.
+       */
+      overwrite_untracked?: boolean;
+    }
+  >({
     mutationFn: (input) =>
       postJson<BulkExtractResponse>(
         "/api/flipdesk/ai/bulk-extract",

@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   useBulkExtract,
+  type BulkExtractMode,
   type BulkExtractResponse,
 } from "@/hooks/use-ai-extract";
 import { useAuth } from "@/hooks/use-auth";
@@ -26,6 +27,14 @@ interface BulkAiEnrichDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   itemIds: string[];
+  /**
+   * US-2817: "gap_fill" (default) only fills blanks. "reidentify" re-reads the
+   * photos on items the AI has already done and lets a confident new answer
+   * replace the old AI one — for stock that was catalogued before the
+   * identifier improved. Values the seller typed are never overwritten either
+   * way.
+   */
+  mode?: BulkExtractMode;
   /** Open a single item for per-item review of pending suggestions. */
   onReviewItem: (itemId: string) => void;
   /** Called after a batch completes so the caller can refetch. */
@@ -36,6 +45,7 @@ export function BulkAiEnrichDialog({
   open,
   onOpenChange,
   itemIds,
+  mode = "gap_fill",
   onReviewItem,
   onDone,
 }: BulkAiEnrichDialogProps) {
@@ -59,9 +69,18 @@ export function BulkAiEnrichDialog({
     : Math.min(itemIds.length, remaining);
   const willSkip = itemIds.length - willProcess;
 
+  const reidentify = mode === "reidentify";
+  // Off by default and reset on every open: this is the one control here that
+  // can overwrite something the seller typed, so it must never be sticky.
+  const [overwriteUntracked, setOverwriteUntracked] = useState(false);
+
   async function run() {
     try {
-      const r = await bulk.mutateAsync({ item_ids: itemIds });
+      const r = await bulk.mutateAsync({
+        item_ids: itemIds,
+        mode,
+        overwrite_untracked: reidentify && overwriteUntracked,
+      });
       setResult(r);
       onDone();
     } catch {
@@ -71,6 +90,7 @@ export function BulkAiEnrichDialog({
 
   function close() {
     setResult(null);
+    setOverwriteUntracked(false);
     onOpenChange(false);
   }
 
@@ -80,13 +100,15 @@ export function BulkAiEnrichDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
-            AI enrich {itemIds.length} item
+            {reidentify ? "Re-run AI on" : "AI enrich"} {itemIds.length} item
             {itemIds.length === 1 ? "" : "s"}
           </DialogTitle>
           <DialogDescription>
             {result
               ? "Batch complete."
-              : "AI will fill missing fields. High-confidence values are applied automatically; uncertain ones are left for you to review."}
+              : reidentify
+                ? "AI reads the photos again from scratch and updates what it got wrong before. Anything you typed yourself is kept — those come back for review instead."
+                : "AI will fill missing fields. High-confidence values are applied automatically; uncertain ones are left for you to review."}
           </DialogDescription>
         </DialogHeader>
 
@@ -111,6 +133,31 @@ export function BulkAiEnrichDialog({
                 {unlimited ? "Unlimited" : remaining}
               </span>
             </div>
+            {reidentify && (
+              // Without this, a run over drafts made before GradeThread started
+              // recording where each value came from will report a lot and
+              // change almost nothing — every value on them looks typed by
+              // hand. Off by default, because only the seller knows which ones
+              // actually were.
+              <label className="flex cursor-pointer items-start gap-2 rounded-md border p-2.5 text-xs">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-primary"
+                  checked={overwriteUntracked}
+                  onChange={(e) => setOverwriteUntracked(e.target.checked)}
+                />
+                <span>
+                  <span className="font-medium">
+                    Also update older items where we did not record who filled
+                    the field in
+                  </span>
+                  <span className="block text-muted-foreground">
+                    Turn this on for drafts from before this feature existed.
+                    Anything you typed on those could be replaced.
+                  </span>
+                </span>
+              </label>
+            )}
             {willSkip > 0 && (
               <p className="flex items-center gap-1.5 rounded-md bg-amber-100 p-2 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -146,6 +193,20 @@ export function BulkAiEnrichDialog({
                 <div className="text-xs text-muted-foreground">Failed</div>
               </div>
             </div>
+            {reidentify && (
+              // The question a re-run has to answer is "did anything actually
+              // change?" — an enriched count alone reads the same whether the
+              // AI corrected forty items or agreed with all of them.
+              <p className="text-xs text-muted-foreground">
+                {(result.summary.replaced ?? 0) > 0
+                  ? `${result.summary.replaced} field${
+                      result.summary.replaced === 1 ? "" : "s"
+                    } updated from the earlier AI answer.`
+                  : result.overwrite_untracked
+                    ? "Nothing changed — the new pass agreed with what was there."
+                    : "Nothing was overwritten. On older drafts, tick the box about fields we did not record and run it again."}
+              </p>
+            )}
             {result.summary.skipped > 0 && (
               <p className="text-xs text-muted-foreground">
                 {result.summary.skipped} item
@@ -171,9 +232,15 @@ export function BulkAiEnrichDialog({
                     )}
                     <span className="text-muted-foreground">
                       {r.status === "enriched" &&
-                        `${r.applied.length} field${
-                          r.applied.length === 1 ? "" : "s"
-                        } applied`}
+                        (r.applied.length === 0
+                          ? "No change"
+                          : `${r.applied.length} field${
+                              r.applied.length === 1 ? "" : "s"
+                            } applied${
+                              (r.replaced?.length ?? 0) > 0
+                                ? ` (${r.replaced?.length} corrected)`
+                                : ""
+                            }`)}
                       {r.status === "needs_review" &&
                         `${r.pending.length} field${
                           r.pending.length === 1 ? "" : "s"
@@ -219,7 +286,8 @@ export function BulkAiEnrichDialog({
                 {bulk.isPending && (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
-                Enrich {willProcess} item{willProcess === 1 ? "" : "s"}
+                {reidentify ? "Re-run on" : "Enrich"} {willProcess} item
+                {willProcess === 1 ? "" : "s"}
               </Button>
             </>
           )}

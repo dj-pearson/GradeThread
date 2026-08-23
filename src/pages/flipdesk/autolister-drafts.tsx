@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Boxes,
@@ -51,6 +51,7 @@ import { ClickableRow } from "@/components/clickable-row";
 import { toast } from "sonner";
 import { useBulkPublish } from "@/hooks/use-autolister";
 import { useBulkAspectCoverage, useEbayConnection } from "@/hooks/use-ebay";
+import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
 import {
   QualityScoreChip,
   type QualityScoreSummary,
@@ -130,6 +131,7 @@ function Shortcut({ keys, label }: { keys: string; label: string }) {
 export function FlipdeskAutolisterDraftsPage() {
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("created_desc");
   const bulkPublish = useBulkPublish();
@@ -338,6 +340,10 @@ export function FlipdeskAutolisterDraftsPage() {
   const [editCost, setEditCost] = useState("");
   const [saving, setSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // US-2817: re-run identification over the selected drafts. Old stock was
+  // catalogued by an older model; this reads the photos again and corrects what
+  // the AI itself wrote, leaving anything the seller typed alone.
+  const [reidentifyOpen, setReidentifyOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const rowRefs = useRef<Record<string, HTMLTableRowElement | null>>({});
   const editTitleRef = useRef<HTMLInputElement>(null);
@@ -466,6 +472,39 @@ export function FlipdeskAutolisterDraftsPage() {
       return next;
     });
   }, []);
+
+  // Select-all applies to what is on screen, not to every draft in the account
+  // — the search box is how a seller narrows "the old ones" down, so honouring
+  // the filter is the whole point of the control.
+  const allVisibleSelected =
+    sorted.length > 0 && sorted.every((d) => selectedIds.has(d.id));
+
+  const toggleSelectAllVisible = useCallback(() => {
+    setSelectedIds((prev) => {
+      const visible = sorted.map((d) => d.id);
+      const everySelected =
+        visible.length > 0 && visible.every((id) => prev.has(id));
+      if (everySelected) {
+        const next = new Set(prev);
+        for (const id of visible) next.delete(id);
+        return next;
+      }
+      return new Set([...prev, ...visible]);
+    });
+  }, [sorted]);
+
+  // The AI works on inventory items; a draft row is the listing attached to one.
+  const selectedItemIds = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          sorted
+            .filter((d) => selectedIds.has(d.id))
+            .map((d) => d.inventory_item_id),
+        ),
+      ),
+    [sorted, selectedIds],
+  );
 
   async function publishSelected() {
     const chosen = sorted.filter((d) => selectedIds.has(d.id));
@@ -663,6 +702,17 @@ export function FlipdeskAutolisterDraftsPage() {
                   <SelectItem value="quality_asc">Quality: low first</SelectItem>
                 </SelectContent>
               </Select>
+              {/* US-2817: re-run identification over the selected drafts. */}
+              {selectedIds.size > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => setReidentifyOpen(true)}
+                  title="Read the photos again with the current AI and correct what it got wrong before. Values you typed are kept."
+                >
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  Re-run AI on {selectedIds.size}
+                </Button>
+              )}
               {/* US-549: publish the keyboard-selected subset. */}
               {selectedIds.size > 0 && (
                 <Button
@@ -745,7 +795,19 @@ export function FlipdeskAutolisterDraftsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-8" />
+                    <TableHead className="w-8">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-emerald-600"
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAllVisible}
+                        aria-label={
+                          allVisibleSelected
+                            ? "Clear selection"
+                            : "Select all drafts shown"
+                        }
+                      />
+                    </TableHead>
                     <TableHead>Title</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Price</TableHead>
@@ -1135,6 +1197,29 @@ export function FlipdeskAutolisterDraftsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* US-2817: re-identify the selected drafts. The drafts themselves are
+          listings, but the AI writes to the parent inventory item — so the
+          refetch has to invalidate the item read too, not just the draft list,
+          or a corrected brand would sit in the DB behind a stale title. */}
+      <BulkAiEnrichDialog
+        open={reidentifyOpen}
+        onOpenChange={setReidentifyOpen}
+        itemIds={selectedItemIds}
+        mode="reidentify"
+        onReviewItem={(itemId) =>
+          void navigate(`/dashboard/flipdesk/items/${itemId}/draft`)
+        }
+        onDone={() => {
+          void queryClient.invalidateQueries({
+            queryKey: ["autolister_drafts"],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["autolister_drafts_items"],
+          });
+          void queryClient.invalidateQueries({ queryKey: ["items_full"] });
+        }}
+      />
     </div>
   );
 }

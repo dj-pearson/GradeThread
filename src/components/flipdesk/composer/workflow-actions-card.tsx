@@ -3,6 +3,7 @@ import {
   CircleSlash,
   Copy,
   Loader2,
+  RefreshCw,
   Rocket,
   Ruler,
   Sparkles,
@@ -29,6 +30,15 @@ export interface WorkflowActionsCardProps {
   canComplete: boolean;
   completing: boolean;
   onCompleteWithAi: () => void;
+  /**
+   * US-2817: re-read the photos from scratch and offer a fresh identification,
+   * including for fields that are already filled. Separate from
+   * `onCompleteWithAi`, which only ever proposes values for gaps — so on an
+   * item catalogued months ago by a weaker model there was nothing to click.
+   */
+  onReidentify: () => void;
+  /** When the AI last wrote to this item; null if it never has. */
+  aiEnrichedAt: string | null;
   /** US-1088: only offered while the size is genuinely unknown. */
   sizeMissing: boolean;
   sizeEstimating: boolean;
@@ -44,6 +54,19 @@ export interface WorkflowActionsCardProps {
   showEndListing: boolean;
   endingListing: boolean;
   busy: boolean;
+}
+
+// "3 months ago" — enough for the seller to judge whether the identifier has
+// moved on since. Deliberately coarse: the exact minute is noise here.
+function relativeDay(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "earlier";
+  const days = Math.floor((Date.now() - then) / 86_400_000);
+  if (days < 1) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 30) return `${days} days ago`;
+  const months = Math.round(days / 30);
+  return months <= 1 ? "about a month ago" : `about ${months} months ago`;
 }
 
 const TONE: Record<NextAction["tone"], string> = {
@@ -70,6 +93,8 @@ export function WorkflowActionsCard({
   canComplete,
   completing,
   onCompleteWithAi,
+  onReidentify,
+  aiEnrichedAt,
   sizeMissing,
   sizeEstimating,
   onEstimateSize,
@@ -168,22 +193,67 @@ export function WorkflowActionsCard({
             {missingCount} field{missingCount === 1 ? "" : "s"} missing — let AI
             fill the gaps from your photos.
           </p>
+          <div className="flex items-center gap-2">
+            {/* Partly filled and partly wrong is a real state, so the re-run
+                stays reachable here rather than only once nothing is missing. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onReidentify}
+              disabled={!canComplete || completing}
+              title="Ignore what's already filled in and read the photos from scratch."
+            >
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Re-run all
+            </Button>
+            <Button
+              size="sm"
+              onClick={onCompleteWithAi}
+              disabled={!canComplete || completing}
+              title={
+                canComplete
+                  ? undefined
+                  : "Add photos or a description first so the AI has something to read."
+              }
+            >
+              {completing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              Complete with AI
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* US-2817: the gap-fill offer above disappears the moment every field is
+          full, which is exactly the state an old draft is in — cataloged by a
+          weaker identifier, complete, and wrong. This re-reads the photos and
+          proposes replacements for what is already there. Nothing is saved
+          until the seller accepts it in the review panel. */}
+      {missingCount === 0 && canComplete && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed p-3">
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <RefreshCw className="h-4 w-4" />
+            {aiEnrichedAt
+              ? `AI last read this item ${relativeDay(aiEnrichedAt)}.`
+              : "Details are filled in."}{" "}
+            Check the photos again for a better identification?
+          </p>
           <Button
+            variant="outline"
             size="sm"
-            onClick={onCompleteWithAi}
-            disabled={!canComplete || completing}
-            title={
-              canComplete
-                ? undefined
-                : "Add photos or a description first so the AI has something to read."
-            }
+            onClick={onReidentify}
+            disabled={completing}
+            title="Reads the photos from scratch and shows you what it would change. Nothing is saved until you accept it."
           >
             {completing ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
-              <Sparkles className="mr-2 h-4 w-4" />
+              <RefreshCw className="mr-2 h-4 w-4" />
             )}
-            Complete with AI
+            Re-run AI
           </Button>
         </div>
       )}

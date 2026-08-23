@@ -6,6 +6,7 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/authenticity-eval.ts
   - services/edge-functions/src/lib/title-sync.ts
+  - services/edge-functions/src/lib/title-sync-patch.ts
   - services/edge-functions/src/lib/reconcile-fields.ts
   - services/edge-functions/src/lib/rubric.ts
   - src/test/no-dead-column-writes.test.ts
@@ -121,11 +122,28 @@ Every surface that writes a syncable title field, re-audited 2026-08-08:
 | AutoLister generate | N/A — regenerates titles wholesale |
 | identification-verify | N/A — writes only `attributes` / `ai_field_sources` |
 | CSV import | N/A — fill-only, so the old value is blank and the substitution is a provable no-op |
+| edge bulk re-identify | wired (US-2817) — see below; the row did not exist when this table was written |
 | **iOS** | **the one remaining gap** — and it cannot consume this module; it needs a Swift port (`AIItemFieldWriter`) |
 
 The module is still one half of the behavioural parity fixture
 (`src/test/fixtures/title-sync-cases.json`) asserted by both the deno and vitest
 suites, which is what keeps the two copies honest.
+
+> **US-2817 (2026-08-22) — an N/A row is a dated observation, not an exemption.**
+> Bulk re-identify (`/api/flipdesk/ai/bulk-extract`, `mode: 'reidentify'`) is the
+> first edge writer that REPLACES an AI-written brand/size/color/style with a
+> better one. Every N/A row above argues from a property of the caller — "it
+> regenerates titles wholesale", "it only ever fills blanks" — and this caller
+> has none of them, so it needed the sync from the moment it existed. The
+> orchestration (`buildTitleSyncPatch`) had lived only in `src/lib/`, since no
+> edge path had ever needed it; it is now ported to
+> `services/edge-functions/src/lib/title-sync-patch.ts`.
+>
+> The second copy shipped WITH its shared fixture
+> (`src/test/fixtures/title-sync-patch-cases.json`), rather than after it. That
+> is the correction this file's own history argues for: the substitution half
+> spent three weeks in two copies with nothing pinning them, and a source diff
+> was never going to be the guard.
 
 A user changing a brand on **iOS** still gets a corrected item and a stale
 listing title. That is the whole of what remains of US-1995, and it needs a

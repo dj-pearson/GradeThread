@@ -1,8 +1,24 @@
 // US-1995: the orchestration around backwards title sync.
 import { describe, expect, it } from "vitest";
 
-import { buildTitleSyncPatch } from "@/lib/title-sync-patch";
+import { buildTitleSyncPatch, type TitleSyncPatchInput } from "@/lib/title-sync-patch";
 import type { FieldChange } from "@/lib/title-sync";
+// US-2817: the edge grew its own copy of this orchestration (bulk re-identify
+// is the first edge writer that REPLACES a field value rather than filling a
+// blank). Both suites read this fixture; add a case here, never to one suite.
+import fixture from "../../test/fixtures/title-sync-patch-cases.json";
+
+describe("shared behavioural fixture (edge ⇄ web lockstep)", () => {
+  it("buildTitleSyncPatch matches the edge copy's expectations", () => {
+    expect(fixture.buildTitleSyncPatch.length).toBeGreaterThan(0);
+    for (const c of fixture.buildTitleSyncPatch) {
+      expect(
+        buildTitleSyncPatch(c.input as TitleSyncPatchInput),
+        `fixture case: ${c.name}`,
+      ).toEqual(c.expected);
+    }
+  });
+});
 
 const BRAND_CHANGE: FieldChange[] = [{ field: "brand", from: "Patagonia", to: "Arc'teryx" }];
 
