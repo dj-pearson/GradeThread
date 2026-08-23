@@ -29,6 +29,7 @@
     <string name="common_done">Done</string>
     <string name="common_try_again">Try again</string>
     <string name="common_ok">OK</string>
+    <string name="persistence_notice">GradeThread couldn\'t save to this device. Free up storage — recent changes may not be kept.</string>
 
     <!-- Onboarding (US-1384) -->
     <string name="onboarding_next">Next</string>

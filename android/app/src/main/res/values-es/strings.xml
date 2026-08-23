@@ -26,6 +26,7 @@
     <string name="common_done">Listo</string>
     <string name="common_try_again">Reintentar</string>
     <string name="common_ok">OK</string>
+    <string name="persistence_notice">GradeThread no pudo guardar en este dispositivo. Libera espacio: los cambios recientes podrían no conservarse.</string>
     <string name="onboarding_next">Siguiente</string>
     <string name="onboarding_get_started">Empezar</string>
     <string name="onboarding_continue">Continuar</string>

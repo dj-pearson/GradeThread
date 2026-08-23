@@ -89,7 +89,23 @@ class SyncCoordinator(
             // and the next pass re-pulls the same rows — upserts are
             // idempotent, so re-applying is free, whereas advancing past rows
             // that were never written loses them permanently.
-            if (fetched.rows.isNotEmpty()) plan.apply(fetched.rows)
+            if (fetched.rows.isNotEmpty()) {
+                // US-2792: a LOCAL write failing is a different problem from a
+                // fetch failing, and only this one means the device could not
+                // save. The outer catch below sees both and cannot tell them
+                // apart — raising the notice there would blame the disk for a
+                // flaky connection. Wrapping the apply ALONE is what separates
+                // them, so no exception-type sniffing is needed.
+                //
+                // Rethrows: the cursor must still stay put so the next pass
+                // re-pulls these rows, exactly as the comment above requires.
+                try {
+                    plan.apply(fetched.rows)
+                } catch (error: Throwable) {
+                    PersistenceHealth.recordSaveFailure("pull:${plan.table}", error)
+                    throw error
+                }
+            }
 
             val safe = SyncPull.safeCursor(fetched.decodedCursors, fetched.droppedCursors)
             if (safe != null) advanceCursor(plan.table, safe)

@@ -57,11 +57,6 @@ const ALLOWED = {
     "AuthScreen offers no provider button, so neither can be started.",
   SyncStatusBar:
     "UNREACHABLE (US-2792). Sync status UI no screen shows.",
-  PersistenceHealth:
-    "UNREACHABLE (US-2792). A Room write failing on a full disk is recorded " +
-    "here and shown to nobody: 16 mentions in the repo, every one of them in " +
-    "its own file or in ConnectivityAndStatusTest. Nothing calls " +
-    "recordSaveFailure, so the notice never fires.",
   Moment:
     "UNREACHABLE (US-2792). PushPermission.Moment carries three hand-written " +
     "rationales for asking at the right time - first sale, first grade, eBay " +

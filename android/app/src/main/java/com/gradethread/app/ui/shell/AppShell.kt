@@ -36,6 +36,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import com.gradethread.app.billing.PlanStepHost
 import com.gradethread.app.ui.state.Restorable
 import com.gradethread.app.marketplaces.reconciliation.ReconcileBanner
+import com.gradethread.app.sync.PersistenceHealthHost
 import com.gradethread.app.plangate.PlanGateHost
 import androidx.navigation.compose.rememberNavController
 import com.gradethread.app.R
@@ -178,6 +179,11 @@ fun AppShell(
                 // PlanGateNotifier has been publishing since US-1306 with
                 // nothing subscribed to it.
                 PlanGateHost(onUpgrade = { navController.navigate(ShellRoutes.PAYWALL) })
+                // US-2792: same shape and same reason — PersistenceHealth has
+                // published noticeNeeded since US-1322 with nothing subscribed,
+                // so a Room write failing on a full disk was counted and shown
+                // to nobody. Renders nothing until failures are persistent.
+                PersistenceHealthHost()
                 if (reconcileBanner != null) {
                     reconcileBanner()
                 } else {
