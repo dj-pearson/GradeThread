@@ -76,8 +76,36 @@ function webRoles(): Role[] {
   }));
 }
 
+/**
+ * US-2812: the THIRD bundled fallback.
+ *
+ * This file was written for two clients and Android has had its own copy the
+ * whole time, unguarded — so it could say anything to an Android seller and
+ * nothing would go red. Found while adding a shoes fallback to all three:
+ * two were updated, the web one was not, and only the web/iOS comparison
+ * caught it. Android would have stayed silently different either way.
+ */
+function androidRoles(): Role[] {
+  const src = readFileSync(
+    resolve(root, "android/app/src/main/java/com/gradethread/app/capture/PhotoProfile.kt"),
+    "utf8",
+  );
+  // PhotoRole(type, label, hint, required = b, icon = s, role = s) — role is
+  // a trailing named argument and is absent on most slots.
+  const re =
+      /PhotoRole\(\s*"([^"]+)",\s*"([^"]*)",\s*"([^"]*)",\s*required\s*=\s*(true|false)(?:[^)]*?role\s*=\s*"([^"]*)")?/g;
+  return [...src.matchAll(re)].map((m) => ({
+    type: m[1]!,
+    role: m[5] ?? null,
+    label: m[2]!,
+    hint: m[3]!,
+    required: m[4] === "true",
+  }));
+}
+
 const ios = iosRoles();
 const web = webRoles();
+const android = androidRoles();
 
 describe("US-2769: the two bundled photo-profile fallbacks stay in step", () => {
   it("parses both fallbacks, so a rename cannot make this vacuously pass", () => {
@@ -86,6 +114,7 @@ describe("US-2769: the two bundled photo-profile fallbacks stay in step", () => 
     // is the failure mode that makes source-scanning tests worthless.
     expect(ios.length, "no PhotoRole(...) parsed from PhotoProfile.swift").toBeGreaterThan(10);
     expect(web.length, "no role literals parsed from src/lib/photo-profiles.ts").toBeGreaterThan(10);
+    expect(android.length, "no PhotoRole(...) parsed from PhotoProfile.kt").toBeGreaterThan(10);
     expect(ios.some((r) => r.type === "front")).toBe(true);
     expect(web.some((r) => r.type === "front")).toBe(true);
   });
@@ -95,12 +124,13 @@ describe("US-2769: the two bundled photo-profile fallbacks stay in step", () => 
     // reach the visual pass with nothing identifying in frame.
     const req = (rs: Role[]) => [...new Set(rs.filter((r) => r.required).map(key))].sort();
     expect(req(web), "the web and iOS fallbacks disagree about required slots").toEqual(req(ios));
+    expect(req(android), "the Android fallback disagrees about required slots").toEqual(req(ios));
   });
 
   it("still requires a front and a back", () => {
     // Pins the CONTENT, not just the agreement - two fallbacks that both
     // dropped `front` would satisfy the test above and fail every seller.
-    for (const [name, rs] of [["ios", ios], ["web", web]] as const) {
+    for (const [name, rs] of [["ios", ios], ["web", web], ["android", android]] as const) {
       const req = new Set(rs.filter((r) => r.required).map(key));
       expect(req.has("front|"), `${name} no longer requires a front photo`).toBe(true);
       expect(req.has("back|"), `${name} no longer requires a back photo`).toBe(true);
@@ -115,6 +145,7 @@ describe("US-2769: the two bundled photo-profile fallbacks stay in step", () => 
     };
     const mi = byKey(ios);
     const mw = byKey(web);
+    const ma = byKey(android);
 
     const shared = [...mw.keys()].filter((k) => mi.has(k)).sort();
     expect(shared.length, "the fallbacks share no slots at all").toBeGreaterThan(5);
@@ -126,6 +157,13 @@ describe("US-2769: the two bundled photo-profile fallbacks stay in step", () => 
       if (a.label !== b.label) drift.push(`${k} label: ios=${JSON.stringify(a.label)} web=${JSON.stringify(b.label)}`);
       if (a.hint !== b.hint) drift.push(`${k} hint: ios=${JSON.stringify(a.hint)} web=${JSON.stringify(b.hint)}`);
       if (a.required !== b.required) drift.push(`${k} required: ios=${a.required} web=${b.required}`);
+      // US-2812: Android was in the REQUIRED check and not this one — a
+      // sabotage changing an Android hint alone stayed green until this line.
+      const c = ma.get(k);
+      if (c) {
+        if (c.label !== a.label) drift.push(`${k} label: android=${JSON.stringify(c.label)} ios=${JSON.stringify(a.label)}`);
+        if (c.hint !== a.hint) drift.push(`${k} hint: android=${JSON.stringify(c.hint)} ios=${JSON.stringify(a.hint)}`);
+      }
     }
     expect(
       drift,
@@ -135,6 +173,23 @@ describe("US-2769: the two bundled photo-profile fallbacks stay in step", () => 
     ).toEqual([]);
   });
 });
+
+// ⚠ WHAT THIS FILE STILL CANNOT SEE (US-2812, found by sabotage)
+//
+// Every parser above pools EVERY PhotoRole literal in a file, regardless of
+// which profile it belongs to. So a slot that appears in two profiles masks a
+// change in one of them: making `front` optional in the shoes fallback alone
+// leaves `front|` in the required set, because the clothing fallback still
+// contributes it. A sabotage doing exactly that stayed GREEN.
+//
+// It also cannot see ROUTING. Deleting the line that returns SHOES_FALLBACK
+// leaves the constant defined and every role literal still parsed, so the
+// fallback becomes unreachable with nothing going red.
+//
+// Both are worth fixing by parsing per-profile rather than per-file. Left as
+// a known limit rather than a silent one, because a guard whose weaknesses
+// are written down is one the next person can trust exactly as far as it
+// goes.
 
 // ── The web intake surface (US-2769 AC1) ────────────────────────────────────
 //

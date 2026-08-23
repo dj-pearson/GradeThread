@@ -110,8 +110,36 @@ public struct PhotoProfile: Decodable, Hashable, Identifiable {
         ]
     )
 
+    /// US-2812: mirrors SHOES in photo-profiles.ts verbatim.
+    ///
+    /// The bundled table covered `clothing` and `other` only, so a shoe
+    /// captured while the profile fetch was unavailable — offline, first
+    /// launch, a failed request — was offered Front/Back/Detail instead of
+    /// Top/Heel/3/4 Angle/Sole/Size Stamp/Insole. The seller then has a set of
+    /// photos that cannot show a sole, which is the one surface a shoe buyer
+    /// looks at first.
+    ///
+    /// A DEGRADED-MODE path, not the normal one: the server table is the
+    /// source of truth and is fetched per session. This only decides what
+    /// happens when that fetch has not answered.
+    public static let shoesFallback = PhotoProfile(
+        category: "shoes",
+        label: "Shoes",
+        roles: [
+            PhotoRole(type: "front", role: nil, label: "Top / Toe", hint: "Top-down or front; show both shoes if a pair", required: true, icon: "footprints"),
+            PhotoRole(type: "back", role: nil, label: "Heel", hint: "Back of the heel, both shoes", required: true, icon: "footprints"),
+            PhotoRole(type: "angle", role: nil, label: "3/4 Angle", hint: "Angled side view showing the silhouette", required: true, icon: "footprints"),
+            PhotoRole(type: "sole", role: nil, label: "Sole", hint: "Outsole / tread — show wear honestly", required: true, icon: "footprints"),
+            PhotoRole(type: "tag", role: nil, label: "Size Stamp", hint: "Tongue or insole size + brand stamp", required: false, icon: "tag"),
+            PhotoRole(type: "interior", role: nil, label: "Insole", hint: "Inside the shoe — footbed condition", required: false, icon: "layers"),
+            PhotoRole(type: "accessory", role: nil, label: "Box / Extras", hint: "Original box, spare laces, papers", required: false, icon: "package"),
+            PhotoRole(type: "defect", role: nil, label: "Defect", hint: "Tight crop on any flaw — stain, snag, scuff, crack. Be honest.", required: false, icon: "alert-triangle"),
+        ]
+    )
+
     public static let bundledFallback: [String: PhotoProfile] = [
         "clothing": clothingFallback,
+        "shoes": shoesFallback,
         "other": genericFallback,
     ]
 }

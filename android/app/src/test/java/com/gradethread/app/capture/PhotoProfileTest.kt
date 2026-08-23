@@ -78,7 +78,27 @@ class PhotoProfileTest {
         assertTrue(clothing.allowsDefects)
         val other = PhotoProfile.genericFallback
         assertEquals(listOf(PhotoSlotType.FRONT, PhotoSlotType.BACK), other.requiredSlots)
-        assertEquals(setOf("clothing", "other"), PhotoProfile.bundledFallback.keys)
+        // US-2812: `shoes` joined the bundled table. Before it, a shoe
+        // captured while the profile fetch was unavailable fell to the
+        // clothing profile and was offered no Sole slot at all — the one
+        // surface a shoe buyer looks at first.
+        assertEquals(setOf("clothing", "shoes", "other"), PhotoProfile.bundledFallback.keys)
+
+        val shoes = PhotoProfile.shoesFallback
+        // Four required, and SOLE is the one worth asserting by name: it is
+        // what separates this profile from the clothing one it used to fall
+        // back to.
+        assertEquals(
+            listOf(
+                PhotoSlotType.FRONT,
+                PhotoSlotType.BACK,
+                PhotoSlotType.ANGLE,
+                PhotoSlotType.SOLE,
+            ),
+            shoes.requiredSlots,
+        )
+        assertEquals("Size Stamp", shoes.roles.first { it.type == "tag" }.label)
+        assertTrue(shoes.allowsDefects)
     }
 
     // ── Store resolution ──

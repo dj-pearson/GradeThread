@@ -55,6 +55,28 @@ const CLOTHING_FALLBACK: PhotoProfile = {
   ],
 };
 
+// US-2812: the THIRD bundled copy of this profile, after iOS and Android.
+// A shoe captured before the profile fetch answers used to get the generic
+// Front/Back/Detail set — no Sole slot, which is the first surface a shoe
+// buyer looks at. Hints are abbreviated the same way the other fallbacks
+// abbreviate the server's, which photo-profile-fallback-parity.test.ts
+// documents as deliberate: the clients say less than the server, and what
+// they must not do is say DIFFERENT things to two sellers.
+const SHOES_FALLBACK: PhotoProfile = {
+  category: "shoes",
+  label: "Shoes",
+  roles: [
+    { type: "front", label: "Top / Toe", hint: "Top-down or front; show both shoes if a pair", required: true, icon: "footprints" },
+    { type: "back", label: "Heel", hint: "Back of the heel, both shoes", required: true, icon: "footprints" },
+    { type: "angle", label: "3/4 Angle", hint: "Angled side view showing the silhouette", required: true, icon: "footprints" },
+    { type: "sole", label: "Sole", hint: "Outsole / tread — show wear honestly", required: true, icon: "footprints" },
+    { type: "tag", label: "Size Stamp", hint: "Tongue or insole size + brand stamp", required: false, icon: "tag" },
+    { type: "interior", label: "Insole", hint: "Inside the shoe — footbed condition", required: false, icon: "layers" },
+    { type: "accessory", label: "Box / Extras", hint: "Original box, spare laces, papers", required: false, icon: "package" },
+    { type: "defect", label: "Defect", hint: "Tight crop on any flaw — stain, snag, scuff, crack. Be honest.", required: false, icon: "alert-triangle" },
+  ],
+};
+
 const GENERIC_FALLBACK: PhotoProfile = {
   category: "other",
   label: "Other",
@@ -77,6 +99,7 @@ const GROUP_TO_CATEGORY: Record<string, string> = {
 };
 
 function fallbackProfile(category: string | null | undefined): PhotoProfile {
+  if (category === "shoes") return SHOES_FALLBACK;
   return category === "clothing" || !category
     ? CLOTHING_FALLBACK
     : GENERIC_FALLBACK;
