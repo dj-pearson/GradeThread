@@ -550,6 +550,77 @@ function loadBacklogs() {
   return { stories, read };
 }
 
+/**
+ * The inverse of this whole file: open stories that DO NOT wait on a person.
+ *
+ * WHY IT LIVES HERE. Everything above answers "what does the owner have to do".
+ * Nobody could answer the other half — "what can be picked up right now" — and
+ * the query kept getting hand-rolled, wrong, in one session after another. The
+ * naive version is "no OPERATOR acceptance criterion", and it over-reports
+ * badly: US-2710 through US-2713 have no operator step of their own and are
+ * each blocked behind US-2709's question to counsel. A story you cannot start
+ * is not actionable just because its own criteria look clean.
+ *
+ * So a story is actionable when it declares no operator step AND no story it
+ * depends on, transitively, is open with one. Cycles terminate on the visited
+ * set rather than recursing forever; a dependency that is closed or missing
+ * blocks nothing, which is the same treatment namedByCount gives a dangling id.
+ *
+ * ⚠ THIS IS A CEILING, the mirror of the floor caveat below. It trusts the
+ * DECLARED convention and the dependsOn field, and both are written by hand. A
+ * story whose blocker is buried in prose is counted actionable here for exactly
+ * the reason it is absent from the operator queue above. Three epics
+ * (US-2472, US-2696, US-2703) sat in this list for months, fully blocked,
+ * appearing in NEITHER section of the report — that is what prompted this.
+ */
+export function actionable(stories) {
+  const open = stories.filter((s) => !s.passes);
+  const byId = new Map(open.map((s) => [s.id, s]));
+  // A TITLE TAG COUNTS TOO, and the first draft of this function missed it.
+  // Four stories — US-9127, US-1421, US-2380, US-1582 — carry [OPERATOR] in the
+  // title with no matching acceptance criterion, and `collect` above already
+  // treats that as a signal (it is why they appear in UNDECLARED reading
+  // "title tag only — no sentence to quote"). Reading only the criteria listed
+  // all four as ready to pick up, which is the single most expensive kind of
+  // wrong answer this function can give: it sends a session to open a story
+  // whose first line says a person is required.
+  //
+  // [PARKED] is included for the same reason. It is not operator work, but a
+  // parked story is not actionable either, and offering one as the next thing
+  // to build is the same wasted read.
+  const TITLE_TAG = /^\s*\[(?:OPERATOR|OWNER|HUMAN|PARKED)\]/i;
+  const declaresOperator = (s) =>
+    TITLE_TAG.test(String(s.title ?? "")) ||
+    (s.acceptanceCriteria ?? []).some((a) => DECLARED_RE.test(String(a)));
+
+  const blockedCache = new Map();
+  function blocked(id, seen = new Set()) {
+    if (blockedCache.has(id)) return blockedCache.get(id);
+    if (seen.has(id)) return false; // a cycle blocks nothing; it just ends here
+    seen.add(id);
+    const s = byId.get(id);
+    if (!s) return false; // closed or unknown: not a blocker
+    const deps = Array.isArray(s.dependsOn) ? s.dependsOn : [];
+    const result =
+      deps.some((d) => {
+        const dep = byId.get(String(d));
+        return dep ? declaresOperator(dep) || blocked(dep.id, seen) : false;
+      });
+    blockedCache.set(id, result);
+    return result;
+  }
+
+  return open
+    .filter((s) => !declaresOperator(s))
+    .filter((s) => !blocked(s.id))
+    .map((s) => ({
+      id: s.id,
+      priority: s.priority,
+      title: String(s.title ?? ""),
+      noteLength: String(s.notes ?? "").length,
+    }));
+}
+
 function main() {
   const argv = process.argv.slice(2);
   const { stories, read } = loadBacklogs();
@@ -582,6 +653,28 @@ function main() {
       }
       console.log("");
     }
+    return;
+  }
+
+  if (argv.includes("--actionable")) {
+    const rows = actionable(stories).sort(comparePriority);
+    console.log(
+      `\nActionable now: ${rows.length} of ${openCount} open stories declare no` +
+        ` operator step and are not blocked behind one.\n`,
+    );
+    for (const r of rows) {
+      const notes = r.noteLength > 0 ? `${Math.round(r.noteLength / 100) / 10}k notes` : "no notes";
+      console.log(
+        `  ${rank(r)} ${r.id.padEnd(9)} ${r.title.slice(0, 66).padEnd(66)} ${notes}`,
+      );
+    }
+    console.log(
+      "\nA CEILING, not a census. It trusts the OPERATOR convention and the",
+    );
+    console.log(
+      "dependsOn field, both written by hand. A story whose blocker is only in",
+    );
+    console.log("prose is listed here for the same reason it is missing above.\n");
     return;
   }
 

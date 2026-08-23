@@ -49,6 +49,21 @@ export function collect(stories: readonly OperatorStory[]): {
 /** Reading list, not findings — see the note in prd-operator.mjs. */
 export function auditCandidates(stories: readonly OperatorStory[]): AuditCandidate[];
 
+export interface ActionableEntry {
+  id: string;
+  priority?: number;
+  title: string;
+  noteLength: number;
+}
+
+/**
+ * Open stories that declare no operator step AND are not blocked, transitively
+ * via dependsOn, behind one that does. The inverse of the operator queue.
+ */
+export function actionable(
+  stories: readonly (OperatorStory & { dependsOn?: readonly string[] })[],
+): ActionableEntry[];
+
 /**
  * How many OTHER open stories name each open story, keyed by the named id.
  *
