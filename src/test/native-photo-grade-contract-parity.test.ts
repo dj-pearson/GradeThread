@@ -109,6 +109,30 @@ describe("the tag/label rename survives on both", () => {
 describe("the live-capture source string is the server's own", () => {
   const VERIFIED = "services/edge-functions/src/lib/verified-capture.ts";
 
+  it("iOS sends the same literal, from its own constant", () => {
+    // The iOS half went in after the Android sabotage found this gap, so it
+    // was pinned before it could drift rather than after.
+    const server = read(VERIFIED).match(/IN_APP_CAPTURE_SOURCE = "([^"]+)"/);
+    expect(read(SWIFT)).toContain(`captureSourceInAppCamera = "${server?.[1]}"`);
+  });
+
+  it("and neither phone reuses the video tier is string", () => {
+    // 360 video frames carry their own source. Sending that one for a still
+    // photo earns the video tier is treatment, which is a different claim
+    // about different evidence. Quoted, because both contracts NAME the
+    // string they are distinguishing themselves from and those sentences are
+    // worth keeping.
+    expect(read(KOTLIN)).not.toContain('"in_app_recorder"');
+    expect(read(SWIFT)).not.toContain('"in_app_recorder"');
+  });
+
+  it("both phones derive the opt-in rather than offering a checkbox", () => {
+    // The route rejects opted-in-with-a-library-photo outright. Deriving it
+    // is what makes that combination unsendable; a checkbox would let a
+    // seller tick it and meet the refusal after the upload.
+    expect(read(KOTLIN)).toContain("fun qualifiesForLiveCapture(");
+    expect(read(SWIFT)).toContain("static func qualifiesForLiveCapture(");
+  });
   it("Android sends the literal the server compares against", () => {
     // A SABOTAGE FOUND THIS GAP. Every Kotlin test referenced the constant
     // symbolically, so changing its VALUE to the video tier's string
@@ -122,11 +146,4 @@ describe("the live-capture source string is the server's own", () => {
     expect(read(KOTLIN)).toContain(`IN_APP_CAPTURE_SOURCE = "${server?.[1]}"`);
   });
 
-  it("and it is not the video tier's string, which is a DIFFERENT check", () => {
-    // 360 video frames get their own source. Sending that one earns the
-    // video tier's treatment for a still photo. Quoted, because the
-    // contract's own comment names the string it is distinguishing itself
-    // from, and that sentence is worth keeping.
-    expect(read(KOTLIN)).not.toContain('"in_app_recorder"');
-  });
 });

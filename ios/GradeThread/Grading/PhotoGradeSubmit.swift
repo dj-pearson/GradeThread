@@ -106,17 +106,24 @@ enum PhotoGradeUploadService {
             try handle.write(contentsOf: Data(string.utf8))
         }
 
-        for (name, value) in PhotoGradeFields.fields(for: request) {
+        // The live-capture opt-in rides with the plain fields: it is one
+        // value for the whole submission, unlike the per-image sources below.
+        for (name, value) in PhotoGradeFields.fields(for: request)
+            + PhotoGradeFields.liveCaptureFields(for: images) {
             try write(
                 "--\(boundary)\r\n"
                     + "Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n"
                     + "\(value)\r\n")
         }
 
-        // The two arrays are POSITIONAL: the route zips images[i] with
-        // image_types[i]. Writing them in one loop is what keeps them aligned -
-        // two separate loops is how a reorder silently mislabels every photo,
-        // and a back shot graded as a tag is a wrong grade rather than an error.
+        // The THREE arrays are POSITIONAL: the route zips images[i] with
+        // image_types[i] and capture_sources[i]. Writing them in one loop is
+        // what keeps them aligned - two separate loops is how a reorder
+        // silently mislabels every photo, and a back shot graded as a tag is a
+        // wrong grade rather than an error. US-2802 added the third and it
+        // belongs in the same loop for the same reason: a source attached to
+        // the wrong photo is a provenance claim about an image nobody made it
+        // about.
         for (index, image) in images.enumerated() {
             try write(
                 "--\(boundary)\r\n"
@@ -129,6 +136,11 @@ enum PhotoGradeUploadService {
                 "--\(boundary)\r\n"
                     + "Content-Disposition: form-data; name=\"image_types\"\r\n\r\n"
                     + "\(image.gradingType)\r\n")
+            try write(
+                "--\(boundary)\r\n"
+                    + "Content-Disposition: form-data;"
+                    + " name=\"\(PhotoGradeContract.captureSourcesField)\"\r\n\r\n"
+                    + "\(image.captureSource)\r\n")
         }
 
         try write("--\(boundary)--\r\n")

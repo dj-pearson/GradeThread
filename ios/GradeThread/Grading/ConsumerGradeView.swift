@@ -30,12 +30,42 @@ struct ConsumerGradeView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var flow = ConsumerGradeFlow()
     @State private var shots: [String: Data] = [:]
-    @State private var picking: String?
+    /// US-2802: slot -> where that shot came from. Absent means library,
+    /// which is the fail-closed default.
+    @State private var sources: [String: String] = [:]
+    @State private var pending: PendingShot?
     @State private var title = ""
     @State private var garmentType = GarmentVocabulary.types.first ?? "tops"
     @State private var garmentCategory = GarmentVocabulary.categories.first ?? "other"
 
     @State private var loadFailed = false
+
+    /// Which slot the picker is open for, and which way it was opened.
+    ///
+    /// ONE sheet slot rather than two modifiers. Two `.sheet`s on the same
+    /// view compete and the loser opens and closes in the same frame;
+    /// `ios/Scripts/check-chained-sheets.py` exists because twelve views in
+    /// this app were doing exactly that.
+    private struct PendingShot: Identifiable {
+        let slot: String
+        let fromCamera: Bool
+        var id: String { "\(slot)-\(fromCamera)" }
+    }
+
+    /// Whether the device has a camera at all. Simulators do not, and neither
+    /// do a few iPads, so the in-app option is offered rather than assumed -
+    /// `CameraPicker` says to guard this at the call site and this is it.
+    private var cameraAvailable: Bool {
+        UIImagePickerController.isSourceTypeAvailable(.camera)
+    }
+
+    /// Every required shot taken in the app. Shown, never chosen.
+    private var isLiveCapture: Bool {
+        missing.isEmpty
+            && PhotoGradeContract.qualifiesForLiveCapture(
+                requiredSlots.map { sources[$0] ?? PhotoGradeContract.captureSourceLibrary }
+            )
+    }
 
     /// The three the route blocks on, in the order the message names them.
     private var requiredSlots: [String] { PhotoGradeContract.requiredGradingTypes }
@@ -76,20 +106,25 @@ struct ConsumerGradeView: View {
                         .disabled(isWorking)
                 }
             }
-            .sheet(
-                isPresented: Binding(
-                    get: { picking != nil },
-                    set: { if !$0 { picking = nil } }
-                )
-            ) {
-                // selectionLimit 1: one shot per named slot, because the route
-                // rejects duplicate image types. A multi-select would hand back
-                // photos with no way to say which is the front.
-                PhotoLibraryPicker(selectionLimit: 1) { results in
-                    let slot = picking
-                    picking = nil
-                    guard let slot, let first = results.first else { return }
-                    Task { await load(first, into: slot) }
+            .sheet(item: $pending) { shot in
+                if shot.fromCamera {
+                    // The ONLY path that may claim in-app capture. Everything
+                    // else defaults to library, including a retake through the
+                    // picker below, which overwrites the source for that slot.
+                    CameraPicker { image in
+                        pending = nil
+                        Task { await loadCamera(image, into: shot.slot) }
+                    }
+                    .ignoresSafeArea()
+                } else {
+                    // selectionLimit 1: one shot per named slot, because the
+                    // route rejects duplicate image types. A multi-select would
+                    // hand back photos with no way to say which is the front.
+                    PhotoLibraryPicker(selectionLimit: 1) { results in
+                        pending = nil
+                        guard let first = results.first else { return }
+                        Task { await load(first, into: shot.slot) }
+                    }
                 }
             }
     }
@@ -132,11 +167,23 @@ struct ConsumerGradeView: View {
                 // Named before paying, not after. The route's abstain refunds the
                 // money and not the vision spend, and the seller has already
                 // waited for it by then.
-                Text(
-                    missing.isEmpty
-                        ? "Ready to grade."
-                        : "Still needed: \(missing.map(Self.friendly).joined(separator: ", "))."
-                )
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(
+                        missing.isEmpty
+                            ? "Ready to grade."
+                            : "Still needed: \(missing.map(Self.friendly).joined(separator: ", "))."
+                    )
+                    // A STATUS, not an advert. Live Capture is earned by how the
+                    // photos were taken, so the honest thing to show is which
+                    // side of that line this submission is on. The second
+                    // sentence matters: nobody is penalised for adding a photo,
+                    // and a line that only named the reward would read as one.
+                    Text(
+                        isLiveCapture
+                            ? "Every photo was taken here, so this qualifies for the stronger Live-Verified check."
+                            : "Take the photos here instead of adding them and this qualifies for the stronger Live-Verified check. Your grade is never lowered for adding them."
+                    )
+                }
             }
 
             if loadFailed {
@@ -156,22 +203,29 @@ struct ConsumerGradeView: View {
     }
 
     private func slotRow(_ slot: String) -> some View {
-        Button {
-            loadFailed = false
-            picking = slot
-        } label: {
-            HStack {
-                Text(Self.friendly(slot))
-                Spacer()
-                if shots[slot] != nil {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.green)
-                        .accessibilityLabel("Added")
-                } else {
-                    Text("Add")
-                        .foregroundStyle(.secondary)
-                }
+        HStack {
+            Text(Self.friendly(slot))
+            if shots[slot] != nil {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .accessibilityLabel("Added")
             }
+            Spacer()
+            if cameraAvailable {
+                Button("Take") {
+                    loadFailed = false
+                    pending = PendingShot(slot: slot, fromCamera: true)
+                }
+                // .borderless on BOTH, because a List row treats a plain
+                // Button as the row's own tap target: without it the first
+                // button swallows taps meant for the second.
+                .buttonStyle(.borderless)
+            }
+            Button(shots[slot] == nil ? "Library" : "Replace") {
+                loadFailed = false
+                pending = PendingShot(slot: slot, fromCamera: false)
+            }
+            .buttonStyle(.borderless)
         }
     }
 
@@ -211,6 +265,27 @@ struct ConsumerGradeView: View {
             return
         }
         shots[slot] = output.imageData
+        // A library pick REPLACES any in-app source for this slot. Retaking
+        // from the library after a camera shot must not keep the live claim,
+        // and leaving the old entry in place is exactly how it would.
+        sources[slot] = PhotoGradeContract.captureSourceLibrary
+    }
+
+    /// US-2802: a shot taken IN THE APP.
+    ///
+    /// Same compression as the library path, deliberately. US-2658 is the one
+    /// where the two paths differed: the camera path skipped the compressor, so
+    /// the same garment went up at full sensor resolution with EXIF intact if
+    /// shot in-app and downsized with none if picked - and the grading pipeline
+    /// ignores the EXIF rotation tag, so a photo kept upright only by that tag
+    /// arrives sideways.
+    private func loadCamera(_ image: UIImage, into slot: String) async {
+        guard let output = await PhotoCompressor.compressOffMain(image) else {
+            loadFailed = true
+            return
+        }
+        shots[slot] = output.imageData
+        sources[slot] = PhotoGradeContract.captureSourceInAppCamera
     }
 
     private func submit() async {
@@ -218,7 +293,11 @@ struct ConsumerGradeView: View {
         // in the same sequence the strip showed them.
         let images = requiredSlots.compactMap { slot -> PhotoGradeImage? in
             guard let jpeg = shots[slot] else { return nil }
-            return PhotoGradeImage(gradingType: slot, jpeg: jpeg)
+            return PhotoGradeImage(
+                gradingType: slot,
+                jpeg: jpeg,
+                captureSource: sources[slot] ?? PhotoGradeContract.captureSourceLibrary
+            )
         }
         await flow.start(images: images, request: request)
     }

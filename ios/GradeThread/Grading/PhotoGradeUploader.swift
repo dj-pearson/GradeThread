@@ -61,6 +61,38 @@ enum PhotoGradeContract {
     /// issues one Claude Vision call PER image while billing a single grade, so
     /// an uncapped count is a direct AI-cost multiplier.
     static let maxImages = 14
+
+    /// US-2802: where a photo came from.
+    ///
+    /// ⚠ NOT the video tier's string. ``VideoGradingContract`` says
+    /// `in_app_recorder` for a walk-around clip and this says
+    /// `in_app_camera`; the server keeps them apart because they are
+    /// different claims about different evidence, and sending one where the
+    /// other belongs earns nothing rather than failing. The Android sabotage
+    /// made exactly that swap and every Kotlin test stayed green, so the
+    /// value is pinned against the server's own literal in
+    /// `src/test/native-photo-grade-contract-parity.test.ts` rather than
+    /// restated in a test here.
+    static let captureSourceInAppCamera = "in_app_camera"
+    static let captureSourceLibrary = "library"
+
+    static let liveCaptureOptInField = "live_capture_opt_in"
+    static let captureSourcesField = "capture_sources"
+
+    /// Whether this set of origins earns Live Capture.
+    ///
+    /// DERIVED, never a checkbox: the claim is that the app watched every
+    /// photo being taken, which is a fact about how they were shot rather
+    /// than a preference. Deriving it also makes the one combination
+    /// `routes/grade.ts` rejects outright unsendable - opted in with a
+    /// library photo in the set.
+    ///
+    /// The emptiness check is not redundant. `allSatisfy` is vacuously true
+    /// on an empty collection, so without it a submission with no photos at
+    /// all would claim the strongest provenance tier there is.
+    static func qualifiesForLiveCapture(_ sources: [String]) -> Bool {
+        !sources.isEmpty && sources.allSatisfy { $0 == captureSourceInAppCamera }
+    }
 }
 
 struct PhotoGradeRequest: Equatable {
@@ -83,6 +115,26 @@ struct PhotoGradeImage: Equatable {
     /// FlipDesk one. Build it with ``PhotoGradeContract/gradingImageType(for:)``.
     let gradingType: String
     let jpeg: Data
+    /// US-2802: where this photo came from.
+    let captureSource: String
+
+    /// The default FAILS CLOSED. An origin nobody recorded must not be
+    /// reported as live - the opposite default hands out the strongest
+    /// provenance badge on a bookkeeping slip, and every existing caller
+    /// (including the tests) picks it up without saying anything.
+    ///
+    /// Written out rather than left to the memberwise initializer: a `let`
+    /// property with an inline default is OMITTED from the synthesised
+    /// initializer entirely, so callers could not have set it at all.
+    init(
+        gradingType: String,
+        jpeg: Data,
+        captureSource: String = PhotoGradeContract.captureSourceLibrary
+    ) {
+        self.gradingType = gradingType
+        self.jpeg = jpeg
+        self.captureSource = captureSource
+    }
 }
 
 /// What the SUBMIT call came back with.
@@ -156,6 +208,18 @@ enum PhotoGradeFields {
             out.append(("inventory_item_id", inventoryItemId))
         }
         return out
+    }
+
+    /// US-2802: the live-capture opt-in, or nothing.
+    ///
+    /// Separate from ``fields(for:)`` because it is a fact about the IMAGES
+    /// rather than about the request, and kept out of the multipart writer so
+    /// a test can read it without building a body - which is the whole reason
+    /// ``fields(for:)`` exists in this shape.
+    static func liveCaptureFields(for images: [PhotoGradeImage]) -> [(String, String)] {
+        guard PhotoGradeContract.qualifiesForLiveCapture(images.map(\.captureSource))
+        else { return [] }
+        return [(PhotoGradeContract.liveCaptureOptInField, "true")]
     }
 
     /// Refuse before uploading. Every one of these is something the route would
