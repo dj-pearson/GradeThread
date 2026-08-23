@@ -1537,7 +1537,6 @@
     <string name="common_sku">SKU</string>
     <string name="common_notes">Notes</string>
     <string name="common_open_settings">Open Settings</string>
-    <string name="shell_section_placeholder">Coming with its conversion story.</string>
     <string name="applock_locked">GradeThread is locked</string>
     <string name="applock_unlock">Unlock</string>
     <string name="reconcile_banner_open">Reconcile</string>

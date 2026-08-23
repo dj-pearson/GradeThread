@@ -144,14 +144,29 @@ data class PhotoProfile(
             category = "shoes",
             label = "Shoes",
             roles = listOf(
-                PhotoRole("front", "Top / Toe", "Top-down or front; show both shoes if a pair", required = true, icon = "footprints"),
+                PhotoRole(
+                    "front", "Top / Toe", "Top-down or front; show both shoes if a pair",
+                    required = true, icon = "footprints",
+                ),
                 PhotoRole("back", "Heel", "Back of the heel, both shoes", required = true, icon = "footprints"),
-                PhotoRole("angle", "3/4 Angle", "Angled side view showing the silhouette", required = true, icon = "footprints"),
+                PhotoRole(
+                    "angle", "3/4 Angle", "Angled side view showing the silhouette",
+                    required = true, icon = "footprints",
+                ),
                 PhotoRole("sole", "Sole", "Outsole / tread — show wear honestly", required = true, icon = "footprints"),
                 PhotoRole("tag", "Size Stamp", "Tongue or insole size + brand stamp", required = false, icon = "tag"),
-                PhotoRole("interior", "Insole", "Inside the shoe — footbed condition", required = false, icon = "layers"),
-                PhotoRole("accessory", "Box / Extras", "Original box, spare laces, papers", required = false, icon = "package"),
-                PhotoRole("defect", "Defect", "Tight crop on any flaw — stain, snag, scuff, crack. Be honest.", required = false, icon = "alert-triangle"),
+                PhotoRole(
+                    "interior", "Insole", "Inside the shoe — footbed condition",
+                    required = false, icon = "layers",
+                ),
+                PhotoRole(
+                    "accessory", "Box / Extras", "Original box, spare laces, papers",
+                    required = false, icon = "package",
+                ),
+                PhotoRole(
+                    "defect", "Defect", "Tight crop on any flaw — stain, snag, scuff, crack. Be honest.",
+                    required = false, icon = "alert-triangle",
+                ),
             ),
         )
 

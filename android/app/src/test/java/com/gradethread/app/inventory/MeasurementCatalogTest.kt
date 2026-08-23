@@ -205,7 +205,7 @@ class MeasurementCatalogTest {
      * eBay call a hat's inside circumference?), and guessing a name here would
      * put an invented aspect on a live listing.
      */
-    private val NO_ASPECT_YET = setOf(
+    private val noAspectYet = setOf(
         "height", "depth", "strap_drop", "handle_drop",
         "hole_span", "circumference", "crown_height", "brim_length",
     )
@@ -216,7 +216,7 @@ class MeasurementCatalogTest {
         val missing = MeasurementCatalog.specs
             .map { it.key }
             .filter { MeasurementCatalog.aspectCandidates[it].isNullOrEmpty() }
-            .filter { it !in NO_ASPECT_YET }
+            .filter { it !in noAspectYet }
         assertEquals(emptyList<String>(), missing)
     }
 
@@ -224,7 +224,7 @@ class MeasurementCatalogTest {
     fun `the no-aspect exemption list can only shrink`() {
         // An entry that starts resolving must be REMOVED, so the list cannot
         // quietly become the place unmapped keys go to be forgotten.
-        val nowMapped = NO_ASPECT_YET
+        val nowMapped = noAspectYet
             .filter { !MeasurementCatalog.aspectCandidates[it].isNullOrEmpty() }
         assertEquals(emptyList<String>(), nowMapped)
     }

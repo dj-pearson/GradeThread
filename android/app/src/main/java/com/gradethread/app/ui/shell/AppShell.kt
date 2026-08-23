@@ -216,7 +216,8 @@ fun AppShell(
 /**
  * The section graph.
  *
- * Home / Money / Settings were `SectionPlaceholder`s until US-1370 / US-1363 /
+ * Home / Money / Settings were `SectionPlaceholder`s (deleted in US-2792) until
+ * US-1370 / US-1363 /
  * US-1383 landed — the first, third and fifth things a seller could tap. Only
  * `ADD` remains a placeholder; `capture/autolister` became the real batch
  * screen in US-2408.

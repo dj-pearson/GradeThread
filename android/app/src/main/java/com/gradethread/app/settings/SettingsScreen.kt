@@ -44,7 +44,8 @@ import com.gradethread.app.ui.theme.Spacing
 /**
  * US-1383: settings (iOS `SettingsView`).
  *
- * Replaces the `SectionPlaceholder` this destination rendered — including the
+ * Replaces the `SectionPlaceholder` this destination rendered (that scaffold was
+ * deleted in US-2792) — including the
  * only route to signing out, which meant the app had no way to leave an account.
  *
  * US-1388: the workspace switcher lives in the Account section. It shows even

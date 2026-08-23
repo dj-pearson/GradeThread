@@ -25,9 +25,6 @@
 //                      test asserting the site key is escaped against XSS - a
 //                      security test for code that never runs.
 //   SyncStatusBar      119 lines of sync UI nothing shows.
-//   SectionPlaceholder Genuinely finished: four files carry comments saying the
-//                      real screens "replaced the SectionPlaceholder", and the
-//                      scaffold stayed behind.
 //
 // THREE KINDS OF DECLARATION ARE EXCLUDED BY MECHANISM, NOT BY NAME, because
 // on Android most things nothing calls are called by something that is not code:
@@ -68,10 +65,6 @@ const ALLOWED = {
     "escaping of the site key, which is a security test for unreached code.",
   SyncStatusBar:
     "UNREACHABLE (US-2792). Sync status UI no screen shows.",
-  SectionPlaceholder:
-    "SUPERSEDED (US-2792). The scaffold Home, Money and Settings rendered " +
-    "before US-1370 / US-1363 / US-1364 replaced them - four files still carry " +
-    "comments saying so. Delete rather than wire.",
   PersistenceHealth:
     "UNREACHABLE (US-2792). A Room write failing on a full disk is recorded " +
     "here and shown to nobody: 16 mentions in the repo, every one of them in " +
@@ -83,10 +76,6 @@ const ALLOWED = {
     "connected. No function takes one. Its only other mention in the repo is a " +
     "test iterating entries, which proves the strings exist rather than that " +
     "anything asks.",
-  NoCamera:
-    "UNREACHABLE (US-2792). A BarcodeError variant nothing constructs, so a " +
-    "device with no back camera gets ConfigurationFailed's generic \"Couldn't " +
-    "start the scanner\" instead of the specific sentence written for it.",
 };
 
 function walk(dir, out = []) {

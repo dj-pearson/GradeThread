@@ -1381,7 +1381,6 @@
     <string name="common_sku">SKU</string>
     <string name="common_notes">Notas</string>
     <string name="common_open_settings">Abrir Ajustes</string>
-    <string name="shell_section_placeholder">Llega junto con su historia de conversión.</string>
     <string name="applock_locked">GradeThread está bloqueado</string>
     <string name="applock_unlock">Desbloquear</string>
     <string name="reconcile_banner_open">Conciliar</string>

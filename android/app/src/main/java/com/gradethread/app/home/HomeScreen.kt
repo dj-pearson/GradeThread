@@ -41,7 +41,8 @@ import com.gradethread.app.ui.theme.Spacing
 /**
  * US-1370: the home dashboard (iOS `DashboardView`).
  *
- * Replaces the `SectionPlaceholder` this destination rendered — the first thing
+ * Replaces the `SectionPlaceholder` this destination rendered (that scaffold was
+ * deleted in US-2792) — the first thing
  * a seller saw on opening the app.
  *
  * Contains no arithmetic: every figure comes from [HomeViewModel]'s memoized

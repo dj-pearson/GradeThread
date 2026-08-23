@@ -43,7 +43,8 @@ import java.util.Locale
 /**
  * US-1363/US-1364: the Money tab (iOS `MoneyView`).
  *
- * Replaces the `SectionPlaceholder` this destination rendered. Every panel reads
+ * Replaces the `SectionPlaceholder` this destination rendered (that scaffold was
+ * deleted in US-2792). Every panel reads
  * from the pure rollups, so this file contains NO arithmetic — that split is what
  * makes the figures unit-testable and is why the iOS surface it mirrors keeps its
  * math in `MoneyAnalyticsRollup`.

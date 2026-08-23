@@ -114,12 +114,24 @@ fun BarcodeScanScreen(
                 }
             },
         )
-        val started = runCatching {
-            controller.setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
-            controller.setImageAnalysisAnalyzer(executor, analyzer)
-            controller.bindToLifecycle(lifecycleOwner)
+        // US-2792: a device with no REAR camera gets its own sentence. Without
+        // this it fell into the catch below and was told "Couldn't start the
+        // scanner", which reads as a transient fault and invites a retry that
+        // can never work. FEATURE_CAMERA means a camera facing AWAY from the
+        // screen — FEATURE_CAMERA_ANY would also match a selfie-only device and
+        // hand it the wrong message.
+        val hasRearCamera =
+            context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA)
+        if (!hasRearCamera) {
+            error = BarcodeError.NoCamera
+        } else {
+            val started = runCatching {
+                controller.setEnabledUseCases(CameraController.IMAGE_ANALYSIS)
+                controller.setImageAnalysisAnalyzer(executor, analyzer)
+                controller.bindToLifecycle(lifecycleOwner)
+            }
+            if (started.isFailure) error = BarcodeError.ConfigurationFailed
         }
-        if (started.isFailure) error = BarcodeError.ConfigurationFailed
         onDispose {
             controller.clearImageAnalysisAnalyzer()
             controller.unbind()
