@@ -572,7 +572,20 @@ Deno.test("columnBackedAspectNames is empty for a category with none, and dedupe
 //    the listing through `mpn`, which IS mapped.
 //  - upc — eBay takes it as a product IDENTIFIER on the inventory item, not as
 //    an item specific, so it must not be projected into the aspect map.
-const UNMAPPED_BY_DESIGN = ["style_code", "rn_number", "upc", "observations"];
+// `shoe_size_scale` (US-2796) joins these for a different reason than the other
+// four. They are identity codes and a catch-all, which no eBay aspect wants.
+// This one has no aspect because eBay does not ask the question: its shoe
+// categories are SPLIT by department, so "which scale is this number on" is
+// answered by the category the listing sits in rather than by a field on it.
+// The attribute exists for OUR side - parcel weight and choosing whether a
+// US-named aspect may carry the number at all.
+const UNMAPPED_BY_DESIGN = [
+  "style_code",
+  "rn_number",
+  "upc",
+  "shoe_size_scale",
+  "observations",
+];
 
 Deno.test("US-2422: every canonical attribute has a registry entry, bar the documented exceptions", async () => {
   Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");

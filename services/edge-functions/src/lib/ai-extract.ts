@@ -264,6 +264,18 @@ export const CANONICAL_ATTRIBUTES: CanonicalAttributeSpec[] = [
   { key: "heel_height", multi: false, description: "Heel height band on footwear — e.g. Flat (under 0.5 in.), Low (0.5-1.5 in.), Mid (1.5-3 in.), High (3-4 in.), Very High (over 4 in.)" },
   { key: "toe_shape", multi: false, description: "Toe shape on footwear — e.g. Round Toe, Pointed Toe, Almond Toe, Square Toe, Open Toe, Peep Toe" },
   { key: "shoe_width", multi: false, description: "Shoe width read from the size stamp — e.g. Narrow (B, N), Medium (D, M), Wide (E, W, 2E), Extra Wide (4E)" },
+  // US-2796. The one attribute here whose VALUES are a closed set, and
+  // deliberately so: statedShoeSizeScale accepts exactly these five tokens and
+  // reads anything else as ABSENT, which falls back to the brand's curated
+  // chart. So a garbled or invented value costs nothing, while a correct one
+  // beats the chart — the seller's shoe is stamped, the chart is a
+  // generalisation about a catalogue.
+  //
+  // "Read the stamp" is the same instruction shoe_width already carries, and it
+  // is a READ rather than a judgement: a shoe printing "UK 8 / EU 42" answers
+  // this outright. The global never-guess rule covers the rest — a bare "9" with
+  // no scale beside it must be omitted, not assumed.
+  { key: "shoe_size_scale", multi: false, description: "Which SCALE the shoe's stamped size number is on, as one of exactly: us_men, us_women, uk, eu, jp. Read it from the size stamp or box label (e.g. 'UK 8 / EU 42 / US 9' with the US number stored as the size → us_men). Omit unless the stamp or label actually shows which scale the number belongs to; never infer it from the brand." },
   { key: "shoe_shaft_height", multi: false, description: "Boot shaft height — e.g. Ankle, Mid-Calf, Knee High, Over the Knee" },
 
   // Bags + accessories.

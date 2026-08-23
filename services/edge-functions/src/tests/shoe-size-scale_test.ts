@@ -507,3 +507,29 @@ Deno.test("US-2796: no attributes at all is identical to the old call", () => {
     );
   }
 });
+
+Deno.test("US-2796: the prompt asks for exactly the tokens the parser accepts", async () => {
+  // TWO DEFINITIONS OF ONE SET, which is the shape this repo keeps getting
+  // burned by. The extraction prompt names the five tokens in prose;
+  // statedShoeSizeScale accepts them from SHOE_SIZE_SCALES. If they drift, the
+  // model returns values the parser rejects, every one reads as ABSENT, and the
+  // scale silently falls back to the brand chart - a feature that degrades to
+  // its own fallback with nothing red anywhere.
+  const { CANONICAL_ATTRIBUTES } = await import("../lib/ai-extract.ts");
+  const spec = CANONICAL_ATTRIBUTES.find((a) => a.key === "shoe_size_scale");
+  assertEquals(spec !== undefined, true, "shoe_size_scale is no longer captured");
+
+  const listed = spec!.description.match(/one of exactly: ([^.(]+)/);
+  assertEquals(listed !== null, true, "the description no longer lists its allowed tokens");
+  const fromPrompt = listed![1].split(",").map((t) => t.trim()).filter(Boolean);
+  assertEquals([...fromPrompt].sort(), [...SHOE_SIZE_SCALES].sort());
+
+  // And each one must actually survive the parser, not merely appear in a list.
+  for (const token of fromPrompt) {
+    assertEquals(
+      statedShoeSizeScale({ [SHOE_SIZE_SCALE_ATTRIBUTE]: token }),
+      token,
+      token + " is asked for but not accepted",
+    );
+  }
+});
