@@ -66,9 +66,9 @@ import {
 import {
   buildExtractText,
   buildKnownFields,
+  decideAttribute,
   decideField,
   isAiOwned,
-  isEmptyValue,
   type ExtractMode,
   type UntrackedPolicy,
 } from "../lib/reextract-policy.ts";
@@ -1823,16 +1823,18 @@ flipdeskAiRoutes.post("/bulk-extract", async (c) => {
       let attributesChanged = false;
       for (const [key, value] of Object.entries(suggestedAttrs)) {
         const cur = existingAttrs[key];
-        // US-2817: same provenance rule as the columns above. Gap-fill only
-        // fills blanks; re-identify may also refresh an attribute a prior AI
-        // pass wrote, and still never touches one the seller set.
-        const mayWrite = isEmptyValue(cur) ||
-          (mode === "reidentify" && isAiOwned(aiSources, key, untracked));
-        if (!mayWrite) continue;
-        if (!isEmptyValue(cur) && JSON.stringify(cur) === JSON.stringify(value)) {
-          continue;
-        }
-        if (!isEmptyValue(cur)) replaced.push(key);
+        // US-2817: the SAME FUNCTION the columns above use, not a second copy
+        // of the same rule. Gap-fill only fills blanks; re-identify may also
+        // refresh an attribute a prior AI pass wrote, and never touches one
+        // the seller set.
+        const decision = decideAttribute({
+          current: cur,
+          suggested: value,
+          aiOwned: isAiOwned(aiSources, key, untracked),
+          mode,
+        });
+        if (decision === "skip") continue;
+        if (decision === "replace") replaced.push(key);
         mergedAttrs[key] = value;
         const sug = allAttrSuggestions[key];
         aiSources[key] = {

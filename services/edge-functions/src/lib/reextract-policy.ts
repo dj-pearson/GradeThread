@@ -183,3 +183,42 @@ export function decideField(input: {
   if (input.mode === "reidentify" && input.aiOwned) return "replace";
   return "pending";
 }
+
+/**
+ * The same decision for a CANONICAL ATTRIBUTE.
+ *
+ * AC5 asks that attributes follow the same provenance rule as columns, and
+ * until this existed they followed a hand-inlined COPY of it in the route
+ * while the columns went through [decideField]. Two copies of one rule is how
+ * this repo has been bitten before (the weighted-overall lockstep, the
+ * grading-vs-FlipDesk image lists), and the copy had no test of its own: every
+ * case in reextract-policy_test.ts exercised the column path.
+ *
+ * TWO DELIBERATE DIFFERENCES FROM [decideField], both preserving what the
+ * route already did rather than quietly changing behaviour:
+ *
+ *  • No confidence gate. The attribute suggestions the route merges come from
+ *    several sources (US-821 extraction, US-1529 research) and it has never
+ *    filtered them on `autoApplyConfidence`.
+ *  • Equality is structural, not lowercased text. An attribute value may be a
+ *    string ARRAY, so `toLowerCase` is not available and ordering matters.
+ *
+ * There is no `pending`: a seller-typed attribute is left alone silently,
+ * which is also what the route did. Surfacing those for review is a product
+ * change, not a refactor, so it is not made here.
+ */
+export function decideAttribute(input: {
+  current: unknown;
+  suggested: string | string[];
+  aiOwned: boolean;
+  mode: ExtractMode;
+}): "apply" | "replace" | "skip" {
+  const empty = isEmptyValue(input.current);
+  if (!empty && !(input.mode === "reidentify" && input.aiOwned)) return "skip";
+  if (empty) return "apply";
+  // Same answer as last time: not a change, and not something to count as one.
+  if (JSON.stringify(input.current) === JSON.stringify(input.suggested)) {
+    return "skip";
+  }
+  return "replace";
+}

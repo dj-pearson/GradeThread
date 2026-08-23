@@ -7,6 +7,7 @@ import { assertEquals } from "@std/assert";
 import {
   buildExtractText,
   buildKnownFields,
+  decideAttribute,
   decideField,
   isAiOwned,
   isEmptyValue,
@@ -191,4 +192,105 @@ Deno.test("decideField: the same answer again is not a change and not a review",
     "skip",
   );
   assertEquals(decide({ suggested: "   " }), "skip");
+});
+
+// ── canonical attributes (AC5) ─────────────────────────────────────────
+//
+// Until 2026-08-23 the route decided attributes with a hand-inlined copy of
+// the column rule and every case in this file exercised the column path, so
+// the copy could have drifted without anything failing. It is one function
+// now and these are its cases.
+
+const attr = (o: Partial<Parameters<typeof decideAttribute>[0]>) =>
+  decideAttribute({
+    current: null,
+    suggested: "cotton",
+    aiOwned: false,
+    mode: "gap_fill",
+    ...o,
+  });
+
+Deno.test("decideAttribute: an empty attribute is filled in either mode", () => {
+  assertEquals(attr({}), "apply");
+  assertEquals(attr({ mode: "reidentify" }), "apply");
+  assertEquals(attr({ current: [] }), "apply");
+  assertEquals(attr({ current: "" }), "apply");
+});
+
+Deno.test("decideAttribute: a seller-set attribute is never overwritten", () => {
+  // The one that loses a seller's own work if it goes wrong. Not `pending`
+  // either - the route surfaces no attribute review, so a wrong answer here
+  // is silent.
+  assertEquals(
+    attr({ current: "wool", suggested: "cotton", mode: "reidentify", aiOwned: false }),
+    "skip",
+  );
+});
+
+Deno.test("decideAttribute: gap-fill never overwrites, even the AI's own", () => {
+  assertEquals(
+    attr({ current: "wool", suggested: "cotton", mode: "gap_fill", aiOwned: true }),
+    "skip",
+  );
+});
+
+Deno.test("decideAttribute: re-identify replaces the AI's own earlier answer", () => {
+  assertEquals(
+    attr({ current: "wool", suggested: "cotton", mode: "reidentify", aiOwned: true }),
+    "replace",
+  );
+});
+
+Deno.test("decideAttribute: the same answer again is not a change", () => {
+  assertEquals(
+    attr({ current: "cotton", suggested: "cotton", mode: "reidentify", aiOwned: true }),
+    "skip",
+  );
+});
+
+Deno.test("decideAttribute: an ARRAY value compares structurally", () => {
+  // Attributes can be multi-valued, which is why equality here is structural
+  // rather than the lowercased-text comparison decideField uses - toLowerCase
+  // does not exist on an array, and order is part of the value.
+  assertEquals(
+    attr({
+      current: ["cotton", "elastane"],
+      suggested: ["cotton", "elastane"],
+      mode: "reidentify",
+      aiOwned: true,
+    }),
+    "skip",
+  );
+  assertEquals(
+    attr({
+      current: ["cotton", "elastane"],
+      suggested: ["elastane", "cotton"],
+      mode: "reidentify",
+      aiOwned: true,
+    }),
+    "replace",
+  );
+});
+
+Deno.test("decideAttribute: overwrite_untracked reaches attributes too", () => {
+  // isAiOwned is what carries the opt-in, so this is really a check that the
+  // attribute path consults it at all - the legacy-stock case AC10 exists for.
+  assertEquals(
+    attr({
+      current: "wool",
+      suggested: "cotton",
+      mode: "reidentify",
+      aiOwned: isAiOwned(null, "material", "treat_as_ai"),
+    }),
+    "replace",
+  );
+  assertEquals(
+    attr({
+      current: "wool",
+      suggested: "cotton",
+      mode: "reidentify",
+      aiOwned: isAiOwned(null, "material", "respect"),
+    }),
+    "skip",
+  );
 });
