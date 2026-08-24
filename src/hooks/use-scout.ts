@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
+import type { ValueBasis } from "@/components/value/value-basis-note";
 
 // ScoutAI sourcing (US-618). A scan grades candidate eBay listings from their own
 // photos (private shadow grade) and ranks them by condition-adjusted margin.
@@ -16,6 +17,8 @@ export interface ScoutScored {
   valueLowCents: number | null;
   valueMedianCents: number | null;
   valueHighCents: number | null;
+  /** US-2850: what the estimated value is. Absent on an older edge response. */
+  valueBasis?: ValueBasis;
   estMarginCents: number | null;
   estMarginPct: number | null;
   underpriced: boolean;

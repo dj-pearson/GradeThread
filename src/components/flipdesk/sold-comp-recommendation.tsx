@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { GradeBandedPrice } from "@/hooks/use-ebay";
+import { ValueBasisNote } from "@/components/value/value-basis-note";
 
 // US-594 / US-1477: the sold-comp, grade-banded recommendation. Realized sales
 // win; an active-ask fallback is clearly flagged as an estimate. Always surfaces
@@ -131,6 +132,11 @@ export function SoldCompRecommendation({
           </div>
         </div>
       </div>
+
+      {/* US-2850: the line below already says sold-vs-active. This one says
+          whether condition was MEASURED or whether the number is the plain
+          middle of a pile of listings, which is a different question. */}
+      <ValueBasisNote basis={recommendation.valueBasis} className="mt-3" />
 
       <div className="mt-3 flex items-center justify-between gap-2">
         <div className="text-[11px] text-muted-foreground">

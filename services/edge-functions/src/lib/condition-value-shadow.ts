@@ -35,6 +35,7 @@
 import type { CurvePoint } from "./condition-curve.ts";
 import { type ItemIdentity, normalizeItemKey } from "./condition-item-key.ts";
 import { type ValueRange } from "./condition-value-math.ts";
+import { describeValueBasis } from "./value-disclosure.ts";
 import { logEvent, recordMetric } from "./observability.ts";
 
 export const SHADOW_SAMPLES_TABLE = "condition_value_shadow_samples";
@@ -125,6 +126,9 @@ export function measuredRangeAtGrade(
     confidence: 0,
     sufficient: false,
     currency,
+    // No basis: an insufficient measured range is never served, so it must not
+    // carry wording a surface could render. The caller falls back to live, and
+    // live brings its own comp-median basis with it.
   };
   if (gradeValue == null || !Number.isFinite(gradeValue)) return insufficient;
 
@@ -142,6 +146,17 @@ export function measuredRangeAtGrade(
 
   const confidence = Math.max(0, Math.min(0.95, curve.fitConfidence ?? 0));
 
+  const basisFor = (median: number | null, sampleSize: number) =>
+    describeValueBasis({
+      source: "measured_curve",
+      sufficient: true,
+      sampleSize,
+      medianCents: median,
+      slopeCentsPerPoint: curve.slopeCentsPerPoint,
+      measuredAt: curve.measuredAt,
+      currency,
+    });
+
   const exact = usable.find((p) => p.grade === gradeValue);
   if (exact) {
     return {
@@ -152,6 +167,7 @@ export function measuredRangeAtGrade(
       confidence,
       sufficient: true,
       currency,
+      basis: basisFor(exact.medianCents, exact.sampleSize),
     };
   }
 
@@ -177,14 +193,16 @@ export function measuredRangeAtGrade(
     hi.highCents ?? (hi.medianCents as number),
     t,
   );
+  const sampleSize = Math.min(lo.sampleSize, hi.sampleSize);
   return {
     lowCents: Math.min(low, median),
     medianCents: median,
     highCents: Math.max(high, median),
-    sampleSize: Math.min(lo.sampleSize, hi.sampleSize),
+    sampleSize,
     confidence,
     sufficient: true,
     currency,
+    basis: basisFor(median, sampleSize),
   };
 }
 

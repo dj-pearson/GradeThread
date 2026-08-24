@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { TrendingUp, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ValueBasisNote } from "@/components/value/value-basis-note";
 import {
   curveMedianAtGrade,
   formatCurveCents,
@@ -69,6 +70,10 @@ export function ConditionIndexValueHint({
           <span className="font-medium">{curve.label}</span>.
         </span>
       </div>
+      {/* US-2850: the hint quotes a median next to the seller's own grade, which
+          is exactly where the two get confused. One line saying what the median
+          is keeps them apart. */}
+      <ValueBasisNote basis={curve.disclosure} variant="short" className="mt-1 pl-6 text-[11px]" />
       <div className="mt-0.5 flex items-center gap-1 pl-6 text-[11px] text-muted-foreground group-hover:text-foreground">
         See the {curve.label} Condition Index
         <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />

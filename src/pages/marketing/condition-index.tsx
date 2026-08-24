@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { MarketingLayout } from "@/components/marketing/marketing-layout";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { SITE_URL } from "@/lib/seo/public-routes";
+import { ValueBasisNote, type ValueBasis } from "@/components/value/value-basis-note";
 
 // US-2506: the SPA renderer for the public Condition Index (US-621).
 //
@@ -42,6 +43,7 @@ interface HubItem {
   totalSampleSize: number;
   refreshedAt: string;
   provenance?: CurveProvenance;
+  disclosure?: ValueBasis;
 }
 
 interface CurvePoint {
@@ -61,6 +63,7 @@ interface CurveDto {
   totalSampleSize: number;
   refreshedAt: string;
   provenance?: CurveProvenance;
+  disclosure?: ValueBasis;
 }
 
 /**
@@ -291,6 +294,10 @@ export function ConditionIndexItemPage() {
                 )}
               </p>
 
+              {/* US-2850: the badge says measured or estimated; this says what
+                  the prices underneath are, and what condition does to them. */}
+              <ValueBasisNote basis={curve.disclosure} className="mt-3 max-w-prose" />
+
               <div className="mt-8 overflow-x-auto rounded-lg border">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50 text-left">
@@ -298,7 +305,9 @@ export function ConditionIndexItemPage() {
                       <th className="px-4 py-2 font-medium">Grade</th>
                       <th className="px-4 py-2 font-medium">Range</th>
                       <th className="px-4 py-2 font-medium">Median</th>
-                      <th className="px-4 py-2 font-medium">Sales</th>
+                      {/* US-2850: these are LISTINGS. The column said "Sales"
+                          and no listing in it has ever been sold. */}
+                      <th className="px-4 py-2 font-medium">Listings</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -322,9 +331,14 @@ export function ConditionIndexItemPage() {
                 </table>
               </div>
 
+              {/* US-2850. This paragraph used to read "Medians are drawn from
+                  completed sales of graded items." Neither half was true: they
+                  are active listings, and we read them for condition rather
+                  than grading them. */}
               <p className="mt-6 text-sm text-muted-foreground">
-                Medians are drawn from completed sales of graded items. A row
-                resting on few sales is directional, not a price guarantee.
+                Medians are drawn from live eBay listings, so they are asking
+                prices rather than sale prices. A row resting on few listings is
+                directional, not a price guarantee.
               </p>
 
               <Link

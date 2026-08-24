@@ -28,6 +28,7 @@ import {
   type AppraiseResult,
   type BuyRecommendation,
 } from "@/hooks/use-scout-appraise";
+import { ValueBasisNote } from "@/components/value/value-basis-note";
 
 function dollars(cents: number | null | undefined): string {
   if (cents == null) return "—";
@@ -116,6 +117,11 @@ function DecisionCard({
             />
             <Stat label="Breakeven" value={dollars(decision.breakevenCents)} />
           </div>
+
+          {/* US-2850: the resale range above is the number this whole screen
+              turns into a buy or a pass, so it does not get to appear without
+              saying what it is and how much sample is behind it. */}
+          <ValueBasisNote basis={value.basis} className="border-t pt-3" />
 
           {costCents != null && (
             <div className="grid grid-cols-2 gap-3 border-t pt-3 sm:grid-cols-4">

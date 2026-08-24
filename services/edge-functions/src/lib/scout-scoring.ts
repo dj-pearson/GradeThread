@@ -9,6 +9,7 @@
 // feed never surfaces a false signal.
 
 import type { ValueRange } from "./condition-value.ts";
+import type { ValueBasis } from "./value-disclosure.ts";
 import { EBAY_FEE_RATE, ebayNetProceedsCents } from "./ebay-fees.ts";
 
 // US-2325: the fee model now comes from lib/ebay-fees.ts, shared with the
@@ -45,6 +46,14 @@ export interface ScoutScored extends ScoutCandidate {
   /** Surfaced as a real buy signal: sufficient comps + confident grade + profit. */
   actionable: boolean;
   reason: string;
+  /**
+   * US-2850: what the value behind this row actually is.
+   *
+   * The scan is the one value surface that does not return the ValueRange
+   * itself, so without this the row would show a dollar figure with no way to
+   * tell a measured number from an unadjusted median.
+   */
+  valueBasis?: ValueBasis;
 }
 
 export interface ScoreOptions {
@@ -75,6 +84,7 @@ export function scoreCandidate(
     valueLowCents: value.lowCents,
     valueMedianCents: value.medianCents,
     valueHighCents: value.highCents,
+    valueBasis: value.basis,
     estMarginCents: null,
     estMarginPct: null,
     underpriced: false,

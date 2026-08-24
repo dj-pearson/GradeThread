@@ -8,6 +8,7 @@ import { useAuthStore } from "@/stores/auth-store";
 // component file owns it because that is where it is rendered; the edge's
 // lib/listing-quality-score.ts is the authority for how it is COMPUTED.
 import type { ListingQualityScore } from "@/components/flipdesk/quality-score-chip";
+import type { ValueBasis } from "@/components/value/value-basis-note";
 
 // US-1933: tenant partition for eBay query keys — the active workspace owner
 // (or the user for a solo account). Every eBay query keys on this so a workspace
@@ -976,6 +977,8 @@ export interface GradeBandedPrice {
     label: "fast" | "moderate" | "slow" | "unknown";
     sampleSize: number;
   };
+  /** US-2850: what this number is, worded by the edge. */
+  valueBasis?: ValueBasis;
 }
 
 export interface GradeBandedPriceArgs {

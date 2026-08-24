@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
+import type { ValueBasis } from "@/components/value/value-basis-note";
 
 // Scout buy-decision mode (US-592). A reseller in the field snaps a photo (or
 // scans a barcode) of an item they're CONSIDERING and gets an instant buy /
@@ -25,6 +26,8 @@ export interface AppraiseValue {
   confidence: number;
   sufficient: boolean;
   currency: string;
+  /** US-2850: what this range is. Absent on a response from an older edge. */
+  basis?: ValueBasis;
 }
 
 export interface AppraiseSellThrough {

@@ -62,6 +62,8 @@ interface CurveDto {
   points: CurvePoint[];
   totalSampleSize: number;
   refreshedAt: string;
+  /** US-2850: the provenance line, worded by the edge. */
+  disclosure?: { headline: string; detail: string };
   // US-847: a few real public certificates of this item (best-effort, may be []).
   examples?: ExampleCert[];
 }
@@ -131,7 +133,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       ${renderPerGradeSummary(curve)}
       <h2>Full value-by-grade table</h2>
       <table>
-        <thead><tr><th>Grade</th><th>Value range</th><th>Typical</th><th>Comps</th></tr></thead>
+        <thead><tr><th>Grade</th><th>Value range</th><th>Typical</th><th>Listings</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       ${renderGradingFactors()}
@@ -197,7 +199,8 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
             <thead><tr><th>Item</th><th>Value @ grade-8</th><th>Comps</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>`}
-      <p class="muted">Aggregate resale estimates from condition-matched listings. Not guaranteed sale prices.</p>
+      <p class="muted">Aggregate resale estimates from condition-matched eBay listings. These are
+      asking prices, not sale prices, and they are not guaranteed.</p>
       <p><a href="/snap">Value your own item &rarr;</a> &middot;
       <a href="/flipdesk">Price your inventory to these comps with FlipDesk &rarr;</a></p>
     </main>`;
