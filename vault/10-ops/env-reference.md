@@ -458,6 +458,7 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `EBAY_DELETION_ENDPOINT_URL` | ⬜ Coolify edge | Public URL eBay calls for account-deletion notices. |
 | `EBAY_DEFAULT_AD_RATE` | ⬜ Coolify edge | Default promoted-listing ad rate. |
 | `EBAY_MARKETPLACE_INSIGHTS` | ⬜ Coolify edge | Toggle for the eBay Marketplace Insights comp source. |
+| `CONDITION_VALUE_SHADOW` | ⬜ Coolify edge | US-2848 kill switch for the live-vs-measured value comparison inside `valueAtGrade`. ON unless set to `false`. Costs one cached Supabase read per call and writes nothing until a cell has a measured curve. |
 | `DEPOP_ENABLED` | ⬜ Coolify edge | Master toggle for the Depop integration. |
 | `DEPOP_CLIENT_ID` / `DEPOP_CLIENT_SECRET` 🔒 | ⬜ Coolify edge | Depop OAuth client credentials. |
 | `DEPOP_REDIRECT_URI` / `DEPOP_SCOPES` / `DEPOP_API_BASE` / `DEPOP_AUTH_URL` / `DEPOP_TOKEN_URL` | ⬜ Coolify edge | Depop OAuth callback, scopes, API base, and auth/token endpoints (all default to built-in values). |

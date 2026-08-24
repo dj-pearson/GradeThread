@@ -26,6 +26,11 @@ import {
   refreshIndexSeed,
 } from "../lib/condition-index.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import {
+  SHADOW_SAMPLES_TABLE,
+  type ShadowDeltaSampleRow,
+  summarizeShadowDeltas,
+} from "../lib/condition-value-shadow.ts";
 
 type AdminEnv = {
   Variables: { userId: string; adminRole: "admin" | "super_admin" };
@@ -367,4 +372,53 @@ adminConditionIndexRoutes.post("/refresh", async (c) => {
   } finally {
     await lock.release();
   }
+});
+
+// -- GET /shadow-deltas -- how far measured sits from live, per cell ---------
+//
+// US-2848 AC4. The shadow writes one row per cell per graded request once that
+// cell has a measured curve; this is the read that turns those rows into the
+// one number a flip decision needs, which is median absolute delta by cell.
+//
+// THE CAP IS REPORTED, NOT HIDDEN. A window wider than MAX_SHADOW_ROWS rows
+// comes back with `truncated: true` and the medians computed on the newest
+// slice. A silently trimmed sample would read exactly like a complete one,
+// which is the failure this endpoint exists to avoid making elsewhere.
+const MAX_SHADOW_ROWS = 5000;
+
+adminConditionIndexRoutes.get("/shadow-deltas", async (c) => {
+  const rawDays = Number.parseInt(c.req.query("days") ?? "30", 10);
+  const days = Number.isFinite(rawDays) && rawDays > 0 ? Math.min(rawDays, 365) : 30;
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const cell = (c.req.query("cell") ?? "").trim();
+
+  let q = supabaseAdmin
+    .from(SHADOW_SAMPLES_TABLE)
+    .select("cell_key, grade, live_median_cents, measured_median_cents, delta_cents, created_at")
+    .gte("created_at", since)
+    .order("created_at", { ascending: false })
+    .limit(MAX_SHADOW_ROWS);
+  if (cell) q = q.eq("cell_key", cell);
+
+  const { data, error } = await q;
+  if (error) {
+    console.warn("[admin-condition-index] shadow-deltas read failed:", error.message);
+    return jsonError(c, 500, "Failed to load shadow samples");
+  }
+  const rows = (data ?? []) as ShadowDeltaSampleRow[];
+  const cells = summarizeShadowDeltas(rows);
+
+  return c.json({
+    since,
+    days,
+    cell: cell || null,
+    rows_read: rows.length,
+    truncated: rows.length >= MAX_SHADOW_ROWS,
+    row_cap: MAX_SHADOW_ROWS,
+    // Stated so nobody reads these as sold-price gaps. While
+    // EBAY_MARKETPLACE_INSIGHTS is unset both sides are fitted on ACTIVE
+    // listing prices (US-2850 owns saying so on customer-facing surfaces).
+    basis: "active_listing_asking_prices",
+    cells,
+  });
 });

@@ -14,6 +14,7 @@ import {
   valueRangeFromStats,
 } from "./condition-value.ts";
 import { searchBrowseComps } from "./ebay-client.ts";
+import { normalizeItemKey } from "./condition-item-key.ts";
 import { captureException, logEvent } from "./observability.ts";
 
 // Representative grade points for a curve (half-point steps at the top where
@@ -42,12 +43,10 @@ export interface ValueCurve {
   refreshedAt: string;
 }
 
-// Normalized, stable identity for an item across lookups.
-export function normalizeItemKey(item: ItemKey): string {
-  return [item.brand ?? "", item.categoryId, item.q ?? ""]
-    .map((s) => s.trim().toLowerCase())
-    .join("|");
-}
+// Normalized, stable identity for an item across lookups. Defined in
+// condition-item-key.ts (US-2848) so condition-value.ts can build the same key
+// without importing this module back; re-exported here so nothing moved.
+export { type ItemIdentity, normalizeItemKey } from "./condition-item-key.ts";
 
 // Injectable comp fetcher (mirrors the codebase's injectable-deps pattern) so
 // buildValueCurve is unit-testable without eBay.

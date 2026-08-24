@@ -12,6 +12,13 @@
 
 import { gradeToConditionId } from "./repricing.ts";
 import { searchBrowseComps } from "./ebay-client.ts";
+import { supabaseAdmin } from "./supabase.ts";
+import {
+  observeMeasuredShadow,
+  shadowEnabled,
+  type ShadowCurveClient,
+  type ShadowWriteClient,
+} from "./condition-value-shadow.ts";
 // US-2237: the pure range maths lives in its own module so callers that only
 // need the arithmetic (the scan endpoint's tests, for one) don't drag the eBay
 // client in with it. Re-exported here so this file stays the front door.
@@ -55,5 +62,30 @@ export async function valueAtGrade(
     conditionId: gradeToConditionId(gradeValue),
     limit: Math.min(Math.max(opts.limit ?? 25, 1), 50),
   });
-  return valueRangeFromStats(result.stats, gradeValue, result.stats.currency);
+  const live = valueRangeFromStats(result.stats, gradeValue, result.stats.currency);
+
+  // US-2848 shadow. Compute the measured-curve answer beside the live one,
+  // record the gap, and return the live one regardless. THIS AWAIT IS ONE
+  // INDEXED, CACHED SUPABASE READ AND NO EBAY CALL, awaited rather than
+  // fire-and-forget so US-2849 can flip which range is returned here without
+  // moving a line, which is the whole point of doing it at this choke point.
+  // observeMeasuredShadow swallows and counts every failure of its own, so
+  // there is nothing here to catch; the try is belt-and-braces for a future
+  // edit that forgets that contract.
+  try {
+    await observeMeasuredShadow(
+      {
+        read: supabaseAdmin as unknown as ShadowCurveClient,
+        write: supabaseAdmin as unknown as ShadowWriteClient,
+        enabled: shadowEnabled(),
+      },
+      item,
+      gradeValue,
+      live,
+    );
+  } catch {
+    // Deliberately empty: the shadow must never decide a seller's request.
+  }
+
+  return live;
 }

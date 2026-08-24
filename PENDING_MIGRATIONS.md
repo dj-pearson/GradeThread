@@ -1,5 +1,46 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00665 — condition_value_shadow_samples, the live-vs-measured record (US-2848)
+
+**What it does.** Creates one new table,
+`public.condition_value_shadow_samples`. One row every time `valueAtGrade`
+produced both answers for a market cell: the live conditionId-filtered median
+that shipped, the measured-curve median that did not, and the difference. Two
+CHECK constraints, two indexes, RLS on with zero policies.
+
+**Risk: LOW.** Additive only. Nothing existing is altered or dropped. The write
+path is bounded by the thing it measures: nothing is written for a cell with no
+`provenance = 'measured'` curve, and no cell has one until the US-2845 worker
+fits one, so the table stays empty on day one.
+
+**Apply order.** After 00664. It depends on nothing but `applied_migrations`.
+
+**Client-side reads: NONE.** No frontend code touches this table. The only
+reader is `GET /api/admin/condition-index/shadow-deltas`, which is behind the
+admin gate on the edge, and the edge boot guard covers that side:
+`EXPECTED_SCHEMA_VERSION` is bumped to `00665` in the same commit.
+
+**Proven by execution, not by reading the SQL.** Applied twice in a row against
+a throwaway Postgres 16 (the second run is all no-ops and NOTICEs), then:
+
+- a `delta_cents` with only one side present raises
+  `condition_value_shadow_samples_delta_needs_both`
+- `grade = 0.5` raises `condition_value_shadow_samples_grade_range`
+- a null grade inserts, which is required: `valueAtGrade` is called with a null
+  grade on the ungraded paths
+- `relrowsecurity` is true with 0 policies; `anon` and `authenticated` have no
+  select privilege
+- the self-record footer put `00665` in `applied_migrations`
+
+**On the coalesce trap.** Neither CHECK can evaluate to NULL: both branches use
+`is null` / `is not null`, which always return true or false. That is the 00663
+lesson applied rather than restated, and the executions above are what confirm
+it.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — a new table changed the
+schema, and PostgREST will not see it otherwise.
+
+
 ## APPLIED 2026-08-24: 00664 — condition_price_curves says where its numbers came from (US-2847)
 
 **What it does.** Adds four columns to `public.condition_price_curves`:
@@ -28,7 +69,10 @@ key is free and then updates only while the row is still seeded.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — new columns.
 
 
-## ⏳ PENDING: 00663 — comp_condition_reads, the comp condition sample store (US-2844)
+## APPLIED 2026-08-24: 00663 — comp_condition_reads, the comp condition sample store (US-2844)
+
+> Marked applied on the founder's word, not on a read of prod. Everything below
+> is the original pending entry, unchanged.
 
 **What it does.** Creates one new table, `public.comp_condition_reads`. One row
 per comp listing we read for condition, keyed by a SHA-256 hash of the
