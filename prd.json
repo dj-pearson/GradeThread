@@ -2481,22 +2481,6 @@
       "notes": "2026-08-24 GATE MOVED HERE. US-2843 and US-2844 were unblocked from the US-2842 spike because a detector and a table are pure local code whose value does not change with the GO or NO-GO. This story is the one that spends real money on comp reads, so it now carries the dependency on US-2842 instead. Do not start it before the spike returns GO."
     },
     {
-      "id": "US-2850",
-      "passes": false,
-      "title": "Say what the number is: asking-price slope, sample size, and the cells we cannot answer",
-      "description": "As a seller about to spend money on a garment, I want the product to tell me when its price is measured, how large the sample was, and that the slope is fitted on asking prices rather than sold ones, so that I can tell a strong answer from a weak one.",
-      "acceptanceCriteria": [
-        "Any surface showing a measured range states the sample size and states that the fit is on active listing prices rather than sold prices while EBAY_MARKETPLACE_INSIGHTS is unset",
-        "A cell with no publishable curve shows the existing comp median labelled as an unadjusted market median, and never a fabricated slope",
-        "A flat slope is stated in plain words, including the case where condition barely moves price for that garment",
-        "npm run ui:check reports zero enforced findings, and no user-facing string calls a comp read a grade"
-      ],
-      "priority": 19,
-      "dependsOn": [
-        "US-2849"
-      ]
-    },
-    {
       "id": "US-2851",
       "passes": false,
       "title": "The sourcing ceiling: what a garment is worth at the grade in your hand, and what to stop paying above",
