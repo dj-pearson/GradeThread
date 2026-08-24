@@ -107,6 +107,9 @@ struct ItemCanvasView: View {
         case addPhotos
         /// Duplicate-SKU merge resolution (web parity).
         case skuMerge(ExistingSkuItem)
+        /// The ONLY path to a sold item (web parity, US-2260). The status
+        /// picker no longer offers the word.
+        case recordSale
 
         var id: String {
             switch self {
@@ -115,6 +118,7 @@ struct ItemCanvasView: View {
             case .aiReview:               return "aiReview"
             case .addPhotos:              return "addPhotos"
             case .skuMerge(let existing): return "skuMerge-\(existing.id)"
+            case .recordSale:             return "recordSale"
             }
         }
     }
@@ -247,6 +251,43 @@ struct ItemCanvasView: View {
         listing.hasLocalChanges = true
         listing.updatedAt = .now
         modelContext.saveOrLog("applyListingMaintenance")
+    }
+
+    /// Fold a recorded sale into the screen the seller is still looking at.
+    ///
+    /// The server already holds every one of these writes -- this is the local
+    /// mirror catching up, so the row does not keep saying "listed" until the
+    /// next sync pull. The draft's status moves too: leaving it on the old
+    /// value would make the page dirty against a status the seller never chose,
+    /// and Save would then try to push it back.
+    private func applyRecordedSale(
+        _ outcome: SaleRecorder.Outcome, state: ItemCanvasState
+    ) {
+        guard outcome.recorded else { return }
+        if let status = outcome.newStatus {
+            item.status = status
+            state.applyExternalStatus(status)
+        }
+        item.updatedAt = .now
+        if let listing = activeEbayListing {
+            let remaining = max(0, (listing.quantity ?? 1) - 1)
+            if remaining > 0 {
+                listing.quantity = remaining
+            } else {
+                listing.listingStatus = "sold"
+                listing.quantity = 0
+                listing.endedAt = .now
+            }
+            listing.updatedAt = .now
+        }
+        modelContext.saveOrLog("applyRecordedSale")
+        // A warning here is never a failed sale -- it is one of the follow-on
+        // steps (status, listing, eBay) that did not land. Say which, rather
+        // than a flat "Saved." over a half-finished close-out.
+        actionToast = outcome.warnings.first ?? "Sale recorded."
+        // The sale row, the status and the listing were all written server-side;
+        // pull so the mirror reconciles to what actually happened.
+        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
     }
 
     /// Whether publishing this item is a relist: it was previously listed (an
@@ -647,6 +688,26 @@ struct ItemCanvasView: View {
             case .skuMerge(let existing):
                 // `state` here is `form(state:)`'s non-optional parameter.
                 skuMergeSheet(existing, state: state)
+            case .recordSale:
+                RecordSaleSheet(
+                    itemTitle: item.title,
+                    itemId: item.id,
+                    currentStatus: item.status,
+                    // The asking price is usually the answer, so seed it. The
+                    // live listing's price wins over the target when there is
+                    // one -- that is what the buyer actually saw.
+                    listedPrice: activeEbayListing?.listingPrice ?? item.targetPrice,
+                    purchasePrice: item.acquiredPrice,
+                    listing: activeEbayListing.map {
+                        SaleRecorder.ListingRef(
+                            id: $0.id,
+                            quantity: $0.quantity,
+                            hasEbayOffer: $0.platformOfferId != nil
+                                || $0.platformListingId != nil
+                        )
+                    },
+                    onRecorded: { outcome in applyRecordedSale(outcome, state: state) }
+                )
             }
         }
         .alert(
@@ -1532,6 +1593,7 @@ struct ItemCanvasView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
+            profitEstimateRow(state: state)
             // Acquisition date (web parity). Optional — the toggle controls
             // whether a date is set so an unset item doesn't default to today.
             Toggle("Set acquired date", isOn: Binding(
@@ -1551,6 +1613,55 @@ struct ItemCanvasView: View {
                 )
             }
         }
+    }
+
+    /// What this price leaves, live, while the seller is typing it.
+    ///
+    /// The number existed on iOS already -- ``ListingProfit``, mirroring the web
+    /// estimator -- but only inside the publish sheet, which is the last screen
+    /// before going live. Pricing is a margin decision, so the margin belongs
+    /// next to the price, which is where web has kept it since US-553.
+    @ViewBuilder
+    private func profitEstimateRow(state: ItemCanvasState) -> some View {
+        let price = currencyFormatter.parse(state.draft.targetPriceText) ?? 0
+        if price > 0 {
+            let cost = currencyFormatter.parse(state.draft.acquiredPriceText)
+            // No shipping cost: the local item mirror does not carry the
+            // column web reads here (inventory_items.shipping_cost), so the
+            // estimate leaves it out rather than inventing a number. It reads
+            // very slightly high on an item where the seller pays the label.
+            let estimate = ListingProfit.estimate(price: price, costBasis: cost)
+            VStack(alignment: .leading, spacing: 4) {
+                LabeledContent("Est. net profit") {
+                    Text("\(currencyFormatter.formatDisplay(estimate.netCents)) · \(Int(estimate.marginPctCents(price: price).rounded()))% margin")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(profitColor(estimate))
+                }
+                Text(profitDetail(estimate, cost: cost))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if cost == nil {
+                    // Without a cost basis the margin is revenue after fees,
+                    // which is the CEILING rather than the answer. Saying so is
+                    // the difference between an estimate and a flattering one.
+                    Text("Enter the purchase price above to see true margin. Until then this is the ceiling, not the answer.")
+                        .font(.caption)
+                        .foregroundStyle(.brandAmber)
+                }
+            }
+        }
+    }
+
+    private func profitColor(_ estimate: ListingProfit) -> Color {
+        if estimate.netCents < 0 { return .brandRed }
+        if estimate.marginPct < 20 { return .brandAmber }
+        return .brandEmerald
+    }
+
+    private func profitDetail(_ estimate: ListingProfit, cost: Double?) -> String {
+        var parts = ["eBay fees ~\(currencyFormatter.formatDisplay(estimate.feesCents))"]
+        parts.append("cost \(currencyFormatter.formatDisplay(cost ?? 0))")
+        return parts.joined(separator: " · ")
     }
 
     /// US-665: realized P&L once the item has sold.
@@ -2205,10 +2316,32 @@ struct ItemCanvasView: View {
     private func statusSection(state: ItemCanvasState) -> some View {
         @Bindable var state = state
         return Section {
+            // US-2260 parity: sold / shipped / completed / returned are NOT
+            // offered here. Picking one wrote the status with no sale behind
+            // it, so sold totals, profit and reconciliation each disagreed
+            // with inventory and nothing surfaced the gap. Recording the sale
+            // is what makes an item sold. The item's CURRENT status stays in
+            // the list either way, or an already-sold item's picker would
+            // render showing something it is not.
             Picker("Status", selection: $state.draft.status) {
-                ForEach(InventoryStage.allKnownStatuses, id: \.self) { status in
+                ForEach(
+                    SaleOwnedStatus.selectable(
+                        from: InventoryStage.allKnownStatuses,
+                        current: item.status
+                    ),
+                    id: \.self
+                ) { status in
                     Text(status.capitalized).tag(status)
                 }
+            }
+            if !SaleOwnedStatus.owns(item.status) {
+                Button {
+                    AppRouter.haptic()
+                    sheet = .recordSale
+                } label: {
+                    Label("Record the sale", systemImage: "dollarsign.circle")
+                }
+                .accessibilityHint("Captures the price and fees, then marks the item sold.")
             }
         } header: {
             Text("Status")
@@ -2217,6 +2350,9 @@ struct ItemCanvasView: View {
                 Text("This item is already in a terminal state. Reverting to a pre-sale status isn't allowed from here.")
                     .font(.footnote)
                     .foregroundStyle(.brandAmber)
+            } else if !SaleOwnedStatus.owns(item.status) {
+                Text("Sold this item? Record the sale instead of picking a status — that captures the price and fees, closes the listing, and sets the status.")
+                    .font(.footnote)
             }
         }
     }

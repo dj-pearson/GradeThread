@@ -4,8 +4,8 @@ import GradeThreadCore
 /// Forward-looking profit/margin estimate for a listing at a given price, so
 /// pricing is a margin decision instead of a guess. Mirrors the web
 /// `estimateListingProfit` (`src/lib/listing-profit.ts`) field-for-field —
-/// same eBay Managed Payments model: a final-value-fee fraction (~13.25%,
-/// which already folds in payment processing) plus a fixed per-order fee.
+/// same eBay Managed Payments model: a final-value-fee fraction (13.6%, which
+/// already folds in payment processing) plus a fixed per-order fee.
 ///
 /// Pure value type so the math is unit-tested without any view plumbing.
 public struct ListingProfit: Equatable {
@@ -18,7 +18,16 @@ public struct ListingProfit: Equatable {
     /// net / price * 100; 0 when price is 0.
     public let marginPct: Double
 
-    public static let defaultFeeRate = 0.1325
+    /// ⚠ CORRECTED (US-2840), from 0.1325 to 0.136. Web moved in US-9003 and iOS did
+    /// not, so this app spent that whole time promising sellers 0.35 points
+    /// more than eBay leaves them, on every item, in the one place the money
+    /// actually leaves their hand. 13.25% is a real eBay rate -- it belongs to
+    /// Coins & Paper Money and the trading-card categories. Apparel is "Most
+    /// categories" at 13.6%, verified against eBay id=4822.
+    ///
+    /// The authority is `src/lib/ebay-fees.ts` (mirrored into the edge). When
+    /// eBay moves the rate again, that file moves first and this follows.
+    public static let defaultFeeRate = 0.136
     public static let defaultFixedFee = 0.40
 
     /// Estimates fees/costs/net/margin for `price`. `costBasis`, `gradingCost`

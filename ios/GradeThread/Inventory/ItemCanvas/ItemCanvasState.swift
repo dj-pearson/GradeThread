@@ -48,6 +48,18 @@ public final class ItemCanvasState {
         StatusGuard.allows(from: original.status, to: candidate)
     }
 
+    /// A status the server changed out from under this screen -- recording a
+    /// sale is the one that exists today.
+    ///
+    /// Moves the BASELINE as well as the draft. Moving only the draft would
+    /// leave the page dirty against a status the seller never picked, so the
+    /// leave-guard would ask about changes they did not make and the next Save
+    /// would push the old value back over the new one.
+    public func applyExternalStatus(_ status: String) {
+        draft.status = status
+        original.status = status
+    }
+
     /// Snapshot the current draft as the new baseline. Called from the
     /// save success path so subsequent edits compute `isDirty` against
     /// the just-saved values, not the stale pre-save snapshot.

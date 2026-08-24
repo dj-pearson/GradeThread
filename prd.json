@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2840",
+  "nextId": "US-2841",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2410,6 +2410,22 @@
         "Changing the eBay category refreshes BOTH the hide-list and the column pairing, so the previous leaf's answer is never left in place."
       ],
       "priority": 3
+    },
+    {
+      "id": "US-2840",
+      "passes": false,
+      "title": "iOS item editor: the two places it reports money differently from web",
+      "description": "Parity audit of the iOS item editor against the web composer turned up four differences that are not missing features but wrong behaviour. Two of them are about money and are fixed together here; the other two (the bare title field, and the missing per-field save/eBay-owned hints) are cosmetic by comparison and follow separately.  ONE. The status picker offered Sold, Shipped, Completed and Returned as words to choose. Picking one wrote inventory_items.status with no sales row behind it, so sold totals, profit and reconciliation each disagreed with inventory and nothing surfaced the gap. Web has refused that pick since US-2260 and routes through a Record Sale dialog instead. iOS had no such dialog at all: SalesStore is read-only, so there was no way to make an item sold on iOS correctly.  TWO. ListingProfit.defaultFeeRate was still 0.1325. Web corrected to 0.136 in US-9003 and iOS did not follow, so every estimate the app showed was 0.35 points optimistic -- and only in the publish sheet, because the item editor showed no estimate at all. The one screen where pricing is decided had no margin on it.",
+      "acceptanceCriteria": [
+        "Recording a sale on iOS inserts a sales row, advances the item to sold forward-only, decrements a multi-quantity listing or closes a single one, and best-effort ends it on eBay. The sale row goes in first; every later step warns rather than failing the sale.",
+        "The item editor's status picker no longer offers sold / shipped / completed / returned, but still lists the item's own current status so an already-sold item's picker is not showing a lie.",
+        "A blank or zero sale price, and any negative fee or cost, are refused before the insert -- a negative fee inflates net profit rather than reducing it.",
+        "A double tap cannot insert two sales rows.",
+        "The status the recorder writes moves the editor's dirty BASELINE too, so the page is not left dirty against a status the seller never picked.",
+        "ListingProfit.defaultFeeRate is 0.136, matching src/lib/ebay-fees.ts, and a test pins it there so the two cannot drift again.",
+        "The item editor shows estimated net profit and margin live under the price, and says plainly that the figure is a ceiling until a purchase price is entered."
+      ],
+      "priority": 2
     }
   ]
 }

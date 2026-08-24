@@ -8,18 +8,27 @@ final class ListingComposerTests: XCTestCase {
 
     func test_profit_basic() {
         let e = ListingProfit.estimate(price: 100, costBasis: 30)
-        // fees = 100 * 0.1325 + 0.40 = 13.65
-        XCTAssertEqual(e.fees, 13.65, accuracy: 0.0001)
+        // fees = 100 * 0.136 + 0.40 = 14.00
+        XCTAssertEqual(e.fees, 14.00, accuracy: 0.0001)
         XCTAssertEqual(e.costs, 30, accuracy: 0.0001)
-        // net = 100 - 13.65 - 30 = 56.35
-        XCTAssertEqual(e.net, 56.35, accuracy: 0.0001)
-        XCTAssertEqual(e.marginPct, 56.35, accuracy: 0.0001)
+        // net = 100 - 14.00 - 30 = 56.00
+        XCTAssertEqual(e.net, 56.00, accuracy: 0.0001)
+        XCTAssertEqual(e.marginPct, 56.00, accuracy: 0.0001)
+    }
+
+    // The rate is not a free parameter: it must equal what the web and edge
+    // charge against, or the same item shows two different profits depending
+    // on which screen the seller is looking at -- and iOS was the optimistic
+    // one for the whole time it disagreed. src/lib/ebay-fees.ts is the source.
+    func test_feeRate_matchesTheSharedEbayFeeModel() {
+        XCTAssertEqual(ListingProfit.defaultFeeRate, 0.136, accuracy: 0.000001)
+        XCTAssertEqual(ListingProfit.defaultFixedFee, 0.40, accuracy: 0.000001)
     }
 
     func test_profit_nilCost_treatedAsZero() {
         let e = ListingProfit.estimate(price: 50, costBasis: nil)
         XCTAssertEqual(e.costs, 0)
-        XCTAssertEqual(e.net, 50 - (50 * 0.1325 + 0.40), accuracy: 0.0001)
+        XCTAssertEqual(e.net, 50 - (50 * 0.136 + 0.40), accuracy: 0.0001)
     }
 
     func test_profit_zeroPrice_noFeesNoMargin() {
