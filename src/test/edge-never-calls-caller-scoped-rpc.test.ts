@@ -133,6 +133,45 @@ export function identityDependent(): Array<{ name: string; file: string; reads: 
   return out;
 }
 
+/**
+ * The OTHER shape, and the one this file used to miss entirely (US-2828).
+ *
+ * `identityDependent` above skips every `security definer` function, on the
+ * reasonable assumption that a DEFINER function takes its subject as an
+ * argument. `flipdesk_price_gap` (00652) disproved it: SECURITY DEFINER, no
+ * user parameter, and `where user_id = auth.uid()` in three places. Called from
+ * the edge that returns an EMPTY result for every seller, silently, with a 200
+ * — which is exactly the failure this file's header describes and exactly what
+ * blocked US-2828's weekly digest for weeks.
+ *
+ * The distinction that matters, and that the first version of this scan got
+ * wrong: READING `auth.uid()` is not SCOPING by it. `admin_audit_log_search`
+ * reads it to look up the caller's role, `revenue_dashboard` names it only in
+ * comments about a guard that was since fixed. Counting those reported four
+ * live problems where there are none. So this requires an owner-column
+ * predicate (`user_id = auth.uid()` and friends), over the function BODY with
+ * comments stripped — a policy or a column DEFAULT elsewhere in the same
+ * migration is not this function's scoping.
+ */
+export function definerRowScoped(): Array<{ name: string; file: string }> {
+  const SCOPES =
+    /\b(?:[a-z0-9_]+\.)?(?:user_id|owner_user_id|seller_id|buyer_id)\s*=\s*auth\.uid\(\)/i;
+  const SCOPES_REV =
+    /auth\.uid\(\)\s*=\s*(?:[a-z0-9_]+\.)?(?:user_id|owner_user_id|seller_id|buyer_id)\b/i;
+  const out: Array<{ name: string; file: string }> = [];
+  for (const [name, d] of currentDefinitions()) {
+    const head = d.text.slice(0, 1200);
+    if (/returns\s+trigger/i.test(head)) continue;
+    if (!/security\s+definer/i.test(head)) continue;
+    const sig = d.text.slice(0, d.text.indexOf(")") + 1);
+    // A p_user_id-style argument IS the fix, so a function carrying one is out.
+    if (/p_(user|owner|seller|buyer)[a-z_]*\s+uuid/i.test(sig)) continue;
+    const body = d.text.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    if (SCOPES.test(body) || SCOPES_REV.test(body)) out.push({ name, file: d.file });
+  }
+  return out;
+}
+
 /** Every `.rpc("name")` in edge PRODUCTION code, with where it is called. */
 function edgeRpcCalls(): Map<string, Set<string>> {
   const files: string[] = [];
@@ -202,5 +241,48 @@ describe("the edge never calls a function that relies on who is asking", () => {
         "fix is a SECURITY DEFINER wrapper taking p_user_id so identity is an " +
         "argument, not an ambient fact — not an entry on a list here.",
     ).toEqual([]);
+  });
+
+  describe("nor one that is SECURITY DEFINER and scopes its rows by the session", () => {
+    const definer = definerRowScoped();
+
+    it("the derivation saw the corpus", () => {
+      // Same reason as above: every number here is a floor on something
+      // derived, so a regex that stops matching fails LOUDLY rather than
+      // reporting a confident zero. This file has already been bitten once by
+      // exactly that — see the `\b` note in the header.
+      expect(
+        definer.length,
+        "no DEFINER row-scoped functions found — the predicate regex has broken",
+      ).toBeGreaterThan(0);
+      // flipdesk_price_gap is the worked example and it must NOT be here: 00662
+      // gave it p_user_id, which is the fix. If it comes back, the fix was
+      // reverted.
+      expect(
+        definer.map((d) => d.name),
+        "flipdesk_price_gap is scoping by the session again — 00662 was reverted",
+      ).not.toContain("flipdesk_price_gap");
+    });
+
+    it("no edge file calls one of them", () => {
+      const violations = definer
+        .filter((d) => calls.has(d.name))
+        .map((d) => `${d.name} (${d.file}) <- ${[...calls.get(d.name)!].join(", ")}`)
+        .sort();
+
+      expect(
+        violations,
+        "an edge file calls a SECURITY DEFINER function that scopes its rows by " +
+          "auth.uid(). The service-role client makes auth.uid() NULL, so this " +
+          "returns an EMPTY result for every seller — silently, with a 200. It is " +
+          "the quieter half of this file's subject and it is what blocked " +
+          "US-2828 for weeks. The fix is the one 00662 applied to " +
+          "flipdesk_price_gap: add `p_user_id uuid default null`, resolve it in a " +
+          "`caller` CTE that honours the argument ONLY for service_role, and " +
+          "scope every predicate to that. A logged-in caller passing someone " +
+          "else's id then gets their own rows rather than an error, so the " +
+          "argument is not an oracle either.",
+      ).toEqual([]);
+    });
   });
 });

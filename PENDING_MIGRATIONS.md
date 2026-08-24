@@ -1,5 +1,78 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED 2026-08-23: 00662 — flipdesk_price_gap takes p_user_id, so a job can ask on a seller's behalf (US-2828)
+
+**CONFIRMED FROM PRODUCTION, not from the fact of the apply.** Two independent
+read-only checks:
+
+1. The live PostgREST OpenAPI document at `api.gradethread.com/rest/v1/` lists
+   `/rpc/flipdesk_price_gap` with args `['p_period_start', 'p_user_id']` -
+   **one** path, so the DROP took the old signature with it and there is no
+   stale overload. PostgREST only advertises what its schema cache holds, so
+   this also proves the `NOTIFY pgrst` landed.
+2. `/health/ready` reports schema `{expected: 00661, applied: 00662,
+   status: "ahead"}`. **Ahead is the correct state right now** and not a
+   problem: the deployed edge still runs the build that expects 00661. The boot
+   guard refuses only a database that is BEHIND. It reads `match` once the push
+   redeploys the edge - which is the documented order, migration first.
+
+**Risk: LOW, and the behaviour change is additive.** One function, rewritten
+with one extra defaulted parameter. Every existing browser call is unchanged:
+`flipdesk_price_gap(p_period_start)` still resolves, still reads the signed-in
+seller, still returns the same figures.
+
+**What it fixes.** The function scored the CALLER's items by reading
+`auth.uid()` in three places. The edge holds the service-role client, where
+`auth.uid()` is NULL, so calling it from a job returned an empty result for
+every seller — silently, with a 200. That is what has blocked US-2828's weekly
+digest and US-2829 AC2.
+
+**The safety property, PROVEN BY EXECUTION on the local stack** (not reasoned
+about — this is the migration US-2828's notes said must not ship on a parse-tree
+assertion):
+
+| caller | `p_user_id` | reads |
+|---|---|---|
+| service_role | B | **B's rows** — the point of the change |
+| authenticated (A) | B | **A's rows** — cannot reach B |
+| authenticated (B) | A | **B's own rows** — the argument is ignored, not refused |
+| service_role | none | nothing — today's behaviour, unchanged |
+
+The argument is ignored rather than rejected for a non-service_role caller, so
+there is no error to probe and it cannot be used as an oracle either.
+
+| Object | What | Risk |
+|---|---|---|
+| `public.flipdesk_price_gap(date)` | dropped | LOW — replaced in the same transaction |
+| `public.flipdesk_price_gap(date, uuid)` | created | LOW — superset of the old signature |
+| grants to `authenticated`, `service_role` | re-issued | **REQUIRED, see below** |
+
+**⚠️ THE RE-ISSUED GRANTS ARE NOT BOILERPLATE.** Dropping a function destroys
+its grants, and the fresh create hands `EXECUTE` back to PUBLIC by the CREATE
+default and nothing else. Measured on the local stack:
+`CREATE OR REPLACE` preserves a prior REVOKE; `DROP` + `CREATE` loses it. So
+00652's two grants are restored explicitly. **No REVOKE anywhere in this file** —
+a denied call from anon or authenticated segfaults this Postgres image
+(US-2403); `gt_require_role` in the body is what replaces it, exactly as 00652
+had it.
+
+**Why the DROP is unavoidable.** Adding a defaulted parameter creates a SECOND
+overload rather than replacing the first, and PostgREST would then find two
+candidates for a one-argument call and fail it as ambiguous. The create still
+says `OR REPLACE` so the file survives a second run (US-2837) — verified,
+applied twice, exit 0 both times, exactly one signature left.
+
+**Apply order:** anywhere after 00652. `NOTIFY pgrst, 'reload schema';`
+afterwards — the signature changed, so PostgREST's cache must be told or the
+browser's existing one-argument call will 404 against a stale entry.
+
+**Nothing in the same commit reads it from the client.** The web caller in
+`src/lib/price-gap.ts` passes only `p_period_start` and is untouched. The edge
+caller that motivated this is NOT in this commit — it is the next step on
+US-2828, and `src/test/edge-never-calls-caller-scoped-rpc.test.ts` now fails
+the build if one is added to a function that has NOT had this treatment.
+
+
 ## ✅ APPLIED 2026-08-23: 00661 — drop inventory_distinct_brands and its index (US-2814)
 
 **CONFIRMED, not assumed.** `/health/ready` reports schema
