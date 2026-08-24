@@ -2481,22 +2481,6 @@
       "notes": "2026-08-24 GATE MOVED HERE. US-2843 and US-2844 were unblocked from the US-2842 spike because a detector and a table are pure local code whose value does not change with the GO or NO-GO. This story is the one that spends real money on comp reads, so it now carries the dependency on US-2842 instead. Do not start it before the spike returns GO."
     },
     {
-      "id": "US-2849",
-      "passes": false,
-      "title": "Flip valueAtGrade to the measured curve behind a flag, so all six callers change at once",
-      "description": "As a seller, I want every price the product quotes me to come from measured condition wherever we have it, so that a 9.0 stops being priced like a 6.0 across sourcing, listing, repricing and the grade result.",
-      "acceptanceCriteria": [
-        "Behind a feature flag, valueAtGrade returns the measured-curve range for cells with a publishable curve and falls back to the existing conditionId range otherwise",
-        "No change is required in routes/grade.ts, routes/public-grading.ts, routes/flipdesk-scout.ts, routes/flipdesk-pricing.ts or lib/grade-band-pricing.ts for those surfaces to receive the measured number, proven by the diff touching none of them",
-        "Turning the flag off restores current behaviour exactly, proven by a test",
-        "comps-cache keys stay query-shaped and non-tenant: the measured path introduces no per-tenant cache key, per the invariant at the top of services/edge-functions/src/lib/comps-cache.ts"
-      ],
-      "priority": 18,
-      "dependsOn": [
-        "US-2848"
-      ]
-    },
-    {
       "id": "US-2850",
       "passes": false,
       "title": "Say what the number is: asking-price slope, sample size, and the cells we cannot answer",
