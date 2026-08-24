@@ -10,7 +10,7 @@ code_refs:
   - supabase/migrations/00099_snap_quota.sql
   - supabase/migrations/00611_body_checks_for_ineffective_revokes.sql
   - supabase/migrations/00617_remaining_metered_function_guards.sql
-reviewed: 2026-08-20
+reviewed: 2026-08-23
 tags: [postgres, security, migrations, grants]
 summary: CREATE FUNCTION grants EXECUTE to PUBLIC and every role belongs to PUBLIC, so revoking a role by name removes a grant it never held alone. Thirteen migrations used that pattern; six secured nothing, for up to three years.
 ---
@@ -47,6 +47,38 @@ by `file:function` in `INEFFECTIVE_REVOKE_GRANDFATHERED` (applied migrations are
 immutable, so they can only be fixed forward); keying on file **and** function
 means a new no-op in one of those same files still fails, and the list may only
 shrink.
+
+> [!note] That file now carries a second ratchet, and it interacts with this one
+> US-2837 added an idempotency rule to `scripts/migrations-lint.mjs`: a
+> `CREATE FUNCTION` must be `CREATE OR REPLACE FUNCTION`. Read alongside this
+> note, that pushes migrations in the SAFER grant direction rather than the
+> riskier one, which is worth knowing before anyone objects to it.
+>
+> **`CREATE OR REPLACE` on an existing function PRESERVES its grants.**
+> `DROP` then `CREATE` does not: dropping destroys the grants with the
+> function, and the fresh create hands `EXECUTE` back to PUBLIC by the default
+> this whole note is about. So a migration that re-creates a previously-secured
+> function by dropping it silently re-opens it, and every `REVOKE` written
+> earlier is undone without a word.
+>
+> Measured on the local stack rather than asserted, reading
+> `has_function_privilege('anon', …, 'EXECUTE')` at each step:
+>
+> | step | anon EXECUTE |
+> |---|---|
+> | fresh `CREATE` | `t` — the PUBLIC default |
+> | after `REVOKE … FROM PUBLIC, anon, authenticated` | `f` |
+> | after `CREATE OR REPLACE` | **`f`** — the revoke survives |
+> | after `DROP` + `CREATE` | **`t`** — the revoke is gone |
+>
+> The last row is the one to remember. It is a silent re-open: the SQL is
+> valid, the migration applies green, and nothing reports that a function
+> secured three years ago is reachable again.
+>
+> The `DROP` is still correct when the ARGUMENT LIST changes — see
+> [[billing-environment-marker]] for the worked case, where the drop is what
+> stops a stale overload staying live. The rule is only that the create
+> alongside it says `OR REPLACE`, so the file can be run twice.
 
 ## The working form
 

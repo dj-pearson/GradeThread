@@ -11,7 +11,7 @@ code_refs:
   - supabase/migrations/00559_billing_environment_marker.sql
   - supabase/migrations/00608_exclude_sandbox_from_revenue.sql
   - supabase/migrations/00609_appstore_transaction_environment.sql
-reviewed: 2026-08-16
+reviewed: 2026-08-23
 tags: [billing, ios, android, revenue, app-store, google-play]
 summary: Sandbox and test purchases are accepted on purpose and must not be counted as money; this is the three-state marker that separates them and the SQL spelling that keeps historical revenue intact.
 ---
@@ -77,10 +77,28 @@ mechanism:
 - `appstore_processed_transactions.environment` (00609) — the Apple
   per-transaction row. It came last because that table is written ONLY through
   the SECURITY DEFINER RPC `grant_appstore_credits`, so stamping it meant a
-  **signature change**: `DROP FUNCTION` then `CREATE FUNCTION` with a seventh
-  parameter, `p_environment text DEFAULT NULL`. `CREATE OR REPLACE` would have
-  left both overloads and made the existing call ambiguous, because Postgres
-  identifies a function by its argument list.
+  **signature change**: `DROP FUNCTION` of the old six-argument signature, then
+  a create with a seventh parameter, `p_environment text DEFAULT NULL`. The
+  drop is the load-bearing half, because Postgres identifies a function by its
+  argument list and a create alone would leave both overloads live.
+
+  > **Corrected 2026-08-23 (US-2837).** This paragraph used to say
+  > "`CREATE OR REPLACE` would have left both overloads", and the file said
+  > `CREATE FUNCTION` to match. That is true of `OR REPLACE` *instead of* the
+  > drop and false of `OR REPLACE` *after* it — measured against the local
+  > stack, from a database still holding the six-argument function:
+  >
+  > | form | result |
+  > |---|---|
+  > | `DROP` + `CREATE OR REPLACE`, run twice | exit 0, exit 0 — **one** signature live |
+  > | the same file with the `DROP` removed | **two** signatures live |
+  >
+  > So the control reproduces the trap and the shipped form does not. The file
+  > now reads `DROP` + `CREATE OR REPLACE`, because a bare `CREATE` cannot
+  > survive a second run — it raises "already exists with same argument types"
+  > and aborts everything after it, breaking US-1108 rule 1. It was the only
+  > migration in 658 that did, and the test asserting the old belief is what
+  > held it there.
 
 The per-transaction rows matter separately from the user column. The user column
 answers "is this account paying"; the transaction rows answer "which of these
