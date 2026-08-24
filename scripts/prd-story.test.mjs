@@ -2,7 +2,9 @@
 // Fixtures are inline prd objects; nothing here touches the real prd.json.
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { isAbsolute } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   addCriteria,
   addNote,
@@ -268,12 +270,23 @@ describe("resolveBacklog", () => {
 // one script's tests is how half of a rule gets updated.
 
 describe("a closed story can still be corrected", () => {
-  const SCRIPT = new URL("./prd-story.mjs", import.meta.url).pathname.replace(/^\//, "");
+  // fileURLToPath, NOT `new URL(...).pathname.replace(/^\//, "")`.
+  //
+  // That form is correct on Windows and BROKEN on Linux, which is the worst
+  // combination available: it passed every local run here and failed three
+  // cases in CI. On Windows the pathname is "/C:/repo/scripts/prd-story.mjs"
+  // and stripping the leading slash yields a usable absolute path. On Linux it
+  // is "/home/runner/work/repo/scripts/prd-story.mjs" and stripping the slash
+  // yields a RELATIVE path that resolves to nothing — so the child process
+  // never started, produced no output at all, and the assertions read an empty
+  // string as "the refusal message is missing".
+  const SCRIPT = fileURLToPath(new URL("./prd-story.mjs", import.meta.url));
+  const CWD = fileURLToPath(new URL("..", import.meta.url));
 
   const run = (args) => {
     try {
       const out = execFileSync(process.execPath, [SCRIPT, ...args], {
-        cwd: new URL("..", import.meta.url).pathname.replace(/^\//, ""),
+        cwd: CWD,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -282,6 +295,31 @@ describe("a closed story can still be corrected", () => {
       return { code: err.status ?? 1, out: `${err.stdout ?? ""}${err.stderr ?? ""}` };
     }
   };
+
+  it("resolves an ABSOLUTE script path and cwd on every platform", () => {
+    // This case exists because its absence cost a red CI. When the paths are
+    // relative, execFileSync throws on the missing cwd BEFORE spawning: there
+    // is no err.status and no err.stdout, so the helper reports code 1 with an
+    // EMPTY string. The other cases then fail with "expected '' to contain
+    // ..." — which reads like the script printed the wrong message, not like it
+    // never ran. Asserting the paths directly names the real fault.
+    expect(isAbsolute(SCRIPT), `SCRIPT is not absolute: ${SCRIPT}`).toBe(true);
+    expect(isAbsolute(CWD), `CWD is not absolute: ${CWD}`).toBe(true);
+    expect(existsSync(SCRIPT), `SCRIPT does not exist: ${SCRIPT}`).toBe(true);
+    expect(existsSync(CWD), `CWD does not exist: ${CWD}`).toBe(true);
+
+    // The four assertions above pass on Windows with the BROKEN form too, so on
+    // their own they could not have caught this. This one pins the trap itself,
+    // with a synthetic POSIX URL, and behaves identically on every platform:
+    // strip the leading slash off a Linux pathname and you get a RELATIVE path.
+    // (The mirror assertion on fileURLToPath is deliberately absent — it
+    // rejects a POSIX file URL when running on Windows, so it could only be
+    // written as a platform branch, and Node's own contract is not ours to
+    // test. What matters is that the discarded form is provably wrong.)
+    const posixPathname = new URL("file:///home/runner/work/gt/scripts/x.mjs").pathname;
+    expect(posixPathname.replace(/^\//, "")).toBe("home/runner/work/gt/scripts/x.mjs");
+    expect(posixPathname.replace(/^\//, "").startsWith("/")).toBe(false);
+  });
 
   it("refuses every command but note and show on the archive", () => {
     // Each refusal must NAME why: "not allowed" sends the next person looking
