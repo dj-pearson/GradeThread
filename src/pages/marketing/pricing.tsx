@@ -276,7 +276,14 @@ export function PricingPage() {
                   {(() => {
                     const buyerPlan = BUYER_PLANS[SELLER_PLAN_BUYER_TIER[key]];
                     return (
-                      <div className="mt-4 rounded-md border border-dashed border-brand-navy/30 p-3 dark:border-foreground/20">
+                      /* US-2833: a DIVIDER, not a second card. This was a
+                         rounded, dashed-bordered box inside the plan card — a
+                         card in a card, which CLAUDE.md's craft floor bans and
+                         impeccable's browser rule flags. A top rule carries the
+                         same grouping signal, keeps the existing dashed
+                         treatment, and leaves one container where there were
+                         two. */
+                      <div className="mt-4 border-t border-dashed border-brand-navy/30 pt-3 dark:border-foreground/20">
                         <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-brand-navy dark:text-foreground">
                           <ShoppingBag className="h-3.5 w-3.5" />
                           Includes {buyerPlan.name} buyer tools
