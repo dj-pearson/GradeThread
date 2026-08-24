@@ -2479,23 +2479,6 @@
         "US-2844"
       ],
       "notes": "2026-08-24 GATE MOVED HERE. US-2843 and US-2844 were unblocked from the US-2842 spike because a detector and a table are pure local code whose value does not change with the GO or NO-GO. This story is the one that spends real money on comp reads, so it now carries the dependency on US-2842 instead. Do not start it before the spike returns GO."
-    },
-    {
-      "id": "US-2851",
-      "passes": false,
-      "title": "The sourcing ceiling: what a garment is worth at the grade in your hand, and what to stop paying above",
-      "description": "As a reseller standing in a thrift store, I want a maximum price to pay for this garment at the condition it is actually in, so that the buy-or-skip call is a number instead of a feeling.",
-      "acceptanceCriteria": [
-        "services/edge-functions/src/routes/flipdesk-scout.ts returns a ceiling derived from the measured range at the read grade and the workspace margin target, alongside the existing value range",
-        "The ceiling is absent rather than guessed when the cell has no publishable curve",
-        "The margin input is the existing workspace setting, not a new hardcoded multiplier",
-        "iOS and Android Prospect surfaces show the ceiling, or the story notes state which client is deferred and why",
-        "Tenant scoping is unchanged, the route stays scoped per US-268, and a tenant-isolation_test.ts case covers the new response field"
-      ],
-      "priority": 20,
-      "dependsOn": [
-        "US-2849"
-      ]
     }
   ]
 }
