@@ -2481,22 +2481,6 @@
       "notes": "2026-08-24 GATE MOVED HERE. US-2843 and US-2844 were unblocked from the US-2842 spike because a detector and a table are pure local code whose value does not change with the GO or NO-GO. This story is the one that spends real money on comp reads, so it now carries the dependency on US-2842 instead. Do not start it before the spike returns GO."
     },
     {
-      "id": "US-2848",
-      "passes": false,
-      "title": "Shadow the measured answer against the live one before anybody sees it",
-      "description": "As the GradeThread team, we want valueAtGrade to compute the measured-curve range alongside the current conditionId range and log both while changing nothing on screen, so that we can compare them on real traffic before flipping.",
-      "acceptanceCriteria": [
-        "valueAtGrade in services/edge-functions/src/lib/condition-value.ts computes both ranges when a measured curve exists and still returns the existing conditionId range unchanged",
-        "Both ranges plus cell key, sample size and the delta are logged through the pattern established in services/edge-functions/src/lib/grading-shadow.ts",
-        "The shadow branch adds no blocking eBay call to the request path and never fails the caller: an error there is swallowed and counted, proven by a test that throws inside it",
-        "An admin route or documented query reports median absolute delta by cell over a date range"
-      ],
-      "priority": 17,
-      "dependsOn": [
-        "US-2846"
-      ]
-    },
-    {
       "id": "US-2849",
       "passes": false,
       "title": "Flip valueAtGrade to the measured curve behind a flag, so all six callers change at once",
