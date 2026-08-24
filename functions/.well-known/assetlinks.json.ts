@@ -29,7 +29,10 @@ interface AssetLinksEnv {
   ANDROID_PACKAGE_NAME?: string;
 }
 
-const DEFAULT_PACKAGE_NAME = "com.gradethread.app";
+// The Android applicationId, which is NOT the iOS bundle id and NOT the Kotlin
+// namespace — both of those are com.gradethread.app. The Play record was
+// created as myapp and a Play package name cannot be changed after the fact.
+const DEFAULT_PACKAGE_NAME = "com.gradethread.myapp";
 
 export const onRequestGet: PagesFunction<AssetLinksEnv> = ({ env }) => {
   // Accept one or many comma/whitespace-separated fingerprints; normalize to the

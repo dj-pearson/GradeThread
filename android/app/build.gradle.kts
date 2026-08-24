@@ -83,7 +83,13 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.gradethread.app"
+        // NOT the same as `namespace` above, and that is deliberate rather than
+        // a typo. The Play Console record was created as com.gradethread.myapp
+        // and Play locks a package name to a record permanently, so the store
+        // identity is myapp while the Kotlin package stays com.gradethread.app.
+        // Changing this to match the namespace would orphan the store listing.
+        // The iOS bundle id is com.gradethread.app, so the two stores differ.
+        applicationId = "com.gradethread.myapp"
         // minSdk 26 (Android 8.0): covers ~97% of devices while keeping
         // java.time, notification channels, and adaptive icons native.
         minSdk = 26

@@ -14,7 +14,7 @@ factual answers aligned, not the wording).
 | Fact | Value |
 |---|---|
 | Store title | GradeThread (11/30 chars) |
-| Package name | `com.gradethread.app` — **permanent, cannot be changed after first upload** |
+| Package name | `com.gradethread.myapp` — **permanent, cannot be changed after first upload** |
 | Developer | Pearson Media LLC (Iowa) |
 | minSdk / targetSdk | 26 (Android 8.0) / 35 — meets Play's API 35 floor for new apps |
 | Artifact | App Bundle (`.aab`), ABI + density splits on, language split off |
@@ -37,7 +37,7 @@ Read this first. Everything else in this file is fillable once these are true.
 |---|---|---|---|
 | 1 | **In-app account deletion.** Play's User Data policy requires an in-app path for any app that lets users create an account, plus a web URL. Settings → Delete account previously showed "email support@gradethread.com", which does not satisfy it. | Code | **Fixed** — `SettingsViewModel.confirmDeleteAccount` now calls `POST /api/account/delete` behind a typed confirmation, mirroring the web flow. |
 | 2 | **Data deletion URL.** Play Console → Data safety asks for a public page describing deletion. | Web | **Fixed** — `/account-deletion`, registered in `src/lib/seo/public-routes.ts`. |
-| 3 | **Play Console app record + upload key.** No app record exists yet, and `ANDROID_KEYSTORE_BASE64` / `PLAY_SERVICE_ACCOUNT_JSON` must be in Infisical `prod /` before the release lane can build a signed bundle. | Operator | ☐ |
+| 3 | **Upload key.** The Play Console record exists (`com.gradethread.myapp`). `ANDROID_KEYSTORE_BASE64` / `PLAY_SERVICE_ACCOUNT_JSON` must be in Infisical `prod /` before the release lane can build a signed bundle. | Operator | ☐ |
 | 4 | **10 in-app products created in Play Console** with ids matching `ANDROID_CATALOG` exactly (§5). The server fails closed on an unknown id, so a typo is a charge with no entitlement. | Operator | ☐ |
 | 5 | **Reviewer demo account.** The app is login-gated end to end; without credentials in App access, review returns "we could not access the app". | Operator | ☐ |
 | 6 | **Screenshots.** `metadata/.../phoneScreenshots/` holds a README and no PNGs. Play will not accept a listing without at least 2 phone screenshots. | Operator | ☐ |
@@ -451,7 +451,7 @@ above and let Play convert; do not hand-set regional prices to match a USD figur
 | Var | Value | Consequence if missing |
 |---|---|---|
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | Play Developer API service-account JSON, as content | Every verify call fails; buyer charged, no entitlement |
-| `GOOGLE_PLAY_PACKAGE_NAME` | `com.gradethread.app` | Same |
+| `GOOGLE_PLAY_PACKAGE_NAME` | `com.gradethread.myapp` | Same |
 | `GOOGLE_RTDN_WEBHOOK_SECRET` | A shared secret, also on the Pub/Sub push subscription | Real-time lapse and refund reconciliation never fire; the daily sweep still catches it within 72h |
 | `GOOGLEPLAY_SWEEP_GRACE_HOURS` | Optional, defaults to 72 | — |
 
@@ -553,7 +553,7 @@ touches `android/**`.
 ## 7. Pre-submission checklist
 
 - [ ] Play Console developer account verified (identity + D-U-N-S if an organization)
-- [ ] App record created with package `com.gradethread.app`
+- [ ] App record created with package `com.gradethread.myapp`
 - [ ] Upload keystore generated and in Infisical `prod /` (4 vars)
 - [ ] `PLAY_SERVICE_ACCOUNT_JSON` in Infisical with release-manager rights
 - [ ] `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` + `GOOGLE_PLAY_PACKAGE_NAME` + `GOOGLE_RTDN_WEBHOOK_SECRET` in Coolify

@@ -593,6 +593,30 @@ list; the ones that have actually bitten us are below.
 
 ---
 
+## 6b. Infisical — Android prod (pulled by `android-release.yml`)
+
+Same Infisical path as the iOS section above (project `grade-thread`, env
+`prod`, path `/`). The release lane asserts the five signing/publishing values by
+name before it builds; **it does not assert the seven baked into the binary**,
+and `app/build.gradle.kts` turns a missing one into an empty string rather than a
+build failure. An AAB built without `SUPABASE_ANON_KEY` installs, opens, and
+cannot sign anyone in. Step-by-step setup: `android/PLAY_SETUP_RUNBOOK.md`.
+
+| Variable | Where it goes | What it is |
+|---|---|---|
+| `ANDROID_KEYSTORE_BASE64` 🔒 | 🟡 Infisical prod | Base64 of the upload keystore (`.jks`). Absent means an UNSIGNED bundle, which the lane fails on. |
+| `ANDROID_KEYSTORE_PASSWORD` 🔒 / `ANDROID_KEY_PASSWORD` 🔒 | 🟡 Infisical prod | Store and key passwords for that keystore. |
+| `ANDROID_KEY_ALIAS` | 🟡 Infisical prod | Key alias, `gradethread` by default. |
+| `PLAY_SERVICE_ACCOUNT_JSON` 🔒 | 🟡 Infisical prod | Play Developer API service-account JSON for fastlane `supply`, passed as content so no key file is written to disk. The **publishing** account, distinct from the billing one in section 4. |
+| `SUPABASE_ANON_KEY` | 🟡 Infisical prod | Baked into `BuildConfig`. **Empty means nobody can sign in to the shipped app**, with no build error. |
+| `TURNSTILE_SITE_KEY` | 🟡 Infisical prod | Same key as the iOS build. Android has no `ALLOW_NO_CAPTCHA` equivalent and does not fail when it is empty. |
+| `SENTRY_DSN` / `POSTHOG_API_KEY` / `POSTHOG_HOST` | ⬜ Infisical prod | Baked into `BuildConfig`; blank disables that client. |
+| `FIREBASE_PROJECT_ID` / `FIREBASE_APP_ID` / `FIREBASE_API_KEY` / `FIREBASE_SENDER_ID` | ⬜ Infisical prod | Push config, read from `BuildConfig` rather than a committed `google-services.json`. All four or none: any blank disables push instead of half-initializing. Pairs with `FCM_SERVICE_ACCOUNT_JSON` on the edge (section 4). |
+| `SENTRY_AUTH_TOKEN` / `SENTRY_ORG` / `SENTRY_PROJECT_ANDROID` | ⬜ Infisical prod | R8 mapping upload. Skipped, not failed, when absent — without it every Android crash in Sentry is unreadable. |
+| `ANDROID_VERSION_CODE` / `ANDROID_VERSION_NAME` | ⬜ workflow | Not secrets. The code is the Actions run number; the name comes from the `android-v*` tag. |
+
+---
+
 ## 7. GitHub Actions secrets
 
 | Variable | Where it goes | What it is |

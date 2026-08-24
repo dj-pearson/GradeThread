@@ -28,7 +28,9 @@ import { dirname, join } from "node:path";
 import { adbPath, androidDir, resolveSdk } from "./toolchain.mjs";
 
 const isWindows = platform() === "win32";
-const APP_ID = "com.gradethread.app";
+// The installed package, i.e. the applicationId — not the Kotlin namespace
+// (com.gradethread.app), which adb knows nothing about.
+const APP_ID = "com.gradethread.myapp";
 const DEBUG_APP_ID = `${APP_ID}.debug`;
 const AVD_NAME = "gradethread_pixel6_api34";
 // aosp-atd: the automated-test image. No Play services, no launcher, no

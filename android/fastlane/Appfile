@@ -5,4 +5,6 @@
 # Play publishing key on the runner filesystem for the rest of the job.
 json_key_data(ENV["PLAY_SERVICE_ACCOUNT_JSON"]) if ENV["PLAY_SERVICE_ACCOUNT_JSON"]
 
-package_name("com.gradethread.app")
+# The Play Console record's package name, which is the applicationId in
+# app/build.gradle.kts — NOT the Kotlin namespace, which is com.gradethread.app.
+package_name("com.gradethread.myapp")
