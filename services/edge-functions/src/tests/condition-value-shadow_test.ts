@@ -9,6 +9,7 @@ import {
   buildObservation,
   CURVE_CACHE_TTL_MS,
   type MeasuredCurve,
+  measuredFlipEnabled,
   measuredRangeAtGrade,
   observeMeasuredShadow,
   readMeasuredCurve,
@@ -16,6 +17,7 @@ import {
   resetShadowCurveCache,
   shadowCounters,
   type ShadowCurveClient,
+  shouldServeMeasured,
   type ShadowSampleRow,
   type ShadowWriteClient,
   shadowEnabled,
@@ -24,6 +26,7 @@ import {
   toShadowSampleRow,
 } from "../lib/condition-value-shadow.ts";
 import { type ValueRange } from "../lib/condition-value-math.ts";
+import { applyMeasuredCurve } from "../lib/condition-value.ts";
 
 // A measured curve over grades 4..9, 1000 cents per grade point, band 500.
 function curve(over: Partial<MeasuredCurve> = {}): MeasuredCurve {
@@ -224,7 +227,9 @@ Deno.test("no measured curve: nothing written, counted as missing", async () => 
     7,
     live(),
   );
-  assertEquals(out, null);
+  assertEquals(out.served, "live");
+  assertEquals(out.range, live());
+  assertEquals(out.measured, null);
   assertEquals(written.length, 0);
   assertEquals(shadowCounters().missing, 1);
   assertEquals(shadowCounters().observed, 0);
@@ -240,11 +245,15 @@ Deno.test("a measured curve is compared, recorded, and keyed by the cell", async
     7,
     live(),
   );
-  assertEquals(out?.medianCents, 7000);
+  assertEquals(out.measured?.medianCents, 7000);
+  // Flag off by default: the live range is still what ships.
+  assertEquals(out.served, "live");
+  assertEquals(out.range.medianCents, 6200);
   assertEquals(written.length, 1);
   assertEquals(written[0].cell_key, "patagonia|11450|better sweater");
   assertEquals(written[0].delta_cents, 800);
   assertEquals(shadowCounters().observed, 1);
+  assertEquals(shadowCounters().servedMeasured, 0);
 });
 
 Deno.test("a throw inside the shadow is swallowed and counted", async () => {
@@ -261,7 +270,8 @@ Deno.test("a throw inside the shadow is swallowed and counted", async () => {
     7,
     live(),
   );
-  assertEquals(out, null);
+  assertEquals(out.served, "live");
+  assertEquals(out.range, live());
   assertEquals(shadowCounters().failed, 1);
 });
 
@@ -275,7 +285,7 @@ Deno.test("a failed write is counted, not thrown", async () => {
     live(),
   );
   // The comparison still happened; only its durable record failed.
-  assertEquals(out?.medianCents, 7000);
+  assertEquals(out.measured?.medianCents, 7000);
   assertEquals(shadowCounters().failed, 1);
   assertEquals(shadowCounters().observed, 1);
 });
@@ -290,7 +300,8 @@ Deno.test("disabled means no lookup at all", async () => {
     7,
     live(),
   );
-  assertEquals(out, null);
+  assertEquals(out.served, "live");
+  assertEquals(out.range, live());
   assertEquals(calls, 0);
 });
 
@@ -298,6 +309,173 @@ Deno.test("the kill switch is off-by-explicit-false only", () => {
   assertEquals(shadowEnabled(() => undefined), true);
   assertEquals(shadowEnabled(() => "true"), true);
   assertEquals(shadowEnabled(() => "FALSE"), false);
+});
+
+// ── the flip (US-2849) ──────────────────────────────────────────────
+
+Deno.test("the flip flag is off unless explicitly turned on", () => {
+  assertEquals(measuredFlipEnabled(() => undefined), false);
+  assertEquals(measuredFlipEnabled(() => ""), false);
+  assertEquals(measuredFlipEnabled(() => "false"), false);
+  assertEquals(measuredFlipEnabled(() => "TRUE"), true);
+  assertEquals(measuredFlipEnabled(() => "1"), true);
+  assertEquals(measuredFlipEnabled(() => "on"), true);
+});
+
+Deno.test("shouldServeMeasured refuses an insufficient range even with the flag on", () => {
+  const good = measuredRangeAtGrade(curve(), 7);
+  const refused = measuredRangeAtGrade(curve(), 9.5);
+  assertEquals(shouldServeMeasured(good, true), true);
+  assertEquals(shouldServeMeasured(good, false), false);
+  assertEquals(shouldServeMeasured(refused, true), false);
+  assertEquals(shouldServeMeasured(null, true), false);
+});
+
+Deno.test("flag on: the measured range is what ships", async () => {
+  resetShadowCurveCache();
+  resetShadowCounters();
+  const written: ShadowSampleRow[] = [];
+  const out = await observeMeasuredShadow(
+    { read: readClient(CURVE_ROW), write: writeClient(written), flip: true },
+    { categoryId: "11450", brand: "Patagonia", q: "Better Sweater" },
+    7,
+    live(),
+  );
+  assertEquals(out.served, "measured");
+  assertEquals(out.range.medianCents, 7000);
+  assertEquals(shadowCounters().servedMeasured, 1);
+  // The comparison is still recorded when the flip is on: the point of the
+  // table survives the flip, or nobody can audit what the flip did.
+  assertEquals(written.length, 1);
+});
+
+Deno.test("flag on but the grade is outside the measured span: live still ships", async () => {
+  resetShadowCurveCache();
+  resetShadowCounters();
+  const out = await observeMeasuredShadow(
+    { read: readClient(CURVE_ROW), write: writeClient([]), flip: true },
+    { categoryId: "11450", brand: "Patagonia", q: "Better Sweater" },
+    9.5,
+    live(),
+  );
+  assertEquals(out.served, "live");
+  assertEquals(out.range.medianCents, 6200);
+  assertEquals(shadowCounters().servedMeasured, 0);
+});
+
+Deno.test("flag on but the shadow throws: live still ships, price never breaks", async () => {
+  resetShadowCurveCache();
+  resetShadowCounters();
+  const exploding: ShadowCurveClient = {
+    from: () => {
+      throw new Error("curve read exploded mid-flip");
+    },
+  };
+  const out = await observeMeasuredShadow(
+    { read: exploding, write: writeClient([]), flip: true },
+    { categoryId: "11450", brand: "Patagonia" },
+    7,
+    live(),
+  );
+  assertEquals(out.served, "live");
+  assertEquals(out.range, live());
+  assertEquals(shadowCounters().failed, 1);
+});
+
+Deno.test("flag OFF returns byte-for-byte what the live range was", async () => {
+  resetShadowCurveCache();
+  resetShadowCounters();
+  const input = live();
+  const out = await observeMeasuredShadow(
+    { read: readClient(CURVE_ROW), write: writeClient([]) },
+    { categoryId: "11450", brand: "Patagonia", q: "Better Sweater" },
+    7,
+    input,
+  );
+  assertEquals(out.served, "live");
+  // Identity, not just equality: nothing rebuilt or rounded the caller's range.
+  assert(out.range === input);
+});
+
+Deno.test("recording off, flip on: the measured range still ships and nothing is written", async () => {
+  resetShadowCurveCache();
+  resetShadowCounters();
+  const written: ShadowSampleRow[] = [];
+  const out = await observeMeasuredShadow(
+    { read: readClient(CURVE_ROW), write: writeClient(written), flip: true, record: false },
+    { categoryId: "11450", brand: "Patagonia", q: "Better Sweater" },
+    7,
+    live(),
+  );
+  assertEquals(out.served, "measured");
+  assertEquals(written.length, 0);
+});
+
+// ── the choke point (US-2849 AC2) ───────────────────────────────────
+//
+// applyMeasuredCurve is the single place valueAtGrade and cachedValueAtGrade
+// both end at. If these hold, every one of the six surfaces named in the story
+// gets the flip with no edit of its own.
+
+const ITEM = { categoryId: "11450", brand: "Patagonia", q: "Better Sweater" };
+
+Deno.test("choke point, both switches off: live is returned and nothing is read", async () => {
+  resetShadowCurveCache();
+  resetShadowCounters();
+  let calls = 0;
+  const input = live();
+  const out = await applyMeasuredCurve(ITEM, 7, input, {
+    read: readClient(CURVE_ROW, () => calls++),
+    write: writeClient([]),
+    flip: false,
+    record: false,
+  });
+  assert(out === input, "the caller's own range was not handed straight back");
+  assertEquals(calls, 0, "a disabled shadow still hit the database");
+});
+
+Deno.test("choke point, flag off: the measured curve is read and ignored", async () => {
+  resetShadowCurveCache();
+  resetShadowCounters();
+  const written: ShadowSampleRow[] = [];
+  const out = await applyMeasuredCurve(ITEM, 7, live(), {
+    read: readClient(CURVE_ROW),
+    write: writeClient(written),
+    flip: false,
+    record: true,
+  });
+  assertEquals(out.medianCents, 6200);
+  assertEquals(written.length, 1, "the comparison was not recorded");
+  assertEquals(shadowCounters().servedMeasured, 0);
+});
+
+Deno.test("choke point, flag on: the measured range is returned", async () => {
+  resetShadowCurveCache();
+  resetShadowCounters();
+  const out = await applyMeasuredCurve(ITEM, 7, live(), {
+    read: readClient(CURVE_ROW),
+    write: writeClient([]),
+    flip: true,
+  });
+  assertEquals(out.medianCents, 7000);
+  assertEquals(shadowCounters().servedMeasured, 1);
+});
+
+Deno.test("choke point never throws, whatever the shadow does", async () => {
+  resetShadowCurveCache();
+  resetShadowCounters();
+  const exploding: ShadowCurveClient = {
+    from: () => {
+      throw new Error("everything is on fire");
+    },
+  };
+  const input = live();
+  const out = await applyMeasuredCurve(ITEM, 7, input, {
+    read: exploding,
+    write: writeClient([]),
+    flip: true,
+  });
+  assertEquals(out, input);
 });
 
 // ── the report ──────────────────────────────────────────────────────

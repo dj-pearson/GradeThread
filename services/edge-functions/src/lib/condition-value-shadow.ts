@@ -2,9 +2,16 @@
 //
 // valueAtGrade returns a range built from conditionId-filtered comps. US-2841
 // says a range built from a price-vs-grade slope fitted on MEASURED condition
-// beats it. Before a seller sees either claim settled, the two run side by side
-// on real traffic and the gap is recorded. US-2849 flips which one is returned;
-// this story only watches.
+// beats it. The two run side by side on real traffic and the gap is recorded.
+//
+// US-2849 added the flip. CONDITION_VALUE_MEASURED decides which of the two
+// ranges the caller gets, and it DEFAULTS OFF: with the flag unset this file
+// still only watches, which is what makes "turn it off and nothing changed" a
+// property rather than a hope. The two switches are separate on purpose:
+//   CONDITION_VALUE_SHADOW=false   stops the RECORDING.
+//   CONDITION_VALUE_MEASURED=true  starts SERVING the measured range.
+// The flip implies the lookup, so turning the recording off never silently
+// disarms a flip that is on.
 //
 // THREE REFUSALS, all of them the reason this file is separate from the flip.
 //
@@ -32,11 +39,45 @@ import { logEvent, recordMetric } from "./observability.ts";
 
 export const SHADOW_SAMPLES_TABLE = "condition_value_shadow_samples";
 
-/** Kill switch. Shadow is ON unless an operator sets this to "false". */
+/** Kill switch for the RECORDING. On unless an operator sets this to "false". */
 export function shadowEnabled(
   read: (k: string) => string | undefined = (k) => Deno.env.get(k),
 ): boolean {
   return (read("CONDITION_VALUE_SHADOW") ?? "").toLowerCase() !== "false";
+}
+
+/**
+ * The flip (US-2849). OFF unless an operator explicitly turns it on.
+ *
+ * DEFAULT-OFF IS THE POINT. A flip that defaults on is not a flip, it is a
+ * release, and "the flag off restores current behaviour exactly" stops being
+ * checkable the moment the default does anything.
+ */
+export function measuredFlipEnabled(
+  read: (k: string) => string | undefined = (k) => Deno.env.get(k),
+): boolean {
+  const v = (read("CONDITION_VALUE_MEASURED") ?? "").toLowerCase();
+  return v === "true" || v === "1" || v === "on";
+}
+
+/** Which range a request was answered with. */
+export type ServedRange = "live" | "measured";
+
+/**
+ * May this measured range be served?
+ *
+ * A row only carries provenance = 'measured' if publishable() let it through
+ * (US-2846), so the publish gate is already spent by the time the row exists
+ * and is not re-litigated here. What IS re-checked is the grade: a measured
+ * curve that declined to answer at THIS grade must not be served as though it
+ * had, so an insufficient range falls back to live even with the flag on.
+ */
+export function shouldServeMeasured(
+  measured: ValueRange | null,
+  flipOn: boolean,
+): boolean {
+  return flipOn && measured != null && measured.sufficient &&
+    measured.medianCents != null;
 }
 
 // ── The measured range, purely ──────────────────────────────────────
@@ -229,9 +270,11 @@ export interface ShadowCounters {
   observed: number;
   /** Anything that threw or errored inside the shadow branch. */
   failed: number;
+  /** US-2849: requests actually answered with the measured range. */
+  servedMeasured: number;
 }
 
-const counters: ShadowCounters = { missing: 0, observed: 0, failed: 0 };
+const counters: ShadowCounters = { missing: 0, observed: 0, failed: 0, servedMeasured: 0 };
 
 export function shadowCounters(): ShadowCounters {
   return { ...counters };
@@ -241,6 +284,7 @@ export function resetShadowCounters(): void {
   counters.missing = 0;
   counters.observed = 0;
   counters.failed = 0;
+  counters.servedMeasured = 0;
 }
 
 // ── The lookup, with a small TTL cache ───────────────────────────────
@@ -364,38 +408,67 @@ export interface ShadowDeps {
   write: ShadowWriteClient;
   /** Injected so a test can prove the caller survives a throw in here. */
   now?: () => number;
+  /** Do the lookup at all. False short-circuits to the live range. */
   enabled?: boolean;
+  /** Write the sample row and the log line. Default true. */
+  record?: boolean;
+  /** US-2849: serve the measured range when it is servable. Default false. */
+  flip?: boolean;
+}
+
+/** What the caller gets back: the range to serve, and which one it is. */
+export interface ShadowOutcome {
+  range: ValueRange;
+  served: ServedRange;
+  /** The measured range when there was one, servable or not. Null otherwise. */
+  measured: ValueRange | null;
 }
 
 /**
- * Compare the measured range against the live one and record the gap.
+ * Compare the measured range against the live one, record the gap, and decide
+ * which of the two the caller serves.
  *
- * Returns the measured range when there is one, so US-2849 has its choke point
- * already wired and can flip by choosing which range to return. Returns null
- * for every other outcome: no curve, disabled, or anything going wrong at all.
- * The caller's contract is unchanged either way: it returns the live range.
+ * ONE FUNCTION DECIDES AND LOGS. Splitting the decision from the log line would
+ * let the two drift, and a log that says "served: measured" on a request that
+ * shipped the live number is worse than no log at all.
+ *
+ * Falls back to the live range for every unhappy outcome: no curve, disabled,
+ * flag off, a grade the curve declined, or anything at all going wrong.
  */
 export async function observeMeasuredShadow(
   deps: ShadowDeps,
   item: ItemIdentity,
   gradeValue: number | null,
   live: ValueRange,
-): Promise<ValueRange | null> {
-  if (deps.enabled === false) return null;
+): Promise<ShadowOutcome> {
+  const liveOnly: ShadowOutcome = { range: live, served: "live", measured: null };
+  if (deps.enabled === false) return liveOnly;
   const now = deps.now ?? Date.now;
+  const record = deps.record !== false;
   const cellKey = normalizeItemKey(item);
   try {
     const curve = await readMeasuredCurve(deps.read, cellKey, now());
     if (!curve) {
       counters.missing++;
-      return null;
+      return liveOnly;
     }
 
     const measured = measuredRangeAtGrade(curve, gradeValue);
     const observation = buildObservation(cellKey, gradeValue, live, measured);
     counters.observed++;
 
+    const serveMeasured = shouldServeMeasured(measured, deps.flip === true);
+    const outcome: ShadowOutcome = {
+      range: serveMeasured ? measured : live,
+      served: serveMeasured ? "measured" : "live",
+      measured,
+    };
+    if (serveMeasured) counters.servedMeasured++;
+
+    if (!record) return outcome;
+
     logEvent("info", "condition-value.shadow", {
+      served: outcome.served,
       cell_key: observation.cellKey,
       grade: observation.grade,
       live_median_cents: observation.liveMedianCents,
@@ -412,6 +485,7 @@ export async function observeMeasuredShadow(
     if (observation.deltaCents != null) {
       recordMetric("condition_value.shadow_abs_delta_cents", Math.abs(observation.deltaCents), {
         cell_key: observation.cellKey,
+        served: outcome.served,
       });
     }
 
@@ -425,14 +499,17 @@ export async function observeMeasuredShadow(
         error: error.message,
       });
     }
-    return measured;
+    return outcome;
   } catch (err) {
     counters.failed++;
     logEvent("warn", "condition-value.shadow_failed", {
       cell_key: cellKey,
       error: err instanceof Error ? err.message : String(err),
     });
-    return null;
+    // A failure here CANNOT change the price. Falling back to live is the whole
+    // safety property of the flip: the worst case for a seller stays today's
+    // answer even when the measured path breaks mid-flip.
+    return liveOnly;
   }
 }
 
