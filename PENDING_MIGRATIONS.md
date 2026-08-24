@@ -1,5 +1,47 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00663 — comp_condition_reads, the comp condition sample store (US-2844)
+
+**What it does.** Creates one new table, `public.comp_condition_reads`. One row
+per comp listing we read for condition, keyed by a SHA-256 hash of the
+listing's sorted photo hashes so the same listing is never paid for twice. It
+carries a cell key, a 1.0-10.0 score, a confidence, an image count, an asking
+price, a stock-rejection flag and its reasons. It carries no seller, no listing
+id, no URL, no title and no image bytes, by design and by test.
+
+**Risk: LOW.** Additive only. One CREATE TABLE, two indexes, RLS enabled with
+zero policies and a REVOKE from anon and authenticated, matching
+`condition_price_curves` in 00098. Nothing existing is altered or dropped, and
+nothing reads the table yet — the worker that writes it is US-2845 and is gated
+on the US-2842 spike.
+
+**Apply order.** After 00662. It depends on nothing but `applied_migrations`.
+
+**Client-side reads: NONE.** No frontend code touches this table, so a
+Cloudflare Pages deploy landing before the SQL is applied changes nothing a
+user can see. The edge boot guard handles the edge side: `EXPECTED_SCHEMA_VERSION`
+is bumped to `00663` in the same commit.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — a new table changed the
+schema, and PostgREST will not see it otherwise.
+
+**verify:db: RUN AND GREEN.** All 5 checks passed, including
+`supabase db reset --no-seed`, which re-applies every migration from zero. Then
+proven directly against the local Postgres rather than inferred from the lane:
+the table has 11 columns, RLS is on with zero policies, `applied_migrations`
+carries `00663` from the self-record footer, a duplicate `photo_set_hash`
+insert is `INSERT 0 0` and leaves the first row untouched, and all three CHECK
+constraints raise.
+
+**One defect was found this way and fixed before the commit.** The
+`rejected_has_reason` CHECK was written as `array_length(stock_reasons, 1) >= 1`
+and was INERT: `array_length('{}', 1)` is NULL, not 0, and a CHECK evaluating to
+NULL passes. A rejected read with no reason inserted cleanly. It now reads
+`coalesce(array_length(stock_reasons, 1), 0) >= 1`, re-proven after a full reset.
+00663 was amended in place because it had never been committed, pushed, or
+applied to prod.
+
+
 ## ✅ APPLIED 2026-08-23: 00662 — flipdesk_price_gap takes p_user_id, so a job can ask on a seller's behalf (US-2828)
 
 **CONFIRMED FROM PRODUCTION, not from the fact of the apply.** Two independent

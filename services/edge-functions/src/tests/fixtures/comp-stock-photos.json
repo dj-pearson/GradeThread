@@ -1,0 +1,1049 @@
+{
+  "_readme": [
+    "US-2843 AC2. Labelled listing photo sets for the stock-photo detector gate.",
+    "",
+    "WHAT THIS IS, AND WHAT IT IS NOT. These are hand-authored METADATA sets, not",
+    "images sampled from live eBay listings, because the calibration spike",
+    "(US-2842) that would give us real ones cannot run without production",
+    "credentials. So this fixture proves the predicate behaves as specified. It",
+    "does NOT prove the tells generalise to the real marketplace. Replace these",
+    "with sampled real sets when US-2842 runs, and re-record the baselines in",
+    "comp-stock-photo_test.ts against whatever they then measure.",
+    "",
+    "TWO CASES ARE KEPT BECAUSE THEY FAIL. S15 is a catalog set the detector",
+    "misses, and E15 is a seller set it wrongly flags. Deleting them would lift",
+    "the scores and teach the next reader nothing. They are the honest edges of",
+    "what metadata alone can decide.",
+    "",
+    "hashCellCounts maps a photo hash to the number of DISTINCT cells it has been",
+    "seen under. Anything absent counts as one."
+  ],
+  "hashCellCounts": {
+    "catalog-nike-tech-fleece-hero": 3,
+    "catalog-adidas-tiro-hero": 4,
+    "catalog-patagonia-better-sweater-hero": 5,
+    "catalog-carhartt-detroit-hero": 6,
+    "catalog-northface-nuptse-hero": 3,
+    "catalog-lululemon-define-hero": 4,
+    "catalog-levis-501-hero": 5,
+    "catalog-columbia-fleece-hero": 6,
+    "catalog-uniqlo-ultralight-hero": 3,
+    "catalog-champion-reverse-weave-hero": 4,
+    "catalog-dickies-874-hero": 5,
+    "catalog-under-armour-storm-hero": 6,
+    "catalog-single-vans-hero": 2
+  },
+  "sets": [
+    {
+      "id": "S01",
+      "cellKey": "nike-tech-fleece",
+      "label": "stock",
+      "why": "Nike catalog set. The hero image hash already appears under 3 unrelated cells, which is the strong tell.",
+      "photos": [
+        {
+          "hash": "catalog-nike-tech-fleece-hero",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-nike-tech-fleece-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-nike-tech-fleece-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-nike-tech-fleece-3",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "S02",
+      "cellKey": "adidas-tiro",
+      "label": "stock",
+      "why": "Adidas catalog set. The hero image hash already appears under 4 unrelated cells, which is the strong tell.",
+      "photos": [
+        {
+          "hash": "catalog-adidas-tiro-hero",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-adidas-tiro-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-adidas-tiro-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-adidas-tiro-3",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-adidas-tiro-4",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "S03",
+      "cellKey": "patagonia-better-sweater",
+      "label": "stock",
+      "why": "Patagonia catalog set. The hero image hash already appears under 5 unrelated cells, which is the strong tell.",
+      "photos": [
+        {
+          "hash": "catalog-patagonia-better-sweater-hero",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-patagonia-better-sweater-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-patagonia-better-sweater-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-patagonia-better-sweater-3",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-patagonia-better-sweater-4",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-patagonia-better-sweater-5",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "S04",
+      "cellKey": "carhartt-detroit",
+      "label": "stock",
+      "why": "Carhartt catalog set. The hero image hash already appears under 6 unrelated cells, which is the strong tell.",
+      "photos": [
+        {
+          "hash": "catalog-carhartt-detroit-hero",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-carhartt-detroit-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-carhartt-detroit-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-carhartt-detroit-3",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "S05",
+      "cellKey": "northface-nuptse",
+      "label": "stock",
+      "why": "The North Face catalog set. The hero image hash already appears under 3 unrelated cells, which is the strong tell.",
+      "photos": [
+        {
+          "hash": "catalog-northface-nuptse-hero",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-northface-nuptse-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-northface-nuptse-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-northface-nuptse-3",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-northface-nuptse-4",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "S06",
+      "cellKey": "lululemon-define",
+      "label": "stock",
+      "why": "Lululemon catalog set. The hero image hash already appears under 4 unrelated cells, which is the strong tell.",
+      "photos": [
+        {
+          "hash": "catalog-lululemon-define-hero",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-lululemon-define-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-lululemon-define-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-lululemon-define-3",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-lululemon-define-4",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-lululemon-define-5",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "S07",
+      "cellKey": "levis-501",
+      "label": "stock",
+      "why": "Levi catalog set. The hero image hash already appears under 5 unrelated cells, which is the strong tell.",
+      "photos": [
+        {
+          "hash": "catalog-levis-501-hero",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-levis-501-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-levis-501-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-levis-501-3",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "S08",
+      "cellKey": "columbia-fleece",
+      "label": "stock",
+      "why": "Columbia catalog set. The hero image hash already appears under 6 unrelated cells, which is the strong tell.",
+      "photos": [
+        {
+          "hash": "catalog-columbia-fleece-hero",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-columbia-fleece-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-columbia-fleece-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-columbia-fleece-3",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-columbia-fleece-4",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "S09",
+      "cellKey": "uniqlo-ultralight",
+      "label": "stock",
+      "why": "Uniqlo catalog set. The hero image hash already appears under 3 unrelated cells, which is the strong tell.",
+      "photos": [
+        {
+          "hash": "catalog-uniqlo-ultralight-hero",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-uniqlo-ultralight-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-uniqlo-ultralight-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-uniqlo-ultralight-3",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-uniqlo-ultralight-4",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-uniqlo-ultralight-5",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "S10",
+      "cellKey": "champion-reverse-weave",
+      "label": "stock",
+      "why": "Champion catalog set. The hero image hash already appears under 4 unrelated cells, which is the strong tell.",
+      "photos": [
+        {
+          "hash": "catalog-champion-reverse-weave-hero",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-champion-reverse-weave-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-champion-reverse-weave-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-champion-reverse-weave-3",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "S11",
+      "cellKey": "dickies-874",
+      "label": "stock",
+      "why": "Dickies catalog set. The hero image hash already appears under 5 unrelated cells, which is the strong tell.",
+      "photos": [
+        {
+          "hash": "catalog-dickies-874-hero",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-dickies-874-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-dickies-874-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-dickies-874-3",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-dickies-874-4",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "S12",
+      "cellKey": "under-armour-storm",
+      "label": "stock",
+      "why": "Under Armour catalog set. The hero image hash already appears under 6 unrelated cells, which is the strong tell.",
+      "photos": [
+        {
+          "hash": "catalog-under-armour-storm-hero",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-under-armour-storm-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-under-armour-storm-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-under-armour-storm-3",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-under-armour-storm-4",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "catalog-under-armour-storm-5",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "S13",
+      "cellKey": "reebok-classic-nylon",
+      "label": "stock",
+      "why": "Catalog set we have not seen before, so no hash repeats. Caught only by uniform plus square high-res dimensions, which is the weak pair.",
+      "photos": [
+        {
+          "hash": "unseen-reebok-0",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "unseen-reebok-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "unseen-reebok-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "unseen-reebok-3",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "unseen-reebok-4",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "unseen-reebok-5",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "S14",
+      "cellKey": "asics-gel-windbreaker",
+      "label": "stock",
+      "why": "Same as S13 at a larger feed size. Uniform plus square is the only signal available.",
+      "photos": [
+        {
+          "hash": "unseen-asics-0",
+          "width": 2000,
+          "height": 2000
+        },
+        {
+          "hash": "unseen-asics-1",
+          "width": 2000,
+          "height": 2000
+        },
+        {
+          "hash": "unseen-asics-2",
+          "width": 2000,
+          "height": 2000
+        },
+        {
+          "hash": "unseen-asics-3",
+          "width": 2000,
+          "height": 2000
+        },
+        {
+          "hash": "unseen-asics-4",
+          "width": 2000,
+          "height": 2000
+        }
+      ]
+    },
+    {
+      "id": "S15",
+      "cellKey": "fila-vintage-track",
+      "label": "stock",
+      "why": "A KNOWN MISS, kept deliberately. Catalog shots cropped to 3:2 and never seen before fire uniform_dimensions and nothing else, so the detector lets them through. This is what the recall floor is measuring.",
+      "photos": [
+        {
+          "hash": "unseen-fila-0",
+          "width": 2000,
+          "height": 1333
+        },
+        {
+          "hash": "unseen-fila-1",
+          "width": 2000,
+          "height": 1333
+        },
+        {
+          "hash": "unseen-fila-2",
+          "width": 2000,
+          "height": 1333
+        },
+        {
+          "hash": "unseen-fila-3",
+          "width": 2000,
+          "height": 1333
+        },
+        {
+          "hash": "unseen-fila-4",
+          "width": 2000,
+          "height": 1333
+        }
+      ]
+    },
+    {
+      "id": "S16",
+      "cellKey": "vans-checkerboard-hoodie",
+      "label": "stock",
+      "why": "One-photo listing reusing a catalog hero. A single photo has nothing else to weigh, so the cross-cell bar drops to two cells.",
+      "photos": [
+        {
+          "hash": "catalog-single-vans-hero",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "E01",
+      "cellKey": "seller-cell-1",
+      "label": "seller",
+      "why": "iPhone portrait, hung on a door. The everyday case.",
+      "photos": [
+        {
+          "hash": "seller-1-0",
+          "width": 3024,
+          "height": 4032
+        },
+        {
+          "hash": "seller-1-1",
+          "width": 3024,
+          "height": 4032
+        },
+        {
+          "hash": "seller-1-2",
+          "width": 3024,
+          "height": 4032
+        },
+        {
+          "hash": "seller-1-3",
+          "width": 3024,
+          "height": 4032
+        },
+        {
+          "hash": "seller-1-4",
+          "width": 3024,
+          "height": 4032
+        },
+        {
+          "hash": "seller-1-5",
+          "width": 3024,
+          "height": 4032
+        }
+      ]
+    },
+    {
+      "id": "E02",
+      "cellKey": "seller-cell-2",
+      "label": "seller",
+      "why": "Same phone turned sideways for a flat lay.",
+      "photos": [
+        {
+          "hash": "seller-2-0",
+          "width": 4032,
+          "height": 3024
+        },
+        {
+          "hash": "seller-2-1",
+          "width": 4032,
+          "height": 3024
+        },
+        {
+          "hash": "seller-2-2",
+          "width": 4032,
+          "height": 3024
+        },
+        {
+          "hash": "seller-2-3",
+          "width": 4032,
+          "height": 3024
+        }
+      ]
+    },
+    {
+      "id": "E03",
+      "cellKey": "seller-cell-3",
+      "label": "seller",
+      "why": "Older phone, resized on upload.",
+      "photos": [
+        {
+          "hash": "seller-3-0",
+          "width": 1200,
+          "height": 1600
+        },
+        {
+          "hash": "seller-3-1",
+          "width": 1200,
+          "height": 1600
+        },
+        {
+          "hash": "seller-3-2",
+          "width": 1200,
+          "height": 1600
+        },
+        {
+          "hash": "seller-3-3",
+          "width": 1200,
+          "height": 1600
+        },
+        {
+          "hash": "seller-3-4",
+          "width": 1200,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "E04",
+      "cellKey": "seller-cell-4",
+      "label": "seller",
+      "why": "Tall crop of a full-length shot.",
+      "photos": [
+        {
+          "hash": "seller-4-0",
+          "width": 2268,
+          "height": 4032
+        },
+        {
+          "hash": "seller-4-1",
+          "width": 2268,
+          "height": 4032
+        },
+        {
+          "hash": "seller-4-2",
+          "width": 2268,
+          "height": 4032
+        }
+      ]
+    },
+    {
+      "id": "E05",
+      "cellKey": "seller-cell-5",
+      "label": "seller",
+      "why": "Android portrait with detail shots of the cuffs.",
+      "photos": [
+        {
+          "hash": "seller-5-0",
+          "width": 1440,
+          "height": 1920
+        },
+        {
+          "hash": "seller-5-1",
+          "width": 1440,
+          "height": 1920
+        },
+        {
+          "hash": "seller-5-2",
+          "width": 1440,
+          "height": 1920
+        },
+        {
+          "hash": "seller-5-3",
+          "width": 1440,
+          "height": 1920
+        },
+        {
+          "hash": "seller-5-4",
+          "width": 1440,
+          "height": 1920
+        },
+        {
+          "hash": "seller-5-5",
+          "width": 1440,
+          "height": 1920
+        },
+        {
+          "hash": "seller-5-6",
+          "width": 1440,
+          "height": 1920
+        }
+      ]
+    },
+    {
+      "id": "E06",
+      "cellKey": "seller-cell-6",
+      "label": "seller",
+      "why": "Two photos only, front and tag. Thin but real.",
+      "photos": [
+        {
+          "hash": "seller-6-0",
+          "width": 3024,
+          "height": 4032
+        },
+        {
+          "hash": "seller-6-1",
+          "width": 3024,
+          "height": 4032
+        }
+      ]
+    },
+    {
+      "id": "E07",
+      "cellKey": "seller-cell-7",
+      "label": "seller",
+      "why": "Landscape flat lay on a bed.",
+      "photos": [
+        {
+          "hash": "seller-7-0",
+          "width": 4032,
+          "height": 2268
+        },
+        {
+          "hash": "seller-7-1",
+          "width": 4032,
+          "height": 2268
+        },
+        {
+          "hash": "seller-7-2",
+          "width": 4032,
+          "height": 2268
+        },
+        {
+          "hash": "seller-7-3",
+          "width": 4032,
+          "height": 2268
+        },
+        {
+          "hash": "seller-7-4",
+          "width": 4032,
+          "height": 2268
+        }
+      ]
+    },
+    {
+      "id": "E08",
+      "cellKey": "seller-cell-8",
+      "label": "seller",
+      "why": "Compact camera, plenty of coverage.",
+      "photos": [
+        {
+          "hash": "seller-8-0",
+          "width": 1600,
+          "height": 1200
+        },
+        {
+          "hash": "seller-8-1",
+          "width": 1600,
+          "height": 1200
+        },
+        {
+          "hash": "seller-8-2",
+          "width": 1600,
+          "height": 1200
+        },
+        {
+          "hash": "seller-8-3",
+          "width": 1600,
+          "height": 1200
+        },
+        {
+          "hash": "seller-8-4",
+          "width": 1600,
+          "height": 1200
+        },
+        {
+          "hash": "seller-8-5",
+          "width": 1600,
+          "height": 1200
+        },
+        {
+          "hash": "seller-8-6",
+          "width": 1600,
+          "height": 1200
+        },
+        {
+          "hash": "seller-8-7",
+          "width": 1600,
+          "height": 1200
+        }
+      ]
+    },
+    {
+      "id": "E09",
+      "cellKey": "seller-cell-9",
+      "label": "seller",
+      "why": "Tablet photo, unusual ratio, still a real garment.",
+      "photos": [
+        {
+          "hash": "seller-9-0",
+          "width": 3088,
+          "height": 2320
+        },
+        {
+          "hash": "seller-9-1",
+          "width": 3088,
+          "height": 2320
+        },
+        {
+          "hash": "seller-9-2",
+          "width": 3088,
+          "height": 2320
+        },
+        {
+          "hash": "seller-9-3",
+          "width": 3088,
+          "height": 2320
+        }
+      ]
+    },
+    {
+      "id": "E10",
+      "cellKey": "seller-cell-10",
+      "label": "seller",
+      "why": "Older iPhone. Uniform because one person shot them all in one go.",
+      "photos": [
+        {
+          "hash": "seller-10-0",
+          "width": 2448,
+          "height": 3264
+        },
+        {
+          "hash": "seller-10-1",
+          "width": 2448,
+          "height": 3264
+        },
+        {
+          "hash": "seller-10-2",
+          "width": 2448,
+          "height": 3264
+        },
+        {
+          "hash": "seller-10-3",
+          "width": 2448,
+          "height": 3264
+        },
+        {
+          "hash": "seller-10-4",
+          "width": 2448,
+          "height": 3264
+        },
+        {
+          "hash": "seller-10-5",
+          "width": 2448,
+          "height": 3264
+        }
+      ]
+    },
+    {
+      "id": "E11",
+      "cellKey": "seller-cell-11",
+      "label": "seller",
+      "why": "Uniform dimensions across five photos because one seller shot them in one session. Uniform ALONE must never reject, and this set is why.",
+      "photos": [
+        {
+          "hash": "seller-11-0",
+          "width": 3024,
+          "height": 4032
+        },
+        {
+          "hash": "seller-11-1",
+          "width": 3024,
+          "height": 4032
+        },
+        {
+          "hash": "seller-11-2",
+          "width": 3024,
+          "height": 4032
+        },
+        {
+          "hash": "seller-11-3",
+          "width": 3024,
+          "height": 4032
+        },
+        {
+          "hash": "seller-11-4",
+          "width": 3024,
+          "height": 4032
+        }
+      ]
+    },
+    {
+      "id": "E12",
+      "cellKey": "seller-cell-12",
+      "label": "seller",
+      "why": "One photo, never seen elsewhere. A thin listing is not a catalog listing.",
+      "photos": [
+        {
+          "hash": "seller-12-0",
+          "width": 3024,
+          "height": 4032
+        }
+      ]
+    },
+    {
+      "id": "E13",
+      "cellKey": "seller-cell-13",
+      "label": "seller",
+      "why": "No dimensions returned by the API. A missing measurement must never be read as a positive tell.",
+      "photos": [
+        {
+          "hash": "seller-13-0",
+          "width": null,
+          "height": null
+        },
+        {
+          "hash": "seller-13-1",
+          "width": null,
+          "height": null
+        },
+        {
+          "hash": "seller-13-2",
+          "width": null,
+          "height": null
+        },
+        {
+          "hash": "seller-13-3",
+          "width": null,
+          "height": null
+        },
+        {
+          "hash": "seller-13-4",
+          "width": null,
+          "height": null
+        }
+      ]
+    },
+    {
+      "id": "E14",
+      "cellKey": "seller-cell-14",
+      "label": "seller",
+      "why": "Seller who crops square for social at 1080. Square below the catalog resolution floor does not count as a tell, which is what SQUARE_MIN_SIDE exists for.",
+      "photos": [
+        {
+          "hash": "seller-14-0",
+          "width": 1080,
+          "height": 1080
+        },
+        {
+          "hash": "seller-14-1",
+          "width": 1080,
+          "height": 1080
+        },
+        {
+          "hash": "seller-14-2",
+          "width": 1080,
+          "height": 1080
+        },
+        {
+          "hash": "seller-14-3",
+          "width": 1080,
+          "height": 1080
+        },
+        {
+          "hash": "seller-14-4",
+          "width": 1080,
+          "height": 1080
+        }
+      ]
+    },
+    {
+      "id": "E15",
+      "cellKey": "seller-cell-15",
+      "label": "seller",
+      "why": "A KNOWN FALSE POSITIVE, kept deliberately. A listing tool padded this seller's real photos to 1600 square, so it trips uniform plus square. Costs one dropped comp; a missed catalog set would bend the whole curve, so the asymmetry is accepted on purpose.",
+      "photos": [
+        {
+          "hash": "seller-15-0",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "seller-15-1",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "seller-15-2",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "seller-15-3",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "seller-15-4",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "seller-15-5",
+          "width": 1600,
+          "height": 1600
+        }
+      ]
+    },
+    {
+      "id": "E16",
+      "cellKey": "seller-cell-16",
+      "label": "seller",
+      "why": "Two photos at different sizes, one of them square. Mixed dimensions must not fire the uniform tell at all.",
+      "photos": [
+        {
+          "hash": "seller-16-0",
+          "width": 1600,
+          "height": 1600
+        },
+        {
+          "hash": "seller-16-1",
+          "width": 3024,
+          "height": 4032
+        }
+      ]
+    }
+  ]
+}

@@ -616,6 +616,13 @@ const SERVICE_ROLE_ONLY = new Set([
   // and the reads; it is not there to serve a client policy, because no client
   // reads this table directly. Deny-all by design.
   "listing_publications",
+  // US-2844 comp condition samples. NON-TENANT aggregate market data: one row
+  // per comp listing we read for condition, carrying a cell key, a score and a
+  // photo-set hash, and deliberately carrying no seller, no listing id, no URL
+  // and no title. Deny-all in both directions. There is no owner column because
+  // the sample belongs to the market rather than to anybody, and a readable
+  // table would hand a competitor the coverage map the whole moat rests on.
+  "comp_condition_reads",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /

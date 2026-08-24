@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2841",
+  "nextId": "US-2852",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2426,6 +2426,158 @@
         "The item editor shows estimated net profit and margin live under the price, and says plainly that the figure is a ceiling until a purchase price is entered."
       ],
       "priority": 2
+    },
+    {
+      "id": "US-2841",
+      "passes": false,
+      "title": "EPIC: condition-priced comps - grade the market, not only our own items",
+      "description": "As the GradeThread team, we want the grading engine pointed at comp listings from other sellers so that every price we quote comes from a measured price-vs-grade slope rather than an eBay condition label a stranger picked, so that sourcing ceilings, listing prices and the public index rest on condition we measured instead of condition someone claimed.",
+      "acceptanceCriteria": [
+        "Umbrella only: children are US-2842..US-2851; this story closes when every child passes",
+        "Standing constraint: a comp read is never called a grade in any UI string, API field name or public page, and is never published against a named listing, seller or URL",
+        "At close, valueAtGrade in services/edge-functions/src/lib/condition-value.ts derives its range from a measured curve for cells that have one, and all six existing callers (routes/grade.ts, routes/public-grading.ts twice, routes/flipdesk-scout.ts, routes/flipdesk-pricing.ts, lib/grade-band-pricing.ts) get it with no per-caller change",
+        "Not US-2708: that epic aggregates buyer claimed-vs-actual reads into a public gap report, this one fits price against measured condition for pricing. Neither story may write tables owned by the other",
+        "No cell is published whose held-out prediction error fails to beat the plain comp median it would replace (gate enforced by US-2846)"
+      ],
+      "priority": 10
+    },
+    {
+      "id": "US-2842",
+      "passes": false,
+      "title": "Calibration spike: prove a comp read is close enough to price with, and measure what one costs",
+      "description": "As the founder, I want measured answers on comp-read accuracy, repeatability and cost before any of this is built, because the whole approach rests on a few-photo read being close enough to a certified grade, and a wrong slope costs a seller money on every buy.",
+      "acceptanceCriteria": [
+        "Runs the existing POST /grade-from-url path (services/edge-functions/src/routes/public-grading.ts) against the listing photos of our own certified garments and reports mean signed error and mean absolute error against grade_reports.overall_score, with the sample size stated",
+        "Test-retest: the same listing photo set read twice reports the score delta as a number, not a claim",
+        "Cost: 100 reads executed, actual spend read from the ai_budget_status RPC (migration 00219) for the comp_read feature, reported as dollars per read",
+        "Written GO or NO-GO decision recorded in the story notes, stating the accuracy bar the decision used",
+        "No new tables, no new routes, no UI. Findings only",
+        "OPERATOR: cannot run from the Windows dev box and is not a coding task. services/edge-functions/.env points SUPABASE_URL at prod but carries a 21-char SUPABASE_SERVICE_ROLE_KEY and a 22-char ANTHROPIC_API_KEY, both placeholders, and EBAY_ENV is sandbox, which has no real comp inventory. Needs a run with real prod service-role, real Anthropic and EBAY_ENV=production credentials, plus the ~100 reads of real AI spend."
+      ],
+      "priority": 11,
+      "dependsOn": [
+        "US-2841"
+      ],
+      "notes": "2026-08-24 BLOCKED, measured not assumed. Checked local credentials before starting: SUPABASE_URL is https://api.gradethread.com but SUPABASE_SERVICE_ROLE_KEY is 21 characters and ANTHROPIC_API_KEY is 22 characters, so both are placeholders rather than keys, and EBAY_ENV=sandbox returns no real comp listings to read. No Docker containers are running either, so there is no local stack to substitute. This story is an operator run, not a build. Everything downstream depends on it only for the GO/NO-GO decision, not for code: US-2843 (stock-photo detector) and US-2844 (comp_condition_reads table) are pure local work whose value does not change with the spike outcome, while US-2845 spends real money and genuinely must wait for GO."
+    },
+    {
+      "id": "US-2845",
+      "passes": false,
+      "title": "Comp read worker: demand-ordered cells, a hard AI budget, and nothing crawled",
+      "description": "As the GradeThread team, we want comp reads produced by a background worker that reads the cells our sellers actually touch, capped by its own AI budget, so that coverage follows demand and a runaway loop turns itself off instead of emptying the account.",
+      "acceptanceCriteria": [
+        "New durable job following the batch, claim, heartbeat and reclaim contract in the durable-jobs skill, so a stalled batch is reclaimed rather than stranded",
+        "The cell queue is fed by items our sellers grade, scout or list, and no catalogue-wide crawl exists anywhere in the code",
+        "Reads run through the eBay Browse API via searchBrowseComps in services/edge-functions/src/lib/ebay-client.ts, and no HTML scraping of any marketplace is added",
+        "comp_read is registered as an ai_usage_events feature with its own budget row at action kill, and breaching the daily cap disables the worker and writes an ai_budget_breaches row, proven by a test with an injected budget status",
+        "The per-read image cap and the per-cell read cap are named exported constants with tests, not magic numbers at the call site"
+      ],
+      "priority": 14,
+      "dependsOn": [
+        "US-2842",
+        "US-2843",
+        "US-2844"
+      ],
+      "notes": "2026-08-24 GATE MOVED HERE. US-2843 and US-2844 were unblocked from the US-2842 spike because a detector and a table are pure local code whose value does not change with the GO or NO-GO. This story is the one that spends real money on comp reads, so it now carries the dependency on US-2842 instead. Do not start it before the spike returns GO."
+    },
+    {
+      "id": "US-2846",
+      "passes": false,
+      "title": "Fit the slope, trim the outliers, and refuse to publish a curve that loses to the median",
+      "description": "As the pricing engine, I want the price-vs-grade fit, its outlier trim and its hold-out scoring to be pure functions behind a publish gate, so that a cell can only go live when it predicts better than the plain comp median it would replace.",
+      "acceptanceCriteria": [
+        "New pure module services/edge-functions/src/lib/comp-curve-fit.ts performs a confidence-weighted fit over reads and returns slope, intercept, sample size and fit confidence, with no I/O, unit tested without eBay, in the same shape as lib/condition-value-math.ts",
+        "Price outliers are trimmed before fitting, and the trim rule is tested against a fixture containing a bundle-priced comp",
+        "Leave-one-out scoring computes the curve error and the plain comp median error over the same reads and returns both",
+        "publishable() returns false when the curve error fails to beat the median error, and false below the minimum high-confidence read count, and both bars are exported constants with tests",
+        "A flat or negative slope is returned as it is and is never suppressed for being unflattering",
+        "The fit reads only rows with stock_rejected = false and a non-null read_score, so a catalog listing caught by US-2843 can never reach a curve, proven by a test that feeds the fitter a mixed batch and asserts the rejected rows changed neither the slope nor the sample size"
+      ],
+      "priority": 15,
+      "dependsOn": [
+        "US-2844"
+      ]
+    },
+    {
+      "id": "US-2847",
+      "passes": false,
+      "title": "Measured curves replace seeded ones in condition_price_curves, with provenance on the page",
+      "description": "As someone reading the public Condition Index, I want the numbers to come from comps we measured rather than from a seed generator, so that the page states something true and can be cited.",
+      "acceptanceCriteria": [
+        "The worker writes measured curves into the existing public.condition_price_curves rows from supabase/migrations/00098_condition_price_curves.sql, and no second curve table is created",
+        "A curve row records whether it is measured or seeded, and services/edge-functions/src/lib/condition-index-seedgen.ts never overwrites a measured row, proven by a test",
+        "The public Condition Index and the /value/{brand}/{item} pages label a measured curve with its sample size and refresh date, and a seeded curve is never presented as measured",
+        "MIN_INDEX_TOTAL_SAMPLE suppression still applies to measured curves"
+      ],
+      "priority": 16,
+      "dependsOn": [
+        "US-2846"
+      ]
+    },
+    {
+      "id": "US-2848",
+      "passes": false,
+      "title": "Shadow the measured answer against the live one before anybody sees it",
+      "description": "As the GradeThread team, we want valueAtGrade to compute the measured-curve range alongside the current conditionId range and log both while changing nothing on screen, so that we can compare them on real traffic before flipping.",
+      "acceptanceCriteria": [
+        "valueAtGrade in services/edge-functions/src/lib/condition-value.ts computes both ranges when a measured curve exists and still returns the existing conditionId range unchanged",
+        "Both ranges plus cell key, sample size and the delta are logged through the pattern established in services/edge-functions/src/lib/grading-shadow.ts",
+        "The shadow branch adds no blocking eBay call to the request path and never fails the caller: an error there is swallowed and counted, proven by a test that throws inside it",
+        "An admin route or documented query reports median absolute delta by cell over a date range"
+      ],
+      "priority": 17,
+      "dependsOn": [
+        "US-2846"
+      ]
+    },
+    {
+      "id": "US-2849",
+      "passes": false,
+      "title": "Flip valueAtGrade to the measured curve behind a flag, so all six callers change at once",
+      "description": "As a seller, I want every price the product quotes me to come from measured condition wherever we have it, so that a 9.0 stops being priced like a 6.0 across sourcing, listing, repricing and the grade result.",
+      "acceptanceCriteria": [
+        "Behind a feature flag, valueAtGrade returns the measured-curve range for cells with a publishable curve and falls back to the existing conditionId range otherwise",
+        "No change is required in routes/grade.ts, routes/public-grading.ts, routes/flipdesk-scout.ts, routes/flipdesk-pricing.ts or lib/grade-band-pricing.ts for those surfaces to receive the measured number, proven by the diff touching none of them",
+        "Turning the flag off restores current behaviour exactly, proven by a test",
+        "comps-cache keys stay query-shaped and non-tenant: the measured path introduces no per-tenant cache key, per the invariant at the top of services/edge-functions/src/lib/comps-cache.ts"
+      ],
+      "priority": 18,
+      "dependsOn": [
+        "US-2848"
+      ]
+    },
+    {
+      "id": "US-2850",
+      "passes": false,
+      "title": "Say what the number is: asking-price slope, sample size, and the cells we cannot answer",
+      "description": "As a seller about to spend money on a garment, I want the product to tell me when its price is measured, how large the sample was, and that the slope is fitted on asking prices rather than sold ones, so that I can tell a strong answer from a weak one.",
+      "acceptanceCriteria": [
+        "Any surface showing a measured range states the sample size and states that the fit is on active listing prices rather than sold prices while EBAY_MARKETPLACE_INSIGHTS is unset",
+        "A cell with no publishable curve shows the existing comp median labelled as an unadjusted market median, and never a fabricated slope",
+        "A flat slope is stated in plain words, including the case where condition barely moves price for that garment",
+        "npm run ui:check reports zero enforced findings, and no user-facing string calls a comp read a grade"
+      ],
+      "priority": 19,
+      "dependsOn": [
+        "US-2849"
+      ]
+    },
+    {
+      "id": "US-2851",
+      "passes": false,
+      "title": "The sourcing ceiling: what a garment is worth at the grade in your hand, and what to stop paying above",
+      "description": "As a reseller standing in a thrift store, I want a maximum price to pay for this garment at the condition it is actually in, so that the buy-or-skip call is a number instead of a feeling.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/routes/flipdesk-scout.ts returns a ceiling derived from the measured range at the read grade and the workspace margin target, alongside the existing value range",
+        "The ceiling is absent rather than guessed when the cell has no publishable curve",
+        "The margin input is the existing workspace setting, not a new hardcoded multiplier",
+        "iOS and Android Prospect surfaces show the ceiling, or the story notes state which client is deferred and why",
+        "Tenant scoping is unchanged, the route stays scoped per US-268, and a tenant-isolation_test.ts case covers the new response field"
+      ],
+      "priority": 20,
+      "dependsOn": [
+        "US-2849"
+      ]
     }
   ]
 }
