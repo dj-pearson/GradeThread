@@ -65,6 +65,15 @@ export interface CurveFit {
   fitConfidence: number;
   /** How many reads the price trim removed. */
   trimmed: number;
+  /**
+   * The lowest and highest grade actually observed in the fitted sample.
+   *
+   * US-2847 needs these to refuse extrapolation. A line happily returns a price
+   * at grade 10 for a cell whose best read was a 7.5, and that price is an
+   * opinion dressed as a measurement.
+   */
+  gradeMin: number;
+  gradeMax: number;
 }
 
 export interface HoldOutScore {
@@ -220,12 +229,15 @@ export function fitCurve(reads: CompReadSample[]): CurveFit | null {
   // Sample weight rises to 1 around 25 reads; r2 says how much of the spread the
   // grade actually explains. A tight fit on four listings is still four listings.
   const sampleFactor = Math.min(1, kept.length / 25);
+  const grades = kept.map((r) => r.grade);
   return {
     slopeCentsPerPoint: fit.slope,
     interceptCents: fit.intercept,
     sampleSize: kept.length,
     fitConfidence: Math.max(0, Math.min(0.95, fit.r2 * sampleFactor)),
     trimmed: dropped.length,
+    gradeMin: Math.min(...grades),
+    gradeMax: Math.max(...grades),
   };
 }
 

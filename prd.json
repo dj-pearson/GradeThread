@@ -2481,22 +2481,6 @@
       "notes": "2026-08-24 GATE MOVED HERE. US-2843 and US-2844 were unblocked from the US-2842 spike because a detector and a table are pure local code whose value does not change with the GO or NO-GO. This story is the one that spends real money on comp reads, so it now carries the dependency on US-2842 instead. Do not start it before the spike returns GO."
     },
     {
-      "id": "US-2847",
-      "passes": false,
-      "title": "Measured curves replace seeded ones in condition_price_curves, with provenance on the page",
-      "description": "As someone reading the public Condition Index, I want the numbers to come from comps we measured rather than from a seed generator, so that the page states something true and can be cited.",
-      "acceptanceCriteria": [
-        "The worker writes measured curves into the existing public.condition_price_curves rows from supabase/migrations/00098_condition_price_curves.sql, and no second curve table is created",
-        "A curve row records whether it is measured or seeded, and services/edge-functions/src/lib/condition-index-seedgen.ts never overwrites a measured row, proven by a test",
-        "The public Condition Index and the /value/{brand}/{item} pages label a measured curve with its sample size and refresh date, and a seeded curve is never presented as measured",
-        "MIN_INDEX_TOTAL_SAMPLE suppression still applies to measured curves"
-      ],
-      "priority": 16,
-      "dependsOn": [
-        "US-2846"
-      ]
-    },
-    {
       "id": "US-2848",
       "passes": false,
       "title": "Shadow the measured answer against the live one before anybody sees it",

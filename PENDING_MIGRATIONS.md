@@ -1,5 +1,33 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## APPLIED 2026-08-24: 00664 — condition_price_curves says where its numbers came from (US-2847)
+
+**What it does.** Adds four columns to `public.condition_price_curves`:
+`provenance` (`seeded` default, or `measured`), `slope_cents_per_point`,
+`fit_confidence` and `measured_at`. Plus two CHECK constraints and one index.
+
+**Risk: LOW.** Additive. Every existing row keeps describing itself correctly
+with no backfill, because the default is the thing they all already are.
+
+**Proven on the local stack by execution, not by reading the SQL.** Applied
+twice in a row cleanly (the second run is all no-ops and NOTICEs), and then:
+
+- a `measured` row with no `slope_cents_per_point` raises
+  `condition_price_curves_measured_has_fit`
+- `provenance = 'bogus'` raises `condition_price_curves_provenance_chk`
+- the seeded-write guard behaves: against a measured row the conditional update
+  reports `UPDATE 0` and the curve is untouched; against a seeded row it reports
+  `UPDATE 1` and refreshes
+
+**Why the guard matters.** `condition-index-seedgen.ts` and `refreshIndexSeed`
+both used a plain upsert on `item_key`. Once a cell is measured from real comp
+reads, the next seedgen run would have silently replaced those points with
+generated ones. Both now go through `persistSeededCurve`, which inserts if the
+key is free and then updates only while the row is still seeded.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — new columns.
+
+
 ## ⏳ PENDING: 00663 — comp_condition_reads, the comp condition sample store (US-2844)
 
 **What it does.** Creates one new table, `public.comp_condition_reads`. One row

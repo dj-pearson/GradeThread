@@ -18,7 +18,7 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { buildValueCurve, normalizeItemKey } from "./condition-curve.ts";
 import { suggestCategories } from "./ebay-client.ts";
-import { MIN_INDEX_TOTAL_SAMPLE } from "./condition-index.ts";
+import { MIN_INDEX_TOTAL_SAMPLE, persistSeededCurve } from "./condition-index.ts";
 import { slugify } from "./value-index.ts";
 import { getSetting } from "./system-settings.ts";
 import { captureException, logEvent } from "./observability.ts";
@@ -123,6 +123,12 @@ export interface SeedGenResult {
   insufficient: number;
   /** Candidates skipped for a category-resolution / fetch error. */
   errored: number;
+  /**
+   * US-2847: candidates whose cell has already been MEASURED from real comp
+   * reads, so the generated curve was not written. Counted separately from
+   * `errored` because it is the guard working, not a failure.
+   */
+  skippedMeasured: number;
   /** Total fresh candidates (before the budget cap). */
   candidates: number;
   /** True when more candidates were available than the budget allowed. */
@@ -139,7 +145,15 @@ export async function generateSeeds(now = new Date()): Promise<SeedGenResult> {
   const config = await getSetting<SeedGenConfig>("condition_index_seedgen", DEFAULT_SEEDGEN_CONFIG);
   if (!config.enabled) {
     logEvent("info", "condition-index.seedgen.disabled", {});
-    return { inserted: 0, insufficient: 0, errored: 0, candidates: 0, budgetCapped: false, disabled: true };
+    return {
+      inserted: 0,
+      insufficient: 0,
+      errored: 0,
+      skippedMeasured: 0,
+      candidates: 0,
+      budgetCapped: false,
+      disabled: true,
+    };
   }
 
   const [pairs, existingSlugs] = await Promise.all([gatherGradedPairs(config), loadExistingSlugs()]);
@@ -150,6 +164,7 @@ export async function generateSeeds(now = new Date()): Promise<SeedGenResult> {
   let inserted = 0;
   let insufficient = 0;
   let errored = 0;
+  let skippedMeasured = 0;
   for (const c of batch) {
     try {
       const cats = await suggestCategories(`${c.brand} ${c.keyword}`.trim());
@@ -189,21 +204,27 @@ export async function generateSeeds(now = new Date()): Promise<SeedGenResult> {
         errored += 1;
         continue;
       }
-      await supabaseAdmin.from("condition_price_curves").upsert(
-        {
-          item_key: itemKey,
-          slug,
-          label: candidateLabel(c.brand, c.keyword),
-          brand: c.brand,
-          category_id: categoryId,
-          query: c.keyword,
-          currency: curve.currency,
-          curve: curve.points,
-          total_sample_size: curve.totalSampleSize,
-          refreshed_at: curve.refreshedAt,
-        },
-        { onConflict: "item_key" },
-      );
+      // US-2847: seeded writes go through persistSeededCurve, which refuses to
+      // overwrite a cell that has been measured from real comp reads. A raw
+      // upsert here would silently replace measured points with generated ones
+      // on the next seedgen run.
+      const persisted = await persistSeededCurve({
+        item_key: itemKey,
+        slug,
+        label: candidateLabel(c.brand, c.keyword),
+        brand: c.brand,
+        category_id: categoryId,
+        query: c.keyword,
+        currency: curve.currency,
+        curve: curve.points,
+        total_sample_size: curve.totalSampleSize,
+        refreshed_at: curve.refreshedAt,
+      });
+      if (persisted.skipped) {
+        skippedMeasured += 1;
+        logEvent("info", "condition-index.seedgen.skipped_measured", { slug });
+        continue;
+      }
       inserted += 1;
     } catch (err) {
       errored += 1;
@@ -219,6 +240,7 @@ export async function generateSeeds(now = new Date()): Promise<SeedGenResult> {
     inserted,
     insufficient,
     errored,
+    skippedMeasured,
     candidates: fresh.length,
     budget,
     budgetCapped: fresh.length > batch.length,
@@ -227,6 +249,7 @@ export async function generateSeeds(now = new Date()): Promise<SeedGenResult> {
     inserted,
     insufficient,
     errored,
+    skippedMeasured,
     candidates: fresh.length,
     budgetCapped: fresh.length > batch.length,
   };

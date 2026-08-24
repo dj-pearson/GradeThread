@@ -190,7 +190,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       <em>condition</em>. We grade and comp popular items on
       <a href="/grading-standard">GradeThread's objective 1.0&ndash;10.0 condition standard</a>, so you
       can see exactly how much a grade-9 is worth versus a grade-6 &mdash; the resale value each grade
-      actually commands, from condition-matched sold comps.</p>
+      commands, from condition-matched marketplace listings.</p>
       ${items.length === 0
         ? `<p class="muted">The index is warming up — check back soon.</p>`
         : `<table>
@@ -207,7 +207,9 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       "@type": "CollectionPage",
       name: "The GradeThread Condition Index",
       description:
-        "The record of resale value for pre-owned clothing by objective condition grade — what each item is worth at each grade on GradeThread's 1.0–10.0 condition standard, from condition-matched sold comps.",
+        // US-2847: these curves are built from ACTIVE Browse listings.
+        // Marketplace Insights is ungranted, so "sold comps" was never true.
+        "The record of asking price for pre-owned clothing by objective condition grade — what each item is listed at, at each grade on GradeThread's 1.0–10.0 condition standard, from condition-matched marketplace listings.",
       url: `${site}/condition-index`,
     };
 

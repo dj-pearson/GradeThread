@@ -168,7 +168,10 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     return renderSsrResponse(
       {
         title: `${curve.label} value in ${tier.label} condition — GradeThread`,
-        description: `What a ${curve.label} in ${tier.label} condition is worth: typically ${typical}, from condition-matched comps. Updated ${formatDate(curve.refreshedAt)}.`,
+        // US-2847: "comps" here are ACTIVE marketplace listings, so this says
+        // "listed at" rather than "worth" or "sells for". eBay Marketplace
+        // Insights is ungranted, so no sold price has ever reached this page.
+        description: `What a ${curve.label} in ${tier.label} condition is listed at: typically ${typical}, across condition-matched marketplace listings. Updated ${formatDate(curve.refreshedAt)}.`,
         canonicalUrl: canonical,
         bodyHtml: body,
         jsonLd,
@@ -265,7 +268,12 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
         // measured page (/value/nike/tech-fleece: 116 impressions at position
         // 6.5, zero clicks) needs a title promising the number itself.
         title: valueItemTitle(curve.label),
-        description: `What a used ${curve.label} actually sells for at each condition grade, from condition-matched sold comps rather than asking prices. Updated ${formatDate(curve.refreshedAt)}.`,
+        // US-2847 CORRECTION. This said "from condition-matched SOLD comps
+        // rather than asking prices". It was the exact opposite of the truth:
+        // the curve is built by searchBrowseComps, which returns ACTIVE
+        // listings, and EBAY_MARKETPLACE_INSIGHTS (the only source of realized
+        // prices) is off and ungranted. Asking prices are all this has ever had.
+        description: `What a used ${curve.label} is listed at across each condition grade, from condition-matched marketplace listings. Updated ${formatDate(curve.refreshedAt)}.`,
         canonicalUrl: canonical,
         bodyHtml: body,
         jsonLd,
@@ -333,7 +341,8 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       "@type": "CollectionPage",
       name: "The GradeThread Value Index",
       description:
-        "Look up what pre-owned clothing is worth by brand, item and condition — the resale value each grade commands on GradeThread's 1.0–10.0 condition standard, from condition-matched sold comps.",
+        // US-2847: same correction as the item pages. These are active listings.
+        "Look up what pre-owned clothing is listed at by brand, item and condition — the asking price each grade commands on GradeThread's 1.0–10.0 condition standard, from condition-matched marketplace listings.",
       url: `${site}/value`,
     };
 

@@ -101,6 +101,7 @@ Deno.test("buildPriceGuideEntry carries curve identity + scope marker", () => {
     points: [point(9, 15000), point(7, 9000)],
     totalSampleSize: 40,
     refreshedAt: "2026-06-20T00:00:00.000Z",
+    provenance: "seeded" as const,
   };
   const entry = buildPriceGuideEntry(curve, [resaleBand("high", 0.7, 12)]);
   assertEquals(entry.slug, "patagonia-jackets");
