@@ -330,6 +330,65 @@ final class SpecificsEditorTests: XCTestCase {
         XCTAssertFalse(model.isColumnBacked("Department"))
     }
 
+    // MARK: - US-2839: what the item's OWN inputs render from
+
+    // The hide-list says which rows to drop. It cannot say what the item's Style
+    // input should offer, because it never states which aspect the style column
+    // drives -- so the pairing is a separate answer, and this is the lookup the
+    // item page uses for it.
+    @MainActor
+    func test_columnSpec_findsTheAspectTheColumnDrives() {
+        let model = SpecificsEditorModel(itemId: "item-1")
+        model.specs = [
+            AspectSpec(name: "Style", usage: .recommended, selectionOnly: true,
+                       multiSelect: false,
+                       allowedValues: ["Basic", "Cropped", "Jersey", "Pullover", "Ringer"]),
+            AspectSpec(name: "Type", usage: .optional, selectionOnly: false,
+                       multiSelect: false, allowedValues: []),
+            AspectSpec(name: "US Shoe Size", usage: .required, selectionOnly: true,
+                       multiSelect: false, allowedValues: ["9", "10"]),
+        ]
+        model.applyColumnAspectNamesForTesting(["style": "Style", "size": "US Shoe Size"])
+
+        let style = model.columnSpec(for: "style")
+        XCTAssertEqual(style?.name, "Style")
+        XCTAssertEqual(style?.allowedValues,
+                       ["Basic", "Cropped", "Jersey", "Pullover", "Ringer"])
+        // The size column owns the shoe-specific name here, NOT the generic one
+        // -- getting this backwards puts shoe sizes behind a shirt's Size field.
+        XCTAssertEqual(model.columnSpec(for: "size")?.name, "US Shoe Size")
+        // A column this category has no aspect for stays a plain text field.
+        XCTAssertNil(model.columnSpec(for: "material"))
+    }
+
+    // eBay's casing is not ours, and the column key comes from our own code.
+    @MainActor
+    func test_columnSpec_matchesCaseAndWhitespaceInsensitively() {
+        let model = SpecificsEditorModel(itemId: "item-1")
+        model.specs = [
+            AspectSpec(name: "Colour", usage: .recommended, selectionOnly: false,
+                       multiSelect: false, allowedValues: ["Black"]),
+        ]
+        model.applyColumnAspectNamesForTesting(["COLOR": "  colour  "])
+        XCTAssertEqual(model.columnSpec(for: " Color ")?.name, "Colour")
+        XCTAssertNil(model.columnSpec(for: ""))
+    }
+
+    // An older edge build sends no pairing. Falling back to the column's own
+    // name upgrades the obvious cases (style -> "Style") instead of leaving
+    // every field plain until the edge catches up -- and when the category has
+    // no aspect by that name, it is plain text, which is the old behaviour.
+    @MainActor
+    func test_columnSpec_fallsBackToTheColumnName() {
+        let model = SpecificsEditorModel(itemId: "item-1")
+        model.specs = [
+            AspectSpec(name: "Style", usage: .recommended, selectionOnly: true,
+                       multiSelect: false, allowedValues: ["Bomber", "Parka"]),
+        ]
+        XCTAssertEqual(model.columnSpec(for: "style")?.name, "Style")
+        XCTAssertNil(model.columnSpec(for: "size"))
+    }
+
     // An older edge build sends no list — nothing is hidden, which is exactly
     // the pre-change behaviour rather than an empty specifics section.
     @MainActor

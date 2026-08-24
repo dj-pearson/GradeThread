@@ -1162,15 +1162,30 @@ struct ItemCanvasView: View {
                     .font(.caption)
                     .foregroundStyle(Color.brandRed)
             }
-            TextField("Brand", text: $state.draft.brand)
-                .textInputAutocapitalization(.words)
+            // US-2839: these five inputs are rendered from the chosen eBay
+            // category's spec -- a closed list becomes a picker, a list of
+            // recommended values becomes a suggest field, and anything else
+            // stays the plain text field it always was. The specifics section
+            // below hides the matching rows (one value, one input), so before
+            // this the only inputs eBay had values for were the only ones that
+            // never offered them.
+            ColumnAspectField(
+                model: specificsModel,
+                column: "brand",
+                label: "Brand",
+                text: $state.draft.brand
+            )
             // US-2818: SKU moved to "Storage & consignment" for web parity -
             // it lives in the web composer's Storage & SKU card, next to the
             // bin and the container, because all three answer "where is this
             // thing and what is written on it", not "what is it".
-            TextField("Size", text: $state.draft.size)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
+            ColumnAspectField(
+                model: specificsModel,
+                column: "size",
+                label: "Size",
+                text: $state.draft.size,
+                capitalization: .never
+            )
             // US-1088: Size AI — only while Size is blank (e.g. a cut-off
             // Lululemon label); fills the field on success, then hides.
             if state.draft.size.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1192,15 +1207,26 @@ struct ItemCanvasView: View {
                 }
                 .disabled(sizeAiRunning)
             }
-            TextField("Color", text: $state.draft.color)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            TextField("Material", text: $state.draft.material)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            TextField("Style", text: $state.draft.style)
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled()
+            ColumnAspectField(
+                model: specificsModel,
+                column: "color",
+                label: "Color",
+                text: $state.draft.color,
+                capitalization: .never
+            )
+            ColumnAspectField(
+                model: specificsModel,
+                column: "material",
+                label: "Material",
+                text: $state.draft.material,
+                capitalization: .never
+            )
+            ColumnAspectField(
+                model: specificsModel,
+                column: "style",
+                label: "Style",
+                text: $state.draft.style
+            )
             Picker("Category", selection: $state.draft.category) {
                 Text("—").tag(FlipdeskCategory?.none)
                 ForEach(FlipdeskCategory.allCases) { cat in

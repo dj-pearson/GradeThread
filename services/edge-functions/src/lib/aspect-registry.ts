@@ -695,6 +695,52 @@ export function columnBackedAspectNames(aspects: RegistryAspect[]): string[] {
 export type ColumnAspectField = "brand" | "size" | "color" | "material" | "style";
 
 /**
+ * The same answer as columnBackedAspectNames, KEYED BY COLUMN -- "which aspect
+ * does the item's Style input actually drive in this category".
+ *
+ * The flat name list tells a client what to hide. It cannot tell a client what
+ * to RENDER, because it never says which of "Size" and "US Shoe Size" belongs
+ * to the size column. A client that wants to put eBay's allowed values behind
+ * the item's own Style/Color/Material inputs (US-2839, the iOS item page) needs
+ * the pairing, not the set.
+ *
+ * `category` is the item's vertical (clothing / shoes / headwear ...) when the
+ * caller knows it, so the per-vertical name wins -- a shoe item's size column
+ * owns "US Shoe Size", not the generic "Size". Pass null and every vertical is
+ * considered in registry order, which is what the flat list does.
+ */
+export function columnBackedAspectMap(
+  aspects: RegistryAspect[],
+  category: string | null = null,
+): Partial<Record<ColumnAspectField, string>> {
+  const out: Partial<Record<ColumnAspectField, string>> = {};
+  const taken = new Set<string>();
+  for (const entry of ASPECT_REGISTRY.entries) {
+    if (entry.source !== "column" || !entry.column) continue;
+    const column = entry.column as ColumnAspectField;
+    // The caller's own vertical first, then the entry's other verticals, so an
+    // unknown category still resolves the way the flat list does.
+    const verticals = category
+      ? [category, null, ...Object.keys(entry.byCategory ?? {})]
+      : [null, ...Object.keys(entry.byCategory ?? {})];
+    for (const vertical of verticals) {
+      const name = ownedAspectName(entry, vertical, aspects);
+      if (!name) continue;
+      // Two columns must never claim one aspect. "Type" is the style column's
+      // fallback name, and letting a second entry take a name already spoken
+      // for would give one input two owners. First entry in registry order
+      // wins -- the same rule the flat list uses.
+      const l = name.toLowerCase();
+      if (taken.has(l)) continue;
+      taken.add(l);
+      out[column] = name;
+      break;
+    }
+  }
+  return out;
+}
+
+/**
  * REVERSE projection: fold aspect-map edits back into the structured columns,
  * so Brand/Size/Color/Material/Style stay SINGLE-ENTRY. The columns are the
  * write-authority (columnAspectProjection force-overwrites their aspects), so

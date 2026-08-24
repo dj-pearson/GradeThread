@@ -106,14 +106,21 @@ final class SpecificsEditorModel {
             let ebay_aspects: [String: [String]]?
             // US-825: persisted provenance parallel to ebay_aspects.
             let ebay_aspect_sources: [String: String]?
+            // US-2839: the item's VERTICAL (clothing / shoes / ...), sent with
+            // the aspect fetch so the server names the aspect each column owns
+            // here -- a shoe's size column owns "US Shoe Size", not "Size".
+            let item_category: String?
         }
         let rows: [Row]? = try? await SupabaseShared.client
             .from("inventory_items")
-            .select("ebay_category_id, ebay_aspects, ebay_aspect_sources")
+            .select("ebay_category_id, ebay_aspects, ebay_aspect_sources, item_category")
             .eq("id", value: itemId)
             .limit(1)
             .execute()
             .value
+        // Keep the vertical even when there is no eBay category yet: picking one
+        // later goes through select(), which needs it for the same reason.
+        itemVertical = rows?.first?.item_category
         guard let row = rows?.first, let cat = row.ebay_category_id, !cat.isEmpty else { return }
         selectedCategoryId = cat
         originalCategoryId = cat  // US-1500: baseline for change detection in save()
@@ -175,9 +182,16 @@ final class SpecificsEditorModel {
         let newSpecs: [AspectSpec]
         let newName: String?
         do {
-            let res = try await service.aspects(categoryId: suggestion.categoryId)
+            let res = try await service.aspects(
+                categoryId: suggestion.categoryId, category: itemVertical
+            )
             newSpecs = AspectSpec.parse(res)
             newName = res.categoryName
+            // The new category owns its own hide-list and column pairing. These
+            // used to be left on the PREVIOUS category's answer, so switching
+            // from Shoes to Tops kept hiding "US Shoe Size" and offered the
+            // shoe-size values behind the item's Size field.
+            applyColumnBacked(res)
         } catch {
             phase = .failed(message(error))
             return
@@ -260,11 +274,50 @@ final class SpecificsEditorModel {
     /// → nothing is hidden, which is the previous behaviour.
     private(set) var columnBackedAspectNames: Set<String> = []
 
+    /// US-2839: the other half of the same answer -- item column name
+    /// ("brand"/"size"/"color"/"material"/"style") -> the aspect that column
+    /// drives in THIS category. The set above says which rows to hide; this says
+    /// what the item's own Brand/Size/Color/Material/Style inputs should offer,
+    /// which the set cannot: it never states which of "Size" and "US Shoe Size"
+    /// belongs to the size column.
+    private(set) var columnAspectNames: [String: String] = [:]
+
+    /// The item's vertical (clothing / shoes / headwear / ...), read once in
+    /// ``start()``. Sent with every aspect fetch so the pairing above resolves
+    /// per-vertical. nil until start() runs, or when the item has no category.
+    private var itemVertical: String?
+
     /// Test seam: seed the column-backed set without a network round trip.
     func applyColumnBackedNamesForTesting(_ names: [String]) {
         columnBackedAspectNames = Set(
             names.map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
         )
+    }
+
+    /// Test seam: seed the column -> aspect-name pairing without a round trip.
+    /// Normalises the keys the same way the network path does -- a seam that
+    /// skipped that would prove the lookup works against data the app never
+    /// produces.
+    func applyColumnAspectNamesForTesting(_ map: [String: String]) {
+        columnAspectNames = Self.normalizedColumnAspects(map)
+    }
+
+    /// The aspect spec behind one of the item's own inputs, or nil when this
+    /// category has no such specific (or no category is chosen yet). The item
+    /// page renders eBay's allowed values from this instead of a bare text
+    /// field -- the same thing the web composer does with the same payload.
+    ///
+    /// Falls back to the column's own name ("style" -> "Style") when the server
+    /// sent no pairing, so an older edge build still upgrades the obvious ones
+    /// rather than silently rendering plain text everywhere.
+    func columnSpec(for column: String) -> AspectSpec? {
+        let key = column.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !key.isEmpty else { return nil }
+        let name = columnAspectNames[key] ?? key.capitalized
+        let wanted = name.trimmingCharacters(in: .whitespaces).lowercased()
+        return specs.first {
+            $0.name.trimmingCharacters(in: .whitespaces).lowercased() == wanted
+        }
     }
 
     /// True when this aspect duplicates a main-page item field.
@@ -282,15 +335,37 @@ final class SpecificsEditorModel {
         }
     }
 
+    /// Record what this category says about the item's own columns: which
+    /// aspects duplicate them (hide) and which aspect each one drives (render).
+    private func applyColumnBacked(_ res: CategoryAspectsResponse) {
+        columnBackedAspectNames = Set(
+            res.columnBackedNames.map {
+                $0.trimmingCharacters(in: .whitespaces).lowercased()
+            }
+        )
+        columnAspectNames = Self.normalizedColumnAspects(res.columnAspectNames)
+    }
+
+    /// Column keys lowercased (they are matched against our own column names)
+    /// and aspect names trimmed (they are matched against eBay's spec).
+    private static func normalizedColumnAspects(
+        _ map: [String: String]
+    ) -> [String: String] {
+        map.reduce(into: [String: String]()) { out, pair in
+            let key = pair.key.trimmingCharacters(in: .whitespaces).lowercased()
+            let name = pair.value.trimmingCharacters(in: .whitespaces)
+            guard !key.isEmpty, !name.isEmpty else { return }
+            out[key] = name
+        }
+    }
+
     private func loadAspects(categoryId: String) async {
         phase = .loadingAspects
         do {
-            let res = try await service.aspects(categoryId: categoryId)
-            columnBackedAspectNames = Set(
-                res.columnBackedNames.map {
-                    $0.trimmingCharacters(in: .whitespaces).lowercased()
-                }
+            let res = try await service.aspects(
+                categoryId: categoryId, category: itemVertical
             )
+            applyColumnBacked(res)
             specs = AspectSpec.parse(res)
             if selectedCategoryName == nil { selectedCategoryName = res.categoryName }
             phase = .ready

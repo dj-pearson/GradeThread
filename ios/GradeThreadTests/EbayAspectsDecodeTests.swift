@@ -41,6 +41,30 @@ final class EbayAspectsDecodeTests: XCTestCase {
         XCTAssertTrue(specs[2].multiSelect)
     }
 
+    // US-2839: the column -> aspect pairing the item page renders from.
+    func test_decodesColumnBackedAspectsMap() throws {
+        let json = #"""
+        {
+          "aspects": { "aspects": [] },
+          "columnBackedAspectNames": ["Style", "US Shoe Size"],
+          "columnBackedAspects": { "style": "Style", "size": "US Shoe Size" }
+        }
+        """#
+        let res = try JSONDecoder().decode(CategoryAspectsResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(res.columnAspectNames, ["style": "Style", "size": "US Shoe Size"])
+        XCTAssertEqual(res.columnBackedNames, ["Style", "US Shoe Size"])
+    }
+
+    // An edge build that predates the key must still decode -- a non-Optional
+    // stored property would fail the WHOLE response, taking the specifics
+    // editor down with it (the US-821 trap).
+    func test_missingColumnBackedAspects_decodesToEmpty() throws {
+        let json = #"{"aspects":{"aspects":[]}}"#
+        let res = try JSONDecoder().decode(CategoryAspectsResponse.self, from: Data(json.utf8))
+        XCTAssertTrue(res.columnAspectNames.isEmpty)
+        XCTAssertTrue(res.columnBackedNames.isEmpty)
+    }
+
     func test_required_viaUsageStringWhenFlagAbsent() throws {
         let json = #"{"aspects":{"aspects":[{"localizedAspectName":"Type","aspectConstraint":{"aspectUsage":"REQUIRED"}}]}}"#
         let res = try JSONDecoder().decode(CategoryAspectsResponse.self, from: Data(json.utf8))

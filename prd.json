@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2839",
+  "nextId": "US-2840",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2411,6 +2411,22 @@
         "Say in the shared helper's header what this does NOT do: it guarantees the SHAPE, never the values. A number arriving as a string still reads as a number to TypeScript, and that is a separate problem from a missing array."
       ],
       "priority": 18
+    },
+    {
+      "id": "US-2839",
+      "passes": false,
+      "title": "iOS item page: render Brand/Size/Color/Material/Style from the eBay category spec",
+      "description": "The iOS item page renders the five structured columns (Brand, Size, Color, Material, Style) as bare text fields. The inline specifics section below them deliberately HIDES the aspects those columns own, so hiding the row also hid its dropdown: Style on a jacket was a blank box the seller had to guess into, while the web composer showed eBay's own values (Basic, Cropped, Jersey, Pullover, Ringer) from the identical payload.  The blocker was the payload, not the renderer. GET /category/:id/aspects returned columnBackedAspectNames, a FLAT list -- enough to know what to hide, not enough to know what to render, because it never says which of 'Size' and 'US Shoe Size' the size column drives. This adds the pairing (columnBackedAspects, keyed by column, resolved for the item's vertical) and a ColumnAspectField view that renders the same three shapes as the web aspect field: closed list -> picker, recommended values -> suggest field, nothing -> the plain text field it replaced.  Also fixes a related bug found on the way: select() loaded a new category's specs without refreshing the column-backed answer, so switching from Shoes to Tops kept hiding 'US Shoe Size' and left the pairing on the old leaf.",
+      "acceptanceCriteria": [
+        "GET /api/flipdesk/ebay/category/:id/aspects returns columnBackedAspects, a column -> aspect-name map, alongside the existing flat columnBackedAspectNames; ?category=<vertical> picks the per-vertical name (shoes -> US Shoe Size).",
+        "Every name in the map also appears in the flat list, and no two columns are paired with the same aspect (Type vs Fabric Type).",
+        "On the iOS item page, a SELECTION_ONLY column aspect renders as a picker over eBay's values; a free-text one with recommended values renders as a suggest field; a column with no aspect in this category stays a plain text field.",
+        "A value the column already holds that is not on eBay's list stays visible and selected (carried as an extra, labelled option) rather than rendering as a blank picker that a save would write back as empty.",
+        "A case-only difference between the column and eBay's spelling selects the eBay option rather than blanking the picker.",
+        "An edge build that does not send columnBackedAspects still decodes, and the fields fall back to the column's own name and then to plain text.",
+        "Changing the eBay category refreshes BOTH the hide-list and the column pairing, so the previous leaf's answer is never left in place."
+      ],
+      "priority": 3
     }
   ]
 }

@@ -29,6 +29,21 @@ struct CategoryAspectsResponse: Decodable, Equatable {
     /// Never-nil accessor. Empty → show every aspect (previous behaviour).
     var columnBackedNames: [String] { columnBackedAspectNames ?? [] }
 
+    /// US-2839: the same answer keyed BY COLUMN -- item column name
+    /// ("brand"/"size"/"color"/"material"/"style") -> the aspect that column
+    /// drives in this category. `columnBackedAspectNames` says what to HIDE;
+    /// this says what to RENDER, which the flat list cannot: it never states
+    /// which of "Size" and "US Shoe Size" the size column owns.
+    ///
+    /// Optional for the same reason as the flat list -- an older edge build
+    /// doesn't send it, and a non-Optional stored property would fail the whole
+    /// decode. Read it through ``columnAspectNames``.
+    let columnBackedAspects: [String: String]?
+
+    /// Never-nil accessor. Empty -> the item fields render as plain text, which
+    /// is exactly the behaviour before this key existed.
+    var columnAspectNames: [String: String] { columnBackedAspects ?? [:] }
+
     struct Container: Decodable, Equatable {
         let aspects: [RawAspect]?
     }

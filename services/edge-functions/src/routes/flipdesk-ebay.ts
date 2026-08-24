@@ -156,6 +156,7 @@ import { sanitizeRelativePath } from "../lib/oauth-redirect.ts";
 import {
   applyColumnAspects,
   columnAspectProjection,
+  columnBackedAspectMap,
   columnBackedAspectNames,
   resolveItemAspects,
   reverseColumnAspects,
@@ -2052,10 +2053,22 @@ flipdeskEbayRoutes.get("/category/:id/aspects", async (c) => {
     // write-authority, so two inputs is just the double-entry confusion.
     const rawAspects = (result.aspects as Record<string, unknown> | undefined)
       ?.aspects;
-    const columnBacked = columnBackedAspectNames(
-      toRegistryAspects(Array.isArray(rawAspects) ? rawAspects as AspectSpecRaw[] : []),
+    const registryAspects = toRegistryAspects(
+      Array.isArray(rawAspects) ? rawAspects as AspectSpecRaw[] : [],
     );
-    return c.json({ ...result, columnBackedAspectNames: columnBacked });
+    const columnBacked = columnBackedAspectNames(registryAspects);
+    // US-2839: the same answer keyed BY COLUMN, so a client can render the
+    // item's own Style/Color/Material input from eBay's allowed values instead
+    // of only knowing to hide the duplicate row. `?category=` is the item's
+    // vertical (clothing / shoes / headwear) when the caller knows it, which is
+    // what picks "US Shoe Size" over the generic "Size" on a shoe item.
+    const vertical = (c.req.query("category") ?? "").trim().toLowerCase() || null;
+    const columnBackedMap = columnBackedAspectMap(registryAspects, vertical);
+    return c.json({
+      ...result,
+      columnBackedAspectNames: columnBacked,
+      columnBackedAspects: columnBackedMap,
+    });
   } catch (err) {
     console.error("[flipdesk-ebay] category aspects failed:", err);
     return c.json({ error: "Category aspects fetch failed" }, 502);

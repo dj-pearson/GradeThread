@@ -9,6 +9,7 @@ import {
   applyColumnAspects,
   ASPECT_REGISTRY,
   columnAspectProjection,
+  columnBackedAspectMap,
   columnBackedAspectNames,
   inferDepartment,
   type RegistryAspect,
@@ -548,6 +549,65 @@ Deno.test("columnBackedAspectNames matches synonyms and per-vertical names", () 
   // Case-insensitive against eBay's own casing, and echoed back verbatim so the
   // client can match its spec list exactly.
   assertEquals(columnBackedAspectNames([free("BRAND")]), ["BRAND"]);
+});
+
+// US-2839: the same answer keyed BY COLUMN. The flat list above says what to
+// hide; this says what to RENDER, which the flat list cannot -- it never states
+// which of "Size" and "US Shoe Size" the size column drives, and a client that
+// guesses wrong puts eBay's shoe sizes behind a shirt's Size input.
+Deno.test("columnBackedAspectMap pairs each column with the aspect it owns", () => {
+  const map = columnBackedAspectMap([
+    free("Brand"),
+    sel("Color", ["Black", "Blue"]),
+    free("Material"),
+    sel("Style", ["Basic", "Cropped", "Pullover"]),
+    sel("Size", ["S", "M"]),
+    sel("Department", ["Men", "Women"]),
+  ]);
+  assertEquals(map, {
+    brand: "Brand",
+    size: "Size",
+    color: "Color",
+    material: "Material",
+    style: "Style",
+  });
+});
+
+Deno.test("columnBackedAspectMap prefers the caller's vertical name", () => {
+  const spec = [free("Size"), free("US Shoe Size"), free("Upper Material")];
+  // Told it is a shoe, the size column owns the shoe-specific name and the
+  // material column owns "Upper Material" -- the two names eBay actually
+  // requires on a shoe leaf.
+  assertEquals(columnBackedAspectMap(spec, "shoes"), {
+    size: "US Shoe Size",
+    material: "Upper Material",
+  });
+  // Told nothing, it falls back to the generic name the flat list would pick.
+  assertEquals(columnBackedAspectMap(spec, null).size, "Size");
+  // A vertical the registry has no extras for changes nothing.
+  assertEquals(columnBackedAspectMap(spec, "clothing").size, "Size");
+});
+
+Deno.test("columnBackedAspectMap never gives one aspect two owners", () => {
+  // "Type" is the style column's fallback and "Fabric Type" the material
+  // column's. A category exposing only those two must still pair each with one
+  // column -- and never hand the same name to both.
+  const map = columnBackedAspectMap([free("Type"), free("Fabric Type")]);
+  assertEquals(map, { material: "Fabric Type", style: "Type" });
+  const names = Object.values(map);
+  assertEquals(new Set(names).size, names.length);
+});
+
+Deno.test("columnBackedAspectMap omits columns this category has no aspect for", () => {
+  assertEquals(columnBackedAspectMap([free("Occasion"), free("Theme")]), {});
+  assertEquals(columnBackedAspectMap([]), {});
+  // Every name it returns is one the flat list also names, so a client that
+  // hides by the list and renders by the map can never disagree with itself.
+  const spec = [free("Brand"), free("Colour"), free("Style"), free("Occasion")];
+  const flat = new Set(columnBackedAspectNames(spec));
+  for (const name of Object.values(columnBackedAspectMap(spec))) {
+    assertEquals(flat.has(name), true, `${name} is not in the flat list`);
+  }
 });
 
 Deno.test("columnBackedAspectNames is empty for a category with none, and dedupes", () => {

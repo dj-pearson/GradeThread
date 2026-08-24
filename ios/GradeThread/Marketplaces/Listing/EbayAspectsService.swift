@@ -6,7 +6,12 @@ import Foundation
 /// protocol so the editor model is unit-testable with an in-memory mock.
 protocol AspectsProviding {
     func suggestCategories(_ query: String) async throws -> [CategorySuggestion]
-    func aspects(categoryId: String) async throws -> CategoryAspectsResponse
+    /// `category` is the ITEM's vertical (clothing / shoes / ...), not the eBay
+    /// leaf. It only decides which name each column owns in the
+    /// columnBackedAspects map -- a shoe's size column owns "US Shoe Size", a
+    /// shirt's owns "Size". Pass nil when the item has no category set and the
+    /// server falls back to the generic names.
+    func aspects(categoryId: String, category: String?) async throws -> CategoryAspectsResponse
     func extractAspects(
         itemId: String, categoryId: String, categoryPath: String?, known: [String: [String]]
     ) async throws -> ExtractAspectsResponse
@@ -57,8 +62,14 @@ struct EbayAspectsService: AspectsProviding {
         return res.suggestions
     }
 
-    func aspects(categoryId: String) async throws -> CategoryAspectsResponse {
-        try await get("/api/flipdesk/ebay/category/\(categoryId)/aspects", query: [])
+    func aspects(categoryId: String, category: String?) async throws -> CategoryAspectsResponse {
+        let vertical = (category ?? "").trimmingCharacters(in: .whitespaces)
+        return try await get(
+            "/api/flipdesk/ebay/category/\(categoryId)/aspects",
+            query: vertical.isEmpty
+                ? []
+                : [URLQueryItem(name: "category", value: vertical)]
+        )
     }
 
     func extractAspects(
