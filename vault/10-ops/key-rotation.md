@@ -225,49 +225,54 @@ Prefer this for new callers: the secret never leaves the caller.
 
 ---
 
-## Chrome Web Store extension signing key (`extension.pem`) — US-2284
+## `extension.pem` — US-2284: leaked, and there is nothing to rotate
 
-**This key WAS leaked.** It was committed to the repository on 2026-07-13
-(`e1dbc4da`) and untracked on 2026-08-01. It is still in git history, and
-untracking a key does not un-leak it — anyone who cloned the repo in that window
-holds it.
+**This key WAS leaked.** Committed 2026-07-13 (`e1dbc4da`), untracked
+2026-08-01, still in git history. Untracking does not un-leak it — anyone who
+cloned in that window holds it.
 
-What it grants: the ability to publish a Chrome Web Store update that **every
-installed user auto-receives**. That is the whole blast radius — not read access
-to something, but code execution in the browsers of everyone who installed the
-extension.
+> [!warning] This section used to say "generate a new signing key in the Chrome
+> Web Store developer dashboard". **That control does not exist**, and the
+> instruction cost the owner an evening looking for it. It is the reason
+> [[priority-5-operator-queue]] now opens with a warning that an `OPERATOR:`
+> criterion is not automatically correct.
 
-### Rotate it
+`extension.pem` is produced **locally**, by Chrome's *Pack extension* button. It
+signs a self-hosted `.crx` and derives an extension id from its public key. A
+ZIP uploaded to the Web Store is signed with **Google's** key and given a Web
+Store item id, so the local pem never enters the publish path — which is why the
+dashboard has no rotation control for it. `scripts/package-extensions.mjs` ships
+a plain `.zip` and never touches a pem.
 
-1. In the Chrome Web Store developer dashboard, generate a new signing key for
-   the extension and upload a build signed with it.
-2. Revoke / retire the old key so a package signed with the leaked one is no
-   longer accepted.
-3. Store the new key where the team's other signing secrets live — **the
-   location, never the value, goes in this file**. It does NOT go in the repo:
-   `.gitignore` now refuses `*.pem`, `*.crx`, `*.p12`, `*.keystore` and `*.jks`,
-   which stops the next one but not this one.
-4. Record the rotation in the incident log (see [[incident-response]]) — an
-   exposed key is a SEV regardless of whether it was used.
+### Why the leak is inert
 
-> **Storage location:** _to be filled in by the owner at rotation time._ Name
-> the vault/manager entry here so the next person does not have to ask. This
-> line is deliberately left blank rather than guessed at.
+Three things would each have made it serious. All three are negative — first
+checked 2026-08-21, re-checked 2026-08-24:
 
-### Then decide: rewrite history, or treat the old key as burned
+| check | result |
+|---|---|
+| a `"key"` field in any manifest | none in `extension/`, `extension-condition/` or `extension-unified/`, so no shipping extension id derives from that keypair |
+| an `update_url` in any manifest | none, so there is no self-hosted update channel a `.crx` signed with it could be pushed through |
+| a pem in the packaging path | none — `package-extensions.mjs` emits a store ZIP |
 
-Both are defensible and it is the owner's call, so it is recorded here rather
-than assumed:
+**If any of those three stops being true, this key becomes live again.**
 
-- **Treat as burned** (usually right for a signing key) — once rotated, the
-  historical copy is inert. No rewrite, no disruption. Uncomment the documented
-  allowlist stanza in `.gitleaks.toml` so the scheduled full-history scan stops
-  reporting a finding that no longer matters.
-- **Rewrite** (BFG / `git-filter-repo`) — removes it from history, and rewrites
-  every open PR and invalidates every existing clone.
+### Resolution: burned, not rotated, and no history rewrite
 
-Until one of those happens, `.github/workflows/secret-scan-history.yml` reports
-the key every Monday. That red run is the finding working, not a broken job.
+- Never pack with it again; delete any local copy so a future *Pack extension*
+  cannot pick it up.
+- **No history rewrite.** A BFG / `git-filter-repo` pass rewrites every open PR
+  and invalidates every existing clone, to scrub a key that authorises nothing.
+- The finding is allowlisted in `.gitleaks.toml`, scoped to that one commit
+  **and** that one path, so re-committing a pem today still fails the scan. The
+  full reasoning lives in the comment above the stanza.
+
+**At publish time (US-1757):** let the Web Store assign the item id and do NOT
+add a `key` field to the manifest. Adding one pins the published id to a locally
+held keypair and recreates this exposure, for real.
+
+The durable half was always the code half: file untracked, `*.pem` / `*.crx` /
+`*.p12` / `*.keystore` / `*.jks` gitignored, and a weekly full-history sweep.
 
 ### Why the scan did not catch it for weeks
 

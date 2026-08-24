@@ -64,6 +64,16 @@ untracked, `*.pem`/`*.crx` gitignored, and a weekly full-history gitleaks sweep
 at `.github/workflows/secret-scan-history.yml`. Per-push scanning cannot find a
 secret already in history, which is why this sat green for a month.
 
+**Closed out 2026-08-24.** That weekly sweep had gone red on all four runs it
+had ever had, because the resolution above was recorded here but never applied
+to the scanner. The finding is now allowlisted in `.gitleaks.toml`, scoped to
+commit `e1dbc4da` **AND** path `extension.pem`, so committing a pem today still
+fails. Full reasoning and the three re-checks live in the comment above the
+stanza and in [[key-rotation]]. The stanza that had been left ready to
+uncomment would not have worked: it named rule id `gitleaks-private-key` (the
+rule is `private-key`) and sat inside the `[allowlist]` table, where it would
+have swallowed the placeholder `regexes` list.
+
 ## One psql session against prod
 
 Order matters for the first one only; the rest are independent.

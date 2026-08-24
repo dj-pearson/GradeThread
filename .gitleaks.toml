@@ -55,33 +55,8 @@ paths = [
   # the anon key and the PostHog key.
   '''^\.env\.production$''',
 ]
-# US-2284 — the extension signing key.
-#
-# extension.pem (the Chrome Web Store signing identity) was committed on
-# 2026-07-13 and untracked on 2026-08-01. It is STILL IN HISTORY, so the
-# scheduled full-history scan (.github/workflows/secret-scan-history.yml) will
-# report it — correctly — on every run until one of two things happens:
-#
-#   A. the history is rewritten (BFG / git-filter-repo), which rewrites every
-#      open PR and every existing clone; or
-#   B. the key is treated as BURNED: rotated in the Chrome Web Store, the old
-#      one revoked, and the historical copy left in place as worthless.
-#
-# Option B is usually right for a signing key, because rotation makes the leaked
-# copy inert and a rewrite is disruptive. It is the OWNER'S CALL and it is not
-# made here. Once the key is rotated, uncomment the stanza below so the
-# scheduled scan goes green on a finding that no longer matters — and leave this
-# comment, because an unexplained allowlist entry for a private key is exactly
-# the kind of thing that gets copied.
-#
-# DO NOT uncomment before rotation. Silencing a live key is worse than the leak,
-# because it also removes the reminder.
-#
-# [[rules]]
-#   id = "gitleaks-private-key"
-#   [rules.allowlist]
-#     description = "extension.pem — leaked 2026-07-13, ROTATED <date>, old key revoked"
-#     paths = ['''^extension\.pem$''']
+# US-2284 — the extension signing key. See the allowlisted rule at the end of
+# this file; the reasoning lives there, next to the entry it explains.
 regexes = [
   # Generic placeholder tokens used throughout the *.example files.
   '''your-[a-z-]+''',
@@ -90,3 +65,50 @@ regexes = [
   '''whsec_your-webhook-secret''',
   '''re_your-resend-api-key''',
 ]
+
+# ── US-2284 — extension.pem, allowlisted 2026-08-24 because it authorises
+# nothing that exists. This is the ONE allowlist entry in this file that names a
+# real private key, so the reasoning is here in full rather than by reference.
+#
+# WHAT HAPPENED: extension.pem was committed on 2026-07-13 (e1dbc4da), untracked
+# on 2026-08-01, and is still in git history. Untracking does not un-leak it.
+#
+# WHY IT IS NOT ROTATED: there is nothing to rotate. The file was produced
+# LOCALLY by Chrome's "Pack extension" button. It signs a self-hosted .crx and
+# derives an extension id from its public key. A ZIP uploaded to the Chrome Web
+# Store is signed with GOOGLE's key and given a Web Store item id, so the local
+# pem never enters the publish path -- which is why the Developer Dashboard has
+# no control for it. An earlier version of this comment said to rotate it in the
+# dashboard, and cost the owner an evening looking for the button.
+#
+# WHY THE LEAK IS INERT -- the three things that would each make it serious, all
+# re-checked against the tree on 2026-08-24:
+#   * no "key" field in extension/, extension-condition/ or extension-unified/
+#     manifest.json, so no shipping extension id derives from that keypair;
+#   * no "update_url" in any of the three, so there is no self-hosted update
+#     channel a .crx signed with it could be pushed through;
+#   * scripts/package-extensions.mjs ships a plain .zip and never touches a pem.
+# If any of those three ever stops being true, this entry stops being safe.
+#
+# WHY NOT REWRITE HISTORY: a BFG / git-filter-repo pass rewrites every open PR
+# and invalidates every existing clone, to scrub a key that authorises nothing.
+#
+# AT PUBLISH TIME (US-1757): let the Web Store assign the item id and do NOT add
+# a "key" field to the manifest. Adding one pins the published id to a locally
+# held keypair and recreates this exposure, for real.
+#
+# The rule id is "private-key", which is what gitleaks' default ruleset actually
+# calls it -- the stanza this replaces said "gitleaks-private-key" and would
+# have matched nothing. It also sat inside the [allowlist] table, where
+# uncommenting it would have swallowed the `regexes` list above.
+[[rules]]
+  id = "private-key"
+  [rules.allowlist]
+    description = "extension.pem -- local Pack-extension key, leaked 2026-07-13, signs nothing that exists (see comment above)"
+    # Scoped to the ONE historical commit AND that one path, so this entry can
+    # only ever cover the leak it was written for. Committing a pem again today
+    # still fails the scan, which is the point -- *.pem is gitignored, and a
+    # blanket path allowlist would quietly cover the next one.
+    condition = "AND"
+    commits = ["e1dbc4da4e6c282edad1537351a7fb348a4c2ffa"]
+    paths = ['''^extension\.pem$''']
