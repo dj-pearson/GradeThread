@@ -2481,24 +2481,6 @@
       "notes": "2026-08-24 GATE MOVED HERE. US-2843 and US-2844 were unblocked from the US-2842 spike because a detector and a table are pure local code whose value does not change with the GO or NO-GO. This story is the one that spends real money on comp reads, so it now carries the dependency on US-2842 instead. Do not start it before the spike returns GO."
     },
     {
-      "id": "US-2846",
-      "passes": false,
-      "title": "Fit the slope, trim the outliers, and refuse to publish a curve that loses to the median",
-      "description": "As the pricing engine, I want the price-vs-grade fit, its outlier trim and its hold-out scoring to be pure functions behind a publish gate, so that a cell can only go live when it predicts better than the plain comp median it would replace.",
-      "acceptanceCriteria": [
-        "New pure module services/edge-functions/src/lib/comp-curve-fit.ts performs a confidence-weighted fit over reads and returns slope, intercept, sample size and fit confidence, with no I/O, unit tested without eBay, in the same shape as lib/condition-value-math.ts",
-        "Price outliers are trimmed before fitting, and the trim rule is tested against a fixture containing a bundle-priced comp",
-        "Leave-one-out scoring computes the curve error and the plain comp median error over the same reads and returns both",
-        "publishable() returns false when the curve error fails to beat the median error, and false below the minimum high-confidence read count, and both bars are exported constants with tests",
-        "A flat or negative slope is returned as it is and is never suppressed for being unflattering",
-        "The fit reads only rows with stock_rejected = false and a non-null read_score, so a catalog listing caught by US-2843 can never reach a curve, proven by a test that feeds the fitter a mixed batch and asserts the rejected rows changed neither the slope nor the sample size"
-      ],
-      "priority": 15,
-      "dependsOn": [
-        "US-2844"
-      ]
-    },
-    {
       "id": "US-2847",
       "passes": false,
       "title": "Measured curves replace seeded ones in condition_price_curves, with provenance on the page",

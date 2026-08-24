@@ -1,0 +1,40 @@
+{
+  "_readme": [
+    "US-2846 AC2. One labelled cell of comp reads, carrying a bundle listing the",
+    "price trim has to remove.",
+    "",
+    "WHAT THIS IS, AND WHAT IT IS NOT. Hand-authored samples, not reads taken",
+    "from live eBay listings, because the calibration spike (US-2842) that would",
+    "give us real ones cannot run without production credentials. It proves the",
+    "fit, the trim and the publish gate behave as specified. It does NOT prove",
+    "that real apparel cells have a price-vs-grade slope at all - that is the",
+    "question the gate exists to answer, cell by cell, once real reads land.",
+    "",
+    "THE BUNDLE IS THE POINT. B01 is a 'lot of 5' listing: it matches the",
+    "keywords, reads at high confidence because a flat lay of five fleeces is",
+    "perfectly legible, and carries one asking price for five garments. Left in,",
+    "it drags the top of the range up hard enough to invent a slope. It is",
+    "labelled so a reader can see exactly which row the trim is for."
+  ],
+  "cellKey": "patagonia-better-sweater|11484|EBAY_US",
+  "reads": [
+    { "id": "R01", "readScore": 5.0, "readConfidence": 0.81, "askingPriceCents": 3500, "stockRejected": false, "note": "pilled, faded" },
+    { "id": "R02", "readScore": 5.5, "readConfidence": 0.78, "askingPriceCents": 3700, "stockRejected": false, "note": "" },
+    { "id": "R03", "readScore": 6.0, "readConfidence": 0.84, "askingPriceCents": 4100, "stockRejected": false, "note": "" },
+    { "id": "R04", "readScore": 6.0, "readConfidence": 0.45, "askingPriceCents": 3900, "stockRejected": false, "note": "two photos only, below the confidence bar" },
+    { "id": "R05", "readScore": 6.5, "readConfidence": 0.8, "askingPriceCents": 4300, "stockRejected": false, "note": "" },
+    { "id": "R06", "readScore": 7.0, "readConfidence": 0.86, "askingPriceCents": 4600, "stockRejected": false, "note": "" },
+    { "id": "R07", "readScore": 7.0, "readConfidence": 0.45, "askingPriceCents": 4400, "stockRejected": false, "note": "one blurry photo, below the confidence bar" },
+    { "id": "R08", "readScore": 7.5, "readConfidence": 0.83, "askingPriceCents": 4900, "stockRejected": false, "note": "" },
+    { "id": "R09", "readScore": 7.5, "readConfidence": 0.79, "askingPriceCents": 5100, "stockRejected": false, "note": "" },
+    { "id": "R10", "readScore": 8.0, "readConfidence": 0.88, "askingPriceCents": 5300, "stockRejected": false, "note": "" },
+    { "id": "R11", "readScore": 8.0, "readConfidence": 0.82, "askingPriceCents": 5500, "stockRejected": false, "note": "" },
+    { "id": "R12", "readScore": 8.5, "readConfidence": 0.85, "askingPriceCents": 5700, "stockRejected": false, "note": "" },
+    { "id": "R13", "readScore": 8.5, "readConfidence": 0.8, "askingPriceCents": 5900, "stockRejected": false, "note": "" },
+    { "id": "R14", "readScore": 9.0, "readConfidence": 0.87, "askingPriceCents": 6100, "stockRejected": false, "note": "" },
+    { "id": "R15", "readScore": 9.5, "readConfidence": 0.84, "askingPriceCents": 6400, "stockRejected": false, "note": "new with tags" },
+    { "id": "B01", "readScore": 7.0, "readConfidence": 0.9, "askingPriceCents": 24000, "stockRejected": false, "note": "BUNDLE: lot of 5. Must be trimmed before the fit." },
+    { "id": "S01", "readScore": 9.8, "readConfidence": 0.93, "askingPriceCents": 7900, "stockRejected": true, "note": "STOCK: catalog hero, caught by US-2843. Must never reach the fit." },
+    { "id": "S02", "readScore": 9.9, "readConfidence": 0.91, "askingPriceCents": 8200, "stockRejected": true, "note": "STOCK: same catalog set under another seller." }
+  ]
+}
