@@ -1,5 +1,50 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00666 — flipdesk_settings.sourcing_target_roi_pct (US-2851)
+
+**What it does.** Adds one nullable integer column to
+`public.flipdesk_settings`, plus a CHECK bounding it to 0..1000. It is the
+target return on cost a seller sources to, in whole percent, and it is what
+sizes Scout's "don't pay more than" ceiling.
+
+**Why a new column and not an existing setting.** There wasn't one. The
+autolister's "floor at % margin" is typed fresh into a bulk action and never
+stored; `automation_rules.margin_floor_pct` is a per-rule offer threshold, not a
+sourcing goal. US-2851's AC asked for "the existing workspace setting" and no
+such setting existed, so this creates it rather than inventing a multiplier.
+
+**Risk: LOW.** Additive, nullable, no backfill. NULL means "use the product
+default", which is `DECISION_MAYBE_ROI` in `lib/scout-decision.ts` (30%), the
+same threshold that already decides whether Scout calls an item a maybe.
+Defaulting in the column would have frozen today's number into every existing
+row and split the two apart the first time one of them moved.
+
+**Apply order.** After 00665. It depends on nothing but `flipdesk_settings`
+(00134/00145) and `applied_migrations`.
+
+**⚠ CLIENT-SIDE READ, so this one DOES break on a Pages deploy before the SQL.**
+`src/components/flipdesk/sourcing-target-setting.tsx` selects and upserts
+`sourcing_target_roi_pct` directly through the browser Supabase client under
+RLS. Until the column exists and PostgREST has reloaded, that control errors
+(the page still renders; the toast says the save failed). The edge side is
+covered by the boot guard: `EXPECTED_SCHEMA_VERSION` is bumped to `00666` in the
+same commit.
+
+**Proven by execution, not by reading the SQL.** Applied twice in a row against
+a throwaway Postgres 16 with a stand-in `flipdesk_settings`, then:
+
+- an existing row keeps a NULL target and is untouched
+- `30` and `0` both save; zero is a real, if aggressive, choice
+- `-5` raises `flipdesk_settings_sourcing_roi_range` (a negative target is a
+  ceiling ABOVE breakeven)
+- `3000` raises the same constraint (a typo there would set a ceiling near zero
+  and silently tell the seller every item is a skip)
+- the column is `integer`, nullable, and `00666` is in `applied_migrations`
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — a new column, and the
+browser client reads it through PostgREST.
+
+
 ## ✅ APPLIED 2026-08-24: 00665 — condition_value_shadow_samples, the live-vs-measured record (US-2848)
 
 **What it does.** Creates one new table,

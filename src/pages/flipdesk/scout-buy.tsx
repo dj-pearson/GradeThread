@@ -29,6 +29,8 @@ import {
   type BuyRecommendation,
 } from "@/hooks/use-scout-appraise";
 import { ValueBasisNote } from "@/components/value/value-basis-note";
+import { SourcingCeilingNote } from "@/components/value/sourcing-ceiling-note";
+import { SourcingTargetSetting } from "@/components/flipdesk/sourcing-target-setting";
 
 function dollars(cents: number | null | undefined): string {
   if (cents == null) return "—";
@@ -83,7 +85,7 @@ function DecisionCard({
   costCents: number | null;
 }) {
   const buy = useScoutBuy();
-  const { decision, grade, value, sellThrough } = result;
+  const { decision, grade, value, sellThrough, ceiling } = result;
   const rec = REC_STYLES[decision.recommendation];
 
   return (
@@ -118,10 +120,15 @@ function DecisionCard({
             <Stat label="Breakeven" value={dollars(decision.breakevenCents)} />
           </div>
 
+          {/* US-2851: the one number a seller acts on with cash in hand. It
+              sits above the provenance line on purpose, and it is absent rather
+              than guessed when the cell has no measured curve. */}
+          <SourcingCeilingNote ceiling={ceiling} className="border-t pt-3" />
+
           {/* US-2850: the resale range above is the number this whole screen
               turns into a buy or a pass, so it does not get to appear without
               saying what it is and how much sample is behind it. */}
-          <ValueBasisNote basis={value.basis} className="border-t pt-3" />
+          <ValueBasisNote basis={value.basis} />
 
           {costCents != null && (
             <div className="grid grid-cols-2 gap-3 border-t pt-3 sm:grid-cols-4">
@@ -245,6 +252,10 @@ export function FlipdeskScoutBuyPage() {
           </>
         }
       />
+
+      {/* US-2851: the ceiling is quoted against this, so the seller has to be
+          able to see and change it on the same screen that spends it. */}
+      <SourcingTargetSetting />
 
       <Card>
         <CardContent className="space-y-4 p-4">

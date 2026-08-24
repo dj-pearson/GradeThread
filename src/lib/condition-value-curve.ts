@@ -4,7 +4,10 @@
 // worse than no condition axis at all: they are derived from GradeThread's own
 // published Condition Index. On 2026-08-18 the public endpoint
 // /api/grading/public/condition-index served 53 curves resting on 3,811 eBay
-// sold comps. For each curve, every grade's median was divided by that same
+// listings. ACTIVE listings: EBAY_MARKETPLACE_INSIGHTS has never been granted,
+// so nothing behind these ratios has been sold, and the header said "sold
+// comps" here until US-2850. Every ratio below is a share of ASKING price.
+// For each curve, every grade's median was divided by that same
 // curve's grade-10 median, and the table below is the MEDIAN of those 53
 // ratios at each grade. The script that did it is
 // scripts/seo/derive-condition-value-curve.mjs, and it re-runs against live
@@ -29,6 +32,14 @@
 // says so rather than implying a precision nobody measured.
 
 export const CONDITION_CURVE_DERIVED_ON = "2026-08-18";
+
+// US-2850: these two are no longer RENDERED. They were printed on
+// /reseller-profit-calculator next to the word "sold", which was false, and the
+// founder's call was to drop the counts along with the word rather than pair a
+// corrected label with numbers measured on one day in August and never
+// re-checked. They stay exported because they are the provenance of the ratio
+// table below and the test pins them: deleting them would leave the table with
+// no record of what it was derived from.
 export const CONDITION_CURVE_SOURCE_CURVES = 53;
 export const CONDITION_CURVE_SOURCE_COMPS = 3811;
 

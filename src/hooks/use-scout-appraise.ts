@@ -48,9 +48,25 @@ export interface AppraiseDecision {
   confident: boolean;
 }
 
+/**
+ * US-2851: the highest price to pay for this garment at the grade in hand.
+ *
+ * `maxPriceCents` is null whenever the edge declined to quote one, and
+ * `absentReason` says which refusal it was. Absent is a real answer here: a
+ * ceiling derived from an unmeasured comp median would be a spending limit
+ * built on a price that was never adjusted for condition.
+ */
+export interface AppraiseCeiling {
+  maxPriceCents: number | null;
+  targetRoi: number;
+  netResaleCents: number | null;
+  absentReason: "no_measured_curve" | "insufficient_comps" | "no_headroom" | null;
+}
+
 export interface AppraiseResult {
   grade: AppraiseGrade;
   value: AppraiseValue;
+  ceiling?: AppraiseCeiling | null;
   sellThrough: AppraiseSellThrough;
   costCents: number | null;
   decision: AppraiseDecision;

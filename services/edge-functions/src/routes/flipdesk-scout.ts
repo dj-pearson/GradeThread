@@ -26,6 +26,7 @@ import { extractMatchHints, type VisionImage } from "../lib/ai-reconcile.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import {
   valueAtGrade,
+  applyMeasuredCurve,
   valueRangeFromStats,
   type ValueRange,
 } from "../lib/condition-value.ts";
@@ -48,7 +49,8 @@ import {
   type IdentifyRequest,
 } from "../lib/scout-identify.ts";
 import { forecastSellThrough } from "../lib/sell-through.ts";
-import { decideBuy, DECISION_FEE_RATE } from "../lib/scout-decision.ts";
+import { decideBuy, DECISION_FEE_RATE, sourcingCeiling } from "../lib/scout-decision.ts";
+import { sourcingTargetRoi } from "../lib/sourcing-target.ts";
 import {
   rankCandidates,
   scoreCandidate,
@@ -385,7 +387,13 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
       },
     );
     compsReused = reused;
-    value = valueRangeFromStats(search.stats, shadowGrade, search.stats.currency);
+    // US-2851: /appraise built its range inline too, so US-2849's flip reached
+    // neither in-field surface. Both go through the choke point now.
+    value = await applyMeasuredCurve(
+      { categoryId, q: q || undefined, brand: brand || undefined, size: size || undefined },
+      shadowGrade,
+      valueRangeFromStats(search.stats, shadowGrade, search.stats.currency),
+    );
     // The provider decides what a matched title means: only a barcode pins an
     // exact product on the hints path, while a visual match names what it saw.
     matchedTitle = reused
@@ -416,6 +424,14 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
     sellThrough,
     costCents,
   });
+  // US-2851: the sourcing ceiling. Absent, never guessed, unless this cell has
+  // a publishable measured curve; sourcingCeiling enforces that itself. The
+  // target is the OWNER's setting, so a workspace member spends against the
+  // owner's margin rather than one of their own.
+  const ceiling = sourcingCeiling({
+    value,
+    targetRoi: await sourcingTargetRoi(userId),
+  });
 
   recordMetric("scout.appraise", 1, {
     recommendation: decision.recommendation,
@@ -444,6 +460,7 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
     sellThrough,
     costCents,
     decision,
+    ceiling,
     matchedTitle,
     // US-2763 AC5: the client must be able to tell "recognised as X" from
     // "looks like these". Sending the title without this is what let a pure
@@ -662,6 +679,14 @@ flipdeskScoutRoutes.post("/appraise-url", async (c) => {
     sellThrough,
     costCents,
   });
+  // US-2851: the sourcing ceiling. Absent, never guessed, unless this cell has
+  // a publishable measured curve; sourcingCeiling enforces that itself. The
+  // target is the OWNER's setting, so a workspace member spends against the
+  // owner's margin rather than one of their own.
+  const ceiling = sourcingCeiling({
+    value,
+    targetRoi: await sourcingTargetRoi(userId),
+  });
 
   recordMetric("scout.appraise-url", 1, {
     recommendation: decision.recommendation,
@@ -680,6 +705,7 @@ flipdeskScoutRoutes.post("/appraise-url", async (c) => {
     sellThrough,
     costCents,
     decision,
+    ceiling,
     feeRate: DECISION_FEE_RATE,
     // Thin comps are reported, not hidden: the caller renders "not enough
     // comps" instead of a margin computed off a two-item sample.
@@ -1027,7 +1053,15 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
           return out.result;
         },
       );
-      value = valueRangeFromStats(search.stats, shadowGrade, search.stats.currency);
+      // US-2851: /prospect built its range inline and so was the ONE value
+      // surface US-2849's flip never reached. It is also the thrift-aisle
+      // surface the sourcing ceiling exists for, so a ceiling here would have
+      // been permanently absent. Same choke point as everything else now.
+      value = await applyMeasuredCurve(
+        { categoryId, q: compQuery.q, brand: compQuery.brand },
+        shadowGrade,
+        valueRangeFromStats(search.stats, shadowGrade, search.stats.currency),
+      );
     } catch (err) {
       captureException(err, { level: "warn", route: "scout.prospect.value" });
     }
@@ -1043,6 +1077,13 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
         sellThrough: sellThrough!,
         costCents,
       })
+    : null;
+  // US-2851: the sourcing ceiling. Absent, never guessed, unless this cell has
+  // a publishable measured curve; sourcingCeiling enforces that itself. The
+  // target is the OWNER's setting, so a workspace member spends against the
+  // owner's margin rather than one of their own.
+  const ceiling = value
+    ? sourcingCeiling({ value, targetRoi: await sourcingTargetRoi(userId) })
     : null;
 
   // A deep link to eBay's SOLD/completed search for this item — lets the
@@ -1105,11 +1146,15 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
           currency: value.currency,
           confidence: value.confidence,
           sufficient: value.sufficient,
+          // US-2850: /prospect flattens the range into `stats`, so the
+          // provenance has to be carried across by hand or it is lost.
+          basis: value.basis,
         }
       : null,
     sellThrough,
     costCents,
     decision,
+    ceiling,
     ebaySoldSearchUrl,
     // "active" today; flips to "sold" automatically once Marketplace Insights
     // is granted — the client labels its pricing copy off this.

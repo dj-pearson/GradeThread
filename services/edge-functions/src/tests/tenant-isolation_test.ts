@@ -4627,6 +4627,60 @@ Deno.test({
   },
 });
 
+// ── US-2851: the sourcing ceiling reads a per-seller SETTING ────────────────
+//
+// The three scout endpoints now read flipdesk_settings.sourcing_target_roi_pct
+// to size the ceiling, and flipdesk_settings is a multi-tenant table hit with
+// the service-role client, which bypasses RLS. The read is scoped on user_id in
+// lib/sourcing-target.ts and the caller passes workspaceOwnerId ?? userId, so a
+// member sources against the OWNER's margin.
+//
+// WHAT COULD GO WRONG, AND WHY THE PROOF IS A DENIAL. There is no resource id
+// in any of these bodies, so nobody can name another tenant's settings row
+// directly. The only way to read A's target is to be admitted as A, which means
+// the boundary is the workspace header. The unit test in
+// sourcing-ceiling_test.ts pins the `.eq("user_id", ownerId)` filter itself;
+// these pin that a stranger never gets that far.
+Deno.test({
+  name: "US-2851: non-member B cannot read A's sourcing target through a scout ceiling",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    for (
+      const [path, body] of [
+        ["/api/flipdesk/scout/appraise-url", APPRAISE_URL_BODY],
+        ["/api/flipdesk/scout/appraise", JSON.stringify({ q: "patagonia", image: "x" })],
+        ["/api/flipdesk/scout/prospect", JSON.stringify({ q: "patagonia", image: "x" })],
+      ] as const
+    ) {
+      const res = await fetch(`${BASE}${path}`, {
+        method: "POST",
+        headers: foreignWorkspaceHeaders(),
+        body,
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, `POST ${path} as a non-member of A's workspace`);
+    }
+  },
+});
+
+Deno.test({
+  // A viewer IS inside the workspace, so the header alone would admit them. The
+  // baseline that stops them is blockViewerWrites. Pinned here because the
+  // ceiling is a new reason to care: a read-only member should not be able to
+  // make the product quote a spending limit off the owner's margin setting.
+  name: "US-2851: viewer cannot obtain a sourcing ceiling off the owner's target",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/prospect`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: JSON.stringify({ q: "patagonia", image: "x" }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST scout/prospect as viewer");
+  },
+});
+
 Deno.test({
   // Unauthenticated must never reach the grader: the route sits behind
   // authMiddleware, and a fallback-to-anonymous regression here would hand a
