@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ PENDING: 00665 — condition_value_shadow_samples, the live-vs-measured record (US-2848)
+## ✅ APPLIED 2026-08-24: 00665 — condition_value_shadow_samples, the live-vs-measured record (US-2848)
 
 **What it does.** Creates one new table,
 `public.condition_value_shadow_samples`. One row every time `valueAtGrade`
@@ -40,8 +40,10 @@ it.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — a new table changed the
 schema, and PostgREST will not see it otherwise.
 
+**Applied on the founder's word 2026-08-24, not on a read of prod.**
 
-## APPLIED 2026-08-24: 00664 — condition_price_curves says where its numbers came from (US-2847)
+
+## ✅ APPLIED 2026-08-24: 00664 — condition_price_curves says where its numbers came from (US-2847)
 
 **What it does.** Adds four columns to `public.condition_price_curves`:
 `provenance` (`seeded` default, or `measured`), `slope_cents_per_point`,
@@ -69,7 +71,7 @@ key is free and then updates only while the row is still seeded.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — new columns.
 
 
-## APPLIED 2026-08-24: 00663 — comp_condition_reads, the comp condition sample store (US-2844)
+## ✅ APPLIED 2026-08-24: 00663 — comp_condition_reads, the comp condition sample store (US-2844)
 
 > Marked applied on the founder's word, not on a read of prod. Everything below
 > is the original pending entry, unchanged.
