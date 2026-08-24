@@ -68,7 +68,10 @@ final class ListingComposerTests: XCTestCase {
     /// the estimate stays a field-for-field mirror of the web estimate.
     func test_promotedAdFee_doesNotChangeCoreEstimate() {
         let e = ListingProfit.estimate(price: 100, costBasis: 30)
-        XCTAssertEqual(e.net, 56.35, accuracy: 0.0001)
+        // Derived from the shared fee model, not a literal: a rate change used to
+        // leave this number two years stale while every other test moved.
+        let expected = 100 - (100 * ListingProfit.defaultFeeRate + ListingProfit.defaultFixedFee) - 30
+        XCTAssertEqual(e.net, expected, accuracy: 0.0001)
     }
 
     func test_promotedAdRate_parse_localeAndNoise() {
