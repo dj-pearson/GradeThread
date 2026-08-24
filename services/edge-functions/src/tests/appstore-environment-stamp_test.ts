@@ -54,17 +54,49 @@ Deno.test("US-2286: the new parameter is DEFAULTED, so the current edge keeps wo
   );
 });
 
-Deno.test("US-2286: it DROPs before creating, rather than replacing", () => {
-  // Postgres identifies a function by its argument list, so CREATE OR REPLACE
-  // with an extra parameter leaves BOTH versions and makes the existing
-  // five-argument call ambiguous — which fails at runtime, on a paid path.
+Deno.test("US-2286: it DROPs the old signature before creating the new one", () => {
+  // Postgres identifies a function by its argument list, so adding a parameter
+  // leaves BOTH versions live unless the old one is dropped — and the stale
+  // 6-argument copy keeps answering, on a paid path.
+  //
+  // ⚠ THIS TEST USED TO ASSERT THE WRONG TOKEN (US-2837). It required the
+  // absence of `CREATE OR REPLACE`, on the reasoning that OR REPLACE with a
+  // changed signature IS the overload trap. That reasoning is right about OR
+  // REPLACE *instead of* the drop and wrong about OR REPLACE *after* it, and
+  // the difference is the whole point: the DROP is what prevents the overload,
+  // not the spelling of the CREATE.
+  //
+  // MEASURED, not argued, from the realistic starting state — a database
+  // holding the old 6-argument function:
+  //   DROP + CREATE OR REPLACE, applied twice -> exit 0, exit 0, ONE signature
+  //   the same file with the DROP removed      -> TWO signatures live
+  // So the control reproduces the trap and the shipped form does not.
+  //
+  // Forbidding OR REPLACE also cost something real: without it a second run
+  // raises "already exists with same argument types" and aborts the rest of the
+  // file, which breaks US-1108 rule 1. 00609 was the only migration in 658 that
+  // did, precisely because this test held it there.
   const drop = SQL.indexOf("DROP FUNCTION IF EXISTS public.grant_appstore_credits");
-  const create = SQL.indexOf("CREATE FUNCTION public.grant_appstore_credits");
-  assert(drop > -1, "no DROP — an extra parameter would create a second overload");
+  const create = SQL.search(
+    /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+public\.grant_appstore_credits/,
+  );
+  assert(drop > -1, "no DROP — an extra parameter would leave a second overload live");
   assert(create > drop, "the CREATE must follow the DROP");
+
+  // The drop must name the OLD 6-argument signature. Dropping the new one would
+  // be a no-op on a fresh database and would drop the function it just made on
+  // a second run.
   assert(
-    !/CREATE OR REPLACE FUNCTION public\.grant_appstore_credits/.test(SQL),
-    "CREATE OR REPLACE with a changed signature is the overload trap",
+    /DROP FUNCTION IF EXISTS public\.grant_appstore_credits\(\s*uuid\s*,\s*integer\s*,\s*text\s*,\s*text\s*,\s*text\s*,\s*text\s*\)/i
+      .test(SQL),
+    "the DROP must name the old 6-argument signature",
+  );
+
+  // And the create must be re-runnable, which is the half the old assertion
+  // inverted. scripts/migrations-lint.mjs enforces this for every migration.
+  assert(
+    /CREATE OR REPLACE FUNCTION public\.grant_appstore_credits/.test(SQL),
+    "the CREATE must be OR REPLACE, or a second run of this file aborts",
   );
 });
 

@@ -5,7 +5,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-17
+reviewed: 2026-08-23
 tags: [ops, database, migrations]
 summary: How migrations are authored, verified and applied to self-hosted prod.
 ---
@@ -49,8 +49,25 @@ the number any way the log shows it — `00256`, `256`, or `applied=00256`.
 ## Where migrations live
 
 `supabase/migrations/NNNNN_description.sql`, applied in lexical order. Each file
-is idempotent where practical (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`,
-`DO $$ ... IF NOT EXISTS ... $$`).
+must be idempotent (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`,
+`DO $$ ... IF NOT EXISTS ... $$`, `CREATE OR REPLACE FUNCTION`, and a
+`DROP ... IF EXISTS` before every `CREATE TRIGGER` / `CREATE POLICY`).
+
+This used to read "idempotent **where practical**", which was a hedge over an
+unmeasured claim. It is measured now, and enforced by
+`scripts/migrations-lint.mjs` (US-2837): a `CREATE FUNCTION` that is not
+`CREATE OR REPLACE` fails at zero, and an unguarded `CREATE TRIGGER` /
+`CREATE POLICY` fails above 00291.
+
+> [!warning] The files at or below 00291 are NOT all re-runnable
+> 48 `CREATE TRIGGER` and 251 `CREATE POLICY` statements across 61 early
+> migrations have no `DROP ... IF EXISTS`, because the rule post-dates them.
+> Re-applying one of those raises 42710 and aborts the rest of that file. They
+> are grandfathered and counted rather than fixed: retro-editing 299 statements
+> in migrations that production has already applied is a larger risk than the
+> one it removes. **Read this before following the gap-fill loop below** — that
+> loop's "re-applying an already-present one is safe" is true from 00292 up, and
+> not before.
 
 ## Applying to production (gated runbook)
 
@@ -118,7 +135,11 @@ collide with `supabase db reset` in the local `verify:db` lane.
 > `CREATE OR REPLACE FUNCTION` only replaces a function with the **same argument
 > list**. A different signature creates a second **overload**, leaves the
 > original live, and every statement succeeds. (00609's own header records this
-> trap in the other direction — it used `DROP` + `CREATE` precisely to avoid it.)
+> trap in the other direction — it drops the old 6-argument signature precisely
+> to avoid it. As of US-2837 that file reads `DROP` + `CREATE OR REPLACE`, not
+> `DROP` + `CREATE`: the drop is what stops the overload, and the `OR REPLACE`
+> is what lets the file be run twice. Both halves are load-bearing and they are
+> not in tension, which the original header did not say.)
 >
 > **So the footer proves the file was RUN, never that it WORKED.** Two habits
 > follow, and both are cheap:
@@ -299,8 +320,12 @@ psql "$SUPABASE_DB_URL" -c \
   "select count(*) from supabase_migrations.schema_migrations where version between '00057' and '00097';"
 ```
 
-If rows are missing, apply the gap with the loop above (each file is idempotent,
-so re-applying an already-present one is safe). The new production-ops migrations
+If rows are missing, apply the gap with the loop above. Re-applying an
+already-present file is safe from 00292 up; **below that, check it first** —
+these are exactly the versions carrying the grandfathered unguarded
+`CREATE TRIGGER` / `CREATE POLICY` statements described under "Where migrations
+live", and one of those aborts the file with 42710 partway through. The new
+production-ops migrations
 **00094 (job_locks), 00095 (email_deliveries), 00096 (feature_flags), 00097
 (integrity constraints)** must be applied before the new crons/kill-switches work.
 

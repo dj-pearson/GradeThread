@@ -17,8 +17,28 @@ migration and its code MUST travel together and reach prod in the right order.
 1. **Idempotent**: `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`,
    `CREATE OR REPLACE FUNCTION`, `CREATE INDEX IF NOT EXISTS`,
    `ADD VALUE IF NOT EXISTS` (enums), `DROP TRIGGER IF EXISTS` before
-   `CREATE TRIGGER`. It must be safe to run twice and safe to re-run the whole
-   directory (`scripts/apply-prod-migrations.sh` does exactly that).
+   `CREATE TRIGGER`, `DROP POLICY IF EXISTS` before `CREATE POLICY`. **It must be
+   safe to run twice.** `scripts/migrations-lint.mjs` enforces this as of
+   US-2837 — a `CREATE FUNCTION` that is not `CREATE OR REPLACE` fails at zero,
+   and an unguarded `CREATE TRIGGER` / `CREATE POLICY` fails above 00291.
+
+   Dropping first is still correct when the ARGUMENT LIST changes — adding a
+   defaulted parameter creates a second overload rather than replacing the
+   first — but keep `OR REPLACE` on the create anyway. On the second run the
+   drop matches nothing and a bare `CREATE` aborts the whole file.
+   `00609_appstore_transaction_environment.sql` is the worked example, and was
+   the only migration in 658 that got this wrong.
+
+   > ⚠ **`scripts/apply-prod-migrations.sh` does NOT re-run the whole
+   > directory.** This line used to say it did. It reads the highest recorded
+   > version and skips every file at or below it
+   > (`[[ "$prefix" > "$current" ]] || continue`). The skip is by **maximum, not
+   > by membership**, so a hole BELOW the maximum is never re-applied — which is
+   > precisely how `listings.draft_id` from 00134 stayed missing in production
+   > for months while every version above it was recorded (US-2726, US-2832).
+   > An agent who believes the old sentence has no reason to go looking for the
+   > hole. `scripts/prod-schema-audit.sql` is what actually answers "is anything
+   > missing", and it is a read.
 2. **`EXPECTED_SCHEMA_VERSION` bump in the SAME commit**
    (`services/edge-functions/src/lib/schema-version.ts`) = the new file's
    NNNNN. CI (`schema-version_test.ts`) enforces it — note the comparison is

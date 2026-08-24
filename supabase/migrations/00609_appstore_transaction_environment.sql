@@ -14,11 +14,26 @@
 -- NULL = pre-marker, exactly as 00559 chose, so nothing is backfilled and no
 -- historical row is claimed to be something it is not. Same CHECK shape too.
 --
--- DROP THEN CREATE, not CREATE OR REPLACE. Postgres identifies a function by its
--- argument list, so replacing it with an extra parameter would leave BOTH
--- versions and make an existing 5-argument call ambiguous. The drop and the
--- create are in one migration, therefore one transaction, so there is no window
--- where the function is missing.
+-- DROP AND *THEN* CREATE OR REPLACE. Both halves are load-bearing and they
+-- answer different questions.
+--
+-- The DROP is why this is not a bare CREATE OR REPLACE. Postgres identifies a
+-- function by its argument list, so "replacing" it with an extra parameter
+-- would leave BOTH versions and make an existing 5-argument call ambiguous.
+-- Dropping the old 6-argument signature first is what stops that. The drop and
+-- the create are in one migration, therefore one transaction, so there is no
+-- window where the function is missing.
+--
+-- The OR REPLACE is why this file can be run twice (US-2837). On a second run
+-- the DROP matches nothing, because the 6-argument signature is already gone,
+-- and a bare CREATE then hits "function grant_appstore_credits already exists
+-- with same argument types" and aborts the whole run. This was the only
+-- CREATE FUNCTION in 658 migrations without OR REPLACE, and US-1108 rule 1
+-- requires every migration to be safe to run twice. Measured, not reasoned:
+-- applied twice in a row against the local stack, exit 0 both times.
+--
+-- Note the two are not in tension. The DROP removes a signature that no longer
+-- exists after the first run; the OR REPLACE handles the one that does.
 --
 -- DEPLOY ORDER IS SAFE IN THE DOCUMENTED DIRECTION (migration, then edge). The
 -- new parameter is defaulted, so the CURRENT edge — which passes five named
@@ -46,7 +61,7 @@ COMMENT ON COLUMN public.appstore_processed_transactions.environment IS
 
 DROP FUNCTION IF EXISTS public.grant_appstore_credits(uuid, integer, text, text, text, text);
 
-CREATE FUNCTION public.grant_appstore_credits(
+CREATE OR REPLACE FUNCTION public.grant_appstore_credits(
   p_user_id                 uuid,
   p_credits                 integer,
   p_transaction_id          text,

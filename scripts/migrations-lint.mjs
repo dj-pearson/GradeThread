@@ -258,6 +258,108 @@ export function ineffectiveRevokes(sqlFiles, read) {
   return hits;
 }
 
+// ── US-2837: "safe to run twice" is a rule nothing was checking ──────────────
+//
+// US-1108 rule 1 requires every migration to be idempotent. Nothing enforced it,
+// and the enforcement gap is the same one behind US-2832: a migration that
+// cannot be re-applied is a migration that can only ever be fixed by hand, and a
+// hand fix leaves no applied_migrations row for an audit to find.
+//
+// scripts/apply-prod-migrations.sh does NOT protect you from this. It skips
+// every file at or below the highest recorded version, so it is a poor test of
+// re-runnability and, more importantly, it will never re-apply a hole BELOW the
+// maximum. That skip is by MAXIMUM, not by membership, and it is exactly how
+// 00134 stayed missing in production for months while every version above it
+// was recorded (US-2726, US-2832).
+//
+// THREE FORMS ARE CHECKED, and only the first is a hard zero:
+//
+//   CREATE FUNCTION      -> must be CREATE OR REPLACE FUNCTION. Zero tolerance,
+//                           no grandfather list, because after 00609 was fixed
+//                           there are none left in 658 files. A dropped-then-
+//                           created function is still fine, and often required
+//                           when the argument list changes: the DROP removes the
+//                           OLD signature, the OR REPLACE handles the new one on
+//                           a second run. 00609 is the worked example.
+//   CREATE TRIGGER       -> needs DROP TRIGGER IF EXISTS on the same name
+//                           earlier in the same file. CREATE OR REPLACE TRIGGER
+//                           (PG14+) is accepted and does not match this rule.
+//   CREATE POLICY        -> needs DROP POLICY IF EXISTS on the same name.
+//                           Postgres has no CREATE OR REPLACE POLICY, so a
+//                           pg_policies existence guard is accepted instead.
+//
+// ⚠ THE THRESHOLD IS NOT A KNOB. Raising it silences the finding instead of
+// fixing it, exactly as US-2059's 00478 threshold warns for the same reason. It
+// is set to the HIGHEST FILE THAT ALREADY VIOLATED when the rule landed, which
+// makes it a description of history rather than a budget: every one of the 367
+// migrations from 00292 to 00661 already complies, with no exceptions. The
+// practice self-corrected long ago; this only stops it drifting back.
+//
+// The 48 triggers and 251 policies below the threshold are NOT to be fixed.
+// Retro-editing 299 statements across 61 applied migrations is a far larger risk
+// than the one it removes, and applied migrations are immutable for good reason
+// (US-2059). Their counts are asserted so the historical set can only shrink.
+//
+// ⚠ THE COMPARISON IS LEXICAL, NOT NUMERIC, and that is not a style choice. The
+// three SIX_DIGIT_BY_DESIGN files exist to sort INTO an existing slot: 000375
+// belongs between 00037 and 00038, which is where lexical order puts it and
+// where the Supabase CLI and the boot guard both read it. Parsed as an integer
+// it reads 375, which is past this threshold, so a numeric compare declares two
+// of the oldest migrations in the repo to be new violations and drops them out
+// of the grandfathered counts at the same time. The first cut did exactly that
+// and reported 12 failures for one mistake.
+export const IDEMPOTENT_GRANDFATHERED_THROUGH = "00291";
+export const GRANDFATHERED_UNGUARDED_TRIGGERS = 48;
+export const GRANDFATHERED_UNGUARDED_POLICIES = 251;
+
+/** Comments must go before matching, or a rule's own documentation satisfies it. */
+export function stripSqlComments(sql) {
+  return sql.replace(/--[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+}
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Every create in `sqlFiles` that cannot survive a second run.
+ *
+ * Returns `{ file, version, kind, name }`. `kind` is "function" | "trigger" |
+ * "policy"; `version` is the filename prefix AS A STRING, because the
+ * grandfather comparison is lexical (see the block above).
+ */
+export function unguardedCreates(sqlFiles, read) {
+  const hits = [];
+  for (const file of sqlFiles) {
+    const sql = stripSqlComments(read(file));
+    const version = versionOf(file);
+    const add = (kind, name) => hits.push({ file, version, kind, name });
+
+    // `create or replace function` does not match: "or replace" sits between.
+    for (const m of sql.matchAll(/create\s+function\s+(?:public\.)?"?([a-z0-9_]+)"?/gi)) {
+      add("function", m[1]);
+    }
+
+    for (const m of sql.matchAll(/create\s+(?:constraint\s+)?trigger\s+"?([a-z0-9_]+)"?/gi)) {
+      const name = escapeRe(m[1].toLowerCase());
+      if (!new RegExp(`drop\\s+trigger\\s+if\\s+exists\\s+"?${name}"?`, "i").test(sql)) {
+        add("trigger", m[1]);
+      }
+    }
+
+    for (const m of sql.matchAll(/create\s+policy\s+(?:"([^"]+)"|([a-z0-9_]+))/gi)) {
+      const raw = m[1] ?? m[2];
+      const name = escapeRe(raw);
+      const dropped = new RegExp(`drop\\s+policy\\s+if\\s+exists\\s+"?${name}"?`, "i").test(sql);
+      // The other legitimate form: an existence guard against pg_policies. There
+      // is no CREATE OR REPLACE POLICY, so this is a real alternative rather
+      // than an escape hatch, and it must name THIS policy to count.
+      const guarded =
+        /pg_policies/i.test(sql) && new RegExp(`pg_policies[\\s\\S]{0,400}?${name}`, "i").test(sql);
+      if (!dropped && !guarded) add("policy", raw);
+    }
+  }
+  return hits;
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 export function lint() {
   const failures = [];
@@ -396,6 +498,76 @@ export function lint() {
         `  The list may only shrink, so remove them. But check WHY they stopped ` +
         `matching first: an applied migration is immutable, so the honest reason ` +
         `is that a later migration fixed the grant — not that this file changed.`,
+    );
+  }
+
+  // US-2837: idempotency. See the block above unguardedCreates for why the
+  // threshold is a description of history and not a budget.
+  const unguarded = unguardedCreates(sqlFiles, (f) => readFileSync(join(MIG_DIR, f), "utf8"));
+
+  for (const h of unguarded.filter((x) => x.kind === "function")) {
+    fail(
+      `${MIG_PREFIX}/${h.file}: \`CREATE FUNCTION ${h.name}\` is not ` +
+        `\`CREATE OR REPLACE FUNCTION\`.\n` +
+        `  US-1108 rule 1 requires every migration to be safe to run twice, and ` +
+        `this one is not: the second run raises "function ${h.name} already ` +
+        `exists with same argument types" and aborts everything after it.\n` +
+        `  If you dropped the function first because the ARGUMENT LIST changed, ` +
+        `keep the drop and still write OR REPLACE. The two answer different ` +
+        `questions: the DROP removes the old signature so an existing call is ` +
+        `never ambiguous, and the OR REPLACE handles the second run, where the ` +
+        `drop matches nothing because the old signature is already gone. ` +
+        `00609_appstore_transaction_environment.sql is the worked example.\n` +
+        `  There is no grandfather list for this one. 00609 was the only ` +
+        `instance in 658 files and it is fixed, so the correct count is zero.`,
+    );
+  }
+
+  for (const h of unguarded.filter((x) => x.kind !== "function")) {
+    if (h.version <= IDEMPOTENT_GRANDFATHERED_THROUGH) continue;
+    const drop =
+      h.kind === "trigger"
+        ? `DROP TRIGGER IF EXISTS ${h.name} ON <table>;`
+        : `DROP POLICY IF EXISTS "${h.name}" ON <table>;`;
+    fail(
+      `${MIG_PREFIX}/${h.file}: \`CREATE ${h.kind.toUpperCase()} ${h.name}\` has ` +
+        `no matching DROP ... IF EXISTS earlier in the same file.\n` +
+        `  A second run raises 42710 and aborts. Add \`${drop}\` immediately ` +
+        `before the create.\n` +
+        (h.kind === "trigger"
+          ? `  CREATE OR REPLACE TRIGGER (PG14+) is also accepted.\n`
+          : `  An IF NOT EXISTS guard against pg_policies naming this policy is ` +
+            `also accepted, since Postgres has no CREATE OR REPLACE POLICY.\n`) +
+        `  Do NOT raise IDEMPOTENT_GRANDFATHERED_THROUGH to make this pass. It ` +
+        `is set to ${IDEMPOTENT_GRANDFATHERED_THROUGH}, the highest file that ` +
+        `already violated when the rule landed, and every migration since then ` +
+        `complies. Raising it silences the finding instead of fixing it.`,
+    );
+  }
+
+  const oldTriggers = unguarded.filter(
+    (h) => h.kind === "trigger" && h.version <= IDEMPOTENT_GRANDFATHERED_THROUGH,
+  ).length;
+  const oldPolicies = unguarded.filter(
+    (h) => h.kind === "policy" && h.version <= IDEMPOTENT_GRANDFATHERED_THROUGH,
+  ).length;
+  for (const [what, constant, got, want] of [
+    ["trigger", "GRANDFATHERED_UNGUARDED_TRIGGERS", oldTriggers, GRANDFATHERED_UNGUARDED_TRIGGERS],
+    ["policy", "GRANDFATHERED_UNGUARDED_POLICIES", oldPolicies, GRANDFATHERED_UNGUARDED_POLICIES],
+  ]) {
+    if (got === want) continue;
+    fail(
+      `the grandfathered unguarded-${what} count is ${got}, not ${want}.\n` +
+        (got < want
+          ? `  Fewer is good, and the number may only fall: lower ` +
+            `${constant} to ${got}. Check WHY ` +
+            `it fell first, though. An applied migration is immutable, so the ` +
+            `honest reason is a later migration replacing the object, not an ` +
+            `edit to a shipped file.`
+          : `  It went UP, which the threshold cannot explain: these are all at ` +
+            `or below ${IDEMPOTENT_GRANDFATHERED_THROUGH}, and files that old do ` +
+            `not gain statements. Something edited a migration that has already ` +
+            `been applied to production.`),
     );
   }
 

@@ -16,12 +16,16 @@ import { resolve } from "node:path";
 import {
   duplicateVersions,
   gapReport,
+  GRANDFATHERED_UNGUARDED_POLICIES,
+  GRANDFATHERED_UNGUARDED_TRIGGERS,
+  IDEMPOTENT_GRANDFATHERED_THROUGH,
   ignoreRulesNamingMigrations,
   ineffectiveRevokes,
   INEFFECTIVE_REVOKE_GRANDFATHERED,
   KNOWN_GAPS,
   shapeFailures,
   SIX_DIGIT_BY_DESIGN,
+  unguardedCreates,
 } from "./migrations-lint.mjs";
 
 const read = (p) => readFileSync(resolve(process.cwd(), p), "utf8");
@@ -207,6 +211,120 @@ describe("a revoke that revokes nothing (US-2666)", () => {
     expect(hits.map((h) => h.key).sort()).toEqual(
       [...INEFFECTIVE_REVOKE_GRANDFATHERED.keys()].sort(),
     );
+  });
+});
+
+describe("safe to run twice (US-2837)", () => {
+  const dir = (files) => ({ names: Object.keys(files), read: (f) => files[f] });
+  const kinds = (files) => unguardedCreates(dir(files).names, dir(files).read)
+    .map((h) => `${h.kind}:${h.name}`);
+
+  it("flags a CREATE FUNCTION that is not CREATE OR REPLACE", () => {
+    // The 00609 case. A second run raises "already exists with same argument
+    // types" and aborts every statement after it.
+    expect(kinds({ "00900_x.sql": "CREATE FUNCTION public.f(uuid) RETURNS int" })).toEqual([
+      "function:f",
+    ]);
+  });
+
+  it("accepts CREATE OR REPLACE FUNCTION", () => {
+    expect(kinds({ "00900_x.sql": "CREATE OR REPLACE FUNCTION public.f(uuid)" })).toEqual([]);
+  });
+
+  it("accepts a DROP of an OLD signature alongside OR REPLACE — the 00609 fix", () => {
+    // Both halves are load-bearing and they are not in tension. The DROP removes
+    // the 6-arg signature so an existing call is never ambiguous; the OR REPLACE
+    // is what makes the SECOND run a no-op, when the drop matches nothing.
+    expect(
+      kinds({
+        "00900_x.sql": [
+          "DROP FUNCTION IF EXISTS public.f(uuid, integer);",
+          "CREATE OR REPLACE FUNCTION public.f(uuid, integer, text)",
+        ].join("\n"),
+      }),
+    ).toEqual([]);
+  });
+
+  it("flags a CREATE TRIGGER with no DROP, and accepts one with", () => {
+    expect(kinds({ "00900_x.sql": "create trigger t_x before insert on y" })).toEqual([
+      "trigger:t_x",
+    ]);
+    expect(
+      kinds({
+        "00900_x.sql": "drop trigger if exists t_x on y;\ncreate trigger t_x before insert on y",
+      }),
+    ).toEqual([]);
+  });
+
+  it("accepts CREATE OR REPLACE TRIGGER (PG14+)", () => {
+    expect(kinds({ "00900_x.sql": "create or replace trigger t_x before insert on y" })).toEqual([]);
+  });
+
+  it("flags a CREATE POLICY with no DROP, and accepts the pg_policies guard", () => {
+    // There is no CREATE OR REPLACE POLICY, so the existence guard is a real
+    // alternative rather than an escape hatch — but it has to name THIS policy.
+    expect(kinds({ '00900_x.sql': 'create policy "p one" on t for select' })).toEqual([
+      "policy:p one",
+    ]);
+    expect(
+      kinds({
+        "00900_x.sql":
+          "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'p one')\n" +
+          '  THEN CREATE POLICY "p one" ON t FOR SELECT USING (true); END IF; END $$;',
+      }),
+    ).toEqual([]);
+  });
+
+  it("a COMMENT mentioning the drop does not satisfy the rule", () => {
+    // Mode 7 of guards-that-do-not-guard: the guard fired on the documentation
+    // written about it. Comments are stripped before matching for this reason,
+    // and the sabotage run replaced a real DROP with exactly this comment.
+    expect(
+      kinds({
+        "00900_x.sql": "-- removed: drop trigger if exists t_x\ncreate trigger t_x before insert on y",
+      }),
+    ).toEqual(["trigger:t_x"]);
+  });
+
+  it("compares the threshold LEXICALLY, so a 6-digit file stays grandfathered", () => {
+    // 000375 sorts between 00037 and 00038 — that is the whole point of
+    // SIX_DIGIT_BY_DESIGN. Parsed as an integer it reads 375, which is past the
+    // threshold, and the first cut of this rule declared two of the oldest
+    // migrations in the repo to be new violations because of it.
+    expect(typeof IDEMPOTENT_GRANDFATHERED_THROUGH).toBe("string");
+    expect("000375" < IDEMPOTENT_GRANDFATHERED_THROUGH).toBe(true);
+    expect(Number.parseInt("000375", 10) < Number.parseInt(IDEMPOTENT_GRANDFATHERED_THROUGH, 10))
+      .toBe(false);
+  });
+
+  it("the real directory has ZERO violations above the threshold", () => {
+    // The ratchet, asserted end to end over the ACTUAL migrations. Every one of
+    // the files from 00292 to today already complies; this is what stops that
+    // drifting back.
+    const names = readdirSync(resolve(process.cwd(), "supabase/migrations"))
+      .filter((f) => f.endsWith(".sql"));
+    const hits = unguardedCreates(names, (f) => read(`supabase/migrations/${f}`));
+    const above = hits.filter((h) => h.version > IDEMPOTENT_GRANDFATHERED_THROUGH);
+    expect(above.map((h) => `${h.file}:${h.kind}:${h.name}`)).toEqual([]);
+  });
+
+  it("no CREATE FUNCTION anywhere lacks OR REPLACE — zero, not grandfathered", () => {
+    // 00609 was the only one in 658 files, and it is fixed, so the correct
+    // count is zero at EVERY version. There is deliberately no allowlist.
+    const names = readdirSync(resolve(process.cwd(), "supabase/migrations"))
+      .filter((f) => f.endsWith(".sql"));
+    const fns = unguardedCreates(names, (f) => read(`supabase/migrations/${f}`))
+      .filter((h) => h.kind === "function");
+    expect(fns.map((h) => `${h.file}:${h.name}`)).toEqual([]);
+  });
+
+  it("the grandfathered counts match, so the historical set can only shrink", () => {
+    const names = readdirSync(resolve(process.cwd(), "supabase/migrations"))
+      .filter((f) => f.endsWith(".sql"));
+    const hits = unguardedCreates(names, (f) => read(`supabase/migrations/${f}`))
+      .filter((h) => h.version <= IDEMPOTENT_GRANDFATHERED_THROUGH);
+    expect(hits.filter((h) => h.kind === "trigger").length).toBe(GRANDFATHERED_UNGUARDED_TRIGGERS);
+    expect(hits.filter((h) => h.kind === "policy").length).toBe(GRANDFATHERED_UNGUARDED_POLICIES);
   });
 });
 
