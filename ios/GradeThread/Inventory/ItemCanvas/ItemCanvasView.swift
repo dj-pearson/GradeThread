@@ -765,7 +765,7 @@ struct ItemCanvasView: View {
             isPresented: $confirmingDescriptionTemplate
         ) {
             Button("Replace", role: .destructive) {
-                if let state { applyDescriptionTemplate(state: state) }
+                applyDescriptionTemplate(state: state)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
