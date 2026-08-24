@@ -177,5 +177,48 @@ export async function fetchMeasurementDrift(
     p_size: size,
   });
   if (error) throw new Error(error.message);
-  return data ?? EMPTY_DRIFT;
+  return normaliseDrift(data);
+}
+
+/**
+ * Force any response into a whole `MeasurementDrift`.
+ *
+ * `RpcClient` above is reached through `supabase as unknown as RpcClient`, so
+ * its `data: MeasurementDrift | null` is an ASSERTION, not a check. Nothing
+ * verifies it at runtime, and `data ?? EMPTY_DRIFT` — what this used to do —
+ * only catches null and undefined. Any other shape passes straight through
+ * wearing the type.
+ *
+ * ⚠ AND IT CRASHED THE WHOLE COMPOSER, not just this card. The e2e suite mocks
+ * every unmatched `/rest/v1/**` call with an empty ARRAY, which includes this
+ * RPC. `[]` is not null, so it survived the `??`, and `report.bands.find(...)`
+ * then threw "Cannot read properties of undefined (reading 'find')". That is a
+ * render-phase throw, so the ErrorBoundary swallowed the entire
+ * /items/:id/draft route and the seller saw "Something went wrong" instead of
+ * their item. Three e2e scenarios, identically, because the payload has nothing
+ * to do with the scenario.
+ *
+ * The mock is not the bug — it is doing its job by being adversarial. A partial
+ * or unexpected payload has other live routes to arrive through: PostgREST
+ * answering a shape this client never validated, or the stale-overload case in
+ * [[postgres-revoke-from-anon-is-a-noop]] where an older `measurement_drift`
+ * without `p_size` returns no `bands` at all. A measurement hint failing shut
+ * is correct; a measurement hint taking down the item editor is not.
+ *
+ * So every array and the `returns` block are checked here, at the one boundary
+ * they all enter through, rather than at each of the six readers below.
+ */
+export function normaliseDrift(raw: unknown): MeasurementDrift {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return EMPTY_DRIFT;
+  const d = raw as Partial<MeasurementDrift>;
+  return {
+    ...EMPTY_DRIFT,
+    ...d,
+    rows: Array.isArray(d.rows) ? d.rows : EMPTY_DRIFT.rows,
+    bands: Array.isArray(d.bands) ? d.bands : EMPTY_DRIFT.bands,
+    returns:
+      d.returns && typeof d.returns === "object" && !Array.isArray(d.returns)
+        ? { ...EMPTY_DRIFT.returns, ...d.returns }
+        : EMPTY_DRIFT.returns,
+  };
 }

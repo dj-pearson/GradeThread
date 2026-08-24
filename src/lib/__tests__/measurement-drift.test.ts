@@ -6,10 +6,12 @@
 import { describe, expect, it } from "vitest";
 import { MEASUREMENT_SPECS } from "@/lib/measurements";
 import {
+  bandFor,
   driftReturnFinding,
   EMPTY_DRIFT,
   isOutsideBand,
   measurementLabel,
+  normaliseDrift,
   quotableDrift,
   significantDrift,
   type DriftRow,
@@ -172,5 +174,67 @@ describe("isOutsideBand", () => {
 
   it("returns null for a value that is not a number", () => {
     expect(isOutsideBand(Number.NaN, band)).toBeNull();
+  });
+});
+
+// ── normaliseDrift: the boundary that stopped the composer crashing ─────────
+//
+// fetchMeasurementDrift reaches PostgREST through `supabase as unknown as
+// RpcClient`, so `data: MeasurementDrift | null` is an assertion and not a
+// check. It used to end `return data ?? EMPTY_DRIFT`, which only catches null.
+//
+// The e2e suite mocks every unmatched /rest/v1/** call with an empty ARRAY,
+// this RPC included. `[]` is not null, so it survived the `??` wearing the
+// type, `bandFor` then ran `report.bands.find(...)` on undefined, and the
+// render-phase throw took the WHOLE /items/:id/draft route down through the
+// ErrorBoundary. Three e2e scenarios failed identically, because the payload
+// has nothing to do with the scenario.
+describe("normaliseDrift", () => {
+  it("turns the empty array that crashed the composer into a whole report", () => {
+    // The exact payload from the e2e catch-all. This is the regression case.
+    const d = normaliseDrift([]);
+    expect(d.bands).toEqual([]);
+    expect(d.rows).toEqual([]);
+    expect(() => bandFor(d, "chest")).not.toThrow();
+    expect(bandFor(d, "chest")).toBeNull();
+  });
+
+  it("survives null, undefined and a scalar", () => {
+    for (const raw of [null, undefined, 0, "", "nope", true]) {
+      expect(normaliseDrift(raw), `${JSON.stringify(raw)}`).toEqual(EMPTY_DRIFT);
+    }
+  });
+
+  it("fills in only the missing pieces, keeping what the server did send", () => {
+    // A partial payload is the realistic production shape — an older overloaded
+    // measurement_drift answering without the `bands` 00658 added.
+    const d = normaliseDrift({
+      garmentCategory: "bottoms",
+      driftInches: 2,
+      rows: [row({ key: "waist" })],
+    });
+    expect(d.garmentCategory).toBe("bottoms");
+    expect(d.driftInches).toBe(2);
+    expect(d.rows).toHaveLength(1);
+    expect(d.bands).toEqual([]);
+    expect(d.returns).toEqual(EMPTY_DRIFT.returns);
+    // And every reader that assumes the shape now holds.
+    expect(() => quotableDrift(d)).not.toThrow();
+    expect(() => driftReturnFinding(d)).not.toThrow();
+  });
+
+  it("rejects an array where an object belongs, rather than spreading it", () => {
+    // `rows: {}` and `returns: []` are the two directions that would otherwise
+    // produce an object with no .filter and a .returns with no .offRate.
+    const d = normaliseDrift({ rows: {}, bands: "no", returns: [] });
+    expect(Array.isArray(d.rows)).toBe(true);
+    expect(Array.isArray(d.bands)).toBe(true);
+    expect(d.returns).toEqual(EMPTY_DRIFT.returns);
+    expect(driftReturnFinding(d)).toBeNull();
+  });
+
+  it("a whole report round-trips unchanged", () => {
+    const full = report({ rows: [row({ key: "chest" })], driftInches: 1.5 });
+    expect(normaliseDrift(full)).toEqual(full);
   });
 });
