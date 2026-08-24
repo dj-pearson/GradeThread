@@ -10,6 +10,7 @@
 // trustworthy one, and the null is the difference.
 
 import { supabase } from "@/lib/supabase";
+import { normaliseAgainst } from "@/lib/rpc-shape";
 
 export interface SourceYieldRow {
   source: string;
@@ -98,5 +99,9 @@ export async function fetchSourceYield(
     p_period_start: periodStart,
   });
   if (error) throw new Error(error.message);
-  return data ?? EMPTY_SOURCE_YIELD;
+  // US-2838: the cast above makes `data: X | null` an assertion, not a check,
+  // and `?? EMPTY_SOURCE_YIELD` only catches null. An empty ARRAY — what the e2e mock
+  // sends for any unmatched RPC — passed straight through and took a whole
+  // route down through the ErrorBoundary. normaliseAgainst forces the shape.
+  return normaliseAgainst(EMPTY_SOURCE_YIELD, data);
 }

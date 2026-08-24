@@ -12,6 +12,7 @@
 // below.
 
 import { supabase } from "@/lib/supabase";
+import { normaliseAgainst } from "@/lib/rpc-shape";
 
 export type ScorecardMetric =
   | "sell_through"
@@ -169,5 +170,9 @@ export async function fetchSellerScorecard(
     p_period_start: periodStart,
   });
   if (error) throw new Error(error.message);
-  return data ?? EMPTY_SCORECARD;
+  // US-2838: the cast above makes `data: X | null` an assertion, not a check,
+  // and `?? EMPTY_SCORECARD` only catches null. An empty ARRAY — what the e2e mock
+  // sends for any unmatched RPC — passed straight through and took a whole
+  // route down through the ErrorBoundary. normaliseAgainst forces the shape.
+  return normaliseAgainst(EMPTY_SCORECARD, data);
 }

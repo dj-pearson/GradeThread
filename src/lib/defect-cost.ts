@@ -10,6 +10,7 @@
 // pinned by a test rather than asserted in a comment.
 
 import { supabase } from "@/lib/supabase";
+import { normaliseAgainst } from "@/lib/rpc-shape";
 
 export type DefectSeverity = "minor" | "moderate" | "major" | "unspecified";
 
@@ -183,5 +184,9 @@ export async function fetchDefectCost(
     p_period_start: periodStart,
   });
   if (error) throw new Error(error.message);
-  return data ?? EMPTY_DEFECT_COST;
+  // US-2838: the cast above makes `data: X | null` an assertion, not a check,
+  // and `?? EMPTY_DEFECT_COST` only catches null. An empty ARRAY — what the e2e mock
+  // sends for any unmatched RPC — passed straight through and took a whole
+  // route down through the ErrorBoundary. normaliseAgainst forces the shape.
+  return normaliseAgainst(EMPTY_DEFECT_COST, data);
 }

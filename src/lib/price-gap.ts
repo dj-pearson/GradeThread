@@ -12,6 +12,7 @@
 // four hundred.
 
 import { supabase } from "@/lib/supabase";
+import { normaliseAgainst } from "@/lib/rpc-shape";
 
 /** Which bucket the prediction for a row came from, best evidence first. */
 export type GapBasis =
@@ -147,5 +148,9 @@ export async function fetchPriceGap(
     p_period_start: periodStart,
   });
   if (error) throw new Error(error.message);
-  return data ?? EMPTY_PRICE_GAP;
+  // US-2838: the cast above makes `data: X | null` an assertion, not a check,
+  // and `?? EMPTY_PRICE_GAP` only catches null. An empty ARRAY — what the e2e mock
+  // sends for any unmatched RPC — passed straight through and took a whole
+  // route down through the ErrorBoundary. normaliseAgainst forces the shape.
+  return normaliseAgainst(EMPTY_PRICE_GAP, data);
 }

@@ -11,6 +11,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { MEASUREMENT_SPECS } from "@/lib/measurements";
+import { normaliseAgainst } from "@/lib/rpc-shape";
 
 export interface DriftRow {
   garmentCategory: string;
@@ -209,16 +210,10 @@ export async function fetchMeasurementDrift(
  * they all enter through, rather than at each of the six readers below.
  */
 export function normaliseDrift(raw: unknown): MeasurementDrift {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return EMPTY_DRIFT;
-  const d = raw as Partial<MeasurementDrift>;
-  return {
-    ...EMPTY_DRIFT,
-    ...d,
-    rows: Array.isArray(d.rows) ? d.rows : EMPTY_DRIFT.rows,
-    bands: Array.isArray(d.bands) ? d.bands : EMPTY_DRIFT.bands,
-    returns:
-      d.returns && typeof d.returns === "object" && !Array.isArray(d.returns)
-        ? { ...EMPTY_DRIFT.returns, ...d.returns }
-        : EMPTY_DRIFT.returns,
-  };
+  // US-2838: this was hand-written here first, then the same pattern turned up
+  // in seven sibling analytics libs. The logic now lives once in
+  // `normaliseAgainst`, which derives the expected shape from the EMPTY_X
+  // constant rather than from a per-lib list of field names. The named export
+  // stays because its tests and the account above are what explain WHY.
+  return normaliseAgainst(EMPTY_DRIFT, raw);
 }

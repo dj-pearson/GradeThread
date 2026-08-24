@@ -13,6 +13,7 @@
 // median as zero would turn a privacy rule into a price.
 
 import { supabase } from "@/lib/supabase";
+import { normaliseAgainst } from "@/lib/rpc-shape";
 
 /** Half-point buckets from 1.0 to 10.0 inclusive. 19 of them. */
 export const CURVE_GRADES: readonly number[] = Array.from(
@@ -233,5 +234,9 @@ export async function fetchConditionPriceCurve(args: {
     p_period_start: args.periodStart ?? null,
   });
   if (error) throw new Error(error.message);
-  return data ?? EMPTY_CURVE;
+  // US-2838: the cast above makes `data: X | null` an assertion, not a check,
+  // and `?? EMPTY_CURVE` only catches null. An empty ARRAY — what the e2e mock
+  // sends for any unmatched RPC — passed straight through and took a whole
+  // route down through the ErrorBoundary. normaliseAgainst forces the shape.
+  return normaliseAgainst(EMPTY_CURVE, data);
 }
