@@ -6,6 +6,11 @@ import Foundation
 /// before the user signed in (no shell mounted to receive the notification).
 extension Notification.Name {
     static let onboardingDidFinish = Notification.Name("com.gradethread.app.onboardingDidFinish")
+    /// US-2875: Settings asked to see the carousel again. `showingOnboarding`
+    /// in ContentView is `@State` seeded ONCE at view init, so clearing the
+    /// stored flag on its own would not show anything until the next cold
+    /// launch -- which is indistinguishable from the button doing nothing.
+    static let onboardingReplayRequested = Notification.Name("com.gradethread.app.onboardingReplayRequested")
 }
 
 /// US-747: the new user's self-identified focus, captured in onboarding. Drives
@@ -66,6 +71,11 @@ struct OnboardingState {
     static let key = "com.gradethread.app.onboarding.completed.v1"
     static let useCaseKey = "com.gradethread.app.onboarding.useCase.v1"
     static let pendingFirstActionKey = "com.gradethread.app.onboarding.pendingFirstAction.v1"
+    /// US-2875: set while a REPLAY is on screen, so `complete` knows not to
+    /// queue a first action. Not versioned like the others: it is transient
+    /// state that lives for one pass through the carousel, not a record of
+    /// anything.
+    static let replayingKey = "com.gradethread.app.onboarding.replaying"
 
     private let defaults: UserDefaults
 
@@ -99,6 +109,24 @@ struct OnboardingState {
         nonmutating set { defaults.set(newValue, forKey: Self.pendingFirstActionKey) }
     }
 
+    /// US-2875: true while a replay is on screen.
+    var isReplaying: Bool {
+        get { defaults.bool(forKey: Self.replayingKey) }
+        nonmutating set { defaults.set(newValue, forKey: Self.replayingKey) }
+    }
+
+    /// US-2875: show the carousel again, on purpose.
+    ///
+    /// It clears `hasCompleted` and NOTHING ELSE. The recorded use case stays —
+    /// somebody rewatching the intro has not stopped being a reseller, and
+    /// wiping it would silently re-persona them. `pendingFirstAction` stays
+    /// untouched too; see `complete` for why that matters.
+    func replay() {
+        hasCompleted = false
+        isReplaying = true
+        NotificationCenter.default.post(name: .onboardingReplayRequested, object: nil)
+    }
+
     /// US-747: finalize onboarding — mark complete, record the use case, queue
     /// the one-shot first action, and notify any live shell to route now.
     func complete(useCase: OnboardingUseCase?) {
@@ -107,7 +135,17 @@ struct OnboardingState {
         // US-1178: queue a first action even on skip (nil useCase) so the shell
         // can offer a gentle "add your first item" nudge instead of landing the
         // user on a bare dashboard with nothing to do.
-        pendingFirstAction = true
+        //
+        // US-2875: EXCEPT on a replay. pendingFirstAction routes the shell to
+        // another tab, which is the right welcome for a brand-new account and
+        // completely wrong for somebody who tapped "Replay tour" in Settings
+        // while halfway through something. A first-run nudge that yanks a
+        // working user out of what they were doing is worse than no nudge.
+        if isReplaying {
+            isReplaying = false
+        } else {
+            pendingFirstAction = true
+        }
         NotificationCenter.default.post(name: .onboardingDidFinish, object: nil)
     }
 }

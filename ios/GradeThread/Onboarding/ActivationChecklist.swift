@@ -30,6 +30,15 @@ final class ActivationChecklistStore {
         set { UserDefaults.standard.set(newValue, forKey: Self.dismissKey) }
     }
 
+    /// US-2875: bring the checklist back from Settings, where there is no
+    /// instance to reach for. Static because the flag is process-wide, and the
+    /// steps themselves are recomputed from real data on the next refresh —
+    /// so un-dismissing shows whatever is genuinely still outstanding rather
+    /// than resetting anybody's progress.
+    static func undismiss() {
+        UserDefaults.standard.set(false, forKey: Self.dismissKey)
+    }
+
     func refresh(userId: String?) async {
         if let userId {
             let connection = try? await ebayService.fetchActiveConnection(userId: userId)

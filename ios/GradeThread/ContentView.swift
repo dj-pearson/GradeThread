@@ -325,6 +325,13 @@ struct ContentView: View {
                     Task { await PushService.shared.requestPermissionAtReliableMomentIfNeeded() }
                 }
             }
+            // US-2875: Settings cleared the flag; this is what actually puts the
+            // carousel back on screen in the same session.
+            .onReceive(
+                NotificationCenter.default.publisher(for: .onboardingReplayRequested)
+            ) { _ in
+                showingOnboarding = true
+            }
     }
 
     /// US-752: translate a widget tap into the existing deep-link pipeline.
@@ -1915,6 +1922,23 @@ struct SettingsView: View {
                     Label("How grading works", systemImage: "checkmark.seal")
                 }
                 .accessibilityLabel("How grading works")
+                // US-2875: the web has had both of these in Settings since
+                // US-378; iOS set a versioned UserDefaults flag on completion
+                // and offered no way to clear it, so a user who skipped the
+                // carousel on day one could never see it again. Same wording as
+                // the web, pinned by src/test/onboarding-replay-parity.test.ts.
+                Button {
+                    OnboardingState().replay()
+                } label: {
+                    Label("Replay tour", systemImage: "sparkles")
+                }
+                .accessibilityLabel("Replay tour")
+                Button {
+                    ActivationChecklistStore.undismiss()
+                } label: {
+                    Label("Setup checklist", systemImage: "checklist")
+                }
+                .accessibilityLabel("Setup checklist")
             }
             // DiagnosticsSection renders its own Section — keep it top-level.
             DiagnosticsSection()
