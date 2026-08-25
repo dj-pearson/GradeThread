@@ -82,9 +82,9 @@ export function GarmentPassportPanel({
             Create a Garment Passport
           </CardTitle>
           <CardDescription>
-            Every grade creates a public, confidence-scored provenance passport for
-            the item — a shareable timeline of grades, listings, sales, and ownership
-            that travels with the garment and builds buyer trust.
+            Every grade gives the item a public Passport: a page you can share
+            showing its grades, listings, sales and owners in order. It stays
+            with the garment when you sell it, which is what buyers trust.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">

@@ -37,6 +37,19 @@ const WORKFLOWS = resolve(ROOT, ".github/workflows");
  * that filename.
  */
 const NOT_A_LANE_CHECK: Record<string, string> = {
+  "check-copy-reading-level.mjs":
+    "REPORT-ONLY BY DESIGN (US-2868 AC3, which asked for exactly that). It " +
+    "scores reading level with Flesch-Kincaid over a SYLLABLE GUESS -- the " +
+    "guess reads adjacent vowels as one group, so 'reconciliation' comes " +
+    "out at 5 rather than 6, and it knows nothing about proper nouns. That " +
+    "is good enough to rank a hundred strings worst-first and not good " +
+    "enough to judge any one of them, so a build gate on the raw score " +
+    "would fail on correct copy and be switched off inside a week. What " +
+    "DOES gate is src/test/copy-reading-level.test.ts, which imports this " +
+    "script and ratchets the hard tail (strings above grade 12 and above " +
+    "grade 15, shrink-only) plus a self-check that extraction still finds " +
+    "the codebase. Run the script directly to find the work: " +
+    "`node scripts/check-copy-reading-level.mjs --all`.",
   "check-close-claims.mjs":
     "a commit-msg HOOK (.githooks/commit-msg), not a lane check. It reads the " +
     "message being written, which neither verify nor CI has.",

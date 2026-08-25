@@ -154,7 +154,7 @@ struct ToolsHubView: View {
                 ToolRow(
                     icon: "bolt.badge.automatic",
                     title: "Automations",
-                    subtitle: "Trigger → action rules for stale or quiet listings"
+                    subtitle: "Rules that act on their own when a listing sits too long or gets no views"
                 )
             }
             NavigationLink(value: ToolRoute.communityInsights) {

@@ -121,7 +121,7 @@ export function BuyerSettingsPage() {
     <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader
         title="Shopping preferences"
-        subtitle="These personalize your condition alerts, fit predictions, and recommendations across GradeThread."
+        subtitle="We use these to pick the alerts you get, guess your fit, and choose what to show you."
         icon={SlidersHorizontal}
       />
 

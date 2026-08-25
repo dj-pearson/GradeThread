@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Term } from "@/components/help/term";
 import {
   useEbayConnection,
   useEbayListingHealth,
@@ -250,7 +251,7 @@ export function EbayListingHealthCard() {
         );
         sync.mutate(undefined, { onSuccess: () => void refetchFlags() });
       } else {
-        toast.info("No eBay aspect recommendations were available to apply.");
+        toast.info("eBay had no item details to suggest for this listing.");
       }
     } finally {
       setFixing(false);
@@ -269,8 +270,8 @@ export function EbayListingHealthCard() {
             Listing Health
           </CardTitle>
           <CardDescription>
-            Reconnect eBay to check your listings for policy and item-specifics
-            violations.
+            Reconnect eBay and we will check your listings for policy problems
+            and missing <Term name="Item specifics">item specifics</Term>.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -288,8 +289,9 @@ export function EbayListingHealthCard() {
           Listing Health
         </CardTitle>
         <CardDescription>
-          eBay compliance issues across your active listings. Unresolved
-          violations can be hidden or demoted in search.
+          Problems eBay has flagged on your live listings, usually missing{" "}
+          <Term name="Item specifics">item specifics</Term>. Leave them and eBay
+          can bury the listing in search or hide it.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">

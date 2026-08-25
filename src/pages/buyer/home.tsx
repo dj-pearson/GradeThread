@@ -61,7 +61,8 @@ function BuyerImpactCard() {
         </div>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        Estimated vs producing comparable new garments — a conservative, labeled estimate.
+        Compared with making the same garments new. A careful estimate, and
+        labelled as one.
       </p>
     </Card>
   );

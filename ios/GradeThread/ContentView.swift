@@ -1866,7 +1866,7 @@ struct SettingsView: View {
             } header: {
                 Text("Data")
             } footer: {
-                Text("Bring an existing catalog in from a CSV file or a shared Google Sheet, save listing templates to reuse description, condition, and policies, manage consignors and their payout splits, or organize where your inventory comes from.")
+                Text("Import a catalog from a CSV file or a Google Sheet. Save listing templates so you write the description, condition and policies once. Track consignors and their cut, and record where your stock comes from.")
                     .font(.footnote)
             }
 

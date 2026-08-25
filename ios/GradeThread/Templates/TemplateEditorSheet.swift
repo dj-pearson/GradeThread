@@ -96,7 +96,7 @@ struct TemplateEditorSheet: View {
                 } header: {
                     Text("Business policies")
                 } footer: {
-                    Text("Optional eBay business-policy IDs applied to AutoLister drafts.")
+                    Text("Optional. These are the shipping, payment and returns policies you set up on eBay. AutoLister puts them on every draft it writes.")
                 }
 
                 specificsSection

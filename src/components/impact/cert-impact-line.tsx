@@ -26,7 +26,8 @@ export function CertImpactLine({ garmentType }: { garmentType: string | null | u
           <strong>{formatWater(data.water_liters)}</strong>.
         </p>
         <p className="mt-1 text-[11px] text-muted-foreground">
-          Estimate from published apparel life-cycle assessments — order-of-magnitude, not precise.
+          A rough figure, worked out from published studies of how clothing is
+          made. It shows the size of the saving, not an exact number.
         </p>
       </div>
     </div>

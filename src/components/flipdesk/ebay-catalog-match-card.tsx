@@ -67,8 +67,9 @@ export function EbayCatalogMatchCard({
         )}
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        Match this item to an eBay catalog product to auto-fill required item
-        specifics and reduce listing-compliance issues.
+        Point this item at a product eBay already knows. It fills in the item
+        specifics (eBay's word for item details) that eBay requires, so your
+        listing is less likely to be held up.
       </p>
 
       {!searching ? (

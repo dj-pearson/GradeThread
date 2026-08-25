@@ -1175,10 +1175,10 @@ export function CertificatePage() {
                 <div>
                   <p className="text-sm font-medium">360-Verified</p>
                   <p className="text-xs text-muted-foreground">
-                    Captured with a guided multi-angle (and where available depth)
-                    scan that proves true geometric coverage of the garment — every
-                    inspection zone is documented, so the grade and guarantee cover
-                    the whole item, not just what a few flat photos show.
+                    Shot with a guided scan from every angle, using depth
+                    where the phone has it. Every part of the garment is on
+                    camera, so the grade and the guarantee cover the whole
+                    item rather than the few spots a flat photo shows.
                   </p>
                 </div>
               </div>
@@ -1365,8 +1365,9 @@ export function CertificatePage() {
               <CardHeader>
                 <CardTitle className="text-base">Design Features</CardTitle>
                 <CardDescription>
-                  Intentional design elements assessed as styling — graded
-                  relative to the garment's original manufactured state.
+                  Things the maker put there on purpose. They are read as
+                  style, not as damage, and the grade is against how the
+                  garment left the factory.
                 </CardDescription>
               </CardHeader>
               <CardContent>

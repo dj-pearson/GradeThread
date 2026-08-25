@@ -333,7 +333,7 @@ struct GradeReportView: View {
     }
 
     private var disclaimer: some View {
-        Text("AI-generated condition estimate — not a professional appraisal or guarantee. Lower-confidence grades are routed to a human reviewer.")
+        Text("A condition estimate from AI. It is not an appraisal and not a guarantee. When the AI is unsure, a person checks the grade.")
             .font(.caption2)
             .foregroundStyle(.secondary)
             .padding(12)

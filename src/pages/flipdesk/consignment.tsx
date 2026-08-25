@@ -231,8 +231,8 @@ export function FlipdeskConsignmentPage() {
             {consignors.length} consignor{consignors.length === 1 ? "" : "s"}
           </CardTitle>
           <CardDescription>
-            Each consigned item carries an independent GradeThread grade and a
-            configurable revenue split.
+            Every item you take in gets its own GradeThread grade, and you set
+            how the money is split.
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">

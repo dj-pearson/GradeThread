@@ -94,7 +94,8 @@ export function ImpactTile({ shareUtm = "dashboard" }: { shareUtm?: string }) {
         ))}
       </dl>
       <p className="mt-3 text-[11px] text-muted-foreground">
-        Estimates from published apparel life-cycle assessments — order-of-magnitude, not precise.
+        Rough figures, worked out from published studies of how clothing is
+        made. They show the size of the saving, not exact numbers.
       </p>
     </div>
   );

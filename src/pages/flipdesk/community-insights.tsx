@@ -236,7 +236,7 @@ export function FlipdeskCommunityInsightsPage(
           <PageHeader
             icon={Users}
             title="Community Insights"
-            subtitle="Anonymized market signal from across the GradeThread reseller community."
+            subtitle="What is selling, gathered from every GradeThread seller. No names, no individual accounts."
             actions={actions}
           />
         );

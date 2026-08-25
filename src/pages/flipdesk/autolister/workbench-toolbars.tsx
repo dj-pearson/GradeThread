@@ -129,7 +129,7 @@ export function UngroupedToolbar({
         size="sm"
         onClick={onAutoGroup}
         disabled={ungroupedCount === 0}
-        title="Group photos into items automatically by capture time + visual similarity"
+        title="Sort photos into items for you, using when each was taken and how alike they look"
       >
         <Wand2 className="mr-1 h-4 w-4" />
         Auto-group ({ungroupedCount})

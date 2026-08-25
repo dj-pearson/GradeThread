@@ -416,9 +416,9 @@ function EbayPoliciesDialog({
           </div>
         ) : policies.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No business policies found on your eBay account yet. Create shipping,
-            payment, and return policies in eBay Seller Hub, then click
-            &quot;Re-sync from eBay.&quot;
+            Your eBay account has no business policies yet. Set up shipping,
+            payment and returns in eBay Seller Hub, then press Re-sync from
+            eBay.
           </p>
         ) : (
           <div className="space-y-3">
