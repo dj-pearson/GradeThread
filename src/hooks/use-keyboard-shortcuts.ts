@@ -12,8 +12,12 @@ export interface KeyboardShortcut {
 
 /**
  * True when the event target is a field the user is typing into, so global
- * single-key shortcuts (n, /, ?) shouldn't hijack the keystroke. Exported so
- * non-hook listeners (e.g. the command palette's `/`) share the same rule.
+ * single-key shortcuts (n, /, ?) shouldn't hijack the keystroke.
+ *
+ * Exported for the few remaining non-hook listeners. US-2881 moved the command
+ * palette onto the hook -- it used to hand-roll a window listener that called
+ * this for `/` and NOT for Cmd-K, which is why Cmd-K inside a text field
+ * worked on /admin and did nothing on /dashboard.
  */
 export function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
