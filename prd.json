@@ -2500,21 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2871",
-      "passes": false,
-      "title": "The grade report shows a number before it explains the number",
-      "description": "The scale is 1.0-10.0, built from five weighted factors (Fabric 30, Structural 25, Cosmetic 20, Functional 15, Odor 10), rounded to 0.1, with a confidence below 0.75 routing to human review. A seller reading their first report sees a score and five bars. The weights, the rounding, and what confidence means are documented in the grading standard pages and in a help article that currently does not exist in the database (US-2618).",
-      "acceptanceCriteria": [
-        "The report renders each factor with its weight shown, so the arithmetic is visible rather than asserted.",
-        "A one-line plain explanation of confidence sits next to the confidence value, and says what happens below the threshold.",
-        "The tier name (NWT, Excellent, ... Poor) is shown with its score band, not alone.",
-        "A 'How this score was built' disclosure explains the weighting in four sentences, without linking away.",
-        "iOS renders the same explanation from the same source of truth for the weights."
-      ],
-      "priority": 62,
-      "notes": ""
-    },
-    {
       "id": "US-2872",
       "passes": false,
       "title": "Plan-gated features vanish from the nav, so a user cannot discover what upgrading buys",
