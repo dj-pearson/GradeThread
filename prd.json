@@ -2500,20 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2878",
-      "passes": false,
-      "title": "Prospect is a phone-only feature the web never mentions",
-      "description": "ios/GradeThread/Prospect/ ships 'Snap an item in-store, get instant comps'. The web has Snap to Value (a condition and price read) and Scout (find underpriced eBay listings), and no Prospect. It may well be right that Prospect stays on the phone, it is a camera-in-a-thrift-store feature. What is wrong is that the web says nothing about it, so a desktop-first seller does not know the app does it.",
-      "acceptanceCriteria": [
-        "A decision is recorded in the vault: build Prospect on the web, or declare it phone-only.",
-        "If phone-only: the web Sourcing surface carries a row naming Prospect, explaining it in one line, and pointing at the app, in the same visual treatment used for any other phone-only surface.",
-        "If built: it appears in the surface registry with both routes and behaves the same on both.",
-        "Whatever is decided, Snap to Value, Scout and Prospect each carry a one-sentence description that makes clear how they differ, because three comp-adjacent tools with three invented names is the confusion this closes."
-      ],
-      "priority": 76,
-      "notes": ""
-    },
-    {
       "id": "US-2879",
       "passes": false,
       "title": "Four web surfaces have no iOS equivalent and iOS does not say so",
