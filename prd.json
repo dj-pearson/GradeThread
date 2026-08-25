@@ -2500,20 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2870",
-      "passes": false,
-      "title": "Nobody tells the user what happens after they submit a garment for grading",
-      "description": "A first submission is the product's core promise and its longest wait. The user presses submit and gets a status. Nothing on that screen says how long it usually takes, what arrives at the end, that a low-confidence grade goes to a human, what human review means for the wait, or where to look when it is done. Every one of those questions becomes a support ticket or an abandoned account.",
-      "acceptanceCriteria": [
-        "The post-submit screen states the typical turnaround, what the user receives (a 1.0-10.0 grade, five factor scores, a condition report, a shareable certificate), and where it will appear.",
-        "It explains human review in one sentence, in plain words, and says it does not cost extra.",
-        "If the account has notifications available, the screen offers to notify on completion rather than asking the user to watch.",
-        "The same copy appears on iOS after a submission, from the same source strings."
-      ],
-      "priority": 62,
-      "notes": ""
-    },
-    {
       "id": "US-2871",
       "passes": false,
       "title": "The grade report shows a number before it explains the number",
