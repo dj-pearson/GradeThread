@@ -2500,20 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2874",
-      "passes": false,
-      "title": "iOS has no contextual help sheet",
-      "description": "The web has HelpLink: a question-mark button that opens the relevant article in a side sheet without losing the half-filled form the user was stuck in. iOS has 'Help & FAQ' and 'How grading works' buried in Settings, both of which leave the app. The screen a user is stuck on is the screen the answer belongs on, and on a phone leaving the app to read it is worse, not better.",
-      "acceptanceCriteria": [
-        "A Swift HelpSheet reads GET /api/help by slug and presents the article in a sheet over the current screen.",
-        "It renders nothing when the slug has no article, matching the web behaviour exactly.",
-        "It is placed on the same surfaces as the web HelpLink, using the same slugs from a generated Swift mirror of PRODUCT_HELP_SLUGS.",
-        "A guard script (ios/Scripts/) fails if a Swift help slug is absent from the shared registry."
-      ],
-      "priority": 62,
-      "notes": ""
-    },
-    {
       "id": "US-2875",
       "passes": false,
       "title": "iOS onboarding runs once and can never be replayed",
