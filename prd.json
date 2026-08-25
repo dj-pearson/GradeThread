@@ -2500,20 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2881",
-      "passes": false,
-      "title": "Two command palettes with two command sets",
-      "description": "src/components/flipdesk/command-palette.tsx serves the dashboard and src/components/admin/command-palette.tsx serves admin. They are separate components with separate command registration, separate keyboard handling and separate result rendering. An admin moving between the two shells gets two different search boxes that look alike and behave differently.",
-      "acceptanceCriteria": [
-        "One palette component, with commands contributed by modules (dashboard module, admin module, buyer module).",
-        "A module is only registered when its shell is mounted, so an admin command never appears for a seller.",
-        "Keyboard handling, result grouping, empty state and recent-items behaviour come from the shared component.",
-        "The admin palette's current commands all still work, verified by its existing tests."
-      ],
-      "priority": 76,
-      "notes": ""
-    },
-    {
       "id": "US-2883",
       "passes": false,
       "title": "Buyer onboarding is a separate page with a separate pattern",
