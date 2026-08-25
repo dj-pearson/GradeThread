@@ -56,6 +56,11 @@ import { effectivePlanFor } from "./grade-pricing.ts";
 
 export type FeatureKey =
   | "grading"
+  // US-2845: background comp condition reads. Ships DISABLED (migration 00667)
+  // because the US-2842 calibration spike has not returned a GO. It doubles as
+  // the kill target for the comp_read AI budget at action 'kill', so the gate
+  // and the guardrail are one switch and there is no second place to look.
+  | "comp_read"
   | "autolister"
   | "content_ai"
   | "repricing"

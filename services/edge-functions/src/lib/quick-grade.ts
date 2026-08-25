@@ -26,6 +26,7 @@ import {
 } from "./peer-norm.ts";
 import { reviewConfidenceThreshold } from "./ai-config.ts";
 import { getSetting } from "./system-settings.ts";
+import { type AiTokenUsage } from "./ai-usage.ts";
 
 // Bound cost/latency: a quick grade never analyzes more than this many images.
 const MAX_QUICK_IMAGES = 4;
@@ -66,6 +67,19 @@ export interface QuickGradeResult {
     manipulation_confidence: number;
     screenshot_or_watermark_detected: boolean;
   };
+  /**
+   * US-2845: what this grade cost, per Anthropic call.
+   *
+   * RETURNED RATHER THAN RECORDED HERE, because who pays differs by caller: a
+   * seller's snap is billed per grade, the public checker is deliberately
+   * unmetered, and a comp read is platform spend under its own budget. quickGrade
+   * cannot know which, so it hands the tokens back and the caller files them.
+   *
+   * This is load-bearing for the comp_read budget: ai_budget_status rolls up
+   * ai_usage_events BY FEATURE, so a comp read that writes no usage row leaves
+   * that budget reading zero forever and its kill switch is decorative.
+   */
+  usages: Array<{ phase: string; usage: AiTokenUsage }>;
 }
 
 function uint8ToBase64(bytes: Uint8Array): string {
@@ -131,10 +145,13 @@ export async function quickGrade(input: QuickGradeInput): Promise<QuickGradeResu
     throw new Error("No usable images to grade");
   }
 
+  const usages: Array<{ phase: string; usage: AiTokenUsage }> = [];
   const perImage: PerImageAnalysis[] = [];
   for (const { dataUri, type } of dataUris) {
     try {
-      perImage.push(await analyzeImage(dataUri, type, garment.garment_type, garment.garment_category));
+      const analysis = await analyzeImage(dataUri, type, garment.garment_type, garment.garment_category);
+      if (analysis.usage) usages.push({ phase: `quick_image_${type}`, usage: analysis.usage });
+      perImage.push(analysis);
     } catch (err) {
       // US-1883 (AC3): a global AI-ceiling / capacity error is SYSTEMIC, not a
       // per-image problem — retrying the remaining images just burns more budget
@@ -167,6 +184,7 @@ export async function quickGrade(input: QuickGradeInput): Promise<QuickGradeResu
     "",
     fabricCloseupMissing,
   );
+  if (composite.usage) usages.push({ phase: "quick_composite", usage: composite.usage });
 
   // US-2309: the caps that can only be known after the composite. Until this,
   // quick-grade returned needs_human_review straight out and saw none of them —
@@ -230,5 +248,6 @@ export async function quickGrade(input: QuickGradeInput): Promise<QuickGradeResu
       manipulation_confidence: typeof auth?.manipulation_confidence === "number" ? auth.manipulation_confidence : 0,
       screenshot_or_watermark_detected: auth?.screenshot_or_watermark_detected === true,
     },
+    usages,
   };
 }

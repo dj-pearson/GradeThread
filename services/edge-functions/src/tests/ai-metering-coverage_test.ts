@@ -128,6 +128,15 @@ const ALLOWLIST: Record<string, string> = {
     "GRADING_SELF_CONSISTENCY_SAMPLE is set, sample hard-capped at 25 in code " +
     "whatever the env says, a job lock so two replicas cannot double it, and " +
     "the global daily Vision ceiling underneath all of it.",
+  "jobs-comp-read.ts":
+    "US-2845 comp read worker: an internal cron, not a user action. Metering it " +
+    "with withAiAction would charge whichever seller happened to ask about the " +
+    "cell for reads the platform chose to make on a market they do not own. It " +
+    "is metered the other way instead, which is the way that matters here: every " +
+    "read writes an ai_usage_events row under feature 'comp_read', so the " +
+    "comp_read budget at action 'kill' has spend to roll up, and a breach turns " +
+    "the worker's own feature flag off. The flag also ships OFF, and the budget " +
+    "is re-checked BEFORE every single read rather than once per batch.",
   "admin-grading.ts": "operator tooling (super-admin gated)",
   "admin-bulk.ts": "operator tooling (super-admin gated)",
   "admin-jobs.ts": "operator tooling (super-admin gated)",

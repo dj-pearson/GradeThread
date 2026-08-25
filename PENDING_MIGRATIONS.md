@@ -1,5 +1,63 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00667 — the comp read queue, and the budget that switches it off (US-2845)
+
+**What it does.** Three new operator tables (`comp_read_demand`,
+`comp_read_batches`, `comp_read_jobs`), one SECURITY INVOKER function
+(`comp_read_demand_touch`), one `feature_flags` row and one `ai_budgets` row.
+
+**Risk: LOW, and the worker is INERT on arrival.** The `comp_read` feature flag
+ships **disabled**, because the US-2842 calibration spike has not returned a GO.
+The cron answers `{ok:true, skipped:true}` until somebody turns it on by hand.
+Nothing existing is altered or dropped.
+
+**The budget.** `comp_read` / `day` / **$5.00** / action `kill`, enabled. Action
+`kill` flips the `comp_read` flag off, so the gate and the guardrail are the same
+switch. $5 is deliberately small: the first real dollars-per-read number comes
+from the spike, and a ceiling set before the cost is measured should be one you
+would not mind hitting. Raise it in the admin AI budgets page once you have the
+number.
+
+**Apply order.** After 00666. Depends on `feature_flags` (00096), `ai_budgets`
+(00219) and `applied_migrations`.
+
+**Client-side reads: NONE.** No frontend code touches any of it.
+`EXPECTED_SCHEMA_VERSION` is bumped to `00667` in the same commit.
+
+**Proven by execution, not by reading the SQL.** Applied four times against a
+throwaway Postgres 16, then:
+
+- the flag lands `enabled = false`, and re-running does not re-enable it
+- exactly ONE `comp_read` budget row exists after repeated runs
+- a bogus `status` raises the CHECK on both the batch and the job table
+- the atomic claim works: two racing `where status='pending'` updates report
+  `UPDATE 1` then `UPDATE 0`
+- `comp_read_demand_touch` increments (1 → 2 → 3 across three calls) and its
+  `coalesce` keeps a brand an earlier call supplied when a later one passes null
+- all three tables: RLS on, zero policies, `anon` has no select
+
+**On the function's security mode, which changed during the work.** It was
+written SECURITY DEFINER and `security-definer-grants.test.ts` caught that: a
+DEFINER function with no grant is callable by anon and authenticated through
+PostgREST with RLS bypassed, so anyone with the public key could have inflated a
+cell's demand count and steered where the AI budget is spent. It is INVOKER now.
+The obvious fix, a REVOKE from anon/authenticated, is the exact shape US-2403
+parked 00527 for: on the Supabase image, denying a FUNCTION to a supautils hint
+role segfaults the backend. INVOKER needs no revoke. Proven both ways on the
+throwaway stack: `service_role` (with BYPASSRLS, as in real Supabase) calls it
+and the count increments; `anon` gets a clean `permission denied for table`,
+which is the TABLE denial path, not the crashing function one.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — new tables and a new
+function.
+
+**Also register two Coolify scheduled tasks** (see COOLIFY.md, regenerated):
+`comp-read` at `25 * * * *` and `comp-read-reclaim` at `*/10 * * * *`. Register
+them even though the worker is off: the reclaim job drains a queue a disabled
+worker left behind, and a queue with no self-healing cron is the failure the
+durable-jobs contract exists to prevent.
+
+
 ## ⏳ PENDING: 00666 — flipdesk_settings.sourcing_target_roi_pct (US-2851)
 
 **What it does.** Adds one nullable integer column to

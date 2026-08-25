@@ -13,6 +13,7 @@
 import { gradeToConditionId } from "./repricing.ts";
 import { searchBrowseComps } from "./ebay-client.ts";
 import { supabaseAdmin } from "./supabase.ts";
+import { recordCompDemand } from "./comp-read-demand.ts";
 import {
   measuredFlipEnabled,
   observeMeasuredShadow,
@@ -87,6 +88,19 @@ export async function valueAtGrade(
  * belt-and-braces: observeMeasuredShadow already swallows and counts its own
  * failures, and this catches an edit that forgets that contract.
  */
+/**
+ * Kill switch for the demand queue. ON unless set to "false".
+ *
+ * Separate from the worker's own flag on purpose: recording which cells sellers
+ * ask about costs one small write and no AI spend, and having that history
+ * already built is exactly what makes the worker useful the day it is enabled.
+ */
+export function compDemandEnabled(
+  read: (k: string) => string | undefined = (k) => Deno.env.get(k),
+): boolean {
+  return (read("COMP_READ_DEMAND") ?? "").toLowerCase() !== "false";
+}
+
 export interface MeasuredCurveOverrides {
   read?: ShadowCurveClient;
   write?: ShadowWriteClient;
@@ -100,6 +114,20 @@ export async function applyMeasuredCurve(
   live: ValueRange,
   overrides: MeasuredCurveOverrides = {},
 ): Promise<ValueRange> {
+  // US-2845 AC2: this is where the comp read queue is fed. Every value the
+  // product quotes passes through here, so recording the cell means the queue
+  // follows what sellers actually touch and no route has to know about it.
+  //
+  // FIRE AND FORGET, and not awaited unlike the shadow below: nothing in this
+  // function's answer depends on it, so it must not add a millisecond to a
+  // seller standing in a shop. It writes no AI spend and no seller identity.
+  if (compDemandEnabled()) {
+    void recordCompDemand(item).catch(() => {
+      // recordCompDemand swallows and counts its own failures; this catch is
+      // for a rejection it could not have produced, so the void stays safe.
+    });
+  }
+
   const flip = overrides.flip ?? measuredFlipEnabled();
   const record = overrides.record ?? shadowEnabled();
   // The flip implies the lookup. Turning the recording off must never quietly

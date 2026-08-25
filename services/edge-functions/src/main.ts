@@ -187,6 +187,10 @@ import { handlePassportBackfillCron } from "./routes/jobs-passport-backfill.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
 import { handleExemplarAssemblyCron } from "./routes/jobs-exemplar-assembly.ts";
 import { handleConfidenceCalibrationCron } from "./routes/jobs-confidence-calibration.ts";
+import {
+  handleCompReadCron,
+  handleCompReadReclaimCron,
+} from "./routes/jobs-comp-read.ts";
 import { handleNorthStarDigestCron } from "./routes/jobs-north-star.ts";
 import { handleEquitySnapshotCron } from "./routes/jobs-equity-snapshot.ts";
 import { handleBuyerDigestCron } from "./routes/jobs-buyer-digest.ts";
@@ -1730,6 +1734,10 @@ app.post("/api/jobs/exemplar-assembly", (c) => handleExemplarAssemblyCron(c));
 // thresholds from human-review outcomes; enforcement stays behind the
 // setting's own enabled flag. Weekly (e.g. Sun 13:00 UTC).
 app.post("/api/jobs/confidence-calibration", (c) => handleConfidenceCalibrationCron(c));
+// US-2845. Both job-secret gated. The process cron is inert until the
+// `comp_read` feature flag is turned on, which US-2842 has not authorised yet.
+app.post("/api/jobs/comp-read", (c) => handleCompReadCron(c));
+app.post("/api/jobs/comp-read-reclaim", (c) => handleCompReadReclaimCron(c));
 // US-597 North Star digest. Weekly (Monday) encouragement + milestone emails
 // tied to items-listed-per-week, with streak tracking. Handler enforces the
 // job secret. Schedule on Coolify cron (weekly, e.g. Mon 14:00 UTC).

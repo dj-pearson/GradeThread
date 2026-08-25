@@ -37,6 +37,11 @@ export const FEATURE_FLAG_MAP: Record<string, string> = {
   grading: "grading",
   autolister: "autolister",
   content: "content_ai",
+  // US-2845. The mapping is 1:1, so this entry changes nothing at runtime and
+  // is here to be READ: it is the line that says a comp_read budget breach
+  // turns the comp_read worker off, which is otherwise only true by the
+  // fallthrough in resolveFlagKey and easy to break by renaming one side.
+  comp_read: "comp_read",
 };
 
 export function resolveFlagKey(feature: string): string {

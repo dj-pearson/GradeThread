@@ -632,6 +632,16 @@ const SERVICE_ROLE_ONLY = new Set([
   // far our answer sits from the public one, which is the coverage map and the
   // edge in the same table.
   "condition_value_shadow_samples",
+  // US-2845 the comp read queue. Three operator tables holding AGGREGATE
+  // MARKET data and no tenant column at all: which cells sellers have asked
+  // about, the batches that read them, and one job per cell. Deny-all in both
+  // directions. Readable, comp_read_demand is a live feed of which brands our
+  // sellers are working, which is commercially the most sensitive thing in the
+  // system; writable, anyone could steer where we spend the AI budget by
+  // inflating a cell's demand count.
+  "comp_read_demand",
+  "comp_read_batches",
+  "comp_read_jobs",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /
