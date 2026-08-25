@@ -553,7 +553,7 @@ export function MobileNav() {
         variant="ghost"
         size="icon"
         onClick={() => setOpen(true)}
-        aria-label="Open navigation menu"
+        aria-label="More"
       >
         <Menu className="h-5 w-5" />
       </Button>
@@ -563,7 +563,10 @@ export function MobileNav() {
           className="w-64 bg-brand-navy p-0 text-white [&>button]:text-white"
           showCloseButton
         >
-          <SheetTitle className="sr-only">Navigation</SheetTitle>
+          {/* US-2880: "More", not "Navigation". The five everyday
+              destinations are on the bottom tab bar now; this sheet holds
+              everything else, grouped exactly as it was. */}
+          <SheetTitle className="sr-only">More</SheetTitle>
           <div className="flex h-16 items-center px-6">
             <img src="/logo_white.png" width={1806} height={376} alt="GradeThread" className="h-8" />
           </div>
