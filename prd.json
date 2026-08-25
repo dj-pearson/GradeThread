@@ -2500,20 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2877",
-      "passes": false,
-      "title": "Listing templates exist on iOS and nowhere on the web",
-      "description": "ios/GradeThread/Templates/ has ListingTemplate, TemplateEditorSheet and TemplateService, surfaced in the Tools hub as 'Reusable description, condition + policy presets'. src/pages/flipdesk/ has no templates page and the router has no templates route. A seller who builds their presets on the phone cannot see or edit them on the desktop, which is where people actually write.",
-      "acceptanceCriteria": [
-        "A web page lists, creates, edits and deletes listing templates against the same table and the same field semantics as iOS.",
-        "It is reachable from the nav (List & sell subgroup) and from the composer, where a template is applied.",
-        "A template edited on either client shows the edit on the other after a sync.",
-        "The composer's 'Apply template' offers the same set on both clients."
-      ],
-      "priority": 76,
-      "notes": ""
-    },
-    {
       "id": "US-2878",
       "passes": false,
       "title": "Prospect is a phone-only feature the web never mentions",
