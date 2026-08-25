@@ -2500,21 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2873",
-      "passes": false,
-      "title": "Guided first listing: one instruction per screen from photo to published",
-      "description": "The pipeline is source, catalog, measure, photograph, grade, comp, draft, list, sell, ship, reconcile. A new seller is handed all eleven at once through a nav with five subgroups. The first pass through should be a single guided path with one thing to do per screen, and everything else out of the way.",
-      "acceptanceCriteria": [
-        "An opt-in guided path is offered from the activation checklist's first step and walks intake, grade, composer and publish.",
-        "Each step shows one instruction, one input, and a 'why this matters' line of at most one sentence.",
-        "The user can leave at any point and the item keeps whatever progress it has; re-entering resumes where they stopped.",
-        "It runs exactly once per account by default, and is replayable from Help.",
-        "Completing it satisfies the corresponding activation steps rather than being a fifth parallel checklist."
-      ],
-      "priority": 62,
-      "notes": ""
-    },
-    {
       "id": "US-2874",
       "passes": false,
       "title": "iOS has no contextual help sheet",
