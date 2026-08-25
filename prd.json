@@ -2500,20 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2872",
-      "passes": false,
-      "title": "Plan-gated features vanish from the nav, so a user cannot discover what upgrading buys",
-      "description": "sidebar.tsx isItemVisible returns false for a NavItem whose requiresFlipdeskFlag is not in the current plan, so AutoLister simply does not exist for a free account. A hidden feature cannot be wanted. The pricing page lists the plans, but the moment of maximum intent is when the seller is standing in the surface that would have used the feature, not when they go looking for a pricing table.",
-      "acceptanceCriteria": [
-        "A plan-gated nav item renders in a visibly locked state with a lock glyph rather than disappearing, unless the workspace role forbids it entirely (capability gates keep hiding).",
-        "Clicking it opens a one-screen explanation: what the feature does, one sentence; which plan includes it; and an upgrade button.",
-        "The same treatment applies to gated in-page actions, which currently disable with no reason.",
-        "A workspace member without permission still sees nothing, because that is not an upsell, it is a permission."
-      ],
-      "priority": 62,
-      "notes": ""
-    },
-    {
       "id": "US-2873",
       "passes": false,
       "title": "Guided first listing: one instruction per screen from photo to published",
