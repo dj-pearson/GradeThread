@@ -114,6 +114,7 @@ import {
   planVerifyWindows,
 } from "@/lib/autolister-verify-windows";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
+import { explainGate } from "@/lib/plan-gates";
 import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
 import {
   FLIPDESK_PHOTO_TYPES,
@@ -358,6 +359,7 @@ export function FlipdeskAutolisterPage() {
   const { data: billing, isLoading: billingLoading } = useBillingSummary();
   const plan = billing?.subscription.plan ?? "free";
   const entitled = FLIPDESK_PLANS[plan].gateFlags.autolister;
+  const autolisterGate = explainGate("autolister");
 
   // US-1545: the month's remaining AI actions (plan cap, tightened by the
   // optional self-cap) — feeds the projected-spend line next to Generate. The
@@ -2756,6 +2758,9 @@ export function FlipdeskAutolisterPage() {
             )}
             Generate {groups.length > 0 ? `${groups.length} listing${groups.length === 1 ? "" : "s"}` : ""}
           </Button>
+          {/* US-2872: the button was disabled with no reason given, which is
+              the hidden-feature problem wearing a grey coat. Say what it does
+              and which plan has it, right where the seller is standing. */}
           {/* US-1545: projected AI spend vs the month's remainder, so a big
               session never dead-ends at Generate with an invisible quota wall. */}
           {entitled && groups.length > 0 && aiActionsRemaining != null && (
@@ -2824,19 +2829,21 @@ export function FlipdeskAutolisterPage() {
             <div>
               <h2 className="flex items-center gap-2 font-semibold">
                 <Sparkles className="h-4 w-4 text-brand-red-text" />
-                AutoLister is a Pro feature
+                {/* US-2872: the plan name is DERIVED. Hardcoded, it goes
+                    stale silently the day the flag moves tier -- the card
+                    still renders, naming the wrong plan. */}
+                AutoLister comes with {autolisterGate?.requiredPlanLabel} and up
               </h2>
               <p className="text-sm text-muted-foreground">
-                Upgrade to Pro or Business to turn batches of photos into
-                complete eBay listings automatically.
+                {autolisterGate?.what}
               </p>
             </div>
             <Button
               onClick={() =>
                 useUpgradeDialogStore.getState().show({
-                  reason: { type: "feature", feature: "autolister" },
+                  reason: { type: "feature", feature: "AutoLister" },
                   currentPlan: plan,
-                  requiredPlan: "pro",
+                  requiredPlan: autolisterGate?.requiredPlan ?? "pro",
                 })
               }
             >

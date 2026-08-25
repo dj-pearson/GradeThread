@@ -27,8 +27,11 @@ import {
   Search,
   ShoppingBag,
   Trophy,
+  Lock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { explainGate } from "@/lib/plan-gates";
+import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -403,6 +406,7 @@ function SidebarNav({
   const { can } = useWorkspace();
   // FlipDesk plan governs feature-flag sidebar entries (US-323).
   const { data: billing } = useBillingSummary();
+  const showUpgrade = useUpgradeDialogStore((st) => st.show);
   const flipdeskFlags =
     FLIPDESK_PLANS[(billing?.subscription.plan as FlipdeskPlanKey) ?? "free"]
       .gateFlags;
@@ -424,15 +428,36 @@ function SidebarNav({
     });
   }
 
+  /**
+   * US-2872: THREE GATES, and only one of them may hide an item.
+   *
+   * `requires` is a CAPABILITY gate: a workspace member without permission is
+   * not a sales prospect, they are someone the owner deliberately did not give
+   * this to. Showing them a locked row would invite them to ask for an upgrade
+   * that is not theirs to buy. Still hides.
+   *
+   * `hiddenWhenFlipdeskFlag` is a TIERING gate, the inverse: it hides Reconcile
+   * once AutoLister supersedes it. Rendering "Reconcile (locked)" to somebody
+   * who just paid for the better tool is nonsense. Still hides.
+   *
+   * `requiresFlipdeskFlag` is a PLAN gate, and that one becomes visible-but-
+   * locked. A hidden feature cannot be wanted, and the moment of maximum
+   * intent is when the seller is standing in the surface that would have used
+   * it -- not when they go looking for a pricing table.
+   */
   function isItemVisible(item: NavItem): boolean {
     if (item.requires && !can(item.requires)) return false;
-    if (item.requiresFlipdeskFlag && !flipdeskFlags[item.requiresFlipdeskFlag]) {
-      return false;
-    }
     if (item.hiddenWhenFlipdeskFlag && flipdeskFlags[item.hiddenWhenFlipdeskFlag]) {
       return false;
     }
     return true;
+  }
+
+  /** True when the item is shown but the plan does not include it. */
+  function isItemLocked(item: NavItem): boolean {
+    return Boolean(
+      item.requiresFlipdeskFlag && !flipdeskFlags[item.requiresFlipdeskFlag],
+    );
   }
 
   function groupHasActiveRoute(items: NavItem[]): boolean {
@@ -485,6 +510,67 @@ function SidebarNav({
     // US-2861: on a phone there is no hover, so the sentence renders inline.
     // On a desktop twenty-three two-line rows would be a wall, so it renders in
     // a tooltip that opens on hover AND on keyboard focus.
+    const locked = isItemLocked(item);
+    const gate = locked && item.requiresFlipdeskFlag
+      ? explainGate(item.requiresFlipdeskFlag)
+      : null;
+
+    // US-2872: a locked row is a BUTTON, not a disabled link. A disabled link
+    // is unfocusable and announces nothing, so the one user who most needs the
+    // explanation -- somebody navigating by keyboard or screen reader -- is
+    // the one who cannot reach it.
+    const lockedRow = gate ? (
+      <button
+        key={item.to}
+        type="button"
+        onClick={() => {
+          showUpgrade({
+            reason: { type: "feature", feature: item.label },
+            currentPlan: (billing?.subscription.plan as FlipdeskPlanKey) ?? "free",
+            requiredPlan: gate.requiredPlan,
+          });
+          onNavigate?.();
+        }}
+        aria-label={`${item.label}. Included with the ${gate.requiredPlanLabel} plan. Open upgrade options.`}
+        className={cn(
+          "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-white/45 transition-colors hover:bg-white/10 hover:text-white/70",
+          variant === "mobile" && "items-start",
+        )}
+      >
+        <item.icon
+          className={cn("h-5 w-5 flex-shrink-0", variant === "mobile" && "mt-0.5")}
+        />
+        {variant === "mobile" ? (
+          <span className="flex flex-col gap-0.5">
+            <span className="flex items-center gap-1.5">
+              {item.label}
+              <Lock className="h-3 w-3" aria-hidden="true" />
+            </span>
+            <span className="text-xs font-normal leading-snug text-white/40">
+              {gate.what}
+            </span>
+          </span>
+        ) : (
+          <>
+            <span className="flex-1">{item.label}</span>
+            <Lock className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+          </>
+        )}
+      </button>
+    ) : null;
+
+    if (lockedRow) {
+      if (variant === "mobile") return lockedRow;
+      return (
+        <Tooltip key={item.to}>
+          <TooltipTrigger asChild>{lockedRow}</TooltipTrigger>
+          <TooltipContent side="right" className="max-w-64">
+            {gate!.what} Included with the {gate!.requiredPlanLabel} plan.
+          </TooltipContent>
+        </Tooltip>
+      );
+    }
+
     const link = (
       <NavLink
         key={item.to}
