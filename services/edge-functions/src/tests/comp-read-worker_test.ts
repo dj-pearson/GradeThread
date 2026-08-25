@@ -22,10 +22,13 @@ import {
   planCellReads,
   READ_TIMEOUT_MS,
   rollUpBatch,
+  decidePublish,
   staleCutoffs,
+  type StoredRead,
+  toFitSamples,
   toReadInput,
 } from "../lib/comp-read-worker.ts";
-import { MIN_HIGH_CONFIDENCE_READS } from "../lib/comp-curve-fit.ts";
+import { fitCurve, HIGH_CONFIDENCE_BAR, MIN_HIGH_CONFIDENCE_READS } from "../lib/comp-curve-fit.ts";
 import {
   clearAiBudgetGateCache,
   isAiBudgetExhausted,
@@ -345,4 +348,96 @@ Deno.test("another feature's breach does not stop comp_read", async () => {
     ]));
   assertEquals(stopped, false);
   clearAiBudgetGateCache();
+});
+
+
+// ── the publish decision ────────────────────────────────────────────
+//
+// The step that was missing until now: reads in comp_condition_reads become a
+// curve in condition_price_curves, or they do not and the cell keeps serving
+// the plain median.
+
+/** Stored rows on a clean price-vs-grade line, exactly as PostgREST hands them back. */
+function storedLine(n: number, slope: number, conf = 0.8, asStrings = false): StoredRead[] {
+  return Array.from({ length: n }, (_, i) => {
+    const grade = Math.round((4 + (i * 6) / (n - 1)) * 10) / 10;
+    const price = Math.round(2000 + slope * grade);
+    return {
+      read_score: asStrings ? String(grade) : grade,
+      read_confidence: asStrings ? String(conf) : conf,
+      asking_price_cents: asStrings ? String(price) : price,
+      stock_rejected: false,
+      currency: "USD",
+    };
+  });
+}
+
+Deno.test("toFitSamples parses the numerics PostgREST returns as strings", () => {
+  const samples = toFitSamples(storedLine(12, 500, 0.8, true));
+  assertEquals(samples.length, 12);
+  assertEquals(samples[0].readScore, 4);
+  assertEquals(samples[0].readConfidence, 0.8);
+  assertEquals(samples[0].askingPriceCents, 4000);
+  assertEquals(samples[0].stockRejected, false);
+});
+
+Deno.test("toFitSamples turns junk into null rather than NaN", () => {
+  const samples = toFitSamples([
+    { read_score: null, read_confidence: "", asking_price_cents: "abc", stock_rejected: true },
+  ]);
+  assertEquals(samples[0].readScore, null);
+  assertEquals(samples[0].readConfidence, null);
+  assertEquals(samples[0].askingPriceCents, null);
+  assertEquals(samples[0].stockRejected, true);
+});
+
+Deno.test("a cell on a clean slope with enough confident reads publishes", () => {
+  const decision = decidePublish(storedLine(MIN_HIGH_CONFIDENCE_READS, 500));
+  assertEquals(decision.ok, true, decision.reason);
+  assert(decision.fit != null && decision.score != null);
+  assert(decision.fit.slopeCentsPerPoint > 0);
+});
+
+Deno.test("one read short of the confidence bar does not publish", () => {
+  const decision = decidePublish(storedLine(MIN_HIGH_CONFIDENCE_READS - 1, 500));
+  assertEquals(decision.ok, false);
+  assertEquals(decision.fit, null);
+  assertEquals(decision.score, null);
+  assert(decision.reason.startsWith("too_few_confident_reads"), decision.reason);
+});
+
+Deno.test("reads below the confidence bar do not buy a publish", () => {
+  const doubtful = storedLine(MIN_HIGH_CONFIDENCE_READS + 4, 500, HIGH_CONFIDENCE_BAR - 0.1);
+  const decision = decidePublish(doubtful);
+  assertEquals(decision.ok, false, decision.reason);
+});
+
+Deno.test("a flat cell keeps serving the median instead of publishing", () => {
+  const noise = [4200, 3800, 4100, 3900, 4300, 3700, 4000, 4400, 3600, 4050, 3950, 4150];
+  const rows: StoredRead[] = noise.map((price, i) => ({
+    read_score: 4 + i * 0.5,
+    read_confidence: 0.8,
+    asking_price_cents: price,
+    stock_rejected: false,
+  }));
+  const decision = decidePublish(rows);
+  assertEquals(decision.ok, false);
+  assert(decision.reason.startsWith("no_better_than_median"), decision.reason);
+});
+
+Deno.test("no reads at all is a refusal, not a crash", () => {
+  const decision = decidePublish([]);
+  assertEquals(decision.ok, false);
+  assertEquals(decision.fit, null);
+});
+
+Deno.test("decidePublish delegates the gate rather than re-deriving it", () => {
+  // Same rows, same fit: if the two ever disagree, a cell publishes through
+  // whichever copy of the bar is softer.
+  const rows = storedLine(MIN_HIGH_CONFIDENCE_READS, 500);
+  const direct = fitCurve(toFitSamples(rows));
+  const decision = decidePublish(rows);
+  assert(decision.fit != null && direct != null);
+  assertEquals(decision.fit.slopeCentsPerPoint, direct.slopeCentsPerPoint);
+  assertEquals(decision.fit.sampleSize, direct.sampleSize);
 });

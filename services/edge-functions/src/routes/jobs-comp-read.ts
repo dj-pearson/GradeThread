@@ -29,6 +29,8 @@ import { quickGrade } from "../lib/quick-grade.ts";
 import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import { captureException, logEvent, recordMetric } from "../lib/observability.ts";
 import { photoSetHash, recordCompReads } from "../lib/comp-reads.ts";
+import { CURVE_GRADE_POINTS } from "../lib/condition-curve.ts";
+import { type CurveWriteClient, writeMeasuredCurve } from "../lib/condition-curve-measured.ts";
 import { recordAiUsage } from "../lib/ai-usage.ts";
 import { type CompPhoto } from "../lib/comp-stock-photo.ts";
 import {
@@ -41,12 +43,15 @@ import {
   MAX_CELLS_PER_BATCH,
   MAX_IMAGES_PER_READ,
   MAX_READS_PER_CELL,
+  decidePublish,
   nextCells,
   planCellReads,
   type QueuedCell,
   READ_TIMEOUT_MS,
   rollUpBatch,
   staleCutoffs,
+  type StoredRead,
+  toFitSamples,
   toReadInput,
 } from "../lib/comp-read-worker.ts";
 
@@ -160,6 +165,98 @@ interface CellResult {
   readsWritten: number;
   budgetStopped: boolean;
   error: string | null;
+  /** Whether this cell's reads cleared the publish bar and became a curve. */
+  published?: boolean;
+}
+
+/**
+ * How many of a cell's reads the fit sees. Newest first, so a cell that has
+ * been re-read for a year fits on this year's market rather than on 2024's.
+ */
+const PUBLISH_READ_CAP = 200;
+
+/**
+ * Fit a cell's accumulated reads and, if they clear the bar, write the curve.
+ *
+ * THE FLIP HAS SOMETHING TO FLIP TO ONLY BECAUSE OF THIS. Reads land in
+ * comp_condition_reads and applyMeasuredCurve serves out of
+ * condition_price_curves; without this step the two tables never meet, the
+ * shadow finds nothing on every request forever, and the whole epic sits inert
+ * with both flags on.
+ *
+ * NEVER FAILS THE CELL. The reads are already written and paid for. A cell that
+ * cannot publish yet is the normal case, not an error - it keeps serving the
+ * plain comp median, which is exactly the promise: the worst case for a seller
+ * is today's answer.
+ */
+async function publishCell(cell: QueuedCell): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("comp_condition_reads")
+    .select("read_score, read_confidence, asking_price_cents, stock_rejected, currency")
+    .eq("cell_key", cell.cellKey)
+    .order("created_at", { ascending: false })
+    .limit(PUBLISH_READ_CAP);
+  if (error) {
+    logEvent("warn", "comp-read.publish_load_failed", { cell_key: cell.cellKey });
+    return false;
+  }
+
+  const rows = (data ?? []) as StoredRead[];
+  const decision = decidePublish(rows);
+  if (!decision.ok || !decision.fit || !decision.score) {
+    logEvent("info", "comp-read.not_publishable", {
+      cell_key: cell.cellKey,
+      reads: rows.length,
+      reason: decision.reason,
+    });
+    return false;
+  }
+
+  // PRESERVE slug AND label. They are the curated Condition Index entry - a
+  // human wrote them and a public URL points at them. Upserting the measured
+  // row without them would blank a live /condition-index/<slug> page as a side
+  // effect of a background job doing well.
+  const { data: existing } = await supabaseAdmin
+    .from("condition_price_curves")
+    .select("slug, label, currency")
+    .eq("item_key", cell.cellKey)
+    .maybeSingle();
+  const prior = (existing ?? null) as
+    | { slug: string | null; label: string | null; currency: string | null }
+    | null;
+
+  const currency = rows.find((r) => (r.currency ?? "").trim() !== "")?.currency?.trim() ||
+    prior?.currency || "USD";
+
+  const written = await writeMeasuredCurve(
+    supabaseAdmin as unknown as CurveWriteClient,
+    {
+      itemKey: cell.cellKey,
+      slug: prior?.slug ?? null,
+      label: prior?.label ?? null,
+      brand: cell.brand,
+      categoryId: cell.categoryId,
+      query: cell.query,
+      currency,
+      fit: decision.fit,
+      score: decision.score,
+      reads: toFitSamples(rows),
+      measuredAt: new Date().toISOString(),
+    },
+    CURVE_GRADE_POINTS,
+  );
+
+  if (!written.ok) {
+    logEvent("warn", "comp-read.publish_write_failed", { cell_key: cell.cellKey });
+    return false;
+  }
+  logEvent("info", "comp-read.published", {
+    cell_key: cell.cellKey,
+    reads: decision.fit.sampleSize,
+    slope_cents_per_point: decision.fit.slopeCentsPerPoint,
+  });
+  recordMetric("comp_read.published", 1, { cell: cell.cellKey });
+  return true;
 }
 
 async function processCell(cell: QueuedCell): Promise<CellResult> {
@@ -279,7 +376,20 @@ async function processCell(cell: QueuedCell): Promise<CellResult> {
     supabaseAdmin as unknown as Parameters<typeof recordCompReads>[0],
     withCounts,
   );
-  return { readsWritten: result.written, budgetStopped, error: result.error };
+
+  // Fit and publish AFTER the reads are safely written, and never in a way that
+  // can lose them: a throw here would mark the job failed and hand the same cell
+  // back to the reclaim cron, paying for the reads a second time.
+  let published = false;
+  if (result.written > 0) {
+    try {
+      published = await publishCell(cell);
+    } catch (err) {
+      captureException(err, { level: "warn", route: "comp-read.publish", tags: { cell: cell.cellKey } });
+    }
+  }
+
+  return { readsWritten: result.written, budgetStopped, error: result.error, published };
 }
 
 // ── the process cron ────────────────────────────────────────────────
@@ -334,6 +444,7 @@ export async function handleCompReadCron(c: Context): Promise<Response> {
     const byKey = new Map(cells.map((cell) => [cell.cellKey, cell]));
     let stopped = false;
     let readsTotal = 0;
+    let publishedTotal = 0;
 
     // Bounded pool. A worker takes the next cell only by winning the atomic
     // claim, so two replicas running the same batch cannot pay twice.
@@ -397,6 +508,7 @@ export async function handleCompReadCron(c: Context): Promise<Response> {
 
         const outcome = await processCell(byKey.get(cell.cellKey) ?? cell);
         readsTotal += outcome.readsWritten;
+        if (outcome.published) publishedTotal += 1;
         if (outcome.budgetStopped) stopped = true;
 
         await supabaseAdmin
@@ -429,13 +541,19 @@ export async function handleCompReadCron(c: Context): Promise<Response> {
       jobName: "comp-read",
       status: "success",
       durationMs: Date.now() - started,
-      detail: { cells: cells.length, readsWritten: readsTotal, budgetStopped: stopped },
+      detail: {
+        cells: cells.length,
+        readsWritten: readsTotal,
+        curvesPublished: publishedTotal,
+        budgetStopped: stopped,
+      },
     });
     return c.json({
       ok: true,
       batchId,
       cells: cells.length,
       readsWritten: readsTotal,
+      curvesPublished: publishedTotal,
       budgetStopped: stopped,
       durationMs: Date.now() - started,
     });

@@ -27,6 +27,14 @@
 //    stands rather than at the end of the cell, the batch, or the cron tick.
 
 import { type CompReadInput } from "./comp-reads.ts";
+import {
+  type CompReadSample,
+  type CurveFit,
+  fitCurve,
+  type HoldOutScore,
+  holdOutScore,
+  publishable,
+} from "./comp-curve-fit.ts";
 import { type CompPhoto, type HashCellCount, isStockPhotoSet } from "./comp-stock-photo.ts";
 
 // ── caps (AC5: named, exported, tested) ─────────────────────────────
@@ -296,5 +304,76 @@ export function rollUpBatch(jobs: JobRow[]): BatchRollup {
     cellsTotal: jobs.length,
     cellsDone: done.length,
     readsWritten: jobs.reduce((a, j) => a + (j.reads_written ?? 0), 0),
+  };
+}
+
+// ── publishing a cell ───────────────────────────────────────────────
+//
+// THE SEGMENT THAT WAS MISSING. Reads land in comp_condition_reads and a curve
+// is served from condition_price_curves, and until US-2845 nothing joined the
+// two: reads would have accumulated forever, no measured curve would ever have
+// been written, and the US-2849 flip would have had nothing to flip to. The
+// whole epic would have been inert with both flags on.
+//
+// scripts/check-unwired-modules.mjs is what caught it, by noticing that
+// condition-curve-measured.ts had no production caller. That is the check
+// working exactly as intended: its tests passed and its feature did not run.
+
+/** A comp_condition_reads row, as much of it as the fit needs. */
+export interface StoredRead {
+  read_score: number | string | null;
+  read_confidence: number | string | null;
+  asking_price_cents: number | string | null;
+  stock_rejected: boolean;
+  currency?: string | null;
+}
+
+/** PostgREST hands numerics back as strings often enough to matter. */
+function num(v: number | string | null | undefined): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/** Rows into the shape comp-curve-fit.ts wants. Pure. */
+export function toFitSamples(rows: StoredRead[]): CompReadSample[] {
+  return rows.map((r) => ({
+    readScore: num(r.read_score),
+    readConfidence: num(r.read_confidence),
+    askingPriceCents: num(r.asking_price_cents),
+    stockRejected: r.stock_rejected === true,
+  }));
+}
+
+export interface PublishDecision {
+  /** Null when the cell may not publish. The reason always says why. */
+  fit: CurveFit | null;
+  score: HoldOutScore | null;
+  ok: boolean;
+  reason: string;
+}
+
+/**
+ * Decide whether a cell's accumulated reads may become a published curve.
+ *
+ * DELEGATES THE GATE, never re-implements it. publishable() in comp-curve-fit.ts
+ * owns the two bars (twelve high-confidence reads, and a leave-one-out error
+ * that beats the plain median by five percent), and a second copy of that
+ * arithmetic here is how the two would drift and how a cell would eventually
+ * publish through the softer of them.
+ */
+export function decidePublish(rows: StoredRead[]): PublishDecision {
+  const samples = toFitSamples(rows);
+  const fit = fitCurve(samples);
+  const score = holdOutScore(samples);
+  const verdict = publishable(samples, fit, score);
+  return {
+    fit: verdict.ok ? fit : null,
+    score: verdict.ok ? score : null,
+    ok: verdict.ok,
+    reason: verdict.reason,
   };
 }

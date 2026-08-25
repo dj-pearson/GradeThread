@@ -10,7 +10,7 @@ code_refs:
   - supabase/migrations/00667_comp_read_queue.sql
 reviewed: 2026-08-25
 tags: [comps, condition-index, grading, ai-budget, durable-jobs]
-summary: Why the comp read queue follows seller demand rather than a catalogue, what the four caps are and why each is that number, and the two switches that stop it.
+summary: Why the comp read queue follows seller demand rather than a catalogue, what the four caps are and why each is that number, how a cell's reads become a published curve, and the two switches that stop it.
 ---
 
 # The comp read worker — demand, not a crawl
@@ -74,6 +74,34 @@ batch run past a ceiling it breached on read three.
 The seeded daily limit is $5. It is small on purpose: the first real
 dollars-per-read number comes from the spike, and a ceiling set before you have
 measured the cost should be one you would not mind hitting.
+
+## Reads become a curve at the end of the cell, or the cell keeps the median
+
+`processCell` fits and publishes immediately after its reads are written. Until
+that step existed, reads landed in `comp_condition_reads`, curves were served
+from `condition_price_curves`, and the two tables never met: the shadow would
+have found nothing on every request forever and the US-2849 flip would have had
+nothing to flip to. `scripts/check-unwired-modules.mjs` is what caught it, by
+noticing `condition-curve-measured.ts` had no production caller.
+
+`decidePublish` **delegates** to `publishable()` in `comp-curve-fit.ts` rather
+than re-deriving the bar. Two copies of that arithmetic would drift, and a cell
+would eventually publish through whichever copy was softer. The bar is unchanged:
+twelve high-confidence reads, and a leave-one-out error at least five percent
+better than the plain comp median.
+
+Three refusals here are load-bearing:
+
+- **A cell that cannot publish is the normal case, not an error.** The job still
+  completes, the reads are still kept, and the surface keeps serving today's
+  median. The worst case for a seller is today's answer.
+- **A publish failure never fails the cell.** The reads are already written and
+  paid for; a throw would mark the job failed, hand the cell back to the reclaim
+  cron and buy the same reads twice.
+- **`slug` and `label` are read back and preserved.** A human wrote them and a
+  public `/condition-index/<slug>` URL points at them. Upserting the measured row
+  without them would blank a live page as a side effect of a background job doing
+  well.
 
 ## What a row is, and what it is not
 
