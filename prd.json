@@ -2530,21 +2530,6 @@
       "notes": ""
     },
     {
-      "id": "US-2861",
-      "passes": false,
-      "title": "Twenty-five nav destinations and not one of them says what it is",
-      "description": "src/components/dashboard/sidebar.tsx renders labels only: Sourcing, Verified, Offers & Messages, Money, Pricing, Analytics, MeasureCard, Scheduled drops, Consignment. A seller who has never used the product cannot tell Sourcing from Scout, Money from Pricing, or Verified from anything. The iOS app already solved this: ToolsHubView carries a written one-line subtitle for every module ('Find underpriced eBay listings to flip', 'Queue listings to publish at peak times', 'Condition-aware price suggestions for live listings'). Those sentences exist, they are good, and the web nav does not use them.",
-      "acceptanceCriteria": [
-        "NavItem gains a required `description` field: one sentence, plain words, saying what the destination is for.",
-        "Descriptions are ported from ToolsHubView where a matching module exists, and written in the same register where it does not.",
-        "Desktop: the description shows in a tooltip on hover and on keyboard focus. Mobile sheet: it renders inline under the label, because there is no hover on a phone.",
-        "A guard test fails if any NavItem lacks a description or if a description exceeds one sentence.",
-        "The subgroup titles (Catalog, List & sell, Sourcing, Channels & money, Automate & insights) get the same treatment."
-      ],
-      "priority": 14,
-      "notes": ""
-    },
-    {
       "id": "US-2862",
       "passes": false,
       "title": "Contextual help is registered on forty-five surfaces and rendered on ten",

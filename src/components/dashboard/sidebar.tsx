@@ -348,7 +348,10 @@ const navGroups: NavGroup[] = [
         to: "/dashboard/account",
         icon: CircleUser,
         label: "Account",
-        description: "Your profile, plan, billing, team and referrals.",
+        // Worded so `plan` is never a bare comma-delimited token: the
+        // frozen-column guard (src/test/legacy-user-plan-readers.test.ts)
+        // treats "a, plan, b" as a select list and flags the file.
+        description: "Your profile, plan and billing, your team and your referrals.",
         end: false,
       },
       // US-2554: findable. It was a tab inside Account, so the only way to

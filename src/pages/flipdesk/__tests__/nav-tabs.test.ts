@@ -140,11 +140,15 @@ describe("sidebar", () => {
   it("keeps Analytics highlighted across its tab paths", () => {
     // `end: true` would un-highlight the nav item on /analytics/community and
     // /analytics/performance, which now live under it.
-    const line = sidebar
-      .split("\n")
-      .find((l) => l.includes('to: "/dashboard/flipdesk/analytics"'));
-    expect(line).toBeDefined();
-    expect(line).toContain("end: false");
+    // US-2861 gave every nav entry a `description`, so an item is a multi-line
+    // object literal now rather than one line. Read the whole entry, not a line.
+    const lines = sidebar.split("\n");
+    const at = lines.findIndex((l) =>
+      l.includes('to: "/dashboard/flipdesk/analytics"'),
+    );
+    expect(at, "the Analytics nav entry is gone").toBeGreaterThan(-1);
+    const entry = lines.slice(at, at + 8).join("\n");
+    expect(entry).toContain("end: false");
   });
 });
 
@@ -278,7 +282,10 @@ describe("the ?view= hosts (US-2161 second pass)", () => {
     expect(flipdeskStart).toBeGreaterThan(0);
     expect(flipdeskEnd).toBeGreaterThan(flipdeskStart);
     const block = sidebar.slice(flipdeskStart, flipdeskEnd);
-    const entries = [...block.matchAll(/\{ to: "\/dashboard\//g)].length;
+    // US-2861: `to:` starts its own line now (each entry gained a
+    // `description` field), so this counts that line rather than the `{ to:`
+    // prefix the one-line form used to have.
+    const entries = [...block.matchAll(/^\s*to: "\/dashboard\//gm)].length;
     // Catalog 3 + List & sell 3 + Sourcing 3 + Channels & money 6 = 15, plus
     // the single "Automate & insights" entry below the slice = 16.
     expect(entries).toBe(15);
