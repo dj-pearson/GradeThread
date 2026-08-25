@@ -50,33 +50,39 @@ import { UploadProgressPill } from "@/components/flipdesk/upload-progress-pill";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
-import { FLIPDESK_PLANS, type FlipdeskGateFlags, type FlipdeskPlanKey } from "@/lib/constants";
-import type { WorkspaceCapability } from "@/lib/workspace-permissions";
+import { FLIPDESK_PLANS, type FlipdeskPlanKey } from "@/lib/constants";
+import {
+  ALL_SURFACES,
+  NAV_GROUPS,
+  type NavPlacement,
+  type Surface,
+  type SurfaceId,
+} from "@/lib/surfaces";
 
-type NavItem = {
+// US-2876: the nav is BUILT from src/lib/surfaces.ts, not written here.
+//
+// This block used to be ~250 lines of object literals -- twenty-three
+// destinations with their labels, their sentences and their gates -- and it was
+// one of two hand-written answers to "what does this product contain". The
+// other was ToolsHubView.swift, and the two disagreed. Adding a feature meant
+// remembering both, so a feature usually landed on one.
+//
+// What stays here is what is genuinely a WEB RENDERING decision: which lucide
+// icon a row uses, how a group collapses, how a locked row behaves. What moved
+// out is the product information: the list, the words, and the gates.
+//
+// The exemption list that used to live in a prose comment above this block --
+// the routes that are contextual or deep-link-only -- is now CONTEXTUAL_ROUTES
+// in the registry, with a reason on each. Prose cannot fail;
+// src/test/surface-registry.test.ts can, and does.
+
+type NavItem = Omit<Surface, "web" | "nav"> & {
+  /** The registry's `web` link. Named `to` because that is what NavLink takes. */
   to: string;
   icon: typeof LayoutDashboard;
-  label: string;
-  // US-2861. Required, not optional. Twenty-three labels and nothing saying
-  // what any of them was for: a seller who has never used the product cannot
-  // tell Sourcing from Scout, Money from Pricing, or Verified from anything.
-  // One sentence, plain words, saying what the destination is FOR. Ported from
-  // ios/GradeThread/Tools/ToolsHubView.swift where a matching module exists —
-  // the iOS Tools hub has carried these sentences since US-749 and the web nav
-  // did not use them. Enforced by src/test/nav-descriptions.test.ts.
-  description: string;
   end: boolean;
-  // Optional capability gate. If set, only render this item when the
-  // current user can perform this action in the active workspace.
-  requires?: WorkspaceCapability;
-  // Optional FlipDesk plan-tier gate (US-323). When set, the item is only
-  // shown if the workspace's current FlipDesk plan has this gate flag true.
-  requiresFlipdeskFlag?: keyof FlipdeskGateFlags;
-  // Inverse gate: hide this item once the plan HAS the flag. Used to tier two
-  // overlapping tools so a user never sees both — e.g. Reconcile (the ungated
-  // bulk-photo→item tool) is hidden once AutoLister becomes available.
-  hiddenWhenFlipdeskFlag?: keyof FlipdeskGateFlags;
 };
+
 // A subgroup is a labeled, independently-collapsible cluster of nav items
 // rendered *inside* a parent group. Used to break the long FlipDesk list into
 // manageable sections (US-609) so the section doesn't feel overwhelming.
@@ -93,293 +99,72 @@ type NavGroup = {
   adminOnly?: boolean;
 };
 
-// US-1121 — Nav contract / route-discoverability audit.
-//
-// Every authenticated route is reachable. Routes NOT in this sidebar are
-// intentionally contextual or deep-link-only — do NOT add them here:
-//   • /dashboard/submissions/bulk — reached from the Submissions page's "Bulk
-//     submit" button (submissions.tsx).
-//   • /dashboard/flipdesk/autolister/queue + /autolister/bulk-edit — batch-
-//     scoped (?batch=…); reached from the AutoLister / Drafts flow. A global
-//     nav link is meaningless without a batch id, so they stay contextual.
-//   • /dashboard/flipdesk/marketplaces/google — a sub-channel reached from the
-//     Marketplaces page (marketplaces.tsx).
-//   • /dashboard/flipdesk/intake — reached from the many "Add item" entry
-//     points; not a standalone nav destination.
-//   • Account / Billing / Team / API keys / Referrals / Settings / Support —
-//     consolidated into the Account hub (US-741); the hub is the single nav
-//     entry, individual routes remain for deep links + ⌘K.
-//   • /dashboard/flipdesk/{overview,grid,prep,pipeline,listings,reconciliation}
-//     and /dashboard/inventory* — legacy aliases that redirect (Navigate /
-//     InventoryModeRedirect) to their canonical surfaces; kept for old links.
-//   • US-2161 consolidated three clusters into tabbed hosts. The old paths all
-//     still resolve — they Navigate to the canonical route plus its tab — so
-//     deep links, the command palette and flipdesk-search keep working, and
-//     they are deliberately NOT listed here because the host is the one nav
-//     entry:
-//       /flipdesk/{repricing,bulk-pricing,automations} and
-//       /dashboard/analytics/suggestions   → /flipdesk/pricing?tab=…
-//       /flipdesk/{scout,scout/buy,sources,demand}
-//                                          → /flipdesk/sourcing?tab=…
-//       /flipdesk/community                → /flipdesk/analytics/community
-//     Analytics keeps PATH-based tabs (not ?tab=) because it already had them.
-const navGroups: NavGroup[] = [
-  {
-    title: "Grading",
-    description: "Send garments for a condition grade and read the reports.",
-    items: [
-      {
-        to: "/dashboard",
-        icon: LayoutDashboard,
-        label: "Overview",
-        description: "Your grades, your plan usage, and what needs you today.",
-        end: true,
-      },
-      {
-        to: "/dashboard/snap",
-        icon: Camera,
-        label: "Snap to Value",
-        description: "Photograph a garment and get a free condition and price read.",
-        end: false,
-      },
-      {
-        to: "/dashboard/submissions",
-        icon: FileText,
-        label: "Submissions",
-        description: "Every garment you have sent for grading, and its report.",
-        end: false,
-      },
-      // US-1851: level + quarterly season track. Sits with Grading because XP
-      // comes from grading acts, not from listing volume.
-      {
-        to: "/dashboard/rewards",
-        icon: Trophy,
-        label: "Rewards",
-        description: "Your level, your season track, and the credit you have earned.",
-        end: false,
-      },
-      // Inventory consolidated into the FlipDesk section (US-740) — no duplicate
-      // here; the single canonical inventory lives under FlipDesk.
-      // Finances moved to the FlipDesk group — it reports purely on reseller
-      // data (inventory/listings/sales) alongside Expenses/Reconciliation.
-      // US-2161: Price Suggestions moved to FlipDesk → Pricing. It sat here
-      // while the other three pricing surfaces sat under FlipDesk, so "change
-      // my prices" was split across two sections of the nav.
-    ],
-  },
-  {
-    // The FlipDesk section is split into labeled, independently-collapsible
-    // subgroups (US-609) so its ~20 destinations stay manageable. Overview +
-    // Inventory sit at the top as the two everyday entry points.
-    title: "FlipDesk",
-    description: "Everything from sourcing an item to reconciling the payout.",
-    subgroups: [
-      {
-        title: "Catalog",
-        description: "What you own, and where to find it.",
-        items: [
-          {
-            to: "/dashboard/flipdesk",
-            icon: Gauge,
-            label: "Overview",
-            description: "The day's numbers for buying, listing and selling.",
-            end: true,
-          },
-          {
-            to: "/dashboard/flipdesk/search",
-            icon: Search,
-            label: "Search",
-            description: "Find any item, listing or sale by anything you remember about it.",
-            end: false,
-          },
-          // Inventory is one surface now. Its in-page tabs switch between
-          // Table / Grid / Kanban / Prep views — see InventoryViewSwitcher.
-          {
-            to: "/dashboard/flipdesk/inventory",
-            icon: Boxes,
-            label: "Inventory",
-            description: "Everything you own, as a table, a grid, a board or a prep list.",
-            end: false,
-          },
-        ],
-      },
-      {
-        title: "List & sell",
-        description: "Turn items into listings and get them live.",
-        items: [
-          // US-2161 (second pass): AutoLister hosts Generate + Drafts as ?view=
-          // tabs. Drafts was never a separate destination — it is what AutoLister
-          // produces — and a seller who has just generated drafts should not have
-          // to find a second nav entry to see them.
-          {
-            to: "/dashboard/flipdesk/autolister",
-            icon: Sparkles,
-            label: "AutoLister",
-            description: "Turn a pile of photos into drafted listings in one batch.",
-            end: false,
-            requiresFlipdeskFlag: "autolister",
-          },
-          {
-            to: "/dashboard/flipdesk/scheduled-drops",
-            icon: CalendarClock,
-            label: "Scheduled drops",
-            description: "Queue listings to publish when buyers are looking.",
-            end: false,
-          },
-          {
-            to: "/dashboard/flipdesk/verified",
-            icon: ShieldCheck,
-            label: "Verified",
-            description: "Claim your public seller handle and trust badge.",
-            end: false,
-          },
-        ],
-      },
-      {
-        title: "Sourcing",
-        description: "What to buy, and where it comes from.",
-        items: [
-          {
-            to: "/dashboard/flipdesk/import",
-            icon: Upload,
-            label: "Import",
-            description: "Bring inventory in from a CSV file or a Google Sheet.",
-            end: false,
-          },
-          // US-2161: ScoutAI + Buy Decision + Sources + Buyer Demand were four
-          // entries answering one question — what should I buy, and where from.
-          // They are ?tab= tabs of this one destination now. NOT plan-gated at
-          // the nav level any more: two of the four tabs need compPulls and two
-          // do not, so gating the whole entry would hide Sources from a seller
-          // who is entitled to it.
-          {
-            to: "/dashboard/flipdesk/sourcing",
-            icon: Radar,
-            label: "Sourcing",
-            description: "What to buy and where from: Scout, buy calls, sources, demand.",
-            end: false,
-          },
-          {
-            to: "/dashboard/flipdesk/consignment",
-            icon: Handshake,
-            label: "Consignment",
-            description: "Your consignors, their items, and their payout splits.",
-            end: false,
-          },
-        ],
-      },
-      {
-        title: "Channels & money",
-        description: "Where you sell, and what you make.",
-        items: [
-          {
-            to: "/dashboard/flipdesk/marketplaces",
-            icon: Plug,
-            label: "Marketplaces",
-            description: "Connect eBay and the other channels you sell on.",
-            end: false,
-          },
-          {
-            to: "/dashboard/flipdesk/offers",
-            icon: Tag,
-            label: "Offers & Messages",
-            description: "Buyer offers and messages, with replies drafted for you.",
-            end: false,
-          },
-          {
-            to: "/dashboard/flipdesk/post-sale",
-            icon: ShieldAlert,
-            label: "Returns & Disputes",
-            description: "Returns, cases and disputes after a sale.",
-            end: false,
-          },
-          // US-2161: Repricing + Bulk pricing + Price Suggestions + Automations.
-          {
-            to: "/dashboard/flipdesk/pricing",
-            icon: Tags,
-            label: "Pricing",
-            description: "Reprice live listings, edit prices in bulk, and run pricing rules.",
-            end: false,
-          },
-          // US-2161 (second pass): Finances + Expenses + Reconcile answered one
-          // question — where did my money go — from three nav entries. One
-          // destination now, ?view= carrying the choice. Reconcile keeps its own
-          // four inner ?tab= tabs (US-963: Photos→Items, eBay SKU match, Payouts &
-          // fees, Cross-source), which is exactly why the outer parameter is
-          // ?view= and not ?tab=.
-          {
-            to: "/dashboard/flipdesk/money",
-            icon: DollarSign,
-            label: "Money",
-            description: "What sold, what it cost, what you are owed, and your real profit.",
-            end: false,
-          },
-          // US-1579: MeasureCard info + PDF download + mailed-card request.
-          {
-            to: "/dashboard/flipdesk/measure-card",
-            icon: Ruler,
-            label: "MeasureCard",
-            description: "The printed card that puts a scale in every measurement photo.",
-            end: false,
-          },
-        ],
-      },
-      {
-        title: "Automate & insights",
-        description: "Rules that run for you, and how it is all going.",
-        items: [
-          // US-2161: Automations is a Pricing tab; Listing Performance and
-          // Community Insights are Analytics tabs. `end: false` so the nav item
-          // stays highlighted on every /analytics/* tab, not just the index.
-          {
-            to: "/dashboard/flipdesk/analytics",
-            icon: BarChart3,
-            label: "Analytics",
-            description: "How your listings, grades and returns are doing over time.",
-            end: false,
-          },
-        ],
-      },
-    ],
-  },
-  {
-    // Account, billing, team, API keys, and referrals are consolidated into
-    // one hub (US-741) reached from this single entry; its tabs gate billing/
-    // API by capability. Direct routes still work for deep links + ⌘K.
-    items: [
-      {
-        to: "/dashboard/account",
-        icon: CircleUser,
-        label: "Account",
-        // Worded so `plan` is never a bare comma-delimited token: the
-        // frozen-column guard (src/test/legacy-user-plan-readers.test.ts)
-        // treats "a, plan, b" as a select list and flags the file.
-        description: "Your profile, plan and billing, your team and your referrals.",
-        end: false,
-      },
-      // US-2554: findable. It was a tab inside Account, so the only way to
-      // reach the API was to go looking for it under your profile.
-      {
-        to: "/dashboard/developers",
-        icon: Code2,
-        label: "Developers",
-        description: "API keys and the sandbox for grading from your own app.",
-        end: false,
-        requires: "manage_api_keys",
-      },
-      // US-2583: the in-app help reader. A nav entry rather than only the
-      // header's help menu, because the thing people look for when stuck is a
-      // place in the sidebar, not an icon they have to remember.
-      {
-        to: "/dashboard/help",
-        icon: LifeBuoy,
-        label: "Help",
-        description: "Guides and answers, without leaving the app.",
-        end: false,
-      },
-    ],
-  },
-];
+// One icon per surface. Typed as a total Record so tsc — not a reviewer —
+// notices a surface added to the registry with no icon here.
+const SURFACE_ICONS: Record<SurfaceId, typeof LayoutDashboard> = {
+  overview: LayoutDashboard,
+  snap: Camera,
+  submissions: FileText,
+  rewards: Trophy,
+  "flipdesk-overview": Gauge,
+  "flipdesk-search": Search,
+  inventory: Boxes,
+  autolister: Sparkles,
+  "scheduled-drops": CalendarClock,
+  verified: ShieldCheck,
+  "listing-templates": FileText,
+  import: Upload,
+  sourcing: Radar,
+  scout: Radar,
+  sources: ShoppingBag,
+  prospect: Camera,
+  consignment: Handshake,
+  marketplaces: Plug,
+  offers: Tag,
+  "post-sale": ShieldAlert,
+  pricing: Tags,
+  repricing: Tags,
+  automations: Sparkles,
+  money: DollarSign,
+  reconciliation: DollarSign,
+  "reconcile-intake": Boxes,
+  "measure-card": Ruler,
+  analytics: BarChart3,
+  "community-insights": BarChart3,
+  account: CircleUser,
+  developers: Code2,
+  referrals: Handshake,
+  help: LifeBuoy,
+};
+
+/** Registry surfaces placed in one group/subgroup, in declaration order. */
+function itemsFor(group: NavPlacement["group"], subgroup?: string): NavItem[] {
+  return ALL_SURFACES.filter(
+    (s): s is Surface & { nav: NavPlacement } =>
+      s.nav !== null && s.nav.group === group && s.nav.subgroup === subgroup,
+  ).map(({ nav, web, ...rest }) => ({
+    ...rest,
+    // Every nav-placed surface has a route; the registry has no way to place
+    // one without a destination.
+    to: web ?? "/dashboard",
+    icon: SURFACE_ICONS[rest.id as SurfaceId],
+    end: nav.end ?? false,
+  }));
+}
+
+const navGroups: NavGroup[] = NAV_GROUPS.map((g) =>
+  g.subgroups
+    ? {
+        title: g.title,
+        description: g.description,
+        subgroups: g.subgroups.map((sub) => ({
+          title: sub.title,
+          description: sub.description,
+          items: itemsFor(g.group, sub.title),
+        })),
+      }
+    : { title: g.title, description: g.description, items: itemsFor(g.group) },
+);
 
 const COLLAPSE_KEY = "gt-sidebar-collapsed";
 

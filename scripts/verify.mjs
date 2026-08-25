@@ -506,6 +506,14 @@ if (on("ios")) {
     // WRITTEN safely, this asks whether anyone can REACH it.
     run("ios: no unreachable types", "node scripts/check-ios-orphans.mjs");
 
+    // US-2876: the Swift tables generated from TypeScript. Needs no Swift
+    // toolchain and no Python -- it reads both sides as text -- so it belongs
+    // in the always-on part of this lane rather than behind --ios.
+    run(
+      "ios: generated Swift mirrors are current",
+      "node scripts/generate-swift-mirrors.mjs --check",
+    );
+
     const py = resolvePython();
     if (!py) {
       skipped.push(

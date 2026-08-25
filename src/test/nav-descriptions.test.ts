@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { ALL_SURFACES, NAV_GROUPS } from "@/lib/surfaces";
 
 // US-2861. The sidebar offered twenty-three destinations and said nothing about
 // any of them: Sourcing, Verified, Offers & Messages, Money, Pricing,
@@ -17,41 +18,54 @@ import { resolve } from "node:path";
 const FILE = "src/components/dashboard/sidebar.tsx";
 const src = readFileSync(resolve(process.cwd(), FILE), "utf8");
 
-/** Everything inside the `navGroups` literal. */
-function navGroupsBody(): string {
-  const start = src.indexOf("const navGroups: NavGroup[] = [");
-  expect(start, "navGroups literal not found").toBeGreaterThan(-1);
-  // The literal ends at the first line that is exactly "];" at column 0.
-  const end = src.indexOf("\n];", start);
-  expect(end, "end of navGroups literal not found").toBeGreaterThan(start);
-  return src.slice(start, end);
-}
+// US-2876 moved the LIST out of sidebar.tsx into src/lib/surfaces.ts. This file
+// still owns the CONTRACT -- every destination and every titled section
+// explains itself, in one plain sentence, and the sentence reaches the screen.
+// It reads the registry now instead of scraping the component, which is
+// strictly better: it checks the values the app actually renders rather than
+// the text a regex found near them.
+//
+// The rendering half below still reads sidebar.tsx, because that is where the
+// rendering lives.
 
-const body = navGroupsBody();
+const labels = ALL_SURFACES.filter((s) => s.nav !== null).map((s) => s.label);
+const titles = NAV_GROUPS.flatMap((g) => [
+  ...(g.title ? [g.title] : []),
+  ...(g.subgroups ?? []).map((sub) => sub.title),
+]);
+const descriptions = [
+  ...ALL_SURFACES.filter((s) => s.nav !== null).map((s) => s.description),
+  ...NAV_GROUPS.flatMap((g) => [
+    ...(g.description ? [g.description] : []),
+    ...(g.subgroups ?? []).map((sub) => sub.description),
+  ]),
+];
 
-const labels = [...body.matchAll(/^\s*label: "([^"]+)",$/gm)].map((m) => m[1]!);
-const titles = [...body.matchAll(/^\s*title: "([^"]+)",$/gm)].map((m) => m[1]!);
-const descriptions = [...body.matchAll(/^\s*description: "([^"]+)",$/gm)].map(
-  (m) => m[1]!,
-);
+describe("the Surface contract keeps descriptions required (US-2861)", () => {
+  const registry = readFileSync(resolve(process.cwd(), "src/lib/surfaces.ts"), "utf8");
 
-describe("the NavItem contract keeps descriptions required (US-2861)", () => {
-  it("NavItem.description is required, not optional", () => {
+  it("Surface.description is required, not optional", () => {
+    // Making it optional removes the only thing forcing a new entry to explain
+    // itself, which is how twenty-three of them ended up unexplained.
+    expect(registry).toContain("  description: string;");
     expect(
-      /\n\s*description: string;/.test(src),
-      "NavItem.description must stay `description: string;`. Making it optional " +
-        "(`description?:`) removes the only thing forcing a new nav entry to " +
-        "explain itself, which is how twenty-three of them ended up unexplained.",
-    ).toBe(true);
-    expect(/\n\s*description\?: string;\s*\n\s*\/\/ A group renders/.test(src)).toBe(
-      true,
-    ); // NavGroup's is optional on purpose: one group has no title.
+      /\n\s*description\?: string;/.test(registry.slice(0, registry.indexOf("export const SURFACES"))),
+      "Surface.description went optional",
+    ).toBe(false);
   });
 
   it("NavSubgroup.description is required", () => {
     expect(src).toContain(
       "type NavSubgroup = { title: string; description: string; items: NavItem[] };",
     );
+  });
+
+  it("every registry entry actually has one", () => {
+    // The type says required, so this only fires if the type stops being read
+    // -- but it is one line and it is the assertion that matters.
+    for (const s of ALL_SURFACES) {
+      expect(s.description.trim().length, `${s.id} has no description`).toBeGreaterThan(0);
+    }
   });
 });
 
