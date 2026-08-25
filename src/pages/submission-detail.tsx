@@ -62,6 +62,8 @@ import {
   getProgressColor,
 } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
+import { WhatHappensNext } from "@/components/submission/what-happens-next";
+import { HUMAN_REVIEW, WHERE_IT_APPEARS } from "@/lib/grading-journey";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { track } from "@/lib/analytics";
@@ -986,10 +988,9 @@ export function SubmissionDetailPage() {
                     Preliminary grade — pending expert review
                   </p>
                   <p className="mt-0.5 text-sm text-violet-800/80 dark:text-violet-300/80">
-                    This AI grade is unofficial. One of our experts will review it
-                    shortly — the score may change, and your shareable certificate
-                    goes live once it's finalized. We'll let you know the moment it's
-                    official.
+                    This grade is not official yet. {HUMAN_REVIEW.what}{" "}
+                    {HUMAN_REVIEW.certificate} {HUMAN_REVIEW.cost}{" "}
+                    {WHERE_IT_APPEARS}
                   </p>
                 </div>
               </div>
@@ -1092,8 +1093,7 @@ export function SubmissionDetailPage() {
                 <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
                   AI-generated condition estimate — not a professional appraisal
                   or guarantee. This grade is produced automatically from photos
-                  and is an estimate of condition only; lower-confidence grades
-                  are routed to a human reviewer. See{" "}
+                  and is an estimate of condition only. {HUMAN_REVIEW.what} See{" "}
                   <a href="/terms" className="underline">Terms</a> §5.
                 </p>
               </CardContent>
@@ -1346,8 +1346,7 @@ export function SubmissionDetailPage() {
                   Grading in Progress
                 </h3>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Your garment is being analyzed. This usually takes a few
-                  moments.
+                  We are reading your photos now.
                 </p>
                 {/* US-1466: elapsed + escalation so a long-but-normal grade is
                     distinguishable from a stuck one. */}
@@ -1368,6 +1367,10 @@ export function SubmissionDetailPage() {
                     . You&apos;re only charged for a completed grade.
                   </p>
                 )}
+                <WhatHappensNext
+                  status={submission.status}
+                  tier={submission.service_tier ?? null}
+                />
               </>
             ) : submission.status === "pending" ? (
               // US-1466: distinguish pending (awaiting payment) from processing
@@ -1399,6 +1402,10 @@ export function SubmissionDetailPage() {
                     . You&apos;re only charged for a completed grade.
                   </p>
                 )}
+                <WhatHappensNext
+                  status={submission.status}
+                  tier={submission.service_tier ?? null}
+                />
               </>
             ) : submission.status === "failed" ? (
               <>

@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { GRADE_FACTORS } from "@/lib/constants";
+import { HUMAN_REVIEW } from "@/lib/grading-journey";
 import {
   EXAMPLE_BADGE,
   EXAMPLE_COMP,
@@ -197,9 +198,9 @@ export function ExamplePage() {
           Each factor is scored out of 10, multiplied by its share above, and
           added up. That is where {EXAMPLE_GRADE.overallScore.toFixed(1)} comes
           from. The AI was{" "}
-          {Math.round(EXAMPLE_GRADE.confidence * 100)}% confident, so this one
-          graded straight through. Below 75% a person checks it before you see
-          it.
+          {Math.round(EXAMPLE_GRADE.confidence * 100)}% confident and nothing
+          about the photos looked unusual, so this one graded straight
+          through. {HUMAN_REVIEW.what}
         </p>
       </StepCard>
 

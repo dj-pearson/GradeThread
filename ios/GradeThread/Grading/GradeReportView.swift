@@ -306,7 +306,7 @@ struct GradeReportView: View {
                 Text("Pending human review")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.brandAmber)
-                Text("This grade's confidence is below our certify threshold, so a reviewer is taking a look. You'll be able to share a public certificate once it clears.")
+                Text("\(GradingJourneyCopy.humanReviewWhat) \(GradingJourneyCopy.humanReviewCertificate) \(GradingJourneyCopy.humanReviewCost)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
