@@ -89,6 +89,18 @@ export const ALLOWED_DEAD_MODULES = {
     "and is not listed separately because this module is its only importer, so "+
     "the audit reports the root and not the branch. Remove this entry when the "+
     "job imports composeSellerDigest; the gate fails if you forget.",
+  "condition-curve-measured.ts":
+    "PENDING. US-2847 shipped the WRITING half of measured condition curves: " +
+    "buildMeasuredCurvePoints turns a fit into the same CurvePoint shape a " +
+    "seeded curve writes, and writeMeasuredCurve persists it. What does not " +
+    "exist is the job that reads comp_reads, calls the fitter in " +
+    "comp-curve-fit.ts and hands the result over — comp-curve-fit.ts has no " +
+    "production caller either, and is not listed separately because this " +
+    "module is its only importer, so the audit reports the root and not the " +
+    "branch. The SEEDED path is live and unaffected: persistSeededCurve lives " +
+    "in condition-index.ts and is called from condition-index-seedgen.ts. " +
+    "Remove this entry when a job imports writeMeasuredCurve; the gate fails " +
+    "if you forget.",
   "content-ai-email.ts":
     "SUPERSEDED. Zero test refs as well as zero callers, which is the one " +
     "combination that is safe to ignore: nothing is claiming it works.",
