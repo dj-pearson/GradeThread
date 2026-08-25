@@ -2500,20 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2883",
-      "passes": false,
-      "title": "Buyer onboarding is a separate page with a separate pattern",
-      "description": "/buyer/onboarding is a full page. Seller onboarding is a modal plus a checklist plus a first-run card. The buyer persona is also explicitly skipped by the seller activation checklist (stepsFor returns an empty array for 'buyer'). Two personas, two entirely different first-run architectures, and a user who is both (every seller can shop, US-1887) meets both.",
-      "acceptanceCriteria": [
-        "Buyer onboarding is expressed as a persona in the same activation-steps module from US-2859, with its own step list.",
-        "A user who is both a buyer and a seller is not shown two first-run experiences; the shell they are in decides which steps apply.",
-        "The buyer shell renders the shared checklist component, not its own.",
-        "Switching to buying from the seller sidebar does not restart onboarding."
-      ],
-      "priority": 76,
-      "notes": ""
-    },
-    {
       "id": "US-2884",
       "passes": false,
       "title": "Instrument activation so 'where do new sellers stop' has an answer from data",
