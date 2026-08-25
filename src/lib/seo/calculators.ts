@@ -386,7 +386,7 @@ export const CALCULATORS: readonly Calculator[] = [
       "flipping profit calculator",
     ],
     intro:
-      "Every other profit calculator asks what the item will sell for. That is the number you do not know, and the one you get wrong, because you took it from a comp of an item in better condition than yours. This one asks for the comp AND what condition that comp was in, then moves the price to the condition your item is actually in. The adjustment comes from GradeThread's own Condition Index: 53 items, 3,811 eBay sold comps, and a spread wide enough that it is printed next to the average rather than hidden behind it.",
+      "Every other profit calculator asks what the item will sell for. That is the number you do not know, and the one you get wrong, because you took it from a comp of an item in better condition than yours. This one asks for the comp AND what condition that comp was in, then moves the price to the condition your item is actually in. The adjustment comes from GradeThread's own Condition Index, which is built from active eBay listings rather than sold ones, with a spread wide enough that it is printed next to the average rather than hidden behind it.",
     faqs: [
       {
         q: "How do I work out resale profit?",
@@ -394,7 +394,7 @@ export const CALCULATORS: readonly Calculator[] = [
       },
       {
         q: "Why does condition change the price so much?",
-        a: "Because it is the largest single lever on a used garment, larger than the brand for anything below the designer tier. Across 53 items in the Condition Index, a 7.0 sells for a median 65% of what a mint example makes and a 5.0 for 44%. Price a 7.0 off a mint comp and you have overpriced it by a third before you started.",
+        a: "Because it is the largest single lever on a used garment, larger than the brand for anything below the designer tier. Across the Condition Index, a 7.0 is listed at a median 65% of what a mint example asks and a 5.0 at 44%. Price a 7.0 off a mint comp and you have overpriced it by a third before you started.",
       },
       {
         q: "What condition is a typical sold comp in?",
@@ -402,7 +402,7 @@ export const CALCULATORS: readonly Calculator[] = [
       },
       {
         q: "Is the condition adjustment the same for every item?",
-        a: "No, and that is the most useful thing on this page. At grade 9.0 the share of mint price ranges from 53% to 100% across the 53 items measured. Carhartt double knee pants sell for the same at 8.0 as at 10.0; a Lululemon Scuba hoodie loses 20% over the same drop. If your item is in the Condition Index, pick it and the calculator uses its own measured curve instead of the average.",
+        a: "No, and that is the most useful thing on this page. At grade 9.0 the share of mint price ranges from 53% to 100% across the items measured. Carhartt double knee pants are listed at the same price at 8.0 as at 10.0; a Lululemon Scuba hoodie loses 20% over the same drop. If your item is in the Condition Index, pick it and the calculator uses its own measured curve instead of the average.",
       },
       {
         q: "What margin should a reseller aim for?",

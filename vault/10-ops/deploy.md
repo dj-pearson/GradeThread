@@ -129,7 +129,7 @@ done
   on the *service*, not baked into the image, so they persist across redeploys.
   After a deploy, spot-check one with **Run Now** (see `vault/10-ops/launch-checklist.md` §3).
   If you ever recreate the service, re-add **every** task from that checklist —
-  there are **80** (`CRON_REGISTRY` in `services/edge-functions/src/lib/cron-runs.ts`
+  there are **82** (`CRON_REGISTRY` in `services/edge-functions/src/lib/cron-runs.ts`
   is the source of truth, and `CRON_SETUP.md` is generated from it). This line
   said "16" for a long time; rebuilding from that number would have silently
   dropped 55 crons, including the consignor/affiliate payout jobs and the GDPR

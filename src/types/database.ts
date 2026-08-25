@@ -2177,6 +2177,11 @@ export interface FlipdeskSettingsRow {
   // {"vinted": "vinted.fr"}. NULL or a missing key means that platform's
   // default domain. Never a URL. See src/lib/lister-locales.ts.
   lister_locales: Record<string, string> | null;
+  // US-2851 (migration 00666): target return on cost for the sourcing ceiling,
+  // as whole percent. NULL means the product default (DECISION_MAYBE_ROI in the
+  // edge's scout-decision.ts), which is also the threshold that decides whether
+  // Scout calls an item a maybe.
+  sourcing_target_roi_pct: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -2188,6 +2193,7 @@ export interface FlipdeskSettingsInsert {
   auto_slab_image?: boolean;
   cross_post_channels?: string[] | null;
   lister_locales?: Record<string, string> | null;
+  sourcing_target_roi_pct?: number | null;
 }
 
 export type FlipdeskSettingsUpdate = Partial<

@@ -1,6 +1,152 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## APPLIED 2026-08-24: 00664 — condition_price_curves says where its numbers came from (US-2847)
+## ⏳ PENDING: 00667 — the comp read queue, and the budget that switches it off (US-2845)
+
+**What it does.** Three new operator tables (`comp_read_demand`,
+`comp_read_batches`, `comp_read_jobs`), one SECURITY INVOKER function
+(`comp_read_demand_touch`), one `feature_flags` row and one `ai_budgets` row.
+
+**Risk: LOW, and the worker is INERT on arrival.** The `comp_read` feature flag
+ships **disabled**, because the US-2842 calibration spike has not returned a GO.
+The cron answers `{ok:true, skipped:true}` until somebody turns it on by hand.
+Nothing existing is altered or dropped.
+
+**The budget.** `comp_read` / `day` / **$5.00** / action `kill`, enabled. Action
+`kill` flips the `comp_read` flag off, so the gate and the guardrail are the same
+switch. $5 is deliberately small: the first real dollars-per-read number comes
+from the spike, and a ceiling set before the cost is measured should be one you
+would not mind hitting. Raise it in the admin AI budgets page once you have the
+number.
+
+**Apply order.** After 00666. Depends on `feature_flags` (00096), `ai_budgets`
+(00219) and `applied_migrations`.
+
+**Client-side reads: NONE.** No frontend code touches any of it.
+`EXPECTED_SCHEMA_VERSION` is bumped to `00667` in the same commit.
+
+**Proven by execution, not by reading the SQL.** Applied four times against a
+throwaway Postgres 16, then:
+
+- the flag lands `enabled = false`, and re-running does not re-enable it
+- exactly ONE `comp_read` budget row exists after repeated runs
+- a bogus `status` raises the CHECK on both the batch and the job table
+- the atomic claim works: two racing `where status='pending'` updates report
+  `UPDATE 1` then `UPDATE 0`
+- `comp_read_demand_touch` increments (1 → 2 → 3 across three calls) and its
+  `coalesce` keeps a brand an earlier call supplied when a later one passes null
+- all three tables: RLS on, zero policies, `anon` has no select
+
+**On the function's security mode, which changed during the work.** It was
+written SECURITY DEFINER and `security-definer-grants.test.ts` caught that: a
+DEFINER function with no grant is callable by anon and authenticated through
+PostgREST with RLS bypassed, so anyone with the public key could have inflated a
+cell's demand count and steered where the AI budget is spent. It is INVOKER now.
+The obvious fix, a REVOKE from anon/authenticated, is the exact shape US-2403
+parked 00527 for: on the Supabase image, denying a FUNCTION to a supautils hint
+role segfaults the backend. INVOKER needs no revoke. Proven both ways on the
+throwaway stack: `service_role` (with BYPASSRLS, as in real Supabase) calls it
+and the count increments; `anon` gets a clean `permission denied for table`,
+which is the TABLE denial path, not the crashing function one.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — new tables and a new
+function.
+
+**Also register two Coolify scheduled tasks** (see COOLIFY.md, regenerated):
+`comp-read` at `25 * * * *` and `comp-read-reclaim` at `*/10 * * * *`. Register
+them even though the worker is off: the reclaim job drains a queue a disabled
+worker left behind, and a queue with no self-healing cron is the failure the
+durable-jobs contract exists to prevent.
+
+
+## ⏳ PENDING: 00666 — flipdesk_settings.sourcing_target_roi_pct (US-2851)
+
+**What it does.** Adds one nullable integer column to
+`public.flipdesk_settings`, plus a CHECK bounding it to 0..1000. It is the
+target return on cost a seller sources to, in whole percent, and it is what
+sizes Scout's "don't pay more than" ceiling.
+
+**Why a new column and not an existing setting.** There wasn't one. The
+autolister's "floor at % margin" is typed fresh into a bulk action and never
+stored; `automation_rules.margin_floor_pct` is a per-rule offer threshold, not a
+sourcing goal. US-2851's AC asked for "the existing workspace setting" and no
+such setting existed, so this creates it rather than inventing a multiplier.
+
+**Risk: LOW.** Additive, nullable, no backfill. NULL means "use the product
+default", which is `DECISION_MAYBE_ROI` in `lib/scout-decision.ts` (30%), the
+same threshold that already decides whether Scout calls an item a maybe.
+Defaulting in the column would have frozen today's number into every existing
+row and split the two apart the first time one of them moved.
+
+**Apply order.** After 00665. It depends on nothing but `flipdesk_settings`
+(00134/00145) and `applied_migrations`.
+
+**⚠ CLIENT-SIDE READ, so this one DOES break on a Pages deploy before the SQL.**
+`src/components/flipdesk/sourcing-target-setting.tsx` selects and upserts
+`sourcing_target_roi_pct` directly through the browser Supabase client under
+RLS. Until the column exists and PostgREST has reloaded, that control errors
+(the page still renders; the toast says the save failed). The edge side is
+covered by the boot guard: `EXPECTED_SCHEMA_VERSION` is bumped to `00666` in the
+same commit.
+
+**Proven by execution, not by reading the SQL.** Applied twice in a row against
+a throwaway Postgres 16 with a stand-in `flipdesk_settings`, then:
+
+- an existing row keeps a NULL target and is untouched
+- `30` and `0` both save; zero is a real, if aggressive, choice
+- `-5` raises `flipdesk_settings_sourcing_roi_range` (a negative target is a
+  ceiling ABOVE breakeven)
+- `3000` raises the same constraint (a typo there would set a ceiling near zero
+  and silently tell the seller every item is a skip)
+- the column is `integer`, nullable, and `00666` is in `applied_migrations`
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — a new column, and the
+browser client reads it through PostgREST.
+
+
+## ✅ APPLIED 2026-08-24: 00665 — condition_value_shadow_samples, the live-vs-measured record (US-2848)
+
+**What it does.** Creates one new table,
+`public.condition_value_shadow_samples`. One row every time `valueAtGrade`
+produced both answers for a market cell: the live conditionId-filtered median
+that shipped, the measured-curve median that did not, and the difference. Two
+CHECK constraints, two indexes, RLS on with zero policies.
+
+**Risk: LOW.** Additive only. Nothing existing is altered or dropped. The write
+path is bounded by the thing it measures: nothing is written for a cell with no
+`provenance = 'measured'` curve, and no cell has one until the US-2845 worker
+fits one, so the table stays empty on day one.
+
+**Apply order.** After 00664. It depends on nothing but `applied_migrations`.
+
+**Client-side reads: NONE.** No frontend code touches this table. The only
+reader is `GET /api/admin/condition-index/shadow-deltas`, which is behind the
+admin gate on the edge, and the edge boot guard covers that side:
+`EXPECTED_SCHEMA_VERSION` is bumped to `00665` in the same commit.
+
+**Proven by execution, not by reading the SQL.** Applied twice in a row against
+a throwaway Postgres 16 (the second run is all no-ops and NOTICEs), then:
+
+- a `delta_cents` with only one side present raises
+  `condition_value_shadow_samples_delta_needs_both`
+- `grade = 0.5` raises `condition_value_shadow_samples_grade_range`
+- a null grade inserts, which is required: `valueAtGrade` is called with a null
+  grade on the ungraded paths
+- `relrowsecurity` is true with 0 policies; `anon` and `authenticated` have no
+  select privilege
+- the self-record footer put `00665` in `applied_migrations`
+
+**On the coalesce trap.** Neither CHECK can evaluate to NULL: both branches use
+`is null` / `is not null`, which always return true or false. That is the 00663
+lesson applied rather than restated, and the executions above are what confirm
+it.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — a new table changed the
+schema, and PostgREST will not see it otherwise.
+
+**Applied on the founder's word 2026-08-24, not on a read of prod.**
+
+
+## ✅ APPLIED 2026-08-24: 00664 — condition_price_curves says where its numbers came from (US-2847)
 
 **What it does.** Adds four columns to `public.condition_price_curves`:
 `provenance` (`seeded` default, or `measured`), `slope_cents_per_point`,
@@ -28,7 +174,10 @@ key is free and then updates only while the row is still seeded.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — new columns.
 
 
-## ⏳ PENDING: 00663 — comp_condition_reads, the comp condition sample store (US-2844)
+## ✅ APPLIED 2026-08-24: 00663 — comp_condition_reads, the comp condition sample store (US-2844)
+
+> Marked applied on the founder's word, not on a read of prod. Everything below
+> is the original pending entry, unchanged.
 
 **What it does.** Creates one new table, `public.comp_condition_reads`. One row
 per comp listing we read for condition, keyed by a SHA-256 hash of the

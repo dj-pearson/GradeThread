@@ -32,6 +32,7 @@ import {
   forecastSellThrough,
   type SellThroughForecast,
 } from "./sell-through.ts";
+import { describeValueBasis, type ValueBasis } from "./value-disclosure.ts";
 
 // What backs a recommendation, best → weakest. The first two are realized
 // sales; "active_estimated" means we fell back to active asking prices and the
@@ -62,6 +63,16 @@ export interface GradeBandedPrice {
   confidence: number; // 0..1
   compSet: CompSet;
   sellThrough: SellThroughForecast;
+  /**
+   * US-2850: the same provenance line every other value surface renders.
+   *
+   * SEPARATE FROM `basis` ABOVE, which is this module's own realized-vs-active
+   * ladder and predates it by a year. That one answers "where did the comps
+   * come from"; this one answers "what is this number and how much sample is
+   * behind it", including whether condition was measured at all. Merging them
+   * would force one field to mean two things.
+   */
+  valueBasis?: ValueBasis;
 }
 
 function clamp01(n: number): number {
@@ -139,6 +150,16 @@ function fromRealized(
     gradeValue,
     basis: realized.source,
     soldBacked: true,
+    // The one path in the product where "sold" is true, so it is the one path
+    // allowed to say so.
+    valueBasis: describeValueBasis({
+      source: "comp_median",
+      sufficient: recommendedCents != null,
+      sampleSize: realized.count,
+      medianCents: recommendedCents ?? realized.medianCents,
+      soldPrices: true,
+      currency,
+    }),
     sufficient: recommendedCents != null,
     confidence: realized.confidence,
     compSet: {
@@ -176,6 +197,10 @@ function fromActive(
     soldBacked: false,
     sufficient: value.sufficient,
     confidence,
+    // Carried straight through from valueAtGrade, which already knows whether
+    // it served a measured curve or the plain comp median. Rebuilding it here
+    // would be a second opinion on a question that is already answered.
+    valueBasis: value.basis,
     compSet: {
       source: "active_estimated",
       count: value.sampleSize,
@@ -213,6 +238,12 @@ export function assembleRecommendation(input: {
     soldBacked: false,
     sufficient: false,
     confidence: 0,
+    valueBasis: describeValueBasis({
+      source: "comp_median",
+      sufficient: false,
+      sampleSize: 0,
+      medianCents: null,
+    }),
     compSet: {
       source: "active_estimated",
       count: 0,

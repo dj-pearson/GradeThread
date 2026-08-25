@@ -35,6 +35,12 @@ export interface ConditionCurveLite {
   totalSampleSize: number;
   refreshedAt: string;
   examples?: ExampleCert[];
+  /**
+   * US-2850: the provenance line, worded by the edge
+   * (services/edge-functions/src/lib/value-disclosure.ts). Optional so a
+   * payload from an older edge renders without it rather than mislabelled.
+   */
+  disclosure?: { headline: string; detail: string };
 }
 
 // ── Money + grade formatting ────────────────────────────────────────
@@ -159,6 +165,16 @@ export function renderMethodology(curve: ConditionCurveLite): string {
       low&ndash;high shows the typical band spread, not a distinct per-grade distribution. Grades
       that lack enough comps are omitted rather than estimated, so no number on this page is
       fabricated. Figures are resale estimates, not guaranteed sale prices.</p>
+      ${
+    curve.disclosure
+      // US-2850: the SPA renderer shows this same pair of sentences, from the
+      // same edge field, so the two views of one curve cannot disagree about
+      // what its numbers are.
+      ? `<p class="muted"><strong>${escape(curve.disclosure.headline)}</strong> ${
+        escape(curve.disclosure.detail)
+      }</p>`
+      : ""
+  }
     </section>`;
 }
 

@@ -134,6 +134,15 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "condition-index-refresh", label: "Condition Index refresh", schedule: "0 8 * * *", category: "content", endpoint: "/api/jobs/condition-index-refresh", recorded: true },
   // US-1746: propose new Value/Condition Index seeds from graded demand (weekly; off until enabled in settings).
   { name: "condition-index-seedgen", label: "Condition Index seed generation", schedule: "0 9 * * 1", category: "content", endpoint: "/api/jobs/condition-index-seedgen", recorded: true },
+  // US-2845: read comp listings for condition, most-demanded cells first.
+  // Hourly is the cadence the demand queue can actually feed: eight cells at up
+  // to twelve reads is the batch, and a shorter tick would spend the daily
+  // budget before lunch. INERT until the `comp_read` feature flag is enabled,
+  // which waits on the US-2842 calibration spike.
+  { name: "comp-read", label: "Comp condition reads", schedule: "25 * * * *", category: "content", endpoint: "/api/jobs/comp-read", recorded: true, healthy: "200 with {ok:true, skipped:true, reason:\"comp_read feature flag is off\"} until the flag is enabled — it ships OFF pending the US-2842 spike. Also skips on a breached comp_read budget." },
+  // The reclaim half. Every durable queue needs one or a dead worker strands
+  // its cells forever; runs more often than the batch it repairs.
+  { name: "comp-read-reclaim", label: "Comp read reclaim", schedule: "*/10 * * * *", category: "content", endpoint: "/api/jobs/comp-read-reclaim", recorded: true, healthy: "200 with {ok:true, requeued:0, failed:0} on a healthy queue. Runs whether or not the flag is on: a queue left by a disabled worker still needs draining." },
   { name: "trial-expiry", label: "Trial-expiry downgrade", schedule: "15 0 * * *", category: "billing", endpoint: "/api/jobs/trial-expiry", recorded: true },
   // US-1112: consignor auto-payout sweep — pay each consignor their share when a consigned item sells.
   { name: "consignor-payouts", label: "Consignor auto-payouts", schedule: "*/30 * * * *", category: "flipdesk", endpoint: "/api/jobs/consignor-payouts", recorded: true },

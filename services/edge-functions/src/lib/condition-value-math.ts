@@ -11,6 +11,8 @@
 // distribution by grade.
 
 import { type CompStats, positionPriceByGrade } from "./repricing.ts";
+import { describeValueBasis, type ValueBasis } from "./value-disclosure.ts";
+export { type ValueBasis } from "./value-disclosure.ts";
 
 // Below this many condition-matched comps the range is statistically meaningless
 // — we return sufficient:false so callers show "insufficient data", never a
@@ -26,6 +28,14 @@ export interface ValueRange {
   /** false when there aren't enough comps to price honestly. */
   sufficient: boolean;
   currency: string;
+  /**
+   * US-2850: what this number is, in words, and how much sample is behind it.
+   *
+   * Rides ON the range rather than beside it so a surface cannot render the
+   * dollars and forget the provenance. Optional only because a range built by
+   * hand in a test does not have to carry one.
+   */
+  basis?: ValueBasis;
 }
 
 function dollarsToCents(d: number | null): number | null {
@@ -62,6 +72,13 @@ export function valueRangeFromStats(
       confidence: Math.min(0.2, confidenceFromCount(sampleSize)),
       sufficient: false,
       currency,
+      basis: describeValueBasis({
+        source: "comp_median",
+        sufficient: false,
+        sampleSize,
+        medianCents: null,
+        currency,
+      }),
     };
   }
 
@@ -89,6 +106,17 @@ export function valueRangeFromStats(
     confidence: confidenceFromCount(sampleSize),
     sufficient: true,
     currency,
+    // A comp median is the UNADJUSTED middle of listings matched on the
+    // condition label their sellers chose. Positioning it by grade inside that
+    // band, which is what happens above, is not the same thing as measuring
+    // condition, and this line is what keeps the two from being confused.
+    basis: describeValueBasis({
+      source: "comp_median",
+      sufficient: true,
+      sampleSize,
+      medianCents: center,
+      currency,
+    }),
   };
 }
 

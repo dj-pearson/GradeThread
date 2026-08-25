@@ -16,6 +16,7 @@ import {
   normalizeItemKey,
 } from "./condition-curve.ts";
 import { captureException, logEvent } from "./observability.ts";
+import { describeValueBasis, type ValueBasis } from "./value-disclosure.ts";
 import { getSetting } from "./system-settings.ts";
 
 // Curated Index entries. categoryId is an eBay leaf/level the Browse comps come
@@ -115,6 +116,11 @@ export interface IndexCurveDto {
    * deserve different amounts of trust and only one of them is citable.
    */
   provenance: CurveProvenance;
+  /**
+   * US-2850: the provenance line, already worded, so the SPA renderer and the
+   * Pages Function twin cannot say two different things about one curve.
+   */
+  disclosure: ValueBasis;
   // US-847: up to a few example public certificates of this item (may be []).
   examples?: IndexCurveExample[];
 }
@@ -128,6 +134,7 @@ export interface IndexHubItem {
   totalSampleSize: number;
   refreshedAt: string;
   provenance: CurveProvenance;
+  disclosure: ValueBasis;
 }
 
 /** US-2847. A row that says nothing is a seeded row; the column defaults that way. */
@@ -147,33 +154,58 @@ interface CurveRow {
   total_sample_size: number;
   refreshed_at: string;
   provenance?: string | null;
+  slope_cents_per_point?: number | string | null;
 }
 
 function toDto(row: CurveRow): IndexCurveDto {
+  const provenance = normalizeProvenance(row.provenance);
+  // US-622: publish only points with real comp support.
+  const points = (row.curve ?? [])
+    .filter((p) => p.sufficient && p.medianCents != null)
+    .map((p) => ({
+      grade: p.grade,
+      lowCents: p.lowCents,
+      medianCents: p.medianCents,
+      highCents: p.highCents,
+      sampleSize: p.sampleSize,
+    }));
+  const anchor = points.find((p) => p.grade === 8) ?? points[0] ?? null;
   return {
     slug: row.slug,
     label: row.label ?? row.brand ?? row.slug,
     brand: row.brand ?? "",
     categoryId: row.category_id,
     currency: row.currency,
-    // US-622: publish only points with real comp support.
-    points: (row.curve ?? [])
-      .filter((p) => p.sufficient && p.medianCents != null)
-      .map((p) => ({
-        grade: p.grade,
-        lowCents: p.lowCents,
-        medianCents: p.medianCents,
-        highCents: p.highCents,
-        sampleSize: p.sampleSize,
-      })),
+    points,
     totalSampleSize: row.total_sample_size,
     refreshedAt: row.refreshed_at,
-    provenance: normalizeProvenance(row.provenance),
+    provenance,
+    // The headline number the page leads with is the grade-8 anchor, so the
+    // slope is described against THAT median rather than against whichever
+    // point a reader happens to hover.
+    disclosure: describeValueBasis({
+      source: provenance === "measured" ? "measured_curve" : "comp_median",
+      sufficient: points.length > 0,
+      sampleSize: row.total_sample_size,
+      medianCents: anchor?.medianCents ?? null,
+      slopeCentsPerPoint: numeric(row.slope_cents_per_point),
+      currency: row.currency,
+    }),
   };
 }
 
+/** numeric columns come back as strings from PostgREST often enough to matter. */
+function numeric(v: number | string | null | undefined): number | null {
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  if (typeof v === "string" && v.trim() !== "") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 const HUB_SELECT =
-  "slug, label, brand, category_id, currency, curve, total_sample_size, refreshed_at, provenance";
+  "slug, label, brand, category_id, currency, curve, total_sample_size, refreshed_at, provenance, slope_cents_per_point";
 
 /** Hub list: every published (sufficient) curated curve. */
 export async function getIndexHub(): Promise<IndexHubItem[]> {
@@ -196,6 +228,7 @@ export async function getIndexHub(): Promise<IndexHubItem[]> {
       totalSampleSize: dto.totalSampleSize,
       refreshedAt: dto.refreshedAt,
       provenance: dto.provenance,
+      disclosure: dto.disclosure,
     };
   });
 }

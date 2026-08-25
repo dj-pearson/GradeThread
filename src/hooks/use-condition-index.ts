@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { edgeApiUrl } from "@/lib/edge-api";
+import type { ValueBasis } from "@/components/value/value-basis-note";
 
 // US-848: bring the public Condition Index (US-621/622) authority data into the
 // seller's pricing surfaces. The composer + item detail look up the grade-vs-
@@ -33,6 +34,8 @@ export interface ConditionIndexHubItem {
   headlineMedianCents: number | null;
   totalSampleSize: number;
   refreshedAt: string;
+  /** US-2850: what this curve is, worded by the edge. */
+  disclosure?: ValueBasis;
 }
 
 export interface ConditionCurvePoint {
@@ -52,6 +55,8 @@ export interface ConditionIndexCurve {
   points: ConditionCurvePoint[];
   totalSampleSize: number;
   refreshedAt: string;
+  /** US-2850: what this curve is, worded by the edge. */
+  disclosure?: ValueBasis;
 }
 
 // The Index changes slowly (cron-refreshed comps), so cache hard — the hub list

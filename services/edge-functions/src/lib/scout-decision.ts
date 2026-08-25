@@ -51,6 +51,86 @@ export interface BuyDecision {
   confident: boolean;
 }
 
+/**
+ * US-2851: the sourcing ceiling, and why it is not the breakeven.
+ *
+ * `breakevenCents` above is the highest price at which you do not LOSE money.
+ * Nobody stands in a thrift aisle to break even. The ceiling is the highest
+ * price at which the item still clears the margin the seller is actually
+ * working to, which is a different and much lower number: at a 30% target on an
+ * item that nets $40, breakeven says $40 and the ceiling says $30.
+ *
+ * IT IS ABSENT, NOT GUESSED, WITHOUT A MEASURED CURVE. A ceiling is the most
+ * committal number the product gives a seller: they hand over cash on the
+ * strength of it. Derived from the plain comp median it would be a ceiling on a
+ * price that was never adjusted for the condition of the thing in their hand,
+ * which is the exact error US-2841 exists to fix. So it appears only for cells
+ * with a publishable measured curve, and the surface says nothing rather than
+ * something shakier.
+ */
+export interface SourcingCeilingInput {
+  value: ValueRange;
+  /** Target return on cost, as a fraction. 0.3 = 30%. */
+  targetRoi: number;
+  feeRate?: number;
+}
+
+export interface SourcingCeiling {
+  /** Highest price to pay and still clear the target. Null when unavailable. */
+  maxPriceCents: number | null;
+  /** The target actually applied, echoed so a surface can name it. */
+  targetRoi: number;
+  /** Net-of-fees resale at the condition-adjusted median. */
+  netResaleCents: number | null;
+  /** Why there is no ceiling, when there isn't one. Null when there is. */
+  absentReason: "no_measured_curve" | "insufficient_comps" | "no_headroom" | null;
+}
+
+/**
+ * Highest price to pay for this garment at the grade in your hand.
+ *
+ * net = proceeds after fees at the condition-adjusted median.
+ * ceiling = net / (1 + targetRoi), the price at which (net - price) / price
+ * equals the target exactly. Rounded DOWN: a ceiling rounded up is a ceiling
+ * that can be paid and missed.
+ */
+export function sourcingCeiling(
+  input: SourcingCeilingInput,
+): SourcingCeiling {
+  const feeRate = input.feeRate ?? DECISION_FEE_RATE;
+  const target = Number.isFinite(input.targetRoi) ? Math.max(0, input.targetRoi) : 0;
+  const value = input.value;
+
+  const absent = (reason: SourcingCeiling["absentReason"]): SourcingCeiling => ({
+    maxPriceCents: null,
+    targetRoi: target,
+    netResaleCents: null,
+    absentReason: reason,
+  });
+
+  if (!value.sufficient || value.medianCents == null) {
+    return absent("insufficient_comps");
+  }
+  // The gate. A seeded curve or a plain comp median does not get to set a
+  // ceiling, however sufficient its sample looks.
+  if (value.basis?.source !== "measured_curve") {
+    return absent("no_measured_curve");
+  }
+
+  const net = ebayNetProceedsCents(value.medianCents, { feeRate });
+  if (net <= 0) return absent("no_headroom");
+
+  const max = Math.floor(net / (1 + target));
+  if (max <= 0) return absent("no_headroom");
+
+  return {
+    maxPriceCents: max,
+    targetRoi: target,
+    netResaleCents: net,
+    absentReason: null,
+  };
+}
+
 export interface DecisionOptions {
   feeRate?: number;
   minGradeConfidence?: number;

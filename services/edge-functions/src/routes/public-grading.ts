@@ -17,6 +17,7 @@ import {
   type ResaleConditionReport,
 } from "../lib/resale-condition.ts";
 import { valueAtGrade, valueRangeFromStats, type ValueRange } from "../lib/condition-value.ts";
+import type { ValueBasis } from "../lib/value-disclosure.ts";
 import { searchBrowseComps, suggestCategories } from "../lib/ebay-client.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import { claimedConditionToGrade, scoreDiscrepancy } from "../lib/condition-discrepancy.ts";
@@ -808,6 +809,12 @@ export interface PublicGradeCheckValue {
   sampleSize: number;
   confidence: number;
   currency: string;
+  /**
+   * US-2850. This surface is UNAUTHENTICATED and it is where a stranger meets
+   * our numbers for the first time, so it is the last place a range should
+   * appear without saying what it is.
+   */
+  basis?: ValueBasis;
 }
 
 // The public tool is gated HARDER than /snap: a range is surfaced only when the
@@ -833,6 +840,7 @@ export function publicValueFromRange(
     sampleSize: range.sampleSize,
     confidence: range.confidence,
     currency: range.currency,
+    basis: range.basis,
   };
 }
 

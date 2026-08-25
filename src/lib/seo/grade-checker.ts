@@ -44,7 +44,7 @@ export const GRADE_CHECKER_META = {
     },
     {
       q: "How much is my used clothing worth?",
-      a: "Add the brand and item name and the checker returns an estimated resale value range for that condition, drawn from recent comparable sales. It's an aggregate estimate, not a guaranteed sale price, and only appears when there are enough comparable sales to price honestly.",
+      a: "Add the brand and item name and the checker returns an estimated resale value range for that condition, drawn from what sellers are asking for comparable items right now. Asking prices are not sold prices, so treat it as a ceiling rather than a promise. It is an aggregate estimate, and it only appears when there are enough comparable listings to price honestly.",
     },
   ],
 };

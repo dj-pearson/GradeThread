@@ -25,6 +25,7 @@ import {
 } from "@/hooks/use-scout";
 import { ForecastCard } from "@/components/flipdesk/forecast-card";
 import { PageHeader } from "@/components/ui/page-header";
+import { ValueBasisNote } from "@/components/value/value-basis-note";
 
 function dollars(cents: number | null): string {
   if (cents == null) return "—";
@@ -110,6 +111,10 @@ function CandidateRow({ c }: { c: ScoutScored }) {
               </div>
             </div>
           </div>
+
+          {/* US-2850: one line per row, headline only. Two sentences here would
+              bury the price in a list a seller scans standing in a shop. */}
+          <ValueBasisNote basis={c.valueBasis} variant="short" />
 
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">{c.reason}</p>

@@ -15,8 +15,6 @@ import {
 } from "@/lib/marketplace-fee-schedules";
 import {
   CONDITION_CURVE_DERIVED_ON,
-  CONDITION_CURVE_SOURCE_COMPS,
-  CONDITION_CURVE_SOURCE_CURVES,
   CONDITION_VALUE_CURVE,
   adjustForCondition,
   conditionRatio,
@@ -280,7 +278,7 @@ export function ResellerProfitCalculatorPage() {
               {adjustment.delta < 0 ? "down" : adjustment.delta > 0 ? "up" : ""}.{" "}
               {adjustment.source === "condition-index-item"
                 ? "From this item's own measured curve."
-                : `From the average curve across ${CONDITION_CURVE_SOURCE_CURVES} Condition Index items.`}
+                : "From the average curve across the Condition Index, which is built from active eBay listings."}
             </p>
 
             <table className="mt-4 w-full text-left text-sm">
@@ -338,11 +336,17 @@ export function ResellerProfitCalculatorPage() {
       <section className="px-6 py-16">
         <div className="mx-auto max-w-3xl">
           <h2 className="text-3xl font-bold">What a grade is worth, measured</h2>
+          {/* US-2850: this said "sold comps". Marketplace Insights has never
+              been granted, so every comp behind the Condition Index is an
+              ACTIVE listing and the share below is a share of asking price.
+              The counts came out with the word: they were measured, but they
+              were measured on a single day and quoting them alongside a
+              corrected label implies a precision nobody has re-checked. */}
           <p className="mt-2 text-muted-foreground">
-            Median share of a mint price at each grade, across{" "}
-            {CONDITION_CURVE_SOURCE_CURVES} items and{" "}
-            {CONDITION_CURVE_SOURCE_COMPS.toLocaleString()} sold comps in the
-            GradeThread Condition Index, read on {CONDITION_CURVE_DERIVED_ON}.
+            Median share of a mint price at each grade, across the GradeThread
+            Condition Index, read on {CONDITION_CURVE_DERIVED_ON}. The Index is
+            built from active eBay listings, so these are shares of asking
+            price, not of sale price.
           </p>
           <div className="mt-6 overflow-x-auto">
             <table className="w-full min-w-[560px] border-collapse text-left text-sm">

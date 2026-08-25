@@ -19,7 +19,11 @@
 import { createSharedJsonCache } from "./coherent-cache.ts";
 import { type BrowseCompsArgs, type BrowseCompsResult, searchBrowseComps } from "./ebay-client.ts";
 import { gradeToConditionId } from "./repricing.ts";
-import { type ItemKey, type ValueAtGradeOptions } from "./condition-value.ts";
+import {
+  applyMeasuredCurve,
+  type ItemKey,
+  type ValueAtGradeOptions,
+} from "./condition-value.ts";
 import { type ValueRange, valueRangeFromStats } from "./condition-value-math.ts";
 
 /**
@@ -107,6 +111,17 @@ export async function cachedSearchBrowseComps(
  *
  * The pure range maths stays in `condition-value-math.ts`; this only decides
  * where the comps come from.
+ *
+ * US-2849: it ends at the same choke point as the uncached path, so the scan
+ * endpoint gets the measured range on the same flag as everything else. That
+ * matters because scout's scan is the ONE surface that does not go through
+ * valueAtGrade, and a flip that reached five surfaces out of six would price a
+ * rack differently from the item the seller then opens.
+ *
+ * THE CACHE KEY IS UNCHANGED AND STAYS QUERY-SHAPED. applyMeasuredCurve runs
+ * OUTSIDE cachedSearchBrowseComps, on the already-cached comp result, and its
+ * own curve lookup is keyed by the market cell (brand, category, keyword). No
+ * tenant enters either key, per the invariant at the top of this file.
  */
 export async function cachedValueAtGrade(
   item: ItemKey,
@@ -121,5 +136,6 @@ export async function cachedValueAtGrade(
     conditionId: gradeToConditionId(gradeValue),
     limit: Math.min(Math.max(opts.limit ?? 25, 1), 50),
   });
-  return valueRangeFromStats(result.stats, gradeValue, result.stats.currency);
+  const live = valueRangeFromStats(result.stats, gradeValue, result.stats.currency);
+  return await applyMeasuredCurve(item, gradeValue, live);
 }

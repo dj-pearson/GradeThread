@@ -23,6 +23,7 @@ import {
   gradeCheckerJsonLd,
   gradeCheckerBreadcrumbItems,
 } from "@/pages/marketing/marketing-jsonld";
+import { ValueBasisNote, type ValueBasis } from "@/components/value/value-basis-note";
 
 // US-1687: free single-photo grade estimator. All browser work (media-intake,
 // FileReader, fetch, edgeApiUrl) happens in the click handler so the page
@@ -35,6 +36,8 @@ interface GradeCheckValue {
   sampleSize: number;
   confidence: number;
   currency: string;
+  /** US-2850: what this range is, worded by the edge. */
+  basis?: ValueBasis;
 }
 
 interface GradeCheckResult {
@@ -283,8 +286,13 @@ function GradeCheckerTool() {
                 <p className="mt-1 text-3xl font-bold text-brand-navy dark:text-foreground">
                   {formatValueRange(result.value)}
                 </p>
+                {/* US-2850. This line used to say "recent comparable sales".
+                    It was never true: the comps are ACTIVE eBay listings, so
+                    every number here is an asking price. On an unauthenticated
+                    page that a stranger meets us through, that is the last
+                    thing we should be loose about. */}
+                <ValueBasisNote basis={result.value.basis} className="mt-2 text-center" />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  At this condition, from {result.value.sampleSize} recent comparable sales.
                   A range, not a guaranteed price.
                 </p>
               </div>

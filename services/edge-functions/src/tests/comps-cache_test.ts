@@ -19,6 +19,7 @@ import { assert, assertEquals } from "@std/assert";
 import { createSharedJsonCache, type SharedCacheStore } from "../lib/coherent-cache.ts";
 import { compsCacheKey, COMPS_CACHE_TTL_MS } from "../lib/comps-cache.ts";
 import { gradeToConditionId } from "../lib/repricing.ts";
+import { normalizeItemKey } from "../lib/condition-item-key.ts";
 
 // ── an in-memory stand-in for edge_shared_cache ────────────────────────────
 
@@ -225,4 +226,48 @@ Deno.test("value lookups at different grades in one condition band share a key",
   assert(keyAt(9.6) !== keyAt(8.0), "new with tags must not share used comps");
   assert(keyAt(8.6) !== keyAt(8.0), "new without tags must not share used comps");
   assert(keyAt(2.5) !== keyAt(8.0), "for-parts must not share used comps");
+});
+
+// ── US-2849: the measured flip does not touch either key ───────────────────
+//
+// The flip serves a range fitted from measured condition reads instead of the
+// conditionId-filtered comp median, and it reaches this file because
+// cachedValueAtGrade ends at the same choke point as valueAtGrade. Its own
+// lookup is keyed by the MARKET CELL, which has to obey the same invariant as
+// the comp key above or the flip would quietly undo what US-2754 bought.
+
+Deno.test("the measured curve key is query-shaped and carries no tenant", () => {
+  const key = normalizeItemKey({ categoryId: "155183", brand: "Carhartt", q: "detroit jacket" });
+  for (const leak of ["user", "owner", "tenant", "workspace"]) {
+    assert(!key.toLowerCase().includes(leak), `the curve key mentions "${leak}"`);
+  }
+  // Two sellers asking about the same jacket ask one question, as with comps.
+  assertEquals(
+    key,
+    normalizeItemKey({ categoryId: "155183", brand: "carhartt", q: "  Detroit Jacket " }),
+  );
+});
+
+Deno.test("the measured curve key ignores size, so it cannot fragment the comp key", () => {
+  // ItemKey carries a size and the comp key uses it; the curve is fitted per
+  // brand + category + keyword. A medium and a large are one market cell.
+  const medium = { categoryId: "155183", brand: "Carhartt", q: "detroit jacket", size: "M" };
+  const large = { ...medium, size: "XL" };
+  assertEquals(normalizeItemKey(medium), normalizeItemKey(large));
+});
+
+Deno.test("the comp cache key is unchanged by the flip", () => {
+  // Pinned literally. If a later edit adds anything to this key, this fails and
+  // the reader has to decide on purpose rather than discover it in a hit rate.
+  assertEquals(
+    compsCacheKey({
+      categoryId: "155183",
+      q: "carhartt detroit",
+      brand: "Carhartt",
+      size: "M",
+      conditionId: "3000",
+      limit: 25,
+    }),
+    "c=155183|q=carhartt detroit|b=carhartt|s=m|k=3000|g=|n=25",
+  );
 });

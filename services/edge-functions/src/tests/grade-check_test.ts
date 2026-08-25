@@ -2,6 +2,7 @@
 // quickGrade AI call isn't unit-tested (needs Vision); the pure guard logic is.
 // Prime env then dynamic-import (the route pulls in supabase.ts via quick-grade).
 import { assert, assertEquals } from "@std/assert";
+import { describeValueBasis } from "../lib/value-disclosure.ts";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-key");
@@ -168,7 +169,39 @@ Deno.test("publicValueFromRange: returns a compact aggregate when the range is s
     sampleSize: 12,
     confidence: 0.9,
     currency: "USD",
+    // US-2850: absent in, absent out. A range assembled without a basis must
+    // not acquire one on the way to an unauthenticated page.
+    basis: undefined,
   });
+});
+
+// US-2850: this endpoint is where a stranger meets our numbers for the first
+// time, so the provenance line has to survive the mapping into the public
+// shape. It is dropped by anything that rebuilds the object field by field,
+// which is exactly what this function does.
+Deno.test("publicValueFromRange: carries the disclosure through to the public shape", () => {
+  const basis = describeValueBasis({
+    source: "comp_median",
+    sufficient: true,
+    sampleSize: 12,
+    medianCents: 2000,
+  });
+  const v = publicValueFromRange({
+    lowCents: 1500,
+    medianCents: 2000,
+    highCents: 2600,
+    sampleSize: 12,
+    confidence: 0.9,
+    sufficient: true,
+    currency: "USD",
+    basis,
+  });
+  assertEquals(v?.basis?.source, "comp_median");
+  assert(v?.basis?.headline.includes("Unadjusted market median"), v?.basis?.headline);
+  assert(
+    v?.basis?.detail.includes("asking right now"),
+    "the public surface lost the asking-price disclaimer",
+  );
 });
 
 Deno.test("publicValueFromRange: returns null for an insufficient range", () => {

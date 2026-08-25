@@ -30,11 +30,12 @@ import {
   type ConditionCurvePoint,
 } from "@/hooks/use-condition-index";
 import { tierLabelForGrade } from "@/lib/condition-value-curve";
+import { ValueBasisNote, type ValueBasis } from "@/components/value/value-basis-note";
 
 // US-849: public "what's my item worth?" condition-value tool. A high-intent,
 // top-of-funnel page: a visitor picks a Condition Index item + a condition
 // grade and gets the typical resale value at that grade, read live from the
-// public Condition Index curve (real eBay sold comps). We only ever show
+// public Condition Index curve. We only ever show
 // published grades (points the lib deemed sufficient with a real median), show
 // the comp count + freshness so we never imply false precision, and pair every
 // estimate with a CTA to get a real, verifiable GradeThread grade.
@@ -191,7 +192,7 @@ export function WhatsItWorthPage() {
               ) : slug && publishedPoints.length === 0 && !curveQuery.isLoading ? (
                 <p className="flex items-center gap-2 rounded-lg border border-dashed bg-background p-4 text-sm text-muted-foreground">
                   <Info className="h-4 w-4 flex-shrink-0" />
-                  We don't have enough recent sold comparables to publish a value
+                  We don't have enough comparable listings to publish a value
                   for this item yet. The most reliable signal is still a real
                   condition grade.
                 </p>
@@ -202,6 +203,7 @@ export function WhatsItWorthPage() {
                   label={curve?.label ?? ""}
                   brand={curve?.brand ?? null}
                   refreshedAt={curve?.refreshedAt}
+                  disclosure={curve?.disclosure}
                   slug={slug}
                 />
               ) : (
@@ -282,6 +284,7 @@ function ResultCard({
   label,
   brand,
   refreshedAt,
+  disclosure,
   slug,
 }: {
   point: ConditionCurvePoint;
@@ -289,6 +292,7 @@ function ResultCard({
   label: string;
   brand: string | null;
   refreshedAt: string | undefined;
+  disclosure: ValueBasis | undefined;
   slug: string;
 }) {
   const median = formatCurveCents(point.medianCents as number, currency);
@@ -311,12 +315,17 @@ function ResultCard({
           {formatCurveCents(point.highCents as number, currency)}
         </p>
       )}
+      {/* US-2850: the sample line, then what the sample actually is. The
+          header comment on this file used to call these "real eBay sold
+          comps"; they are active listings, so every figure on this page is an
+          asking price. */}
       <p className="mt-3 text-xs text-muted-foreground">
         Modeled from {point.sampleSize.toLocaleString()} condition-matched
-        comparable{point.sampleSize === 1 ? "" : "s"} in this grade&rsquo;s
+        listing{point.sampleSize === 1 ? "" : "s"} in this grade&rsquo;s
         condition band
         {refreshed ? ` · last refreshed ${refreshed}` : ""}.
       </p>
+      <ValueBasisNote basis={disclosure} className="mt-2" />
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <Link to="/signup">
           <Button

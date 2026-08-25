@@ -12,6 +12,15 @@
 
 import { gradeToConditionId } from "./repricing.ts";
 import { searchBrowseComps } from "./ebay-client.ts";
+import { supabaseAdmin } from "./supabase.ts";
+import { recordCompDemand } from "./comp-read-demand.ts";
+import {
+  measuredFlipEnabled,
+  observeMeasuredShadow,
+  type ShadowCurveClient,
+  shadowEnabled,
+  type ShadowWriteClient,
+} from "./condition-value-shadow.ts";
 // US-2237: the pure range maths lives in its own module so callers that only
 // need the arithmetic (the scan endpoint's tests, for one) don't drag the eBay
 // client in with it. Re-exported here so this file stays the front door.
@@ -55,5 +64,91 @@ export async function valueAtGrade(
     conditionId: gradeToConditionId(gradeValue),
     limit: Math.min(Math.max(opts.limit ?? 25, 1), 50),
   });
-  return valueRangeFromStats(result.stats, gradeValue, result.stats.currency);
+  const live = valueRangeFromStats(result.stats, gradeValue, result.stats.currency);
+  return await applyMeasuredCurve(item, gradeValue, live);
+}
+
+/**
+ * THE CHOKE POINT (US-2848 shadow, US-2849 flip).
+ *
+ * Every condition-adjusted price the product quotes passes through here, which
+ * is the entire reason the flip is one story and not six. valueAtGrade and
+ * comps-cache's cachedValueAtGrade both call it, so routes/grade.ts,
+ * routes/public-grading.ts, routes/flipdesk-scout.ts, routes/flipdesk-pricing.ts
+ * and lib/grade-band-pricing.ts get the measured number without a line changing
+ * in any of them.
+ *
+ * COSTS ONE SUPABASE READ AND NO EBAY CALL. The curve lookup is indexed and
+ * sits behind a five-minute cache keyed by the market cell, which is
+ * query-shaped and carries no tenant, exactly like the comps cache it runs
+ * beside.
+ *
+ * NEVER THROWS AND NEVER RAISES A PRICE IT CANNOT STAND BEHIND. Anything going
+ * wrong falls back to `live`, which is today's answer. The try below is
+ * belt-and-braces: observeMeasuredShadow already swallows and counts its own
+ * failures, and this catches an edit that forgets that contract.
+ */
+/**
+ * Kill switch for the demand queue. ON unless set to "false".
+ *
+ * Separate from the worker's own flag on purpose: recording which cells sellers
+ * ask about costs one small write and no AI spend, and having that history
+ * already built is exactly what makes the worker useful the day it is enabled.
+ */
+export function compDemandEnabled(
+  read: (k: string) => string | undefined = (k) => Deno.env.get(k),
+): boolean {
+  return (read("COMP_READ_DEMAND") ?? "").toLowerCase() !== "false";
+}
+
+export interface MeasuredCurveOverrides {
+  read?: ShadowCurveClient;
+  write?: ShadowWriteClient;
+  flip?: boolean;
+  record?: boolean;
+}
+
+export async function applyMeasuredCurve(
+  item: ItemKey,
+  gradeValue: number | null,
+  live: ValueRange,
+  overrides: MeasuredCurveOverrides = {},
+): Promise<ValueRange> {
+  // US-2845 AC2: this is where the comp read queue is fed. Every value the
+  // product quotes passes through here, so recording the cell means the queue
+  // follows what sellers actually touch and no route has to know about it.
+  //
+  // FIRE AND FORGET, and not awaited unlike the shadow below: nothing in this
+  // function's answer depends on it, so it must not add a millisecond to a
+  // seller standing in a shop. It writes no AI spend and no seller identity.
+  if (compDemandEnabled()) {
+    void recordCompDemand(item).catch(() => {
+      // recordCompDemand swallows and counts its own failures; this catch is
+      // for a rejection it could not have produced, so the void stays safe.
+    });
+  }
+
+  const flip = overrides.flip ?? measuredFlipEnabled();
+  const record = overrides.record ?? shadowEnabled();
+  // The flip implies the lookup. Turning the recording off must never quietly
+  // disarm a flip somebody deliberately turned on. Both off is the only way to
+  // skip the read entirely.
+  if (!flip && !record) return live;
+  try {
+    const outcome = await observeMeasuredShadow(
+      {
+        read: overrides.read ?? (supabaseAdmin as unknown as ShadowCurveClient),
+        write: overrides.write ?? (supabaseAdmin as unknown as ShadowWriteClient),
+        enabled: true,
+        record,
+        flip,
+      },
+      item,
+      gradeValue,
+      live,
+    );
+    return outcome.range;
+  } catch {
+    return live;
+  }
 }

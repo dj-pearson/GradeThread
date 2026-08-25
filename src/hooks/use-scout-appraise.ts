@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
+import type { ValueBasis } from "@/components/value/value-basis-note";
 
 // Scout buy-decision mode (US-592). A reseller in the field snaps a photo (or
 // scans a barcode) of an item they're CONSIDERING and gets an instant buy /
@@ -25,6 +26,8 @@ export interface AppraiseValue {
   confidence: number;
   sufficient: boolean;
   currency: string;
+  /** US-2850: what this range is. Absent on a response from an older edge. */
+  basis?: ValueBasis;
 }
 
 export interface AppraiseSellThrough {
@@ -45,9 +48,25 @@ export interface AppraiseDecision {
   confident: boolean;
 }
 
+/**
+ * US-2851: the highest price to pay for this garment at the grade in hand.
+ *
+ * `maxPriceCents` is null whenever the edge declined to quote one, and
+ * `absentReason` says which refusal it was. Absent is a real answer here: a
+ * ceiling derived from an unmeasured comp median would be a spending limit
+ * built on a price that was never adjusted for condition.
+ */
+export interface AppraiseCeiling {
+  maxPriceCents: number | null;
+  targetRoi: number;
+  netResaleCents: number | null;
+  absentReason: "no_measured_curve" | "insufficient_comps" | "no_headroom" | null;
+}
+
 export interface AppraiseResult {
   grade: AppraiseGrade;
   value: AppraiseValue;
+  ceiling?: AppraiseCeiling | null;
   sellThrough: AppraiseSellThrough;
   costCents: number | null;
   decision: AppraiseDecision;
