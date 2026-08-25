@@ -64,6 +64,7 @@ import { titleQuality } from "@/lib/title-quality";
 import { estimateListingProfit } from "@/lib/listing-profit";
 import type { AspectReviewEntry } from "@/types/database";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 // US-548: persistent AutoLister "Drafts" cockpit. The generation queue lives
 // only at a ?batch= URL, so a reseller who generates today and reviews tomorrow
@@ -142,7 +143,17 @@ export function FlipdeskAutolisterDraftsPage() {
   // as if it were everything meant a seller past 500 drafts published against a
   // queue they could not tell was cut short. fetchCapped asks for one row past
   // the cap, so `truncated` is a fact rather than a guess.
-  const { data: draftsRead, isLoading } = useQuery({
+  // US-2867: `error` and `refetch` are read here because the queryFn throws on
+  // a PostgREST error and the `?? []` fallback below would otherwise render
+  // "No unpublished drafts yet" during an outage -- an empty state is a claim
+  // about the data, and a failed read has no data to make claims about.
+  const {
+    data: draftsRead,
+    isLoading,
+    error: draftsError,
+    refetch: refetchDrafts,
+    isFetching: draftsFetching,
+  } = useQuery({
     queryKey: ["autolister_drafts", user?.id],
     enabled: !!user,
     staleTime: 30_000,
@@ -762,6 +773,13 @@ export function FlipdeskAutolisterDraftsPage() {
             <LoadingRegion label="Loading drafts" className="px-4">
               <SkeletonRows rows={5} />
             </LoadingRegion>
+          ) : draftsError ? (
+            <ErrorState
+              title="Couldn't load your drafts"
+              description={(draftsError as Error).message}
+              onRetry={() => refetchDrafts()}
+              retrying={draftsFetching}
+            />
           ) : drafts.length === 0 ? (
             // US-2866: the hand-built version already had the icon, the title,
             // the description and the button. It is the shared component now

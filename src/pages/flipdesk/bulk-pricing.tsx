@@ -26,6 +26,7 @@ import {
   type BulkPriceQtyUpdate,
 } from "@/hooks/use-ebay";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 interface BulkRow {
   id: string;
@@ -66,7 +67,17 @@ export function FlipdeskBulkPricingPage() {
   const { data: connection, isLoading: connLoading } = useEbayConnection();
   const connected = !!connection;
 
-  const { data: rows = [], isLoading, refetch } = useQuery({
+  const {
+    data: rows = [],
+    isLoading,
+    refetch,
+    // US-2867: the queryFn throws on a PostgREST error, so without reading
+    // `error` here the `rows = []` fallback renders "No active eBay listings"
+    // during an outage -- telling a seller with two hundred live listings that
+    // they have none. US-436's rule: a failed read is an ErrorState.
+    error,
+    isFetching,
+  } = useQuery({
     queryKey: ["bulk_pricing_listings"],
     enabled: connected,
     queryFn: async (): Promise<BulkRow[]> => {
@@ -503,6 +514,13 @@ export function FlipdeskBulkPricingPage() {
         <CardContent className="space-y-1">
           {isLoading ? (
             <Skeleton className="h-40 w-full" />
+          ) : error ? (
+            <ErrorState
+              title="Couldn't load your listings"
+              description={(error as Error).message}
+              onRetry={() => refetch()}
+              retrying={isFetching}
+            />
           ) : rows.length === 0 ? (
             <EmptyState
               icon={Tags}
