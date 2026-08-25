@@ -11,7 +11,7 @@ import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
 import { useBuyerImpact } from "@/hooks/use-buyer-impact";
 import { TrustLevelCard } from "@/components/buyer/trust-level-card";
 import { ClaimedResultCard } from "@/components/buyer/claimed-result-card";
-import { BuyerFirstSteps } from "@/components/buyer/buyer-first-steps";
+import { ActivationChecklist } from "@/components/onboarding/activation-checklist";
 import { BuyerActivity } from "@/components/buyer/buyer-activity";
 import { BUYER_PLANS } from "@/lib/constants";
 import { trackBuyerFunnel } from "@/lib/buyer-analytics";
@@ -135,7 +135,13 @@ export function BuyerHomePage() {
 
       <BuyerImpactCard />
 
-      <BuyerFirstSteps />
+      {/* US-2883: THE activation checklist, same component the seller
+          surfaces render. It replaces BuyerFirstSteps -- a second 204-line
+          checklist with its own step list, its own count queries and its own
+          localStorage dismissal, which is the duplication US-2859 removed on
+          the seller side and left standing here. `persona` because the shell
+          knows: a dual-role seller is a buyer on this page. */}
+      <ActivationChecklist persona="buyer" />
 
       <BuyerActivity />
 
