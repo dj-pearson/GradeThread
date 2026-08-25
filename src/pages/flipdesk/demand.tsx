@@ -15,7 +15,11 @@ function FacetBars({ title, facets, max }: { title: string; facets: DemandFacet[
       <CardHeader><CardTitle className="text-lg">{title}</CardTitle></CardHeader>
       <CardContent className="space-y-2">
         {facets.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No demand signal yet.</p>
+          <p className="py-4 text-center text-sm text-muted-foreground">
+            No demand signal yet. This fills in as buyers set alerts and search,
+            so a quiet panel means nobody has asked for this lately, not that
+            something is broken.
+          </p>
         ) : (
           facets.map((f) => (
             <div key={f.term} className="space-y-1">

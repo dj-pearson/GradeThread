@@ -63,6 +63,7 @@ import { cn } from "@/lib/utils";
 import { titleQuality } from "@/lib/title-quality";
 import { estimateListingProfit } from "@/lib/listing-profit";
 import type { AspectReviewEntry } from "@/types/database";
+import { EmptyState } from "@/components/ui/empty-state";
 
 // US-548: persistent AutoLister "Drafts" cockpit. The generation queue lives
 // only at a ?batch= URL, so a reseller who generates today and reviews tomorrow
@@ -762,21 +763,32 @@ export function FlipdeskAutolisterDraftsPage() {
               <SkeletonRows rows={5} />
             </LoadingRegion>
           ) : drafts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-              <Boxes className="h-8 w-8 text-muted-foreground/50" />
-              <p className="text-sm font-medium">No unpublished drafts yet</p>
-              <p className="max-w-sm text-sm text-muted-foreground">
-                Generate listings in AutoLister and they'll wait here until you
-                review and publish them.
-              </p>
-              <Button asChild size="sm" className="mt-1">
-                <Link to="/dashboard/flipdesk/autolister">Open AutoLister</Link>
-              </Button>
-            </div>
+            // US-2866: the hand-built version already had the icon, the title,
+            // the description and the button. It is the shared component now
+            // for the same reason every other list is: so a change to how an
+            // empty list looks is one change.
+            <EmptyState
+              icon={Boxes}
+              title="No unpublished drafts yet"
+              description="Generate listings in AutoLister and they'll wait here until you review and publish them."
+              action={{
+                label: "Open AutoLister",
+                to: "/dashboard/flipdesk/autolister",
+              }}
+            />
           ) : filtered.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              No drafts match “{search}”.
-            </p>
+            // US-2867: you HAVE drafts, they just do not match what you typed.
+            // Sending somebody off to generate more would be the wrong answer,
+            // and it is the answer the zero-data state above gives.
+            <EmptyState
+              icon={Boxes}
+              title={`No drafts match "${search}"`}
+              description={`You have ${drafts.length} draft${drafts.length === 1 ? "" : "s"}, none of them matching that search.`}
+              secondaryAction={{
+                label: "Clear search",
+                onClick: () => setSearch(""),
+              }}
+            />
           ) : (
             <div className="overflow-x-auto">
               {/* US-549: keyboard-first review cheatsheet. */}

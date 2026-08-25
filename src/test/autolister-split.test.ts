@@ -24,7 +24,11 @@ const CEILINGS: Record<string, number> = {
   // that had just gained a second caller and now has its own tests. Lowered a
   // fourth time from 3655 in the same story's next batch, when the ten
   // tooltip-named icon buttons needed labels and filesFromDataTransfer moved
-  // into autolister/files-from-data-transfer.ts.
+  // into autolister/files-from-data-transfer.ts. Lowered a fifth time from 3639
+  // US-2867's filtered-empty state pushed this file over and the answer was the
+  // same one again: the state moved into components/flipdesk/filter-empty.tsx,
+  // and the file came back to exactly the ceiling. Not lowered, because it did
+  // not end up smaller -- the extraction paid for the fix and nothing more.
   "src/pages/flipdesk/autolister.tsx": 3639,
   "src/pages/flipdesk/autolister-bulk-edit.tsx": 2010,
   "src/pages/flipdesk/autolister-queue.tsx": 1120,

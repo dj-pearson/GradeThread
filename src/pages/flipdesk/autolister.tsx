@@ -160,6 +160,7 @@ import {
 } from "./autolister/workbench-toolbars";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
+import { FilterEmpty } from "@/components/flipdesk/filter-empty";
 
 // FlipDesk AutoLister (US-316 upload + US-317 grouping). Dump a folder of
 // photos, group them so each group = one item/listing, then Generate — which
@@ -3543,9 +3544,8 @@ export function FlipdeskAutolisterPage() {
           })}
           </div>
           {shownGroups.length === 0 && triageFilter && (
-            <p className="py-4 text-center text-sm text-muted-foreground">
-              No groups match this filter.
-            </p>
+            <FilterEmpty noun="group" total={groups.length}
+              clearLabel="Clear filter" onClear={() => setTriageFilter(null)} />
           )}
         </div>
       )}

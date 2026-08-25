@@ -62,6 +62,7 @@ import { VirtualList } from "@/components/flipdesk/virtual-list";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
 import type { ItemCategory, ItemStatus, PhotoQaIssue } from "@/types/database";
 import { cn } from "@/lib/utils";
+import { FilterEmpty } from "@/components/flipdesk/filter-empty";
 
 // AutoLister queue / progress view (US-318). Polls the batch until it finishes,
 // shows per-item status, links completed drafts to the editor, and lets the
@@ -888,9 +889,8 @@ export function FlipdeskAutolisterQueuePage() {
 
       {/* Per-item rows — virtualized (US-416) so a 1k+ item batch stays smooth. */}
       {!isRunning && visibleJobs.length === 0 && jobs.length > 0 && (
-        <p className="rounded-md border border-dashed py-6 text-center text-sm text-muted-foreground">
-          No drafts match this filter.
-        </p>
+        <FilterEmpty noun="draft" total={jobs.length}
+          clearLabel="Show all drafts" onClear={() => setQueueFilter("all")} />
       )}
       {visibleJobs.length > 0 && (
         <VirtualList

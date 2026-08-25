@@ -38,6 +38,7 @@ import {
   type PickedAttachment,
 } from "@/components/support/attachment-picker";
 import { TicketDeflector } from "@/components/help/ticket-deflector";
+import { EmptyState } from "@/components/ui/empty-state";
 
 // US-900: user-facing support ticket inbox. A user opens a request, sees the
 // thread (their messages + support replies — never operator internal notes),
@@ -360,9 +361,12 @@ export function SupportTicketsPage() {
             )
             : tickets.length === 0
             ? (
-              <p className="p-8 text-center text-sm text-muted-foreground">
-                You don't have any support tickets yet.
-              </p>
+              <EmptyState
+                icon={LifeBuoy}
+                title="No support tickets yet"
+                description="Open one when something is wrong or you are stuck. You will get an email when we reply, and the whole thread stays here."
+                action={{ label: "New ticket", onClick: () => setCreating(true) }}
+              />
             )
             : (
               <ul className="divide-y">

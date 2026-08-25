@@ -25,6 +25,7 @@ import {
   useEbayConnection,
   type BulkPriceQtyUpdate,
 } from "@/hooks/use-ebay";
+import { EmptyState } from "@/components/ui/empty-state";
 
 interface BulkRow {
   id: string;
@@ -503,13 +504,37 @@ export function FlipdeskBulkPricingPage() {
           {isLoading ? (
             <Skeleton className="h-40 w-full" />
           ) : rows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No active eBay listings with an offer id.
-            </p>
+            <EmptyState
+              icon={Tags}
+              title="No active eBay listings"
+              description="Bulk pricing works on listings that are already live on eBay. Publish something and it will show up here."
+              action={{
+                label: "Open your inventory",
+                to: "/dashboard/flipdesk/inventory",
+              }}
+            />
           ) : filtered.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No listings match your filters.
-            </p>
+            // US-2867: a different sentence and a different action. Telling a
+            // seller with two hundred live listings to go and publish one is
+            // wrong, and it is what the zero-data state above says.
+            <EmptyState
+              icon={Tags}
+              title="No listings match your filters"
+              description="You have active listings, none of them matching what you have selected."
+              secondaryAction={{
+                label: "Clear filters",
+                // ALL of them, not just the brand. A "clear filters" that
+                // leaves a price range set is worse than none: the list stays
+                // empty and the button now looks broken.
+                onClick: () => {
+                  setSearch("");
+                  setBrandFilter("all");
+                  setMinPrice("");
+                  setMaxPrice("");
+                  resetPage();
+                },
+              }}
+            />
           ) : (
             <>
               {pageRows.map((row) => (

@@ -180,7 +180,15 @@ function BestOffersCard() {
             retrying={isFetching}
           />
         ) : offers.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No open offers.</p>
+          <EmptyState
+            icon={Tag}
+            title="No open offers"
+            description="When a buyer offers less than your asking price, it lands here with a drafted reply. Nothing is sent until you send it."
+            action={{
+              label: "Check your listings",
+              to: "/dashboard/flipdesk/inventory",
+            }}
+          />
         ) : (
           <>
             {pagedOffers.map((o) => (
