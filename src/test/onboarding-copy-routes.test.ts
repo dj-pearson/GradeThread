@@ -30,8 +30,10 @@ const SIDEBAR_FILE = "src/components/dashboard/sidebar.tsx";
 // The files that tell a new user where to go.
 const ONBOARDING_FILES = [
   "src/components/onboarding/onboarding-flow.tsx",
-  "src/components/onboarding/activation-checklist.tsx",
-  "src/components/flipdesk/flipdesk-onboarding.tsx",
+  // US-2859: the checklist COMPONENT names no destinations any more. Both it
+  // and the FlipDesk surface render from this one step list, so this is the
+  // file that has to be right.
+  "src/lib/activation-steps.ts",
   "src/pages/dashboard.tsx",
 ];
 

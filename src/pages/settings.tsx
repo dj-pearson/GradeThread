@@ -50,8 +50,8 @@ import { memberSinceLabel } from "@/lib/loyalty-copy";
 import { toast } from "sonner";
 import { PromotedListingsDefaultCard } from "@/components/flipdesk/promoted-listings-default-card";
 import { ListingDefaultsCard } from "@/components/flipdesk/listing-defaults-card";
-import { useFlipdeskTourStore } from "@/stores/flipdesk-tour-store";
 import { useOnboardingTourStore } from "@/stores/onboarding-tour-store";
+import { useActivation } from "@/hooks/use-activation";
 import { useArchivePhotos } from "@/hooks/use-image-archive";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeAuthHeaders, edgeFetch } from "@/lib/edge-fetch";
@@ -104,7 +104,9 @@ export function SettingsPage() {
   const navigate = useNavigate();
   const { embedded } = usePageHost();
   const [searchParams, setSearchParams] = useSearchParams();
-  const openFlipdeskTour = useFlipdeskTourStore((s) => s.open);
+  // US-2859: the FlipDesk checklist is not a separate tour any more; replaying
+  // it means bringing the one activation checklist back.
+  const { undismiss: undismissActivation } = useActivation();
   const openWelcomeTour = useOnboardingTourStore((s) => s.open);
 
   // Deep-linkable section: ?tab=security, etc. Unknown/missing → Profile.
@@ -127,7 +129,7 @@ export function SettingsPage() {
   }
 
   function replayFlipdeskTour() {
-    openFlipdeskTour();
+    undismissActivation();
     navigate("/dashboard/flipdesk");
   }
 
@@ -1093,13 +1095,14 @@ export function SettingsPage() {
         <CardContent className="space-y-5">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="space-y-0.5">
-              <p className="text-sm font-medium">Getting-started tour</p>
+              <p className="text-sm font-medium">Setup checklist</p>
               <p className="text-xs text-muted-foreground">
-                Replay the FlipDesk onboarding checklist from the start.
+                Bring the setup checklist back, with whatever you have already
+                done still ticked off.
               </p>
             </div>
             <Button variant="outline" onClick={replayFlipdeskTour}>
-              Replay tour
+              Show it again
             </Button>
           </div>
 

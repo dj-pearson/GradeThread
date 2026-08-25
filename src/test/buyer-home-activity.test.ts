@@ -13,7 +13,9 @@ const STEPS = "src/components/buyer/buyer-first-steps.tsx";
 const ACTIVITY = "src/components/buyer/buyer-activity.tsx";
 const EXT = "src/lib/lister-extension.ts";
 const PLACEHOLDER = "src/pages/buyer/placeholder.tsx";
-const SELLER_CHECKLIST = "src/components/onboarding/activation-checklist.tsx";
+// US-2859: the seller checklist's dismissal moved out of the component and
+// into the shared hook, and the key was renamed with it.
+const SELLER_ACTIVATION = "src/hooks/use-activation.ts";
 
 function read(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf8");
@@ -57,7 +59,7 @@ describe("the get-started cards complete (US-2553 AC1, AC2)", () => {
     expect(src).toContain("doneCount === steps.length) return null");
     // And can be dismissed, per user, like the seller one.
     expect(src).toContain("gt.buyer-first-steps.dismissed");
-    expect(read(SELLER_CHECKLIST)).toContain("gt.activation-checklist.dismissed");
+    expect(read(SELLER_ACTIVATION)).toContain("gt.activation.dismissed");
   });
 
   it("the extension check survives a late content script", () => {

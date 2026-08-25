@@ -7,7 +7,7 @@ import { useRealtimeListingState } from "@/hooks/use-realtime-listing-state";
 import { useCheckoutReconciler } from "@/hooks/use-checkout-reconciler";
 import { CommandPalette } from "@/components/flipdesk/command-palette";
 import { ShortcutsHelp } from "@/components/dashboard/shortcuts-help";
-import { FlipdeskOnboarding } from "@/components/flipdesk/flipdesk-onboarding";
+import { FlipdeskActivation } from "@/components/onboarding/flipdesk-activation";
 import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
 import { UsageAlertWatcher } from "@/components/billing/usage-alert-watcher";
 import { AppBillingDialogs } from "@/components/billing/app-billing-dialogs";
@@ -49,7 +49,7 @@ export function DashboardLayout() {
           className="flex-1 overflow-y-auto bg-background p-6 outline-none"
         >
           <RouteErrorBoundary>
-            <FlipdeskOnboarding />
+            <FlipdeskActivation />
             <MaintenanceBanner />
             <AnnouncementBanner />
             <PastDueBanner />

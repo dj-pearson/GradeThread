@@ -113,14 +113,6 @@ interface FeatureContext {
   latestPassportSlug: string | null;
 }
 
-interface FirstRunHint {
-  icon: LucideIcon;
-  title: string;
-  description: string;
-  cta: string;
-  to: string;
-}
-
 function quickActionsFor(useCase: UserUseCase | null): QuickAction[] {
   switch (useCase) {
     case "buyer":
@@ -131,7 +123,7 @@ function quickActionsFor(useCase: UserUseCase | null): QuickAction[] {
       ];
     case "developer":
       return [
-        { key: "keys", icon: KeyRound, label: "API Keys", sublabel: "Create & manage keys", to: "/dashboard/account?tab=api-keys" },
+        { key: "keys", icon: KeyRound, label: "API Keys", sublabel: "Create & manage keys", to: "/dashboard/developers" },
         { key: "docs", icon: Code, label: "API Docs", sublabel: "Integrate grading", to: "/developers" },
         { key: "new", icon: Plus, label: "New Submission", sublabel: "Grade a garment", to: "/dashboard/submissions/new" },
       ];
@@ -219,45 +211,6 @@ function featureCardsFor(useCase: UserUseCase | null, ctx: FeatureContext): Feat
     case "seller":
     default:
       return [verified, passport, guarantee];
-  }
-}
-
-function firstRunFor(useCase: UserUseCase | null): FirstRunHint {
-  switch (useCase) {
-    case "buyer":
-      return {
-        icon: ScanLine,
-        title: "Scan before you buy",
-        description: "Check the verified condition and provenance of any GradeThread-graded item before you purchase it.",
-        cta: "Scan a Passport",
-        to: "/scan",
-      };
-    case "developer":
-      return {
-        icon: KeyRound,
-        title: "Integrate condition grading",
-        description: "Create an API key and start grading garments programmatically from your own app.",
-        cta: "Create an API key",
-        // US-2858: the Developers page, not the Account hub tab (US-2554).
-        to: "/dashboard/developers",
-      };
-    case "consignment":
-      return {
-        icon: Handshake,
-        title: "Take in your first consignment",
-        description: "Grade and catalog an item, then track payouts to your consignors automatically.",
-        cta: "Grade an item",
-        to: "/dashboard/submissions/new",
-      };
-    case "seller":
-    default:
-      return {
-        icon: Plus,
-        title: "Grade your first garment",
-        description: "Upload a few photos to get an AI-powered condition grade you can list with confidence.",
-        cta: "New Submission",
-        to: "/dashboard/submissions/new",
-      };
   }
 }
 
@@ -426,7 +379,6 @@ export function DashboardPage() {
   const recentSubmissions = submissionData?.recentSubmissions ?? [];
 
   const useCase = profile?.use_case ?? null;
-  const inventoryCount = inventoryData?.totalItemCount ?? 0;
   const quickActions = quickActionsFor(useCase);
   const featureCards = featureCardsFor(useCase, {
     verifiedEnabled: profile?.verified_enabled ?? false,
@@ -434,11 +386,6 @@ export function DashboardPage() {
     passportCount: passportData?.count ?? 0,
     latestPassportSlug: passportData?.latestSlug ?? null,
   });
-  const firstRun = firstRunFor(useCase);
-  const FirstRunIcon = firstRun.icon;
-  // Zero-data first run: no submissions AND no inventory yet (don't flash it
-  // while the submission count is still loading).
-  const isFirstRun = !isLoading && totalCount === 0 && inventoryCount === 0;
   // The FlipDesk reseller promo is only relevant to selling personas.
   const showFlipdeskPromo = useCase !== "buyer" && useCase !== "developer";
 
@@ -653,32 +600,11 @@ export function DashboardPage() {
         </CardContent>
       </Card>
 
-      {/* App-wide, persona-aware activation checklist (US-1122). Self-hides once
-          every step is done or the user dismisses it; renders nothing for the
-          buyer persona (the first-run card below covers them). */}
+      {/* US-2859: THE activation checklist. One list per persona, shared with
+          the FlipDesk surface, dismissed once. The buyer persona used to be the
+          one that got no checklist and a bespoke card below this line instead;
+          its content is now that persona's single step. */}
       <ActivationChecklist />
-
-      {/* Persona-tailored zero-data first run (US-1118). Suppressed for personas
-          that get the multi-step activation checklist above to avoid overlap. */}
-      {isFirstRun && useCase === "buyer" && (
-        <Card className="border-primary/30 bg-primary/5">
-          <CardContent className="flex flex-col gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
-                <FirstRunIcon className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold">{firstRun.title}</p>
-                <p className="text-xs text-muted-foreground">{firstRun.description}</p>
-              </div>
-            </div>
-            <Button onClick={() => navigate(firstRun.to)} className="sm:flex-shrink-0">
-              {firstRun.cta}
-              <ArrowRight className="ml-1.5 h-4 w-4" />
-            </Button>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Quick Actions — tailored to the user's use case (US-1118) */}
       <div className="grid gap-3 sm:grid-cols-3">

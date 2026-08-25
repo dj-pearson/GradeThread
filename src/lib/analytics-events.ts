@@ -200,6 +200,11 @@ export const ANALYTICS_EVENTS = {
   "onboarding.use_case_selected": "A use case was chosen during onboarding.",
   "onboarding.notifications_enabled": "Notifications were enabled from the checklist.",
   "onboarding.activation_checklist_dismissed": "The activation checklist was dismissed.",
+  // US-2859: which step a user actually reached for, from whichever surface
+  // was showing the one checklist. The full funnel is US-2884's job; this is
+  // the event that story will build on.
+  "onboarding.activation_step_started":
+    "An activation-checklist step's button was pressed.",
 
   // ── Content studio ────────────────────────────────────────────────────────
   "content.generated": "Content was generated.",

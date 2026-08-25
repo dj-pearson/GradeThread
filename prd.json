@@ -2500,22 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2859",
-      "passes": false,
-      "title": "A new seller is shown four different 'get started' lists that disagree about step one",
-      "description": "Four independent nudge surfaces greet the same new seller. (1) OnboardingFlow, a modal with a four-slide tour. (2) ActivationChecklist on the dashboard: grade a garment, add an inventory item, connect eBay, turn on notifications. (3) The persona first-run card immediately below it (dashboard.tsx firstRunFor), which names a different single first action. (4) FlipdeskOnboarding on /dashboard/flipdesk: add a source, intake an item, send it to GradeThread. Two of them call step one 'grade a garment' and one calls it 'add a source'. Each keeps its own dismissal state, its own progress query, and its own definition of done. A user who completes the FlipDesk list still sees the dashboard list at zero. This is the single largest ease-of-use defect in the product and it is entirely self-inflicted.",
-      "acceptanceCriteria": [
-        "One module (src/lib/activation-steps.ts) declares the ordered step list per persona, each step with: key, title, one-line reason, CTA label, canonical route, and a `isDone(state)` predicate over real data.",
-        "ActivationChecklist, FlipdeskOnboarding and the dashboard persona first-run card all render from that module; none of them defines its own steps.",
-        "At most ONE activation surface renders at a time: the dashboard shows the checklist, and the FlipDesk page shows only the steps not already satisfied, or nothing.",
-        "The persona first-run card is folded into the checklist as its first incomplete step, rather than duplicating it below.",
-        "Dismissal is one flag, honoured by every surface. A step completed anywhere shows as complete everywhere on the next render.",
-        "The OnboardingFlow tour's final screen hands off to the checklist by name, so the user knows where the list they just saw now lives."
-      ],
-      "priority": 14,
-      "notes": ""
-    },
-    {
       "id": "US-2862",
       "passes": false,
       "title": "Contextual help is registered on forty-five surfaces and rendered on ten",
@@ -2784,19 +2768,6 @@
         "A module is only registered when its shell is mounted, so an admin command never appears for a seller.",
         "Keyboard handling, result grouping, empty state and recent-items behaviour come from the shared component.",
         "The admin palette's current commands all still work, verified by its existing tests."
-      ],
-      "priority": 76,
-      "notes": ""
-    },
-    {
-      "id": "US-2882",
-      "passes": false,
-      "title": "src/pages/flipdesk/prep.tsx is unreachable",
-      "description": "No route and no import references it. /dashboard/flipdesk/prep is an InventoryModeRedirect to the inventory prep mode, which is a different component. A dead page file in a directory of fifty is a trap for the next person who greps for 'prep' while fixing a prep bug.",
-      "acceptanceCriteria": [
-        "prep.tsx is deleted, or routed if it turns out to hold behaviour the inventory prep mode lacks.",
-        "If deleted, any tests referencing it are removed with it and the build stays green.",
-        "A guard test lists page files under src/pages/ with no import anywhere and fails on a new one, so the next orphan is caught at the commit that creates it."
       ],
       "priority": 76,
       "notes": ""

@@ -122,11 +122,31 @@ describe("the collapse is honest, and reversible (US-2535)", () => {
   it("a seller answer lands on the branch the default already used", () => {
     // Which is why AC4 needs no dashboard change: an iOS user goes from NULL
     // (default branch) to 'seller' (the same branch), explicitly rather than by
-    // accident — and the activation checklist DOES read the difference.
+    // accident.
     const dash = read("src/pages/dashboard.tsx");
     expect(dash).toMatch(/case "seller":\s*\n\s*default:/);
-    const checklist = read("src/components/onboarding/activation-checklist.tsx");
-    expect(checklist).toContain('useCase === "seller"');
+
+    // US-2859 CHANGED WHAT THIS SECOND HALF CAN CLAIM, and the change is worth
+    // stating rather than quietly rewriting. This used to assert the activation
+    // checklist read the null-vs-seller difference, which it did — via
+    // `const isReseller = useCase === "seller" || useCase === "consignment"`,
+    // a gate that existed only to SEQUENCE this checklist behind the separate
+    // FlipDesk one (US-1435). US-2859 merged those two lists, so the gate went
+    // with the thing it was sequencing against, and the checklist now collapses
+    // seller onto default exactly as the dashboard does.
+    //
+    // The taxonomy claim under test is unchanged and still asserted: an iOS
+    // answer mapped to 'seller' reaches the same branch a null use_case already
+    // reached, so the collapse is harmless here too.
+    const steps = read("src/lib/activation-steps.ts");
+    expect(steps).toMatch(/case "seller":\s*\n\s*default:/);
+    expect(
+      steps.includes('case "consignment":'),
+      "consignment must still share the seller branch — the collapse is about " +
+        "seller vs null, not about flattening every persona",
+    ).toBe(true);
+    expect(steps).toContain('case "developer":');
+    expect(steps).toContain('case "buyer":');
   });
 });
 
