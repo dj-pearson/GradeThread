@@ -1,4 +1,8 @@
-import { GRADETHREAD_TIERS, type GradeTierKey } from "@/lib/constants";
+import {
+  GRADETHREAD_TIERS,
+  GRADING_REVIEW_CONFIDENCE_THRESHOLD,
+  type GradeTierKey,
+} from "@/lib/constants";
 import type { SubmissionStatus } from "@/types/database";
 
 // US-2870. What happens after you press submit.
@@ -195,4 +199,25 @@ export const IN_FLIGHT_STATUSES: readonly SubmissionStatus[] = [
 
 export function isInFlight(status: SubmissionStatus): boolean {
   return IN_FLIGHT_STATUSES.includes(status);
+}
+
+/**
+ * The one-line explanation that sits beside the confidence number (AC2).
+ *
+ * IT NAMES 0.75 AND THAT IS DELIBERATE. There are two gates and only one of
+ * them belongs to the client: below 0.75 a grade is flagged for mandatory
+ * review, while GRADE_AUTO_APPROVE_CONFIDENCE (0.9, env-tunable, disable-able)
+ * decides auto-finalization server-side. vault/20-domain/grading-scale-and-
+ * weights.md settles it: the public claim "anything under 0.75 gets a human"
+ * is TRUE and conservative, because in practice everything under 0.9 does, and
+ * A CLIENT MUST NOT RE-DERIVE THE SECOND NUMBER. So this states the threshold
+ * the client owns, reads it from the constant, and claims nothing about the
+ * other one.
+ */
+export function confidenceExplanation(): string {
+  const pct = Math.round(GRADING_REVIEW_CONFIDENCE_THRESHOLD * 100);
+  return (
+    `How sure the AI was, based on how clearly your photos showed the garment. ` +
+    `Under ${pct}% a person always checks the grade before it becomes official.`
+  );
 }

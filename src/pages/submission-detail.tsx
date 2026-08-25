@@ -60,10 +60,16 @@ import {
   getScoreColor,
   getTierBadgeClasses,
   getProgressColor,
+  tierBandRange,
 } from "@/lib/constants";
 import { supabase } from "@/lib/supabase";
+import { ScoreExplainer } from "@/components/grading/score-explainer";
 import { WhatHappensNext } from "@/components/submission/what-happens-next";
-import { HUMAN_REVIEW, WHERE_IT_APPEARS } from "@/lib/grading-journey";
+import {
+  HUMAN_REVIEW,
+  WHERE_IT_APPEARS,
+  confidenceExplanation,
+} from "@/lib/grading-journey";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { track } from "@/lib/analytics";
@@ -1031,8 +1037,11 @@ export function SubmissionDetailPage() {
                     >
                       {gradeReport.grade_tier}
                     </Badge>
+                    {/* US-2871: the tier alone is a word with no arithmetic
+                        behind it. The band comes from GRADE_TIER_BANDS, the
+                        same table tierLabelForGrade now reads. */}
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Overall Condition Grade
+                      Scores {tierBandRange(gradeReport.grade_tier)} out of 10
                     </p>
                   </div>
                 </div>
@@ -1076,6 +1085,18 @@ export function SubmissionDetailPage() {
                     </div>
                   );
                 })}
+                {/* label and weight come from GRADE_FACTORS here; the
+                    certificate passes its grade's own rubric instead. */}
+                <ScoreExplainer
+                  factors={factorScores.map(({ key, score }) => ({
+                    key,
+                    label: GRADE_FACTORS[key].label,
+                    weight: GRADE_FACTORS[key].weight,
+                    score,
+                  }))}
+                  overallScore={gradeReport.overall_score}
+                  className="mt-2"
+                />
               </CardContent>
             </Card>
 
@@ -1262,6 +1283,9 @@ export function SubmissionDetailPage() {
                         <p className="text-sm text-muted-foreground">
                           {(gradeReport.confidence_score * 100).toFixed(0)}%
                           confidence
+                        </p>
+                        <p className="mt-1.5 text-sm text-muted-foreground">
+                          {confidenceExplanation()}
                         </p>
                       </div>
                     </div>

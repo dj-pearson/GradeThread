@@ -1,3 +1,4 @@
+import { tierBandForScore } from "@/lib/constants";
 // What a condition grade does to resale price (US-9006).
 //
 // WHERE THESE NUMBERS COME FROM, because a made-up multiplier here would be
@@ -193,12 +194,9 @@ export function ratioFromCurve(
  * scale at all.
  */
 export function tierLabelForGrade(grade: number): string {
-  const g = Math.min(10, Math.max(1, grade));
-  if (g >= 10) return "New with Tags (NWT)";
-  if (g >= 9) return "New without Tags (NWOT)";
-  if (g >= 8) return "Excellent";
-  if (g >= 7) return "Very Good";
-  if (g >= 6) return "Good";
-  if (g >= 5) return "Fair";
-  return "Poor";
+  // US-2871: the bands moved to GRADE_TIER_BANDS in constants.ts so the report
+  // can show the RANGE beside the tier name without a second copy of the
+  // numbers. Same bands, same results -- pinned by a fixture in
+  // src/test/grade-tier-bands.test.ts.
+  return tierBandForScore(grade).label;
 }

@@ -40,6 +40,7 @@ import {
   getScoreBorderColor,
   getTierBadgeClasses,
   getProgressColor,
+  tierBandRange,
 } from "@/lib/constants";
 import {
   CONDITION_NOT_AUTHENTICITY_DISCLOSURE,
@@ -69,6 +70,7 @@ import {
   parseBadgeVariant,
 } from "@/lib/verified";
 import { supabase } from "@/lib/supabase";
+import { ScoreExplainer } from "@/components/grading/score-explainer";
 import { track } from "@/lib/analytics";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
@@ -788,8 +790,10 @@ export function CertificatePage() {
                 >
                   {gradeReport.grade_tier}
                 </Badge>
+                {/* US-2871: the band the tier stands for, from the one
+                    GRADE_TIER_BANDS table. */}
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Overall Condition Grade
+                  Scores {tierBandRange(gradeReport.grade_tier)} out of 10
                 </p>
                 {submission && (
                   <p className="mt-2 text-base font-medium">
@@ -1007,6 +1011,11 @@ export function CertificatePage() {
                 </div>
               );
             })}
+            <ScoreExplainer
+              factors={factorScores}
+              overallScore={gradeReport.overall_score}
+              className="mt-2"
+            />
           </CardContent>
         </Card>
 

@@ -721,6 +721,60 @@ export const GRADE_FACTORS = {
 
 export type GradeFactorKey = keyof typeof GRADE_FACTORS;
 
+/**
+ * The score band each tier stands for, highest first (US-2871).
+ *
+ * ONE definition. These bands were inline in `tierLabelForGrade()`
+ * (src/lib/condition-value-curve.ts), whose own comment records that it exists
+ * to stop two surfaces drifting; that function now reads this table instead of
+ * carrying its own copy of the numbers.
+ *
+ * `min` is inclusive and the band runs up to the next tier's `min`. Poor is
+ * the floor at 1.0 -- the published scale calls it 3-4, but a grade CAN come
+ * back lower and it still has to render as something.
+ */
+export const GRADE_TIER_BANDS = [
+  { tier: "NWT", min: 10, label: "New with Tags (NWT)" },
+  { tier: "NWOT", min: 9, label: "New without Tags (NWOT)" },
+  { tier: "Excellent", min: 8, label: "Excellent" },
+  { tier: "Very Good", min: 7, label: "Very Good" },
+  { tier: "Good", min: 6, label: "Good" },
+  { tier: "Fair", min: 5, label: "Fair" },
+  { tier: "Poor", min: 1, label: "Poor" },
+] as const satisfies ReadonlyArray<{
+  tier: (typeof GRADE_TIERS)[number];
+  min: number;
+  label: string;
+}>;
+
+/**
+ * "8.0 to 8.9", or "10.0" for the top band.
+ *
+ * Spelled with the word "to" rather than a dash on purpose: an en dash in a
+ * string literal is one of the look-alike characters CLAUDE.md bans from code,
+ * and "to" reads at a lower grade level anyway.
+ */
+export function tierBandRange(tier: (typeof GRADE_TIERS)[number]): string {
+  const i = GRADE_TIER_BANDS.findIndex((b) => b.tier === tier);
+  if (i === -1) return "";
+  const band = GRADE_TIER_BANDS[i]!;
+  // The top band FIRST: NWT is a single value, and checking !above before it
+  // rendered "10.0 to 10.0".
+  if (band.min >= 10) return "10.0";
+  const above = GRADE_TIER_BANDS[i - 1];
+  if (!above) return `${band.min.toFixed(1)} to 10.0`;
+  const top = above.min - 0.1;
+  return `${band.min.toFixed(1)} to ${top.toFixed(1)}`;
+}
+
+/** The band a score falls in. */
+export function tierBandForScore(
+  score: number,
+): (typeof GRADE_TIER_BANDS)[number] {
+  const g = Math.min(10, Math.max(1, score));
+  return GRADE_TIER_BANDS.find((b) => g >= b.min) ?? GRADE_TIER_BANDS[GRADE_TIER_BANDS.length - 1]!;
+}
+
 // US-601: premium authenticity / counterfeit-confidence add-on. Offered only on
 // the paid Premium/Express tiers (mirrors tierSupportsAuthenticityAddon on the
 // edge). The add-on is a SEPARATE garment-authenticity signal — distinct from
