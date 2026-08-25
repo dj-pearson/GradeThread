@@ -2515,34 +2515,6 @@
       "notes": ""
     },
     {
-      "id": "US-2866",
-      "passes": false,
-      "title": "Audit every list surface for an empty state that says what goes here and how",
-      "description": "src/components/ui/empty-state.tsx is a good component used by 56 files, which means the rest of the list and table surfaces are showing something else, or nothing. An empty table with a header row and no explanation is the most common way a feature-rich app reads as broken.",
-      "acceptanceCriteria": [
-        "Every list/table/grid surface under src/pages/** renders EmptyState when its data set is empty.",
-        "Each empty state carries a title, a description saying what lands here and what puts it there, and an action.",
-        "A guard test enumerates the list surfaces (by a marker prop or a registry) and fails on one with no empty state.",
-        "The empty state for a surface the user cannot yet use (no eBay connection, no plan entitlement) says the prerequisite, not 'no data'."
-      ],
-      "priority": 62,
-      "notes": ""
-    },
-    {
-      "id": "US-2867",
-      "passes": false,
-      "title": "'No results' and 'nothing yet' are the same message today and should not be",
-      "description": "EmptyState supports a secondaryAction for exactly this, and most call sites pass one description for both cases. A user with three filters applied and no matches is told to add their first item, which is wrong and slightly insulting; a user with genuinely nothing is offered 'Clear filters', which does nothing.",
-      "acceptanceCriteria": [
-        "Every filtered list distinguishes zero-data from zero-matches and renders a different title, description and action for each.",
-        "Zero-matches always offers 'Clear filters' and names how many filters are active.",
-        "Zero-data always offers the add CTA.",
-        "src/test/search-outage-not-empty.test.ts is extended to cover the third case: a failed query must not render either empty state."
-      ],
-      "priority": 62,
-      "notes": ""
-    },
-    {
       "id": "US-2868",
       "passes": false,
       "title": "Plain-language pass over every user-facing string on both clients",
