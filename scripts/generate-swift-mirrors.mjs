@@ -54,6 +54,18 @@ function literal(node) {
   // `[...] as const satisfies readonly Surface[]` and friends.
   if (ts.isAsExpression(node) || ts.isSatisfiesExpression(node)) return literal(node.expression);
   if (ts.isParenthesizedExpression(node)) return literal(node.expression);
+  // US-2879: `"a " + "b"`. Long product copy in the registry is wrapped this
+  // way to stay under the line limit, and the first entry that did it broke
+  // the generator outright. Only string + string -- a `+` over numbers here
+  // would mean the registry is computing something, which it must not.
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = literal(node.left);
+    const right = literal(node.right);
+    if (typeof left !== "string" || typeof right !== "string") {
+      throw new Error(`+ over non-strings in the registry: ${node.getText().slice(0, 60)}`);
+    }
+    return left + right;
+  }
   throw new Error(`not a literal: ${ts.SyntaxKind[node.kind]} "${node.getText().slice(0, 60)}"`);
 }
 

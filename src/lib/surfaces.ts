@@ -52,10 +52,38 @@ export type Surface = {
   /** Sidebar placement, or null when the web reaches it some other way. */
   nav: NavPlacement | null;
   /**
-   * The Swift case name in `ToolRoute` or `ToolModule`. Null when iOS does not
-   * have this at all.
+   * The Swift case name in `ToolRoute` or `ToolModule`.
+   *
+   * US-2879 CORRECTION: this is the TOOLS HUB route, and null therefore means
+   * "not a row in the Tools hub" -- NOT "iOS does not have this". US-2876's
+   * comment said the latter and it was wrong about eleven surfaces. Offers &
+   * Messages is the proof: iOS has a 666-line NegotiationInboxView reachable
+   * from three places, and this field says null. Read `iosElsewhere` before
+   * concluding anything is missing.
    */
   ios: string | null;
+  /**
+   * When `ios` is null but iOS HAS this surface somewhere else: the Swift file
+   * that owns it, relative to the repo root.
+   *
+   * The guard checks the file exists, so this cannot rot into a claim about a
+   * screen somebody deleted.
+   */
+  iosElsewhere?: string;
+  /**
+   * Why this surface lives on ONE client only.
+   *
+   * Required whenever a surface is genuinely single-client -- `web: null`, or
+   * `ios: null` with no `iosElsewhere`. Both directions, on purpose: US-2879
+   * asked for web-only reasons and US-2878 had already established the same
+   * need pointing the other way, and two fields would have drifted.
+   *
+   * A missing reason is the failure this closes. A gap with no reason is
+   * indistinguishable from a gap nobody noticed, so the next person either
+   * builds something that was deliberately not built, or leaves something
+   * unbuilt that was simply forgotten.
+   */
+  onlyReason?: string;
   /** Workspace capability gate (hides the entry outright). */
   requires?: WorkspaceCapability;
   /** FlipDesk plan gate (US-323): shown locked, never hidden (US-2872). */
@@ -73,6 +101,7 @@ export const SURFACES = [
     web: "/dashboard",
     nav: { group: "Grading", end: true },
     ios: null,
+    iosElsewhere: "ios/GradeThread/Dashboard/DashboardView.swift",
   },
   {
     // US-2878: "you already own" is load-bearing. Snap to Value, Scout and
@@ -105,6 +134,12 @@ export const SURFACES = [
     web: "/dashboard/rewards",
     nav: { group: "Grading" },
     ios: null,
+    onlyReason:
+      "Web only, deliberately (US-2879). Level, season track and earned " +
+      "credit are a thing you check now and then, not a thing you do -- a " +
+      "screen for reading a number you already earned somewhere else. The " +
+      "web links out of the Tools hub instead of iOS growing a second " +
+      "copy.",
   },
 
   // ── FlipDesk / Catalog ──────────────────────────────────────────────────
@@ -115,6 +150,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk",
     nav: { group: "FlipDesk", subgroup: "Catalog", end: true },
     ios: null,
+    iosElsewhere: "ios/GradeThread/Dashboard/DashboardView.swift",
   },
   {
     id: "flipdesk-search",
@@ -123,6 +159,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/search",
     nav: { group: "FlipDesk", subgroup: "Catalog" },
     ios: null,
+    iosElsewhere: "ios/GradeThread/Inventory/GlobalSearchView.swift",
   },
   {
     // One surface. Its in-page tabs switch Table / Grid / Kanban / Prep.
@@ -132,6 +169,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/inventory",
     nav: { group: "FlipDesk", subgroup: "Catalog" },
     ios: null,
+    iosElsewhere: "ios/GradeThread/Inventory/InventoryListView.swift",
   },
 
   // ── FlipDesk / List & sell ──────────────────────────────────────────────
@@ -184,6 +222,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/import",
     nav: { group: "FlipDesk", subgroup: "Sourcing" },
     ios: null,
+    iosElsewhere: "ios/GradeThread/Import/CSVImportView.swift",
   },
   {
     // US-2161: ScoutAI + Buy Decision + Sources + Buyer Demand were four
@@ -196,6 +235,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/sourcing",
     nav: { group: "FlipDesk", subgroup: "Sourcing" },
     ios: null,
+    iosElsewhere: "ios/GradeThread/Scout/ScoutView.swift",
   },
   {
     id: "scout",
@@ -226,6 +266,11 @@ export const SURFACES = [
     web: null,
     nav: null,
     ios: "prospect",
+    onlyReason:
+      "iOS only, deliberately -- see " +
+      "vault/60-decisions/adr-prospect-stays-phone-only.md (US-2878). The " +
+      "value is standing in a shop holding something you have not bought, " +
+      "and a desk is never in that situation.",
   },
   {
     id: "consignment",
@@ -244,6 +289,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/marketplaces",
     nav: { group: "FlipDesk", subgroup: "Channels & money" },
     ios: null,
+    iosElsewhere: "ios/GradeThread/Marketplaces/MarketplacesView.swift",
   },
   {
     id: "offers",
@@ -252,6 +298,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/offers",
     nav: { group: "FlipDesk", subgroup: "Channels & money" },
     ios: null,
+    iosElsewhere: "ios/GradeThread/Marketplaces/Negotiation/NegotiationInboxView.swift",
   },
   {
     id: "post-sale",
@@ -260,6 +307,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/post-sale",
     nav: { group: "FlipDesk", subgroup: "Channels & money" },
     ios: null,
+    iosElsewhere: "ios/GradeThread/Marketplaces/PostSale/PostSaleView.swift",
   },
   {
     // US-2161: Repricing + Bulk pricing + Price Suggestions + Automations.
@@ -269,6 +317,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/pricing",
     nav: { group: "FlipDesk", subgroup: "Channels & money" },
     ios: null,
+    iosElsewhere: "ios/GradeThread/Pricing/RepricingView.swift",
   },
   {
     id: "repricing",
@@ -295,6 +344,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/money",
     nav: { group: "FlipDesk", subgroup: "Channels & money" },
     ios: null,
+    iosElsewhere: "ios/GradeThread/Money/MoneyView.swift",
   },
   {
     id: "reconciliation",
@@ -320,6 +370,11 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/measure-card",
     nav: { group: "FlipDesk", subgroup: "Channels & money" },
     ios: null,
+    onlyReason:
+      "Web only, deliberately (US-2879). It is a printable PDF, " +
+      "instructions for shooting with it, and a postal address form for a " +
+      "card we mail once. Every one of those is worse on a phone, and the " +
+      "address form is a once-ever action.",
   },
 
   // ── FlipDesk / Automate & insights ──────────────────────────────────────
@@ -331,6 +386,7 @@ export const SURFACES = [
     web: "/dashboard/flipdesk/analytics",
     nav: { group: "FlipDesk", subgroup: "Automate & insights" },
     ios: null,
+    iosElsewhere: "ios/GradeThread/Analytics/AnalyticsView.swift",
   },
   {
     id: "community-insights",
@@ -354,6 +410,7 @@ export const SURFACES = [
     web: "/dashboard/account",
     nav: { group: null },
     ios: null,
+    iosElsewhere: "ios/GradeThread/ContentView.swift",
   },
   {
     // US-2554: findable. It was a tab inside Account, so the only way to reach
@@ -364,6 +421,10 @@ export const SURFACES = [
     web: "/dashboard/developers",
     nav: { group: null },
     ios: null,
+    onlyReason:
+      "Web only, deliberately (US-2879). API keys and a sandbox are for " +
+      "while you are writing code, which is not a phone activity. And an " +
+      "API key on a phone screen is a secret held up in public.",
     requires: "manage_api_keys",
   },
   {
@@ -384,6 +445,7 @@ export const SURFACES = [
     web: "/dashboard/help",
     nav: { group: null },
     ios: null,
+    iosElsewhere: "ios/GradeThread/Help/HelpSheet.swift",
   },
 ] as const satisfies readonly Surface[];
 
@@ -474,13 +536,12 @@ export function surfacesIn(group: NavPlacement["group"], subgroup?: string): rea
   );
 }
 
-/** Surfaces one client has and the other does not. Used by the parity guard. */
-export function clientGaps(): { webOnly: readonly Surface[]; iosOnly: readonly Surface[] } {
-  return {
-    webOnly: SURFACES.filter((s) => s.web !== null && s.ios === null),
-    iosOnly: SURFACES.filter((s) => s.ios !== null && s.web === null),
-  };
-}
+// US-2879 DELETED `clientGaps()`. It filtered on `s.ios === null` and therefore
+// counted every surface that is not a Tools-hub row as a gap -- fourteen of
+// them, all of which iOS has. It had no callers, which is the only reason it
+// never reported those fourteen to anybody. `singleClientSurfaces()` and
+// `onlyOn()` at the bottom of this file are the honest version; they read
+// `iosElsewhere` before calling anything missing.
 
 /** The route path a surface lives at, with any `?tab=` / `?view=` removed. */
 export function routePathOf(surface: Surface): string | null {
@@ -535,3 +596,24 @@ export const NAV_GROUPS: readonly {
  * read this instead. The two are the same array.
  */
 export const ALL_SURFACES: readonly Surface[] = SURFACES;
+
+/**
+ * Surfaces that genuinely exist on one client only.
+ *
+ * "Genuinely" is doing work here. `ios: null` alone does NOT mean iOS lacks a
+ * surface -- it means the surface is not a row in the Tools hub. Eleven
+ * surfaces sit outside that hub and were read as missing until US-2879
+ * measured them, so this reads `iosElsewhere` too.
+ */
+export function singleClientSurfaces(): readonly Surface[] {
+  return ALL_SURFACES.filter(
+    (s) => s.web === null || (s.ios === null && !s.iosElsewhere),
+  );
+}
+
+/** Which client a single-client surface is on. Null when it is on both. */
+export function onlyOn(s: Surface): "web" | "ios" | null {
+  if (s.web === null && s.ios !== null) return "ios";
+  if (s.ios === null && !s.iosElsewhere && s.web !== null) return "web";
+  return null;
+}

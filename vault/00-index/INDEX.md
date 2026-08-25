@@ -51,7 +51,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 60-decisions — ADRs
 
-13 notes — see [[moc-decisions]].
+14 notes — see [[moc-decisions]].
 
 ## 70-agent — how agents work here
 
