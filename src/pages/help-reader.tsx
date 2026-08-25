@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
-import { BookOpen, LifeBuoy, Lock, Search, Users } from "lucide-react";
+import { Link, useParams, useSearchParams , useNavigate } from "react-router";
+import { BookOpen, LifeBuoy, Lock, Search, Users , Compass } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,8 @@ import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/ui/page-header";
+import { useGuidedPathStore } from "@/stores/guided-path-store";
+import { useAuthStore } from "@/stores/auth-store";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import {
   Select,
@@ -136,6 +138,10 @@ function HelpReaderIndexPage() {
     );
   }, [rows, categoryTitle]);
 
+  const navigate = useNavigate();
+  const user = useAuthStore((st) => st.user);
+  const startGuided = useGuidedPathStore((st) => st.start);
+
   return (
     <div className="space-y-4">
       <SEO title="Help" noindex />
@@ -150,12 +156,28 @@ function HelpReaderIndexPage() {
         // and somebody stuck on a word rather than a task should not have to
         // search an article index to find out what a Comp is.
         actions={
-          <Button asChild variant="outline">
-            <Link to="/dashboard/help/glossary">
-              <BookOpen className="mr-2 h-4 w-4" />
-              Glossary
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {/* US-2873 AC4: replayable from Help. The path itself runs
+                exactly once by default without storing anything -- it stops
+                offering itself when its steps are DONE. This is only for
+                somebody who left early and wants it back. */}
+            <Button
+              variant="outline"
+              onClick={() => {
+                startGuided(user?.id);
+                void navigate("/dashboard");
+              }}
+            >
+              <Compass className="mr-2 h-4 w-4" />
+              Walk me through my first listing
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/dashboard/help/glossary">
+                <BookOpen className="mr-2 h-4 w-4" />
+                Glossary
+              </Link>
+            </Button>
+          </div>
         }
       />
 

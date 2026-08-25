@@ -18,6 +18,7 @@ import {
   Megaphone,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
@@ -416,9 +417,9 @@ function EbayPoliciesDialog({
           </div>
         ) : policies.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No business policies found on your eBay account yet. Create shipping,
-            payment, and return policies in eBay Seller Hub, then click
-            &quot;Re-sync from eBay.&quot;
+            Your eBay account has no business policies yet. Set up shipping,
+            payment and returns in eBay Seller Hub, then press Re-sync from
+            eBay.
           </p>
         ) : (
           <div className="space-y-3">
@@ -913,7 +914,7 @@ function PromotedListingsSection() {
         `Refreshed ${r.updated} of ${r.scanned} promoted listing${r.scanned === 1 ? "" : "s"}.`,
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't refresh promoted listings.");
+      toastError(e, "Couldn't refresh promoted listings.");
     }
   };
 
@@ -1155,7 +1156,7 @@ function ClaimControl({ review }: { review: SyncReview }) {
           { reviewId: review.id, listingId: e.target.value },
           {
             onSuccess: () => toast.success("Linked. The next sale on this listing matches by itself."),
-            onError: (err) => toast.error(err.message),
+            onError: (err) => toastError(err),
           },
         );
       }}
@@ -1239,7 +1240,7 @@ function SoldSyncSchedule() {
             disabled={setInterval.isPending}
             onChange={(e) => {
               setInterval.mutate(Number(e.target.value), {
-                onError: (err) => toast.error(err.message),
+                onError: (err) => toastError(err),
               });
             }}
           >
@@ -1256,7 +1257,7 @@ function SoldSyncSchedule() {
             onClick={() => {
               stop.mutate(undefined, {
                 onSuccess: () => toast.success("Scheduled checks turned off."),
-                onError: (err) => toast.error(err.message),
+                onError: (err) => toastError(err),
               });
             }}
           >
@@ -1382,7 +1383,7 @@ function SoldSyncSection() {
                           onClick={() => {
                             dismiss.mutate(r.id, {
                               onSuccess: () => toast.success("Cleared."),
-                              onError: (e) => toast.error(e.message),
+                              onError: (e) => toastError(e),
                             });
                           }}
                         >
@@ -1450,7 +1451,7 @@ function ExtensionQueueSection() {
                   onClick={() => {
                     cancel.mutate(job.id, {
                       onSuccess: () => toast.success("Removed from the queue."),
-                      onError: (e) => toast.error(e.message),
+                      onError: (e) => toastError(e),
                     });
                   }}
                 >
@@ -1670,9 +1671,7 @@ export function FlipdeskMarketplacesPage() {
           : "Auto-end disabled — end other listings yourself after a sale.",
       );
     } catch (err) {
-      toast.error(
-        `Couldn't save the setting: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Couldn't save the setting.");
     } finally {
       setAutoEndSaving(false);
     }

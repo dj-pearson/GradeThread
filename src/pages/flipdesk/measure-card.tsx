@@ -173,7 +173,7 @@ export function FlipdeskMeasureCardPage() {
       <PageHeader
         icon={Ruler}
         title="MeasureCard"
-        subtitle="The calibration card that turns one flat-lay photo into garment measurements, estimated from the photo — auto-extracted, drag-adjustable (review before listing), and printed onto a clean buyer-facing measurements photo."
+        subtitle="Print the card and lay it next to the garment. One photo is enough: we read the measurements off the card, you drag to fix any that look wrong, and we add a tidy measurements photo to your listing."
               actions={<PageHelp slug="using-the-measurecard" />}
       />
 

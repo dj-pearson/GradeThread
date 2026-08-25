@@ -21,6 +21,7 @@ import {
   LayoutTemplate,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
+import {
+  TEMPLATES_QUERY_KEY,
+  listTemplates,
+} from "@/lib/flipdesk-templates";
 import {
   useEbayCategoryAspects,
   useEbayPolicies,
@@ -99,21 +104,6 @@ interface DraftRow {
   shipping_policy_id: string | null;
   payment_policy_id: string | null;
   return_policy_id: string | null;
-}
-
-// US-555: a saved listing preset (listing_templates, US-674) the seller can
-// apply across a whole batch from the bulk grid.
-interface ListingTemplate {
-  id: string;
-  name: string;
-  description_template: string | null;
-  ebay_condition: string | null;
-  item_specifics: Record<string, string[] | string> | null;
-  ebay_category_id: string | null;
-  return_policy_id: string | null;
-  shipping_policy_id: string | null;
-  payment_policy_id: string | null;
-  is_default: boolean;
 }
 
 interface EditRow {
@@ -275,15 +265,13 @@ export function FlipdeskAutolisterBulkEditPage() {
     policiesQuery.data?.policies.filter((p) => p.policy_type === "return") ?? [];
 
   // US-555: the seller's saved listing templates (listing_templates / US-674).
+  // US-2877: the type, the key and the fetch are shared with the Templates
+  // page and the composer, so a mutation on any of the three refreshes all of
+  // them and none of them can disagree about what a field is called.
   const templatesQuery = useQuery({
-    queryKey: ["flipdesk_listing_templates"],
+    queryKey: TEMPLATES_QUERY_KEY,
     staleTime: 5 * 60_000,
-    queryFn: async (): Promise<ListingTemplate[]> => {
-      const res = await edgeFetch("/api/flipdesk/templates");
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Could not load templates.");
-      return (json.templates ?? []) as ListingTemplate[];
-    },
+    queryFn: listTemplates,
   });
 
   // Seed editable rows once the drafts load.
@@ -649,12 +637,15 @@ export function FlipdeskAutolisterBulkEditPage() {
         patch.description = t.description_template;
       }
       const specifics = { ...r.specifics };
+      // US-2877: item_specifics is Record<string, string> -- ONE value per
+      // aspect, which is what the server normalizes to and what iOS decodes.
+      // This used to branch on Array.isArray against a shape the API cannot
+      // return. The grid's own rows DO hold arrays, so the single value is
+      // wrapped on the way in.
       for (const [name, raw] of Object.entries(t.item_specifics ?? {})) {
-        const values = (Array.isArray(raw) ? raw : [String(raw)]).filter((v) =>
-          v.trim()
-        );
-        if (values.length === 0) continue;
-        const first = values[0]!;
+        const first = raw.trim();
+        if (!first) continue;
+        const values = [first];
         if (name === "Department") {
           if (!r.department.trim()) patch.department = first;
         } else if (name === "Brand") {
@@ -735,9 +726,7 @@ export function FlipdeskAutolisterBulkEditPage() {
       });
       toast.success("Applied smart defaults from your recent listings.");
     } catch (err) {
-      toast.error(
-        `Could not load smart defaults: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Could not load smart defaults.");
     } finally {
       setApplyingDefaults(false);
     }
@@ -953,10 +942,11 @@ export function FlipdeskAutolisterBulkEditPage() {
         // still-dirty failed rows with the server's stale copy and lose edits.
         const savedMsg =
           succeeded.size > 0 ? `Saved ${succeeded.size}. ` : "";
-        toast.error(
+        toastError(
+          failures[0],
           `${savedMsg}${failures.length} listing${
             failures.length === 1 ? "" : "s"
-          } couldn't save and stay marked unsaved: ${failures[0]!.message}`,
+          } couldn't save and stay marked unsaved.`,
         );
       }
     } finally {

@@ -10,6 +10,7 @@ import {
   ImagePlus,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
@@ -203,9 +204,7 @@ export function PhotoUploader({
       // succeed, and the nudge is a different message with a different action.
       if (macro.message) toast.warning(macro.message);
     } catch (err) {
-      toast.error(
-        `Upload failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Upload failed.");
     } finally {
       setUploading(null);
     }
@@ -285,9 +284,7 @@ export function PhotoUploader({
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       onChange?.();
     } catch (err) {
-      toast.error(
-        `Delete failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Delete failed.");
     }
   }
 
@@ -327,9 +324,7 @@ export function PhotoUploader({
     try {
       await persistPhotoEdit(supabase, editingPhoto, blob, recipe);
     } catch (err) {
-      toast.error(
-        `Couldn't save the edit: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Couldn't save the edit.");
       return;
     }
     await refreshAfterPhotoWrite();

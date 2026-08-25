@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { Radar } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Card,
   CardContent,
@@ -49,11 +50,7 @@ export function RadarContributionCard() {
       );
     } catch (err) {
       setEnabled(!next);
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : "Failed to update Radar contribution."
-      );
+      toastError(err, "Failed to update Radar contribution.");
     } finally {
       setSaving(false);
     }

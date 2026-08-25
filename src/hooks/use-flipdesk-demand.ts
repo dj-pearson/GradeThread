@@ -28,5 +28,16 @@ export function useFlipdeskDemand() {
     staleTime: 5 * 60 * 1000,
   });
 
-  return { demand: query.data ?? null, isLoading: query.isLoading };
+  // US-2867: `error` and `refetch` are part of the return because the page
+  // renders its empty state off `!demand`, and a failed fetch also leaves
+  // `data` undefined. Without the error the outage was indistinguishable from
+  // "no buyer has posted a want yet", which is a very different thing to tell
+  // a seller deciding what to source.
+  return {
+    demand: query.data ?? null,
+    isLoading: query.isLoading,
+    error: query.error,
+    isFetching: query.isFetching,
+    refetch: query.refetch,
+  };
 }

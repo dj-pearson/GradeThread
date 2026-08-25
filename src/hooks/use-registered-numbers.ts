@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 
 // US-2808: the client for /api/admin/registered-numbers, which US-2244 built and
@@ -98,6 +99,6 @@ export function useResolveRegisteredNumber() {
       qc.invalidateQueries({ queryKey: [QUEUE_KEY] });
       toast.success(`Saved ${res.registry_key}`);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }

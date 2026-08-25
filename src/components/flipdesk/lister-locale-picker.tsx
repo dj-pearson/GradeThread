@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { useQueryClient } from "@tanstack/react-query";
 import { Label } from "@/components/ui/label";
 import {
@@ -55,9 +55,7 @@ export function ListerLocalePicker() {
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["lister_locales", user.id] });
     } catch (err) {
-      toast.error(
-        `Couldn't save your country: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Couldn't save your country.");
     } finally {
       setSaving(false);
     }

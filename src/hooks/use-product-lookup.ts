@@ -3,6 +3,7 @@
 // auth + workspace header plumbing.
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
@@ -71,7 +72,7 @@ function lookupErrorToast(err: ApiError): void {
   } else if (err.status === 502) {
     toast.error("Product lookup is temporarily unavailable. Try again shortly.");
   } else {
-    toast.error(err.message || "Barcode lookup failed.");
+    toastError(err, "Barcode lookup failed.");
   }
 }
 

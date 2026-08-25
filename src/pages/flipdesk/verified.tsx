@@ -341,9 +341,9 @@ export function FlipdeskVerifiedPage() {
             <div className="space-y-0.5">
               <p className="font-medium">Add my credentials to listings</p>
               <p className="text-sm text-muted-foreground">
-                Automatically embed your verified badge — grades earned, average
-                grade and a link to this profile — into the descriptions FlipDesk
-                generates for eBay and every other marketplace.
+                Add your Verified badge to every description FlipDesk writes,
+                on eBay and everywhere else. It shows how many grades you have
+                earned, your average, and a link back to this page.
               </p>
             </div>
             <Switch

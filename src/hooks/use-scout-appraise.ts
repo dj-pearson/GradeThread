@@ -1,5 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import type { ValueBasis } from "@/components/value/value-basis-note";
 
@@ -110,7 +111,7 @@ export function useScoutAppraise() {
       if (!res.ok) throw new Error(data.error ?? "Appraisal failed");
       return data as AppraiseResult;
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -146,6 +147,6 @@ export function useScoutBuy() {
     },
     onSuccess: () =>
       toast.success("Added to inventory at the “sourced” stage — it's now in your pipeline."),
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }

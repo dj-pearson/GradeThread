@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { getFreshAccessToken } from "@/lib/auth-token";
 import { edgeApiUrl } from "@/lib/edge-api";
@@ -558,7 +559,7 @@ export function useSyncEbayPolicies() {
       qc.invalidateQueries({ queryKey: ["ebay_policies"] });
       toast.success(`Synced ${data.synced} business policies from eBay.`);
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -596,7 +597,7 @@ export function useSetDefaultPolicies() {
       qc.invalidateQueries({ queryKey: ["ebay_policies"] });
       toast.success("Default policies saved.");
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -636,7 +637,7 @@ export function useCreateEbayLocation() {
       qc.invalidateQueries({ queryKey: ["ebay_policies"] });
       toast.success("eBay ship-from location saved. You can now publish listings.");
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -692,7 +693,7 @@ export function useStartEbayOauth() {
       }
       window.location.href = json.consent_url as string;
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -716,7 +717,7 @@ export function useDisconnectEbay() {
       qc.invalidateQueries({ queryKey: ["ebay_connection_issue"] });
       toast.success("Disconnected eBay.");
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -847,7 +848,7 @@ export function useAiExtractAspects() {
       }
       return json as AiAspectExtractResponse;
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -1064,7 +1065,7 @@ export function useEbayCategoryCheck() {
       }
       return json as CategoryCheckResponse;
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -1643,7 +1644,7 @@ export function useSetItemAspect() {
       qc.invalidateQueries({ queryKey: ["inventory_item", vars.itemId] });
       qc.invalidateQueries({ queryKey: ["inventory_item_ebay", vars.itemId] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -2648,7 +2649,7 @@ export function useCreateItemPromotion() {
       toast.success("Promotion created on eBay.");
       invalidatePromotions(qc);
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toastError(e),
   });
 }
 
@@ -2668,7 +2669,7 @@ export function useUpdateItemPromotion() {
       toast.success("Promotion updated.");
       invalidatePromotions(qc);
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toastError(e),
   });
 }
 
@@ -2688,7 +2689,7 @@ export function useDeleteItemPromotion() {
       toast.success("Promotion ended on eBay.");
       invalidatePromotions(qc);
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toastError(e),
   });
 }
 
@@ -2771,7 +2772,7 @@ export function useMigrateEbayListings() {
       void qc.invalidateQueries({ queryKey: ["inventory"] });
       void qc.invalidateQueries({ queryKey: ["item"] });
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toastError(e),
   });
 }
 
@@ -2870,7 +2871,7 @@ export function useSetEbayProgram() {
       );
       void qc.invalidateQueries({ queryKey: ["ebay_programs"] });
     },
-    onError: (e) => toast.error(e.message),
+    onError: (e) => toastError(e),
   });
 }
 

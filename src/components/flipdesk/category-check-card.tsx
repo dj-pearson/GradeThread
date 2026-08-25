@@ -45,8 +45,8 @@ export function CategoryCheckCard({ listingId }: Props) {
           <div className="flex items-center gap-2 text-sm">
             <Tag className="h-4 w-4 text-muted-foreground" />
             <span className="text-muted-foreground">
-              Check this listing&apos;s eBay category against the
-              current Taxonomy suggestions.
+              See whether eBay would file this listing where you have filed
+              it. Taxonomy is eBay's word for its category tree.
             </span>
           </div>
           <Button size="sm" variant="outline" onClick={run}>

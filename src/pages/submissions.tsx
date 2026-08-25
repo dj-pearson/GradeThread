@@ -22,6 +22,7 @@ import { Label } from "@/components/ui/label";
 import { SearchInput } from "@/components/search-input";
 import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { EmptyState } from "@/components/ui/empty-state";
+import { showExampleAction } from "@/lib/show-example";
 import { PageHeader } from "@/components/ui/page-header";
 import { QueryBoundary } from "@/components/ui/query-boundary";
 import { ErrorState } from "@/components/ui/error-state";
@@ -766,6 +767,9 @@ export function SubmissionsPage() {
                     to: "/dashboard/submissions/new",
                     icon: Plus,
                   }}
+                  // US-2865. Zero-data only: the filtered-empty branch above already
+                  // offers Clear filters, and a user with rows needs no example.
+                  secondaryAction={showExampleAction}
                 />
               )
             }

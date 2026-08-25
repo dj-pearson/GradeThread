@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Tag } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Card,
   CardContent,
@@ -73,7 +74,7 @@ export function ListingDefaultsCard() {
     try {
       await update.mutateAsync(next);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't save.");
+      toastError(err, "Couldn't save.");
     }
   }
 

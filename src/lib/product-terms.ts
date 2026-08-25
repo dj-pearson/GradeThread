@@ -11,6 +11,13 @@
 // One sentence each, sixth-grade reading level, saying what the thing IS. Not
 // what it is for -- the nav descriptions (US-2861) already say that -- and not
 // a sales line.
+//
+// US-2868 added the words GradeThread BORROWED rather than invented: Item
+// specifics, SKU, Provenance, Taxonomy. They are eBay's and the trade's, they
+// have to STAY (renaming eBay's own vocabulary would make the app disagree
+// with the site the seller is looking at), and a borrowed word is no more
+// knowable to a new seller than an invented one. Same registry on purpose: a
+// second glossary is how the two end up disagreeing.
 
 export interface ProductTerm {
   /** Exactly as the product spells it. */
@@ -140,6 +147,27 @@ export const PRODUCT_TERMS = [
       "A group of listings set to go live at the same time, usually when buyers are looking.",
     to: "/dashboard/flipdesk/scheduled-drops",
     aliases: ["Scheduled drop"],
+  },
+  {
+    term: "Item specifics",
+    definition:
+      "eBay's name for the details it wants on a listing: brand, size, colour, material. Some are required before it will publish.",
+    aliases: ["Aspects", "Aspect"],
+  },
+  {
+    term: "SKU",
+    definition:
+      "Your own short code for one item, so you can find it on a shelf and in the app without reading the whole title.",
+  },
+  {
+    term: "Provenance",
+    definition:
+      "Where a piece of information came from, and how sure we are of it: your typing, a photo, eBay, or a guess by the AI.",
+  },
+  {
+    term: "Taxonomy",
+    definition:
+      "eBay's tree of categories. Picking the right branch decides which details it asks you for and who sees the listing.",
   },
 ] as const satisfies ReadonlyArray<ProductTerm>;
 

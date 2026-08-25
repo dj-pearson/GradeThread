@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Loader2,
   AlertCircle,
@@ -117,7 +118,7 @@ export function EbayCompsPanel({
       .update({ target_price: rounded } as never)
       .eq("id", itemId);
     if (error) {
-      toast.error(`Failed to update target price: ${error.message}`);
+      toastError(error, "Failed to update target price.");
       return;
     }
     onTargetPriceUpdated?.(rounded);

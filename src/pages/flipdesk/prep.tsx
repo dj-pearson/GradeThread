@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Hammer,
   ChevronLeft,
@@ -140,9 +141,7 @@ export function FlipdeskPrepPage() {
       // queue, sliding the next item into place.
       setIndex((i) => Math.min(i, Math.max(0, queue.length - 2)));
     } catch (err) {
-      toast.error(
-        `Save failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Save failed.");
     } finally {
       setSaving(false);
     }

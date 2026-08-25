@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { ALL_SURFACES, NAV_GROUPS } from "@/lib/surfaces";
 
 // US-2857 + US-2858.
 //
@@ -25,7 +26,6 @@ const root = process.cwd();
 const read = (p: string) => readFileSync(resolve(root, p), "utf8");
 
 const ROUTES_FILE = "src/routes/index.tsx";
-const SIDEBAR_FILE = "src/components/dashboard/sidebar.tsx";
 
 // The files that tell a new user where to go.
 const ONBOARDING_FILES = [
@@ -38,7 +38,6 @@ const ONBOARDING_FILES = [
 ];
 
 const routesSrc = read(ROUTES_FILE);
-const sidebarSrc = read(SIDEBAR_FILE);
 
 // ---------------------------------------------------------------- the router
 
@@ -80,22 +79,17 @@ const redirectPaths = new Set(
 
 // --------------------------------------------------------------- the sidebar
 
-/** Every NavItem label the sidebar renders. */
-function parseNavLabels(src: string): Set<string> {
-  const out = new Set<string>();
-  for (const m of src.matchAll(/label:\s*"([^"]+)"/g)) out.add(m[1]!);
-  return out;
-}
-
-/** Every nav group / subgroup title the sidebar renders. */
-function parseNavTitles(src: string): Set<string> {
-  const out = new Set<string>();
-  for (const m of src.matchAll(/title:\s*"([^"]+)"/g)) out.add(m[1]!);
-  return out;
-}
-
-const navLabels = parseNavLabels(sidebarSrc);
-const navTitles = parseNavTitles(sidebarSrc);
+// US-2876: labels and section titles moved out of sidebar.tsx into
+// src/lib/surfaces.ts. Read from there rather than scraped out of the
+// component -- these are now the exact values the sidebar renders, not the
+// strings a regex happened to find near them.
+const navLabels = new Set(ALL_SURFACES.filter((s) => s.nav !== null).map((s) => s.label));
+const navTitles = new Set(
+  NAV_GROUPS.flatMap((g) => [
+    ...(g.title ? [g.title] : []),
+    ...(g.subgroups ?? []).map((sub) => sub.title),
+  ]),
+);
 
 // ------------------------------------------------------- the onboarding copy
 

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Upload,
   Link2,
@@ -233,9 +234,7 @@ export function EbaySkuMatch() {
           (skipped > 0 ? `, ${skipped} rows skipped` : ""),
       );
     } catch (err) {
-      toast.error(
-        `Import failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Import failed.");
     } finally {
       setImporting(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -263,9 +262,7 @@ export function EbaySkuMatch() {
       await qc.invalidateQueries({ queryKey: ["ebay_listings"] });
       toast.success("Cleared imported eBay listings.");
     } catch (err) {
-      toast.error(
-        `Clear failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Clear failed.");
     }
   }
 
@@ -417,9 +414,7 @@ export function EbaySkuMatch() {
       ]);
       toast.success("Listing linked to suggested item.");
     } catch (err) {
-      toast.error(
-        `Link failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Link failed.");
     } finally {
       setQuickLinkBusyId(null);
     }
@@ -434,9 +429,7 @@ export function EbaySkuMatch() {
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["ebay_listings"] });
     } catch (err) {
-      toast.error(
-        `Failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Failed.");
     }
   }
 
@@ -456,9 +449,7 @@ export function EbaySkuMatch() {
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["ebay_listings"] });
     } catch (err) {
-      toast.error(
-        `Failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Failed.");
     }
   }
 
@@ -817,9 +808,7 @@ export function EbaySkuMatch() {
             toast.success("Item created and linked to the eBay listing.");
             setCreateTarget(null);
           } catch (err) {
-            toast.error(
-              err instanceof Error ? err.message : String(err),
-            );
+            toastError(err);
           }
         }}
       />
@@ -1010,9 +999,7 @@ function LinkItemDialog({
       toast.success("Listing linked.");
       handleClose();
     } catch (err) {
-      toast.error(
-        `Link failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Link failed.");
     } finally {
       setSaving(false);
     }

@@ -444,7 +444,7 @@ struct GradeRequestSheet: View {
             if let report = store.report {
                 Text("Your preliminary grade is \(String(format: "%.1f", report.overallScore)) · \(report.gradeTier). A GradeThread expert is reviewing it before it becomes official — the certificate goes live and the grade appears on this item automatically once review is complete. No need to resubmit.")
             } else {
-                Text("Your AI grade is being reviewed by a GradeThread expert before it becomes official. It'll appear on this item automatically once review is complete — no need to resubmit.")
+                Text("\(GradingJourneyCopy.humanReviewWhat) \(GradingJourneyCopy.humanReviewCertificate) \(GradingJourneyCopy.humanReviewCost) It appears on this item automatically once review is done — no need to resubmit.")
             }
         } actions: {
             Button("Done") { dismiss() }

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -77,7 +77,7 @@ export function useUpdateVerifiedProfile() {
       queryClient.invalidateQueries({ queryKey: ["verified_profile", user?.id] });
     },
     onError: (err: Error) => {
-      toast.error(err.message);
+      toastError(err);
     },
   });
 }

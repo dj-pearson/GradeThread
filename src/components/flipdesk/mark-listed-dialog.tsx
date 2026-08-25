@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Loader2, Rocket } from "lucide-react";
 import {
   Dialog,
@@ -95,9 +96,7 @@ export function MarkListedDialog({
       toast.success(`"${item.item_title}" marked as listed.`);
       onClose();
     } catch (err) {
-      toast.error(
-        `Failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Failed.");
     } finally {
       savingRef.current = false;
       setSaving(false);

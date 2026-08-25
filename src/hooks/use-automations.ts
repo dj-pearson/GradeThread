@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import type { FilterField, FilterOp } from "@/lib/item-filter";
 
@@ -173,7 +174,7 @@ export function useCreateAutomationRule() {
       toast.success("Automation rule created.");
       queryClient.invalidateQueries({ queryKey: RULES_KEY });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -195,7 +196,7 @@ export function useUpdateAutomationRule() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: RULES_KEY });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -216,7 +217,7 @@ export function useDeleteAutomationRule() {
       toast.success("Rule deleted.");
       queryClient.invalidateQueries({ queryKey: RULES_KEY });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -238,7 +239,7 @@ export function useDryRunAutomationRule() {
         affected: data.affected ?? [],
       };
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -288,6 +289,6 @@ export function useRunAutomations() {
       queryClient.invalidateQueries({ queryKey: ["automation_rule_actions"] });
       queryClient.invalidateQueries({ queryKey: ["items_full"] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }

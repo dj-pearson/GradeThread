@@ -274,6 +274,7 @@ const IOS_GUARDS = [
   ["one sheet modifier per view", "check-chained-sheets.py"],
   ["AI routes on the AI session", "check-ai-session.py"],
   ["no trailing comma in a param list", "no-trailing-comma.py"],
+  ["help slugs exist in the shared registry", "check-help-slugs.py"],
 ];
 
 const results = [];
@@ -504,6 +505,14 @@ if (on("ios")) {
     // Different question from the text guards too: they ask whether the code is
     // WRITTEN safely, this asks whether anyone can REACH it.
     run("ios: no unreachable types", "node scripts/check-ios-orphans.mjs");
+
+    // US-2876: the Swift tables generated from TypeScript. Needs no Swift
+    // toolchain and no Python -- it reads both sides as text -- so it belongs
+    // in the always-on part of this lane rather than behind --ios.
+    run(
+      "ios: generated Swift mirrors are current",
+      "node scripts/generate-swift-mirrors.mjs --check",
+    );
 
     const py = resolvePython();
     if (!py) {

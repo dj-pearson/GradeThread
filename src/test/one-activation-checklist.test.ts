@@ -139,11 +139,35 @@ describe("the step list itself (US-2859)", () => {
     }
   });
 
-  it("only the in-place step omits a route", () => {
+  it("a step without a route is handled somewhere, or it is a dead button", () => {
+    // TWO steps have no `to`, and both are handled by name in
+    // use-activation.ts's complete():
+    //   notifications  asks the browser for permission, in place
+    //   extension      US-2883: leaves the app for the web store, at a URL
+    //                  resolved at runtime from the configured id
+    // Any OTHER routeless step is a CTA that does nothing at all, which is the
+    // failure this case exists to catch.
+    const HANDLED_IN_PLACE = new Set(["notifications", "extension"]);
+    const hook = readFileSync(
+      resolve(process.cwd(), "src/hooks/use-activation.ts"),
+      "utf8",
+    );
     for (const p of [...personas, null]) {
       for (const step of activationStepsFor(p, { notifications: true })) {
-        if (step.key === "notifications") {
-          expect(step.to, "notifications completes in place").toBeUndefined();
+        if (HANDLED_IN_PLACE.has(step.key)) {
+          expect(step.to, `${step.key} completes in place`).toBeUndefined();
+          // And the handler really is there, naming this step. Matched
+          // loosely on purpose: notifications is written as a NEGATION
+          // (`step.key !== "notifications"`) and extension as an equality, and
+          // pinning either spelling would fail on a harmless rewrite. What
+          // matters is that complete() mentions the step at all.
+          const at = hook.indexOf("const complete = useCallback");
+          expect(at, "complete() is gone from the hook").toBeGreaterThan(-1);
+          const body = hook.slice(at);
+          expect(
+            body,
+            `${step.key} has no route AND no branch in complete()`,
+          ).toContain(`"${step.key}"`);
         } else {
           expect(step.to, `${step.key} has nowhere to go`).toBeTruthy();
         }

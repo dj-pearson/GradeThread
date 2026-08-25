@@ -51,6 +51,11 @@ import {
   GRADE_TIERS,
   GARMENT_CATEGORIES,
 } from "@/lib/constants";
+import {
+  EXAMPLE_FACTORS,
+  EXAMPLE_GRADE,
+  EXAMPLE_ITEM,
+} from "@/lib/example-account";
 import type { FlipdeskPlan as FlipdeskPlanKey, BillingInterval } from "@/types/database";
 
 const features = [
@@ -469,17 +474,18 @@ const PROOF_STATS: { value: string; label: string; icon: typeof Layers }[] = [
 // not aggregate/social data. When VITE_SAMPLE_CERTIFICATE_ID is configured the
 // CTA links to the LIVE certificate; otherwise it falls back to signup so the
 // section is never a dead end.
+//
+// US-2865: the numbers moved to src/lib/example-account.ts and this reads
+// them. There is now one worked example in the product, shown here to a
+// visitor and on /dashboard/example to a new account, so support can answer
+// "what does a 9.0 look like" by naming one garment. Keeping a second copy
+// here is how the two drift, and they HAD: the five factors as written
+// weighted to 9.05, which rounds to 9.1, under a headline that said 9.0.
 const SAMPLE_CERT = {
-  title: "Patagonia Better Sweater Fleece Jacket",
-  overallScore: 9.0,
-  tier: "NWOT",
-  factors: [
-    { key: "fabric_condition" as const, score: 9.5 },
-    { key: "structural_integrity" as const, score: 9.0 },
-    { key: "cosmetic_appearance" as const, score: 8.5 },
-    { key: "functional_elements" as const, score: 9.0 },
-    { key: "odor_cleanliness" as const, score: 9.0 },
-  ],
+  title: EXAMPLE_ITEM.title,
+  overallScore: EXAMPLE_GRADE.overallScore,
+  tier: EXAMPLE_GRADE.tier,
+  factors: EXAMPLE_FACTORS,
 };
 
 function SampleCertificatePreview() {

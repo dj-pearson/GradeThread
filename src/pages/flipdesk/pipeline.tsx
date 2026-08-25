@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { SearchInput } from "@/components/search-input";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Card,
   CardContent,
@@ -1320,7 +1321,7 @@ function BulkGradeDialog({
       onSubmitted(results);
     } catch (err) {
       const e = err as Error;
-      toast.error(e.message);
+      toastError(e);
     }
   }
 

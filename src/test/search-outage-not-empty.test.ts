@@ -85,3 +85,76 @@ describe("search parity with iOS GlobalSearchView (US-2517)", () => {
     expect(src).toMatch(/aria-selected=\{i === activeIdx\}/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// US-2867 AC4. The story asked for `search-outage-not-empty` to cover the third
+// case, and the reason it was worth asking for turned up while checking: three
+// surfaces that had just been given a careful zero-data / zero-matches split
+// still rendered the ZERO-DATA state when the fetch failed.
+//
+//   bulk-pricing.tsx        queryFn threw, `rows = []` fallback, so an outage
+//                           told a seller with live listings "No active eBay
+//                           listings" and offered to help them publish one.
+//   autolister-drafts.tsx   same shape via `draftsRead?.rows ?? []`.
+//   use-flipdesk-demand.ts  returned only { demand, isLoading }, so demand.tsx
+//                           could not tell a quiet market from a 500.
+//
+// Two of the four US-2867 surfaces are NOT here on purpose: autolister.tsx and
+// autolister-queue.tsx filter local component state (staged photo groups, and
+// in-memory generation jobs), so there is no read to fail.
+//
+// The rule this pins is US-436's, applied to the branch ORDER: the error branch
+// must be reachable before the empty branch, or the empty branch wins and the
+// outage is disguised as an answer.
+
+describe("the third case: a failed read is neither empty state (US-2867)", () => {
+  const FETCHED_LISTS: Array<[file: string, errorIdent: string]> = [
+    ["src/pages/flipdesk/bulk-pricing.tsx", "error"],
+    ["src/pages/flipdesk/autolister-drafts.tsx", "draftsError"],
+    ["src/pages/flipdesk/demand.tsx", "error"],
+  ];
+
+  for (const [rel, ident] of FETCHED_LISTS) {
+    it(`${rel} renders the failure before the empty state`, () => {
+      const src = read(rel);
+      const errAt = src.indexOf("<ErrorState");
+      const emptyAt = src.indexOf("<EmptyState");
+      expect(errAt, `${rel} has no <ErrorState>; a failed fetch falls through ` +
+        "to the empty state and reads as an answer").toBeGreaterThan(-1);
+      expect(emptyAt).toBeGreaterThan(-1);
+      expect(
+        errAt,
+        `${rel}: <EmptyState> is reachable before <ErrorState>, so the outage ` +
+          "renders as 'you have none'",
+      ).toBeLessThan(emptyAt);
+      // And the CONDITION on the branch has to be the error, not merely a
+      // binding somewhere above it. Searching the whole file above the tag
+      // let a sabotage through: swapping the branch condition to a constant
+      // false still passed, because the useQuery destructure that names the
+      // variable sits higher up the file and satisfied the search.
+      const condition = src.slice(Math.max(0, errAt - 160), errAt);
+      expect(
+        new RegExp(`\\b${ident}\\b`).test(condition),
+        `${rel}: the branch that renders <ErrorState> is not conditioned on ` +
+          `${ident}. Something else decides whether the failure is shown.`,
+      ).toBe(true);
+    });
+
+    it(`${rel} gives the failure a retry`, () => {
+      // An error state with no way to try again is a nicer-looking dead end.
+      const src = read(rel);
+      const at = src.indexOf("<ErrorState");
+      const block = src.slice(at, at + 400);
+      expect(block, rel).toMatch(/onRetry=\{/);
+      expect(block, rel).toMatch(/refetch/);
+    });
+  }
+
+  it("the demand hook hands the page its error", () => {
+    // The page cannot branch on something the hook never returns, and this hook
+    // returned exactly { demand, isLoading }.
+    const src = read("src/hooks/use-flipdesk-demand.ts");
+    expect(src).toMatch(/error: query\.error/);
+    expect(src).toMatch(/refetch: query\.refetch/);
+  });
+});

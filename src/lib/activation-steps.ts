@@ -1,9 +1,10 @@
 import {
   Award,
   Bell,
+  Chrome,
   KeyRound,
   Package,
-  ScanLine,
+  Shirt,
   Store,
   MapPin,
   type LucideIcon,
@@ -41,7 +42,14 @@ export type ActivationStepKey =
   | "ebay"
   | "apikey"
   | "notifications"
-  | "scan";
+  // US-2883: the buyer's three, moved here from
+  // components/buyer/buyer-first-steps.tsx -- a second 204-line checklist with
+  // its own step list, its own count queries and its own localStorage
+  // dismissal, which is precisely the duplication US-2859 removed on the
+  // seller side and then left standing on the buyer side.
+  | "extension"
+  | "alert"
+  | "closet";
 
 /**
  * Everything any step needs in order to know whether it is done.
@@ -56,6 +64,10 @@ export interface ActivationState {
   apiKeyCount: number;
   ebayConnected: boolean;
   notificationsGranted: boolean;
+  /** US-2883: buyer signals. Saved searches, closet rows, the extension. */
+  alertCount: number;
+  closetCount: number;
+  extensionInstalled: boolean;
 }
 
 export interface ActivationStep {
@@ -146,19 +158,51 @@ const NOTIFICATIONS: ActivationStep = {
   isDone: (s) => s.notificationsGranted,
 };
 
-// US-2859: the buyer's step is the persona first-run card that used to sit
-// under the checklist saying something else. Buyers had NO checklist at all
-// (stepsFor returned an empty array), so their one piece of first-run guidance
-// lived in a component nothing else knew about.
-const SCAN: ActivationStep = {
-  key: "scan",
-  icon: ScanLine,
-  title: "Scan before you buy",
+// US-2883: the buyer's three real steps.
+//
+// They replace US-2859's single `scan` step, which was written
+// `isDone: () => false` -- a step nobody can ever complete. That is the exact
+// defect US-2553 had already fixed in the buyer's OWN checklist ("Verify a
+// certificate cannot complete: /verify is a public marketing page that records
+// nothing against an account, so the card would have stayed lit forever"), and
+// US-2859 reintroduced it here without knowing that component existed. A
+// permanently-lit step is worse than a shorter list: it tells a buyer who has
+// done everything that they have done nothing.
+//
+// Each of these three completes on a real signal.
+
+const EXTENSION: ActivationStep = {
+  key: "extension",
+  icon: Chrome,
+  title: "Get a second opinion",
   reason:
-    "Check the condition and the history of any graded garment before you pay for it.",
-  cta: "Scan a Passport",
-  to: "/scan",
-  isDone: () => false,
+    "The extension shows an objective condition read on any listing you are eyeing, while you are on it.",
+  cta: "Get the extension",
+  // Resolved at render: the Web Store URL when one is configured, else the
+  // settings page. See extensionWebStoreUrl() in src/lib/lister-extension.ts.
+  isDone: (s) => s.extensionInstalled,
+};
+
+const ALERT: ActivationStep = {
+  key: "alert",
+  icon: Bell,
+  title: "Set a condition alert",
+  reason:
+    "Snipe on grade, not just price. You hear when a graded item in your size and brands lists.",
+  cta: "Create an alert",
+  to: "/buyer/alerts",
+  isDone: (s) => s.alertCount > 0,
+};
+
+const CLOSET: ActivationStep = {
+  key: "closet",
+  icon: Shirt,
+  title: "Save a graded item",
+  reason:
+    "Verify a certificate and keep it, so the grade and the value travel with the garment.",
+  cta: "Verify and save",
+  to: "/verify",
+  isDone: (s) => s.closetCount > 0,
 };
 
 /**
@@ -186,9 +230,10 @@ export function activationStepsFor(
 
   switch (useCase) {
     case "buyer":
-      // One step, and no notifications tail: a buyer who has not scanned
-      // anything has nothing to be notified about yet.
-      return [SCAN];
+      // No notifications tail: the alert step already asks for the only
+      // notification a buyer has a reason to want, and asking twice in one
+      // list reads as the list not knowing what it already said.
+      return [EXTENSION, ALERT, CLOSET];
     case "developer":
       return [APIKEY, GRADE, ...tail];
     case "consignment":
@@ -222,4 +267,7 @@ export const EMPTY_ACTIVATION_STATE: ActivationState = {
   apiKeyCount: 0,
   ebayConnected: false,
   notificationsGranted: false,
+  alertCount: 0,
+  closetCount: 0,
+  extensionInstalled: false,
 };

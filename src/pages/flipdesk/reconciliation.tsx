@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Scale,
   AlertTriangle,
@@ -1050,7 +1051,7 @@ function ReviewQueueCard({
           { duration: 12_000 },
         );
       } else {
-        toast.error(e.message);
+        toastError(e);
       }
     } finally {
       setBusyPayoutId(null);

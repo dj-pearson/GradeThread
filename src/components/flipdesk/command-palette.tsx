@@ -12,7 +12,6 @@ import {
   Table2,
   Scale,
   Clock,
-  CornerDownLeft,
   FileSearch,
   LayoutDashboard,
   FileText,
@@ -27,11 +26,6 @@ import {
   Star,
   History,
 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
 import { fetchRecentSearches, recordSearch } from "@/lib/recent-searches";
@@ -40,12 +34,15 @@ import { useWorkspace } from "@/hooks/use-workspace";
 import { useRecentStore } from "@/stores/recent-store";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import type { WorkspaceCapability } from "@/lib/workspace-permissions";
-import { isTypingTarget } from "@/hooks/use-keyboard-shortcuts";
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts";
 import { OPEN_SHORTCUTS_EVENT } from "@/components/dashboard/shortcuts-help";
-import { cn } from "@/lib/utils";
 import type { SourceRow } from "@/types/database";
 import type { ItemListRow } from "@/lib/item-list-columns";
 import { itemsListQueryKey } from "@/hooks/use-items-full";
+import {
+  PaletteShell,
+  type PaletteSection,
+} from "@/components/palette/palette-shell";
 
 interface SearchHit {
   result_type: string;
@@ -138,7 +135,6 @@ export function CommandPalette() {
 
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [activeIdx, setActiveIdx] = useState(0);
   const [deepHits, setDeepHits] = useState<SearchHit[]>([]);
   // US-2517: the deep-text RPC failed — say the list is short, don't imply the
   // seller owns nothing matching.
@@ -148,36 +144,28 @@ export function CommandPalette() {
   // is empty. Sourced from the recent_searches RPC (RLS-scoped to the caller).
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
 
-  // Global open triggers: Cmd/Ctrl-K toggles; "/" opens for quick search
-  // (GitHub-style) as long as the user isn't already typing in a field.
+  // US-2881: Cmd/Ctrl-K through the shared hook, with allowInInput, exactly as
+  // the admin shell has always done it. This used to be a hand-rolled window
+  // listener whose "/" branch called isTypingTarget and whose Cmd-K branch did
+  // not -- except the hook's default DOES skip typing targets, so Cmd-K inside
+  // a search box opened the palette on /admin and did nothing on /dashboard.
+  // One shortcut, two behaviours, and neither shell knew about the other.
+  useKeyboardShortcuts([
+    { key: "k", ctrlOrMeta: true, allowInInput: true, handler: () => setOpen((o) => !o) },
+    // "/" stays typing-aware: it is a printable character, so opening a dialog
+    // when somebody types a slash into a field would be a bug rather than a
+    // shortcut.
+    { key: "/", handler: () => setOpen(true) },
+  ]);
+
+  // US-2863: the header's search control opens the same dialog.
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setOpen((o) => !o);
-        return;
-      }
-      if (
-        e.key === "/" &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        !isTypingTarget(e.target)
-      ) {
-        e.preventDefault();
-        setOpen(true);
-      }
-    }
-    // US-2863: the header's search control opens the same dialog.
     function onOpenRequest() {
       setOpen(true);
     }
-    window.addEventListener("keydown", onKey);
     window.addEventListener(OPEN_COMMAND_PALETTE_EVENT, onOpenRequest);
     return () => {
-      window.removeEventListener("keydown", onKey);
       window.removeEventListener(OPEN_COMMAND_PALETTE_EVENT, onOpenRequest);
     };
   }, []);
@@ -185,7 +173,6 @@ export function CommandPalette() {
   useEffect(() => {
     if (open) {
       setQuery("");
-      setActiveIdx(0);
       setDeepHits([]);
       setSubmissionHits([]);
       // US-1053: refresh recent searches each time the palette opens.
@@ -565,22 +552,11 @@ export function CommandPalette() {
     recentSearches,
   ]);
 
-  // Flat list for keyboard navigation.
-  const flat = useMemo(
-    () => sections.flatMap((s) => s.entries),
-    [sections],
-  );
-
-  useEffect(() => {
-    setActiveIdx(0);
-  }, [query]);
-
   function selectEntry(entry: Entry) {
     // US-1053: clicking a recent search re-runs it (fills the field, keeps the
     // palette open) rather than navigating anywhere.
     if (entry.kind === "recentsearch") {
       setQuery(entry.term);
-      setActiveIdx(0);
       inputRef.current?.focus();
       return;
     }
@@ -604,213 +580,62 @@ export function CommandPalette() {
     }
   }
 
-  function onKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActiveIdx((i) => Math.min(flat.length - 1, i + 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActiveIdx((i) => Math.max(0, i - 1));
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      const entry = flat[activeIdx];
-      if (entry) selectEntry(entry);
-    }
-  }
-
-  // Scroll the active row into view.
-  useEffect(() => {
-    const el = listRef.current?.querySelector(`[data-idx="${activeIdx}"]`);
-    el?.scrollIntoView({ block: "nearest" });
-  }, [activeIdx]);
-
-  let runningIdx = -1;
+  // US-2881: the dialog, the input, the grouping, the keyboard, the combobox
+  // ARIA and the empty state all come from PaletteShell now, shared with the
+  // admin palette. What stays here is the SELLER MODULE: which sections exist,
+  // what a row of each kind looks like, and what selecting one does.
+  const shellSections: PaletteSection<Entry>[] = sections.map((section) => ({
+    title: section.title,
+    entries: section.entries,
+  }));
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent
-        className="max-w-xl gap-0 overflow-hidden p-0"
-        onKeyDown={onKeyDown}
-      >
-        <DialogTitle className="sr-only">Command palette</DialogTitle>
-        <div className="flex items-center gap-2 border-b px-3">
-          <Search className="h-4 w-4 text-muted-foreground" />
-          <input
-            ref={inputRef}
-            autoFocus
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search items, submissions, sources, actions…"
-            className="h-12 flex-1 rounded-sm bg-transparent text-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            // US-441: expose the combobox pattern. The input owns the listbox
-            // below; aria-activedescendant points at the arrow-key-active row so
-            // a screen reader announces it without moving DOM focus off the
-            // input.
-            role="combobox"
-            aria-label="Search items, submissions, sources, actions"
-            aria-autocomplete="list"
-            aria-expanded={flat.length > 0}
-            aria-controls="command-palette-listbox"
-            aria-activedescendant={
-              flat.length > 0 ? `command-palette-option-${activeIdx}` : undefined
-            }
-          />
-          <kbd className="rounded border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            Esc
-          </kbd>
-        </div>
-
-        <div
-          ref={listRef}
-          id="command-palette-listbox"
-          role="listbox"
-          aria-label="Search results"
-          className="max-h-[60dvh] overflow-y-auto p-2"
-        >
-          {/* US-2517: an outage never poses as an empty result. */}
-          {deepFailed && query && (
-            <div
-              role="alert"
-              className="mb-1 rounded-md bg-amber-500/10 px-3 py-2 text-xs"
-            >
-              Deep text search is unavailable right now, so these results may be
-              incomplete.
-            </div>
+    <PaletteShell
+      open={open}
+      onOpenChange={setOpen}
+      title="Command palette"
+      query={query}
+      onQueryChange={setQuery}
+      placeholder="Search items, submissions, sources, actions…"
+      inputLabel="Search items, submissions, sources, actions"
+      sections={shellSections}
+      keyOf={(entry) => `${entry.kind}-${entry.id}`}
+      onSelect={selectEntry}
+      leading={<Search className="h-4 w-4 text-muted-foreground" />}
+      banner={
+        // US-2517: an outage never poses as an empty result.
+        deepFailed && query ? (
+          <div
+            role="alert"
+            className="mb-1 rounded-md bg-amber-500/10 px-3 py-2 text-xs"
+          >
+            Deep text search is unavailable right now, so these results may be
+            incomplete.
+          </div>
+        ) : null
+      }
+      empty={
+        <>
+          {query
+            ? deepFailed
+              ? "Search is unavailable right now. Try again in a moment."
+              : "No matches."
+            : "Type to search, or pick an action."}
+          {/* US-2863: an outage is not a teaching moment — the examples only
+              show when search is actually working. */}
+          {!deepFailed && (
+            <ul className="mx-auto mt-4 max-w-xs space-y-1 text-left text-xs">
+              {PALETTE_EXAMPLES.map((example) => (
+                <li key={example} className="flex gap-2">
+                  <span aria-hidden="true">&middot;</span>
+                  <span>Try {example}</span>
+                </li>
+              ))}
+            </ul>
           )}
-          {flat.length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">
-              {query
-                ? deepFailed
-                  ? "Search is unavailable right now. Try again in a moment."
-                  : "No matches."
-                : "Type to search, or pick an action."}
-              {/* US-2863: an outage is not a teaching moment — the examples
-                  only show when search is actually working. */}
-              {!deepFailed && (
-                <ul className="mx-auto mt-4 max-w-xs space-y-1 text-left text-xs">
-                  {PALETTE_EXAMPLES.map((example) => (
-                    <li key={example} className="flex gap-2">
-                      <span aria-hidden="true">&middot;</span>
-                      <span>Try {example}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ) : (
-            sections.map((section) => (
-              // US-441: each section is a labelled group inside the listbox; the
-              // visual header is aria-hidden so it isn't announced twice.
-              <div
-                key={section.title}
-                role="group"
-                aria-label={section.title}
-                className="mb-2"
-              >
-                <div
-                  aria-hidden="true"
-                  className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
-                >
-                  {section.title}
-                </div>
-                {section.entries.map((entry) => {
-                  runningIdx++;
-                  const idx = runningIdx;
-                  const isActive = idx === activeIdx;
-                  return (
-                    <button
-                      key={`${entry.kind}-${entry.id}`}
-                      type="button"
-                      id={`command-palette-option-${idx}`}
-                      role="option"
-                      aria-selected={isActive}
-                      data-idx={idx}
-                      onMouseMove={() => setActiveIdx(idx)}
-                      onClick={() => selectEntry(entry)}
-                      className={cn(
-                        "flex w-full items-center gap-3 rounded-md px-2 py-2 text-left text-sm",
-                        isActive ? "bg-muted" : "hover:bg-muted/60",
-                      )}
-                    >
-                      {entry.kind === "action" && (
-                        <>
-                          <span className="text-muted-foreground">
-                            {entry.icon}
-                          </span>
-                          <span className="flex-1">{entry.label}</span>
-                        </>
-                      )}
-                      {entry.kind === "item" && (
-                        <>
-                          <Package className="h-4 w-4 text-muted-foreground" />
-                          <span className="flex-1 truncate">
-                            {entry.item.item_title}
-                          </span>
-                          <Badge
-                            variant="secondary"
-                            className="text-[10px]"
-                          >
-                            {ITEM_STATUS_LABELS[entry.item.status]}
-                          </Badge>
-                          {entry.item.target_price != null && (
-                            <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                              ${entry.item.target_price.toFixed(0)}
-                            </span>
-                          )}
-                        </>
-                      )}
-                      {entry.kind === "submission" && (
-                        <>
-                          <FileText className="h-4 w-4 text-muted-foreground" />
-                          <span className="flex-1 truncate">
-                            {entry.sub.title || "Untitled submission"}
-                          </span>
-                          <Badge variant="secondary" className="text-[10px]">
-                            {entry.sub.status}
-                          </Badge>
-                        </>
-                      )}
-                      {entry.kind === "source" && (
-                        <>
-                          <MapPin className="h-4 w-4 text-muted-foreground" />
-                          <span className="flex-1 truncate">
-                            {entry.source.name}
-                          </span>
-                        </>
-                      )}
-                      {entry.kind === "recentsearch" && (
-                        <>
-                          <History className="h-4 w-4 text-muted-foreground" />
-                          <span className="flex-1 truncate">{entry.term}</span>
-                        </>
-                      )}
-                      {entry.kind === "deep" && (
-                        <>
-                          <FileSearch className="mt-0.5 h-4 w-4 flex-shrink-0 self-start text-muted-foreground" />
-                          <span className="flex-1 overflow-hidden">
-                            <span className="block truncate font-medium">
-                              {entry.hit.title}
-                            </span>
-                            <span className="block truncate text-[11px] text-muted-foreground">
-                              {renderSnippet(entry.hit.snippet)}
-                            </span>
-                          </span>
-                          <Badge variant="outline" className="text-[10px]">
-                            {entry.hit.result_type}
-                          </Badge>
-                        </>
-                      )}
-                      {isActive && (
-                        <CornerDownLeft className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            ))
-          )}
-        </div>
-
+        </>
+      }
+      footer={
         <div className="flex items-center gap-3 border-t px-3 py-2 text-[10px] text-muted-foreground">
           <span className="flex items-center gap-1">
             <Clock className="h-3 w-3" /> ↑↓ navigate
@@ -818,7 +643,70 @@ export function CommandPalette() {
           <span>↵ select</span>
           <span className="ml-auto">⌘K to toggle</span>
         </div>
-      </DialogContent>
-    </Dialog>
+      }
+      renderEntry={(entry) => (
+        <>
+          {entry.kind === "action" && (
+            <>
+              <span className="text-muted-foreground">{entry.icon}</span>
+              <span className="flex-1">{entry.label}</span>
+            </>
+          )}
+          {entry.kind === "item" && (
+            <>
+              <Package className="h-4 w-4 text-muted-foreground" />
+              <span className="flex-1 truncate">{entry.item.item_title}</span>
+              <Badge variant="secondary" className="text-[10px]">
+                {ITEM_STATUS_LABELS[entry.item.status]}
+              </Badge>
+              {entry.item.target_price != null && (
+                <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                  ${entry.item.target_price.toFixed(0)}
+                </span>
+              )}
+            </>
+          )}
+          {entry.kind === "submission" && (
+            <>
+              <FileText className="h-4 w-4 text-muted-foreground" />
+              <span className="flex-1 truncate">
+                {entry.sub.title || "Untitled submission"}
+              </span>
+              <Badge variant="secondary" className="text-[10px]">
+                {entry.sub.status}
+              </Badge>
+            </>
+          )}
+          {entry.kind === "source" && (
+            <>
+              <MapPin className="h-4 w-4 text-muted-foreground" />
+              <span className="flex-1 truncate">{entry.source.name}</span>
+            </>
+          )}
+          {entry.kind === "recentsearch" && (
+            <>
+              <History className="h-4 w-4 text-muted-foreground" />
+              <span className="flex-1 truncate">{entry.term}</span>
+            </>
+          )}
+          {entry.kind === "deep" && (
+            <>
+              <FileSearch className="mt-0.5 h-4 w-4 flex-shrink-0 self-start text-muted-foreground" />
+              <span className="flex-1 overflow-hidden">
+                <span className="block truncate font-medium">
+                  {entry.hit.title}
+                </span>
+                <span className="block truncate text-[11px] text-muted-foreground">
+                  {renderSnippet(entry.hit.snippet)}
+                </span>
+              </span>
+              <Badge variant="outline" className="text-[10px]">
+                {entry.hit.result_type}
+              </Badge>
+            </>
+          )}
+        </>
+      )}
+    />
   );
 }

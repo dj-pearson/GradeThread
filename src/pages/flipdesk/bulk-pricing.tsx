@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Loader2, Tags, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ import {
   type BulkPriceQtyUpdate,
 } from "@/hooks/use-ebay";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 interface BulkRow {
   id: string;
@@ -66,7 +68,17 @@ export function FlipdeskBulkPricingPage() {
   const { data: connection, isLoading: connLoading } = useEbayConnection();
   const connected = !!connection;
 
-  const { data: rows = [], isLoading, refetch } = useQuery({
+  const {
+    data: rows = [],
+    isLoading,
+    refetch,
+    // US-2867: the queryFn throws on a PostgREST error, so without reading
+    // `error` here the `rows = []` fallback renders "No active eBay listings"
+    // during an outage -- telling a seller with two hundred live listings that
+    // they have none. US-436's rule: a failed read is an ErrorState.
+    error,
+    isFetching,
+  } = useQuery({
     queryKey: ["bulk_pricing_listings"],
     enabled: connected,
     queryFn: async (): Promise<BulkRow[]> => {
@@ -260,7 +272,7 @@ export function FlipdeskBulkPricingPage() {
       }
       await refetch();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Bulk update failed.");
+      toastError(e, "Bulk update failed.");
     }
   }
 
@@ -503,6 +515,13 @@ export function FlipdeskBulkPricingPage() {
         <CardContent className="space-y-1">
           {isLoading ? (
             <Skeleton className="h-40 w-full" />
+          ) : error ? (
+            <ErrorState
+              title="Couldn't load your listings"
+              description={(error as Error).message}
+              onRetry={() => refetch()}
+              retrying={isFetching}
+            />
           ) : rows.length === 0 ? (
             <EmptyState
               icon={Tags}

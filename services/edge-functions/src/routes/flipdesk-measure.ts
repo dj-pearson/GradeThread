@@ -625,7 +625,10 @@ flipdeskMeasureRoutes.post("/overlay", async (c) => {
     .upload(path, jpeg, { contentType: "image/jpeg", upsert: true });
   if (upErr) {
     return c.json(
-      { error: `Could not store the render: ${upErr.message}` },
+      {
+        error: "Could not save the measurements photo.",
+        detail: upErr.message,
+      },
       502,
     );
   }
@@ -662,7 +665,10 @@ flipdeskMeasureRoutes.post("/overlay", async (c) => {
     .maybeSingle();
   if (insErr) {
     return c.json(
-      { error: `Render stored but row insert failed: ${insErr.message}` },
+      {
+        error: "The photo was saved but we could not attach it to the item.",
+        detail: insErr.message,
+      },
       502,
     );
   }

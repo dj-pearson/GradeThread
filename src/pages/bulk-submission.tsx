@@ -16,6 +16,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import {
@@ -484,9 +485,7 @@ export function BulkSubmissionPage() {
         toast.error("No submissions were created.");
       }
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Bulk upload failed."
-      );
+      toastError(err, "Bulk upload failed.");
     } finally {
       submitLockRef.current = false;
       cancelRef.current = false;

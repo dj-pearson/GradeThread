@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/table";
 import { ClickableRow } from "@/components/clickable-row";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { useBulkPublish } from "@/hooks/use-autolister";
 import { useBulkAspectCoverage, useEbayConnection } from "@/hooks/use-ebay";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
@@ -64,6 +65,7 @@ import { titleQuality } from "@/lib/title-quality";
 import { estimateListingProfit } from "@/lib/listing-profit";
 import type { AspectReviewEntry } from "@/types/database";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 // US-548: persistent AutoLister "Drafts" cockpit. The generation queue lives
 // only at a ?batch= URL, so a reseller who generates today and reviews tomorrow
@@ -142,7 +144,17 @@ export function FlipdeskAutolisterDraftsPage() {
   // as if it were everything meant a seller past 500 drafts published against a
   // queue they could not tell was cut short. fetchCapped asks for one row past
   // the cap, so `truncated` is a fact rather than a guess.
-  const { data: draftsRead, isLoading } = useQuery({
+  // US-2867: `error` and `refetch` are read here because the queryFn throws on
+  // a PostgREST error and the `?? []` fallback below would otherwise render
+  // "No unpublished drafts yet" during an outage -- an empty state is a claim
+  // about the data, and a failed read has no data to make claims about.
+  const {
+    data: draftsRead,
+    isLoading,
+    error: draftsError,
+    refetch: refetchDrafts,
+    isFetching: draftsFetching,
+  } = useQuery({
     queryKey: ["autolister_drafts", user?.id],
     enabled: !!user,
     staleTime: 30_000,
@@ -400,7 +412,7 @@ export function FlipdeskAutolisterDraftsPage() {
           .update({ listing_title: title || null, listing_price: price } as never)
           .eq("id", row.id);
         if (error) {
-          toast.error(`Couldn't save: ${error.message}`);
+          toastError(error, "Couldn't save.");
           return false;
         }
         // Cost lives on the ITEM, not the listing — a separate write, and only
@@ -415,7 +427,7 @@ export function FlipdeskAutolisterDraftsPage() {
             .update({ acquired_price: cost } as never)
             .eq("id", row.inventory_item_id);
           if (costErr) {
-            toast.error(`Saved, but the cost didn't stick: ${costErr.message}`);
+            toastError(costErr, "Saved, but the cost didn't stick.");
           } else {
             queryClient.setQueryData<
               Record<string, { title: string; cost: number | null }>
@@ -762,6 +774,13 @@ export function FlipdeskAutolisterDraftsPage() {
             <LoadingRegion label="Loading drafts" className="px-4">
               <SkeletonRows rows={5} />
             </LoadingRegion>
+          ) : draftsError ? (
+            <ErrorState
+              title="Couldn't load your drafts"
+              description={(draftsError as Error).message}
+              onRetry={() => refetchDrafts()}
+              retrying={draftsFetching}
+            />
           ) : drafts.length === 0 ? (
             // US-2866: the hand-built version already had the icon, the title,
             // the description and the button. It is the shared component now

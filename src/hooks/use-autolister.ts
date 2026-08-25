@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MAX_QA_ITEMS, runChunkedQa } from "@/lib/photo-qa-chunking";
 import type {
@@ -67,7 +68,7 @@ export function useStartAutolisterBatch() {
       }
       return json as StartBatchResponse;
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -349,7 +350,7 @@ export function useRunPhotoQa() {
       }
       return { results, requested: itemIds.length, failedItemIds: failed };
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -390,7 +391,7 @@ export function useRetryFailedAutolister() {
       if (!res.ok) throw new Error(json.error || "Could not retry failed jobs.");
       return json as { batch_id: string; retried: number };
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -408,7 +409,7 @@ export function useResumeAutolister() {
       if (!res.ok) throw new Error(json.error || "Could not resume generation.");
       return json as { batch_id: string; resumed: number };
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -461,7 +462,7 @@ export function useGeneratePlatformFields() {
       }
       return json as { listing_id: string; variants: PlatformKitVariant[] };
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -521,7 +522,7 @@ export function useApplyReconcile() {
       if (!res.ok) throw new Error(json.error || "Could not save your picks.");
       return json as { ok: true; inventory_item_id: string };
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -545,7 +546,7 @@ export function useLinkToExisting() {
       if (!res.ok) throw new Error(json.error || "Could not link to that SKU.");
       return json as { ok: true; target_item_id: string };
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -641,7 +642,7 @@ export function useDiscardAutolisterHandoff() {
       if (!res.ok) throw new Error(json.error || "Could not discard that batch.");
       return json as { ok: true };
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
     onSettled: () => qc.invalidateQueries({ queryKey: ["autolister_handoffs"] }),
   });
 }

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 
 // Condition-aware dynamic repricing — nudges feed + scan/apply/dismiss.
@@ -104,7 +105,7 @@ export function useScanRepricing() {
       );
       queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -136,7 +137,7 @@ export function useApplyReprice() {
       );
       queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -184,7 +185,7 @@ export function useBulkRepricePreview() {
       if (!res.ok) throw new Error(data.error ?? "Couldn't build the reprice preview.");
       return { items: data.items ?? [], capped: data.capped ?? false };
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -213,7 +214,7 @@ export function useBulkRepriceApply() {
       queryClient.invalidateQueries({ queryKey: ["items_full"] });
       queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -234,7 +235,7 @@ export function useDismissReprice() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -326,7 +327,7 @@ export function useRunRepriceRules() {
       queryClient.invalidateQueries({ queryKey: ["repricing_rules"] });
       queryClient.invalidateQueries({ queryKey: ["repricing_actions"] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -346,7 +347,7 @@ export function useCreateRepriceRule() {
       return data.rule;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repricing_rules"] }),
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -368,7 +369,7 @@ export function useUpdateRepriceRule() {
       return data.rule;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repricing_rules"] }),
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -385,7 +386,7 @@ export function useDeleteRepriceRule() {
       }
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["repricing_rules"] }),
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 

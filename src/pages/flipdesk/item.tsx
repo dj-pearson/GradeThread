@@ -13,6 +13,7 @@ import {
   Zap,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -511,7 +512,7 @@ function GradethreadListingCard({
       queryClient.invalidateQueries({ queryKey });
       queryClient.invalidateQueries({ queryKey: ["items_full"] });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't re-push to eBay.");
+      toastError(e, "Couldn't re-push to eBay.");
     }
   }
 
@@ -628,7 +629,7 @@ function LeaveFeedbackCard({ itemId }: { itemId: string }) {
           : `Positive feedback left${res.count > 1 ? ` (${res.count} items)` : ""}.`,
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't leave feedback.");
+      toastError(e, "Couldn't leave feedback.");
     }
   }
 
@@ -700,7 +701,7 @@ function PromotionSaleCard({ itemId }: { itemId: string }) {
       setRate("");
       queryClient.invalidateQueries({ queryKey: ["ebay_promotion", listingId] });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't update promotion.");
+      toastError(e, "Couldn't update promotion.");
     }
   }
   async function stopPromo() {
@@ -709,7 +710,7 @@ function PromotionSaleCard({ itemId }: { itemId: string }) {
       toast.success("Stopped promoting this listing.");
       queryClient.invalidateQueries({ queryKey: ["ebay_promotion", listingId] });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't stop promotion.");
+      toastError(e, "Couldn't stop promotion.");
     }
   }
   async function beginSale() {
@@ -723,7 +724,7 @@ function PromotionSaleCard({ itemId }: { itemId: string }) {
       toast.success(`Sale started — ${pct}% off with a SALE badge.`);
       queryClient.invalidateQueries({ queryKey: itemListingsKey(itemId) });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't start the Sale.");
+      toastError(e, "Couldn't start the Sale.");
     }
   }
   async function stopSale() {
@@ -732,7 +733,7 @@ function PromotionSaleCard({ itemId }: { itemId: string }) {
       toast.success("Sale ended — original price restored.");
       queryClient.invalidateQueries({ queryKey: itemListingsKey(itemId) });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't end the Sale.");
+      toastError(e, "Couldn't end the Sale.");
     }
   }
 

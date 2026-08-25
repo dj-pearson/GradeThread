@@ -40,6 +40,7 @@ import {
   getScoreBorderColor,
   getTierBadgeClasses,
   getProgressColor,
+  tierBandRange,
 } from "@/lib/constants";
 import {
   CONDITION_NOT_AUTHENTICITY_DISCLOSURE,
@@ -69,6 +70,7 @@ import {
   parseBadgeVariant,
 } from "@/lib/verified";
 import { supabase } from "@/lib/supabase";
+import { ScoreExplainer } from "@/components/grading/score-explainer";
 import { track } from "@/lib/analytics";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
@@ -788,8 +790,10 @@ export function CertificatePage() {
                 >
                   {gradeReport.grade_tier}
                 </Badge>
+                {/* US-2871: the band the tier stands for, from the one
+                    GRADE_TIER_BANDS table. */}
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Overall Condition Grade
+                  Scores {tierBandRange(gradeReport.grade_tier)} out of 10
                 </p>
                 {submission && (
                   <p className="mt-2 text-base font-medium">
@@ -1007,6 +1011,11 @@ export function CertificatePage() {
                 </div>
               );
             })}
+            <ScoreExplainer
+              factors={factorScores}
+              overallScore={gradeReport.overall_score}
+              className="mt-2"
+            />
           </CardContent>
         </Card>
 
@@ -1175,10 +1184,10 @@ export function CertificatePage() {
                 <div>
                   <p className="text-sm font-medium">360-Verified</p>
                   <p className="text-xs text-muted-foreground">
-                    Captured with a guided multi-angle (and where available depth)
-                    scan that proves true geometric coverage of the garment — every
-                    inspection zone is documented, so the grade and guarantee cover
-                    the whole item, not just what a few flat photos show.
+                    Shot with a guided scan from every angle, using depth
+                    where the phone has it. Every part of the garment is on
+                    camera, so the grade and the guarantee cover the whole
+                    item rather than the few spots a flat photo shows.
                   </p>
                 </div>
               </div>
@@ -1365,8 +1374,9 @@ export function CertificatePage() {
               <CardHeader>
                 <CardTitle className="text-base">Design Features</CardTitle>
                 <CardDescription>
-                  Intentional design elements assessed as styling — graded
-                  relative to the garment's original manufactured state.
+                  Things the maker put there on purpose. They are read as
+                  style, not as damage, and the grade is against how the
+                  garment left the factory.
                 </CardDescription>
               </CardHeader>
               <CardContent>

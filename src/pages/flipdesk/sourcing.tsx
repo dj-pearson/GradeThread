@@ -1,12 +1,14 @@
 import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router";
-import { Search } from "lucide-react";
+import { Search, ScanLine } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { PageHostContext } from "@/hooks/use-page-host";
 import { HostViewSkeleton } from "@/components/flipdesk/host-view-skeleton";
 import { resolveSourcingTab } from "@/pages/flipdesk/nav-tabs";
 import { PageHelp } from "@/components/help/page-help";
+import { PhoneOnlyRow } from "@/components/flipdesk/phone-only-row";
+import { ALL_SURFACES } from "@/lib/surfaces";
 
 // US-2161: ScoutAI, Buy Decision, Sources and Buyer Demand were four sidebar
 // entries answering one question — "what should I buy, and from where?" They are
@@ -52,6 +54,10 @@ const DemandPage = lazy(() =>
 );
 
 
+
+// Read from the registry (US-2876) rather than retyped, so the row and the
+// iOS Tools hub cannot end up describing Prospect differently.
+const PROSPECT = ALL_SURFACES.find((s) => s.id === "prospect")!;
 
 export function FlipdeskSourcingPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -132,6 +138,18 @@ export function FlipdeskSourcingPage() {
           </TabsContent>
         </Tabs>
       </PageHostContext.Provider>
+
+      {/* US-2878: Prospect is the fourth way to decide what to buy and it only
+          exists on the phone. Saying nothing was the actual bug -- a
+          desktop-first seller had no way to learn the product does this.
+          Below the tabs rather than above them: it is a thing that also
+          exists, not a thing competing with the tool they came for. */}
+      <PhoneOnlyRow
+        icon={ScanLine}
+        label={PROSPECT.label}
+        description={PROSPECT.description}
+        why="It is for when you are standing in the shop, so it lives where the camera is."
+      />
     </div>
   );
 }

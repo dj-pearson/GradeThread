@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Bold,
   Italic,
@@ -161,9 +161,7 @@ export function TiptapToolbar({ editor, onImageUpload, ai }: TiptapToolbarProps)
           const alt = await promptAlt();
           editor.chain().focus().setImage({ src: url, alt }).run();
         } catch (e) {
-          toast.error(
-            `Image upload failed: ${e instanceof Error ? e.message : String(e)}`,
-          );
+          toastError(e, "Image upload failed.");
         }
       };
       input.click();

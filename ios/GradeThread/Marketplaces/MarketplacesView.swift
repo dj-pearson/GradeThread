@@ -668,10 +668,10 @@ struct MarketplacesView: View {
                     .font(.title3)
                     .foregroundStyle(Color.brandNavy)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Reconcile photo dump")
+                    Text("Send photos to the web board")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.primary)
-                    Text("Send a batch of photos to a reconcile session to group into items on the web board")
+                    Text("Send a pile of photos to the web, where you can sort them into items")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)

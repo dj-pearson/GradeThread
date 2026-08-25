@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
 import type {
@@ -342,7 +343,7 @@ export function useCreateHelpArticle() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ARTICLES_KEY });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -360,7 +361,7 @@ export function useUpdateHelpArticle() {
       void qc.invalidateQueries({ queryKey: ARTICLES_KEY });
       void qc.setQueryData([...ARTICLES_KEY, article.id], article);
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -375,6 +376,6 @@ export function useDeleteHelpArticle() {
       toast.success("Article deleted.");
       void qc.invalidateQueries({ queryKey: ARTICLES_KEY });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }

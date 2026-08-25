@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Check,
   ChevronLeft,
@@ -237,7 +238,7 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
             : "Counter offer sent.",
       );
     } catch (err) {
-      toast.error(`Couldn't respond: ${(err as Error).message}`);
+      toastError(err, "Couldn't respond.");
     }
   }
 
@@ -458,7 +459,7 @@ function SendOfferCard() {
       setMessage("");
       setOpen(false);
     } catch (err) {
-      toast.error(`Couldn't send offers: ${(err as Error).message}`);
+      toastError(err, "Couldn't send offers.");
     }
   }
 
@@ -744,7 +745,7 @@ function MessageRow({ message }: { message: EbayBuyerMessage }) {
       setText("");
       setOpen(false);
     } catch (err) {
-      toast.error(`Couldn't reply: ${(err as Error).message}`);
+      toastError(err, "Couldn't reply.");
     }
   }
 

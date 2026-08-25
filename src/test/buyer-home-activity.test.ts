@@ -9,7 +9,13 @@ import { resolve } from "node:path";
 // buyer either — a trust card, an impact card and two grids of links.
 
 const HOME = "src/pages/buyer/home.tsx";
-const STEPS = "src/components/buyer/buyer-first-steps.tsx";
+// US-2883 MOVED THE BUYER'S STEPS. buyer-first-steps.tsx is gone: it was a
+// second 204-line checklist beside the seller's, with its own step list, its
+// own count queries and its own localStorage dismissal. Every assertion below
+// is still a real requirement -- they now point at the shared implementation.
+const STEPS_LIB = "src/lib/activation-steps.ts";
+const ACTIVATION = "src/hooks/use-activation.ts";
+const CHECKLIST = "src/components/onboarding/activation-checklist.tsx";
 const ACTIVITY = "src/components/buyer/buyer-activity.tsx";
 const EXT = "src/lib/lister-extension.ts";
 const PLACEHOLDER = "src/pages/buyer/placeholder.tsx";
@@ -39,34 +45,40 @@ describe("the get-started cards complete (US-2553 AC1, AC2)", () => {
     const src = read(HOME);
     expect(src).not.toContain("FIRST_STEPS");
     expect(src).not.toContain("interface FirstStep");
-    expect(src).toContain("<BuyerFirstSteps />");
+    expect(src).toContain('<ActivationChecklist persona="buyer" />');
   });
 
   it("each step is done when the THING happened, not when a button was clicked", () => {
     // The rule the seller checklist already follows, and the only one that
     // survives a page reload.
-    const src = read(STEPS);
-    expect(src).toContain('supabase.from("saved_searches")');
-    expect(src).toContain('supabase.from("closet_items")');
+    const src = read(ACTIVATION);
+    expect(src).toContain('head("saved_searches")');
+    expect(src).toContain('head("closet_items")');
     expect(src).toContain("isExtensionInstalled()");
     // Counts only — head:true sends no rows over the wire.
     expect(src).toMatch(/count: "exact", head: true/);
     expect(src).not.toContain("localStorage.setItem(\"step");
+    // And the done-checks read those counts rather than a click.
+    const lib = read(STEPS_LIB);
+    expect(lib).toContain("isDone: (s) => s.alertCount > 0");
+    expect(lib).toContain("isDone: (s) => s.closetCount > 0");
+    expect(lib).toContain("isDone: (s) => s.extensionInstalled");
   });
 
   it("it hides itself when there is nothing left to do", () => {
-    const src = read(STEPS);
-    expect(src).toContain("doneCount === steps.length) return null");
-    // And can be dismissed, per user, like the seller one.
-    expect(src).toContain("gt.buyer-first-steps.dismissed");
-    expect(read(SELLER_ACTIVATION)).toContain("gt.activation.dismissed");
+    expect(read(CHECKLIST)).toContain("if (remaining.length === 0) return null");
+    // And can be dismissed, per user AND per persona: dismissing the buyer
+    // list must not hide the seller one, because every seller can shop.
+    const src = read(SELLER_ACTIVATION);
+    expect(src).toContain("gt.activation.dismissed.buyer");
+    expect(src).toContain("gt.activation.dismissed");
   });
 
   it("the extension check survives a late content script", () => {
     // The marker is dropped by a content script that can land after first
     // paint, so a render-time call would report "not installed" forever.
-    const src = read(STEPS);
-    expect(src).toContain("setHasExtension(isExtensionInstalled())");
+    const src = read(ACTIVATION);
+    expect(src).toContain("setExtensionInstalled(isExtensionInstalled())");
     expect(src).toContain("setTimeout");
   });
 
@@ -74,11 +86,21 @@ describe("the get-started cards complete (US-2553 AC1, AC2)", () => {
     // "Verify a certificate" was replaced: /verify is a public marketing page
     // that records nothing against an account, so that card could never have
     // completed — which is the defect, not a fix for it.
-    const src = read(STEPS);
+    const src = read(STEPS_LIB);
     expect(src).not.toMatch(/key: "verify"/);
     expect(read("src/pages/marketing/verify.tsx")).not.toContain("closet_items");
     // The journey survives: the closet step still starts at /verify.
     expect(src).toContain('to: "/verify"');
+    // US-2883: and no step is written un-completable. US-2859's `scan` step
+    // was `isDone: () => false` -- the very defect this case exists for,
+    // reintroduced on the buyer persona by a story that did not know this
+    // component existed.
+    // code(), not read(): the comment ABOVE the buyer steps quotes that exact
+    // string while explaining why it is banned, and the first version of this
+    // assertion failed on its own documentation.
+    expect(code(STEPS_LIB), "a step can never complete").not.toContain(
+      "isDone: () => false",
+    );
   });
 });
 
@@ -123,14 +145,15 @@ describe("the extension link points at the extension (US-2553 AC4)", () => {
   });
 
   it("the card no longer sends people to settings to find an extension", () => {
-    const src = read(STEPS);
+    const src = read(ACTIVATION);
     expect(src).toContain("extensionWebStoreUrl()");
     // The fallback only applies when no id is configured at all (local dev),
     // and it is the ONLY remaining reference to that route.
-    expect((code(STEPS).match(/\/buyer\/settings/g) ?? []).length).toBe(1);
-    expect(src).toContain("storeUrl ?? \"/buyer/settings\"");
-    // An external link opens safely.
-    expect(src).toContain('rel="noopener noreferrer"');
+    expect((code(ACTIVATION).match(/\/buyer\/settings/g) ?? []).length).toBe(1);
+    // US-2883: it is a window.open now rather than an <a>, because the step
+    // runs through the shared complete() rather than rendering its own link.
+    // Same safety, stated the way window.open states it.
+    expect(src).toContain('window.open(url, "_blank", "noopener,noreferrer")');
   });
 
   it("the install check is not gated on the seller feature flag", () => {
@@ -146,7 +169,7 @@ describe("the extension link points at the extension (US-2553 AC4)", () => {
 
 describe("arrows are icons, not characters (US-2553 P3)", () => {
   it("the buyer surfaces stopped typing them", () => {
-    for (const rel of [HOME, STEPS, ACTIVITY, PLACEHOLDER]) {
+    for (const rel of [HOME, STEPS_LIB, CHECKLIST, ACTIVITY, PLACEHOLDER]) {
       const src = code(rel);
       // A bare arrow character is announced as "leftwards arrow" by a screen
       // reader and does not mirror in a right-to-left locale.

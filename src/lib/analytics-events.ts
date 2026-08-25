@@ -30,6 +30,10 @@
 // that fact have to live together or the fact is lost.
 
 import type { BuyerFunnelExit, BuyerFunnelStep } from "./buyer-analytics";
+import type {
+  ActivationFunnelExit,
+  ActivationFunnelStep,
+} from "./activation-analytics";
 
 /**
  * Every event emitted with a LITERAL name.
@@ -205,6 +209,11 @@ export const ANALYTICS_EVENTS = {
   // the event that story will build on.
   "onboarding.activation_step_started":
     "An activation-checklist step's button was pressed.",
+  // US-2884: the tour's two endings, which nothing recorded. Without them
+  // "tour finished" and "tour skipped" were indistinguishable from "never
+  // reached the tour".
+  "onboarding.tour_finished": "The first-run tour reached its last slide.",
+  "onboarding.tour_skipped": "The first-run tour was skipped.",
 
   // ── Content studio ────────────────────────────────────────────────────────
   "content.generated": "Content was generated.",
@@ -253,6 +262,16 @@ export const ANALYTICS_EVENTS = {
 export type BuyerFunnelEventName = `buyer_funnel_${BuyerFunnelStep | BuyerFunnelExit}`;
 
 /**
+ * US-2884: the activation funnel, the same way and for the same reason.
+ *
+ * `activationEventName()` computes its name from the ordered step list in
+ * activation-analytics.ts, so this is a template-literal family too.
+ * `activation_first_grade` type-checks; `activation_first_grad` does not.
+ */
+export type ActivationEventName =
+  `activation_${ActivationFunnelStep | ActivationFunnelExit}`;
+
+/**
  * Every name `track()` accepts.
  *
  * ⚠ The import above is TYPE-ONLY and deliberately so: `buyer-analytics.ts`
@@ -260,7 +279,10 @@ export type BuyerFunnelEventName = `buyer_funnel_${BuyerFunnelStep | BuyerFunnel
  * import back would close a module cycle at boot. Type-only imports erase. This
  * is the same call `rewards-economics.ts` documents for the same reason.
  */
-export type AnalyticsEvent = keyof typeof ANALYTICS_EVENTS | BuyerFunnelEventName;
+export type AnalyticsEvent =
+  | keyof typeof ANALYTICS_EVENTS
+  | BuyerFunnelEventName
+  | ActivationEventName;
 
 /** The literal names, for the drift guard. Not for runtime dispatch. */
 export const ANALYTICS_EVENT_NAMES = Object.keys(ANALYTICS_EVENTS) as AnalyticsEvent[];

@@ -108,7 +108,7 @@ describe("a filtered-empty list offers the way back (US-2867)", () => {
         "exists to remove",
     ).toBe(false);
     expect(
-      /action=\{/.test(src),
+      /\baction=\{/.test(src),
       "a filtered-empty state has no primary action — the rows already exist",
     ).toBe(false);
   });

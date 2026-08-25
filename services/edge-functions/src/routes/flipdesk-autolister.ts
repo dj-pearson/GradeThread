@@ -913,7 +913,10 @@ flipdeskAutolisterRoutes.post("/staging/upload", async (c) => {
       contentType: verdict.contentType,
     });
   if (upErr) {
-    return c.json({ error: `Upload failed: ${upErr.message}` }, 500);
+    return c.json(
+      { error: "Could not upload that photo.", detail: upErr.message },
+      500,
+    );
   }
   // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
   // not an item_photos row — there is no private variant to resolve.

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
@@ -98,7 +99,7 @@ export function useResolveConflicts() {
         toast.error(`…and ${data.failed.length - 3} more failed.`);
       }
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -148,6 +149,6 @@ export function useSetConflictThreshold() {
           : `You'll get an email when open conflicts reach ${vars.threshold}.`,
       );
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }

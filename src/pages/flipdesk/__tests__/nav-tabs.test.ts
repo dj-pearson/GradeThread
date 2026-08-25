@@ -21,6 +21,7 @@ import {
   resolveAutolisterView,
   RETIRED_VIEW_REDIRECTS,
 } from "@/pages/flipdesk/nav-tabs";
+import { ALL_SURFACES } from "@/lib/surfaces";
 
 describe("tab resolution", () => {
   it("accepts every declared tab", () => {
@@ -124,31 +125,30 @@ describe("retired nav paths", () => {
 });
 
 describe("sidebar", () => {
-  const sidebar = readFileSync("src/components/dashboard/sidebar.tsx", "utf8");
+  // US-2876: the sidebar builds itself from src/lib/surfaces.ts, so what it
+  // links is what the registry declares. Read as VALUES rather than as text --
+  // the assertions are the same ones, checked one step closer to the truth.
+  const navLinks = new Set(
+    ALL_SURFACES.filter((s) => s.nav !== null).map((s) => s.web),
+  );
 
   it("links the hosts, not the retired paths", () => {
-    expect(sidebar).toContain('to: "/dashboard/flipdesk/pricing"');
-    expect(sidebar).toContain('to: "/dashboard/flipdesk/sourcing"');
+    expect(navLinks.size, "no nav surfaces read").toBeGreaterThan(15);
+    expect(navLinks.has("/dashboard/flipdesk/pricing")).toBe(true);
+    expect(navLinks.has("/dashboard/flipdesk/sourcing")).toBe(true);
     for (const gone of Object.keys(RETIRED_NAV_REDIRECTS)) {
-      expect(
-        sidebar.includes(`to: "${gone}"`),
-        `${gone} should no longer be a sidebar entry`,
-      ).toBe(false);
+      expect(navLinks.has(gone), `${gone} should no longer be a sidebar entry`).toBe(
+        false,
+      );
     }
   });
 
   it("keeps Analytics highlighted across its tab paths", () => {
     // `end: true` would un-highlight the nav item on /analytics/community and
     // /analytics/performance, which now live under it.
-    // US-2861 gave every nav entry a `description`, so an item is a multi-line
-    // object literal now rather than one line. Read the whole entry, not a line.
-    const lines = sidebar.split("\n");
-    const at = lines.findIndex((l) =>
-      l.includes('to: "/dashboard/flipdesk/analytics"'),
-    );
-    expect(at, "the Analytics nav entry is gone").toBeGreaterThan(-1);
-    const entry = lines.slice(at, at + 8).join("\n");
-    expect(entry).toContain("end: false");
+    const analytics = ALL_SURFACES.find((s) => s.web === "/dashboard/flipdesk/analytics");
+    expect(analytics, "the Analytics nav entry is gone").toBeDefined();
+    expect(analytics!.nav?.end ?? false).toBe(false);
   });
 });
 
@@ -232,18 +232,16 @@ describe("the ?view= hosts (US-2161 second pass)", () => {
   });
 
   it("the sidebar links the hosts and drops the merged entries", () => {
-    const sidebar = readFileSync("src/components/dashboard/sidebar.tsx", "utf8");
-    expect(sidebar).toContain('to: "/dashboard/flipdesk/money"');
+    const navLinks = new Set(ALL_SURFACES.filter((s) => s.nav !== null).map((s) => s.web));
+    expect(navLinks.has("/dashboard/flipdesk/money")).toBe(true);
     for (const gone of Object.keys(RETIRED_VIEW_REDIRECTS)) {
       // AutoLister keeps its own entry — only the Drafts child was merged away.
       if (gone === "/dashboard/flipdesk/autolister/drafts") {
-        expect(sidebar).not.toContain(`to: "${gone}"`);
-        expect(sidebar).toContain('to: "/dashboard/flipdesk/autolister"');
+        expect(navLinks.has(gone)).toBe(false);
+        expect(navLinks.has("/dashboard/flipdesk/autolister")).toBe(true);
         continue;
       }
-      expect(sidebar, `${gone} is still a sidebar entry`).not.toContain(
-        `to: "${gone}"`,
-      );
+      expect(navLinks.has(gone), `${gone} is still a sidebar entry`).toBe(false);
     }
   });
 
@@ -271,23 +269,28 @@ describe("the ?view= hosts (US-2161 second pass)", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("FlipDesk is down to 16 sidebar entries", () => {
+  it("FlipDesk is at 17 sidebar entries", () => {
     // AC6's number, asserted rather than described. The story predicted ~14;
     // reaching that needed merges no criterion specified, so the owner approved
     // these two and amended the target to 16. Pinning it means the next entry
     // someone adds is a decision, not a drift.
-    const sidebar = readFileSync("src/components/dashboard/sidebar.tsx", "utf8");
-    const flipdeskStart = sidebar.indexOf('title: "Catalog"');
-    const flipdeskEnd = sidebar.indexOf('title: "Automate & insights"');
-    expect(flipdeskStart).toBeGreaterThan(0);
-    expect(flipdeskEnd).toBeGreaterThan(flipdeskStart);
-    const block = sidebar.slice(flipdeskStart, flipdeskEnd);
-    // US-2861: `to:` starts its own line now (each entry gained a
-    // `description` field), so this counts that line rather than the `{ to:`
-    // prefix the one-line form used to have.
-    const entries = [...block.matchAll(/^\s*to: "\/dashboard\//gm)].length;
-    // Catalog 3 + List & sell 3 + Sourcing 3 + Channels & money 6 = 15, plus
-    // the single "Automate & insights" entry below the slice = 16.
-    expect(entries).toBe(15);
+    //
+    // US-2876: counted off the registry rather than by matching `to:` lines in
+    // a slice of sidebar.tsx. Same number, and it can no longer be thrown off
+    // by how the component happens to be formatted.
+    //
+    // 16 -> 17 on 2026-08-25: US-2877 gave Listing templates a web page. It is
+    // the mechanism working rather than failing -- the entry is a decision with
+    // a story behind it, which is exactly what this assertion exists to force.
+    const flipdesk = ALL_SURFACES.filter((s) => s.nav?.group === "FlipDesk");
+    expect(flipdesk.length).toBe(17);
+    // Catalog 3 + List & sell 4 + Sourcing 3 + Channels & money 6 + Automate 1.
+    const perSubgroup = (title: string) =>
+      flipdesk.filter((s) => s.nav?.subgroup === title).length;
+    expect(perSubgroup("Catalog")).toBe(3);
+    expect(perSubgroup("List & sell")).toBe(4);
+    expect(perSubgroup("Sourcing")).toBe(3);
+    expect(perSubgroup("Channels & money")).toBe(6);
+    expect(perSubgroup("Automate & insights")).toBe(1);
   });
 });

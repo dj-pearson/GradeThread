@@ -1,5 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import type { ValueBasis } from "@/components/value/value-basis-note";
 
@@ -64,6 +65,6 @@ export function useScoutScan() {
         `Scanned ${r.scanned} listing${r.scanned === 1 ? "" : "s"} — ${actionable} deal${actionable === 1 ? "" : "s"} worth a look.`,
       );
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }

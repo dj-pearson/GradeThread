@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -36,11 +37,7 @@ export function ShareOutcomesToggle({ className }: { className?: string }) {
     } catch (err) {
       // Revert the optimistic flip if the save fails.
       setShareOutcomes(!next);
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : "Failed to update sale-outcome sharing.",
-      );
+      toastError(err, "Failed to update sale-outcome sharing.");
     } finally {
       setSaving(false);
     }

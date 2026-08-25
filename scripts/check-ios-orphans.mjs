@@ -70,6 +70,15 @@ const ALLOWED = {
     "from the numbers shown elsewhere\". Its only reference outside its own file " +
     "is SalesTests calling the static decodeSalesResiliently, and a test is not " +
     "a caller. 59 lines to delete from a machine that can run the iOS suite.",
+  HelpButton:
+    "UNREACHABLE (US-2874), and it is my own debt rather than an inherited " +
+    "one. The button that opens HelpSheet is written and placed on ZERO " +
+    "screens: putting it on the twenty-five surfaces the web HelpLink covers " +
+    "is twenty-five structural SwiftUI edits, and there is no Swift toolchain " +
+    "on the machine that wrote it. The web took a codemod plus tsc to do the " +
+    "same thing safely (US-2862) and there is no equivalent net here, so " +
+    "placement is a follow-on for somebody on a Mac. Delete this entry when " +
+    "the first screen gets one.",
   AIAttributeConfirmView:
     "UNREACHABLE (US-2791), and the starkest of the three: referenced nowhere " +
     "at all, not even by a test. US-826 closed on an AC reading \"AIExtractView " +

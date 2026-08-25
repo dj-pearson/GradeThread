@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
@@ -135,7 +136,7 @@ export function useToggleReaction() {
       queryClient.invalidateQueries({ queryKey: ["showcase_finds"] });
       queryClient.invalidateQueries({ queryKey: ["showcase_my_reactions"] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -181,6 +182,6 @@ export function useSetShowcaseConsent() {
           : "Removed from the public Finds feed.",
       );
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }

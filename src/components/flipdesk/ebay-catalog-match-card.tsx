@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Loader2, PackageSearch, CheckCircle2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { useCatalogMatch, useAdoptCatalogProduct } from "@/hooks/use-ebay";
 
@@ -45,7 +46,7 @@ export function EbayCatalogMatchCard({
             `Matched to eBay catalog — ${r.applied} item specific${r.applied === 1 ? "" : "s"} filled.`,
           ),
         onError: (e) =>
-          toast.error(e instanceof Error ? e.message : "Couldn't adopt the match."),
+          toastError(e, "Couldn't adopt the match."),
       },
     );
   }
@@ -67,8 +68,9 @@ export function EbayCatalogMatchCard({
         )}
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
-        Match this item to an eBay catalog product to auto-fill required item
-        specifics and reduce listing-compliance issues.
+        Point this item at a product eBay already knows. It fills in the item
+        specifics (eBay's word for item details) that eBay requires, so your
+        listing is less likely to be held up.
       </p>
 
       {!searching ? (

@@ -25,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { FieldError } from "@/components/ui/form-feedback";
 import { validateEmail } from "@/lib/validation";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { SEO } from "@/components/seo";
 
 export function LoginPage() {
@@ -134,7 +135,7 @@ export function LoginPage() {
       await signInWithGoogle();
       // On success the browser navigates to the provider — leave the spinner up.
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to sign in with Google");
+      toastError(err, "Failed to sign in with Google");
       setOauthPending(null);
     }
   }
@@ -147,7 +148,7 @@ export function LoginPage() {
       rememberReturnTo();
       await signInWithApple();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to sign in with Apple");
+      toastError(err, "Failed to sign in with Apple");
       setOauthPending(null);
     }
   }

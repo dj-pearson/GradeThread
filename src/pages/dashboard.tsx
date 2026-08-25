@@ -47,6 +47,7 @@ import { cn } from "@/lib/utils";
 import { ChartSkeleton } from "@/components/ui/skeletons";
 import { ErrorState } from "@/components/ui/error-state";
 import { EmptyState } from "@/components/ui/empty-state";
+import { showExampleAction } from "@/lib/show-example";
 import { PageHeader } from "@/components/ui/page-header";
 
 // Defer the Recharts bundle so the dashboard shell paints before charts load.
@@ -551,6 +552,9 @@ export function DashboardPage() {
                 onClick: () => navigate("/dashboard/submissions/new"),
                 icon: Plus,
               }}
+              // US-2865: for the seller who is not ready to press the primary
+              // button yet. One worked garment, read end to end.
+              secondaryAction={showExampleAction}
             />
           ) : (
             <div className="space-y-2">

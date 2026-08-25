@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRedirectStore } from "@/stores/redirect-store";
@@ -218,7 +219,7 @@ export function useFlipdeskSubscribe() {
         startPoll();
       }
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -311,7 +312,7 @@ export function useBuyerSubscribe() {
         startPoll();
       }
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -333,7 +334,7 @@ export function useBuyerCancel() {
       toast.success("Your buyer plan will end at the period close.");
       startPoll();
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -350,7 +351,7 @@ export function useBuyerUncancel() {
       toast.success("Your buyer plan will continue.");
       startPoll();
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -375,7 +376,7 @@ export function useBuyCreditPack() {
     onSuccess: (data) => {
       if (data.url) useRedirectStore.getState().redirectTo(data.url);
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -402,7 +403,7 @@ export function usePauseSubscription() {
       toast.success(`Subscription paused — resumes ${resumes}.`);
       qc.invalidateQueries({ queryKey: ["billing_summary"] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -419,7 +420,7 @@ export function useResumeSubscription() {
       toast.success("Subscription resumed.");
       qc.invalidateQueries({ queryKey: ["billing_summary"] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -450,7 +451,7 @@ export function useCancelSubscription() {
       toast.success(`Cancellation scheduled — your plan ends ${ends}.`);
       qc.invalidateQueries({ queryKey: ["billing_summary"] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -489,7 +490,7 @@ export function useScheduleDowngrade() {
       toast.success(`Downgrade scheduled — takes effect ${date}.`);
       qc.invalidateQueries({ queryKey: ["billing_summary"] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -508,7 +509,7 @@ export function useUndoDowngrade() {
       toast.success("Downgrade canceled — your plan continues.");
       qc.invalidateQueries({ queryKey: ["billing_summary"] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -525,7 +526,7 @@ export function useUncancelSubscription() {
       toast.success("Cancellation undone — your plan continues.");
       qc.invalidateQueries({ queryKey: ["billing_summary"] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -550,7 +551,7 @@ export function useBillingPortal(product: "flipdesk" | "buyer" = "flipdesk") {
     onSuccess: (data) => {
       if (data.url) useRedirectStore.getState().redirectTo(data.url);
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 

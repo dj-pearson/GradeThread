@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router";
-import { Check, Sparkles, X, ArrowRight } from "lucide-react";
+import { Check, Sparkles, X, ArrowRight , Compass } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -9,7 +9,10 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useActivation } from "@/hooks/use-activation";
+import { useGuidedPathStore } from "@/stores/guided-path-store";
+import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
+import type { UserUseCase } from "@/types/database";
 
 // US-2859 — THE activation checklist. One component, one step list
 // (src/lib/activation-steps.ts), one dismissal (src/hooks/use-activation.ts).
@@ -41,19 +44,39 @@ interface ActivationChecklistProps {
    * what "a filtered view of the same list" means, as against a second list.
    */
   variant?: "full" | "remaining";
+  /**
+   * US-2883: which persona's list to show, when the SHELL knows better than
+   * the profile does.
+   *
+   * Every seller can shop (US-1887), so a dual-role account has one
+   * `use_case` and two shells. The buyer home passes "buyer"; the seller
+   * surfaces pass nothing and get the profile's own persona. Without this a
+   * seller would meet their grade/item/eBay list on the buyer home.
+   */
+  persona?: UserUseCase;
 }
 
 export function ActivationChecklist({
   variant = "full",
+  persona,
 }: ActivationChecklistProps) {
   const navigate = useNavigate();
   const { steps, state, done, total, firstIncomplete, active, complete, dismiss } =
-    useActivation();
+    useActivation(persona);
+  const user = useAuthStore((s) => s.user);
+  const guidedActive = useGuidedPathStore((s) => s.active);
+  const startGuided = useGuidedPathStore((s) => s.start);
 
   if (!active) return null;
 
-  const shown =
-    variant === "remaining" ? steps.filter((s) => !s.isDone(state)) : steps;
+  // US-2883: gone once every step is done, on either shell. Not "all set!"
+  // with its own dismissal -- just gone. BuyerFirstSteps already worked this
+  // way and the shared component did not, so adopting it without this would
+  // have left a completed buyer staring at a permanent card.
+  const remaining = steps.filter((s) => !s.isDone(state));
+  if (remaining.length === 0) return null;
+
+  const shown = variant === "remaining" ? remaining : steps;
   if (shown.length === 0) return null;
 
   return (
@@ -145,6 +168,20 @@ export function ActivationChecklist({
             Skip for now
           </Button>
         </div>
+        {/* US-2873 AC1: the way into the guided path, offered from the
+            FIRST step rather than as a fifth list of its own. It walks
+            these same steps, one at a time. */}
+        {!guidedActive && firstIncomplete !== -1 && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-1 w-full sm:w-auto"
+            onClick={() => startGuided(user?.id)}
+          >
+            <Compass className="mr-1.5 h-4 w-4" />
+            Walk me through it
+          </Button>
+        )}
       </CardContent>
     </Card>
   );

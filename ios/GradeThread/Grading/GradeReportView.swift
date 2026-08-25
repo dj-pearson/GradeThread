@@ -306,7 +306,7 @@ struct GradeReportView: View {
                 Text("Pending human review")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.brandAmber)
-                Text("This grade's confidence is below our certify threshold, so a reviewer is taking a look. You'll be able to share a public certificate once it clears.")
+                Text("\(GradingJourneyCopy.humanReviewWhat) \(GradingJourneyCopy.humanReviewCertificate) \(GradingJourneyCopy.humanReviewCost)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -333,7 +333,7 @@ struct GradeReportView: View {
     }
 
     private var disclaimer: some View {
-        Text("AI-generated condition estimate — not a professional appraisal or guarantee. Lower-confidence grades are routed to a human reviewer.")
+        Text("A condition estimate from AI. It is not an appraisal and not a guarantee. When the AI is unsure, a person checks the grade.")
             .font(.caption2)
             .foregroundStyle(.secondary)
             .padding(12)

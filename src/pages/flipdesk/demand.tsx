@@ -2,6 +2,7 @@ import { Link } from "react-router";
 import { Loader2, Megaphone } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { useFlipdeskDemand, type DemandFacet } from "@/hooks/use-flipdesk-demand";
 import { PageHeader } from "@/components/ui/page-header";
 
@@ -52,10 +53,24 @@ function FacetBars({ title, facets, max }: { title: string; facets: DemandFacet[
 }
 
 export function FlipdeskDemandPage() {
-  const { demand, isLoading } = useFlipdeskDemand();
+  const { demand, isLoading, error, isFetching, refetch } = useFlipdeskDemand();
 
   if (isLoading) {
     return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
+  }
+  // US-2867: before the empty state, not after. `!demand` is true for both a
+  // quiet market and a failed request, and only one of those is worth acting on.
+  if (error) {
+    return (
+      <div className="mx-auto max-w-3xl py-8">
+        <ErrorState
+          title="Couldn't load buyer demand"
+          description={(error as Error).message}
+          onRetry={() => refetch()}
+          retrying={isFetching}
+        />
+      </div>
+    );
   }
   if (!demand || demand.totalWants === 0) {
     return (

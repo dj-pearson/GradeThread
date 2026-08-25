@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { challengeAndVerifyTotp } from "@/lib/mfa";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -203,7 +204,7 @@ export function MfaCard() {
       setNewCodes(null);
       await refresh();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+      toastError(e);
     } finally {
       setBusy(false);
       setRemoveOpen(false);

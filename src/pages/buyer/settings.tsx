@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { PageHeader } from "@/components/ui/page-header";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { cn } from "@/lib/utils";
 import { ChipInput } from "@/components/buyer/chip-input";
 import { CategoryPicker } from "@/components/buyer/category-picker";
@@ -121,7 +122,7 @@ export function BuyerSettingsPage() {
     <div className="mx-auto max-w-2xl space-y-6">
       <PageHeader
         title="Shopping preferences"
-        subtitle="These personalize your condition alerts, fit predictions, and recommendations across GradeThread."
+        subtitle="We use these to pick the alerts you get, guess your fit, and choose what to show you."
         icon={SlidersHorizontal}
       />
 
@@ -371,7 +372,7 @@ function PublicProfileCard() {
       });
       toast.success(nextEnabled ? "Public profile updated." : "Public profile hidden.");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't update your profile.");
+      toastError(e, "Couldn't update your profile.");
     }
   }
 

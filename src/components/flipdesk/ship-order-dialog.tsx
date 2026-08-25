@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Loader2, Printer, Tag, Truck } from "lucide-react";
 import {
   Dialog,
@@ -138,10 +139,11 @@ export function ShipOrderDialog({
       }
     } catch (err) {
       const e = err as Error & { code?: string };
-      toast.error(
+      toastError(
+        e,
         e.code === "ship_from_missing"
           ? e.message
-          : `Couldn't get rates: ${e.message}`,
+          : "Couldn't get shipping rates.",
         { duration: 10_000 },
       );
     }
@@ -170,9 +172,7 @@ export function ShipOrderDialog({
       );
       await qc.invalidateQueries({ queryKey: ["items_full"] });
     } catch (err) {
-      toast.error(`Couldn't buy the label: ${(err as Error).message}`, {
-        duration: 10_000,
-      });
+      toastError(err, "Couldn't buy the label.", { duration: 10_000 });
     }
   }
 
@@ -184,7 +184,7 @@ export function ShipOrderDialog({
       setLabelUrl(again.label_download_url ?? null);
       if (!again.label_download_url) toast.error("eBay returned no label link.");
     } catch (err) {
-      toast.error(`Couldn't fetch the label: ${(err as Error).message}`);
+      toastError(err, "Couldn't fetch the label.");
     }
   }
 
@@ -249,12 +249,11 @@ export function ShipOrderDialog({
       onClose();
     } catch (err) {
       const e = err as Error & { status?: number };
-      toast.error(
+      toastError(
+        e,
         e.status === 502
-          ? `eBay rejected the tracking: ${e.message}`
-          : `Couldn't mark shipped: ${
-              e instanceof Error ? e.message : String(e)
-            }`,
+          ? "eBay rejected the tracking number."
+          : "Couldn't mark this shipped.",
         { duration: 10_000 },
       );
     } finally {

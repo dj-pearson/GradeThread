@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeAuthHeaders } from "@/lib/edge-fetch";
 
@@ -78,7 +79,7 @@ export function useRemoveBackground() {
           { duration: 12_000 },
         );
       } else {
-        toast.error(err.message);
+        toastError(err);
       }
     },
   });

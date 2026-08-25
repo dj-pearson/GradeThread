@@ -11,6 +11,7 @@ import {
   Users,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuth } from "@/hooks/use-auth";
@@ -208,7 +209,7 @@ export function TeamPage() {
         .update({ revoked_at: new Date().toISOString() } as never)
         .eq("id", id);
       if (error) {
-        toast.error(error.message);
+        toastError(error);
         return;
       }
       toast.success("Invitation revoked");
@@ -660,7 +661,7 @@ function WorkspaceMfaPolicyCard({ ownerId }: { ownerId: string | null }) {
       );
     } catch (err) {
       setValue(prev);
-      toast.error(err instanceof Error ? err.message : "Failed to update policy.");
+      toastError(err, "Failed to update policy.");
     } finally {
       setSaving(false);
     }

@@ -1,5 +1,6 @@
 import { Outlet } from "react-router";
 import { Sidebar } from "@/components/dashboard/sidebar";
+import { GuidedPathBar } from "@/components/onboarding/guided-path-bar";
 import { Header } from "@/components/dashboard/header";
 import { RouteErrorBoundary } from "@/components/error-boundary";
 import { useRealtimeSubmissions } from "@/hooks/use-realtime-submission";
@@ -16,6 +17,7 @@ import { MaintenanceBanner } from "@/components/maintenance/maintenance-banner";
 import { PastDueBanner } from "@/components/billing/past-due-banner";
 import { ImpersonationBanner } from "@/components/admin/impersonation-banner";
 import { SupportChatWidget } from "@/components/support/support-chat-widget";
+import { MobileTabBar } from "@/components/dashboard/mobile-tab-bar";
 
 export function DashboardLayout() {
   // Subscribe to realtime submission updates for toast notifications
@@ -43,12 +45,19 @@ export function DashboardLayout() {
       <Sidebar />
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
+        {/* US-2880: below md the bottom tab bar floats over this, so the last
+            row of a scrolled list needs somewhere to end -- the bar's height
+            plus the home-indicator inset. `md:pb-6` puts it back to normal on
+            a desktop, where there is no bar. */}
         <main
           id="main-content"
           tabIndex={-1}
-          className="flex-1 overflow-y-auto bg-background p-6 outline-none"
+          className="flex-1 overflow-y-auto bg-background p-6 pb-[calc(5rem+env(safe-area-inset-bottom))] outline-none md:pb-6"
         >
           <RouteErrorBoundary>
+            {/* US-2873: one instruction, above whatever real screen the
+                seller is on. The screen keeps doing its own job. */}
+            <GuidedPathBar />
             <FlipdeskActivation />
             <MaintenanceBanner />
             <AnnouncementBanner />
@@ -70,6 +79,10 @@ export function DashboardLayout() {
       <AppBillingDialogs />
       {/* In-app, tier-gated AI support chat (US-838) */}
       <SupportChatWidget />
+      {/* US-2880: five tabs on a phone, matching the iOS shell. Rendered here
+          rather than inside Sidebar so the buyer shell -- which uses
+          BuyerLayout and BuyerSidebar -- never gets it (AC5). */}
+      <MobileTabBar />
       </div>
     </div>
   );

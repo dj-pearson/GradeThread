@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
 
@@ -183,6 +184,6 @@ export function useSetLeaderboardOptIn() {
       queryClient.invalidateQueries({ queryKey: ["leaderboards"] });
       toast.success(optIn ? "You're on the leaderboards." : "Removed from the leaderboards.");
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }

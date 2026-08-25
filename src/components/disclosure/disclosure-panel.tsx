@@ -50,8 +50,8 @@ export function DisclosurePanel({ itemId }: { itemId: string }) {
             Condition Disclosure
           </CardTitle>
           <CardDescription>
-            Grade this item to auto-generate a documented condition & flaws
-            disclosure and annotated defect photos.
+            Grade this item and we write up its condition and every flaw, with
+            the flaws marked on photos.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -127,9 +127,8 @@ export function DisclosurePanel({ itemId }: { itemId: string }) {
                 Auto-attach in AutoLister
               </div>
               <p className="text-xs text-muted-foreground">
-                When AutoLister generates this item's listing, defect-callout
-                photos are composited from the verified grade and added to the
-                photo set automatically.
+                When AutoLister writes this listing, it marks each flaw on a
+                photo and adds those photos for you.
               </p>
             </div>
             <Switch

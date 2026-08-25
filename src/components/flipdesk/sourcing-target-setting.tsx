@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -81,9 +82,7 @@ export function SourcingTargetSetting() {
           : `Sourcing to a ${value}% target.`,
       );
     } catch (err) {
-      toast.error(
-        `Couldn't save your target: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Couldn't save your target.");
     } finally {
       setSaving(false);
     }

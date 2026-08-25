@@ -35,7 +35,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 20-domain — grading, measurement, contracts
 
-60 notes — see [[moc-domain]].
+62 notes — see [[moc-domain]].
 
 ## 30-platform — marketplace integration
 
@@ -51,7 +51,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 60-decisions — ADRs
 
-12 notes — see [[moc-decisions]].
+14 notes — see [[moc-decisions]].
 
 ## 70-agent — how agents work here
 

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { ALL_SURFACES } from "@/lib/surfaces";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -115,9 +116,13 @@ describe("the developer surface is its own destination (US-2554 AC3)", () => {
     const routes = read(ROUTES);
     expect(routes).toContain('path: "/dashboard/developers"');
     expect(routes).toContain("const ApiKeysPage = lazy(");
-    const sidebar = read(SIDEBAR);
-    expect(sidebar).toContain('to: "/dashboard/developers"');
-    expect(sidebar).toContain('requires: "manage_api_keys"');
+    // US-2876: the nav entry and its capability gate live in the registry now,
+    // and the sidebar builds itself from it.
+    const developers = ALL_SURFACES.find((s) => s.web === "/dashboard/developers");
+    expect(developers, "the Developers nav entry is gone").toBeDefined();
+    expect(developers!.nav).not.toBeNull();
+    expect(developers!.requires).toBe("manage_api_keys");
+    expect(read(SIDEBAR)).toContain("ALL_SURFACES");
   });
 
   it("the old path still resolves, because Stripe returns to it", () => {

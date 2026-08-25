@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Ruler, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
@@ -118,7 +119,7 @@ export function BodyProfilesPage() {
       setDraft(null);
       invalidate();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't save. Try again.");
+      toastError(err, "Couldn't save. Try again.");
     } finally {
       setSaving(false);
     }

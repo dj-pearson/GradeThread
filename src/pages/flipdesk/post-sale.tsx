@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { daysUntil, splitByOpenState } from "@/pages/flipdesk/post-sale-state";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   AlertTriangle,
   Check,
@@ -176,7 +177,7 @@ function DisputesCard() {
       );
       await qc.invalidateQueries({ queryKey: ["ebay_payment_disputes"] });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Action failed.");
+      toastError(err, "Action failed.");
     } finally {
       setBusy(null);
     }
@@ -380,7 +381,7 @@ function EvidenceUploader({
       await addEvidence.mutateAsync({ disputeId, file });
       toast.success("Evidence uploaded to eBay.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Evidence upload failed.");
+      toastError(err, "Evidence upload failed.");
     }
   }
 
@@ -466,7 +467,7 @@ function ReturnsCard() {
       toast.success(decision === "approve" ? "Return approved." : "Return declined.");
       await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Action failed.");
+      toastError(err, "Action failed.");
     } finally {
       setBusy(null);
     }
@@ -513,7 +514,7 @@ function ReturnsCard() {
       setPartialAmount("");
       await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Refund failed.");
+      toastError(err, "Refund failed.");
     } finally {
       setBusy(null);
     }
@@ -534,7 +535,7 @@ function ReturnsCard() {
       toast.success("Refund issued.");
       await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Refund failed.");
+      toastError(err, "Refund failed.");
     } finally {
       setBusy(null);
     }
@@ -756,7 +757,7 @@ function CancellationsCard() {
       toast.success(action === "approve" ? "Cancellation approved." : "Cancellation rejected.");
       await qc.invalidateQueries({ queryKey: ["ebay_cancellations"] });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Action failed.");
+      toastError(err, "Action failed.");
     } finally {
       setBusy(null);
     }

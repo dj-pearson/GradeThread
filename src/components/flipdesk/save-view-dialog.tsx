@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Dialog,
   DialogContent,
@@ -69,9 +70,7 @@ export function SaveViewDialog({
       setPinned(true);
       onOpenChange(false);
     } catch (err) {
-      toast.error(
-        `Save failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Save failed.");
     } finally {
       setSaving(false);
     }

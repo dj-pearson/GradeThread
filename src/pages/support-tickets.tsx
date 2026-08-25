@@ -32,6 +32,7 @@ import {
   Check,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { ErrorState } from "@/components/ui/error-state";
 import {
   AttachmentPicker,
@@ -200,7 +201,7 @@ export function SupportTicketsPage() {
       });
       if (json.ticket_id) openTicket(json.ticket_id);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to open ticket");
+      toastError(err, "Failed to open ticket");
     } finally {
       setActing(false);
     }
@@ -228,7 +229,7 @@ export function SupportTicketsPage() {
       toast.success("Reply sent.");
       await refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to send reply");
+      toastError(err, "Failed to send reply");
     } finally {
       setActing(false);
     }
@@ -250,7 +251,7 @@ export function SupportTicketsPage() {
       });
       await refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to close ticket");
+      toastError(err, "Failed to close ticket");
     } finally {
       setActing(false);
     }

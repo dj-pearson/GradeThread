@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 
 // US-916: admin hooks for the product "What's New" changelog. All routes are
@@ -84,7 +85,7 @@ export function useCreateChangelogEntry() {
       qc.invalidateQueries({ queryKey: ["changelog_entries"] });
       toast.success("Entry created");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -100,7 +101,7 @@ export function useUpdateChangelogEntry() {
       qc.invalidateQueries({ queryKey: ["changelog_entries"] });
       toast.success("Entry saved");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -113,7 +114,7 @@ export function useDeleteChangelogEntry() {
       qc.invalidateQueries({ queryKey: ["changelog_entries"] });
       toast.success("Entry deleted");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -133,6 +134,6 @@ export function useAutoCaptureChangelog() {
           : "No new blog posts to capture",
       );
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }

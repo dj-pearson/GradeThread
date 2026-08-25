@@ -18,6 +18,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Loader2, Ruler, ScanSearch, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -393,11 +394,7 @@ export function MeasurementPhotoEditor({
       a.remove();
       URL.revokeObjectURL(href);
     } catch (err) {
-      toast.error(
-        `Couldn't download the measurements photo: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+      toastError(err, "Couldn't download the measurements photo.");
     } finally {
       setBusy(null);
     }
@@ -524,9 +521,7 @@ export function MeasurementPhotoEditor({
       setTouched(new Set());
       toast.success("Measurements saved.");
     } catch (err) {
-      toast.error(
-        `Couldn't save measurements: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Couldn't save measurements.");
     } finally {
       setBusy(null);
     }
