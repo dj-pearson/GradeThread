@@ -245,10 +245,12 @@ function SidebarNav({
     );
   }
 
+  function isRouteActive(item: Pick<NavItem, "to" | "end">): boolean {
+    return item.end ? pathname === item.to : pathname.startsWith(item.to);
+  }
+
   function groupHasActiveRoute(items: NavItem[]): boolean {
-    return items.some((item) =>
-      item.end ? pathname === item.to : pathname.startsWith(item.to),
-    );
+    return items.some(isRouteActive);
   }
 
   // US-2861: a titled section is a thing the user has to understand too, so
@@ -356,19 +358,28 @@ function SidebarNav({
       );
     }
 
+    // The className is a STRING, never NavLink's `({ isActive }) => ...`
+    // render prop. On desktop this link is the child of `<TooltipTrigger
+    // asChild>`, and Radix's Slot merges className by string-joining the
+    // parent's onto the child's -- so a function child lands in the DOM as its
+    // own SOURCE TEXT. The row then kept every class that happened to sit after
+    // a space (`items-center`, `gap-3`, `text-sm`) and lost `flex`, which was
+    // glued to the opening backtick, so every entry rendered its icon on one
+    // line and its label on the next. Active state is computed here instead.
+    const active = isRouteActive(item);
     const link = (
       <NavLink
         key={item.to}
         to={item.to}
         end={item.end}
         onClick={onNavigate}
-        className={({ isActive }) =>
-          `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-            isActive
-              ? "bg-white/15 text-white"
-              : "text-white/70 hover:bg-white/10 hover:text-white"
-          } ${variant === "mobile" ? "items-start" : ""}`
-        }
+        className={cn(
+          "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+          active
+            ? "bg-white/15 text-white"
+            : "text-white/70 hover:bg-white/10 hover:text-white",
+          variant === "mobile" && "items-start",
+        )}
       >
         <item.icon
           className={cn("h-5 w-5 flex-shrink-0", variant === "mobile" && "mt-0.5")}
