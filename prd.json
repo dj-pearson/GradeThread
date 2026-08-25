@@ -2500,20 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2876",
-      "passes": false,
-      "title": "One surface registry, read by both clients, instead of two hand-maintained lists",
-      "description": "sidebar.tsx navGroups and ToolsHubView modules are two hand-written lists of what the product contains. They already disagree: iOS surfaces Listing templates, Prospect, Reconcile photo dump and Community Insights as top-level tools; the web sidebar has no templates entry at all, no Prospect, and buries Community Insights inside Analytics tabs. Neither list knows about the other, so every new feature has to be remembered twice and is usually remembered once.",
-      "acceptanceCriteria": [
-        "src/lib/surfaces.ts declares every product surface once: id, label, one-line description, web route (or null), iOS route (or null), plan gate, capability gate, and which nav group it belongs to.",
-        "sidebar.tsx builds navGroups from it. ToolsHubView builds its modules from a generated Swift mirror.",
-        "A guard test fails if a route exists in the router under /dashboard/flipdesk or /dashboard that is neither in the registry nor explicitly listed as contextual/deep-link-only (the exemption list the sidebar comment already keeps in prose).",
-        "The same guard fails if a surface declares an iOS route no Swift view resolves."
-      ],
-      "priority": 76,
-      "notes": "US-2864 AC6 lands here. It needs iOS to read a generated Swift mirror of src/lib/product-terms.ts, and this story is already building that pipeline for the surface registry. Two one-off generators is the problem this story exists to fix, so the term list should ride the same generation step rather than getting its own."
-    },
-    {
       "id": "US-2877",
       "passes": false,
       "title": "Listing templates exist on iOS and nowhere on the web",
