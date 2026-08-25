@@ -9,6 +9,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { cn } from "@/lib/utils";
 import {
   Card,
@@ -97,7 +98,7 @@ function ViolationDetail({
         toast.info("eBay had no recommendations to apply for this listing.");
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not fix this listing.");
+      toastError(e, "Could not fix this listing.");
     } finally {
       setFixingId(null);
     }
@@ -218,7 +219,7 @@ export function EbayListingHealthCard() {
             : `Re-checked — ${r.flagged ?? 0} listing${r.flagged === 1 ? "" : "s"} flagged.`,
         );
       },
-      onError: (e) => toast.error(e instanceof Error ? e.message : "Re-check failed."),
+      onError: (e) => toastError(e, "Re-check failed."),
     });
   }
 

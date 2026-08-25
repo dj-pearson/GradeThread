@@ -16,6 +16,7 @@ import {
   Ungroup,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { itemPhotoThumb } from "@/lib/images";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
@@ -1143,9 +1144,7 @@ export function FlipdeskAutolisterPage() {
               await doImport();
             } catch (err) {
               setGpProgress(null);
-              toast.error(
-                `Google Photos import failed: ${err instanceof Error ? err.message : String(err)}`,
-              );
+              toastError(err, "Google Photos import failed.");
             } finally {
               stop();
             }
@@ -1160,9 +1159,7 @@ export function FlipdeskAutolisterPage() {
         })();
       }, 2500);
     } catch (err) {
-      toast.error(
-        `Could not start Google Photos: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Could not start Google Photos.");
       stop();
     }
   }
@@ -1360,9 +1357,7 @@ export function FlipdeskAutolisterPage() {
       return true;
     } catch (err) {
       setModelProgress(null);
-      toast.error(
-        `Background removal failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Background removal failed.");
       return false;
     } finally {
       setBgProcessing((prev) => {
@@ -1392,9 +1387,7 @@ export function FlipdeskAutolisterPage() {
       }
       return stats;
     } catch (err) {
-      toast.error(
-        `Auto-enhance failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Auto-enhance failed.");
       return null;
     } finally {
       setEnhancing((prev) => {
@@ -1475,9 +1468,7 @@ export function FlipdeskAutolisterPage() {
     try {
       up = await uploadStagingPhoto(sessionId.current, body, thumbBlob);
     } catch (err) {
-      toast.error(
-        `Could not save edit: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Could not save edit.");
       throw err;
     }
 
@@ -1718,7 +1709,7 @@ export function FlipdeskAutolisterPage() {
         } catch (err) {
           anyError = true;
           if (!silent && !multi) {
-            toast.error(`Verify failed: ${err instanceof Error ? err.message : String(err)}`);
+            toastError(err, "Verify failed.");
           }
         }
         done += window.length;
@@ -1855,7 +1846,7 @@ export function FlipdeskAutolisterPage() {
         } catch (err) {
           anyError = true;
           if (!multi) {
-            toast.error(`Propose failed: ${err instanceof Error ? err.message : String(err)}`);
+            toastError(err, "Propose failed.");
           }
         }
         done += win.length;
@@ -2362,9 +2353,7 @@ export function FlipdeskAutolisterPage() {
       updateGroup(groupId, { coverId: cover, roles, photoRoles });
       return true;
     } catch (err) {
-      toast.error(
-        `Auto-tag failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Auto-tag failed.");
       return false;
     } finally {
       setTaggingGroups((prev) => {
@@ -2681,9 +2670,7 @@ export function FlipdeskAutolisterPage() {
       clearStoredSession();
       navigate(`/dashboard/flipdesk/autolister/queue?batch=${res.batch_id}`);
     } catch (err) {
-      toast.error(
-        `Could not start generation: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Could not start generation.");
     } finally {
       setBusy(false);
     }
@@ -2737,9 +2724,7 @@ export function FlipdeskAutolisterPage() {
         `Loaded ${arrived.length} photo${arrived.length === 1 ? "" : "s"} from your phone.`,
       );
     } catch (err) {
-      toast.error(
-        `Could not load that batch: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Could not load that batch.");
     } finally {
       setLoadingHandoffId(null);
     }

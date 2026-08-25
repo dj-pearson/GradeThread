@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { CalendarClock, ExternalLink, Loader2, Megaphone, X } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -70,7 +71,7 @@ export function DropDayDialog({
       setEditing(null);
       toast.success(`${drop.title} moved.`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not reschedule.");
+      toastError(err, "Could not reschedule.");
     }
   }
 
@@ -81,7 +82,7 @@ export function DropDayDialog({
         `${drops.length} drop${drops.length === 1 ? "" : "s"} shifted.`,
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not shift the day.");
+      toastError(err, "Could not shift the day.");
     }
   }
 
@@ -199,9 +200,7 @@ export function DropDayDialog({
                           description: "The draft is untouched — schedule it again any time.",
                         });
                       } catch (err) {
-                        toast.error(
-                          err instanceof Error ? err.message : "Could not unschedule.",
-                        );
+                        toastError(err, "Could not unschedule.");
                       }
                     }}
                   >

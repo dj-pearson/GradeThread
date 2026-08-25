@@ -48,6 +48,7 @@ import {
 } from "lucide-react";
 import { memberSinceLabel } from "@/lib/loyalty-copy";
 import { toast } from "sonner";
+import { toastError, toastWarning } from "@/lib/toast-error";
 import { PromotedListingsDefaultCard } from "@/components/flipdesk/promoted-listings-default-card";
 import { ListingDefaultsCard } from "@/components/flipdesk/listing-defaults-card";
 import { useOnboardingTourStore } from "@/stores/onboarding-tour-store";
@@ -313,7 +314,7 @@ export function SettingsPage() {
       setAvatarPreview(null);
       toast.success("Profile updated successfully");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update profile");
+      toastError(err, "Failed to update profile");
     } finally {
       setSaving(false);
     }
@@ -349,9 +350,7 @@ export function SettingsPage() {
       queryClient.setQueryData(SHIPPING_PROFILE_QUERY_KEY, saved);
       toast.success("Business & shipping details saved");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to save business details",
-      );
+      toastError(err, "Failed to save business details");
     } finally {
       setSavingBusiness(false);
     }
@@ -410,7 +409,7 @@ export function SettingsPage() {
       setConfirmPassword("");
       toast.success("Password updated. Other devices have been signed out.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update password");
+      toastError(err, "Failed to update password");
     } finally {
       setChangingPassword(false);
     }
@@ -442,9 +441,7 @@ export function SettingsPage() {
       await refreshProfile();
       toast.success("Notification preferences saved");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to save preferences"
-      );
+      toastError(err, "Failed to save preferences");
     } finally {
       setSavingPrefs(false);
     }
@@ -474,9 +471,7 @@ export function SettingsPage() {
       await refreshProfile();
       toast.success("Usage alert settings saved.");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to save usage alert settings."
-      );
+      toastError(err, "Failed to save usage alert settings.");
     } finally {
       setSavingAlerts(false);
     }
@@ -501,11 +496,7 @@ export function SettingsPage() {
     } catch (err) {
       // Revert the optimistic flip if the save fails.
       setShareOutcomes(!next);
-      toast.error(
-        err instanceof Error
-          ? err.message
-          : "Failed to update sale-outcome sharing."
-      );
+      toastError(err, "Failed to update sale-outcome sharing.");
     } finally {
       setSavingShareOutcomes(false);
     }
@@ -538,9 +529,7 @@ export function SettingsPage() {
       await refreshProfile();
       toast.success("AI assistant settings saved.");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to save AI settings."
-      );
+      toastError(err, "Failed to save AI settings.");
     } finally {
       setSavingAi(false);
     }
@@ -578,9 +567,7 @@ export function SettingsPage() {
 
       toast.success("Your data export has been downloaded.");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to export data."
-      );
+      toastError(err, "Failed to export data.");
     } finally {
       setExporting(false);
     }
@@ -606,7 +593,7 @@ export function SettingsPage() {
           : "Deletion request filed. Our team will process it.",
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to file request.");
+      toastError(err, "Failed to file request.");
     } finally {
       setFilingRequest(null);
     }
@@ -1329,7 +1316,7 @@ function SignOutAllCard() {
       await signOutEverywhere();
       toast.success("Signed out of all devices.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to sign out everywhere");
+      toastError(err, "Failed to sign out everywhere");
       setBusy(false);
     }
   }
@@ -1404,7 +1391,7 @@ function DangerZoneCard() {
       toast.success("Your account has been permanently deleted.");
       navigate("/");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to delete account.");
+      toastError(err, "Failed to delete account.");
       setDeleting(false);
     }
   }
@@ -1486,8 +1473,9 @@ function PhotoArchiveCard() {
           `Archived ${r.archived} photo${r.archived === 1 ? "" : "s"} · freed ${freedMB} MB.`,
         );
       } else {
-        toast.warning(
-          `Archived ${r.archived}, ${r.errors.length} failed. First: ${r.errors[0]?.message}`,
+        toastWarning(
+          r.errors[0],
+          `Archived ${r.archived}, ${r.errors.length} failed.`,
           { duration: 14_000 },
         );
       }

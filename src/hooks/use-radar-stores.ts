@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 
 // US-1864: Thrift Radar's personal layer — "my stores".
@@ -121,6 +122,6 @@ export function useLinkRadarStore() {
           : "Unlinked. Your items and spend for that store are unchanged.",
       );
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }

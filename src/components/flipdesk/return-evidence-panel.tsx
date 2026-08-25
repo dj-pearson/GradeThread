@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { Loader2, Paperclip, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -71,7 +72,7 @@ export function ReturnEvidencePanel({
         }),
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't read the plan.");
+      toastError(err, "Couldn't read the plan.");
     }
   }
 
@@ -97,7 +98,7 @@ export function ReturnEvidencePanel({
       setFiles([]);
       setPlan(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "eBay rejected the evidence.");
+      toastError(err, "eBay rejected the evidence.");
     }
   }
 

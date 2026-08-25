@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { Bell, Bookmark, Loader2, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { trackBuyerFeature, trackBuyerFunnel } from "@/lib/buyer-analytics";
@@ -108,7 +109,7 @@ function ClaimedResult({
       toast.success("Saved to your closet.");
       navigate("/buyer/portfolio");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "We couldn't save that item.");
+      toastError(err, "We couldn't save that item.");
     } finally {
       setBusy(null);
     }

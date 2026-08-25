@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Moon } from "lucide-react";
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Card,
   CardContent,
@@ -113,7 +113,7 @@ export function QuietHoursCard() {
     try {
       await update.mutateAsync(merged);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't save.");
+      toastError(err, "Couldn't save.");
     }
   }
 

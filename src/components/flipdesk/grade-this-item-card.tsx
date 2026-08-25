@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Award,
   CheckCircle2,
@@ -227,7 +228,7 @@ export function GradeThisItemCard({
         toast.error(blocker, { duration: 10_000 });
         setValidation(e.validation.items[0] ?? null);
       } else {
-        toast.error(e.message);
+        toastError(e);
       }
     }
   }
@@ -260,7 +261,7 @@ export function GradeThisItemCard({
       setValidation(res.items[0] ?? null);
       toast.success("Garment details saved.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't save.");
+      toastError(err, "Couldn't save.");
     } finally {
       setSavingGarment(false);
     }

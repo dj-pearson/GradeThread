@@ -33,6 +33,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import {
@@ -421,9 +422,7 @@ export function PhotoManager({
       await invalidatePhotos();
       toast.success("Photo deleted.");
     } catch (err) {
-      toast.error(
-        `Delete failed: ${err instanceof Error ? err.message : String(err)}`
-      );
+      toastError(err, "Delete failed.");
     }
   }
 
@@ -568,9 +567,7 @@ export function PhotoManager({
           try {
             await persistPhotoBlob(editingPhoto, blob, recipe);
           } catch (err) {
-            toast.error(
-              `Couldn't save the edit: ${err instanceof Error ? err.message : String(err)}`,
-            );
+            toastError(err, "Couldn't save the edit.");
             return;
           }
           await invalidatePhotos();

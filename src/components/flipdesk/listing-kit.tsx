@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   AlertTriangle,
   Check,
@@ -294,7 +295,7 @@ function PlatformPanel({
           (skipped > 0 ? ` (${skipped} skipped)` : ""),
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't export photos.");
+      toastError(err, "Couldn't export photos.");
     } finally {
       setDownloading(false);
     }
@@ -325,7 +326,7 @@ function PlatformPanel({
       void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
       void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't record the listing.");
+      toastError(err, "Couldn't record the listing.");
     } finally {
       setConfirming(false);
     }
@@ -529,7 +530,7 @@ function PlatformPanel({
       void qc.invalidateQueries({ queryKey: ["platform-fields", itemId] });
       void qc.invalidateQueries({ queryKey: ["item_listing_platforms"] });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Send to extension failed.");
+      toastError(err, "Send to extension failed.");
     } finally {
       setSending(false);
     }
@@ -838,7 +839,7 @@ export function CrossPostNotice({
                       },
                       {
                         onSuccess: () => setQueued(true),
-                        onError: (err) => toast.error(err.message),
+                        onError: (err) => toastError(err),
                       },
                     );
                   }}

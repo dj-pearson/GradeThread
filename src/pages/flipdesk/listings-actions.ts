@@ -36,6 +36,7 @@
 
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError, toastWarning } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { downloadItemsCsv } from "@/lib/items-csv";
 import type { FilterQuery } from "@/lib/item-filter";
@@ -223,7 +224,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
       }
       downloadItemsCsv(all);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Export failed.");
+      toastError(e, "Export failed.");
     } finally {
       setExporting(false);
     }
@@ -270,8 +271,9 @@ export function makeListingsActions(d: ListingsActionDeps) {
     if (errors.length === 0) {
       toast.success(`Created ${created} draft${created === 1 ? "" : "s"}.`);
     } else {
-      toast.warning(
-        `Created ${created}, ${errors.length} failed. First: ${errors[0]?.message}`,
+      toastWarning(
+        errors[0],
+        `Created ${created}, ${errors.length} failed.`,
         { duration: 12_000 },
       );
     }
@@ -314,11 +316,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
       toast.success("Tracking updated.");
     } catch (err) {
       rollback();
-      toast.error(
-        `Couldn't update tracking: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+      toastError(err, "Couldn't update tracking.");
     }
   }
 
@@ -345,11 +343,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
       toast.success("Marked delivered.");
     } catch (err) {
       rollback();
-      toast.error(
-        `Couldn't mark delivered: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+      toastError(err, "Couldn't mark delivered.");
     }
   }
 
@@ -386,9 +380,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
       toast.success(res.pushed ? "Price updated on the marketplace." : "Price updated.");
     } catch (err) {
       rollback();
-      toast.error(
-        `Price update failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Price update failed.");
     }
   }
 
@@ -416,11 +408,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
       toast.success(`${label} updated.`);
     } catch (err) {
       rollback();
-      toast.error(
-        `Couldn't update ${label.toLowerCase()}: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
+      toastError(err, `Couldn't update ${label.toLowerCase()}.`);
     }
   }
 
@@ -442,9 +430,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
         }
         await qc.invalidateQueries({ queryKey: ["items_full"] });
       } catch (e) {
-        toast.error(
-          `Status changed, but the listing didn't sync: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        toastError(e, "Status changed, but the listing didn't sync.");
       }
     }
   }
@@ -516,10 +502,12 @@ export function makeListingsActions(d: ListingsActionDeps) {
       if (e.code === "unsupported_platform" || e.code === "not_connected") {
         // The listing is STILL LIVE. Say so plainly and for long enough to read
         // — this is the case that costs a seller a double sale.
-        toast.error(e.message, { duration: 12_000 });
+        toastError(e, "Could not end that listing.", {
+          duration: 12_000,
+        });
         return;
       }
-      toast.error(`End failed: ${e.message}`);
+      toastError(e, "End failed.");
     }
   }
 
@@ -612,9 +600,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
                   );
                 }
               } catch (err) {
-                toast.error(
-                  `Undo failed: ${err instanceof Error ? err.message : String(err)}`,
-                );
+                toastError(err, "Undo failed.");
               }
             })();
           },
@@ -641,9 +627,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
         );
       }
     } catch (err) {
-      toast.error(
-        `Bulk reprice failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Bulk reprice failed.");
     } finally {
       setBusy(false);
       setDropProgress(null);
@@ -694,14 +678,16 @@ export function makeListingsActions(d: ListingsActionDeps) {
         { description: PUBLISH_IS_FINAL, duration: 10_000 },
       );
     } else if (published === 0) {
-      toast.error(
-        `Publish failed for all ${errors.length}. First: ${errors[0]?.title} — ${errors[0]?.message}`,
+      toastError(
+        errors[0],
+        `Publish failed for all ${errors.length}. First: ${errors[0]?.title}`,
         { duration: 14_000 },
       );
     } else {
-      toast.warning(
-        `Published ${published}, ${errors.length} failed. First: ${errors[0]?.title} — ${errors[0]?.message}`,
-        { description: PUBLISH_IS_FINAL, duration: 14_000 },
+      toastWarning(
+        errors[0],
+        `Published ${published}, ${errors.length} failed. First: ${errors[0]?.title}. ${PUBLISH_IS_FINAL}`,
+        { duration: 14_000 },
       );
     }
   }
@@ -744,13 +730,15 @@ export function makeListingsActions(d: ListingsActionDeps) {
         duration: 10_000,
       });
     } else if (deleted === 0) {
-      toast.error(
-        `Couldn't delete ${errors.length}. First: ${errors[0]?.title} — ${errors[0]?.message}`,
+      toastError(
+        errors[0],
+        `Couldn't delete ${errors.length}. First: ${errors[0]?.title}`,
         { duration: 14_000 },
       );
     } else {
-      toast.warning(
-        `Deleted ${deleted}, ${errors.length} skipped. First: ${errors[0]?.title} — ${errors[0]?.message}`,
+      toastWarning(
+        errors[0],
+        `Deleted ${deleted}, ${errors.length} skipped. First: ${errors[0]?.title}`,
         { duration: 14_000 },
       );
     }
@@ -802,9 +790,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
         );
       }
     } catch (err) {
-      toast.error(
-        `Bulk end failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Bulk end failed.");
     } finally {
       setBusy(false);
     }
@@ -846,9 +832,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
         );
       }
     } catch (err) {
-      toast.error(
-        `Bulk resubmit failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Bulk resubmit failed.");
     } finally {
       setBulkReviseProgress(null);
       setBusy(false);
@@ -923,9 +907,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
         );
       }
     } catch (err) {
-      toast.error(
-        `Undo failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Undo failed.");
     } finally {
       setBusy(false);
     }
@@ -1016,9 +998,10 @@ export function makeListingsActions(d: ListingsActionDeps) {
         { duration: 15_000, action: undoAction },
       );
     } else {
-      toast.warning(
-        `Updated ${done}, ${errors.length} failed. First: ${errors[0]?.message}`,
-        { duration: 15_000, action: undoAction },
+      toastWarning(
+        errors[0],
+        `Updated ${done}, ${errors.length} failed.`,
+        { duration: 15_000, toastAction: undoAction },
       );
     }
     if (liveSkipped > 0) {

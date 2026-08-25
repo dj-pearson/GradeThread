@@ -21,6 +21,7 @@ import {
   LayoutTemplate,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
@@ -735,9 +736,7 @@ export function FlipdeskAutolisterBulkEditPage() {
       });
       toast.success("Applied smart defaults from your recent listings.");
     } catch (err) {
-      toast.error(
-        `Could not load smart defaults: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Could not load smart defaults.");
     } finally {
       setApplyingDefaults(false);
     }
@@ -953,10 +952,11 @@ export function FlipdeskAutolisterBulkEditPage() {
         // still-dirty failed rows with the server's stale copy and lose edits.
         const savedMsg =
           succeeded.size > 0 ? `Saved ${succeeded.size}. ` : "";
-        toast.error(
+        toastError(
+          failures[0],
           `${savedMsg}${failures.length} listing${
             failures.length === 1 ? "" : "s"
-          } couldn't save and stay marked unsaved: ${failures[0]!.message}`,
+          } couldn't save and stay marked unsaved.`,
         );
       }
     } finally {

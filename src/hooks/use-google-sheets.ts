@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
 import type { SheetMapConfig } from "@/types/database";
@@ -112,7 +113,7 @@ export function useStartGoogleOauth() {
       if (!json.consent_url) throw new Error("Server did not return a consent URL.");
       window.location.href = json.consent_url as string;
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -130,7 +131,7 @@ export function useCreateSyncSheet() {
       qc.invalidateQueries({ queryKey: ["google_connection"] });
       toast.success("Created your FlipDesk Sync sheet.");
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -151,7 +152,7 @@ export function useUseExistingSheet() {
       qc.invalidateQueries({ queryKey: ["google_connection"] });
       toast.success("Linked your existing sheet.");
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -199,7 +200,7 @@ export function useSyncNow() {
         );
       }
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -233,7 +234,7 @@ export function useSuggestSheetMap() {
       if (!res.ok) throw new Error(json.error || "Could not read that tab.");
       return json as SheetMapSuggestion;
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -254,7 +255,7 @@ export function useSaveSheetMap() {
       qc.invalidateQueries({ queryKey: ["google_connection"] });
       toast.success("Saved your sheet mapping. The next sync uses your tab.");
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -272,7 +273,7 @@ export function useClearSheetMap() {
       qc.invalidateQueries({ queryKey: ["google_connection"] });
       toast.success("Reverted to the generated tabs.");
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -290,6 +291,6 @@ export function useDisconnectGoogle() {
       qc.invalidateQueries({ queryKey: ["google_connection"] });
       toast.success("Disconnected Google.");
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }

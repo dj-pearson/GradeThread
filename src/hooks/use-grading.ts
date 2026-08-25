@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeAuthHeaders } from "@/lib/edge-fetch";
@@ -94,7 +94,7 @@ export function useValidateGrading() {
       }
       return json as ValidationResult;
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -193,7 +193,7 @@ export function useValidateGradingBulk() {
       }
       return json as ValidationResult;
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 

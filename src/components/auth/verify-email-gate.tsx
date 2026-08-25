@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 
 // US-366: shown when a session exists but the email is unverified. The edge
 // rejects every authenticated request from such a session (403 email_unverified),
@@ -49,9 +50,7 @@ export function VerifyEmailGate({ email }: { email: string | null }) {
         setCooldown(RESEND_COOLDOWN_SECONDS);
         toast.error(AUTH_RATE_LIMIT_MESSAGE);
       } else {
-        toast.error(
-          err instanceof Error ? err.message : "Failed to resend email",
-        );
+        toastError(err, "Failed to resend email");
       }
     } finally {
       setSending(false);

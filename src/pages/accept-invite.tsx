@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
@@ -107,7 +108,7 @@ export function AcceptInvitePage() {
     )("accept_workspace_invitation", { invitation_token: token });
     setAccepting(false);
     if (error) {
-      toast.error(error.message);
+      toastError(error);
       return;
     }
     const ownerId = data;

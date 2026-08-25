@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { Link } from "react-router";
 import { Camera, Check, Flame, Gift, Loader2, Plus, Share2, ShieldCheck, Snowflake, Trophy } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BuyerPlaceholderPage } from "@/pages/buyer/placeholder";
 import { Button } from "@/components/ui/button";
@@ -72,7 +73,7 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
       await uploadArrival(purchase.id, [{ image_type: type, data_url }]);
       toast.success(`${type} photo saved`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload failed");
+      toastError(e, "Upload failed");
     }
   }
 
@@ -89,7 +90,7 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
             : "Thanks! Grade confirmed.",
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not record your verdict");
+      toastError(e, "Could not record your verdict");
     }
   }
 
@@ -107,7 +108,7 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
           : "Claim filed — our team is reviewing it.",
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not file the claim");
+      toastError(e, "Could not file the claim");
     }
   }
 
@@ -132,7 +133,7 @@ function PurchaseCard({ purchase }: { purchase: PurchaseWithCaptures }) {
           : "Mismatch reported. Thanks for the honest signal.",
       );
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not record your verdict");
+      toastError(e, "Could not record your verdict");
     }
   }
 
@@ -346,7 +347,7 @@ function RewardsSummarySection() {
         toast.success("You're on the confirmer leaderboard.");
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't update the leaderboard.");
+      toastError(e, "Couldn't update the leaderboard.");
     }
   }
 
@@ -502,7 +503,7 @@ export function BuyerRewardsPage() {
       setMarketplace("");
       setPurchasedAt("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not link the purchase.");
+      toastError(e, "Could not link the purchase.");
     }
   }
 

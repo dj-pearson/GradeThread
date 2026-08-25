@@ -11,6 +11,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Card,
   CardContent,
@@ -146,7 +147,7 @@ export function FlipdeskConsignmentPage() {
       }
       window.location.href = body.url as string;
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Onboarding failed");
+      toastError(err, "Onboarding failed");
     } finally {
       setBusyId(null);
     }
@@ -491,7 +492,7 @@ function ConsignorEditDialog({
       toast.success(draft.id ? "Consignor updated." : "Consignor created.");
       onSaved();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed");
+      toastError(err, "Save failed");
     } finally {
       setSaving(false);
     }
@@ -640,7 +641,7 @@ function IntakeDialog({
       toast.success("Intake agreement signed.");
       onSaved();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed");
+      toastError(err, "Failed");
     } finally {
       setSaving(false);
     }
@@ -742,7 +743,7 @@ function PayoutDialog({
       );
       onSaved();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Payout failed");
+      toastError(err, "Payout failed");
     } finally {
       setSaving(false);
     }

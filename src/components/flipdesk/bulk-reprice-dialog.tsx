@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { toastWarning } from "@/lib/toast-error";
 import {
   useBulkRepricePreview,
   useBulkRepriceApply,
@@ -98,8 +99,9 @@ export function BulkRepriceDialog({
             `${result.ebay_synced > 0 ? `, ${result.ebay_synced} pushed to eBay` : ""}${skipNote}.`,
         );
       } else {
-        toast.warning(
-          `Repriced ${result.applied}, ${result.errors.length} failed. First: ${result.errors[0]?.message}`,
+        toastWarning(
+          result.errors[0],
+          `Repriced ${result.applied}, ${result.errors.length} failed.`,
           { duration: 12_000 },
         );
       }

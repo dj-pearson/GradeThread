@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/table";
 import { ClickableRow } from "@/components/clickable-row";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { useBulkPublish } from "@/hooks/use-autolister";
 import { useBulkAspectCoverage, useEbayConnection } from "@/hooks/use-ebay";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
@@ -411,7 +412,7 @@ export function FlipdeskAutolisterDraftsPage() {
           .update({ listing_title: title || null, listing_price: price } as never)
           .eq("id", row.id);
         if (error) {
-          toast.error(`Couldn't save: ${error.message}`);
+          toastError(error, "Couldn't save.");
           return false;
         }
         // Cost lives on the ITEM, not the listing — a separate write, and only
@@ -426,7 +427,7 @@ export function FlipdeskAutolisterDraftsPage() {
             .update({ acquired_price: cost } as never)
             .eq("id", row.inventory_item_id);
           if (costErr) {
-            toast.error(`Saved, but the cost didn't stick: ${costErr.message}`);
+            toastError(costErr, "Saved, but the cost didn't stick.");
           } else {
             queryClient.setQueryData<
               Record<string, { title: string; cost: number | null }>

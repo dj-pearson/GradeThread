@@ -345,7 +345,13 @@ flipdeskConsignmentRoutes.post("/payouts", async (c) => {
     .select("*")
     .single();
   if (insertErr || !payout) {
-    return c.json({ error: insertErr?.message ?? "Failed to record payout" }, 500);
+    return c.json(
+      {
+        error: "Could not record that payout.",
+        detail: insertErr?.message ?? null,
+      },
+      500,
+    );
   }
 
   const accountId = consignor.stripe_connect_account_id as string | null;

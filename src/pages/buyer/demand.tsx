@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { ChevronDown, ChevronRight, Loader2, Megaphone, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BuyerPlaceholderPage } from "@/pages/buyer/placeholder";
 import { Button } from "@/components/ui/button";
@@ -93,7 +94,7 @@ export function BuyerDemandPage() {
       if (res.matched > 0) setOpenMatches(res.want_id);
       setBrands(""); setCategories([]); setKeywords(""); setMinGrade(""); setMaxPrice("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not post your want.");
+      toastError(e, "Could not post your want.");
     }
   }
 

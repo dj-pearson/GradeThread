@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Loader2, PackageSearch, CheckCircle2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { useCatalogMatch, useAdoptCatalogProduct } from "@/hooks/use-ebay";
 
@@ -45,7 +46,7 @@ export function EbayCatalogMatchCard({
             `Matched to eBay catalog — ${r.applied} item specific${r.applied === 1 ? "" : "s"} filled.`,
           ),
         onError: (e) =>
-          toast.error(e instanceof Error ? e.message : "Couldn't adopt the match."),
+          toastError(e, "Couldn't adopt the match."),
       },
     );
   }

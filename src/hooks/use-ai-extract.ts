@@ -1,5 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
@@ -148,11 +149,11 @@ export async function recordAiAcceptance(
 
 function aiErrorToast(err: ApiError): void {
   if (err.status === 403) {
-    toast.error(err.message, {
-      description: "You can re-enable AI enrichment in Settings.",
+    toastError(err, "AI enrichment is switched off for this account.", {
+      nextStep: "Turn it back on in Settings.",
     });
   } else if (err.status === 429) {
-    toast.error(err.message || "Monthly AI limit reached.");
+    toastError(err, "Monthly AI limit reached.");
   } else if (err.status === 402) {
     // The plan gate answers with a machine code (CAP_REACHED / FEATURE_LOCKED)
     // rather than seller-facing text, so err.message can't be shown here. These
@@ -172,7 +173,7 @@ function aiErrorToast(err: ApiError): void {
   } else if (err.status === 502) {
     toast.error("AI is temporarily unavailable. Please try again.");
   } else {
-    toast.error(err.message || "AI request failed.");
+    toastError(err, "AI request failed.");
   }
 }
 

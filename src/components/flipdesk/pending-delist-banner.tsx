@@ -1,5 +1,6 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
@@ -49,7 +50,7 @@ export function PendingDelistBanner() {
         toast.success(`Ended on ${platformLabel(item.platform)}.`);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Delist failed.");
+      toastError(err, "Delist failed.");
     }
   };
 
@@ -73,7 +74,7 @@ export function PendingDelistBanner() {
       // is arranged to avoid.
       toast.success(`Queued for your desktop. ${QUEUED_NOTICE}`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not queue that.");
+      toastError(err, "Could not queue that.");
     }
   };
 
@@ -84,7 +85,7 @@ export function PendingDelistBanner() {
       await markDone.mutateAsync(item.listing_id);
       toast.success(`Marked ${platformLabel(item.platform)} as ended.`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not update the queue.");
+      toastError(err, "Could not update the queue.");
     }
   };
 

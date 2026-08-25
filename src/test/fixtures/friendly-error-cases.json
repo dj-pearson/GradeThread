@@ -1,0 +1,217 @@
+{
+  "$comment": [
+    "US-2869 AC5. The shared case list both clients are checked against.",
+    "",
+    "THE TWO CLIENTS DO NOT COVER THE SAME CASES, and pretending otherwise was",
+    "the temptation. iOS FriendlyErrorCopy was built for the AUTH surfaces",
+    "(US-1025, US-1406, US-1492, US-1521): it knows about weak passwords and",
+    "expired magic links and knows nothing about plan limits or an eBay token",
+    "that needs reconnecting, because the phone does not publish listings the",
+    "way the web does. The web map is the mirror image.",
+    "",
+    "So `platforms` on each case is DATA, not aspiration. The guard asserts",
+    "that each client handles what it claims, and prints the asymmetry rather",
+    "than hiding it. Adding an iOS case means a Swift enum change, which needs",
+    "a compiler this repo's Windows box does not have -- so it is a story, not",
+    "a line here.",
+    "",
+    "`ios` is the FriendlyErrorCopy.Kind name, absent when iOS has no case.",
+    "`samples` are raw strings the app has actually produced or would produce."
+  ],
+  "cases": [
+    {
+      "kind": "offline",
+      "ios": "offline",
+      "platforms": [
+        "web",
+        "ios"
+      ],
+      "samples": [
+        "Failed to fetch",
+        "NetworkError when attempting to fetch resource.",
+        "Load failed",
+        "The Internet connection appears to be offline."
+      ]
+    },
+    {
+      "kind": "invalidCredentials",
+      "ios": "invalidCredentials",
+      "platforms": [
+        "web",
+        "ios"
+      ],
+      "samples": [
+        "Invalid login credentials",
+        "invalid_credentials",
+        "Invalid email or password"
+      ]
+    },
+    {
+      "kind": "emailUnverified",
+      "ios": "emailNotConfirmed",
+      "platforms": [
+        "web",
+        "ios"
+      ],
+      "samples": [
+        "Email not confirmed",
+        "email_not_confirmed",
+        "Please confirm your email to use this feature."
+      ]
+    },
+    {
+      "kind": "rateLimited",
+      "ios": "rateLimited",
+      "platforms": [
+        "web",
+        "ios"
+      ],
+      "samples": [
+        "Request rate limit reached",
+        "over_email_send_rate_limit",
+        "Too many requests"
+      ]
+    },
+    {
+      "kind": "sessionExpired",
+      "platforms": [
+        "web"
+      ],
+      "$why": "iOS refreshes its own session and surfaces this as a sign-in prompt rather than an error string.",
+      "samples": [
+        "JWT expired",
+        "You must be signed in.",
+        "Not authenticated"
+      ]
+    },
+    {
+      "kind": "planLimit",
+      "platforms": [
+        "web"
+      ],
+      "$why": "The web has the plan-gate dialog (US-210). The phone does not gate on plan.",
+      "samples": [
+        "You have hit your monthly limit for AI actions.",
+        "Upgrade your plan to continue.",
+        "quota exceeded"
+      ]
+    },
+    {
+      "kind": "marketplaceReconnect",
+      "platforms": [
+        "web"
+      ],
+      "$why": "eBay OAuth lives on the web. The phone never holds a marketplace token.",
+      "samples": [
+        "reconnect-required",
+        "eBay is not connected",
+        "invalid_grant"
+      ]
+    },
+    {
+      "kind": "permission",
+      "platforms": [
+        "web"
+      ],
+      "$why": "An RLS refusal or a workspace-role rejection. Workspaces and sub-accounts are a web feature (US-268); the phone signs in as one person.",
+      "samples": [
+        "Forbidden",
+        "That is not allowed for your role."
+      ]
+    },
+    {
+      "kind": "notFound",
+      "platforms": [
+        "web"
+      ],
+      "$why": "The web has deep links into rows a user can reach after the row is gone. The phone navigates from lists it just loaded.",
+      "samples": [
+        "Listing not found",
+        "Not found"
+      ]
+    },
+    {
+      "kind": "validation",
+      "platforms": [
+        "web"
+      ],
+      "$why": "Form-shaped writes. iOS validates in the SwiftUI form before submitting, so a 400 from the server is not a case it renders.",
+      "samples": [
+        "Title is required",
+        "Invalid image: the file is not a JPEG"
+      ]
+    },
+    {
+      "kind": "conflict",
+      "platforms": [
+        "web"
+      ],
+      "$why": "Unique-constraint collisions on names the seller types (sources, saved views, SKUs). Those forms are web-only.",
+      "samples": [
+        "A source with that name already exists",
+        "duplicate key value violates unique constraint"
+      ]
+    },
+    {
+      "kind": "server",
+      "platforms": [
+        "web"
+      ],
+      "$why": "The class this story is named for: a database talking to a seller.",
+      "samples": []
+    },
+    {
+      "kind": "unknown",
+      "ios": "generic",
+      "platforms": [
+        "web",
+        "ios"
+      ],
+      "samples": [
+        "Something inexplicable happened"
+      ]
+    }
+  ],
+  "iosOnly": [
+    {
+      "kind": "userAlreadyExists",
+      "$why": "A signup rejection. The web handles it in src/lib/auth-error.ts, which predates this map and is not being merged here.",
+      "samples": [
+        "User already registered",
+        "user_already_exists"
+      ]
+    },
+    {
+      "kind": "weakPassword",
+      "$why": "Same: a GoTrue password-policy rejection on the signup form.",
+      "samples": [
+        "weak_password",
+        "Password should be at least 8 characters"
+      ]
+    },
+    {
+      "kind": "expiredLink",
+      "$why": "A magic-link / PKCE exchange failure. The web's callback page handles it inline.",
+      "samples": [
+        "otp_expired",
+        "flow_state_not_found",
+        "bad_code_verifier"
+      ]
+    },
+    {
+      "kind": "emailUnverified",
+      "$why": "iOS splits GoTrue's sign-in rejection from the edge's 403 on an authenticated action; the web sees only the second.",
+      "samples": []
+    }
+  ],
+  "pgCodes": {
+    "23502": "validation",
+    "23503": "conflict",
+    "23505": "conflict",
+    "42501": "permission",
+    "$comment": "SQLSTATE codes that must NEVER produce 'unknown', because 'unknown' is the one kind that can promote a server string into the headline.",
+    "22P02": "validation",
+    "PGRST301": "sessionExpired",
+    "PGRST116": "notFound"
+  }
+}

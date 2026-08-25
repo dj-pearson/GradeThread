@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Card,
   CardContent,
@@ -131,7 +132,7 @@ export function ReferralsPage() {
       if (!res.ok || !json.url) throw new Error(json.error || "Couldn't start onboarding");
       window.location.href = json.url;
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't start payout onboarding.");
+      toastError(e, "Couldn't start payout onboarding.");
       setConnecting(false);
     }
   };
@@ -185,7 +186,7 @@ export function ReferralsPage() {
       // US-1634: edgeFetch throws on a network error / expired session — without
       // a catch this was a silent unhandled rejection (the button just stopped
       // spinning with no feedback).
-      toast.error(err instanceof Error ? err.message : "Couldn't redeem that code.");
+      toastError(err, "Couldn't redeem that code.");
     } finally {
       setRedeeming(false);
     }
@@ -268,9 +269,7 @@ export function ReferralsPage() {
       qc.invalidateQueries({ queryKey: ["referrals-me"] });
     } catch (err) {
       // US-1634: surface a thrown error instead of a silent unhandled rejection.
-      toast.error(
-        err instanceof Error ? err.message : "Couldn't update your leaderboard settings.",
-      );
+      toastError(err, "Couldn't update your leaderboard settings.");
     } finally {
       setSavingLeaderboard(false);
     }

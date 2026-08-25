@@ -31,6 +31,7 @@ import type { UserUseCase, SignupSource } from "@/types/database";
 import { SIGNUP_SOURCE_OPTIONS } from "@/lib/constants";
 import { claimSummary, readBuyerClaim } from "@/lib/buyer-conversion-claim";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { SEO } from "@/components/seo";
 
 // Mirrors the constant in components/launch-banner.tsx. The signup notice
@@ -210,7 +211,7 @@ export function SignupPage() {
       await signInWithGoogle();
       // Success navigates to the provider — leave the spinner up.
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to sign in with Google");
+      toastError(err, "Failed to sign in with Google");
       setOauthPending(null);
     }
   }
@@ -228,7 +229,7 @@ export function SignupPage() {
     try {
       await signInWithApple();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to sign in with Apple");
+      toastError(err, "Failed to sign in with Apple");
       setOauthPending(null);
     }
   }

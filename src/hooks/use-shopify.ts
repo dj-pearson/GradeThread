@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { getFreshAccessToken } from "@/lib/auth-token";
 import { edgeApiUrl } from "@/lib/edge-api";
@@ -80,7 +81,7 @@ export function useStartShopifyOauth() {
       }
       window.location.href = json.consent_url as string;
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -100,7 +101,7 @@ export function useDisconnectShopify() {
       qc.invalidateQueries({ queryKey: ["shopify_connection"] });
       toast.success("Disconnected Shopify.");
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -139,6 +140,6 @@ export function useSyncShopify() {
         { description: parts.length ? parts.join(" · ") : undefined },
       );
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }

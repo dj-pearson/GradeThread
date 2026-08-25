@@ -10,6 +10,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Card,
   CardContent,
@@ -199,9 +200,7 @@ export function FlipdeskImportPage() {
       setText(csv);
       detectFromText(csv);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err), {
-        duration: 12_000,
-      });
+      toastError(err, "Could not read that file.", { duration: 12_000 });
     }
   }
 
@@ -344,7 +343,7 @@ export function FlipdeskImportPage() {
       toast.success("Import started. You can close this tab — it keeps going.");
     } catch (err) {
       setImporting(false);
-      toast.error(err instanceof Error ? err.message : String(err));
+      toastError(err);
     }
   }
 
@@ -432,7 +431,7 @@ export function FlipdeskImportPage() {
           : undefined,
       );
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toastError(err);
     } finally {
       setUndoing(false);
     }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError, toastWarning } from "@/lib/toast-error";
 import { Loader2, DollarSign } from "lucide-react";
 import {
   Dialog,
@@ -207,20 +208,19 @@ export function RecordSaleDialog({
                   const e = err as Error & { status?: number };
                   // 409 = no platform_offer_id server-side → nothing to end.
                   if (e.status !== 409) {
-                    toast.warning(
-                      `Sale recorded, but ending the eBay listing failed: ${e.message}. End it on eBay manually.`,
-                      { duration: 10_000 },
-                    );
+                    toastWarning(e, "Sale recorded, but we could not end the eBay listing.", {
+                      duration: 10_000,
+                      nextStep: "End it on eBay yourself so it cannot sell twice.",
+                    });
                   }
                 }
               }
             }
           }
         } catch (err) {
-          toast.warning(
-            `Sale recorded, but updating the listing failed: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
+          toastWarning(
+            err,
+            "Sale recorded, but we could not update the listing.",
             { duration: 10_000 },
           );
         }
@@ -231,9 +231,7 @@ export function RecordSaleDialog({
       toast.success(`Sale recorded for "${item.item_title}".`);
       onClose();
     } catch (err) {
-      toast.error(
-        `Failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Failed.");
     } finally {
       savingRef.current = false;
       setSaving(false);

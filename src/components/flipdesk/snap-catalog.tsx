@@ -10,6 +10,7 @@ import {
   Check,
 } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Card,
   CardContent,
@@ -230,9 +231,7 @@ export function SnapCatalog() {
           : "Item cataloged.",
       );
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to save the item."
-      );
+      toastError(err, "Failed to save the item.");
     } finally {
       setApplying(false);
     }

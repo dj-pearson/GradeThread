@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { supabase } from "@/lib/supabase";
 import { track } from "@/lib/analytics";
@@ -117,7 +118,7 @@ export function useCreateAuthor() {
       return data.author;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["content_authors"] }),
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -132,7 +133,7 @@ export function useUpdateAuthor() {
       return data.author;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["content_authors"] }),
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -145,7 +146,7 @@ export function useDeleteAuthor() {
       });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["content_authors"] }),
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -171,7 +172,7 @@ export function useCreateBlogPost() {
         product_focus: post.product_focus,
       });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -194,7 +195,7 @@ export function useUpdateBlogPost(id: string) {
       qc.invalidateQueries({ queryKey: ["blog_post", id] });
       qc.invalidateQueries({ queryKey: ["blog_posts"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -209,7 +210,7 @@ export function useDeleteBlogPost() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["blog_posts"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -232,7 +233,7 @@ export function usePublishBlogPost(id: string) {
         product_focus: post.product_focus,
       });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -276,7 +277,7 @@ export function useGenerateBlogPost(id: string) {
         product_focus: post.product_focus,
       });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -293,7 +294,7 @@ export function useCreatePreviewLink(postId: string) {
       });
       return data;
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -311,7 +312,7 @@ export function useGenerateHero(postId: string, surface: "blog" | "social" = "bl
       qc.invalidateQueries({ queryKey: ["blog_post", postId] });
       toast.success("Hero generated.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -364,7 +365,7 @@ export function useUpdateSocialPost(id: string) {
       qc.setQueryData(["social_post", id], post);
       qc.invalidateQueries({ queryKey: ["social_posts"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -377,7 +378,7 @@ export function useSuggestHashtags(id: string) {
       );
       return data.hashtags;
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -403,7 +404,7 @@ export function useGenerateSocialPost(id: string) {
       qc.invalidateQueries({ queryKey: ["social_variants", id] });
       toast.success("Generated.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -430,7 +431,7 @@ export function useSetSocialCard(id: string) {
       qc.invalidateQueries({ queryKey: ["social_posts"] });
       toast.success("Social card updated.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -461,7 +462,7 @@ export function useAttachSocialVideo(id: string) {
       qc.invalidateQueries({ queryKey: ["social_posts"] });
       toast.success("Video attached — this post will publish as a video.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -480,7 +481,7 @@ export function useClearSocialVideo(id: string) {
       qc.invalidateQueries({ queryKey: ["social_posts"] });
       toast.success("Video removed.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -517,7 +518,7 @@ export function useUpdateSocialVariant(id: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["social_variants", id] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -536,7 +537,7 @@ export function usePublishSocialPost(id: string) {
       qc.invalidateQueries({ queryKey: ["social_posts"] });
       toast.success("Published.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -610,7 +611,7 @@ export function useResearchTopics() {
         inserted,
       });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -627,7 +628,7 @@ export function useRejectTopic() {
       qc.invalidateQueries({ queryKey: ["content_topics"] });
       qc.invalidateQueries({ queryKey: ["content_topic_counts"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -647,7 +648,7 @@ export function usePromoteTopic() {
         queryKey: surface === "blog" ? ["blog_posts"] : ["social_posts"],
       });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -678,7 +679,7 @@ export function useAddTopics() {
         `Added ${inserted}${rejected ? ` (${rejected} dupes rejected)` : ""}.`,
       );
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -731,7 +732,7 @@ export function useSaveKnowledgeDoc() {
       qc.invalidateQueries({ queryKey: ["content_knowledge"] });
       toast.success("Saved.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -766,7 +767,7 @@ export function useUpdateContentSettings() {
       qc.setQueryData(["content_settings"], settings);
       toast.success("Settings saved.");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -808,7 +809,7 @@ export function useSchedulerTick() {
         );
       }
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -843,7 +844,7 @@ export function useSendContentDigest() {
         toast.error("Digest could not be delivered — check email/SMTP config.");
       }
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -942,7 +943,7 @@ export function useRetryWebhook() {
         );
       }
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }
 
@@ -962,6 +963,6 @@ export function useTestWebhook() {
       });
       return data;
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toastError(e),
   });
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import {
@@ -78,9 +79,7 @@ export function ItemQuickEditSheet({
       toast.success("Saved.");
       onClose();
     } catch (err) {
-      toast.error(
-        `Save failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Save failed.");
     } finally {
       setSaving(false);
     }

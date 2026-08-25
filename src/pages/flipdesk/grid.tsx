@@ -5,6 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastWarning } from "@/lib/toast-error";
 import {
   Grid3x3,
   Search,
@@ -506,8 +507,9 @@ export function FlipdeskGridPage() {
       setHistory([]);
       toast.success(`Saved ${savedCount} row${savedCount === 1 ? "" : "s"}.`);
     } else {
-      toast.warning(
-        `Saved ${savedCount}, ${errors.length} failed. First: ${errors[0]?.message}`,
+      toastWarning(
+        errors[0],
+        `Saved ${savedCount}, ${errors.length} failed.`,
         { duration: 12_000 },
       );
     }

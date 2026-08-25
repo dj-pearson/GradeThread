@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { FieldError } from "@/components/ui/form-feedback";
 import { validateEmail } from "@/lib/validation";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { SEO } from "@/components/seo";
 
 // How long to wait for a recovery session (getSession or PASSWORD_RECOVERY)
@@ -64,7 +65,7 @@ function RequestResetForm() {
       await resetPassword(email, captchaToken ?? undefined);
       setIsSent(true);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to send reset email");
+      toastError(err, "Failed to send reset email");
       // US-368: the Turnstile token was consumed — reset for the retry.
       setCaptchaToken(null);
       setCaptchaReset((n) => n + 1);
@@ -240,7 +241,7 @@ function UpdatePasswordForm() {
       toast.success("Password updated. Please sign in with your new password.");
       navigate("/login", { replace: true });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to update password");
+      toastError(err, "Failed to update password");
     } finally {
       setIsLoading(false);
     }

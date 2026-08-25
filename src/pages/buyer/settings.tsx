@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { PageHeader } from "@/components/ui/page-header";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { cn } from "@/lib/utils";
 import { ChipInput } from "@/components/buyer/chip-input";
 import { CategoryPicker } from "@/components/buyer/category-picker";
@@ -371,7 +372,7 @@ function PublicProfileCard() {
       });
       toast.success(nextEnabled ? "Public profile updated." : "Public profile hidden.");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't update your profile.");
+      toastError(e, "Couldn't update your profile.");
     }
   }
 

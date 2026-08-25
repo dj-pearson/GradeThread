@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { BadgeCheck, Camera, Check, ChevronLeft, ChevronRight, Loader2, ShieldCheck, Video } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import {
@@ -853,9 +854,7 @@ export function NewSubmissionPage() {
       setRepricingSubmissionId(null);
       navigate(`/dashboard/submissions/${submissionId}`);
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Could not update the tier.",
-      );
+      toastError(err, "Could not update the tier.");
     } finally {
       setIsSubmitting(false);
       submitLockRef.current = false;
@@ -1112,9 +1111,7 @@ export function NewSubmissionPage() {
       // Unexpected shape — fall back to the detail page so the user isn't stuck.
       navigate(`/dashboard/submissions/${submissionId}`);
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to submit. Please try again."
-      );
+      toastError(err, "Failed to submit. Please try again.");
     } finally {
       setIsSubmitting(false);
       setUploadProgress(null);
@@ -1140,9 +1137,7 @@ export function NewSubmissionPage() {
       }
       window.location.href = json.url;
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to start checkout."
-      );
+      toastError(err, "Failed to start checkout.");
       setCheckingOut(false);
     }
   }

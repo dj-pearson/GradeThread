@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { useAuthStore } from "@/stores/auth-store";
@@ -140,7 +140,7 @@ export function useReconciliationRun() {
       qc.invalidateQueries({ queryKey: ["payout_imports"] });
       qc.invalidateQueries({ queryKey: ["sales_all"] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -214,7 +214,7 @@ export function useReconciliationDismiss() {
       qc.invalidateQueries({ queryKey: ["reconciliation_queue"] });
       qc.invalidateQueries({ queryKey: ["payout_imports"] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }
 
@@ -240,6 +240,9 @@ export function useImportPayoutsCsv() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["payout_imports"] });
     },
-    onError: (err) => toast.error(err.message, { duration: 12_000 }),
+    onError: (err) =>
+      toastError(err, "Could not import that payout file.", {
+        duration: 12_000,
+      }),
   });
 }

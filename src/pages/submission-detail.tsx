@@ -80,6 +80,7 @@ import { CertShareActions } from "@/components/certificate/cert-share-actions";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import type {
   SubmissionRow,
   GradeReportRow,
@@ -612,9 +613,7 @@ export function SubmissionDetailPage() {
       setDisputePhotos([]);
       toast.success("Dispute submitted successfully. We'll review it shortly.");
     } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to submit dispute"
-      );
+      toastError(err, "Failed to submit dispute");
     } finally {
       setSubmittingDispute(false);
     }

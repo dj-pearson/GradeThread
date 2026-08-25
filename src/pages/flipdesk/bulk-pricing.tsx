@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Loader2, Tags, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -271,7 +272,7 @@ export function FlipdeskBulkPricingPage() {
       }
       await refetch();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Bulk update failed.");
+      toastError(e, "Bulk update failed.");
     }
   }
 

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { downloadCsv } from "@/lib/csv-export";
 import { ArrowDown, ArrowUp, ArrowUpDown, Download, ExternalLink, Eye, Info, Lightbulb, Loader2, RefreshCw, Repeat } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -241,7 +242,7 @@ export function FlipdeskListingPerformancePage(
       }
       await qc.invalidateQueries({ queryKey: ["listing_performance"] });
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Sync failed"),
+    onError: (e) => toastError(e, "Sync failed"),
   });
 
   // Rows arrive already searched, filtered, sorted and paged. The client-side

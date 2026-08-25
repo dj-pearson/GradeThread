@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { DOMSerializer } from "@tiptap/pm/model";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { streamContentSSE } from "@/lib/content-stream";
 
 // Shared streaming-AI actions for the blog editor (US-251 compose, US-252
@@ -79,7 +80,7 @@ export function useContentAiStream(editor: Editor | null, postId: string) {
           },
         );
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : String(e));
+        toastError(e);
       } finally {
         controllerRef.current = null;
         setIsStreaming(false);
@@ -131,7 +132,7 @@ export function useContentAiStream(editor: Editor | null, postId: string) {
           },
         );
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : String(e));
+        toastError(e);
       } finally {
         controllerRef.current = null;
         setIsStreaming(false);

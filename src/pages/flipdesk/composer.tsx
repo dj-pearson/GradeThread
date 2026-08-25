@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   ArrowLeft,
   Save,
@@ -2472,10 +2473,10 @@ export function FlipdeskComposerPage({
       toast.success("Changes saved and pushed to eBay.");
     } catch (err) {
       const e = err as Error & { status?: number };
-      toast.error(
-        `eBay rejected the update: ${e.message}. Your changes are saved — fix the issue and resubmit.`,
-        { duration: 12_000 },
-      );
+      toastError(e, "eBay rejected the update.", {
+        duration: 12_000,
+        nextStep: "Your changes are saved. Fix what eBay objected to and send it again.",
+      });
     }
   }
 
@@ -2504,7 +2505,7 @@ export function FlipdeskComposerPage({
       );
     } catch (err) {
       const e = err as Error & { status?: number };
-      toast.error(`eBay wouldn't restock this listing: ${e.message}`, {
+      toastError(e, "eBay would not restock this listing.", {
         duration: 12_000,
       });
     }

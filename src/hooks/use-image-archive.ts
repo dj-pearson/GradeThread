@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeAuthHeaders } from "@/lib/edge-fetch";
 
@@ -34,6 +34,6 @@ export function useArchivePhotos() {
       qc.invalidateQueries({ queryKey: ["item_photos"] });
       qc.invalidateQueries({ queryKey: ["items_full"] });
     },
-    onError: (err) => toast.error(err.message),
+    onError: (err) => toastError(err),
   });
 }

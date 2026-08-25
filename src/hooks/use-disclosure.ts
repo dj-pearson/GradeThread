@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 
 // Auto-Disclosure Engine — fetch an item's condition & flaws disclosure +
@@ -91,7 +92,7 @@ export function useApplyDisclosure(itemId: string | undefined) {
           : "Condition & flaws added to your listing description.",
       );
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -117,7 +118,7 @@ export function useSetAnnotationOptIn(itemId: string | undefined) {
       );
       queryClient.invalidateQueries({ queryKey: ["disclosure", itemId] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }
 
@@ -141,6 +142,6 @@ export function useSaveAnnotatedPhoto(itemId: string | undefined) {
       toast.success("Annotated photo added to this item's photos.");
       queryClient.invalidateQueries({ queryKey: ["item_photos", itemId] });
     },
-    onError: (err: Error) => toast.error(err.message),
+    onError: (err: Error) => toastError(err),
   });
 }

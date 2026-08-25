@@ -1,6 +1,7 @@
 import { useId, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   Wallet,
   Plus,
@@ -91,7 +92,7 @@ async function openReceipt(expenseId: string): Promise<void> {
     else window.location.href = url; // popup blocked outright — go in place
   } catch (err) {
     tab?.close();
-    toast.error(err instanceof Error ? err.message : String(err));
+    toastError(err);
   }
 }
 
@@ -212,9 +213,7 @@ export function FlipdeskExpensesPage() {
       await qc.invalidateQueries({ queryKey: ["expenses"] });
       toast.success("Expense deleted.");
     } catch (err) {
-      toast.error(
-        `Delete failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Delete failed.");
     }
   }
 
@@ -571,7 +570,7 @@ function ExpenseDialog({
       await qc.invalidateQueries({ queryKey: ["expenses"] });
       toast.success("Receipt removed.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      toastError(err);
     } finally {
       setReceiptBusy(false);
     }
@@ -633,11 +632,7 @@ function ExpenseDialog({
         try {
           await uploadExpenseReceipt(savedId, pendingFile);
         } catch (err) {
-          toast.error(
-            `Expense saved, but the receipt didn't attach: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
-          );
+          toastError(err, "Expense saved, but the receipt didn't attach.");
         }
       }
 
@@ -648,9 +643,7 @@ function ExpenseDialog({
       setPendingFile(null);
       onOpenChange(false);
     } catch (err) {
-      toast.error(
-        `Save failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Save failed.");
     } finally {
       setSaving(false);
     }

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Ticket } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +45,7 @@ export function PromoCodeRedeemer() {
       qc.invalidateQueries({ queryKey: ["billing_summary"] });
       qc.invalidateQueries({ queryKey: ["referrals-me"] });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't redeem that code.");
+      toastError(err, "Couldn't redeem that code.");
     } finally {
       setRedeeming(false);
     }

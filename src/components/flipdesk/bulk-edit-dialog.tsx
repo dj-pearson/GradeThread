@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import {
   useBulkEditListings,
   useEbayPolicies,
@@ -116,9 +117,7 @@ export function BulkEditDialog({
         );
       }
     } catch (err) {
-      toast.error(
-        `Undo failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toastError(err, "Undo failed.");
     }
   }
 
@@ -172,7 +171,7 @@ export function BulkEditDialog({
       onApplied();
       close();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Bulk edit failed.");
+      toastError(err, "Bulk edit failed.");
     }
   }
 

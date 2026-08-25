@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { ImagePlus, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
 import { compressImage } from "@/lib/image-utils";
 
@@ -68,7 +69,7 @@ export function AttachmentPicker({
       }
       if (picked.length > 0) onChange([...attachments, ...picked]);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Could not attach that.");
+      toastError(err, "Could not attach that.");
     } finally {
       setBusy(false);
     }

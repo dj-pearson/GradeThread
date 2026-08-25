@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router";
 import { Download, Loader2, Plus, Shirt, Store, Tag, Trash2, Video } from "lucide-react";
 import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BuyerPlaceholderPage } from "@/pages/buyer/placeholder";
 import { Button } from "@/components/ui/button";
@@ -82,7 +83,7 @@ export function BuyerPortfolioPage() {
     try {
       await exportCsv();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Export failed.");
+      toastError(e, "Export failed.");
     }
   }
 
@@ -97,7 +98,7 @@ export function BuyerPortfolioPage() {
         toast.success("Added to your FlipDesk inventory as a draft.");
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't list this item.");
+      toastError(e, "Couldn't list this item.");
     }
   }
 
@@ -153,7 +154,7 @@ export function BuyerPortfolioPage() {
       toast.success("Added to your closet");
       setCertId("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't add that item.");
+      toastError(e, "Couldn't add that item.");
     }
   }
 
@@ -175,7 +176,7 @@ export function BuyerPortfolioPage() {
       setType("");
       setSize("");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't add that item.");
+      toastError(e, "Couldn't add that item.");
     }
   }
 
@@ -184,7 +185,7 @@ export function BuyerPortfolioPage() {
       await removeItem(id);
       toast.success("Removed from your closet");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't remove that item.");
+      toastError(e, "Couldn't remove that item.");
     }
   }
 

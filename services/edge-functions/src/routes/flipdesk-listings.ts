@@ -1429,7 +1429,17 @@ export const bulkEditListingsHandler = async (c: Context<any>) => {
   const apply = async (
     listing: LoadedListing,
     applyFields: string[],
-  ): Promise<{ ok: boolean; error?: string; previous?: Record<string, unknown> }> => {
+  ): Promise<{
+    ok: boolean;
+    error?: string;
+    /**
+     * US-2869: the technical string, kept OUT of `error`. `error` is what a
+     * seller reads; this is what a support ticket needs. Never merge them --
+     * that merge is how a raw PostgREST message reached a toast.
+     */
+    detail?: string;
+    previous?: Record<string, unknown>;
+  }> => {
     const row = byId.get(listing.id)!;
     const rowPatch = patchFor(listing.id) as Record<string, unknown>;
     const writePatch: Record<string, unknown> = {};
@@ -1446,7 +1456,13 @@ export const bulkEditListingsHandler = async (c: Context<any>) => {
         .from("listings")
         .update(writePatch as never)
         .eq("id", listing.id);
-      if (error) return { ok: false, error: error.message.slice(0, 200) };
+      if (error) {
+        return {
+          ok: false,
+          error: "Could not save the listing.",
+          detail: error.message.slice(0, 200),
+        };
+      }
     }
 
     const adapter = resolveAdapter(row.platform);
@@ -1463,7 +1479,9 @@ export const bulkEditListingsHandler = async (c: Context<any>) => {
       listingRowId: listing.id,
       price,
     });
-    return res.ok ? { ok: true, previous } : { ok: false, error: res.error };
+    return res.ok
+      ? { ok: true, previous }
+      : { ok: false, error: res.error, detail: res.detail };
   };
 
   const results = await processBulkEdit(ids, fieldNames, resolve, apply);
