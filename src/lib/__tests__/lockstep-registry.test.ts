@@ -70,6 +70,13 @@ const PINNED: Record<string, string> = {
     "the guard itself — pins the 00379 trigger whitelist",
   "services/edge-functions/src/tests/weighted-grade-parity_test.ts":
     "the guard itself (edge half)",
+  "src/lib/quiet-hours.ts":
+    "src/test/quiet-hours-parity.test.ts — runs the client parser over the same " +
+    "cases as the edge suite (services/edge-functions/src/tests/quiet-hours_test.ts) " +
+    "AND asserts the edge file still holds the three rules the client copies: " +
+    "start === end is no window, an absent enabled flag is ON, and every read " +
+    "fails open.",
+
   "src/lib/ebay-prefill.ts":
     "src/lib/ebay-aspect-registry.json is GENERATED from the edge registry via " +
     "`npm run sync:aspects`, with a CI drift guard — the strongest form here, " +

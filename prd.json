@@ -2475,19 +2475,6 @@
       "notes": "Partially done 2026-08-24 — quiet hours shipped, cadence/digest did NOT and stays open under a follow-up. Read the split before assuming this story is closed work.  SHIPPED: migration 00669 adds users.notification_quiet_hours jsonb ({enabled,start_hour,end_hour,tz}) and a CHECK on the hour range. Owner applied it to prod before the push. Gate: services/edge-functions/src/lib/quiet-hours.ts, wired at BOTH push seams — safePush() in transactional-push.ts (iOS/Android) and deliverPush() via notifyUser() in notify.ts (web). notifyUser now reads users once for both preference columns instead of skipping the read for always-on types: an unmutable category is still not a reason to buzz someone at 3am.  It MUTES, it does not DEFER. Push only; the in-app row is still inserted and email still sends, so the notification is in the bell when the window closes. Deferral needs a queue, a drain job, and an answer to what a six-hour-old offer-received push means once the offer has expired. Muting's failure mode is you read it in the morning; deferral's is being paged about something that is no longer true. Additive later if wanted.  Two rules that look like edge cases and are not, both pinned by tests: start_hour === end_hour is NO window rather than a 24-hour mute (an all-day mute is what turning push off is for), and a stored window with no enabled flag reads as ON (written by a client predating the flag; the window is what the user expressed). Everything fails OPEN — a malformed blob, an unknown IANA zone or a DB error all answer send it, because silence the user did not ask for is the worse failure on a fire-and-forget path.  The parser is duplicated across Deno and Vite, so src/test/quiet-hours-parity.test.ts guards the drift both behaviourally and textually — a card showing a window the server never applies is the worst failure for a do-not-disturb control, because nobody can notice it.  Verified: 8 deno tests green, 15 web tests green, tsc -b and deno check clean, eslint and deno lint clean, ui:check 0 blocking.  STILL OPEN — this story stays open for it: per-category cadence (instant | daily | weekly | off), the digest queue and drain that batching needs, and the rule that immediacy-promising categories (returns, disputes, billing) cannot be set to weekly. Quiet hours is the delivery-TIMING half; cadence is the delivery-FREQUENCY half, and they share only the preferences column."
     },
     {
-      "id": "US-2854",
-      "passes": false,
-      "title": "Admin: platform-wide email and notification kill switches",
-      "description": "There is no operator control over whether a given email type sends at all. During an incident, a bad template or a runaway job can only be stopped by a code deploy. Add a per-email-type and per-notification-type enable flag in the system_settings registry, plus the default preference set applied to new users.",
-      "acceptanceCriteria": [
-        "Every email type and notification type is enumerated in one registry with an operator-visible enable flag",
-        "A disabled type is skipped at send with a logged reason, not silently dropped",
-        "The kill switch cannot suppress a legally required transactional message (receipts, security, account deletion)",
-        "Operators can set the default notification_preferences applied at signup without a deploy",
-        "Admin UI shows, per type, when it last sent and how many went out in the last 24h"
-      ]
-    },
-    {
       "id": "US-2855",
       "passes": false,
       "title": "Seller defaults for shipping, returns and handling on new listings",

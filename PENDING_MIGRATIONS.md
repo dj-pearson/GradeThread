@@ -1,4 +1,54 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
+## 🚨 PENDING and BLOCKING: 00671 — unfreeze the eight columns 00668/00669 added (US-2852, US-2853)
+
+**Apply this BEFORE pushing. 00668 and 00669 are already applied and are not
+enough on their own.**
+
+**The problem it fixes.** 00526 made `public.users` self-updates DENY-BY-DEFAULT:
+an authenticated session may write only the columns the guard function
+enumerates, and everything added since is refused. 00668's seven listing defaults
+and 00669's `notification_quiet_hours` are settings-screen controls written
+straight from the browser, and all eight were frozen the moment they were
+created. Both new settings cards save cleanly in every test and raise on the
+first real user. `src/test/users-self-update-allowlist.test.ts` is what caught
+it — it reads the allowlist out of the migration rather than a copy.
+
+**What it does.** No DDL. One `CREATE OR REPLACE` restating
+`guard_users_protected_columns()` — 00567's body plus the eight new names and
+nothing else. Removals stay removed: `business_phone` and `ship_from_address`
+are still absent (edge-encrypted, service-role only).
+
+**Risk: LOW, but the ORDER matters.** Idempotent by `CREATE OR REPLACE`.
+Pushing before this is applied auto-deploys two settings cards whose Save button
+raises. The value guards are CHECK constraints on the columns themselves
+(00668/00669), so being on the allowlist buys the ability to set a legal value,
+not an arbitrary one.
+
+**Apply order.** After 00670. `EXPECTED_SCHEMA_VERSION` is bumped to `00671`.
+No `NOTIFY pgrst` needed — a function body changed, not a column.
+
+## ✅ APPLIED: 00670 — outgoing-email kill switches (US-2854)
+
+**Applied to prod by the owner on 2026-08-24.**
+
+**What it does.** One `system_settings` row, `email_categories_disabled`, seeded
+as an empty json array. Read through `getSetting()`, so switching a category off
+lands on the next send rather than the next deploy.
+
+**Risk: LOW.** Seeds empty, so applying it changes nothing until somebody flips a
+switch. `ON CONFLICT DO NOTHING`, so a re-run never clobbers a live list. No
+REVOKE — `system_settings` is already RLS-enabled with no client policies from
+00207, so it stays service-role only by inheritance.
+
+**Enforcement is in code, not in the row.** Auth codes, receipts and
+payment-failure emails are refused by `PROTECTED_CATEGORIES` in
+`lib/email-kill-switch.ts`, both when the list is written and again when it is
+read — a row edited by hand in this table still cannot suppress one.
+
+**Client-side reads: NONE.** The admin page goes through
+`/api/admin/settings/email-categories` (super_admin + MFA step-up).
+
+
 ## ✅ APPLIED: 00668 + 00669 — seller listing defaults and quiet hours (US-2852, US-2853)
 
 **Applied to prod by the owner on 2026-08-24, before the push.**

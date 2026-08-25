@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
+import { EmailCategorySwitches } from "@/components/admin/email-category-switches";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -273,6 +274,11 @@ export function AdminSettingsRegistryPage() {
           </Button>
         }
       />
+
+      {/* US-2854: named kill switches for one registry row. Above the generic
+          editor because it is the control an operator reaches for mid-incident,
+          and the raw JSON row below is the thing they should not have to find. */}
+      <EmailCategorySwitches onStepUpRequired={handleStepUpRequired} />
 
       {query.isLoading ? (
         <div className="space-y-4">

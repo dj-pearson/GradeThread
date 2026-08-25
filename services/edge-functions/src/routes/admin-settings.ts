@@ -10,6 +10,12 @@ import {
   type SystemSettingRow,
 } from "../lib/system-settings.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import {
+  DISABLED_CATEGORIES_KEY,
+  EMAIL_CATEGORY_CATALOG,
+  isProtectedCategory,
+  sanitizeDisabledList,
+} from "../lib/email-kill-switch.ts";
 
 // DB-backed system settings registry — admin editor API (US-884).
 //
@@ -95,6 +101,131 @@ adminSettingsRoutes.get("/", async (c) => {
   );
 
   return c.json({ groups, total: rows.length });
+});
+
+// ── Email kill switches (US-2854) ────────────────────────────────────────────
+//
+// These two are registered BEFORE `/:key` on purpose: Hono matches in
+// registration order, so a PUT to /email-categories would otherwise be handled
+// by the generic setting editor and try to update a setting named
+// "email-categories". Do not move them below.
+//
+// They are a typed view of ONE registry row (email_categories_disabled). The
+// generic editor can still edit that row as raw JSON; this pair exists so an
+// operator sees named switches, and so a protected category is refused with a
+// reason rather than accepted and silently ignored at read time.
+
+// GET /email-categories — the catalog, what is off, and the last 24h volume.
+adminSettingsRoutes.get("/email-categories", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("system_settings")
+    .select("value")
+    .eq("key", DISABLED_CATEGORIES_KEY)
+    .maybeSingle();
+  if (error) {
+    captureException(error, { tags: { area: "admin-settings" } });
+    return c.json({ error: "Failed to load email switches" }, 500);
+  }
+  const disabled = new Set(
+    sanitizeDisabledList((data as { value?: unknown } | null)?.value),
+  );
+
+  // Recent trouble per category, so an operator reaching for a switch can see
+  // which category is actually misbehaving.
+  //
+  // This is NOT a send count and must not be labelled as one. email_deliveries
+  // (00095) is the OUTBOX: it holds retries, dead letters and skips. A category
+  // sending happily all day writes nothing to it, so a zero here means "no
+  // problems", not "no email". The field name says so.
+  //
+  // Best-effort — a counting failure must not make the switches unreachable.
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const outbox24h = new Map<string, number>();
+  const { data: deliveries } = await supabaseAdmin
+    .from("email_deliveries")
+    .select("category")
+    .gte("created_at", since)
+    .limit(10_000);
+  for (const row of (deliveries ?? []) as Array<{ category?: string | null }>) {
+    const cat = row.category ?? "uncategorized";
+    outbox24h.set(cat, (outbox24h.get(cat) ?? 0) + 1);
+  }
+
+  return c.json({
+    categories: EMAIL_CATEGORY_CATALOG.map((meta) => ({
+      ...meta,
+      disabled: disabled.has(meta.category),
+      /** Outbox rows (retry / dead letter / skipped) in the last 24h. Not sends. */
+      outbox24h: outbox24h.get(meta.category) ?? 0,
+    })),
+    disabled: [...disabled].sort(),
+  });
+});
+
+// PUT /email-categories — replace the disabled list. Same bar as any other
+// setting write: super_admin plus fresh MFA step-up, audited, cache busted.
+adminSettingsRoutes.put("/email-categories", async (c) => {
+  if (c.get("adminRole") !== "super_admin") {
+    return c.json({ error: "Super-admin access required" }, 403);
+  }
+  const blocked = requireStepUp(c);
+  if (blocked) return blocked;
+
+  const body = (await c.req.json().catch(() => ({}))) as { disabled?: unknown };
+  if (!Array.isArray(body.disabled)) {
+    return c.json({ error: "Request body must include a 'disabled' array." }, 400);
+  }
+
+  // Name what was thrown away instead of quietly accepting it. An operator who
+  // asked to disable password resets and got a 200 would reasonably believe it
+  // worked, and would find out otherwise only from a support queue.
+  const refused = body.disabled.filter(
+    (v): v is string => typeof v === "string" && isProtectedCategory(v.trim()),
+  );
+  if (refused.length > 0) {
+    return c.json({
+      error:
+        `These categories can never be disabled: ${refused.join(", ")}. ` +
+        "They are sign-in codes, receipts, or payment failures — turning them off locks people out or hides a charge.",
+    }, 400);
+  }
+
+  const next = sanitizeDisabledList(body.disabled);
+
+  const { data: existing, error: loadErr } = await supabaseAdmin
+    .from("system_settings")
+    .select("value")
+    .eq("key", DISABLED_CATEGORIES_KEY)
+    .maybeSingle();
+  if (loadErr) {
+    captureException(loadErr, { tags: { area: "admin-settings" } });
+    return c.json({ error: "Failed to load email switches" }, 500);
+  }
+  if (!existing) {
+    return c.json({ error: "Email switch registry row is missing (migration 00670)" }, 404);
+  }
+
+  const { error: updErr } = await supabaseAdmin
+    .from("system_settings")
+    .update({ value: next, updated_by: c.get("userId") })
+    .eq("key", DISABLED_CATEGORIES_KEY);
+  if (updErr) {
+    captureException(updErr, { tags: { area: "admin-settings" } });
+    return c.json({ error: "Failed to update email switches" }, 500);
+  }
+
+  bustSettingCache(DISABLED_CATEGORIES_KEY);
+
+  await writeAuditLog(c, {
+    action: "system_setting.update",
+    targetType: "system_setting",
+    targetId: DISABLED_CATEGORIES_KEY,
+    before: (existing as { value?: unknown }).value,
+    after: next,
+    details: { value_type: "json", category: "email" },
+  });
+
+  return c.json({ ok: true, disabled: next });
 });
 
 // PUT /:key — update one setting. super_admin + fresh MFA step-up; type-validated

@@ -14,6 +14,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { captureException, recordMetric } from "./observability.ts";
 import { marketingPreferenceCenterUrl, marketingUnsubscribeUrl } from "./unsubscribe.ts";
 import { getSuppression } from "./email-suppression.ts";
+import { emailCategoryDisabled } from "./email-kill-switch.ts";
 import { applyEmailTracking } from "./email-tracking.ts";
 import {
   buildListUnsubscribeHeaders,
@@ -148,6 +149,23 @@ async function sendEmail(options: EmailOptions): Promise<boolean> {
 // failure to the error tracker). Exported so the retry cron can re-attempt a
 // persisted message WITHOUT re-enqueuing it (the cron owns the outbox row).
 export async function deliverEmail(options: EmailOptions): Promise<boolean> {
+  // US-2854: operator kill switch, checked before anything else costs money or
+  // reputation. Like a suppressed recipient this is a TERMINAL no-op returning
+  // `true`, so neither the live enqueue nor the retry cron treats it as a
+  // failure worth retrying — a category an operator switched off must not
+  // accumulate in the outbox and then all arrive at once when it is switched
+  // back on. Protected categories (auth, receipts, payment failures) can never
+  // reach this branch; emailCategoryDisabled refuses them by name.
+  if (await emailCategoryDisabled(options.category)) {
+    const category = options.category ?? "uncategorized";
+    console.warn(`[Email] Category ${category} is disabled by an operator — skipping send`);
+    recordMetric("email.category_disabled_skip", 1, { category });
+    if (!options.skipSuppressionRecord) {
+      await recordSkippedDelivery(options, category, "category_disabled");
+    }
+    return true;
+  }
+
   // US-1057: never send to a hard-bounced or complained address — sending to
   // known-bad recipients is the fastest way to wreck SES sender reputation. A
   // suppressed recipient is a TERMINAL no-op, not a transient failure: return
