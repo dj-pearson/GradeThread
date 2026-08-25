@@ -2486,20 +2486,6 @@
       ]
     },
     {
-      "id": "US-2856",
-      "passes": false,
-      "title": "EPIC: make GradeThread teachable: one activation system, one vocabulary, help where the user is stuck",
-      "description": "A deep read of the web SPA and the iOS app on 2026-08-24 found the product is feature-complete and unteachable. A new seller is shown four different 'get started' lists that disagree about the first step; the first-run tour names three pages that were renamed months ago; every activation button lands on a redirect rather than a page; the web sidebar offers twenty-five destinations with no explanation of any of them, while the iOS Tools hub carries a written one-line explanation for every module; the same button is labelled 'Add item', 'Add an item', 'New item' and 'Intake an item' depending on where you find it; the command palette exists with no visible affordance; contextual help renders on ten of forty-five registered surfaces and hides itself when the article table is empty (US-2618); and an empty account is a blank app with no example to read. None of this is a missing feature. All of it is the cost of shipping twenty-five surfaces faster than the words that explain them. This epic covers the children below: US-2857..US-2884.",
-      "acceptanceCriteria": [
-        "Tier 1 (US-2857..US-2863) is done: nothing in the onboarding path names a page that does not exist, links to a redirect, or contradicts another onboarding surface.",
-        "Tier 2 (US-2864..US-2875) is done: every invented product noun has a plain definition reachable in-product, every list surface says what goes in it, and an empty account has something to read.",
-        "Tier 3 (US-2876..US-2884) is done: the two clients read one surface registry, the phone web experience matches the phone app, and each named parity gap is either built or honestly labelled.",
-        "The activation funnel is instrumented (US-2884) and the question 'where do new sellers stop' has an answer from data rather than from opinion."
-      ],
-      "priority": 13,
-      "notes": ""
-    },
-    {
       "id": "US-2885",
       "passes": false,
       "title": "iOS cannot open a web-only surface without asking the user to log in again",
