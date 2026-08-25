@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2885",
+  "nextId": "US-2886",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2500,20 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2879",
-      "passes": false,
-      "title": "Four web surfaces have no iOS equivalent and iOS does not say so",
-      "description": "Rewards (the XP and season track, US-1851), MeasureCard, Offers & Messages, and the in-app help reader exist on the web and nowhere in ios/GradeThread. A phone-first seller has no way to know they exist. Each needs a decision, not a silence: build it, or put an honest row in the Tools hub that says what it is and opens it on the web.",
-      "acceptanceCriteria": [
-        "Each of the four gets a recorded decision: build on iOS, or link out.",
-        "Every 'link out' row states in one line what the surface does and opens it in an authenticated web view, not a cold Safari tab that asks the user to sign in again.",
-        "The surface registry (US-2876) records iOS route null plus a `webOnly` reason for each, so the gap is visible in code rather than only in a phone.",
-        "The same treatment covers the reverse direction for anything iOS-only after US-2877 and US-2878 land."
-      ],
-      "priority": 76,
-      "notes": ""
-    },
-    {
       "id": "US-2880",
       "passes": false,
       "title": "The web on a phone is a twenty-five item drawer; the app is five tabs",
@@ -2570,6 +2556,22 @@
       ],
       "priority": 76,
       "notes": ""
+    },
+    {
+      "id": "US-2885",
+      "passes": false,
+      "title": "iOS cannot open a web-only surface without asking the user to log in again",
+      "description": "US-2879 decided that Rewards, MeasureCard and Developers stay web-only and that the iOS Tools hub should link them out. It could not build those rows, for one reason: NOTHING IN THIS PRODUCT TAKES AN iOS SESSION AND PRODUCES A WEB SESSION. ASWebAuthenticationSession appears in Marketplaces/EbayConnectionService.swift, but that is eBay's OAuth flow; WKWebView appears in Auth/TurnstileView.swift, for a CAPTCHA widget. Neither signs a seller into gradethread.com. So a Tools-hub row today can only open a cold Safari tab that asks for a login, which is exactly what US-2879 AC2 forbids. This story builds the handoff, and only then the rows. Decision and constraint: vault/60-decisions/adr-web-only-surfaces.md section 4.",
+      "acceptanceCriteria": [
+        "An edge endpoint mints a single-use, short-lived handoff token from an authenticated iOS session, and a web route redeems it into a normal web session and then lands on a requested path.",
+        "The token is single-use and expires in minutes, not hours; redeeming it twice fails, and a redeemed or expired token is indistinguishable from a wrong one in the response.",
+        "The token is never written to a log, never put in a page the browser caches, and the redeem route strips it from the URL before the SPA mounts.",
+        "The iOS Tools hub carries a row for each surface the registry marks web-only (read from the generated ProductSurfaces mirror, not a hand-written list), stating in one line what it does and opening it already signed in.",
+        "A tenant-isolation test case covers the mint and redeem routes, per US-268 -- an id from the request body never resolves a session on its own.",
+        "If the handoff cannot be built safely, the fallback is recorded rather than silently shipped: the row says the surface is on the web and does NOT pretend the tab will be signed in."
+      ],
+      "priority": 76,
+      "notes": "Split out of US-2879 on 2026-08-25 rather than left as an unmet AC. It carries a migration (the token table) and session-minting logic, so it is a security-shaped story, not a UI one -- load the tenant-isolation and migrations skills before starting. The three surfaces it links out are pinned by src/test/web-only-surfaces.test.ts, so read that list rather than retyping it."
     }
   ]
 }
