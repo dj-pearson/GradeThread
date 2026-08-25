@@ -1,5 +1,6 @@
 import { Outlet } from "react-router";
 import { Sidebar } from "@/components/dashboard/sidebar";
+import { GuidedPathBar } from "@/components/onboarding/guided-path-bar";
 import { Header } from "@/components/dashboard/header";
 import { RouteErrorBoundary } from "@/components/error-boundary";
 import { useRealtimeSubmissions } from "@/hooks/use-realtime-submission";
@@ -49,6 +50,9 @@ export function DashboardLayout() {
           className="flex-1 overflow-y-auto bg-background p-6 outline-none"
         >
           <RouteErrorBoundary>
+            {/* US-2873: one instruction, above whatever real screen the
+                seller is on. The screen keeps doing its own job. */}
+            <GuidedPathBar />
             <FlipdeskActivation />
             <MaintenanceBanner />
             <AnnouncementBanner />

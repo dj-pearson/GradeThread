@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router";
-import { Check, Sparkles, X, ArrowRight } from "lucide-react";
+import { Check, Sparkles, X, ArrowRight , Compass } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -9,6 +9,8 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useActivation } from "@/hooks/use-activation";
+import { useGuidedPathStore } from "@/stores/guided-path-store";
+import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
 
 // US-2859 — THE activation checklist. One component, one step list
@@ -49,6 +51,9 @@ export function ActivationChecklist({
   const navigate = useNavigate();
   const { steps, state, done, total, firstIncomplete, active, complete, dismiss } =
     useActivation();
+  const user = useAuthStore((s) => s.user);
+  const guidedActive = useGuidedPathStore((s) => s.active);
+  const startGuided = useGuidedPathStore((s) => s.start);
 
   if (!active) return null;
 
@@ -145,6 +150,20 @@ export function ActivationChecklist({
             Skip for now
           </Button>
         </div>
+        {/* US-2873 AC1: the way into the guided path, offered from the
+            FIRST step rather than as a fifth list of its own. It walks
+            these same steps, one at a time. */}
+        {!guidedActive && firstIncomplete !== -1 && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-1 w-full sm:w-auto"
+            onClick={() => startGuided(user?.id)}
+          >
+            <Compass className="mr-1.5 h-4 w-4" />
+            Walk me through it
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
