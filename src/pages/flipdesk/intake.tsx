@@ -528,7 +528,7 @@ export function FlipdeskIntakePage() {
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">New item</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Add item</h1>
             <p className="text-sm text-muted-foreground">
               Quick intake form. Save & Add another to catalog a batch from the
               same source.

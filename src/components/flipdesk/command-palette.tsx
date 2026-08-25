@@ -109,6 +109,21 @@ function renderSnippet(snippet: string): ReactNode {
   });
 }
 
+// US-2863: the palette was reachable only by Cmd/Ctrl-K or "/". A mouse user,
+// or anyone who had not opened the shortcuts sheet, would never find the
+// fastest way around a twenty-five destination app. The header dispatches this
+// so a visible control can open the same dialog. Same pattern the shortcuts
+// sheet already uses (OPEN_SHORTCUTS_EVENT).
+export const OPEN_COMMAND_PALETTE_EVENT = "gt:open-command-palette";
+
+// Shown under the empty state so a first-time opener sees what the box can do
+// rather than a blank panel and a blinking cursor.
+const PALETTE_EXAMPLES = [
+  "a brand, to find every item of it",
+  "a SKU or an eBay item number",
+  "an action, like \"new item\" or \"connect eBay\"",
+];
+
 export function CommandPalette() {
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -155,8 +170,16 @@ export function CommandPalette() {
         setOpen(true);
       }
     }
+    // US-2863: the header's search control opens the same dialog.
+    function onOpenRequest() {
+      setOpen(true);
+    }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener(OPEN_COMMAND_PALETTE_EVENT, onOpenRequest);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener(OPEN_COMMAND_PALETTE_EVENT, onOpenRequest);
+    };
   }, []);
 
   useEffect(() => {
@@ -661,6 +684,18 @@ export function CommandPalette() {
                   ? "Search is unavailable right now. Try again in a moment."
                   : "No matches."
                 : "Type to search, or pick an action."}
+              {/* US-2863: an outage is not a teaching moment — the examples
+                  only show when search is actually working. */}
+              {!deepFailed && (
+                <ul className="mx-auto mt-4 max-w-xs space-y-1 text-left text-xs">
+                  {PALETTE_EXAMPLES.map((example) => (
+                    <li key={example} className="flex gap-2">
+                      <span aria-hidden="true">&middot;</span>
+                      <span>Try {example}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           ) : (
             sections.map((section) => (

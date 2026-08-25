@@ -2516,20 +2516,6 @@
       "notes": ""
     },
     {
-      "id": "US-2860",
-      "passes": false,
-      "title": "The same button has four names: Add item, Add an item, New item, Intake an item",
-      "description": "One action, put a garment into inventory, carries four labels across the web app. 'New item' on flipdesk/overview.tsx, flipdesk/intake.tsx and flipdesk/listings.tsx. 'Add an item' on flipdesk/pipeline.tsx and buyer/portfolio.tsx. 'Add item' in activation-checklist.tsx and bulk-intake.tsx. 'Intake an item' in flipdesk-onboarding.tsx. iOS calls the same three entry points 'Take photos', 'Type details' and 'Bulk list with AI', which are better names and match none of the above. A user cannot build a mental model of a verb that changes every screen, and support cannot write one sentence that covers it.",
-      "acceptanceCriteria": [
-        "One label is chosen and documented in vault/20-domain/ (the naming note), with the reason.",
-        "Every web entry point to intake uses it. Where the entry point picks a MODE, the mode is the qualifier, not a new verb: 'Add item: photos first' / 'Add item: type details' / 'Add item: bulk with AI'.",
-        "iOS uses the same three strings.",
-        "A guard test greps src/ and ios/ for the retired variants and fails on a new one."
-      ],
-      "priority": 14,
-      "notes": ""
-    },
-    {
       "id": "US-2862",
       "passes": false,
       "title": "Contextual help is registered on forty-five surfaces and rendered on ten",
@@ -2539,20 +2525,6 @@
         "The pipeline.tsx and reconcile.tsx HelpLinks are confirmed to render inside their current hosts (money.tsx view=reconcile, inventory kanban mode) or moved to the host.",
         "A guard test asserts a two-way match: no registered slug without a call site, no call site with an unregistered slug.",
         "The help button sits in a consistent position on every surface (page header, right of the title), not wherever it fitted."
-      ],
-      "priority": 14,
-      "notes": ""
-    },
-    {
-      "id": "US-2863",
-      "passes": false,
-      "title": "The command palette is discoverable only by pressing a key nobody told you about",
-      "description": "CommandPalette is mounted app-wide in dashboard-layout.tsx and opens on Cmd/Ctrl-K or '/'. The header (src/components/dashboard/header.tsx) shows a keyboard-shortcuts icon, a theme toggle, a notification bell and an account menu, no search field. A mouse user, or anyone who has not opened the shortcuts sheet, will never find the fastest way to move around a twenty-five destination app. shortcuts-help.tsx already documents it; nothing points at that either.",
-      "acceptanceCriteria": [
-        "The header renders a search affordance that looks like a search input, spans a reasonable width on desktop, shows the shortcut hint, and opens the palette on click.",
-        "On viewports below sm it collapses to a search icon that opens the same palette.",
-        "The palette's own empty state lists three example commands, so a first-time opener sees what it can do rather than a blank box.",
-        "The keyboard-shortcuts icon keeps working; the search field is an addition, not a replacement."
       ],
       "priority": 14,
       "notes": ""

@@ -7,6 +7,7 @@ import {
   Sun,
   Moon,
   Keyboard,
+  Search,
 } from "lucide-react";
 import { signOut } from "@/lib/auth";
 import { useAuth } from "@/hooks/use-auth";
@@ -24,8 +25,53 @@ import {
 import { MobileNav } from "@/components/dashboard/sidebar";
 import { NotificationCenter } from "@/components/dashboard/notification-center";
 import { OPEN_SHORTCUTS_EVENT } from "@/components/dashboard/shortcuts-help";
+import { OPEN_COMMAND_PALETTE_EVENT } from "@/components/flipdesk/command-palette";
 import { SupportLauncher } from "@/components/dashboard/support-launcher";
 import { WorkspaceSwitcher } from "@/components/dashboard/workspace-switcher";
+
+// US-2863. The command palette has been mounted app-wide since US-1053 and the
+// only way to reach it was Cmd/Ctrl-K or "/". Nothing on screen said so, so a
+// mouse user never found the fastest way around a twenty-five destination app.
+//
+// It is a BUTTON dressed as a search field, not a real input. A real input
+// would need its own value, its own focus handoff into the dialog's input, and
+// a way to keep the two in sync — three chances to lose a keystroke, for a
+// control whose entire job is to open something else.
+function PaletteSearch() {
+  const open = () =>
+    window.dispatchEvent(new CustomEvent(OPEN_COMMAND_PALETTE_EVENT));
+  // The platform shortcut, decided once. navigator.platform is deprecated but
+  // is the only thing every browser still agrees on here; a wrong glyph is
+  // cosmetic, so there is no fallback worth its complexity.
+  const isMac =
+    typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={open}
+        aria-label="Search everything"
+        className="hidden w-56 items-center gap-2 rounded-lg border bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring md:flex lg:w-72"
+      >
+        <Search className="h-4 w-4 flex-shrink-0" />
+        <span className="flex-1 text-left">Search</span>
+        <kbd className="rounded border bg-background px-1.5 py-0.5 text-[10px] font-medium">
+          {isMac ? "⌘K" : "Ctrl K"}
+        </kbd>
+      </button>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={open}
+        aria-label="Search everything"
+        className="md:hidden"
+      >
+        <Search className="h-4 w-4" />
+      </Button>
+    </>
+  );
+}
 
 export function Header() {
   const { user, profile } = useAuth();
@@ -64,6 +110,8 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-2">
+        <PaletteSearch />
+
         <NotificationCenter />
 
         <SupportLauncher />

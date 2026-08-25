@@ -680,22 +680,22 @@ struct MainShell: View {
             }
         }
         .confirmationDialog(
-            "Add an item",
+            "Add item",
             isPresented: $router.showingAddSheet,
             titleVisibility: .visible
         ) {
-            Button("Photo-first (Snap & Catalog)") {
+            Button("Photos first") {
                 router.startIntake(.photoFirst)
             }
-            Button("Details-first (manual form)") {
+            Button("Details first") {
                 router.startIntake(.detailsFirst)
             }
-            Button("Bulk add — up to 200 photos → AI listings (AutoLister)") {
+            Button("Bulk with AI") {
                 router.startIntake(.autoLister)
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Where would you like to start?")
+            Text("Shoot the garment and let AI read the tag, type the details yourself, or send up to 200 photos through AutoLister.")
         }
         // US-2532: the workspace 2FA policy blocked this member. One notice,
         // carrying the EDGE's sentence, with the route that actually fixes it.
@@ -1036,7 +1036,7 @@ struct MainShell: View {
             router.homePath = NavigationPath()
             router.startIntake(.photoFirst)
         case .addItem:
-            // US-1134: "Add an item" Siri/Shortcut → the add-method chooser sheet.
+            // US-1134: the Add Item Siri/Shortcut → the add-method chooser sheet.
             router.selection = .home
             router.showingAddSheet = true
         case let .supportTickets(ticketId):
@@ -1188,7 +1188,7 @@ private struct TabBarShell: View {
             // navigating. The placeholder view is never actually rendered.
             Color.clear
                 .tabItem {
-                    Label("Add", systemImage: "plus.circle.fill")
+                    Label("Add item", systemImage: "plus.circle.fill")
                 }
                 .tag(AppSection.add)
 
@@ -1325,7 +1325,7 @@ private struct SidebarSplitView: View {
             ToolbarItem(placement: .primaryAction) {
                 // US-649: iPad has room for the explicit method menu in the
                 // sidebar toolbar (default = photo-first on a plain tap).
-                AddMethodMenu(router: router, primaryLabel: "Add")
+                AddMethodMenu(router: router, primaryLabel: "Add item")
             }
             // US-749: Tools hub reachable from the iPad sidebar toolbar too.
             ToolbarItem(placement: .secondaryAction) {
@@ -1526,7 +1526,7 @@ final class AppRouter {
             set: { newValue in
                 Self.haptic()
                 if newValue == .add {
-                    // Tapping Add presents the "Add an item" chooser (photo-first
+                    // Tapping Add presents the "Add item" chooser (photo-first
                     // single item / details-first / AutoLister bulk-add) rather
                     // than jumping straight into single-item photo capture — the
                     // bulk path was otherwise undiscoverable from the tab bar, so
@@ -1595,21 +1595,21 @@ private struct AddMethodMenu: View {
             Button {
                 AppRouter.haptic()
                 router.startIntake(.photoFirst)
-            } label: { Label("Take photos", systemImage: "camera") }
+            } label: { Label("Photos first", systemImage: "camera") }
             Button {
                 AppRouter.haptic()
                 router.startIntake(.detailsFirst)
-            } label: { Label("Type details", systemImage: "square.and.pencil") }
+            } label: { Label("Details first", systemImage: "square.and.pencil") }
             Button {
                 AppRouter.haptic()
                 router.startIntake(.autoLister)
-            } label: { Label("Bulk list with AI", systemImage: "wand.and.stars") }
+            } label: { Label("Bulk with AI", systemImage: "wand.and.stars") }
         } label: {
             if let primaryLabel {
                 Label(primaryLabel, systemImage: "plus.circle.fill")
             } else {
                 Image(systemName: "plus.circle")
-                    .accessibilityLabel("Add an item")
+                    .accessibilityLabel("Add item")
             }
         }
     }

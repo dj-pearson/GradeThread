@@ -396,7 +396,7 @@ export function BulkIntake() {
         </CardContent>
       </Card>
 
-      {/* Add an item */}
+      {/* Add item */}
       <Card>
         <CardHeader>
           <CardTitle>Add item</CardTitle>

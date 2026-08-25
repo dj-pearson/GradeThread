@@ -89,10 +89,10 @@ export function FlipdeskOnboarding() {
     },
     {
       icon: PackagePlus,
-      title: "Intake an item",
+      title: "Add your first item",
       desc: "Catalog your first piece of inventory with the quick intake form.",
       done: itemCount > 0,
-      cta: "Intake an item",
+      cta: "Add item",
       to: "/dashboard/flipdesk/intake",
     },
     {

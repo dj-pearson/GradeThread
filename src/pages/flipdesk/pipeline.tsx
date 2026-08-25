@@ -548,7 +548,7 @@ export function FlipdeskPipelinePage() {
           <Button asChild>
             <Link to="/dashboard/flipdesk/intake">
               <Plus className="mr-2 h-4 w-4" />
-              New item
+              Add item
             </Link>
           </Button>
         </div>
@@ -740,7 +740,7 @@ export function FlipdeskPipelinePage() {
           icon={LayoutGrid}
           title="No inventory yet"
           description="Add your first item and it'll flow through the pipeline from Sourced to Sold. You can also import inventory in bulk."
-          action={{ label: "Add an item", to: "/dashboard/flipdesk/intake", icon: Plus }}
+          action={{ label: "Add item", to: "/dashboard/flipdesk/intake", icon: Plus }}
           secondaryAction={{ label: "Import", to: "/dashboard/flipdesk/import", icon: Upload }}
         />
       ) : (

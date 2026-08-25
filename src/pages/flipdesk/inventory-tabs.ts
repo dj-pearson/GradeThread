@@ -150,7 +150,7 @@ export const TABS: TabDef[] = [
     matches: (it) => it.status !== "archived",
     sortKey: "created_at",
     sortDir: "desc",
-    emptyCta: { label: "Add an item", to: "/dashboard/flipdesk/intake" },
+    emptyCta: { label: "Add item", to: "/dashboard/flipdesk/intake" },
   },
   {
     id: "to_list",
@@ -158,7 +158,7 @@ export const TABS: TabDef[] = [
     matches: (it) => TO_LIST_STATUSES.has(it.status),
     sortKey: "updated_at",
     sortDir: "asc",
-    emptyCta: { label: "Add an item", to: "/dashboard/flipdesk/intake" },
+    emptyCta: { label: "Add item", to: "/dashboard/flipdesk/intake" },
   },
   {
     id: "drafts",

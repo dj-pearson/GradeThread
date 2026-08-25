@@ -231,7 +231,7 @@ export function BuyerPortfolioPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Add an item</CardTitle>
+          <CardTitle className="text-lg">Add item</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="space-y-2">

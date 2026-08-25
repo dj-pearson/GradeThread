@@ -920,7 +920,7 @@ export function FlipdeskListingsPage() {
           <Button asChild>
             <Link to="/dashboard/flipdesk/intake">
               <Plus className="mr-2 h-4 w-4" />
-              New item
+              Add item
             </Link>
           </Button>
         </div>

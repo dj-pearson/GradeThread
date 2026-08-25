@@ -6,7 +6,7 @@ import Foundation
 ///
 /// - ``SnapToValueIntent`` — "Snap to value": opens the app straight into the
 ///   photo-first capture-and-grade flow.
-/// - ``AddItemIntent`` — "Add an item": opens the add-method chooser.
+/// - ``AddItemIntent`` — "Add Item": opens the add-method chooser.
 /// - ``WhatSoldTodayIntent`` — "What sold today": a foreground-free, value-
 ///   returning intent that speaks today's sales + pending payout, read from the
 ///   same App Group rollup the home-screen widget renders.
@@ -40,10 +40,12 @@ struct SnapToValueIntent: AppIntent {
     }
 }
 
-// MARK: - Add an item
+// MARK: - Add item
 
 struct AddItemIntent: AppIntent {
-    static var title: LocalizedStringResource = "Add an Item"
+    // US-2860: the product's verb is "Add item", so the action name a user
+    // sees in the Shortcuts app is too.
+    static var title: LocalizedStringResource = "Add Item"
     static var description = IntentDescription(
         "Open GradeThread to add a new item to your inventory."
     )
@@ -92,12 +94,19 @@ struct GradeThreadAppShortcuts: AppShortcutsProvider {
         )
         AppShortcut(
             intent: AddItemIntent(),
+            // US-2860 DELIBERATELY LEAVES THE SPOKEN PHRASES ALONE, and adds
+            // rather than replaces. Speech is a different register: nobody says
+            // "add item to GradeThread" out loud, and a phrase that is removed
+            // stops matching the shortcuts people have already saved. "New item
+            // in ..." stays for the same reason -- it is a retired LABEL, but it
+            // is also a phrase somebody's Siri shortcut may depend on.
             phrases: [
                 "Add an item to \(.applicationName)",
                 "Add an item with \(.applicationName)",
+                "Add item to \(.applicationName)",
                 "New item in \(.applicationName)",
             ],
-            shortTitle: "Add an Item",
+            shortTitle: "Add Item",
             systemImageName: "plus.square.on.square"
         )
         AppShortcut(
