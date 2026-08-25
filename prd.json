@@ -2500,20 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2868",
-      "passes": false,
-      "title": "Plain-language pass over every user-facing string on both clients",
-      "description": "The house style is sixth-grade reading level, short sentences, plain words, and a four-word plain-English tag after any unavoidable technical term. The product's strings were written over two years by whoever was in the file, and they read like it: 'Reconcile photo dump', 'Trigger to action rules for stale or quiet listings', 'reconnect-required', 'orphan', 'provenance', 'aspect', 'item specifics'. Some of those are eBay's words and must stay; each one that stays needs a tag saying what it means.",
-      "acceptanceCriteria": [
-        "Every button label, empty-state title/description, toast, dialog title and form helper in src/ and ios/ is reviewed against the style rules.",
-        "A term the user cannot be expected to know is either replaced or followed by a short plain tag on first use, e.g. 'aspects (eBay's word for item details)'.",
-        "scripts/check-copy-reading-level.mjs scores the strings it can extract and reports anything above the target grade; it is report-only in this story, not a build gate.",
-        "The vault gets a short copy-style note recording the decisions, so the next writer does not re-litigate them."
-      ],
-      "priority": 62,
-      "notes": ""
-    },
-    {
       "id": "US-2869",
       "passes": false,
       "title": "Error toasts print what the API returned instead of what the user should do",
