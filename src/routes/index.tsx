@@ -43,6 +43,7 @@ const ResetPasswordPage = lazy(() => import("@/pages/reset-password").then(m => 
 const DashboardPage = lazy(() => import("@/pages/dashboard").then(m => ({ default: m.DashboardPage })));
 const SupportTicketsPage = lazy(() => import("@/pages/support-tickets").then(m => ({ default: m.SupportTicketsPage })));
 const SubmissionsPage = lazy(() => import("@/pages/submissions").then(m => ({ default: m.SubmissionsPage })));
+const ExamplePage = lazy(() => import("@/pages/example").then(m => ({ default: m.ExamplePage })));
 // US-1851: seller rewards — level, quarterly season track, cosmetic perks.
 const RewardsPage = lazy(() => import("@/pages/rewards").then(m => ({ default: m.RewardsPage })));
 const NewSubmissionPage = lazy(() => import("@/pages/new-submission").then(m => ({ default: m.NewSubmissionPage })));
@@ -527,6 +528,8 @@ export const router = createBrowserRouter([
             children: [
               { path: "/dashboard", element: <SuspenseWrapper><DashboardPage /></SuspenseWrapper> },
               { path: "/dashboard/snap", element: <SuspenseWrapper><SnapToValuePage /></SuspenseWrapper> },
+              // US-2865: the worked example. Read-only, no queries, no writes.
+              { path: "/dashboard/example", element: <SuspenseWrapper><ExamplePage /></SuspenseWrapper> },
               { path: "/dashboard/submissions", element: <SuspenseWrapper><SubmissionsPage /></SuspenseWrapper> },
               { path: "/dashboard/rewards", element: <SuspenseWrapper><RewardsPage /></SuspenseWrapper> },
               { path: "/dashboard/submissions/new", element: <SuspenseWrapper><NewSubmissionPage /></SuspenseWrapper> },

@@ -47,6 +47,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { EmptyState } from "@/components/ui/empty-state";
+import { showExampleAction } from "@/lib/show-example";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -1291,6 +1292,11 @@ export function FlipdeskListingsPage() {
                       to: activeTab.emptyCta.to,
                     }
               }
+              // US-2865: only on the ALL tab. Every other tab here is a
+              // status filter, so "No returns" is a statement about one
+              // stage, not about an empty account, and a seller with two
+              // hundred items does not need an example garment.
+              secondaryAction={tab === "all" ? showExampleAction : undefined}
             />
           ) : (
             <>
