@@ -1,3 +1,7 @@
+// US-2379: FIRST import. email-kill-switch.ts reaches lib/supabase.ts through
+// system-settings.ts, which reads env at import time — without this the file
+// only loads because some other test ran before it.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   AUTH_CATEGORY_PREFIX,

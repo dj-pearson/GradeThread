@@ -35,6 +35,12 @@ import {
   SheetContent,
   SheetTitle,
 } from "@/components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useSavedViews } from "@/hooks/use-saved-views";
 import { SidebarUsageWidget } from "@/components/dashboard/sidebar-usage-widget";
 import { UploadProgressPill } from "@/components/flipdesk/upload-progress-pill";
@@ -48,6 +54,14 @@ type NavItem = {
   to: string;
   icon: typeof LayoutDashboard;
   label: string;
+  // US-2861. Required, not optional. Twenty-three labels and nothing saying
+  // what any of them was for: a seller who has never used the product cannot
+  // tell Sourcing from Scout, Money from Pricing, or Verified from anything.
+  // One sentence, plain words, saying what the destination is FOR. Ported from
+  // ios/GradeThread/Tools/ToolsHubView.swift where a matching module exists —
+  // the iOS Tools hub has carried these sentences since US-749 and the web nav
+  // did not use them. Enforced by src/test/nav-descriptions.test.ts.
+  description: string;
   end: boolean;
   // Optional capability gate. If set, only render this item when the
   // current user can perform this action in the active workspace.
@@ -63,9 +77,13 @@ type NavItem = {
 // A subgroup is a labeled, independently-collapsible cluster of nav items
 // rendered *inside* a parent group. Used to break the long FlipDesk list into
 // manageable sections (US-609) so the section doesn't feel overwhelming.
-type NavSubgroup = { title: string; items: NavItem[] };
+type NavSubgroup = { title: string; description: string; items: NavItem[] };
 type NavGroup = {
   title?: string;
+  // Required whenever `title` is set — a titled section is a thing the user has
+  // to understand too (US-2861). The one untitled group carries no description
+  // because it renders no header to hang one on.
+  description?: string;
   // A group renders either a flat list of `items` OR a set of `subgroups`.
   items?: NavItem[];
   subgroups?: NavSubgroup[];
@@ -105,13 +123,38 @@ type NavGroup = {
 const navGroups: NavGroup[] = [
   {
     title: "Grading",
+    description: "Send garments for a condition grade and read the reports.",
     items: [
-      { to: "/dashboard", icon: LayoutDashboard, label: "Overview", end: true },
-      { to: "/dashboard/snap", icon: Camera, label: "Snap to Value", end: false },
-      { to: "/dashboard/submissions", icon: FileText, label: "Submissions", end: false },
+      {
+        to: "/dashboard",
+        icon: LayoutDashboard,
+        label: "Overview",
+        description: "Your grades, your plan usage, and what needs you today.",
+        end: true,
+      },
+      {
+        to: "/dashboard/snap",
+        icon: Camera,
+        label: "Snap to Value",
+        description: "Photograph a garment and get a free condition and price read.",
+        end: false,
+      },
+      {
+        to: "/dashboard/submissions",
+        icon: FileText,
+        label: "Submissions",
+        description: "Every garment you have sent for grading, and its report.",
+        end: false,
+      },
       // US-1851: level + quarterly season track. Sits with Grading because XP
       // comes from grading acts, not from listing volume.
-      { to: "/dashboard/rewards", icon: Trophy, label: "Rewards", end: false },
+      {
+        to: "/dashboard/rewards",
+        icon: Trophy,
+        label: "Rewards",
+        description: "Your level, your season track, and the credit you have earned.",
+        end: false,
+      },
       // Inventory consolidated into the FlipDesk section (US-740) — no duplicate
       // here; the single canonical inventory lives under FlipDesk.
       // Finances moved to the FlipDesk group — it reports purely on reseller
@@ -126,69 +169,172 @@ const navGroups: NavGroup[] = [
     // subgroups (US-609) so its ~20 destinations stay manageable. Overview +
     // Inventory sit at the top as the two everyday entry points.
     title: "FlipDesk",
+    description: "Everything from sourcing an item to reconciling the payout.",
     subgroups: [
       {
         title: "Catalog",
+        description: "What you own, and where to find it.",
         items: [
-          { to: "/dashboard/flipdesk", icon: Gauge, label: "Overview", end: true },
-          { to: "/dashboard/flipdesk/search", icon: Search, label: "Search", end: false },
+          {
+            to: "/dashboard/flipdesk",
+            icon: Gauge,
+            label: "Overview",
+            description: "The day's numbers for buying, listing and selling.",
+            end: true,
+          },
+          {
+            to: "/dashboard/flipdesk/search",
+            icon: Search,
+            label: "Search",
+            description: "Find any item, listing or sale by anything you remember about it.",
+            end: false,
+          },
           // Inventory is one surface now. Its in-page tabs switch between
           // Table / Grid / Kanban / Prep views — see InventoryViewSwitcher.
-          { to: "/dashboard/flipdesk/inventory", icon: Boxes, label: "Inventory", end: false },
+          {
+            to: "/dashboard/flipdesk/inventory",
+            icon: Boxes,
+            label: "Inventory",
+            description: "Everything you own, as a table, a grid, a board or a prep list.",
+            end: false,
+          },
         ],
       },
       {
         title: "List & sell",
+        description: "Turn items into listings and get them live.",
         items: [
           // US-2161 (second pass): AutoLister hosts Generate + Drafts as ?view=
           // tabs. Drafts was never a separate destination — it is what AutoLister
           // produces — and a seller who has just generated drafts should not have
           // to find a second nav entry to see them.
-          { to: "/dashboard/flipdesk/autolister", icon: Sparkles, label: "AutoLister", end: false, requiresFlipdeskFlag: "autolister" },
-          { to: "/dashboard/flipdesk/scheduled-drops", icon: CalendarClock, label: "Scheduled drops", end: false },
-          { to: "/dashboard/flipdesk/verified", icon: ShieldCheck, label: "Verified", end: false },
+          {
+            to: "/dashboard/flipdesk/autolister",
+            icon: Sparkles,
+            label: "AutoLister",
+            description: "Turn a pile of photos into drafted listings in one batch.",
+            end: false,
+            requiresFlipdeskFlag: "autolister",
+          },
+          {
+            to: "/dashboard/flipdesk/scheduled-drops",
+            icon: CalendarClock,
+            label: "Scheduled drops",
+            description: "Queue listings to publish when buyers are looking.",
+            end: false,
+          },
+          {
+            to: "/dashboard/flipdesk/verified",
+            icon: ShieldCheck,
+            label: "Verified",
+            description: "Claim your public seller handle and trust badge.",
+            end: false,
+          },
         ],
       },
       {
         title: "Sourcing",
+        description: "What to buy, and where it comes from.",
         items: [
-          { to: "/dashboard/flipdesk/import", icon: Upload, label: "Import", end: false },
+          {
+            to: "/dashboard/flipdesk/import",
+            icon: Upload,
+            label: "Import",
+            description: "Bring inventory in from a CSV file or a Google Sheet.",
+            end: false,
+          },
           // US-2161: ScoutAI + Buy Decision + Sources + Buyer Demand were four
           // entries answering one question — what should I buy, and where from.
           // They are ?tab= tabs of this one destination now. NOT plan-gated at
           // the nav level any more: two of the four tabs need compPulls and two
           // do not, so gating the whole entry would hide Sources from a seller
           // who is entitled to it.
-          { to: "/dashboard/flipdesk/sourcing", icon: Radar, label: "Sourcing", end: false },
-          { to: "/dashboard/flipdesk/consignment", icon: Handshake, label: "Consignment", end: false },
+          {
+            to: "/dashboard/flipdesk/sourcing",
+            icon: Radar,
+            label: "Sourcing",
+            description: "What to buy and where from: Scout, buy calls, sources, demand.",
+            end: false,
+          },
+          {
+            to: "/dashboard/flipdesk/consignment",
+            icon: Handshake,
+            label: "Consignment",
+            description: "Your consignors, their items, and their payout splits.",
+            end: false,
+          },
         ],
       },
       {
         title: "Channels & money",
+        description: "Where you sell, and what you make.",
         items: [
-          { to: "/dashboard/flipdesk/marketplaces", icon: Plug, label: "Marketplaces", end: false },
-          { to: "/dashboard/flipdesk/offers", icon: Tag, label: "Offers & Messages", end: false },
-          { to: "/dashboard/flipdesk/post-sale", icon: ShieldAlert, label: "Returns & Disputes", end: false },
+          {
+            to: "/dashboard/flipdesk/marketplaces",
+            icon: Plug,
+            label: "Marketplaces",
+            description: "Connect eBay and the other channels you sell on.",
+            end: false,
+          },
+          {
+            to: "/dashboard/flipdesk/offers",
+            icon: Tag,
+            label: "Offers & Messages",
+            description: "Buyer offers and messages, with replies drafted for you.",
+            end: false,
+          },
+          {
+            to: "/dashboard/flipdesk/post-sale",
+            icon: ShieldAlert,
+            label: "Returns & Disputes",
+            description: "Returns, cases and disputes after a sale.",
+            end: false,
+          },
           // US-2161: Repricing + Bulk pricing + Price Suggestions + Automations.
-          { to: "/dashboard/flipdesk/pricing", icon: Tags, label: "Pricing", end: false },
+          {
+            to: "/dashboard/flipdesk/pricing",
+            icon: Tags,
+            label: "Pricing",
+            description: "Reprice live listings, edit prices in bulk, and run pricing rules.",
+            end: false,
+          },
           // US-2161 (second pass): Finances + Expenses + Reconcile answered one
           // question — where did my money go — from three nav entries. One
           // destination now, ?view= carrying the choice. Reconcile keeps its own
           // four inner ?tab= tabs (US-963: Photos→Items, eBay SKU match, Payouts &
           // fees, Cross-source), which is exactly why the outer parameter is
           // ?view= and not ?tab=.
-          { to: "/dashboard/flipdesk/money", icon: DollarSign, label: "Money", end: false },
+          {
+            to: "/dashboard/flipdesk/money",
+            icon: DollarSign,
+            label: "Money",
+            description: "What sold, what it cost, what you are owed, and your real profit.",
+            end: false,
+          },
           // US-1579: MeasureCard info + PDF download + mailed-card request.
-          { to: "/dashboard/flipdesk/measure-card", icon: Ruler, label: "MeasureCard", end: false },
+          {
+            to: "/dashboard/flipdesk/measure-card",
+            icon: Ruler,
+            label: "MeasureCard",
+            description: "The printed card that puts a scale in every measurement photo.",
+            end: false,
+          },
         ],
       },
       {
         title: "Automate & insights",
+        description: "Rules that run for you, and how it is all going.",
         items: [
           // US-2161: Automations is a Pricing tab; Listing Performance and
           // Community Insights are Analytics tabs. `end: false` so the nav item
           // stays highlighted on every /analytics/* tab, not just the index.
-          { to: "/dashboard/flipdesk/analytics", icon: BarChart3, label: "Analytics", end: false },
+          {
+            to: "/dashboard/flipdesk/analytics",
+            icon: BarChart3,
+            label: "Analytics",
+            description: "How your listings, grades and returns are doing over time.",
+            end: false,
+          },
         ],
       },
     ],
@@ -198,20 +344,33 @@ const navGroups: NavGroup[] = [
     // one hub (US-741) reached from this single entry; its tabs gate billing/
     // API by capability. Direct routes still work for deep links + ⌘K.
     items: [
-      { to: "/dashboard/account", icon: CircleUser, label: "Account", end: false },
+      {
+        to: "/dashboard/account",
+        icon: CircleUser,
+        label: "Account",
+        description: "Your profile, plan, billing, team and referrals.",
+        end: false,
+      },
       // US-2554: findable. It was a tab inside Account, so the only way to
       // reach the API was to go looking for it under your profile.
       {
         to: "/dashboard/developers",
         icon: Code2,
         label: "Developers",
+        description: "API keys and the sandbox for grading from your own app.",
         end: false,
         requires: "manage_api_keys",
       },
       // US-2583: the in-app help reader. A nav entry rather than only the
       // header's help menu, because the thing people look for when stuck is a
       // place in the sidebar, not an icon they have to remember.
-      { to: "/dashboard/help", icon: LifeBuoy, label: "Help", end: false },
+      {
+        to: "/dashboard/help",
+        icon: LifeBuoy,
+        label: "Help",
+        description: "Guides and answers, without leaving the app.",
+        end: false,
+      },
     ],
   },
 ];
@@ -226,7 +385,15 @@ function loadCollapsed(): Record<string, boolean> {
   }
 }
 
-function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarNav({
+  onNavigate,
+  variant = "desktop",
+}: {
+  onNavigate?: () => void;
+  // US-2861: decides how each entry's description is shown. There is no hover
+  // on a phone, so the mobile sheet renders it inline instead of in a tooltip.
+  variant?: "desktop" | "mobile";
+}) {
   const profile = useAuthStore((s) => s.profile);
   const isAdmin =
     profile?.role === "admin" || profile?.role === "super_admin";
@@ -271,8 +438,51 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
     );
   }
 
-  function renderNavLink(item: NavItem) {
+  // US-2861: a titled section is a thing the user has to understand too, so
+  // the header gets the same treatment as an item — tooltip on desktop, an
+  // inline line on mobile.
+  function renderSectionHeader(args: {
+    title: string;
+    description?: string;
+    expanded: boolean;
+    onToggle: () => void;
+    className: string;
+    chevronClassName: string;
+  }) {
+    const button = (
+      <button
+        type="button"
+        onClick={args.onToggle}
+        aria-expanded={args.expanded}
+        className={args.className}
+      >
+        <span className="flex flex-col items-start gap-0.5 text-left">
+          <span>{args.title}</span>
+          {variant === "mobile" && args.description && (
+            <span className="text-[0.65rem] font-normal normal-case tracking-normal text-white/55">
+              {args.description}
+            </span>
+          )}
+        </span>
+        <ChevronDown className={args.chevronClassName} />
+      </button>
+    );
+    if (variant === "mobile" || !args.description) return button;
     return (
+      <Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent side="right" className="max-w-64">
+          {args.description}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
+
+  function renderNavLink(item: NavItem) {
+    // US-2861: on a phone there is no hover, so the sentence renders inline.
+    // On a desktop twenty-three two-line rows would be a wall, so it renders in
+    // a tooltip that opens on hover AND on keyboard focus.
+    const link = (
       <NavLink
         key={item.to}
         to={item.to}
@@ -283,16 +493,43 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
             isActive
               ? "bg-white/15 text-white"
               : "text-white/70 hover:bg-white/10 hover:text-white"
-          }`
+          } ${variant === "mobile" ? "items-start" : ""}`
         }
       >
-        <item.icon className="h-5 w-5" />
-        {item.label}
+        <item.icon
+          className={cn("h-5 w-5 flex-shrink-0", variant === "mobile" && "mt-0.5")}
+        />
+        {variant === "mobile" ? (
+          <span className="flex flex-col gap-0.5">
+            <span>{item.label}</span>
+            {/* Tinted from the navy surface rather than a flat gray, so it
+                stays legible on the fixed brand background (US-451). */}
+            <span className="text-xs font-normal leading-snug text-white/55">
+              {item.description}
+            </span>
+          </span>
+        ) : (
+          item.label
+        )}
       </NavLink>
+    );
+
+    if (variant === "mobile") return link;
+
+    return (
+      <Tooltip key={item.to}>
+        <TooltipTrigger asChild>{link}</TooltipTrigger>
+        <TooltipContent side="right" className="max-w-64">
+          {item.description}
+        </TooltipContent>
+      </Tooltip>
     );
   }
 
   return (
+    // US-2861: delayDuration 300 so a mouse crossing the nav on its way
+    // somewhere else does not flash a tooltip at every entry it passes.
+    <TooltipProvider delayDuration={300}>
     <nav className="mt-2 flex-1 space-y-4 px-3">
       {navGroups
         .filter((g) => !g.adminOnly || isAdmin)
@@ -314,22 +551,19 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
           !!group.title && (collapsed[group.title] ?? false) && !hasActive;
         return (
         <div key={gi} className="space-y-1">
-          {group.title && (
-            <button
-              type="button"
-              onClick={() => toggleGroup(group.title!)}
-              aria-expanded={!isCollapsed}
-              className="flex w-full items-center justify-between rounded-md px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-white/70 transition-colors hover:text-white/90"
-            >
-              {group.title}
-              <ChevronDown
-                className={cn(
-                  "h-3.5 w-3.5 transition-transform",
-                  isCollapsed && "-rotate-90",
-                )}
-              />
-            </button>
-          )}
+          {group.title &&
+            renderSectionHeader({
+              title: group.title,
+              description: group.description,
+              expanded: !isCollapsed,
+              onToggle: () => toggleGroup(group.title!),
+              className:
+                "flex w-full items-center justify-between rounded-md px-3 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-white/70 transition-colors hover:text-white/90",
+              chevronClassName: cn(
+                "h-3.5 w-3.5 flex-shrink-0 transition-transform",
+                isCollapsed && "-rotate-90",
+              ),
+            })}
           {!isCollapsed && (
             <>
               {directItems.map(renderNavLink)}
@@ -341,20 +575,18 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
                 const sgCollapsed = (collapsed[key] ?? false) && !sgHasActive;
                 return (
                   <div key={sg.title} className="space-y-1">
-                    <button
-                      type="button"
-                      onClick={() => toggleGroup(key)}
-                      aria-expanded={!sgCollapsed}
-                      className="flex w-full items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-[0.7rem] font-medium uppercase tracking-wide text-white/70 transition-colors hover:text-white/90"
-                    >
-                      {sg.title}
-                      <ChevronDown
-                        className={cn(
-                          "h-3 w-3 transition-transform",
-                          sgCollapsed && "-rotate-90",
-                        )}
-                      />
-                    </button>
+                    {renderSectionHeader({
+                      title: sg.title,
+                      description: sg.description,
+                      expanded: !sgCollapsed,
+                      onToggle: () => toggleGroup(key),
+                      className:
+                        "flex w-full items-center justify-between rounded-md py-1.5 pl-3 pr-2 text-[0.7rem] font-medium uppercase tracking-wide text-white/70 transition-colors hover:text-white/90",
+                      chevronClassName: cn(
+                        "h-3 w-3 flex-shrink-0 transition-transform",
+                        sgCollapsed && "-rotate-90",
+                      ),
+                    })}
                     {!sgCollapsed && sg.items.map(renderNavLink)}
                   </div>
                 );
@@ -382,6 +614,7 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         </NavLink>
       )}
     </nav>
+    </TooltipProvider>
   );
 }
 
@@ -461,7 +694,7 @@ export function MobileNav() {
             <img src="/logo_white.png" width={1806} height={376} alt="GradeThread" className="h-8" />
           </div>
           <div className="flex flex-1 flex-col overflow-y-auto">
-            <SidebarNav onNavigate={() => setOpen(false)} />
+            <SidebarNav onNavigate={() => setOpen(false)} variant="mobile" />
             <div className="mt-auto pt-4">
               <UploadProgressPill />
               <SidebarUsageWidget />

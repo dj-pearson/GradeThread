@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2856",
+  "nextId": "US-2885",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2484,6 +2484,394 @@
         "A default policy id that no longer exists on the connected eBay account falls back to the account default and tells the seller once",
         "Defaults are per marketplace connection, not global, since policy ids are account-scoped"
       ]
+    },
+    {
+      "id": "US-2856",
+      "passes": false,
+      "title": "EPIC: make GradeThread teachable: one activation system, one vocabulary, help where the user is stuck",
+      "description": "A deep read of the web SPA and the iOS app on 2026-08-24 found the product is feature-complete and unteachable. A new seller is shown four different 'get started' lists that disagree about the first step; the first-run tour names three pages that were renamed months ago; every activation button lands on a redirect rather than a page; the web sidebar offers twenty-five destinations with no explanation of any of them, while the iOS Tools hub carries a written one-line explanation for every module; the same button is labelled 'Add item', 'Add an item', 'New item' and 'Intake an item' depending on where you find it; the command palette exists with no visible affordance; contextual help renders on ten of forty-five registered surfaces and hides itself when the article table is empty (US-2618); and an empty account is a blank app with no example to read. None of this is a missing feature. All of it is the cost of shipping twenty-five surfaces faster than the words that explain them. This epic covers the children below: US-2857..US-2884.",
+      "acceptanceCriteria": [
+        "Tier 1 (US-2857..US-2863) is done: nothing in the onboarding path names a page that does not exist, links to a redirect, or contradicts another onboarding surface.",
+        "Tier 2 (US-2864..US-2875) is done: every invented product noun has a plain definition reachable in-product, every list surface says what goes in it, and an empty account has something to read.",
+        "Tier 3 (US-2876..US-2884) is done: the two clients read one surface registry, the phone web experience matches the phone app, and each named parity gap is either built or honestly labelled.",
+        "The activation funnel is instrumented (US-2884) and the question 'where do new sellers stop' has an answer from data rather than from opinion."
+      ],
+      "priority": 13,
+      "notes": ""
+    },
+    {
+      "id": "US-2859",
+      "passes": false,
+      "title": "A new seller is shown four different 'get started' lists that disagree about step one",
+      "description": "Four independent nudge surfaces greet the same new seller. (1) OnboardingFlow, a modal with a four-slide tour. (2) ActivationChecklist on the dashboard: grade a garment, add an inventory item, connect eBay, turn on notifications. (3) The persona first-run card immediately below it (dashboard.tsx firstRunFor), which names a different single first action. (4) FlipdeskOnboarding on /dashboard/flipdesk: add a source, intake an item, send it to GradeThread. Two of them call step one 'grade a garment' and one calls it 'add a source'. Each keeps its own dismissal state, its own progress query, and its own definition of done. A user who completes the FlipDesk list still sees the dashboard list at zero. This is the single largest ease-of-use defect in the product and it is entirely self-inflicted.",
+      "acceptanceCriteria": [
+        "One module (src/lib/activation-steps.ts) declares the ordered step list per persona, each step with: key, title, one-line reason, CTA label, canonical route, and a `isDone(state)` predicate over real data.",
+        "ActivationChecklist, FlipdeskOnboarding and the dashboard persona first-run card all render from that module; none of them defines its own steps.",
+        "At most ONE activation surface renders at a time: the dashboard shows the checklist, and the FlipDesk page shows only the steps not already satisfied, or nothing.",
+        "The persona first-run card is folded into the checklist as its first incomplete step, rather than duplicating it below.",
+        "Dismissal is one flag, honoured by every surface. A step completed anywhere shows as complete everywhere on the next render.",
+        "The OnboardingFlow tour's final screen hands off to the checklist by name, so the user knows where the list they just saw now lives."
+      ],
+      "priority": 14,
+      "notes": ""
+    },
+    {
+      "id": "US-2860",
+      "passes": false,
+      "title": "The same button has four names: Add item, Add an item, New item, Intake an item",
+      "description": "One action, put a garment into inventory, carries four labels across the web app. 'New item' on flipdesk/overview.tsx, flipdesk/intake.tsx and flipdesk/listings.tsx. 'Add an item' on flipdesk/pipeline.tsx and buyer/portfolio.tsx. 'Add item' in activation-checklist.tsx and bulk-intake.tsx. 'Intake an item' in flipdesk-onboarding.tsx. iOS calls the same three entry points 'Take photos', 'Type details' and 'Bulk list with AI', which are better names and match none of the above. A user cannot build a mental model of a verb that changes every screen, and support cannot write one sentence that covers it.",
+      "acceptanceCriteria": [
+        "One label is chosen and documented in vault/20-domain/ (the naming note), with the reason.",
+        "Every web entry point to intake uses it. Where the entry point picks a MODE, the mode is the qualifier, not a new verb: 'Add item: photos first' / 'Add item: type details' / 'Add item: bulk with AI'.",
+        "iOS uses the same three strings.",
+        "A guard test greps src/ and ios/ for the retired variants and fails on a new one."
+      ],
+      "priority": 14,
+      "notes": ""
+    },
+    {
+      "id": "US-2861",
+      "passes": false,
+      "title": "Twenty-five nav destinations and not one of them says what it is",
+      "description": "src/components/dashboard/sidebar.tsx renders labels only: Sourcing, Verified, Offers & Messages, Money, Pricing, Analytics, MeasureCard, Scheduled drops, Consignment. A seller who has never used the product cannot tell Sourcing from Scout, Money from Pricing, or Verified from anything. The iOS app already solved this: ToolsHubView carries a written one-line subtitle for every module ('Find underpriced eBay listings to flip', 'Queue listings to publish at peak times', 'Condition-aware price suggestions for live listings'). Those sentences exist, they are good, and the web nav does not use them.",
+      "acceptanceCriteria": [
+        "NavItem gains a required `description` field: one sentence, plain words, saying what the destination is for.",
+        "Descriptions are ported from ToolsHubView where a matching module exists, and written in the same register where it does not.",
+        "Desktop: the description shows in a tooltip on hover and on keyboard focus. Mobile sheet: it renders inline under the label, because there is no hover on a phone.",
+        "A guard test fails if any NavItem lacks a description or if a description exceeds one sentence.",
+        "The subgroup titles (Catalog, List & sell, Sourcing, Channels & money, Automate & insights) get the same treatment."
+      ],
+      "priority": 14,
+      "notes": ""
+    },
+    {
+      "id": "US-2862",
+      "passes": false,
+      "title": "Contextual help is registered on forty-five surfaces and rendered on ten",
+      "description": "src/lib/help-slugs.ts registers the surfaces that should carry a help button. src/components/help/help-link.tsx is placed on ten of them: api-keys, billing, connect-extension, composer, marketplaces, pipeline, reconcile, new-submission, submission-detail, team. Two of those ten live in page files that US-2161 turned into tabs of another host (pipeline.tsx, reconcile.tsx), so whether the button still reaches a user depends on whether the host renders that component, which nobody has checked. Meanwhile the surfaces where a new user is most likely to be stuck, intake, inventory, autolister, sourcing, money, pricing, offers, post-sale, scheduled drops, verified, consignment, import, have no button at all. This is distinct from US-2618 (the article table is empty): even with every article loaded, thirty-five surfaces would still show nothing.",
+      "acceptanceCriteria": [
+        "Every entry in PRODUCT_HELP_SLUGS names a surface that renders a HelpLink for it, or is removed from the registry with a reason.",
+        "The pipeline.tsx and reconcile.tsx HelpLinks are confirmed to render inside their current hosts (money.tsx view=reconcile, inventory kanban mode) or moved to the host.",
+        "A guard test asserts a two-way match: no registered slug without a call site, no call site with an unregistered slug.",
+        "The help button sits in a consistent position on every surface (page header, right of the title), not wherever it fitted."
+      ],
+      "priority": 14,
+      "notes": ""
+    },
+    {
+      "id": "US-2863",
+      "passes": false,
+      "title": "The command palette is discoverable only by pressing a key nobody told you about",
+      "description": "CommandPalette is mounted app-wide in dashboard-layout.tsx and opens on Cmd/Ctrl-K or '/'. The header (src/components/dashboard/header.tsx) shows a keyboard-shortcuts icon, a theme toggle, a notification bell and an account menu, no search field. A mouse user, or anyone who has not opened the shortcuts sheet, will never find the fastest way to move around a twenty-five destination app. shortcuts-help.tsx already documents it; nothing points at that either.",
+      "acceptanceCriteria": [
+        "The header renders a search affordance that looks like a search input, spans a reasonable width on desktop, shows the shortcut hint, and opens the palette on click.",
+        "On viewports below sm it collapses to a search icon that opens the same palette.",
+        "The palette's own empty state lists three example commands, so a first-time opener sees what it can do rather than a blank box.",
+        "The keyboard-shortcuts icon keeps working; the search field is an addition, not a replacement."
+      ],
+      "priority": 14,
+      "notes": ""
+    },
+    {
+      "id": "US-2864",
+      "passes": false,
+      "title": "The product invented sixteen nouns and defines none of them in-product",
+      "description": "FlipDesk, AutoLister, Snap to Value, MeasureCard, Scout, Prospect, Sourcing, Reconcile, Comp, Passport, Verified, Finds, Rewards, Trust score, Thrift Radar, Consignment. Every one is a word the user has to learn, and every one is currently taught by being clicked. Some are explained on marketing pages the signed-in user never revisits; none are explained at the point of first encounter. A glossary exists on the public site for GRADING terms (/grading/glossary) and covers none of these product terms.",
+      "acceptanceCriteria": [
+        "src/lib/product-terms.ts registers every invented noun with: term, one-sentence plain definition (sixth-grade reading level), the surface that owns it, and an optional help slug.",
+        "A <Term> component renders the term with a subtle dotted underline and opens a popover carrying the definition plus a link to the owning surface; it is keyboard reachable and screen-reader labelled.",
+        "The first occurrence of a term on any page is wrapped in <Term>; later occurrences are plain.",
+        "/dashboard/help/glossary lists all of them alphabetically, and the sidebar Help entry links to it.",
+        "A guard test fails if a registered term appears in src/pages/** without ever being wrapped, and if a term is registered with a definition longer than one sentence.",
+        "iOS reads the same list (generated Swift) and uses it for the Tools hub subtitles, so the two cannot drift."
+      ],
+      "priority": 62,
+      "notes": ""
+    },
+    {
+      "id": "US-2865",
+      "passes": false,
+      "title": "An empty account is a blank app; give it one example to read",
+      "description": "A brand-new seller signs in and every surface is zero. Zero submissions, zero inventory, zero comps, zero sales, zero analytics. There is no sample data anywhere in the codebase (grep for 'sample data' / 'demo mode' returns one marketing page). So the first thing a user learns about a grade report is what an empty grade report looks like, and the fastest way to understand what the product produces is to spend money finding out.",
+      "acceptanceCriteria": [
+        "'Show me an example' appears on the dashboard zero-data state, on the submissions empty state and on the inventory empty state.",
+        "It loads a fixed client-side fixture: one example garment with four photos, one full grade report with all five factors and a confidence, one comp read, and one sale with fees and profit.",
+        "Every example surface is badged 'Example' and is read-only; nothing is written to the user's tables and nothing counts against their plan.",
+        "One click clears it, and it clears itself the moment the user's own first item exists.",
+        "The example is the same garment on web and iOS, so support can talk about it by name."
+      ],
+      "priority": 62,
+      "notes": ""
+    },
+    {
+      "id": "US-2866",
+      "passes": false,
+      "title": "Audit every list surface for an empty state that says what goes here and how",
+      "description": "src/components/ui/empty-state.tsx is a good component used by 56 files, which means the rest of the list and table surfaces are showing something else, or nothing. An empty table with a header row and no explanation is the most common way a feature-rich app reads as broken.",
+      "acceptanceCriteria": [
+        "Every list/table/grid surface under src/pages/** renders EmptyState when its data set is empty.",
+        "Each empty state carries a title, a description saying what lands here and what puts it there, and an action.",
+        "A guard test enumerates the list surfaces (by a marker prop or a registry) and fails on one with no empty state.",
+        "The empty state for a surface the user cannot yet use (no eBay connection, no plan entitlement) says the prerequisite, not 'no data'."
+      ],
+      "priority": 62,
+      "notes": ""
+    },
+    {
+      "id": "US-2867",
+      "passes": false,
+      "title": "'No results' and 'nothing yet' are the same message today and should not be",
+      "description": "EmptyState supports a secondaryAction for exactly this, and most call sites pass one description for both cases. A user with three filters applied and no matches is told to add their first item, which is wrong and slightly insulting; a user with genuinely nothing is offered 'Clear filters', which does nothing.",
+      "acceptanceCriteria": [
+        "Every filtered list distinguishes zero-data from zero-matches and renders a different title, description and action for each.",
+        "Zero-matches always offers 'Clear filters' and names how many filters are active.",
+        "Zero-data always offers the add CTA.",
+        "src/test/search-outage-not-empty.test.ts is extended to cover the third case: a failed query must not render either empty state."
+      ],
+      "priority": 62,
+      "notes": ""
+    },
+    {
+      "id": "US-2868",
+      "passes": false,
+      "title": "Plain-language pass over every user-facing string on both clients",
+      "description": "The house style is sixth-grade reading level, short sentences, plain words, and a four-word plain-English tag after any unavoidable technical term. The product's strings were written over two years by whoever was in the file, and they read like it: 'Reconcile photo dump', 'Trigger to action rules for stale or quiet listings', 'reconnect-required', 'orphan', 'provenance', 'aspect', 'item specifics'. Some of those are eBay's words and must stay; each one that stays needs a tag saying what it means.",
+      "acceptanceCriteria": [
+        "Every button label, empty-state title/description, toast, dialog title and form helper in src/ and ios/ is reviewed against the style rules.",
+        "A term the user cannot be expected to know is either replaced or followed by a short plain tag on first use, e.g. 'aspects (eBay's word for item details)'.",
+        "scripts/check-copy-reading-level.mjs scores the strings it can extract and reports anything above the target grade; it is report-only in this story, not a build gate.",
+        "The vault gets a short copy-style note recording the decisions, so the next writer does not re-litigate them."
+      ],
+      "priority": 62,
+      "notes": ""
+    },
+    {
+      "id": "US-2869",
+      "passes": false,
+      "title": "Error toasts print what the API returned instead of what the user should do",
+      "description": "The convention is that auth functions throw, the caller toasts, and edge routes return { error } plus a status. What reaches the user is therefore whatever string the server chose. iOS already has FriendlyErrorCopy for exactly this problem; the web has no equivalent, so a failed publish can surface a raw Postgres or eBay message. A user reading '42703 column listings.x does not exist' learns nothing and files a ticket.",
+      "acceptanceCriteria": [
+        "src/lib/friendly-error.ts maps the error shapes the app actually produces (network, auth expired, plan limit, marketplace reconnect, validation, unknown) to: one line saying what happened, one line saying what it means, one line saying what to do.",
+        "Every toast.error call site goes through it.",
+        "The raw detail stays available behind a 'Details' disclosure for support, and is always sent to Sentry.",
+        "A guard test fails if a toast.error is passed an error object's message directly.",
+        "iOS FriendlyErrorCopy and the web map cover the same cases, checked by a shared fixture list."
+      ],
+      "priority": 62,
+      "notes": ""
+    },
+    {
+      "id": "US-2870",
+      "passes": false,
+      "title": "Nobody tells the user what happens after they submit a garment for grading",
+      "description": "A first submission is the product's core promise and its longest wait. The user presses submit and gets a status. Nothing on that screen says how long it usually takes, what arrives at the end, that a low-confidence grade goes to a human, what human review means for the wait, or where to look when it is done. Every one of those questions becomes a support ticket or an abandoned account.",
+      "acceptanceCriteria": [
+        "The post-submit screen states the typical turnaround, what the user receives (a 1.0-10.0 grade, five factor scores, a condition report, a shareable certificate), and where it will appear.",
+        "It explains human review in one sentence, in plain words, and says it does not cost extra.",
+        "If the account has notifications available, the screen offers to notify on completion rather than asking the user to watch.",
+        "The same copy appears on iOS after a submission, from the same source strings."
+      ],
+      "priority": 62,
+      "notes": ""
+    },
+    {
+      "id": "US-2871",
+      "passes": false,
+      "title": "The grade report shows a number before it explains the number",
+      "description": "The scale is 1.0-10.0, built from five weighted factors (Fabric 30, Structural 25, Cosmetic 20, Functional 15, Odor 10), rounded to 0.1, with a confidence below 0.75 routing to human review. A seller reading their first report sees a score and five bars. The weights, the rounding, and what confidence means are documented in the grading standard pages and in a help article that currently does not exist in the database (US-2618).",
+      "acceptanceCriteria": [
+        "The report renders each factor with its weight shown, so the arithmetic is visible rather than asserted.",
+        "A one-line plain explanation of confidence sits next to the confidence value, and says what happens below the threshold.",
+        "The tier name (NWT, Excellent, ... Poor) is shown with its score band, not alone.",
+        "A 'How this score was built' disclosure explains the weighting in four sentences, without linking away.",
+        "iOS renders the same explanation from the same source of truth for the weights."
+      ],
+      "priority": 62,
+      "notes": ""
+    },
+    {
+      "id": "US-2872",
+      "passes": false,
+      "title": "Plan-gated features vanish from the nav, so a user cannot discover what upgrading buys",
+      "description": "sidebar.tsx isItemVisible returns false for a NavItem whose requiresFlipdeskFlag is not in the current plan, so AutoLister simply does not exist for a free account. A hidden feature cannot be wanted. The pricing page lists the plans, but the moment of maximum intent is when the seller is standing in the surface that would have used the feature, not when they go looking for a pricing table.",
+      "acceptanceCriteria": [
+        "A plan-gated nav item renders in a visibly locked state with a lock glyph rather than disappearing, unless the workspace role forbids it entirely (capability gates keep hiding).",
+        "Clicking it opens a one-screen explanation: what the feature does, one sentence; which plan includes it; and an upgrade button.",
+        "The same treatment applies to gated in-page actions, which currently disable with no reason.",
+        "A workspace member without permission still sees nothing, because that is not an upsell, it is a permission."
+      ],
+      "priority": 62,
+      "notes": ""
+    },
+    {
+      "id": "US-2873",
+      "passes": false,
+      "title": "Guided first listing: one instruction per screen from photo to published",
+      "description": "The pipeline is source, catalog, measure, photograph, grade, comp, draft, list, sell, ship, reconcile. A new seller is handed all eleven at once through a nav with five subgroups. The first pass through should be a single guided path with one thing to do per screen, and everything else out of the way.",
+      "acceptanceCriteria": [
+        "An opt-in guided path is offered from the activation checklist's first step and walks intake, grade, composer and publish.",
+        "Each step shows one instruction, one input, and a 'why this matters' line of at most one sentence.",
+        "The user can leave at any point and the item keeps whatever progress it has; re-entering resumes where they stopped.",
+        "It runs exactly once per account by default, and is replayable from Help.",
+        "Completing it satisfies the corresponding activation steps rather than being a fifth parallel checklist."
+      ],
+      "priority": 62,
+      "notes": ""
+    },
+    {
+      "id": "US-2874",
+      "passes": false,
+      "title": "iOS has no contextual help sheet",
+      "description": "The web has HelpLink: a question-mark button that opens the relevant article in a side sheet without losing the half-filled form the user was stuck in. iOS has 'Help & FAQ' and 'How grading works' buried in Settings, both of which leave the app. The screen a user is stuck on is the screen the answer belongs on, and on a phone leaving the app to read it is worse, not better.",
+      "acceptanceCriteria": [
+        "A Swift HelpSheet reads GET /api/help by slug and presents the article in a sheet over the current screen.",
+        "It renders nothing when the slug has no article, matching the web behaviour exactly.",
+        "It is placed on the same surfaces as the web HelpLink, using the same slugs from a generated Swift mirror of PRODUCT_HELP_SLUGS.",
+        "A guard script (ios/Scripts/) fails if a Swift help slug is absent from the shared registry."
+      ],
+      "priority": 62,
+      "notes": ""
+    },
+    {
+      "id": "US-2875",
+      "passes": false,
+      "title": "iOS onboarding runs once and can never be replayed",
+      "description": "OnboardingState.hasCompleted is a versioned UserDefaults flag set on completion, and nothing in ContentView's Settings offers to clear it. A user who skipped the carousel on day one cannot ever see it again. The web has this: useOnboardingTourStore().reopen() is wired to a Settings entry. The two platforms should behave the same, and the fix is four lines.",
+      "acceptanceCriteria": [
+        "iOS Settings > Support offers 'Replay the welcome tour', which presents OnboardingView without clearing the recorded use case.",
+        "Replaying does not re-queue pendingFirstAction, so it cannot yank a working user to another tab.",
+        "The web entry point and the iOS entry point use the same wording.",
+        "The activation checklist can also be un-dismissed from the same place on both platforms."
+      ],
+      "priority": 62,
+      "notes": ""
+    },
+    {
+      "id": "US-2876",
+      "passes": false,
+      "title": "One surface registry, read by both clients, instead of two hand-maintained lists",
+      "description": "sidebar.tsx navGroups and ToolsHubView modules are two hand-written lists of what the product contains. They already disagree: iOS surfaces Listing templates, Prospect, Reconcile photo dump and Community Insights as top-level tools; the web sidebar has no templates entry at all, no Prospect, and buries Community Insights inside Analytics tabs. Neither list knows about the other, so every new feature has to be remembered twice and is usually remembered once.",
+      "acceptanceCriteria": [
+        "src/lib/surfaces.ts declares every product surface once: id, label, one-line description, web route (or null), iOS route (or null), plan gate, capability gate, and which nav group it belongs to.",
+        "sidebar.tsx builds navGroups from it. ToolsHubView builds its modules from a generated Swift mirror.",
+        "A guard test fails if a route exists in the router under /dashboard/flipdesk or /dashboard that is neither in the registry nor explicitly listed as contextual/deep-link-only (the exemption list the sidebar comment already keeps in prose).",
+        "The same guard fails if a surface declares an iOS route no Swift view resolves."
+      ],
+      "priority": 76,
+      "notes": ""
+    },
+    {
+      "id": "US-2877",
+      "passes": false,
+      "title": "Listing templates exist on iOS and nowhere on the web",
+      "description": "ios/GradeThread/Templates/ has ListingTemplate, TemplateEditorSheet and TemplateService, surfaced in the Tools hub as 'Reusable description, condition + policy presets'. src/pages/flipdesk/ has no templates page and the router has no templates route. A seller who builds their presets on the phone cannot see or edit them on the desktop, which is where people actually write.",
+      "acceptanceCriteria": [
+        "A web page lists, creates, edits and deletes listing templates against the same table and the same field semantics as iOS.",
+        "It is reachable from the nav (List & sell subgroup) and from the composer, where a template is applied.",
+        "A template edited on either client shows the edit on the other after a sync.",
+        "The composer's 'Apply template' offers the same set on both clients."
+      ],
+      "priority": 76,
+      "notes": ""
+    },
+    {
+      "id": "US-2878",
+      "passes": false,
+      "title": "Prospect is a phone-only feature the web never mentions",
+      "description": "ios/GradeThread/Prospect/ ships 'Snap an item in-store, get instant comps'. The web has Snap to Value (a condition and price read) and Scout (find underpriced eBay listings), and no Prospect. It may well be right that Prospect stays on the phone, it is a camera-in-a-thrift-store feature. What is wrong is that the web says nothing about it, so a desktop-first seller does not know the app does it.",
+      "acceptanceCriteria": [
+        "A decision is recorded in the vault: build Prospect on the web, or declare it phone-only.",
+        "If phone-only: the web Sourcing surface carries a row naming Prospect, explaining it in one line, and pointing at the app, in the same visual treatment used for any other phone-only surface.",
+        "If built: it appears in the surface registry with both routes and behaves the same on both.",
+        "Whatever is decided, Snap to Value, Scout and Prospect each carry a one-sentence description that makes clear how they differ, because three comp-adjacent tools with three invented names is the confusion this closes."
+      ],
+      "priority": 76,
+      "notes": ""
+    },
+    {
+      "id": "US-2879",
+      "passes": false,
+      "title": "Four web surfaces have no iOS equivalent and iOS does not say so",
+      "description": "Rewards (the XP and season track, US-1851), MeasureCard, Offers & Messages, and the in-app help reader exist on the web and nowhere in ios/GradeThread. A phone-first seller has no way to know they exist. Each needs a decision, not a silence: build it, or put an honest row in the Tools hub that says what it is and opens it on the web.",
+      "acceptanceCriteria": [
+        "Each of the four gets a recorded decision: build on iOS, or link out.",
+        "Every 'link out' row states in one line what the surface does and opens it in an authenticated web view, not a cold Safari tab that asks the user to sign in again.",
+        "The surface registry (US-2876) records iOS route null plus a `webOnly` reason for each, so the gap is visible in code rather than only in a phone.",
+        "The same treatment covers the reverse direction for anything iOS-only after US-2877 and US-2878 land."
+      ],
+      "priority": 76,
+      "notes": ""
+    },
+    {
+      "id": "US-2880",
+      "passes": false,
+      "title": "The web on a phone is a twenty-five item drawer; the app is five tabs",
+      "description": "dashboard-layout renders the same sidebar inside a Sheet below the md breakpoint. So the phone web experience is: tap a hamburger, scroll a twenty-five entry list with five collapsible subgroups, tap through. The iOS app answers the same problem with five tabs, Home, Inventory, Add, Money, Marketplaces, and a Tools hub for the rest, and it is much better. A large share of sellers reach the web from a phone in a thrift store.",
+      "acceptanceCriteria": [
+        "Below the md breakpoint the dashboard renders a bottom tab bar with the same five destinations as iOS, in the same order, with the same labels and equivalent icons.",
+        "The centre Add tab opens the same three-mode intake choice as the iOS Add sheet.",
+        "The hamburger sheet becomes 'More' and holds everything not on the tab bar, grouped as it is today.",
+        "The bar respects safe-area insets and does not cover the last row of a scrolled list.",
+        "It is hidden on the buyer shell, which has its own navigation."
+      ],
+      "priority": 76,
+      "notes": ""
+    },
+    {
+      "id": "US-2881",
+      "passes": false,
+      "title": "Two command palettes with two command sets",
+      "description": "src/components/flipdesk/command-palette.tsx serves the dashboard and src/components/admin/command-palette.tsx serves admin. They are separate components with separate command registration, separate keyboard handling and separate result rendering. An admin moving between the two shells gets two different search boxes that look alike and behave differently.",
+      "acceptanceCriteria": [
+        "One palette component, with commands contributed by modules (dashboard module, admin module, buyer module).",
+        "A module is only registered when its shell is mounted, so an admin command never appears for a seller.",
+        "Keyboard handling, result grouping, empty state and recent-items behaviour come from the shared component.",
+        "The admin palette's current commands all still work, verified by its existing tests."
+      ],
+      "priority": 76,
+      "notes": ""
+    },
+    {
+      "id": "US-2882",
+      "passes": false,
+      "title": "src/pages/flipdesk/prep.tsx is unreachable",
+      "description": "No route and no import references it. /dashboard/flipdesk/prep is an InventoryModeRedirect to the inventory prep mode, which is a different component. A dead page file in a directory of fifty is a trap for the next person who greps for 'prep' while fixing a prep bug.",
+      "acceptanceCriteria": [
+        "prep.tsx is deleted, or routed if it turns out to hold behaviour the inventory prep mode lacks.",
+        "If deleted, any tests referencing it are removed with it and the build stays green.",
+        "A guard test lists page files under src/pages/ with no import anywhere and fails on a new one, so the next orphan is caught at the commit that creates it."
+      ],
+      "priority": 76,
+      "notes": ""
+    },
+    {
+      "id": "US-2883",
+      "passes": false,
+      "title": "Buyer onboarding is a separate page with a separate pattern",
+      "description": "/buyer/onboarding is a full page. Seller onboarding is a modal plus a checklist plus a first-run card. The buyer persona is also explicitly skipped by the seller activation checklist (stepsFor returns an empty array for 'buyer'). Two personas, two entirely different first-run architectures, and a user who is both (every seller can shop, US-1887) meets both.",
+      "acceptanceCriteria": [
+        "Buyer onboarding is expressed as a persona in the same activation-steps module from US-2859, with its own step list.",
+        "A user who is both a buyer and a seller is not shown two first-run experiences; the shell they are in decides which steps apply.",
+        "The buyer shell renders the shared checklist component, not its own.",
+        "Switching to buying from the seller sidebar does not restart onboarding."
+      ],
+      "priority": 76,
+      "notes": ""
+    },
+    {
+      "id": "US-2884",
+      "passes": false,
+      "title": "Instrument activation so 'where do new sellers stop' has an answer from data",
+      "description": "src/lib/analytics-events.ts already carries onboarding events, and onboarding-flow fires onboarding.use_case_selected. What is missing is the funnel: first sign-in, tour finished or skipped, each activation step's first completion, first grade, first item, eBay connected, first listing published, first sale reconciled, with the same event names on web and iOS. Without it every decision in this epic is opinion.",
+      "acceptanceCriteria": [
+        "One event registry declares the activation funnel events with their properties; web and iOS both emit from it.",
+        "Each activation step emits exactly once per account on first completion, not on every render.",
+        "A saved PostHog view (or an admin page) shows the funnel with drop-off between consecutive steps, split by persona and by platform.",
+        "The events are documented in the vault next to the activation-steps contract, so a renamed step renames its event.",
+        "No personally identifying content is in any property; item and submission ids only."
+      ],
+      "priority": 76,
+      "notes": ""
     }
   ]
 }

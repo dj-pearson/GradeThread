@@ -26,34 +26,74 @@ import { useOnboardingTourStore } from "@/stores/onboarding-tour-store";
 import { USE_CASE_OPTIONS } from "@/lib/use-cases";
 import type { UserUpdate, UserUseCase } from "@/types/database";
 
-const TOUR_STEPS: {
+// US-2857. These four slides used to name three rooms that had been renamed:
+// "the Inventory section" (moved under FlipDesk by US-740), "the Finances page"
+// (folded into FlipDesk > Money by US-2161) and "the API Keys page" (became
+// Developers in US-2554). So the first thing a new account was told was a set
+// of directions to places that no longer answer to those names.
+//
+// Two rules keep that from happening again. `navLabel` is the sidebar label,
+// spelled exactly as sidebar.tsx spells it, and `to` is the canonical route,
+// not one of the redirect aliases. src/test/onboarding-copy-routes.test.ts
+// checks both against the real files, so the next rename breaks the build.
+interface TourStep {
   icon: React.ElementType;
   title: string;
+  /** Where the sidebar says to look. Must match a NavItem label exactly. */
+  navLabel: string;
+  /** Sidebar section, for the "Grading > Submissions" breadcrumb line. */
+  navGroup: string;
   text: string;
-}[] = [
+  /** Canonical route. Never a redirect alias. */
+  to: string;
+}
+
+// The three places every account uses, in the order a garment moves through
+// them. Named for the destination, because the point of the slide is to make
+// the nav entry recognisable when the user next looks at it.
+const BASE_TOUR_STEPS: TourStep[] = [
   {
     icon: FileText,
-    title: "Submit garments",
-    text: "Upload photos and get an AI-powered condition grade in minutes — find this under Submissions.",
+    title: "Submissions",
+    navLabel: "Submissions",
+    navGroup: "Grading",
+    text: "Upload photos of a garment and get a condition grade in minutes. Every grade you have ever run lives here.",
+    to: "/dashboard/submissions",
   },
   {
     icon: Package,
-    title: "Track inventory",
-    text: "Manage items, listings, and sales end-to-end from the Inventory section.",
+    title: "Inventory",
+    navLabel: "Inventory",
+    navGroup: "FlipDesk",
+    text: "Every item you own, from the day you buy it to the day it ships. Switch between a table, a grid and a board without leaving the page.",
+    to: "/dashboard/flipdesk/inventory",
   },
   {
     icon: BarChart3,
-    title: "Understand your finances",
-    text: "Profit, ROI, and inventory aging update automatically on the Finances page.",
-  },
-  {
-    icon: KeyRound,
-    title: "Build with the API",
-    text: "Generate API keys to grade garments programmatically — see the API Keys page.",
+    title: "Money",
+    navLabel: "Money",
+    navGroup: "FlipDesk",
+    text: "What sold, what it cost you, what is still owed, and what your real profit was. Expenses and payout matching are tabs on this one page.",
+    to: "/dashboard/flipdesk/money",
   },
 ];
 
-const LAST_STEP = 1 + TOUR_STEPS.length; // welcome=0, use case=1, tour=2..5
+// US-2857: the API slide is for the persona that came for the API. A seller
+// does not need to be taught about API keys in their first minute.
+const DEVELOPER_TOUR_STEP: TourStep = {
+  icon: KeyRound,
+  title: "Developers",
+  navLabel: "Developers",
+  navGroup: "",
+  text: "Create an API key and grade garments straight from your own app. The sandbox is free, so you can build before you buy credits.",
+  to: "/dashboard/developers",
+};
+
+function tourStepsFor(useCase: UserUseCase | null): TourStep[] {
+  return useCase === "developer"
+    ? [...BASE_TOUR_STEPS, DEVELOPER_TOUR_STEP]
+    : BASE_TOUR_STEPS;
+}
 
 // Where each use case should land first. Sellers go to FlipDesk, which then
 // surfaces its getting-started checklist (incl. the grading bridge); the
@@ -63,7 +103,10 @@ function nextActionFor(useCase: UserUseCase | null): string {
     case "seller":
       return "/dashboard/flipdesk";
     case "developer":
-      return "/dashboard/account?tab=api-keys";
+      // US-2858: /dashboard/developers is the findable API surface (US-2554).
+      // /dashboard/account?tab=api-keys still resolves, but it is the hub tab,
+      // not the page the sidebar points at.
+      return "/dashboard/developers";
     case "buyer":
     case "consignment":
       return "/dashboard/submissions/new";
@@ -99,6 +142,10 @@ export function OnboardingFlow() {
   );
   const [saving, setSaving] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  // US-2857: the slide list depends on the persona, so the step count is not a
+  // module constant any more.
+  const tourSteps = tourStepsFor(useCase);
+  const lastStep = 1 + tourSteps.length; // welcome=0, use case=1, tour=2..n
 
   // First-run: show until onboarded_at is set. Replay-from-Settings: show on
   // demand even after onboarding, starting fresh from the welcome step.
@@ -156,6 +203,7 @@ export function OnboardingFlow() {
 
   const tourIndex = step - 2;
   const isTour = step >= 2;
+  const tourStep = tourSteps[tourIndex];
 
   // US-1461 (AC3): a polite live-region announcement so screen-reader users
   // track tour progress as the step changes.
@@ -164,8 +212,8 @@ export function OnboardingFlow() {
       ? "Welcome to GradeThread"
       : step === 1
         ? "What brings you here?"
-        : (TOUR_STEPS[tourIndex]?.title ?? "");
-  const stepAnnouncement = `Step ${step + 1} of ${LAST_STEP + 1}: ${stepTitle}`;
+        : (tourSteps[tourIndex]?.title ?? "");
+  const stepAnnouncement = `Step ${step + 1} of ${lastStep + 1}: ${stepTitle}`;
 
   return (
     <Dialog
@@ -265,29 +313,51 @@ export function OnboardingFlow() {
           </>
         )}
 
-        {/* Steps 2..5 — Feature tour */}
-        {isTour && TOUR_STEPS[tourIndex] && (
+        {/* Steps 2..n — a short tour of the places the user will actually use */}
+        {isTour && tourStep && (
           <>
             <DialogHeader>
               <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
                 {(() => {
-                  const Icon = TOUR_STEPS[tourIndex]!.icon;
+                  const Icon = tourStep.icon;
                   return <Icon className="h-6 w-6 text-primary" />;
                 })()}
               </div>
               <DialogTitle className="text-center">
-                {TOUR_STEPS[tourIndex]!.title}
+                {tourStep.title}
               </DialogTitle>
+              {/* US-2857: say where it is in the sidebar, using the sidebar's
+                  own words, so the slide is findable again afterwards. */}
+              <p className="text-center text-xs font-medium text-muted-foreground">
+                {tourStep.navGroup
+                  ? `In the sidebar: ${tourStep.navGroup} > ${tourStep.navLabel}`
+                  : `In the sidebar: ${tourStep.navLabel}`}
+              </p>
               <DialogDescription className="text-center">
-                {TOUR_STEPS[tourIndex]!.text}
+                {tourStep.text}
               </DialogDescription>
             </DialogHeader>
+            {/* US-2857: every slide can be acted on, not only read. Finishing
+                first means the tour does not reappear next session. */}
+            <div className="flex justify-center">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={saving}
+                onClick={async () => {
+                  await finish();
+                  navigate(tourStep.to);
+                }}
+              >
+                Take me there
+              </Button>
+            </div>
           </>
         )}
 
         {/* Progress dots */}
         <div className="flex justify-center gap-1.5">
-          {Array.from({ length: LAST_STEP + 1 }).map((_, i) => (
+          {Array.from({ length: lastStep + 1 }).map((_, i) => (
             <span
               key={i}
               className={cn(
@@ -327,7 +397,7 @@ export function OnboardingFlow() {
                 Back
               </Button>
             )}
-            {step < LAST_STEP ? (
+            {step < lastStep ? (
               <Button
                 size="sm"
                 // US-1463: from welcome, skip the use-case step when it's already

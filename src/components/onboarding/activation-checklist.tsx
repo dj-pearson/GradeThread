@@ -68,7 +68,8 @@ function stepsFor(useCase: UserUseCase | null): ChecklistStepDef[] {
     title: "Add an inventory item",
     desc: "Start tracking a piece of inventory end to end.",
     cta: "Add item",
-    to: "/dashboard/inventory/new",
+    // US-2858: /dashboard/inventory/new is a Navigate to this route.
+    to: "/dashboard/flipdesk/intake",
   };
   const ebay: ChecklistStepDef = {
     key: "ebay",
@@ -84,7 +85,8 @@ function stepsFor(useCase: UserUseCase | null): ChecklistStepDef[] {
     title: "Create an API key",
     desc: "Grade garments programmatically from your own app.",
     cta: "Create key",
-    to: "/dashboard/account?tab=api-keys",
+    // US-2858: the Developers page, not the Account hub tab (US-2554).
+    to: "/dashboard/developers",
   };
   const notifications: ChecklistStepDef = {
     key: "notifications",

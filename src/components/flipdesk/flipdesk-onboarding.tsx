@@ -101,7 +101,8 @@ export function FlipdeskOnboarding() {
       desc: "Get an AI condition grade to back up the listing and command a higher price.",
       done: gradingCount > 0,
       cta: "Open my items",
-      to: "/dashboard/flipdesk/items",
+      // US-2858: /dashboard/flipdesk/items is an InventoryModeRedirect.
+      to: "/dashboard/flipdesk/inventory",
     },
   ];
   const doneCount = steps.filter((s) => s.done).length;

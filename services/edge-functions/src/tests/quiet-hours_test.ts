@@ -1,3 +1,7 @@
+// US-2379: FIRST import. quiet-hours.ts reaches lib/supabase.ts through its
+// static imports, which reads env at import time — without this the file only
+// loads because some other test ran before it.
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import {
   hourInZone,

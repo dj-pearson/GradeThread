@@ -238,7 +238,8 @@ function firstRunFor(useCase: UserUseCase | null): FirstRunHint {
         title: "Integrate condition grading",
         description: "Create an API key and start grading garments programmatically from your own app.",
         cta: "Create an API key",
-        to: "/dashboard/account?tab=api-keys",
+        // US-2858: the Developers page, not the Account hub tab (US-2554).
+        to: "/dashboard/developers",
       };
     case "consignment":
       return {
