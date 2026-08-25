@@ -34,7 +34,7 @@ enum ActivationEvent: String, CaseIterable {
 
     /// Zero-based position in the ordered funnel; -1 for an exit.
     var index: Int {
-        Self.ordered.firstIndex(of: self).map(Int.init) ?? -1
+        Self.ordered.firstIndex(of: self) ?? -1
     }
 
     /// The ordered steps. Exits are deliberately absent: including one would

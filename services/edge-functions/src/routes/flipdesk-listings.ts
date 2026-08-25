@@ -1481,7 +1481,7 @@ export const bulkEditListingsHandler = async (c: Context<any>) => {
     });
     return res.ok
       ? { ok: true, previous }
-      : { ok: false, error: res.error, detail: res.detail };
+      : { ok: false, error: res.error, detail: res.blockers?.join("; ") };
   };
 
   const results = await processBulkEdit(ids, fieldNames, resolve, apply);
