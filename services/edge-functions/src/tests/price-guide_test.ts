@@ -8,6 +8,7 @@
 //   deno test --allow-env src/tests/price-guide_test.ts
 
 import { assert, assertEquals } from "@std/assert";
+import { describeValueBasis } from "../lib/value-disclosure.ts";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set(
@@ -102,6 +103,15 @@ Deno.test("buildPriceGuideEntry carries curve identity + scope marker", () => {
     totalSampleSize: 40,
     refreshedAt: "2026-06-20T00:00:00.000Z",
     provenance: "seeded" as const,
+    // US-2850: the DTO carries its own worded provenance line, built the same
+    // way condition-index builds it, so the fixture is a real curve.
+    disclosure: describeValueBasis({
+      source: "comp_median",
+      sufficient: true,
+      sampleSize: 40,
+      medianCents: 15000,
+      currency: "USD",
+    }),
   };
   const entry = buildPriceGuideEntry(curve, [resaleBand("high", 0.7, 12)]);
   assertEquals(entry.slug, "patagonia-jackets");
