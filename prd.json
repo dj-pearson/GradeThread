@@ -2500,21 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2880",
-      "passes": false,
-      "title": "The web on a phone is a twenty-five item drawer; the app is five tabs",
-      "description": "dashboard-layout renders the same sidebar inside a Sheet below the md breakpoint. So the phone web experience is: tap a hamburger, scroll a twenty-five entry list with five collapsible subgroups, tap through. The iOS app answers the same problem with five tabs, Home, Inventory, Add, Money, Marketplaces, and a Tools hub for the rest, and it is much better. A large share of sellers reach the web from a phone in a thrift store.",
-      "acceptanceCriteria": [
-        "Below the md breakpoint the dashboard renders a bottom tab bar with the same five destinations as iOS, in the same order, with the same labels and equivalent icons.",
-        "The centre Add tab opens the same three-mode intake choice as the iOS Add sheet.",
-        "The hamburger sheet becomes 'More' and holds everything not on the tab bar, grouped as it is today.",
-        "The bar respects safe-area insets and does not cover the last row of a scrolled list.",
-        "It is hidden on the buyer shell, which has its own navigation."
-      ],
-      "priority": 76,
-      "notes": ""
-    },
-    {
       "id": "US-2881",
       "passes": false,
       "title": "Two command palettes with two command sets",
