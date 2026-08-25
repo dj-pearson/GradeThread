@@ -75,9 +75,15 @@ export const SURFACES = [
     ios: null,
   },
   {
+    // US-2878: "you already own" is load-bearing. Snap to Value, Scout and
+    // Prospect are three comp-adjacent tools with three invented names, and the
+    // line that separates them is DO YOU OWN IT YET -- Snap is for what you
+    // have, Prospect for what you are considering, Scout for finding things to
+    // consider. Each of the three descriptions has to carry that or the names
+    // are all a new seller has to go on.
     id: "snap",
     label: "Snap to Value",
-    description: "Photograph a garment and get a free condition and price read.",
+    description: "Photograph a garment you already own and get a condition and price read.",
     web: "/dashboard/snap",
     nav: { group: "Grading" },
     ios: "snap",
@@ -194,7 +200,7 @@ export const SURFACES = [
   {
     id: "scout",
     label: "Scout deals",
-    description: "Find underpriced eBay listings worth flipping.",
+    description: "Search eBay for listings priced under what they are worth, to buy and flip.",
     web: "/dashboard/flipdesk/sourcing?tab=scout",
     nav: null,
     ios: "scout",
@@ -208,11 +214,15 @@ export const SURFACES = [
     ios: "sources",
   },
   {
-    // On iOS only. The web has no in-store camera flow -- Snap to Value is the
-    // nearest thing and it values one garment rather than comping a buy.
+    // On iOS only, DELIBERATELY -- see
+    // vault/60-decisions/adr-prospect-stays-phone-only.md. Not a gap waiting to
+    // be closed: the whole value is being in a shop holding something you have
+    // not bought. A desk is never in that situation. The endpoint
+    // (/api/flipdesk/scout/prospect) exists either way, so reversing the call
+    // is a page rather than a feature.
     id: "prospect",
     label: "Prospect an item",
-    description: "Photograph an item in a store and get instant comps before you buy it.",
+    description: "Photograph an item in a shop before you buy it, and get a buy or skip call.",
     web: null,
     nav: null,
     ios: "prospect",

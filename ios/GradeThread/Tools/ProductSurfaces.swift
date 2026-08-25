@@ -39,7 +39,7 @@ extension ProductSurface {
             id: "snap",
             route: "snap",
             label: "Snap to Value",
-            summary: "Photograph a garment and get a free condition and price read.",
+            summary: "Photograph a garment you already own and get a condition and price read.",
             webLink: "/dashboard/snap"
         ),
         ProductSurface(
@@ -81,7 +81,7 @@ extension ProductSurface {
             id: "scout",
             route: "scout",
             label: "Scout deals",
-            summary: "Find underpriced eBay listings worth flipping.",
+            summary: "Search eBay for listings priced under what they are worth, to buy and flip.",
             webLink: "/dashboard/flipdesk/sourcing?tab=scout"
         ),
         ProductSurface(
@@ -95,7 +95,7 @@ extension ProductSurface {
             id: "prospect",
             route: "prospect",
             label: "Prospect an item",
-            summary: "Photograph an item in a store and get instant comps before you buy it.",
+            summary: "Photograph an item in a shop before you buy it, and get a buy or skip call.",
             webLink: nil
         ),
         ProductSurface(
