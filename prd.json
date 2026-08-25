@@ -2459,26 +2459,6 @@
         "US-2841"
       ],
       "notes": "2026-08-24 BLOCKED, measured not assumed. Checked local credentials before starting: SUPABASE_URL is https://api.gradethread.com but SUPABASE_SERVICE_ROLE_KEY is 21 characters and ANTHROPIC_API_KEY is 22 characters, so both are placeholders rather than keys, and EBAY_ENV=sandbox returns no real comp listings to read. No Docker containers are running either, so there is no local stack to substitute. This story is an operator run, not a build. Everything downstream depends on it only for the GO/NO-GO decision, not for code: US-2843 (stock-photo detector) and US-2844 (comp_condition_reads table) are pure local work whose value does not change with the spike outcome, while US-2845 spends real money and genuinely must wait for GO. | HARNESS BUILT 2026-08-25, SPIKE NOT RUN. The story stays open: it ends in a written GO or NO-GO and that is the founder to write, from real data. What exists now is everything except the data. services/edge-functions/scripts/comp-read-calibration.ts runs POST /grade-from-url against our own certified garments listing photos and reports mean signed error, mean absolute error, median, within-0.5 and within-1.0 shares, worst case, per-grade-band splits, test-retest delta, and dollars per read from the ai_budget_status delta. Every judgement it makes lives in src/lib/comp-read-calibration.ts and is unit tested by src/tests/comp-read-calibration_test.ts (21 tests): the three-way join from certified grade_reports through flipdesk_grading_submissions to item_photos, the http(s) photo filter, the photo and limit caps, PostgREST numerics arriving as strings, signed-versus-absolute error, band boundaries, test-retest pairing, and the cost caveats. HOW TO RUN IT: vault/10-ops/comp-read-calibration-spike.md. Needs SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and CALIBRATION_EDGE_BASE_URL (the EDGE host, functions.gradethread.com, not api.gradethread.com). Start with --dry-run, which makes zero AI calls. THE RATE LIMIT DECIDES THE SCHEDULE: /grade-from-url allows 20 grades per IP per hour, and the script paces UNDER that rather than around it, so 20 garments is about an hour and --retest doubles it. Do not raise the limit to go faster; lower --limit. THREE REFUSALS ARE DELIBERATE. It will not spend without --confirm. It requires --owner or --all-tenants with no default, because reading your own garments and reading every seller is not the same act. It computes no verdict. TWO THINGS THAT WILL SAVE TIME: failed reads are counted rather than dropped, because a reader that answers on the easy half and refuses the rest posts a beautiful mean and is useless; and an empty result names WHICH of the three requirements failed, because \"no candidates\" reads as \"we have no graded garments\" and is almost never what happened. COST NEEDS A BUDGET ROW: dollars per read is the ai_budget_status delta for feature=grading period=day, so that budget must exist or there is no counter to difference. NOT VERIFIED: the harness has never touched production. Its CLI guards were executed here (missing owner, missing Supabase env, missing edge URL all exit with the right message) and its arithmetic is tested, but loadCandidates has never run against real rows."
-    },
-    {
-      "id": "US-2845",
-      "passes": false,
-      "title": "Comp read worker: demand-ordered cells, a hard AI budget, and nothing crawled",
-      "description": "As the GradeThread team, we want comp reads produced by a background worker that reads the cells our sellers actually touch, capped by its own AI budget, so that coverage follows demand and a runaway loop turns itself off instead of emptying the account.",
-      "acceptanceCriteria": [
-        "New durable job following the batch, claim, heartbeat and reclaim contract in the durable-jobs skill, so a stalled batch is reclaimed rather than stranded",
-        "The cell queue is fed by items our sellers grade, scout or list, and no catalogue-wide crawl exists anywhere in the code",
-        "Reads run through the eBay Browse API via searchBrowseComps in services/edge-functions/src/lib/ebay-client.ts, and no HTML scraping of any marketplace is added",
-        "comp_read is registered as an ai_usage_events feature with its own budget row at action kill, and breaching the daily cap disables the worker and writes an ai_budget_breaches row, proven by a test with an injected budget status",
-        "The per-read image cap and the per-cell read cap are named exported constants with tests, not magic numbers at the call site"
-      ],
-      "priority": 14,
-      "dependsOn": [
-        "US-2842",
-        "US-2843",
-        "US-2844"
-      ],
-      "notes": "2026-08-24 GATE MOVED HERE. US-2843 and US-2844 were unblocked from the US-2842 spike because a detector and a table are pure local code whose value does not change with the GO or NO-GO. This story is the one that spends real money on comp reads, so it now carries the dependency on US-2842 instead. Do not start it before the spike returns GO."
     }
   ]
 }
