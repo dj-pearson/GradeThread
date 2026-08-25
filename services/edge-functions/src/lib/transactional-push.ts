@@ -7,6 +7,7 @@
 
 import { sendPushToUser } from "./apns.ts";
 import { withUnreadBadge } from "./notification-badge.ts";
+import { quietHoursActiveForUser } from "./quiet-hours.ts";
 
 /**
  * US-2557: the badge is attached HERE rather than in each helper or in
@@ -28,6 +29,11 @@ async function safePush(
   payload: Parameters<typeof sendPushToUser>[1],
 ): Promise<void> {
   try {
+    // US-2853: quiet hours mute the device push and nothing else. The in-app row
+    // was already written by the caller's notifyUser(), so this drops the buzz,
+    // not the notification. Gated at this seam for the same reason the badge is
+    // (see above): a dozen helpers, and the next one added would forget.
+    if (await quietHoursActiveForUser(userId)) return;
     await sendPushToUser(userId, await withUnreadBadge(userId, payload));
   } catch (err) {
     console.error("[push] transactional send failed:", err instanceof Error ? err.message : err);

@@ -1,4 +1,33 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
+## ✅ APPLIED: 00668 + 00669 — seller listing defaults and quiet hours (US-2852, US-2853)
+
+**Applied to prod by the owner on 2026-08-24, before the push.**
+
+**00668 — what it does.** Seven additive columns on `public.users`
+(`default_listing_format`, `default_auction_duration`, `default_best_offer_enabled`,
+`default_best_offer_on_auction`, `default_best_offer_accept_pct`,
+`default_best_offer_decline_pct`, `default_listing_quantity`) plus four CHECK
+constraints. They seed a NEW composer draft and never touch a saved listing.
+
+**00669 — what it does.** One additive jsonb column `users.notification_quiet_hours`
+plus one CHECK constraint. Mutes PUSH inside the stored window; the in-app row and
+any email are unaffected.
+
+**Risk: LOW.** Nothing is altered, dropped or revoked. Every new column is
+nullable or `NOT NULL DEFAULT false`, so existing rows keep exactly their current
+behaviour: no seller has a listing default, and no account has quiet hours.
+
+**Client-side reads: YES, and that is the half a bare push would have broken.** The
+frontend reads all eight columns directly through supabase-js
+(`use-seller-listing-defaults.ts`, `quiet-hours-card.tsx`), so the SQL had to land
+before Cloudflare Pages auto-deployed. It did.
+
+**`NOTIFY pgrst, 'reload schema';` is required** — PostgREST caches the column list,
+and a client SELECT naming a column it has not reloaded returns a 400, not a null.
+
+`EXPECTED_SCHEMA_VERSION` is bumped to `00669` in the same commit.
+
+
 
 ## ⏳ PENDING: 00667 — the comp read queue, and the budget that switches it off (US-2845)
 

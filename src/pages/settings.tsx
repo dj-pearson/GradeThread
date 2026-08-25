@@ -49,6 +49,7 @@ import {
 import { memberSinceLabel } from "@/lib/loyalty-copy";
 import { toast } from "sonner";
 import { PromotedListingsDefaultCard } from "@/components/flipdesk/promoted-listings-default-card";
+import { ListingDefaultsCard } from "@/components/flipdesk/listing-defaults-card";
 import { useFlipdeskTourStore } from "@/stores/flipdesk-tour-store";
 import { useOnboardingTourStore } from "@/stores/onboarding-tour-store";
 import { useArchivePhotos } from "@/hooks/use-image-archive";
@@ -60,6 +61,7 @@ import { FieldError } from "@/components/ui/form-feedback";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { MfaCard } from "@/components/settings/mfa-card";
 import { PushNotificationsCard } from "@/components/settings/push-notifications-card";
+import { QuietHoursCard } from "@/components/settings/quiet-hours-card";
 import { RadarContributionCard } from "@/components/settings/radar-contribution-card";
 
 const DELETE_CONFIRM_PHRASE = "DELETE MY ACCOUNT";
@@ -911,6 +913,10 @@ export function SettingsPage() {
       {/* Push notifications opt-in (US-1901) */}
       <PushNotificationsCard />
 
+      {/* US-2853 / 00669: quiet hours. Directly under the push card because it
+          only ever affects push — the in-app row and any email still arrive. */}
+      <QuietHoursCard />
+
       {/* Usage Alerts Section (US-209) */}
       <Card>
         <CardHeader>
@@ -1119,6 +1125,11 @@ export function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* US-2852 / 00668: how a new listing opens — format, Best Offer, quantity.
+          Sits above the ad-rate card because it is the shape of the listing;
+          promotion is a decision you make about a listing that already exists. */}
+      <ListingDefaultsCard />
 
       {/* 00432: Promoted Listings default (off by default, opt-in). */}
       <PromotedListingsDefaultCard />

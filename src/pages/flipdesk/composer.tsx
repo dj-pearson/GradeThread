@@ -44,6 +44,13 @@ import { supabase } from "@/lib/supabase";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useItemFull } from "@/hooks/use-items-full";
 import { useSellerPromoDefaults } from "@/hooks/use-seller-promo-defaults";
+import { useSellerListingDefaults } from "@/hooks/use-seller-listing-defaults";
+import {
+  resolveSeedAuctionDuration,
+  resolveSeedBestOffer,
+  resolveSeedFormat,
+  resolveSeedQuantity,
+} from "@/lib/listing-defaults";
 import { useMeasurementPrefs } from "@/stores/measurement-prefs";
 import {
   DESCRIPTION_TEMPLATES,
@@ -495,6 +502,11 @@ export function FlipdeskComposerPage({
   // mode when this listing has no explicit choice yet (off by default, opt-in).
   const { data: promoDefaults, isLoading: promoDefaultsLoading } =
     useSellerPromoDefaults();
+  // US-2852: the seller's listing defaults (format, Best Offer, quantity). Same
+  // gate as the promo defaults — seeding before they land would write the
+  // platform default into the snapshot and read as a pending change.
+  const { data: listingDefaults, isLoading: listingDefaultsLoading } =
+    useSellerListingDefaults();
 
   // US-2188: one row, not the whole catalog. The editor renders exactly one
   // item, so it reads exactly one — everything that lists items now shares the
@@ -679,6 +691,7 @@ export function FlipdeskComposerPage({
     if (initialised || !item) return;
     if (item.listing_id && !listing) return; // wait for the listing fetch
     if (promoDefaultsLoading) return; // wait for the seller promote default
+    if (listingDefaultsLoading) return; // wait for the seller listing defaults
     // Wait for photos too — seeding primary_photo_id against an empty (still-
     // loading) set would seed null and Save would WIPE the saved primary photo.
     if (photosLoading) return;
@@ -740,28 +753,35 @@ export function FlipdeskComposerPage({
           : "",
     );
     // US-568: seed listing format + auction terms + variation matrix.
+    // US-2852: a draft with no listings row follows the seller's defaults; a
+    // saved row always wins, including its falsey values (see listing-defaults.ts).
     const centsToStr = (c: number | null | undefined) =>
       typeof c === "number" && c > 0 ? String(c / 100) : "";
+    const seedFormat = resolveSeedFormat(listing, listingDefaults);
     setListingFormat({
-      format: listing?.listing_format === "auction" ? "auction" : "fixed_price",
+      format: seedFormat,
       auctionStartPrice: centsToStr(listing?.auction_start_price_cents),
       auctionReservePrice: centsToStr(listing?.auction_reserve_price_cents),
       auctionBuyItNowPrice: centsToStr(listing?.auction_buy_it_now_price_cents),
-      auctionDuration: listing?.auction_duration ?? "DAYS_7",
+      auctionDuration: resolveSeedAuctionDuration(listing, listingDefaults),
       variations: listing?.variations ?? null,
     });
-    // US-1898/US-2405: seed Best Offer from the saved listing and nothing else.
-    // An empty column stays an empty box — no comp band is consulted here or at
-    // save, which is what stops a stale threshold outliving the price.
-    setBestOfferEnabled(listing?.best_offer_enabled ?? false);
-    setBestOfferAccept(centsToDollarInput(listing?.best_offer_auto_accept_cents));
-    setBestOfferDecline(centsToDollarInput(listing?.best_offer_auto_decline_cents));
-    // US-2250: quantity defaults to 1 for a brand-new draft.
-    setQuantity(
-      listing?.quantity != null && listing.quantity > 0
-        ? String(listing.quantity)
-        : "1",
+    // US-1898/US-2405: Best Offer thresholds are never re-derived from comps.
+    // US-2852 adds ONE seed source and only for a draft that has no listing row:
+    // the seller's own percent-of-price defaults, converted once against the
+    // price seeded above and then owned by the cents columns like any other.
+    const seedBestOffer = resolveSeedBestOffer(
+      listing,
+      listingDefaults,
+      seedFormat,
+      seedPrice != null ? Math.round(seedPrice * 100) : 0,
     );
+    setBestOfferEnabled(seedBestOffer.enabled);
+    setBestOfferAccept(centsToDollarInput(seedBestOffer.acceptCents));
+    setBestOfferDecline(centsToDollarInput(seedBestOffer.declineCents));
+    // US-2250: quantity defaults to 1 for a brand-new draft, or the seller's own
+    // default when they set one (fixed price only — an auction is always 1).
+    setQuantity(String(resolveSeedQuantity(listing, listingDefaults, seedFormat)));
     // US-2251: business policies; null means "use my account default".
     setShippingPolicyId(listing?.shipping_policy_id ?? null);
     setPaymentPolicyId(listing?.payment_policy_id ?? null);
@@ -794,6 +814,8 @@ export function FlipdeskComposerPage({
     photosLoading,
     promoDefaultsLoading,
     promoDefaults,
+    listingDefaultsLoading,
+    listingDefaults,
   ]);
 
   // US-2256: everything this page owns and could lose, in one string. Compared

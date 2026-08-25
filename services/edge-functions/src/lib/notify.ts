@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { getVapidConfig, sendWebPush } from "./web-push.ts";
+import { parseQuietHours, quietHoursActive } from "./quiet-hours.ts";
 
 // In-app notification types. Mirrors the public.notification_type enum
 // (migrations 00007 + 00114) and the frontend NotificationType union.
@@ -140,22 +141,32 @@ export async function notifyUser(
 ): Promise<void> {
   try {
     const prefKey = PREF_KEY[input.type];
-    let prefs: ChannelPrefs | undefined;
-    if (prefKey) {
-      const { data: user } = await supabaseAdmin
-        .from("users")
-        .select("notification_preferences")
-        .eq("id", userId)
-        .maybeSingle();
-      prefs = (
-        user as { notification_preferences?: ChannelPrefs } | null
-      )?.notification_preferences;
-    }
+    // US-2853: one read for both preferences. It used to be skipped entirely for
+    // always-on types (prefKey === null), but quiet hours apply to those too —
+    // an unmutable category is still not a reason to buzz someone at 3am.
+    const { data: user } = await supabaseAdmin
+      .from("users")
+      .select("notification_preferences, notification_quiet_hours")
+      .eq("id", userId)
+      .maybeSingle();
+    const row = user as
+      | {
+        notification_preferences?: ChannelPrefs;
+        notification_quiet_hours?: unknown;
+      }
+      | null;
+    const prefs: ChannelPrefs | undefined = row?.notification_preferences;
+    const quiet = quietHoursActive(
+      parseQuietHours(row?.notification_quiet_hours),
+      new Date(),
+    );
 
     // US-1901: deliver a browser push in parallel to the in-app row, gated on
     // the same category's `push` channel. Fire-and-forget — a push failure must
     // never affect the in-app insert or throw into the lifecycle action.
-    if (pushChannelEnabled(prefs, prefKey)) {
+    // US-2853: and suppressed outright inside the user's quiet window. The
+    // insert below still runs, so the notification is waiting in the bell.
+    if (!quiet && pushChannelEnabled(prefs, prefKey)) {
       void deliverPush(userId, {
         title: input.title,
         body: input.message,

@@ -378,6 +378,19 @@ export interface UserRow {
   promote_listings_by_default: boolean;
   default_promo_rate_pct: number | null;
   default_promo_mode: string | null;
+  // 00668: seller listing defaults — the composer's starting position for a NEW
+  // draft. Null means "no opinion, use the platform default" everywhere except
+  // the two booleans, where off IS the platform default. A saved listing's own
+  // value always wins; these only ever seed.
+  default_listing_format: ListingFormat | null;
+  default_auction_duration: string | null;
+  default_best_offer_enabled: boolean;
+  default_best_offer_on_auction: boolean;
+  // PERCENT of the listing price (1-99), converted to best_offer_*_cents at seed
+  // time. Stored as a percentage on purpose — see the 00668 header.
+  default_best_offer_accept_pct: number | null;
+  default_best_offer_decline_pct: number | null;
+  default_listing_quantity: number | null;
   /** @deprecated legacy single-plan enum; use flipdesk_plan + grade_credit_balance (US-201/US-225). */
   plan: UserPlan;
   role: UserRole;
@@ -387,6 +400,14 @@ export interface UserRow {
   grades_used_this_month: number;
   grade_reset_at: string;
   notification_preferences: NotificationPreferences;
+  // 00669: quiet hours for PUSH only. Null = never configured. Read/written
+  // through src/lib/quiet-hours.ts, which mirrors the edge parser.
+  notification_quiet_hours: {
+    enabled?: boolean;
+    start_hour: number;
+    end_hour: number;
+    tz?: string;
+  } | null;
   use_case: UserUseCase | null;
   // US-1670: self-reported "How did you hear about us?" at signup (SignupSource),
   // for SEO/GEO discovery attribution (esp. the "AI assistant" option). Migration 00379.
