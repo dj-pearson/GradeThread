@@ -2500,21 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2884",
-      "passes": false,
-      "title": "Instrument activation so 'where do new sellers stop' has an answer from data",
-      "description": "src/lib/analytics-events.ts already carries onboarding events, and onboarding-flow fires onboarding.use_case_selected. What is missing is the funnel: first sign-in, tour finished or skipped, each activation step's first completion, first grade, first item, eBay connected, first listing published, first sale reconciled, with the same event names on web and iOS. Without it every decision in this epic is opinion.",
-      "acceptanceCriteria": [
-        "One event registry declares the activation funnel events with their properties; web and iOS both emit from it.",
-        "Each activation step emits exactly once per account on first completion, not on every render.",
-        "A saved PostHog view (or an admin page) shows the funnel with drop-off between consecutive steps, split by persona and by platform.",
-        "The events are documented in the vault next to the activation-steps contract, so a renamed step renames its event.",
-        "No personally identifying content is in any property; item and submission ids only."
-      ],
-      "priority": 76,
-      "notes": ""
-    },
-    {
       "id": "US-2885",
       "passes": false,
       "title": "iOS cannot open a web-only surface without asking the user to log in again",
