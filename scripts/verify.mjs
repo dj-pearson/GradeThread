@@ -274,6 +274,7 @@ const IOS_GUARDS = [
   ["one sheet modifier per view", "check-chained-sheets.py"],
   ["AI routes on the AI session", "check-ai-session.py"],
   ["no trailing comma in a param list", "no-trailing-comma.py"],
+  ["help slugs exist in the shared registry", "check-help-slugs.py"],
 ];
 
 const results = [];

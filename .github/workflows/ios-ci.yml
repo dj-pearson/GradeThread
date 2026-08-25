@@ -59,6 +59,13 @@ jobs:
         # Item Prospecting sat on the short session and failed every time.
         run: python3 ios/Scripts/check-ai-session.py
 
+      - name: Lint — every Swift help slug is in the shared registry
+        # A slug is a string that reaches the server. The enum case is
+        # compiler-checked; the string it resolves to is not. A typo does
+        # not crash and does not log -- the sheet opens, the server answers
+        # 404, the sheet closes, and the help button is simply dead.
+        run: python3 ios/Scripts/check-help-slugs.py
+
       - name: Lint — no trailing comma in a parameter list
         # Swift allows it from 6.1; this target is SWIFT_VERSION 5.9, where it is
         # a PARSE error the compiler reports as a bare "Unexpected ',' separator"
