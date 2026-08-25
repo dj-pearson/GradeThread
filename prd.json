@@ -2500,21 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2869",
-      "passes": false,
-      "title": "Error toasts print what the API returned instead of what the user should do",
-      "description": "The convention is that auth functions throw, the caller toasts, and edge routes return { error } plus a status. What reaches the user is therefore whatever string the server chose. iOS already has FriendlyErrorCopy for exactly this problem; the web has no equivalent, so a failed publish can surface a raw Postgres or eBay message. A user reading '42703 column listings.x does not exist' learns nothing and files a ticket.",
-      "acceptanceCriteria": [
-        "src/lib/friendly-error.ts maps the error shapes the app actually produces (network, auth expired, plan limit, marketplace reconnect, validation, unknown) to: one line saying what happened, one line saying what it means, one line saying what to do.",
-        "Every toast.error call site goes through it.",
-        "The raw detail stays available behind a 'Details' disclosure for support, and is always sent to Sentry.",
-        "A guard test fails if a toast.error is passed an error object's message directly.",
-        "iOS FriendlyErrorCopy and the web map cover the same cases, checked by a shared fixture list."
-      ],
-      "priority": 62,
-      "notes": ""
-    },
-    {
       "id": "US-2870",
       "passes": false,
       "title": "Nobody tells the user what happens after they submit a garment for grading",
