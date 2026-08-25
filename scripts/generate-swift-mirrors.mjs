@@ -176,6 +176,29 @@ const MIRRORS = [
     },
   },
   {
+    // US-2884: the activation funnel's event names. Telemetry.event takes a
+    // raw String on iOS, so a typo here is an event PostHog accepts and a
+    // funnel that shows iOS dropping to zero at that step -- invisible until
+    // somebody looks at the chart.
+    id: "activation-events",
+    swift: "ios/GradeThread/Telemetry/ActivationEvents.swift",
+    from: "src/lib/activation-analytics.ts",
+    build() {
+      const steps = readExportedArray(
+        "src/lib/activation-analytics.ts",
+        "ACTIVATION_FUNNEL_STEPS",
+      );
+      // The exits are a plain union type rather than an array (nothing
+      // iterates them on the web), so they are named here. If a second exit is
+      // ever added, this is the line that has to grow with it -- and the
+      // parity test counts both sides so it cannot be forgotten quietly.
+      const exits = ["checklist_dismissed"];
+      return [...steps, ...exits]
+        .map((n) => `    case ${camelCase(n)} = "activation_${n}"`)
+        .join("\n");
+    },
+  },
+  {
     id: "help-slugs",
     swift: "ios/GradeThread/Help/HelpSlugs.swift",
     from: "src/lib/help-slugs.ts",

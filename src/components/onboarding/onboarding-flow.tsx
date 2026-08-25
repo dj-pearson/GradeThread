@@ -22,6 +22,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { track } from "@/lib/analytics";
+import { trackActivation } from "@/lib/activation-analytics";
 import { useOnboardingTourStore } from "@/stores/onboarding-tour-store";
 import { USE_CASE_OPTIONS } from "@/lib/use-cases";
 import type { UserUpdate, UserUseCase } from "@/types/database";
@@ -183,6 +185,28 @@ export function OnboardingFlow() {
         .update(update as never)
         .eq("id", user.id);
       if (error) throw error;
+      // US-2884: the tour's two endings, and the persona choice.
+      //
+      // NEITHER WAS RECORDED. `onboarding.use_case_selected` fires from
+      // signup.tsx and nowhere else, so a user who skipped the question at
+      // signup and answered it HERE emitted nothing at all -- and the funnel
+      // could not tell "skipped the tour" from "never reached it".
+      //
+      // `routeNext` is the signal: true only on Finish, false on Skip.
+      track(routeNext ? "onboarding.tour_finished" : "onboarding.tour_skipped", {
+        use_case: useCase,
+      });
+      trackActivation(routeNext ? "tour_finished" : "tour_skipped", user.id, {
+        persona: useCase,
+        platform: "web",
+      });
+      if (useCase) {
+        track("onboarding.use_case_selected", { use_case: useCase, at: "tour" });
+        trackActivation("persona_chosen", user.id, {
+          persona: useCase,
+          platform: "web",
+        });
+      }
       setDismissed(true);
       closeTour();
       await refreshProfile();

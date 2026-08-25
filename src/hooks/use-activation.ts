@@ -10,6 +10,7 @@ import {
   isExtensionInstalled,
 } from "@/lib/lister-extension";
 import { track } from "@/lib/analytics";
+import { trackActivation } from "@/lib/activation-analytics";
 import {
   activationProgress,
   activationStepsFor,
@@ -197,6 +198,32 @@ export function useActivation(
   );
 
   const { done, total, firstIncomplete } = activationProgress(steps, state);
+
+  // US-2884: each step's FIRST completion, once per account.
+  //
+  // ON COMPLETION, NOT ON THE BUTTON PRESS. US-2859's
+  // `activation_step_started` records a press, and a seller who opens the
+  // submission form and abandons it has pressed the button and activated
+  // nothing. `isDone` reads the real signal -- a grade row exists, eBay is
+  // connected -- so this fires when the thing actually happened.
+  //
+  // Guarded by a per-account marker rather than by a ref, because a ref is per
+  // MOUNT: the checklist renders on the dashboard and on FlipDesk, so a ref
+  // would emit twice for one account in one session.
+  useEffect(() => {
+    // Nothing is known yet while the counts are loading, and
+    // EMPTY_ACTIVATION_STATE reads as "nothing done" -- so waiting avoids
+    // burning the once-only marker on an answer we do not have.
+    if (!counts) return;
+    for (const step of steps) {
+      if (!step.isDone(state)) continue;
+      trackActivation("step_completed", user?.id, {
+        persona: useCase,
+        platform: "web",
+        step: step.key,
+      });
+    }
+  }, [counts, state, steps, useCase, user?.id]);
 
   const dismiss = useCallback(() => {
     if (typeof window !== "undefined") {
