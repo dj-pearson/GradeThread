@@ -75,7 +75,7 @@ extension ProductSurface {
             route: "templates",
             label: "Listing templates",
             summary: "Reusable description, condition and policy presets for your listings.",
-            webLink: nil
+            webLink: "/dashboard/flipdesk/templates"
         ),
         ProductSurface(
             id: "scout",

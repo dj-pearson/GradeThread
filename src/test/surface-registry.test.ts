@@ -328,11 +328,17 @@ describe("the registry is internally coherent", () => {
   });
 
   it("the client gaps this story found are still visible, not silently closed", () => {
-    // Not a wish list. These are REAL gaps measured on 2026-08-25, recorded so
-    // that closing one is a deliberate act with a note, and so that a reader
-    // who wonders "did anyone notice?" has an answer.
+    // Not a wish list. These are REAL gaps, recorded so that closing one is a
+    // deliberate act with a note, and so that a reader who wonders "did anyone
+    // notice?" has an answer.
+    //
+    // Measured on 2026-08-25 as ["listing-templates", "prospect"]. US-2877
+    // closed the first the same day -- it built the web page -- and this line
+    // moving is what that looked like from here. `prospect` (photograph an item
+    // in a shop, get comps before you buy) has no web equivalent and arguably
+    // should not: it is a thing you do standing up, holding a phone.
     const iosOnly = ALL_SURFACES.filter((s) => s.ios !== null && s.web === null).map((s) => s.id);
-    expect(iosOnly.sort()).toEqual(["listing-templates", "prospect"]);
+    expect(iosOnly.sort()).toEqual(["prospect"]);
   });
 });
 

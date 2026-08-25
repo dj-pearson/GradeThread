@@ -109,6 +109,7 @@ import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { EbayCatalogMatchCard } from "@/components/flipdesk/ebay-catalog-match-card";
 import { CategoryCheckCard } from "@/components/flipdesk/category-check-card";
 import { GradeThisItemCard } from "@/components/flipdesk/grade-this-item-card";
+import { SavedTemplatePicker } from "@/components/flipdesk/saved-template-picker";
 import {
   AiFillPanel,
   type AcceptedField,
@@ -3331,6 +3332,47 @@ export function FlipdeskComposerPage({
             setPromoRate={setPromoRate}
             promoSuggested={promoSuggested}
             listing={listing}
+          />
+
+          {/* US-2877: the seller's OWN saved presets. Distinct from the
+              garment template DescriptionCard applies below -- that one is our
+              boilerplate, this one is theirs, and iOS has had it since
+              US-674. */}
+          <SavedTemplatePicker
+            current={{
+              description,
+              ebayCondition,
+              conditionDescription: conditionDesc,
+              categoryId: resolvedCategoryId ?? "",
+              shippingPolicyId: shippingPolicyId ?? "",
+              paymentPolicyId: paymentPolicyId ?? "",
+              returnPolicyId: returnPolicyId ?? "",
+            }}
+            onApply={(patch, specifics, template) => {
+              if (patch.description !== undefined) setDescription(patch.description);
+              if (patch.ebayCondition !== undefined) setEbayCondition(patch.ebayCondition);
+              if (patch.conditionDescription !== undefined) {
+                setConditionDesc(patch.conditionDescription);
+              }
+              if (patch.categoryId !== undefined) setLivePickedCategoryId(patch.categoryId);
+              if (patch.shippingPolicyId !== undefined) {
+                setShippingPolicyId(patch.shippingPolicyId);
+              }
+              if (patch.paymentPolicyId !== undefined) {
+                setPaymentPolicyId(patch.paymentPolicyId);
+              }
+              if (patch.returnPolicyId !== undefined) {
+                setReturnPolicyId(patch.returnPolicyId);
+              }
+              // Item specifics merge the same way: an aspect the seller has
+              // already picked keeps its value.
+              const merged = { ...livePickedAspects };
+              for (const [name, value] of Object.entries(specifics)) {
+                if (!merged[name]?.length) merged[name] = [value];
+              }
+              setLivePickedAspects(merged);
+              toast.success(`Used "${template.name}".`);
+            }}
           />
 
           <DescriptionCard

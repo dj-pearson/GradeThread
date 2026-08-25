@@ -158,13 +158,15 @@ export const SURFACES = [
     ios: "verified",
   },
   {
-    // On iOS only. The web has the template DATA (src/lib/listing-templates.ts,
-    // used by the composer) and no screen to manage it from.
+    // US-2877 gave this a web page. It was iOS-only for two years: the table,
+    // the CRUD API and the phone editor all shipped with US-674, and the web
+    // could apply a preset from the AutoLister grid without ever being able to
+    // write one.
     id: "listing-templates",
     label: "Listing templates",
     description: "Reusable description, condition and policy presets for your listings.",
-    web: null,
-    nav: null,
+    web: "/dashboard/flipdesk/templates",
+    nav: { group: "FlipDesk", subgroup: "List & sell" },
     ios: "templates",
   },
 

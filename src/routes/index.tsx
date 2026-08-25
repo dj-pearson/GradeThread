@@ -202,6 +202,9 @@ const FlipdeskConsignmentPage = lazy(() => import("@/pages/flipdesk/consignment"
 const FlipdeskAutolisterQueuePage = lazy(() => import("@/pages/flipdesk/autolister-queue").then(m => ({ default: m.FlipdeskAutolisterQueuePage })));
 const FlipdeskAutolisterBulkEditPage = lazy(() => import("@/pages/flipdesk/autolister-bulk-edit").then(m => ({ default: m.FlipdeskAutolisterBulkEditPage })));
 const FlipdeskScheduledDropsPage = lazy(() => import("@/pages/flipdesk/scheduled-drops").then(m => ({ default: m.FlipdeskScheduledDropsPage })));
+// US-2877: saved listing presets. The table, the CRUD API and the iOS
+// editor have existed since US-674; the web could only APPLY a template.
+const FlipdeskTemplatesPage = lazy(() => import("@/pages/flipdesk/templates").then(m => ({ default: m.TemplatesPage })));
 const NotFoundPage = lazy(() => import("@/pages/not-found").then(m => ({ default: m.NotFoundPage })));
 // US-443: in-shell 404 that keeps the dashboard/admin chrome (sidebar + header).
 const InShellNotFound = lazy(() => import("@/pages/not-found").then(m => ({ default: m.InShellNotFound })));
@@ -579,6 +582,7 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/autolister/bulk-edit", element: <SuspenseWrapper><FlipdeskAutolisterBulkEditPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/autolister/drafts", element: <ViewRedirect to="/dashboard/flipdesk/autolister" view="drafts" /> },
           { path: "/dashboard/flipdesk/scheduled-drops", element: <SuspenseWrapper><FlipdeskScheduledDropsPage /></SuspenseWrapper> },
+          { path: "/dashboard/flipdesk/templates", element: <SuspenseWrapper><FlipdeskTemplatesPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/pipeline", element: <InventoryModeRedirect mode="kanban" /> },
               { path: "/dashboard/flipdesk/listings", element: <InventoryModeRedirect /> },
               { path: "/dashboard/flipdesk/verified", element: <SuspenseWrapper><FlipdeskVerifiedPage /></SuspenseWrapper> },

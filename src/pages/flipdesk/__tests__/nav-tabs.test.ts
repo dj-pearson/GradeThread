@@ -269,7 +269,7 @@ describe("the ?view= hosts (US-2161 second pass)", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("FlipDesk is down to 16 sidebar entries", () => {
+  it("FlipDesk is at 17 sidebar entries", () => {
     // AC6's number, asserted rather than described. The story predicted ~14;
     // reaching that needed merges no criterion specified, so the owner approved
     // these two and amended the target to 16. Pinning it means the next entry
@@ -278,13 +278,17 @@ describe("the ?view= hosts (US-2161 second pass)", () => {
     // US-2876: counted off the registry rather than by matching `to:` lines in
     // a slice of sidebar.tsx. Same number, and it can no longer be thrown off
     // by how the component happens to be formatted.
+    //
+    // 16 -> 17 on 2026-08-25: US-2877 gave Listing templates a web page. It is
+    // the mechanism working rather than failing -- the entry is a decision with
+    // a story behind it, which is exactly what this assertion exists to force.
     const flipdesk = ALL_SURFACES.filter((s) => s.nav?.group === "FlipDesk");
-    expect(flipdesk.length).toBe(16);
-    // Catalog 3 + List & sell 3 + Sourcing 3 + Channels & money 6 + Automate 1.
+    expect(flipdesk.length).toBe(17);
+    // Catalog 3 + List & sell 4 + Sourcing 3 + Channels & money 6 + Automate 1.
     const perSubgroup = (title: string) =>
       flipdesk.filter((s) => s.nav?.subgroup === title).length;
     expect(perSubgroup("Catalog")).toBe(3);
-    expect(perSubgroup("List & sell")).toBe(3);
+    expect(perSubgroup("List & sell")).toBe(4);
     expect(perSubgroup("Sourcing")).toBe(3);
     expect(perSubgroup("Channels & money")).toBe(6);
     expect(perSubgroup("Automate & insights")).toBe(1);
