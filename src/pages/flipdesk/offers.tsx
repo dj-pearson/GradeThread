@@ -41,6 +41,7 @@ import {
 } from "@/hooks/use-ebay";
 import { useNegotiationDraft } from "@/hooks/use-ai-extract";
 import { applyNegotiationDraft } from "@/pages/flipdesk/negotiation-draft-prefill";
+import { PageHelp } from "@/components/help/page-help";
 
 // US-1040/1041: web parity for eBay Best Offers (accept/decline/counter), send
 // offers to interested buyers, and the buyer-message inbox — features that were
@@ -124,6 +125,7 @@ export function FlipdeskOffersPage() {
       <PageHeader
         title="Offers & Messages"
         subtitle="Respond to buyer Best Offers, send offers to interested buyers, and reply to buyer messages — all on your live eBay listings."
+              actions={<PageHelp slug="offers-and-buyer-messages" />}
       />
       {/* US-2541: FlipDesk registers eleven marketplaces and this screen reads
           one. Without saying so, an empty list means "no offers" to a seller

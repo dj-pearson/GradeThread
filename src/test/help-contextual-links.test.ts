@@ -25,12 +25,19 @@ function walk(dir: string, out: string[] = []): string[] {
 
 const SOURCE_FILES = walk("src").filter((f) => !f.includes("/test") && !f.includes("__tests__"));
 
-/** Every slug a <HelpLink> actually names, with the file it came from. */
+/**
+ * Every slug a help button actually names, with the file it came from.
+ *
+ * TWO spellings, and both must be matched. US-2862 introduced <PageHelp> — the
+ * wrapper the page-header surfaces use, so that "the help button sits in the
+ * page header's action row" is one decision rather than fifteen. An extractor
+ * that knew only <HelpLink> would report every one of those buttons as missing,
+ * which is a false alarm on the side that looks like diligence.
+ */
 const USED: Array<{ file: string; slug: string }> = SOURCE_FILES.flatMap((file) =>
-  [...read(file).matchAll(/<HelpLink[^>]*\bslug="([^"]+)"/g)].map((m) => ({
-    file,
-    slug: m[1]!,
-  })),
+  [...read(file).matchAll(/<(?:HelpLink|PageHelp)[^>]*\bslug="([^"]+)"/g)].map(
+    (m) => ({ file, slug: m[1]! }),
+  ),
 );
 
 describe("the slug registry", () => {
@@ -67,6 +74,53 @@ describe("every wired button points at a registered slug", () => {
     expect(USED.length).toBeGreaterThan(0);
   });
 
+  it("both spellings are actually in use, so the extractor is not half-blind", () => {
+    // If either form disappears the regex above still passes, and the guard
+    // quietly stops covering the other half of the app.
+    const raw = SOURCE_FILES.map(read).join("\n");
+    expect((raw.match(/<HelpLink\b/g) ?? []).length).toBeGreaterThan(5);
+    expect((raw.match(/<PageHelp\b/g) ?? []).length).toBeGreaterThan(5);
+  });
+
+  it("<HelpLink> is only spelled where PageHelp cannot be used", () => {
+    // US-2862: PageHelp is the one spelling for a page-header surface, and it
+    // is what makes the placement rule a decision rather than a coincidence.
+    // The exceptions are the component itself, the wrapper, and the handful of
+    // surfaces that predate PageHeader and build their own header — those are
+    // listed so a new one is a decision, not a drift.
+    const ALLOWED = new Set([
+      "src/components/help/help-link.tsx",
+      "src/components/help/page-help.tsx",
+      "src/pages/new-submission.tsx",
+      "src/pages/submission-detail.tsx",
+      "src/pages/billing.tsx",
+      "src/pages/api-keys.tsx",
+      "src/pages/team.tsx",
+      "src/pages/connect-extension.tsx",
+      "src/pages/flipdesk/composer.tsx",
+      "src/pages/flipdesk/marketplaces.tsx",
+      "src/pages/flipdesk/pipeline.tsx",
+      "src/pages/flipdesk/reconcile.tsx",
+    ]);
+    // Comments stripped: help-slugs.ts and page-help.tsx both explain, in
+    // prose, when a <HelpLink> renders nothing. A guard that fires on the
+    // documentation written about it is a guard that punishes writing any.
+    const offenders = SOURCE_FILES.filter((f) => {
+      if (ALLOWED.has(f)) return false;
+      const code = read(f)
+        .replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/[^\n]*/g, "");
+      return /<HelpLink\b/.test(code);
+    });
+    expect(
+      offenders,
+      "use <PageHelp slug=…/> in the page header's action row. <HelpLink> " +
+        "directly is for the surfaces that build their own header, and that " +
+        "list is in this test.",
+    ).toEqual([]);
+  });
+
   it("no HelpLink names a slug the registry does not know", () => {
     const known = new Set<string>(PRODUCT_HELP_SLUGS.map((s) => s.slug));
     const unknown = USED.filter((u) => !known.has(u.slug));
@@ -90,13 +144,33 @@ describe("the surfaces the story named all have a button", () => {
     ["src/pages/api-keys.tsx", "api-keys-and-the-sandbox"],
     ["src/pages/team.tsx", "inviting-your-team"],
     ["src/pages/connect-extension.tsx", "installing-the-browser-extension"],
+    // US-2862. The first ten were all surfaces a user reaches once they
+    // already know what they are doing. These are the ones somebody gets stuck
+    // on in their first week, and none of them had an entry in the registry at
+    // all — so HelpLink had nothing to render there even after US-2618 loads
+    // the articles.
+    ["src/pages/flipdesk/intake.tsx", "adding-your-first-item"],
+    ["src/pages/flipdesk/listings.tsx", "the-four-inventory-views"],
+    ["src/pages/flipdesk/autolister-host.tsx", "batch-listing-with-autolister"],
+    ["src/pages/flipdesk/sourcing.tsx", "deciding-what-to-buy"],
+    ["src/pages/flipdesk/pricing.tsx", "pricing-your-listings"],
+    ["src/pages/flipdesk/money.tsx", "reading-your-money"],
+    ["src/pages/flipdesk/offers.tsx", "offers-and-buyer-messages"],
+    ["src/pages/flipdesk/post-sale.tsx", "returns-and-disputes"],
+    ["src/pages/flipdesk/scheduled-drops.tsx", "scheduling-a-drop"],
+    ["src/pages/flipdesk/verified.tsx", "becoming-a-verified-seller"],
+    ["src/pages/flipdesk/consignment.tsx", "taking-in-consignment"],
+    ["src/pages/flipdesk/import.tsx", "importing-your-inventory"],
+    ["src/pages/snap.tsx", "snap-to-value"],
+    ["src/pages/flipdesk/measure-card.tsx", "using-the-measurecard"],
+    ["src/pages/rewards.tsx", "rewards-and-credit"],
   ];
 
-  it.each(REQUIRED)("%s has a HelpLink for %s", (file, slug) => {
+  it.each(REQUIRED)("%s has a help button for %s", (file, slug) => {
     expect(read(file)).toContain(`slug="${slug}"`);
   });
 
-  it("covers all ten registry entries, so nothing in the backlog is orphaned", () => {
+  it("covers every registry entry, so nothing in the backlog is orphaned", () => {
     const used = new Set<string>(USED.map((u) => u.slug));
     const unused = PRODUCT_HELP_SLUGS.filter((s) => !used.has(s.slug)).map((s) => s.slug);
     expect(unused, `registered but never rendered: ${unused.join(", ")}`).toEqual([]);

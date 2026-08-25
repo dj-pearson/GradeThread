@@ -23,6 +23,7 @@ import {
   removeSnapHistoryEntry,
   type SnapHistoryEntry,
 } from "@/lib/snap-history";
+import { PageHelp } from "@/components/help/page-help";
 
 function dollars(cents: number | null): string {
   if (cents == null) return "—";
@@ -94,6 +95,7 @@ export function SnapToValuePage() {
         icon={Sparkles}
         title="Snap to Value"
         subtitle="Snap a photo of any garment and get an instant AI condition grade plus a condition-adjusted resale value range — in seconds, free."
+              actions={<PageHelp slug="snap-to-value" />}
       />
 
       {/* US-744: offer the PWA install affordance on Snap too (mobile capture is

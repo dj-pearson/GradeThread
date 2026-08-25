@@ -37,6 +37,7 @@ import { RewardCelebrations } from "@/components/rewards/reward-celebrations";
 import { shareRewardCard } from "@/lib/reward-share";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { PageHelp } from "@/components/help/page-help";
 
 // US-1851: the seller's rewards home — level, season track, cosmetic perks and
 // past season recaps.
@@ -148,6 +149,7 @@ export function RewardsPage() {
         title="Rewards"
         subtitle="Your level is yours to keep. Seasons give you something to chase each quarter."
         icon={Trophy}
+              actions={<PageHelp slug="rewards-and-credit" />}
       />
 
       {/* Level — the identity. Never decreases. */}

@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { PageHostContext } from "@/hooks/use-page-host";
 import { HostViewSkeleton } from "@/components/flipdesk/host-view-skeleton";
 import { resolvePricingTab } from "@/pages/flipdesk/nav-tabs";
+import { PageHelp } from "@/components/help/page-help";
 
 // US-2161: the four pricing surfaces were four sidebar entries — Repricing,
 // Bulk pricing, Price Suggestions and Automations — and Price Suggestions sat
@@ -70,6 +71,7 @@ export function FlipdeskPricingPage() {
         icon={Tag}
         title="Pricing"
         subtitle="What to charge, and what to change it to."
+              actions={<PageHelp slug="pricing-your-listings" />}
       />
       <PageHostContext.Provider value={{ embedded: true }}>
         <Tabs value={activeTab} onValueChange={setActiveTab}>

@@ -43,6 +43,7 @@ import {
   type ReasonCode,
   type RepriceSuggestion,
 } from "@/hooks/use-repricing";
+import { Term } from "@/components/help/term";
 
 // US-2159: Price Suggestions now reads the ONE server pricing engine
 // (/api/flipdesk/pricing/suggestions) — comp-driven, with reason codes — the same
@@ -187,7 +188,13 @@ export function PriceSuggestionsPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <PageHeader
           title="Price Suggestions"
-          subtitle="Comp-driven pricing from the shared repricing engine — the same numbers as the Repricing page, matched to each item's grade."
+          subtitle={
+            <>
+              <Term name="Comp" />-driven pricing from the shared repricing
+              engine, the same numbers as the Repricing page, matched to each
+              item's grade.
+            </>
+          }
         />
         <Button onClick={() => scan.mutate(undefined)} disabled={scan.isPending}>
           {scan.isPending ? (

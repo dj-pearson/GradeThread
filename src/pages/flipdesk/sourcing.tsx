@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { PageHostContext } from "@/hooks/use-page-host";
 import { HostViewSkeleton } from "@/components/flipdesk/host-view-skeleton";
 import { resolveSourcingTab } from "@/pages/flipdesk/nav-tabs";
+import { PageHelp } from "@/components/help/page-help";
 
 // US-2161: ScoutAI, Buy Decision, Sources and Buyer Demand were four sidebar
 // entries answering one question — "what should I buy, and from where?" They are
@@ -73,6 +74,7 @@ export function FlipdeskSourcingPage() {
         icon={Search}
         title="Sourcing"
         subtitle="What to buy, what to pay, and where to find it."
+              actions={<PageHelp slug="deciding-what-to-buy" />}
       />
       <PageHostContext.Provider value={{ embedded: true }}>
         <Tabs value={activeTab} onValueChange={setActiveTab}>

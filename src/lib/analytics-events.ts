@@ -229,6 +229,9 @@ export const ANALYTICS_EVENTS = {
   "help_deflection":
     "The support form was left without a ticket after a suggested article was opened.",
   "help_contextual_open": "A contextual help sheet was opened from a product surface.",
+  // US-2864: which invented word a user actually stopped to look up. The only
+  // direct measure of which of our nouns are not carrying their meaning.
+  "help_term_open": "A product-term definition popover was opened.",
 
   // ── Buyer feature adoption ────────────────────────────────────────────────
   // One event with a `feature` property rather than one event per feature —

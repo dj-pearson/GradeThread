@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
-import { LifeBuoy, Lock, Search, Users } from "lucide-react";
+import { BookOpen, LifeBuoy, Lock, Search, Users } from "lucide-react";
 import { SEO } from "@/components/seo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -145,6 +145,17 @@ function HelpReaderIndexPage() {
           data?.viewer === "admin"
             ? "Every article, including internal operator notes."
             : "Guides for grading, listing, selling and everything around them."
+        }
+        // US-2864: the glossary is a different question from "how do I do X",
+        // and somebody stuck on a word rather than a task should not have to
+        // search an article index to find out what a Comp is.
+        actions={
+          <Button asChild variant="outline">
+            <Link to="/dashboard/help/glossary">
+              <BookOpen className="mr-2 h-4 w-4" />
+              Glossary
+            </Link>
+          </Button>
         }
       />
 

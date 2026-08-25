@@ -2500,36 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2862",
-      "passes": false,
-      "title": "Contextual help is registered on forty-five surfaces and rendered on ten",
-      "description": "src/lib/help-slugs.ts registers the surfaces that should carry a help button. src/components/help/help-link.tsx is placed on ten of them: api-keys, billing, connect-extension, composer, marketplaces, pipeline, reconcile, new-submission, submission-detail, team. Two of those ten live in page files that US-2161 turned into tabs of another host (pipeline.tsx, reconcile.tsx), so whether the button still reaches a user depends on whether the host renders that component, which nobody has checked. Meanwhile the surfaces where a new user is most likely to be stuck, intake, inventory, autolister, sourcing, money, pricing, offers, post-sale, scheduled drops, verified, consignment, import, have no button at all. This is distinct from US-2618 (the article table is empty): even with every article loaded, thirty-five surfaces would still show nothing.",
-      "acceptanceCriteria": [
-        "Every entry in PRODUCT_HELP_SLUGS names a surface that renders a HelpLink for it, or is removed from the registry with a reason.",
-        "The pipeline.tsx and reconcile.tsx HelpLinks are confirmed to render inside their current hosts (money.tsx view=reconcile, inventory kanban mode) or moved to the host.",
-        "A guard test asserts a two-way match: no registered slug without a call site, no call site with an unregistered slug.",
-        "The help button sits in a consistent position on every surface (page header, right of the title), not wherever it fitted."
-      ],
-      "priority": 14,
-      "notes": ""
-    },
-    {
-      "id": "US-2864",
-      "passes": false,
-      "title": "The product invented sixteen nouns and defines none of them in-product",
-      "description": "FlipDesk, AutoLister, Snap to Value, MeasureCard, Scout, Prospect, Sourcing, Reconcile, Comp, Passport, Verified, Finds, Rewards, Trust score, Thrift Radar, Consignment. Every one is a word the user has to learn, and every one is currently taught by being clicked. Some are explained on marketing pages the signed-in user never revisits; none are explained at the point of first encounter. A glossary exists on the public site for GRADING terms (/grading/glossary) and covers none of these product terms.",
-      "acceptanceCriteria": [
-        "src/lib/product-terms.ts registers every invented noun with: term, one-sentence plain definition (sixth-grade reading level), the surface that owns it, and an optional help slug.",
-        "A <Term> component renders the term with a subtle dotted underline and opens a popover carrying the definition plus a link to the owning surface; it is keyboard reachable and screen-reader labelled.",
-        "The first occurrence of a term on any page is wrapped in <Term>; later occurrences are plain.",
-        "/dashboard/help/glossary lists all of them alphabetically, and the sidebar Help entry links to it.",
-        "A guard test fails if a registered term appears in src/pages/** without ever being wrapped, and if a term is registered with a definition longer than one sentence.",
-        "iOS reads the same list (generated Swift) and uses it for the Tools hub subtitles, so the two cannot drift."
-      ],
-      "priority": 62,
-      "notes": ""
-    },
-    {
       "id": "US-2865",
       "passes": false,
       "title": "An empty account is a blank app; give it one example to read",
@@ -2699,7 +2669,7 @@
         "The same guard fails if a surface declares an iOS route no Swift view resolves."
       ],
       "priority": 76,
-      "notes": ""
+      "notes": "US-2864 AC6 lands here. It needs iOS to read a generated Swift mirror of src/lib/product-terms.ts, and this story is already building that pipeline for the surface registry. Two one-off generators is the problem this story exists to fix, so the term list should ride the same generation step rather than getting its own."
     },
     {
       "id": "US-2877",

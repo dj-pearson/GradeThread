@@ -92,6 +92,117 @@ export const PRODUCT_HELP_SLUGS = [
     mustAnswer:
       "How to install it, what each permission is for, how to connect it to this account, and what runs automatically versus on click.",
   },
+  // ── US-2862 ────────────────────────────────────────────────────────────
+  // The registry stopped at ten surfaces, all of them ones a user reaches
+  // after they already know what they are doing: billing, API keys, team,
+  // the composer. The places somebody gets stuck on day one — intake,
+  // AutoLister, sourcing, pricing, returns — had no entry, so HelpLink had
+  // nothing to render there even once the articles exist.
+  {
+    slug: "adding-your-first-item",
+    category: "flipdesk",
+    surface: "Add item (intake)",
+    mustAnswer:
+      "Which fields matter and which can wait, what photos to take now versus later, what a SKU is for, and what happens to the item after you save it.",
+  },
+  {
+    slug: "the-four-inventory-views",
+    category: "flipdesk",
+    surface: "Inventory",
+    mustAnswer:
+      "What Table, Grid, Board and Prep each show, what every item status means, and which view to use for which job.",
+  },
+  {
+    slug: "batch-listing-with-autolister",
+    category: "autolister",
+    surface: "AutoLister",
+    mustAnswer:
+      "What a batch is, how photos are grouped into items, how many an account may run, what the AI writes versus what you must fill in, and what it costs.",
+  },
+  {
+    slug: "deciding-what-to-buy",
+    category: "flipdesk",
+    surface: "Sourcing",
+    mustAnswer:
+      "What Scout, the buy decision, sources and buyer demand each answer, and which one to open when you are standing in a shop.",
+  },
+  {
+    slug: "pricing-your-listings",
+    category: "flipdesk",
+    surface: "Pricing",
+    mustAnswer:
+      "The difference between repricing, bulk pricing, price suggestions and automations, which of them change a live price without asking, and how to stop one.",
+  },
+  {
+    slug: "reading-your-money",
+    category: "flipdesk",
+    surface: "Money",
+    mustAnswer:
+      "Revenue versus profit, which fees are counted and when, what 'owed to you' means, and why a sold item can show no profit yet.",
+  },
+  {
+    slug: "offers-and-buyer-messages",
+    category: "marketplaces",
+    surface: "Offers & Messages",
+    mustAnswer:
+      "Where offers come from, what happens if you do nothing, what a drafted reply does and does not send, and what counts as a binding acceptance.",
+  },
+  {
+    slug: "returns-and-disputes",
+    category: "marketplaces",
+    surface: "Returns & Disputes",
+    mustAnswer:
+      "What each case type means, the clock on each one, what evidence a grade report provides, and what happens if a case escalates.",
+  },
+  {
+    slug: "scheduling-a-drop",
+    category: "flipdesk",
+    surface: "Scheduled drops",
+    mustAnswer:
+      "What a drop is, how a time is chosen, what happens if a listing is not ready when its slot arrives, and how to cancel one.",
+  },
+  {
+    slug: "becoming-a-verified-seller",
+    category: "flipdesk",
+    surface: "Verified",
+    mustAnswer:
+      "What the badge claims, what an account must do to keep it, what the public profile shows, and how to remove it.",
+  },
+  {
+    slug: "taking-in-consignment",
+    category: "flipdesk",
+    surface: "Consignment",
+    mustAnswer:
+      "How a consignor and a split are set up, who owns the item, how a payout is calculated, and what the consignor can see.",
+  },
+  {
+    slug: "importing-your-inventory",
+    category: "flipdesk",
+    surface: "Import",
+    mustAnswer:
+      "What the CSV needs, how a Google Sheet stays in sync afterwards, what happens to a row that does not match, and how to undo an import.",
+  },
+  {
+    slug: "snap-to-value",
+    category: "grading",
+    surface: "Snap to Value",
+    mustAnswer:
+      "What a Snap read is and is not, how it differs from a full graded submission, what it costs, and when to pay for the real grade instead.",
+  },
+  {
+    slug: "using-the-measurecard",
+    category: "flipdesk",
+    surface: "MeasureCard",
+    mustAnswer:
+      "What the card is for, how to print one at the right size, where to place it in a photo, and what goes wrong without it.",
+  },
+  {
+    slug: "rewards-and-credit",
+    category: "getting-started",
+    surface: "Rewards",
+    mustAnswer:
+      "How XP is earned, what a level unlocks, when a season resets, and how earned credit is spent.",
+  },
 ] as const satisfies ReadonlyArray<ProductHelpSlug>;
 
 /** The union of slugs a <HelpLink> may name. A typo fails to compile. */

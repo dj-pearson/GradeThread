@@ -84,6 +84,7 @@ import type {
 import { deriveGarmentDefaults } from "@/lib/garment-mapping";
 import { todayLocalDate } from "@/lib/local-date";
 import { garmentDescriptorFor } from "@/lib/measurement-templates";
+import { PageHelp } from "@/components/help/page-help";
 
 // Form fields the AI extractor can fill.
 const AI_FILLABLE_FIELDS = [
@@ -536,6 +537,7 @@ export function FlipdeskIntakePage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <PageHelp slug="adding-your-first-item" />
           <Button
             variant="outline"
             onClick={handleAiFill}

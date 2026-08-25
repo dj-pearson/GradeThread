@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { MeasureCardDiagram } from "@/components/flipdesk/measure-card-diagram";
+import { PageHelp } from "@/components/help/page-help";
 
 interface CardRequest {
   id: string;
@@ -173,6 +174,7 @@ export function FlipdeskMeasureCardPage() {
         icon={Ruler}
         title="MeasureCard"
         subtitle="The calibration card that turns one flat-lay photo into garment measurements, estimated from the photo — auto-extracted, drag-adjustable (review before listing), and printed onto a clean buyer-facing measurements photo."
+              actions={<PageHelp slug="using-the-measurecard" />}
       />
 
       <Card>

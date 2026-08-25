@@ -66,6 +66,8 @@ import {
   CONSIGNOR_PAYOUT_STATUS_LABELS,
 } from "@/lib/constants";
 import type { ConsignorStatus } from "@/types/database";
+import { PageHelp } from "@/components/help/page-help";
+import { Term } from "@/components/help/term";
 
 function money(n: number | null | undefined): string {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -155,12 +157,21 @@ export function FlipdeskConsignmentPage() {
       <PageHeader
         icon={Users}
         title="Consignment"
-        subtitle="Manage consignors, splits, intake agreements, and Stripe payouts."
+        subtitle={
+          <>
+            <Term name="Consignment" /> means selling someone else's garment and
+            splitting the money. Manage consignors, splits, agreements and
+            payouts here.
+          </>
+        }
         actions={
-          <Button onClick={() => setEditing({ ...EMPTY })} disabled={!canManage}>
-            <Plus className="mr-2 h-4 w-4" />
-            New consignor
-          </Button>
+          <>
+            <PageHelp slug="taking-in-consignment" />
+            <Button onClick={() => setEditing({ ...EMPTY })} disabled={!canManage}>
+              <Plus className="mr-2 h-4 w-4" />
+              New consignor
+            </Button>
+          </>
         }
       />
 

@@ -71,6 +71,7 @@ const HelpSearchPage = lazy(() => import("@/pages/help/search").then(m => ({ def
 // US-2583: the in-app reader. Sees members-only articles, and internal ones
 // for an admin — the SERVER decides which, from the verified user id.
 const HelpReaderPage = lazy(() => import("@/pages/help-reader").then(m => ({ default: m.HelpReaderPage })));
+const GlossaryPage = lazy(() => import("@/pages/glossary").then(m => ({ default: m.GlossaryPage })));
 const LeaderboardsPage = lazy(() => import("@/pages/leaderboards").then(m => ({ default: m.LeaderboardsPage })));
 const FlipdeskVerifiedPage = lazy(() => import("@/pages/flipdesk/verified").then(m => ({ default: m.FlipdeskVerifiedPage })));
 // Public status page (US-500) — live component health probed from the
@@ -623,6 +624,9 @@ export const router = createBrowserRouter([
               // US-2583: the members-only docs reader. noindex on every page,
               // and /dashboard is already disallowed in robots.txt.
               { path: "/dashboard/help", element: <SuspenseWrapper><HelpReaderPage /></SuspenseWrapper> },
+              // US-2864: BEFORE the :slug route, or "glossary" is read as an
+              // article slug and the page 404s inside the reader.
+              { path: "/dashboard/help/glossary", element: <SuspenseWrapper><GlossaryPage /></SuspenseWrapper> },
               { path: "/dashboard/help/:slug", element: <SuspenseWrapper><HelpReaderPage /></SuspenseWrapper> },
               { path: "/dashboard/support", element: <SuspenseWrapper><SupportTicketsPage /></SuspenseWrapper> },
               { path: "/dashboard/support/:id", element: <SuspenseWrapper><SupportTicketsPage /></SuspenseWrapper> },

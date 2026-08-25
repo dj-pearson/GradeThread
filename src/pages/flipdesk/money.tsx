@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { PageHostContext } from "@/hooks/use-page-host";
 import { HostViewSkeleton } from "@/components/flipdesk/host-view-skeleton";
 import { resolveMoneyView } from "@/pages/flipdesk/nav-tabs";
+import { PageHelp } from "@/components/help/page-help";
 
 // US-2161: Finances, Expenses and Reconcile were three sidebar entries
 // answering one question — where did my money go. They are one destination
@@ -72,6 +73,7 @@ export function FlipdeskMoneyPage() {
         icon={Wallet}
         title="Money"
         subtitle="Where it came from, where it went, and what it left you."
+              actions={<PageHelp slug="reading-your-money" />}
       />
       <PageHostContext.Provider value={{ embedded: true }}>
         <Tabs value={activeView} onValueChange={setActiveView}>

@@ -34,6 +34,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { COMMON_TIMEZONES, detectTimezone, formatInZone } from "@/lib/scheduling";
 import { cn } from "@/lib/utils";
 import { DropDayDialog } from "@/components/flipdesk/drop-day-dialog";
+import { PageHelp } from "@/components/help/page-help";
+import { Term } from "@/components/help/term";
 
 // US-563: a calendar view of every scheduled drop. The 5-min `publish-due`
 // cron publishes drafts whose `scheduled_publish_at` is in the past, so this
@@ -280,14 +282,23 @@ export function FlipdeskScheduledDropsPage() {
       <PageHeader
         icon={CalendarClock}
         title="Scheduled drops"
-        subtitle="Listings queued to go live at peak times. They publish automatically within ~5 minutes of their scheduled time."
+        subtitle={
+          <>
+            <Term name="Drop">Drops</Term> are listings queued to go live at peak
+            times. They publish automatically within about 5 minutes of their
+            scheduled time.
+          </>
+        }
         actions={
-          <Button asChild variant="outline">
-            <Link to="/dashboard/flipdesk/autolister?view=drafts">
-              <Sparkles className="mr-2 h-4 w-4" />
-              Drafts
-            </Link>
-          </Button>
+          <>
+            <PageHelp slug="scheduling-a-drop" />
+            <Button asChild variant="outline">
+              <Link to="/dashboard/flipdesk/autolister?view=drafts">
+                <Sparkles className="mr-2 h-4 w-4" />
+                Drafts
+              </Link>
+            </Button>
+          </>
         }
       />
 

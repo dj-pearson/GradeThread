@@ -147,6 +147,7 @@ import {
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
+import { PageHelp } from "@/components/help/page-help";
 
 const SORT_PRESET_LABELS: Record<SortPreset, string> = {
   listability: "Listability score",
@@ -828,6 +829,7 @@ export function FlipdeskListingsPage() {
           <InventoryViewSwitcher current="table" />
         </div>
         <div className="flex flex-wrap gap-2">
+          <PageHelp slug="the-four-inventory-views" />
           <Button
             variant="outline"
             onClick={exportCsv}

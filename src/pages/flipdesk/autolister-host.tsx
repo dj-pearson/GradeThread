@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { PageHostContext } from "@/hooks/use-page-host";
 import { HostViewSkeleton } from "@/components/flipdesk/host-view-skeleton";
 import { resolveAutolisterView } from "@/pages/flipdesk/nav-tabs";
+import { PageHelp } from "@/components/help/page-help";
 
 // US-2161: AutoLister and Drafts were two sidebar entries, and Drafts is not a
 // separate destination — it is what AutoLister produces. A seller who has just
@@ -58,6 +59,7 @@ export function FlipdeskAutolisterHostPage() {
         icon={Sparkles}
         title="AutoLister"
         subtitle="Photos in, complete eBay listings out."
+              actions={<PageHelp slug="batch-listing-with-autolister" />}
       />
       <PageHostContext.Provider value={{ embedded: true }}>
         <Tabs value={activeView} onValueChange={setActiveView}>

@@ -62,6 +62,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Plus, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
+import { Term } from "@/components/help/term";
 
 // US-2171: the queue can carry dozens of nudges. Paginate the client-side list
 // so the page renders a bounded slice, and let the reseller filter/sort/bulk-act
@@ -638,7 +639,13 @@ export function FlipdeskRepricingPage() {
     <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
       <PageHeader
         title="Repricing"
-        subtitle="Condition-aware price nudges. We compare each active listing against comps matched to its grade, so a grade-9 is not priced like a grade-6."
+        subtitle={
+          <>
+            Condition-aware price nudges. We compare each active listing against{" "}
+            <Term name="Comp">comps</Term> matched to its grade, so a grade-9 is
+            not priced like a grade-6.
+          </>
+        }
         actions={
           <Button onClick={() => scan.mutate(undefined)} disabled={scan.isPending}>
             {scan.isPending ? (

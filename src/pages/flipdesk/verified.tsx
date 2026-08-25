@@ -43,6 +43,7 @@ import {
   profileLinkEmbedHtml,
 } from "@/lib/verified";
 import { SITE_URL } from "@/lib/seo/site";
+import { PageHelp } from "@/components/help/page-help";
 
 type Availability =
   | { state: "idle" }
@@ -173,6 +174,7 @@ export function FlipdeskVerifiedPage() {
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-6 w-6 text-brand-navy dark:text-foreground" />
           <h1 className="text-2xl font-bold">GradeThread Verified</h1>
+          <PageHelp slug="becoming-a-verified-seller" />
         </div>
         <p className="text-muted-foreground">
           Turn every grade you've earned into a public trust profile buyers can

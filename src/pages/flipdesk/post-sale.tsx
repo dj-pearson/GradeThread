@@ -61,6 +61,7 @@ import {
   type EbayPaymentDispute,
   type EbayReturn,
 } from "@/hooks/use-ebay";
+import { PageHelp } from "@/components/help/page-help";
 
 // US-1043 + US-1049: web surface for post-sale issues — returns, cancellations,
 // and payment disputes — with the accept/decline/refund/contest actions.
@@ -97,6 +98,7 @@ export function FlipdeskPostSalePage() {
       <PageHeader
         title="Returns & Disputes"
         subtitle="Handle eBay returns, buyer cancellations, and payment disputes before their deadlines — responses are pushed straight to eBay."
+              actions={<PageHelp slug="returns-and-disputes" />}
       />
       {/* US-2541: same reasoning as the offers screen. An empty returns list
           is the one a seller most wants to trust. */}

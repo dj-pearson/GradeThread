@@ -53,6 +53,7 @@ import {
   parseDate,
   type ImportField,
 } from "@/lib/import-mapping";
+import { PageHelp } from "@/components/help/page-help";
 
 type ImportRow = {
   raw: string[];
@@ -443,6 +444,7 @@ export function FlipdeskImportPage() {
         icon={Upload}
         title="Import from spreadsheet"
         subtitle="Paste your Google Sheets data below. We'll auto-detect columns and you confirm the mapping before import."
+              actions={<PageHelp slug="importing-your-inventory" />}
       />
 
       {/* Step 1: input — upload OR paste */}
