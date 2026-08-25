@@ -2500,21 +2500,6 @@
       "notes": ""
     },
     {
-      "id": "US-2865",
-      "passes": false,
-      "title": "An empty account is a blank app; give it one example to read",
-      "description": "A brand-new seller signs in and every surface is zero. Zero submissions, zero inventory, zero comps, zero sales, zero analytics. There is no sample data anywhere in the codebase (grep for 'sample data' / 'demo mode' returns one marketing page). So the first thing a user learns about a grade report is what an empty grade report looks like, and the fastest way to understand what the product produces is to spend money finding out.",
-      "acceptanceCriteria": [
-        "'Show me an example' appears on the dashboard zero-data state, on the submissions empty state and on the inventory empty state.",
-        "It loads a fixed client-side fixture: one example garment with four photos, one full grade report with all five factors and a confidence, one comp read, and one sale with fees and profit.",
-        "Every example surface is badged 'Example' and is read-only; nothing is written to the user's tables and nothing counts against their plan.",
-        "One click clears it, and it clears itself the moment the user's own first item exists.",
-        "The example is the same garment on web and iOS, so support can talk about it by name."
-      ],
-      "priority": 62,
-      "notes": ""
-    },
-    {
       "id": "US-2868",
       "passes": false,
       "title": "Plain-language pass over every user-facing string on both clients",
