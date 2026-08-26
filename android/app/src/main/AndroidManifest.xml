@@ -34,6 +34,27 @@
         </intent>
     </queries>
 
+    <!-- US-2891: `enableOnBackInvokedCallback` is set EXPLICITLY, not left to
+         the default, because the default changes underneath us. Targeting API
+         36 turns predictive back on regardless, and on 33-35 the default is
+         off — so leaving it unset would mean an Android 14 phone and an
+         Android 16 phone handling back differently in the same build, which is
+         the kind of split nobody reproduces.
+
+         Safe here because the app has NO legacy back handling to break: zero
+         `onBackPressed` overrides, zero `KEYCODE_BACK` reads, zero
+         `BackHandler` calls in 688 Kotlin files. Back is entirely
+         Navigation-Compose's, and androidx.activity already bridges its
+         dispatcher to `OnBackInvokedCallback`. The flag makes the app eligible
+         for the system's back-to-home and cross-activity animations; the
+         in-app predictive transitions are US-2911's work, not this line's.
+
+         Lint files it as `UnusedAttribute` (API 33+, minSdk 26) and it is in
+         lint-baseline.xml alongside the three identical precedents -
+         `localeConfig` (33+) and the widget's `targetCellWidth`/`Height`
+         (31+). Lint's own explanation is why that is the right call rather
+         than a suppression: "this is not an error; the application will
+         simply ignore the attribute". -->
     <application
         android:name=".GradeThreadApp"
         android:allowBackup="false"
@@ -43,6 +64,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
         android:theme="@style/Theme.GradeThread">
         <!-- US-1308: Sentry initializes manually from AppConfig (DSN may be
              absent → silently disabled); the auto-init provider must not race it. -->

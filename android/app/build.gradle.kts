@@ -78,9 +78,24 @@ fun resolveKeystore(): File? {
 
 android {
     namespace = "com.gradethread.app"
-    // compileSdk 35 = the newest stable platform installed on dev machines and
-    // the CI image; targetSdk matches (Play requires 34+ as of 2025).
-    compileSdk = 35
+    // US-2891: compileSdk 36 (Android 16); targetSdk matches.
+    //
+    // NOT a routine bump. Play's target-API floor steps once a year on 31
+    // August, and the page was read on 2026-08-25: from 2026-08-31 a NEW app
+    // must target API 36 or it is "not available to new users on devices
+    // running newer versions of Android" — which for a product that has never
+    // shipped is the whole audience. There is no grandfathering for a first
+    // upload; the extension form (to 2026-11-01) exists for updates to apps
+    // that are already live. Rejection happens at UPLOAD, minutes after a
+    // green twenty-minute release lane, so the cost of being wrong here is
+    // paid at the worst moment.
+    //
+    // The three API 36 behaviour changes that reach this app were each checked
+    // rather than assumed; see PLAY_STORE_SUBMISSION.md §6.5 for the findings.
+    // Short version: edge-to-edge was already on, predictive back needed the
+    // manifest flag (set), and the large-screen resizability change makes the
+    // two-pane work (US-2905) matter more, not less.
+    compileSdk = 36
 
     defaultConfig {
         // NOT the same as `namespace` above, and that is deliberate rather than
@@ -93,7 +108,9 @@ android {
         // minSdk 26 (Android 8.0): covers ~97% of devices while keeping
         // java.time, notification channels, and adaptive icons native.
         minSdk = 26
-        targetSdk = 35
+        // US-2891: see the compileSdk note above. This is the value Play
+        // actually reads off the uploaded bundle.
+        targetSdk = 36
         // US-1391: CI drives the version code so every upload to Play is
         // strictly higher than the last. Play REJECTS a re-used code outright,
         // and hand-bumping a literal is how a release lane ends up blocked at

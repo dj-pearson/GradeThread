@@ -28,16 +28,29 @@ const exe = (name) => (isWindows ? `${name}.exe` : name);
 const bat = (name) => (isWindows ? `${name}.bat` : name);
 
 // Gradle 8.13 refuses to RUN on a JVM newer than 23, and AGP 8.9.2 needs 17+.
-// CI uses 17, so 17 is what a local run should prefer: a lane that passes on a
-// JDK the CI runner does not have is a lane that reports on a build nobody
-// ships.
-const JDK_MIN = 17;
+// CI and a local run must agree: a lane that passes on a JDK the CI runner does
+// not have is a lane that reports on a build nobody ships.
+//
+// US-2891 moved the floor from 17 to 21, and the reason is worth keeping
+// because nothing about it is obvious from either end of the chain. Play
+// requires targetSdk 36 -> compileSdk 36 -> the Robolectric suite needs
+// Robolectric's SDK 36 android-all jar -> that jar refuses to load on anything
+// below Java 21: "Android SDK 36 requires Java 21 (have Java 17)". No part of
+// the app's own code needs 21.
+//
+// So this is the JVM the BUILD runs on, not the bytecode it emits.
+// sourceCompatibility, targetCompatibility and kotlinOptions.jvmTarget all stay
+// at 17 in app/build.gradle.kts, deliberately: the shipped APK is unchanged by
+// this, and minSdk 26 devices are unaffected. Do not "tidy" those three up to
+// 21 to match - that would raise the floor on what the app can run on, which
+// is a different decision entirely and not one this story made.
+const JDK_MIN = 21;
 const JDK_MAX = 23;
-export const JDK_PREFERRED = 17;
+export const JDK_PREFERRED = 21;
 
 // compileSdk in app/build.gradle.kts. Kept as a constant rather than parsed:
 // the parse would be one more thing that can silently return undefined.
-export const COMPILE_SDK = 35;
+export const COMPILE_SDK = 36;
 
 function javaMajor(javaHome) {
   const bin = join(javaHome, "bin", exe("java"));
@@ -81,6 +94,10 @@ function jdkCandidates() {
 
   // scoop, which is how CLAUDE.md tells this project's Windows machines to get
   // their toolchain.
+  push(join(home, "scoop", "apps", "temurin21-jdk", "current"), "scoop temurin21-jdk");
+  // 17 stays on the search path: it is below JDK_MIN so it can never be
+  // CHOSEN, but finding it lets the doctor say "you have 17, you need 21"
+  // instead of "no JDK at all", which are different problems.
   push(join(home, "scoop", "apps", "temurin17-jdk", "current"), "scoop temurin17-jdk");
   for (const d of globDirs(join(home, "scoop", "apps"), (n) => /^(temurin|openjdk|zulu)\d*-?jdk/.test(n))) {
     push(join(d, "current"), `scoop ${d.split(/[\\/]/).pop()}`);
@@ -137,7 +154,9 @@ export function resolveJdk() {
     if (major === null) {
       rejected.push({ ...c, why: "no runnable java (broken or incomplete install)" });
     } else if (major < JDK_MIN) {
-      rejected.push({ ...c, why: `Java ${major}; AGP 8.9 needs ${JDK_MIN}+` });
+      // Names Robolectric, not AGP: AGP is happy on 17, and someone reading
+      // "AGP needs 21" would go looking in the wrong place. See JDK_MIN.
+      rejected.push({ ...c, why: `Java ${major}; Robolectric's SDK ${COMPILE_SDK} jar needs ${JDK_MIN}+` });
     } else if (major > JDK_MAX) {
       rejected.push({ ...c, why: `Java ${major}; Gradle 8.13 supports at most ${JDK_MAX}` });
     } else {
@@ -147,8 +166,23 @@ export function resolveJdk() {
   if (!usable.length) return { ok: false, rejected };
   // Prefer the version CI runs; otherwise the lowest usable one, for the same
   // reason (closest to the build that actually ships).
-  usable.sort((a, b) =>
-    (a.major === JDK_PREFERRED ? -1 : b.major === JDK_PREFERRED ? 1 : a.major - b.major));
+  //
+  // US-2891: this comparator used to be
+  //   (a.major === JDK_PREFERRED ? -1 : b.major === JDK_PREFERRED ? 1 : a - b)
+  // which returns -1 for BOTH orderings when two candidates share the preferred
+  // major - an inconsistent comparator, so the winner was whatever the sort
+  // happened to do. It never mattered while the machine had exactly one usable
+  // JDK. The moment a second 21 appeared it silently picked Android Studio's
+  // bundled JBR over the scoop install, which is the one source this project
+  // has been bitten by before (Studio rewrites its own toolchain on open, and
+  // did exactly that during US-2502).
+  //
+  // Ranking the preferred major as -1 and everything else as itself keeps the
+  // comparator consistent, so equal ranks compare 0 and Array.sort's stability
+  // preserves jdkCandidates() order - which already encodes the source
+  // preference, with the Studio JBR deliberately last.
+  const rank = (major) => (major === JDK_PREFERRED ? -1 : major);
+  usable.sort((a, b) => rank(a.major) - rank(b.major));
   return { ok: true, ...usable[0], rejected };
 }
 

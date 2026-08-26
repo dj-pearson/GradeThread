@@ -16,7 +16,7 @@ factual answers aligned, not the wording).
 | Store title | GradeThread (11/30 chars) |
 | Package name | `com.gradethread.myapp` — **permanent, cannot be changed after first upload** |
 | Developer | Pearson Media LLC (Iowa) |
-| minSdk / targetSdk | 26 (Android 8.0) / 35 — meets Play's API 35 floor for new apps |
+| minSdk / targetSdk | 26 (Android 8.0) / **36** — the floor for a new app from 2026-08-31 (§6.5) |
 | Artifact | App Bundle (`.aab`), ABI + density splits on, language split off |
 | Supported ABIs | armeabi-v7a, arm64-v8a, x86_64 |
 | Signing | Play App Signing; upload key from Infisical (`ANDROID_KEYSTORE_BASE64`) |
@@ -547,6 +547,62 @@ The same gates as `npm run verify:android`: format → detekt → lint (warnings
 errors) → unit tests → coverage floor → screenshots → assemble → bundle → ABI budget.
 Run it locally before tagging; the pre-push hook runs it automatically when the push
 touches `android/**`.
+
+### 6.5 Target API level — the deadline, and what moving to 36 changed
+
+Read from developer.android.com/google/play/requirements/target-sdk on
+**2026-08-25**. Re-read it before the next annual step; this section is a
+snapshot, not a standing fact.
+
+**From 2026-08-31, a new app must target API 36** (Android 16). A new app below
+that floor "is not available to new users on devices running newer versions of
+Android" — which, for a product that has never shipped, is the audience. The
+extension form (to 2026-11-01) covers updates to apps already live and does not
+create a path for a first upload. The check happens at upload, so being wrong
+costs a green twenty-minute release lane and then a policy error.
+
+`compileSdk` and `targetSdk` are both 36 as of US-2891. Building against it
+needs SDK platform `android-36`; `android/scripts/toolchain.mjs` refuses to run
+Gradle without it and names it, and `npm run android:doctor` prints the
+`sdkmanager` line that installs it.
+
+**The build now runs on JDK 21, and the reason is not obvious from either end.**
+Nothing in the app's code needs 21. The chain is: Play requires targetSdk 36 →
+`compileSdk` 36 → the Robolectric suite needs Robolectric's SDK 36 `android-all`
+jar → that jar refuses to load below Java 21 (*"Android SDK 36 requires Java 21
+(have Java 17)"*). Robolectric was also raised 4.14.1 → 4.16.1, since 4.16 is the
+first release with SDK 36 at all.
+
+This is the JVM the **build** runs on, not the bytecode it emits.
+`sourceCompatibility`, `targetCompatibility` and `kotlinOptions.jvmTarget` all
+stay at **17** on purpose — the shipped APK is byte-for-byte unaffected and
+minSdk 26 devices are untouched. Raising those three to match would raise the
+floor on what the app can run on, which is a different decision and not one this
+story made.
+
+Worth knowing how this failed, because the failure was quiet: the 1798 plain
+JUnit tests all passed, so the suite looked ~99% healthy while **all 21
+Robolectric classes — and the Roborazzi screenshot lane, which runs through
+Robolectric — were not executing at all**. Every failure was an
+`initializationError` out of `DefaultSdkPicker`, a message naming neither
+Robolectric nor the SDK level. Raise Robolectric in the same commit as any
+future `compileSdk` bump.
+
+The API 36 behaviour changes were checked one at a time. Only three touch this
+app, and the third is the one worth remembering:
+
+| Change | Applies here? | What was done |
+|---|---|---|
+| **Edge-to-edge is mandatory** — `windowOptOutEdgeToEdgeEnforcement` is dead | Already compliant | `MainActivity.onCreate` has called `enableEdgeToEdge()` since US-1313, and the opt-out attribute appears nowhere in the manifest. Nothing to do. The white-frame problem on a dark-mode cold start is a *theme* bug, not this one — US-2899. |
+| **Predictive back on by default** — `onBackPressed()` is no longer called and `KEYCODE_BACK` is not dispatched | Applies, and was safe | The app had no legacy back handling to break: zero `onBackPressed` overrides, zero `KEYCODE_BACK` reads and zero `BackHandler` calls across 688 Kotlin files. Back is entirely Navigation-Compose's, which androidx.activity already bridges. `android:enableOnBackInvokedCallback="true"` is now set **explicitly**, so a phone on 33-35 and a phone on 36 behave the same way rather than splitting on the platform default. The in-app predictive transitions are still US-2911. |
+| **Orientation, resizability and aspect-ratio restrictions ignored at ≥600dp** | Applies, and is a product problem | The manifest declares no `screenOrientation`, no `resizableActivity` and no aspect-ratio bounds, so there is nothing to opt out of and nothing breaks. What it means is that on any tablet, foldable or ChromeOS window the app now fills whatever the user gives it — and today that renders as one stretched column with a navigation rail beside it (§2's tablet-screenshot note). API 36 makes that layout unavoidable rather than a thing a tablet user opts into, and the per-activity opt-out property is explicitly temporary and gone at API 37. **This is the argument for US-2905 (two-pane list-detail), and it is now a deadline rather than a preference.** |
+
+Checked and not applicable: elegant-font APIs (no XML `TextView`s), the
+`ScheduledExecutorService.scheduleAtFixedRate` change (WorkManager, not that
+API), `MediaStore.getVersion` fingerprint lockdown (never read), granular
+health permissions (no `BODY_SENSORS`), local-network restrictions (opt-in, and
+no local network access), and the photo-picker pre-selection change (the picker
+is `PickVisualMedia`, which is unaffected).
 
 ---
 

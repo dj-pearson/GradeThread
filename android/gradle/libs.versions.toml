@@ -64,7 +64,20 @@ firebaseBom = "33.7.0"
 lifecycleProcess = "2.8.7"
 serialization = "1.8.0"
 junit = "4.13.2"
-robolectric = "4.14.1"
+# US-2891: 4.16.1, not 4.14.1, and the version is coupled to compileSdk.
+#
+# Robolectric ships one android-all jar per SDK level and refuses to run
+# against a level it has never seen. Moving compileSdk to 36 therefore broke
+# every Robolectric test at once - 21 classes, all `initializationError` out of
+# DefaultSdkPicker, which names neither Robolectric's version nor the SDK.
+# 4.16 is the first release with Baklava/SDK 36; 4.16.1 is the current stable.
+#
+# The failure is worth remembering because of its SHAPE: the 1798 plain JUnit
+# tests all passed, so the suite looked ~99% healthy while the entire
+# Robolectric half - including the Roborazzi screenshot lane, which runs
+# through it - was not executing at all. Raise this in the same commit as any
+# future compileSdk bump.
+robolectric = "4.16.1"
 androidxTestCore = "1.6.1"
 # US-1395: the instrumented lane. An emulator test is the only thing that can
 # catch a Hilt graph that fails at runtime or a crash in Application.onCreate —

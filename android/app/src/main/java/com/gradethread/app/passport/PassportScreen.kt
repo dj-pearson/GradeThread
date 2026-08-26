@@ -23,7 +23,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -32,6 +31,8 @@ import androidx.lifecycle.viewModelScope
 import com.gradethread.app.R
 import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.telemetry.Telemetry
+import com.gradethread.app.ui.a11y.A11yAnnouncer
+import com.gradethread.app.ui.a11y.rememberA11yAnnouncer
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -48,9 +49,7 @@ import javax.inject.Inject
  * US-1376: an item's pedigree, hop by hop.
  */
 @HiltViewModel
-class PassportViewModel @Inject constructor(
-    private val service: PassportProviding,
-) : ViewModel() {
+class PassportViewModel @Inject constructor(private val service: PassportProviding) : ViewModel() {
 
     data class State(
         val itemId: String = "",
@@ -164,11 +163,7 @@ class PassportViewModel @Inject constructor(
 }
 
 @Composable
-fun PassportScreen(
-    itemId: String,
-    onClose: () -> Unit = {},
-    viewModel: PassportViewModel = hiltViewModel(),
-) {
+fun PassportScreen(itemId: String, onClose: () -> Unit = {}, viewModel: PassportViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     LaunchedEffect(itemId) { viewModel.load(itemId) }
 
@@ -269,12 +264,9 @@ fun PassportScreen(
  * coming back for it.
  */
 @Composable
-private fun HandoffSection(
-    state: PassportViewModel.State,
-    onMint: () -> Unit,
-) {
+private fun HandoffSection(state: PassportViewModel.State, onMint: () -> Unit) {
     val context = LocalContext.current
-    val view = LocalView.current
+    val a11y = rememberA11yAnnouncer()
     val copied = stringResource(R.string.passport_claim_link_copied)
 
     Column(
@@ -312,7 +304,7 @@ private fun HandoffSection(
             BrandSecondaryButton(
                 text = stringResource(R.string.passport_copy_claim_link),
                 modifier = Modifier.fillMaxWidth(),
-            ) { copyClaimLink(context, view, handoff.claimUrl, copied) }
+            ) { copyClaimLink(context, a11y, handoff.claimUrl, copied) }
         }
 
         BrandSecondaryButton(
@@ -343,16 +335,16 @@ private fun shareText(context: Context, text: String) {
  * it; below 13 there is no system feedback at all, which for a screen-reader
  * user means the button appears to do nothing.
  */
-private fun copyClaimLink(
-    context: Context,
-    view: android.view.View,
-    link: String,
-    announcement: String,
-) {
+private fun copyClaimLink(context: Context, a11y: A11yAnnouncer, link: String, announcement: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     clipboard?.setPrimaryClip(ClipData.newPlainText("GradeThread claim link", link))
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-        view.announceForAccessibility(announcement)
+        // US-2891: the shared announcer, not the raw View call. The Android 16
+        // deprecation is what surfaced it; the reason to change it is that a
+        // bare call races the frame and can be dropped. See the twin of this
+        // helper in ReferralsScreen.copyToClipboard, and the fuller note in
+        // FeedbackSheet.
+        a11y.announce(announcement)
     }
 }
 

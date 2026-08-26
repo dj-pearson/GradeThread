@@ -62,9 +62,9 @@ Compose files are converted and locked. The remaining ~80 are not.
 
 ## Stack (pinned in `gradle/libs.versions.toml`)
 
-Kotlin 2.1.20 · AGP 8.9.2 · Gradle 8.13 (wrapper) · JDK 17 ·
+Kotlin 2.1.20 · AGP 8.9.2 · Gradle 8.13 (wrapper) · JDK 21 (build only; bytecode still 17) ·
 Jetpack Compose (BOM 2025.04) + Material 3 · Hilt · Room · DataStore ·
-Navigation-Compose · Coroutines/Flow. minSdk 26, target/compileSdk 35.
+Navigation-Compose · Coroutines/Flow. minSdk 26, target/compileSdk 36.
 
 ## Build
 
@@ -78,8 +78,16 @@ this. It resolves a JDK, the SDK and a Python 3, says which candidates it
 rejected and why, and prints the exact install command for anything missing.
 The failure it exists to prevent is AGP's, which reports an unusable JDK as
 `What went wrong: 25.0.2` and names neither the JDK nor the fact that a JDK is
-the problem. JDK **17** is what CI builds on; 17-23 are accepted, and anything
+the problem. JDK **21** is what CI builds on; 21-23 are accepted, and anything
 newer is rejected because Gradle 8.13 will not run on it.
+
+The floor moved 17 → 21 in US-2891 and the reason is worth stating, because
+nothing in this app's code needs Java 21: Play requires targetSdk 36 →
+`compileSdk` 36 → Robolectric needs its SDK 36 `android-all` jar → that jar
+will not load below Java 21. The doctor still *finds* a JDK 17 so it can say
+"you have 17, you need 21" rather than "no JDK at all". The app's own
+`sourceCompatibility` / `jvmTarget` stay at 17, so the shipped bytecode is
+unchanged — this is the JVM Gradle runs on, nothing more.
 
 `verify:android` runs the same list as `.github/workflows/android-ci.yml`, in
 the same order, from the `on("android")` block in `scripts/verify.mjs`. It is

@@ -53,11 +53,11 @@ if (tc.jdk.ok) {
     );
   }
 } else {
-  line(bad("MISSING"), "JDK", `need ${JDK_PREFERRED} (17-23 accepted)`);
+  line(bad("MISSING"), "JDK", `need ${JDK_PREFERRED} (21-23 accepted)`);
   fixes.push(
     isWindows
-      ? "scoop bucket add java && scoop install temurin17-jdk"
-      : "install a Temurin 17 JDK (brew install --cask temurin@17, or your distro's temurin-17-jdk)",
+      ? "scoop bucket add java && scoop install temurin21-jdk"
+      : "install a Temurin 21 JDK (brew install --cask temurin@21, or your distro's temurin-21-jdk)",
   );
 }
 // Rejected candidates are printed because "no JDK" is almost never true -- the
@@ -80,7 +80,10 @@ if (tc.sdk.ok) {
   if (!tc.sdk.components.emulator || !tc.sdk.components["system-images (for the emulator)"]) {
     console.log(
       `     ${dim("the emulator pieces are only needed for instrumented tests; " +
-        "`node android/scripts/avd.mjs create` installs them")}`,
+        // US-2891: this named avd.mjs, which has never existed. The doctor is
+        // the one script someone runs when nothing works, so a command that
+        // fails with "cannot find module" is worse than no suggestion at all.
+        "`node android/scripts/device.mjs avd create` installs them")}`,
     );
   }
 } else {

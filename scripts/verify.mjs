@@ -9,7 +9,7 @@
 //   node scripts/verify.mjs --db         # migrations lane only (db-migrations.yml) — needs Docker
 //   node scripts/verify.mjs --security   # npm audit + Trivy image scan — needs Docker
 //   node scripts/verify.mjs --ios        # iOS source guards only (no Xcode needed)
-//   node scripts/verify.mjs --android    # Android lane (android-ci.yml) — needs JDK 17 + the SDK
+//   node scripts/verify.mjs --android    # Android lane (android-ci.yml) — needs JDK 21 + the SDK
 //   node scripts/verify.mjs --e2e        # add the Playwright e2e suite (ci.yml e2e job)
 //   node scripts/verify.mjs --all        # everything above
 //

@@ -26,12 +26,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.ui.a11y.A11yAnnouncer
+import com.gradethread.app.ui.a11y.rememberA11yAnnouncer
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -48,7 +49,7 @@ import com.gradethread.app.ui.theme.cardStyle
 fun ReferralsScreen(viewModel: ReferralsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
-    val view = LocalView.current
+    val a11y = rememberA11yAnnouncer()
 
     LaunchedEffect(Unit) { viewModel.load() }
 
@@ -81,7 +82,7 @@ fun ReferralsScreen(viewModel: ReferralsViewModel = hiltViewModel()) {
                 ShareCard(
                     state = state,
                     onCopy = { text, label ->
-                        copyToClipboard(context, view, text, label)
+                        copyToClipboard(context, a11y, text, label)
                     },
                     onShare = { text -> share(context, text) },
                 )
@@ -105,11 +106,7 @@ private fun ErrorCard(message: String, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun ShareCard(
-    state: ReferralsViewModel.State,
-    onCopy: (String, String) -> Unit,
-    onShare: (String) -> Unit,
-) {
+private fun ShareCard(state: ReferralsViewModel.State, onCopy: (String, String) -> Unit, onShare: (String) -> Unit) {
     val code = state.me?.code.orEmpty()
     // Spoken character by character: TalkBack reads "ABCD2345" as a mangled
     // attempt at pronunciation otherwise.
@@ -292,15 +289,12 @@ private fun share(context: Context, text: String) {
  * double it. Below 13 there is no system feedback at all, which for a
  * screen-reader user means the button appears to do nothing.
  */
-private fun copyToClipboard(
-    context: Context,
-    view: android.view.View,
-    text: String,
-    announcement: String,
-) {
+private fun copyToClipboard(context: Context, a11y: A11yAnnouncer, text: String, announcement: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     clipboard?.setPrimaryClip(ClipData.newPlainText("GradeThread referral", text))
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-        view.announceForAccessibility(announcement)
+        // US-2891: the shared announcer, not the raw View call. See the twin of
+        // this helper in PassportScreen.copyClaimLink for the reasoning.
+        a11y.announce(announcement)
     }
 }

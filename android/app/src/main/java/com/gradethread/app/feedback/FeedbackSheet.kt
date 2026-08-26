@@ -21,11 +21,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.LaunchedEffect
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.ui.a11y.rememberA11yAnnouncer
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -38,12 +38,21 @@ import com.gradethread.app.ui.theme.Spacing
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun FeedbackSheet(
-    onOpenSupport: () -> Unit,
-    viewModel: FeedbackViewModel = hiltViewModel(),
-) {
+fun FeedbackSheet(onOpenSupport: () -> Unit, viewModel: FeedbackViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
-    val view = LocalView.current
+    // US-2891: through the shared announcer, not View.announceForAccessibility
+    // directly.
+    //
+    // The deprecation warning the compileSdk 36 build prints is the smaller
+    // half, and it does NOT fail anything - lint's warningsAsErrors covers
+    // Android Lint issues, not kotlinc warnings, and nothing sets
+    // allWarningsAsErrors. The reason to route it here is a real bug: the
+    // announcer defers the speak by 100ms so it lands AFTER Compose commits
+    // the content change. Called straight from the effect, the announcement
+    // races the frame and TalkBack can speak against the pre-change tree, or
+    // drop it entirely - silence where the code plainly intends speech. The
+    // announcer also no-ops when no accessibility service is running.
+    val a11y = rememberA11yAnnouncer()
     // Resolved OUTSIDE the effect: stringResource is a composable read, and
     // LaunchedEffect's body is not a composable scope.
     val sentAnnouncement = stringResource(R.string.feedback_sent_announcement)
@@ -51,7 +60,7 @@ fun FeedbackSheet(
     // Announced, not just shown: the confirmation auto-dismisses after a beat,
     // so a screen-reader user would otherwise never learn it worked.
     LaunchedEffect(state.sent) {
-        if (state.sent) view.announceForAccessibility(sentAnnouncement)
+        if (state.sent) a11y.announce(sentAnnouncement)
     }
 
     if (!state.open) return
