@@ -42308,6 +42308,43 @@
         "US-2918"
       ],
       "notes": "Done 2026-08-26. group-warnings.ts gains the size-conflict half: SizeCheckableDraft, sizeBandPairKey/sizeBandPairs, buildSizeConflicts and sizeWarningsFrom (a new warning kind, key 'size-<itemId>', same GroupWarning shape as the pre-generate checkpoint). autolister/use-size-bands.ts fetches ONE band table per distinct brand+garment+gender via useQueries; a test proves a 40-item batch of 6 brands asks for 6 tables and that drafts with no size, garment or measurements issue no request at all. autolister/use-size-conflicts.ts holds the shared wiring for both surfaces: sizeCheckableDraft (a typed eBay Department beats an inferred one), useSizeConflicts, useSizeConflictsForGrid and useApplySizeFix. The queue row shows SizeConflictBadge with the implied size inline plus a Change-to button that writes immediately; the bulk grid shows SizeConflictNote inside the Size cell whose fix patches the row and saves with the batch, so a seller can sweep a dozen fixes and press Save once. Items with no chart at any tier produce no warning and no empty state. 14 tests in src/pages/flipdesk/autolister/__tests__/size-conflicts.test.ts including the AC6 case (3 items, exactly 1 mis-sized, exactly 1 warning). TWO GUARDS CAUGHT REAL PROBLEMS and both changed the shape of this work: (1) autolister-split.test.ts, the US-2520 shrink-only ratchet - the first pass inlined everything and pushed autolister-queue.tsx to 1207/1120 and autolister-bulk-edit.tsx to 2045/2010, so the per-batch item metadata read was extracted to autolister/use-item-meta.ts and the grid wiring to useSizeConflictsForGrid; both files are now SMALLER than before this story (1108 and 1994). (2) friendly-error.test.ts (US-2869) rejected a toast.error printing err.message on a customer surface; useApplySizeFix uses toastError with its own fallback sentence. 7,212 web tests pass, tsc -b clean, lint 0 errors, ui:check 0 findings."
+    },
+    {
+      "id": "US-2920",
+      "passes": true,
+      "title": "iOS: size check in the item composer",
+      "description": "As an iOS reseller, I want the same size-versus-measurements warning the web composer shows, so that measuring on my phone catches the same mistakes.",
+      "acceptanceCriteria": [
+        "ios/GradeThread/Inventory/ItemCanvas/MeasurementCatalog.swift gains a SizeCheck type that consumes the /api/flipdesk/size-bands response and returns the same verdict shape as src/lib/size-check.ts.",
+        "ItemCanvasView.swift renders one discrepancy note in the measurements section with the same wording as web, plus a 'Change to <size>' action that writes the item's size field.",
+        "The tier tolerance rule matches web exactly: one step on a verified or brand chart, two on a generic one.",
+        "ios/GradeThreadTests/SizeCheckTests.swift runs the SAME fixture cases as services/edge-functions/src/tests/size-check_test.ts (Lululemon 17.5 in labelled Large is 'off'; generic tee 22 in labelled L is 'ok'), so the three implementations cannot drift silently.",
+        "All six ios/Scripts/*.py guards stay clean: no ungated print, no URLSession.shared, no raw JPEG, no bare user-facing strings, no force unwrap, no ATS exception.",
+        "iOS CI compiles on the macOS runner."
+      ],
+      "priority": 39,
+      "dependsOn": [
+        "US-2917"
+      ],
+      "notes": "Done 2026-08-26. MeasurementCatalog.swift gains a pure SizeCheck enum: BandsResponse/BandRow decode the /api/flipdesk/size-bands body, resolveRow places a size label in the table, check() returns { status, impliedSize, stepsOff, key, expected }, plus fixableSize, note, tierNote and a department(fromText:) mirroring inferDepartment narrowed to Men/Women (null is a fine answer - the endpoint drops to generic rather than guessing). SizeBandsService.swift fetches through EdgeAPI with a 30-minute cacheTTL and returns .empty on any failure, because a failed assist must render nothing rather than an error. ItemCanvasView renders ONE note at the end of the measurements section with the same wording as web, a 'Change to <size>' button writing draft.size, and a Dismiss; the band table reloads on a brand/garment/department signature, not on every keystroke in the size field. 20 test methods in ios/GradeThreadTests/SizeCheckTests.swift run the same two fixtures as the edge and web. All ELEVEN ios guards in npm run verify pass (six from the story plus orphans, mirrors, sheets, AI-session, trailing comma, help slugs). TWO THINGS WORTH RECORDING: (1) Swift CANNOT be compiled in this environment and was not - download.swift.org is blocked by the network policy and there is no macOS - so iOS CI is the only compile gate on this change; every non-compiling check was run here and is green. (2) src/test/native-measurement-catalog-parity.test.ts went red on the word 'required' appearing anywhere in MeasurementCatalog.swift - its /required/i scan was whole-file, and SizeCheck's prose uses the ordinary English word. The guard now scans only the catalog's own declaration (catalogSection), which is the property that case actually owns; a guard that fires on a comment three hundred lines away is a guard people learn to route around. New: src/test/size-check-fixture-parity.test.ts reads all four suites and fails if any stops carrying the fixture numbers."
+    },
+    {
+      "id": "US-2921",
+      "passes": true,
+      "title": "Android: size check in the item composer",
+      "description": "As an Android reseller, I want the same size-versus-measurements warning the web composer shows, so that measuring on my phone catches the same mistakes.",
+      "acceptanceCriteria": [
+        "android/app/src/main/java/com/gradethread/app/inventory/MeasurementCatalog.kt gains a SizeCheck type consuming the /api/flipdesk/size-bands response and returning the same verdict shape as src/lib/size-check.ts.",
+        "MeasurementsSection.kt renders one discrepancy note with the same wording as web, plus a 'Change to <size>' action wired through ItemCanvasViewModel.kt that writes the item's size field.",
+        "The tier tolerance rule matches web exactly: one step on a verified or brand chart, two on a generic one.",
+        "android/app/src/test/java/com/gradethread/app/inventory/SizeCheckTest.kt runs the SAME fixture cases as the edge and iOS suites.",
+        "npm run verify:android passes end to end: format, detekt, lint, unit tests, the coverage floor, and the debug/release/bundle builds."
+      ],
+      "priority": 41,
+      "dependsOn": [
+        "US-2917"
+      ],
+      "notes": "Done 2026-08-26. MeasurementCatalog.kt gains a pure SizeCheck object mirroring the Swift and TS copies: @Serializable BandsResponse/BandRow, resolveRow, check, fixableSize, toleranceForTier and departmentFromText. SizeBandsService.kt fetches GET /api/flipdesk/size-bands through the @Named(\"shared\") EdgeApi with a 30-minute cache TTL and returns BandsResponse.EMPTY on any failure. ItemCanvasViewModel holds sizeBands + sizeNoteDismissed, refreshSizeBands() keys on brand+garment+department (not on the size field, which is edited a character at a time) and drops a response that lost the race, and applyCheckedSize writes the draft. MeasurementsSection.kt renders SizeCheckNote with the same wording as web, all seven strings localized in values/strings.xml, and contentDescription resolved OUTSIDE the semantics lambda since stringResource is a Composable. ItemCanvasScreen wires it under the measurements. 12 test methods in SizeCheckTest.kt run the same two fixtures as the edge, web and iOS. VERIFICATION, stated exactly: npm run verify:android could NOT run here - there is no Android SDK in this container and dl.google.com is blocked by the network policy, so the Gradle lanes (format, detekt, lint, unit tests, coverage, builds) are Android CI's to prove. What WAS run: the SizeCheck object was extracted, compiled with kotlinc 2.0.21 and EXECUTED against 40 assertions covering both fixture cases, the tolerance rule, every label spelling, the UK-12 refusal, all four unknown paths, the fixable/not-fixable split, departmentFromText and the larger-than edge - ALL PASS. That is the logic verified for real rather than asserted. Not covered by it: Hilt graph wiring, Compose types, detekt/ktlint style and the resource ids. check-android-orphans and the fixture-parity guard are green."
     }
   ]
 }

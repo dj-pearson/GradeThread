@@ -192,6 +192,20 @@ fun ItemCanvasScreen(
             category = draft.category?.wire,
             onSet = viewModel::setMeasurement,
         )
+        // US-2921: load the band table when the brand, garment or department
+        // changes — not on every keystroke in the size field.
+        LaunchedEffect(draft.brand, draft.garmentCategory, draft.category, draft.title) {
+            viewModel.refreshSizeBands()
+        }
+        SizeCheckNote(
+            verdict = viewModel.sizeVerdict(),
+            labelledSize = draft.size.trim(),
+            tier = state.sizeBands.tier,
+            brandLabel = state.sizeBands.brandLabel,
+            dismissed = state.sizeNoteDismissed,
+            onChangeSize = viewModel::applyCheckedSize,
+            onDismiss = viewModel::dismissSizeNote,
+        )
         // US-1576: only offered when there is a MeasureCard shot to measure
         // from — see State.hasMeasurementPhoto.
         if (state.hasMeasurementPhoto) {

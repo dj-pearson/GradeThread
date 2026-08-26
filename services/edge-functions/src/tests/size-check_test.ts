@@ -13,7 +13,9 @@
 //
 // These same two fixtures are re-run by src/lib/size-check.test.ts (web),
 // ios/GradeThreadTests/SizeCheckTests.swift and
-// android/.../SizeCheckTest.kt, so the four copies cannot drift apart.
+// android/app/src/test/java/com/gradethread/app/inventory/SizeCheckTest.kt,
+// so the four copies cannot drift apart. src/test/size-check-fixture-parity.test.ts
+// fails if any of them stops carrying the numbers.
 //
 //   deno test --allow-env --allow-read src/tests/size-check_test.ts
 

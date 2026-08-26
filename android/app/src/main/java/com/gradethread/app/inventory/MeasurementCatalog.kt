@@ -1,5 +1,6 @@
 package com.gradethread.app.inventory
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -7,6 +8,8 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import java.text.NumberFormat
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.floor
 
 /**
  * US-1345: the canonical measurement keys.
@@ -220,5 +223,341 @@ object MeasurementCatalog {
         return JsonObject(
             ordered(kept.keys).associateWith { JsonPrimitive(kept.getValue(it)) },
         ).toString()
+    }
+}
+
+/**
+ * US-2921: does the size on the label agree with what the garment measures?
+ *
+ * The MATH is not here. `GET /api/flipdesk/size-bands` turns a brand's
+ * body-measurement chart into the flat range a garment of each size should show
+ * — adding garment ease and halving the circumference — and returns a small
+ * table. This object does the LOOKUP against that table, which is what has to
+ * run on every keystroke while somebody measures with one hand.
+ *
+ * It is a Kotlin copy of `src/lib/size-check.ts` and it runs the SAME two
+ * fixture cases the edge, web and iOS suites run (`SizeCheckTest.kt`), so the
+ * four copies cannot drift apart without a red test somewhere.
+ *
+ * Pure: no network, no state, no side effects.
+ */
+object SizeCheck {
+
+    @Serializable
+    data class BandRow(
+        val size: String = "",
+        val index: Int = 0,
+        /** Measurement key → [low, high] expected FLAT inches. */
+        val bands: Map<String, List<Double>> = emptyMap(),
+    )
+
+    @Serializable
+    data class BandsResponse(
+        val tier: String = "none",
+        val brandLabel: String? = null,
+        val department: String? = null,
+        val garment: String? = null,
+        val sourceUrl: String? = null,
+        val sizeSystem: String? = null,
+        val sizeClass: String? = null,
+        val measurementBasis: String = "body",
+        val rows: List<BandRow> = emptyList(),
+    ) {
+        companion object {
+            /**
+             * What every "we have nothing to say" path returns. A failed fetch
+             * is not an error state here: the check is an assist, and a brand
+             * with no chart on file looks exactly the same to the seller.
+             */
+            val EMPTY = BandsResponse()
+        }
+    }
+
+    enum class Status { OK, OFF, UNKNOWN }
+
+    data class Verdict(
+        val status: Status,
+        /** What the measurements point at ("XS", or "smaller than XS"). */
+        val impliedSize: String?,
+        /** Size steps between the label and the implied size. 0 when they agree. */
+        val stepsOff: Int,
+        /** The measurement driving the verdict. */
+        val key: String?,
+        /** The labelled size's own band for that key. */
+        val expected: List<Double>?,
+    ) {
+        companion object {
+            val UNKNOWN = Verdict(Status.UNKNOWN, null, 0, null, null)
+        }
+    }
+
+    /** The keys a band can be built for, in the order they are judged. */
+    val bandKeys = listOf("chest", "bust", "waist", "hip", "inseam")
+
+    /**
+     * Which item measurement answers a band key. A top's flat pit-to-pit is
+     * stored as `chest` whatever the chart calls it; nothing else substitutes.
+     */
+    private val measurementAliases = mapOf(
+        "chest" to listOf("chest", "bust"),
+        "bust" to listOf("bust", "chest"),
+        "waist" to listOf("waist"),
+        "hip" to listOf("hip", "hips"),
+        "inseam" to listOf("inseam"),
+    )
+
+    /**
+     * Size steps required before a disagreement is worth saying out loud: one on
+     * a chart a human checked against the brand's own guide, two on a generic
+     * fallback that is an estimate and says so.
+     */
+    fun toleranceForTier(tier: String): Int = if (tier == "generic") 2 else 1
+
+    // ── Matching a size label to a row ──────────────────────────────────────
+
+    private val alphaWords = listOf(
+        "extra extra extra" to "xxx",
+        "extra extra" to "xx",
+        "extra" to "x",
+        "double" to "xx",
+        "triple" to "xxx",
+        "small" to "s",
+        "medium" to "m",
+        "med" to "m",
+        "large" to "l",
+    )
+
+    private val systemPrefixes = listOf("uk", "eu", "it", "fr", "jp", "au", "us", "de")
+
+    /**
+     * A bare number matches only bare numbers; a prefixed one keeps its system.
+     * A UK 12 and a US 12 are two different garments, and the corpus warns that
+     * treating them as one is the costliest mistake on a UK-sized brand.
+     */
+    private fun numericAlias(prefix: String, text: String): String {
+        val value = text.toDoubleOrNull() ?: 0.0
+        val normalized = if (value == floor(value)) value.toInt().toString() else value.toString()
+        return if (prefix.isEmpty() || prefix == "us") normalized else prefix + normalized
+    }
+
+    /** Lowercase, drop punctuation, spell alpha words as x*[sml], squeeze spaces. */
+    private fun normalizeSizeText(part: String): String {
+        var text = part.trim().lowercase()
+        for (character in listOf("(", ")", ".")) text = text.replace(character, " ")
+        text = text.split(" ").filter { it.isNotEmpty() }.joinToString(" ")
+        for ((word, replacement) in alphaWords) text = text.replace(word, replacement)
+        // Drop spaces, and hyphens that do not join two numbers ("x-large" is
+        // one size; "16-18" is a range of two).
+        val squeezed = StringBuilder()
+        text.forEachIndexed { i, character ->
+            when {
+                character == ' ' -> Unit
+                character == '-' && !(i + 1 < text.length && text[i + 1].isDigit()) -> Unit
+                else -> squeezed.append(character)
+            }
+        }
+        return squeezed.toString()
+    }
+
+    /** "uk12" → ("uk", "12"); "xl" → ("", "xl"). */
+    private fun splitSystemPrefix(text: String): Pair<String, String> {
+        for (candidate in systemPrefixes) {
+            if (!text.startsWith(candidate)) continue
+            val rest = text.removePrefix(candidate)
+            if (rest.firstOrNull()?.isDigit() == true) return candidate to rest
+        }
+        return "" to text
+    }
+
+    private fun aliasesForPart(part: String): List<String> {
+        val normalized = normalizeSizeText(part)
+        if (normalized.isEmpty()) return emptyList()
+        val (prefix, text) = splitSystemPrefix(normalized)
+        // "16-18" in "UK 16-18 / XL": both numbers name the same row.
+        val range = text.split("-")
+        val multi = multiAlias(text)
+        return when {
+            range.size == 2 && range.all { isNumeric(it) } -> range.map { numericAlias(prefix, it) }
+            isNumeric(text) -> listOf(numericAlias(prefix, text))
+            // "2xl" / "3x" → "xxl" / "xxxl".
+            multi != null -> listOf(multi)
+            isAlphaSize(text) -> listOf(text)
+            // A waist-in-inches tag ("W30") is also written as the bare number
+            // by half the sellers on the platform; both name the same row.
+            text.startsWith("w") && isNumeric(text.drop(1)) ->
+                listOf(text, numericAlias("", text.drop(1)))
+            text.isEmpty() -> emptyList()
+            else -> listOf(prefix + text)
+        }
+    }
+
+    private fun isNumeric(text: String): Boolean =
+        text.isNotEmpty() && text.toDoubleOrNull() != null
+
+    /** `x*[sml]`: xs, s, m, l, xl, xxl, xxxl. */
+    private fun isAlphaSize(text: String): Boolean {
+        val last = text.lastOrNull() ?: return false
+        if (last !in "sml") return false
+        return text.dropLast(1).all { it == 'x' }
+    }
+
+    private fun multiAlias(text: String): String? {
+        if (text.length < 2 || text.length > 3) return null
+        val count = text[0].digitToIntOrNull() ?: return null
+        if (count < 1 || count > 5 || text[1] != 'x') return null
+        val tail = if (text.length == 3) text[2] else 'l'
+        if (tail !in "sl") return null
+        return "x".repeat(count) + tail
+    }
+
+    private fun aliasesForLabel(label: String): Set<String> =
+        label.split('/', ',', '|').flatMap { aliasesForPart(it) }.toSet()
+
+    /**
+     * Where an item's size text sits in the band table, or null when nothing
+     * matches. Never falls back to row 0 — a size we cannot place is a size we
+     * do not judge, and guessing "the first row" would flag the whole chart.
+     */
+    fun resolveRow(rows: List<BandRow>, size: String?): Int? {
+        val label = size?.trim().orEmpty()
+        if (label.isEmpty()) return null
+        val want = aliasesForLabel(label)
+        if (want.isEmpty()) return null
+        return rows.firstOrNull { row -> aliasesForLabel(row.size).any { it in want } }?.index
+    }
+
+    // ── The check ───────────────────────────────────────────────────────────
+
+    private data class KeyVerdict(
+        val key: String,
+        val stepsOff: Int,
+        val impliedSize: String,
+        val expected: List<Double>?,
+    )
+
+    private fun measurementFor(measurements: Map<String, Double>, key: String): Double? {
+        for (alias in measurementAliases[key].orEmpty()) {
+            val value = measurements[alias]
+            if (value != null && value > 0.0) return value
+        }
+        return null
+    }
+
+    private fun edgeDistance(band: List<Double>?, value: Double): Double {
+        if (band == null || band.size != 2) return Double.MAX_VALUE
+        return when {
+            value < band[0] -> band[0] - value
+            value > band[1] -> value - band[1]
+            else -> 0.0
+        }
+    }
+
+    private fun judge(rows: List<BandRow>, rowIndex: Int, key: String, value: Double): KeyVerdict? {
+        val withBand = rows.filter { it.bands[key]?.size == 2 }
+        val smallest = withBand.firstOrNull() ?: return null
+        val largest = withBand.last()
+        val expected = rows.firstOrNull { it.index == rowIndex }?.bands?.get(key)
+
+        val nearestContaining = withBand
+            .filter { row ->
+                val band = row.bands[key]
+                band != null && value >= band[0] && value <= band[1]
+            }
+            .minByOrNull { abs(it.index - rowIndex) }
+        val smallestBand = smallest.bands[key]
+        val largestBand = largest.bands[key]
+
+        return when {
+            nearestContaining != null ->
+                KeyVerdict(key, abs(nearestContaining.index - rowIndex), nearestContaining.size, expected)
+            // Off the end of the chart. Naming the edge is the whole point of
+            // the motivating case: a 17.5 in flat chest is not "an XS", it is
+            // below every size the brand makes, and saying so is more useful
+            // than the nearest row's name.
+            smallestBand != null && value < smallestBand[0] ->
+                KeyVerdict(key, rowIndex - (smallest.index - 1), "smaller than ${smallest.size}", expected)
+            largestBand != null && value > largestBand[1] ->
+                KeyVerdict(key, largest.index + 1 - rowIndex, "larger than ${largest.size}", expected)
+            // In a gap between two bands: take the closer edge.
+            else -> withBand
+                .minByOrNull { edgeDistance(it.bands[key], value) }
+                ?.let { KeyVerdict(key, abs(it.index - rowIndex), it.size, expected) }
+        }
+    }
+
+    /**
+     * Does the item's own measurement agree with the size on its label?
+     *
+     * When more than one key can be judged, the one with the LARGEST
+     * disagreement wins, so the note names the measurement actually driving it
+     * rather than the first one that happened to have a band.
+     */
+    fun check(
+        rows: List<BandRow>,
+        rowIndex: Int?,
+        measurements: Map<String, Double>,
+        tier: String,
+    ): Verdict {
+        if (rowIndex == null || rows.isEmpty() || tier == "none") return Verdict.UNKNOWN
+        if (rows.none { it.index == rowIndex }) return Verdict.UNKNOWN
+
+        // FIRST strict maximum, not maxByOrNull, which returns the LAST of a
+        // tie. The other three copies take the first, and a tie between chest
+        // and waist would otherwise name a different measurement on Android
+        // than on the web for the same garment.
+        var worst: KeyVerdict? = null
+        for (key in bandKeys) {
+            val value = measurementFor(measurements, key) ?: continue
+            val verdict = judge(rows, rowIndex, key, value) ?: continue
+            if (verdict.stepsOff > (worst?.stepsOff ?: -1)) worst = verdict
+        }
+        val found = worst ?: return Verdict.UNKNOWN
+        return Verdict(
+            status = if (found.stepsOff >= toleranceForTier(tier)) Status.OFF else Status.OK,
+            impliedSize = found.impliedSize,
+            stepsOff = found.stepsOff,
+            key = found.key,
+            expected = found.expected,
+        )
+    }
+
+    // ── Copy ────────────────────────────────────────────────────────────────
+
+    /**
+     * The size a "Change to …" action would write, or null when there is
+     * nothing to write. An edge verdict names a size the brand does not make, so
+     * there is no one-click fix for it — the seller has to decide.
+     */
+    fun fixableSize(verdict: Verdict): String? {
+        val implied = verdict.impliedSize
+        if (verdict.status != Status.OFF || implied == null) return null
+        if (implied.startsWith("smaller than ") || implied.startsWith("larger than ")) return null
+        return implied
+    }
+
+    /**
+     * The department a chart is resolved by, read off the item's own text.
+     *
+     * Mirrors `inferDepartment` in `src/lib/ebay-prefill.ts`, narrowed to the
+     * two the endpoint accepts. Everything else returns null, and null is a fine
+     * answer: the endpoint drops to a generic chart rather than guessing a
+     * department, so a wrong guess here is strictly worse than none.
+     */
+    fun departmentFromText(parts: List<String?>): String? {
+        val text = parts.filterNotNull().joinToString(" ").lowercase()
+        if (text.isEmpty()) return null
+        val kidsMarkers = listOf(
+            "baby", "infant", "newborn", "toddler", "boys", "girls",
+            "kids", "youth", "junior", "children", "maternity",
+        )
+        if (kidsMarkers.any { text.contains(it) }) return null
+        // Women before men, so "women" is not read as the "men" inside it.
+        if (listOf("women", "woman", "ladies", "female", "misses").any { text.contains(it) }) {
+            return "Women"
+        }
+        if (listOf("mens", "men's", "men ", "menswear", "male").any { text.contains(it) }) {
+            return "Men"
+        }
+        return null
     }
 }

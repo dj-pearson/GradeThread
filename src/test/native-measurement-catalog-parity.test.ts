@@ -49,6 +49,22 @@ const read = (rel: string) =>
   readFileSync(resolve(ROOT, rel), "utf8").replace(/\r\n?/g, "\n");
 
 /**
+ * Just the measurement catalog out of a native file, which may hold other types
+ * beside it. Everything from the file's start up to the next top-level type
+ * declaration after `MeasurementCatalog` — that is the whole catalog and nothing
+ * that merely lives next to it.
+ */
+function catalogSection(rel: string): string {
+  const src = read(rel);
+  const start = src.search(/\b(enum|object)\s+MeasurementCatalog\b/);
+  if (start === -1) throw new Error(`${rel} no longer declares MeasurementCatalog`);
+  const after = src.slice(start);
+  // The next declaration that starts at column zero ends the catalog.
+  const end = after.search(/\n(?:\/\/\/[^\n]*\n)*(?:enum|struct|final class|class|object|extension|internal object)\s+\w/);
+  return end === -1 ? after : after.slice(0, end);
+}
+
+/**
  * item_category → the web MEASUREMENT_TEMPLATES group it must match.
  *
  * Only the categories where the mapping is 1:1. `clothing` is deliberately
@@ -217,7 +233,15 @@ describe("US-2812: the native measurement catalogs match the web templates", () 
       "depth",
     ]);
     for (const rel of [IOS, ANDROID]) {
-      expect(read(rel), `${rel} now knows about required fields`).not.toMatch(/required/i);
+      // Scoped to the CATALOG, not the whole file. US-2920 added a SizeCheck
+      // type alongside the catalog in both native files, and its prose uses the
+      // ordinary English word ("the steps needed before a note fires"), which a
+      // whole-file scan read as the catalog growing a required flag. The
+      // property this case owns is about the measurement Spec, so it looks at
+      // the Spec — a guard that fires on a comment three hundred lines away is
+      // a guard people learn to route around.
+      expect(catalogSection(rel), `${rel} now knows about required fields`)
+        .not.toMatch(/required/i);
     }
   });
 

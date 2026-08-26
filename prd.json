@@ -2846,41 +2846,6 @@
       "priority": 27
     },
     {
-      "id": "US-2920",
-      "passes": false,
-      "title": "iOS: size check in the item composer",
-      "description": "As an iOS reseller, I want the same size-versus-measurements warning the web composer shows, so that measuring on my phone catches the same mistakes.",
-      "acceptanceCriteria": [
-        "ios/GradeThread/Inventory/ItemCanvas/MeasurementCatalog.swift gains a SizeCheck type that consumes the /api/flipdesk/size-bands response and returns the same verdict shape as src/lib/size-check.ts.",
-        "ItemCanvasView.swift renders one discrepancy note in the measurements section with the same wording as web, plus a 'Change to <size>' action that writes the item's size field.",
-        "The tier tolerance rule matches web exactly: one step on a verified or brand chart, two on a generic one.",
-        "ios/GradeThreadTests/SizeCheckTests.swift runs the SAME fixture cases as services/edge-functions/src/tests/size-check_test.ts (Lululemon 17.5 in labelled Large is 'off'; generic tee 22 in labelled L is 'ok'), so the three implementations cannot drift silently.",
-        "All six ios/Scripts/*.py guards stay clean: no ungated print, no URLSession.shared, no raw JPEG, no bare user-facing strings, no force unwrap, no ATS exception.",
-        "iOS CI compiles on the macOS runner."
-      ],
-      "priority": 39,
-      "dependsOn": [
-        "US-2917"
-      ]
-    },
-    {
-      "id": "US-2921",
-      "passes": false,
-      "title": "Android: size check in the item composer",
-      "description": "As an Android reseller, I want the same size-versus-measurements warning the web composer shows, so that measuring on my phone catches the same mistakes.",
-      "acceptanceCriteria": [
-        "android/app/src/main/java/com/gradethread/app/inventory/MeasurementCatalog.kt gains a SizeCheck type consuming the /api/flipdesk/size-bands response and returning the same verdict shape as src/lib/size-check.ts.",
-        "MeasurementsSection.kt renders one discrepancy note with the same wording as web, plus a 'Change to <size>' action wired through ItemCanvasViewModel.kt that writes the item's size field.",
-        "The tier tolerance rule matches web exactly: one step on a verified or brand chart, two on a generic one.",
-        "android/app/src/test/java/com/gradethread/app/inventory/SizeCheckTest.kt runs the SAME fixture cases as the edge and iOS suites.",
-        "npm run verify:android passes end to end: format, detekt, lint, unit tests, the coverage floor, and the debug/release/bundle builds."
-      ],
-      "priority": 41,
-      "dependsOn": [
-        "US-2917"
-      ]
-    },
-    {
       "id": "US-2922",
       "passes": false,
       "title": "Top 100 brand size charts: verified, sourced and department-complete",
