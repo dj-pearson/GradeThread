@@ -240,3 +240,27 @@ export function calibrateAdaptive(
   }
   return last!;
 }
+
+/**
+ * US-2888: fold a freshly detected calibration onto whatever was stored,
+ * keeping the seller's line placements.
+ *
+ * A forced re-detect is "read the card again", not "throw away my work". The
+ * /calibrate route used to write a calibration with no `lines` at all, so
+ * pressing "Detect card" on a photo whose measurements had been dragged into
+ * position silently deleted every one of them -- and nothing about a button
+ * named after the card suggests it would.
+ *
+ * The endpoints stay valid because a re-detect recomputes the RULER, not the
+ * frame: the pixels are the same pixels. The one case where they would be stale
+ * is an edit that replaced the image, and that path clears the whole stored
+ * calibration before this is ever reached.
+ */
+export function withPreservedLines(
+  fresh: StoredCalibration,
+  previous: StoredCalibration | null | undefined,
+): StoredCalibration {
+  const lines = previous?.lines;
+  if (!lines || Object.keys(lines).length === 0) return fresh;
+  return { ...fresh, lines };
+}

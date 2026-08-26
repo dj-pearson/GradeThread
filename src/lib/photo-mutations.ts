@@ -7,8 +7,15 @@
 import type { ItemPhotoRow, FlipdeskPhotoType } from "@/types/database";
 import {
   originalPathFor,
+  parseEditRecipe,
   type PhotoEditRecipe,
 } from "@/lib/photo-edit-recipe";
+import {
+  calibrationAfterPhotoEdit,
+  rotatedDims,
+  type CalibrationEditOutcome,
+  type RotatableCalibration,
+} from "@/lib/measure-photo-geometry";
 import {
   bucketForItemPhotoRow,
   bumpItemPhotoUrl,
@@ -52,14 +59,33 @@ export interface PhotoEditClient extends PhotoMutationClient {
  * means the bytes are in the private `submission-images` bucket, and an edit has
  * to be written back to the bucket it came from.
  */
-export type EditablePhoto = Pick<
-  ItemPhotoRow,
-  | "id"
-  | "storage_path"
-  | "thumbnail_storage_path"
-  | "original_storage_path"
-  | "photo_url"
->;
+export type EditablePhoto =
+  & Pick<
+    ItemPhotoRow,
+    | "id"
+    | "storage_path"
+    | "thumbnail_storage_path"
+    | "original_storage_path"
+    | "photo_url"
+  >
+  // US-2888: the MeasureCard calibration is written in the pixel coordinates of
+  // the image being replaced, so an edit has to move it or admit it is stale.
+  // All optional: PhotoManager selects `*` and has every one of these, while
+  // the uploader's in-flight rows have none of them and want the no-op path.
+  & Partial<Pick<ItemPhotoRow, "width" | "height" | "edit_recipe">>
+  & { measure_calibration?: RotatableCalibration | null };
+
+/** Options for {@link persistPhotoEdit}. */
+export interface PersistPhotoEditOptions {
+  /**
+   * Pixel dimensions of the blob being written. Supplied by the editor, which
+   * already knows its output canvas size — the alternative is decoding the
+   * blob again purely to read two numbers.
+   */
+  dims?: [number, number] | null;
+  /** Injected clock, for the cache-busting query string. */
+  now?: number;
+}
 
 /**
  * Write edited pixels over a photo, preserving its pristine original first.
@@ -88,8 +114,9 @@ export async function persistPhotoEdit(
   photo: EditablePhoto,
   blob: Blob,
   recipe: PhotoEditRecipe | null,
-  now: number = Date.now(),
-): Promise<void> {
+  options: PersistPhotoEditOptions = {},
+): Promise<CalibrationEditOutcome> {
+  const now = options.now ?? Date.now();
   const path = photo.storage_path;
   if (!path) throw new Error("This photo has no storage path.");
 
@@ -123,6 +150,32 @@ export async function persistPhotoEdit(
     void store.remove([photo.thumbnail_storage_path]);
   }
 
+  // US-2888. A rotate replaces the pixels the MeasureCard calibration was
+  // measured on, and nothing used to rewrite it — so the homography went on
+  // measuring along the old axis and every stored line endpoint stayed at its
+  // old coordinate. On a portrait-to-landscape turn that puts endpoints past
+  // the new right edge: still saved, still counted, and impossible to drag back
+  // because dragging an endpoint was the only way to move one.
+  //
+  // A quarter turn is rigid, so the calibration carries across EXACTLY and no
+  // card has to be re-detected. Anything that resamples the frame gets the
+  // honest answer instead: cleared, and detected again on the next open.
+  const outcome = calibrationAfterPhotoEdit({
+    calibration: photo.measure_calibration,
+    prevRecipe: parseEditRecipe(photo.edit_recipe),
+    nextRecipe: recipe,
+    width: photo.width,
+    height: photo.height,
+  });
+
+  // Dimensions were never written back on an edit either, so a rotated photo
+  // reported its pre-rotation width forever — and the rotate above reads them.
+  // Prefer what the editor measured; fall back to turning the stored pair.
+  const dims = options.dims ??
+    (outcome.action === "rotate" && photo.width && photo.height
+      ? rotatedDims(photo.width, photo.height, outcome.turns)
+      : null);
+
   // A private photo has no public URL to bust and must not acquire one — an
   // empty photo_url is exactly what keeps it out of every eBay/export payload.
   // Its display URL is invalidated client-side instead.
@@ -136,10 +189,16 @@ export async function persistPhotoEdit(
       thumbnail_storage_path: null,
       original_storage_path: originalPath,
       edit_recipe: recipe,
+      ...(dims ? { width: dims[0], height: dims[1] } : {}),
+      ...(outcome.action === "rotate"
+        ? { measure_calibration: outcome.calibration }
+        : {}),
+      ...(outcome.action === "clear" ? { measure_calibration: null } : {}),
     } as never)
     .eq("id", photo.id);
   if (dbErr) throw dbErr;
   if (isPrivate) bumpItemPhotoUrl(path);
+  return outcome;
 }
 
 /**

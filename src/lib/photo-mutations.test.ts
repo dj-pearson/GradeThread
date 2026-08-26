@@ -7,6 +7,12 @@ import {
 } from "./photo-mutations";
 import { buildEditRecipe } from "./photo-edit-recipe";
 import { NEUTRAL_ADJUSTMENTS } from "./image-adjustments";
+import type { RotatableCalibration } from "./measure-photo-geometry";
+
+/** The stored calibration shape, narrowed for the assertions below. */
+type StoredCal = RotatableCalibration & {
+  lines: Record<string, { e1: [number, number]; e2: [number, number] }>;
+};
 
 const RECIPE = buildEditRecipe({
   rotation: 90,
@@ -110,7 +116,7 @@ const PRIVATE_TAG = {
 describe("persistPhotoEdit", () => {
   it("preserves the original before overwriting, on the first edit", () => {
     const { client, calls } = makeClient();
-    return persistPhotoEdit(client, PHOTO, new Blob(["edited"]), RECIPE, 999).then(
+    return persistPhotoEdit(client, PHOTO, new Blob(["edited"]), RECIPE, { now: 999 }).then(
       () => {
         expect(calls.copy).toEqual([
           ["user-1/item-1/front_1.jpg", "user-1/item-1/originals/front_1.jpg"],
@@ -166,7 +172,7 @@ describe("persistPhotoEdit", () => {
 
   it("busts the cached url and drops the stale thumbnail", async () => {
     const { client, calls } = makeClient();
-    await persistPhotoEdit(client, PHOTO, new Blob(["e"]), RECIPE, 4242);
+    await persistPhotoEdit(client, PHOTO, new Blob(["e"]), RECIPE, { now: 4242 });
     expect(calls.update[0]!.photo_url).toBe(
       "https://cdn.test/user-1/item-1/front_1.jpg?v=4242",
     );
@@ -202,7 +208,7 @@ describe("persistPhotoEdit", () => {
       // eBay by every downstream resolver. Not writing the column is what keeps
       // the PII the private bucket exists to hold out of the listing.
       const { client, calls } = makeClient();
-      await persistPhotoEdit(client, PRIVATE_TAG, new Blob(["e"]), RECIPE, 4242);
+      await persistPhotoEdit(client, PRIVATE_TAG, new Blob(["e"]), RECIPE, { now: 4242 });
       expect(calls.update[0]).not.toHaveProperty("photo_url");
       expect(calls.update[0]!.edit_recipe).toEqual(RECIPE);
     });
@@ -339,5 +345,164 @@ describe("persistDelete", () => {
     });
     expect(calls.remove).toEqual([]);
     expect(calls.deleted).toEqual(["photo-3"]);
+  });
+});
+
+// US-2888: a photo carrying a MeasureCard calibration. 4000x3000, one chest
+// line running across the middle.
+const CALIBRATED = {
+  ...PHOTO,
+  id: "photo-cal",
+  width: 4000,
+  height: 3000,
+  edit_recipe: null,
+  measure_calibration: {
+    v: 1,
+    ppi: 100,
+    homography: [0.01, 0, -0.5, 0, 0.01, -0.6, 0, 0, 1],
+    lines: {
+      chest: {
+        e1: [400, 900] as [number, number],
+        e2: [2400, 900] as [number, number],
+        inches: 20,
+        label: "Chest (in)",
+      },
+    },
+  },
+};
+
+describe("persistPhotoEdit and the MeasureCard calibration (US-2888)", () => {
+  const ROTATE_90 = buildEditRecipe({
+    rotation: 90,
+    fine: 0,
+    crop: null,
+    aspect: null,
+    adjustments: NEUTRAL_ADJUSTMENTS,
+    bgRemoved: false,
+    editedAt: "2026-08-25T00:00:00.000Z",
+  });
+
+  it("leaves an uncalibrated photo entirely alone", async () => {
+    const { client, calls } = makeClient();
+    const outcome = await persistPhotoEdit(client, PHOTO, new Blob(["e"]), ROTATE_90);
+    expect(outcome).toEqual({ action: "keep" });
+    expect(calls.update[0]).not.toHaveProperty("measure_calibration");
+  });
+
+  it("turns the lines and the homography with the photo, and says so", async () => {
+    const { client, calls } = makeClient();
+    const outcome = await persistPhotoEdit(
+      client,
+      CALIBRATED,
+      new Blob(["e"]),
+      ROTATE_90,
+      { dims: [3000, 4000] },
+    );
+    expect(outcome.action).toBe("rotate");
+    const written = (calls.update[0]! as { measure_calibration: StoredCal })
+      .measure_calibration;
+    // (x, y) -> (h - y, x) at 4000x3000.
+    expect(written.lines.chest!.e1).toEqual([2100, 400]);
+    expect(written.lines.chest!.e2).toEqual([2100, 2400]);
+    // Both endpoints are inside the ROTATED frame, which is the whole point:
+    // 2400 used to be a legal x in a 4000-wide photo and would now be past the
+    // right edge of a 3000-wide one.
+    for (const p of [written.lines.chest!.e1, written.lines.chest!.e2]) {
+      expect(p[0]).toBeLessThanOrEqual(3000);
+      expect(p[1]).toBeLessThanOrEqual(4000);
+    }
+    expect(written.ppi).toBe(100);
+  });
+
+  it("writes the new dimensions, which no edit used to do", async () => {
+    const { client, calls } = makeClient();
+    await persistPhotoEdit(client, CALIBRATED, new Blob(["e"]), ROTATE_90, {
+      dims: [3000, 4000],
+    });
+    expect(calls.update[0]!.width).toBe(3000);
+    expect(calls.update[0]!.height).toBe(4000);
+  });
+
+  it("clears the calibration for a crop rather than pretending it still fits", async () => {
+    const { client, calls } = makeClient();
+    const cropped = buildEditRecipe({
+      rotation: 0,
+      fine: 0,
+      crop: { x: 0.1, y: 0.1, w: 0.6, h: 0.6 },
+      aspect: null,
+      adjustments: NEUTRAL_ADJUSTMENTS,
+      bgRemoved: false,
+      editedAt: "2026-08-25T00:00:00.000Z",
+    });
+    const outcome = await persistPhotoEdit(client, CALIBRATED, new Blob(["e"]), cropped, {
+      dims: [2400, 1800],
+    });
+    expect(outcome).toEqual({ action: "clear", reason: "resampled" });
+    expect(calls.update[0]!.measure_calibration).toBeNull();
+  });
+
+  it("keeps the calibration through a tone-only edit", async () => {
+    const { client, calls } = makeClient();
+    const toned = buildEditRecipe({
+      rotation: 0,
+      fine: 0,
+      crop: null,
+      aspect: null,
+      adjustments: { ...NEUTRAL_ADJUSTMENTS, brightness: 15 },
+      bgRemoved: false,
+      editedAt: "2026-08-25T00:00:00.000Z",
+    });
+    const outcome = await persistPhotoEdit(client, CALIBRATED, new Blob(["e"]), toned, {
+      dims: [4000, 3000],
+    });
+    expect(outcome).toEqual({ action: "keep" });
+    expect(calls.update[0]).not.toHaveProperty("measure_calibration");
+  });
+
+  it("reads the turn as the DIFFERENCE between recipes, not the new one", async () => {
+    // Recipes are absolute against the preserved original. A photo already at
+    // 270 that is saved at 0 has turned one quarter clockwise, not three.
+    const { client, calls } = makeClient();
+    const from270 = {
+      ...CALIBRATED,
+      edit_recipe: buildEditRecipe({
+        rotation: 270,
+        fine: 0,
+        crop: null,
+        aspect: null,
+        adjustments: NEUTRAL_ADJUSTMENTS,
+        bgRemoved: false,
+        editedAt: "2026-08-24T00:00:00.000Z",
+      }),
+    };
+    const to0 = buildEditRecipe({
+      rotation: 0,
+      fine: 0,
+      crop: null,
+      aspect: null,
+      adjustments: NEUTRAL_ADJUSTMENTS,
+      bgRemoved: false,
+      editedAt: "2026-08-25T00:00:00.000Z",
+    });
+    const outcome = await persistPhotoEdit(client, from270, new Blob(["e"]), to0, {
+      dims: [3000, 4000],
+    });
+    expect(outcome).toMatchObject({ action: "rotate", turns: 1 });
+    expect(
+      (calls.update[0]! as { measure_calibration: StoredCal }).measure_calibration
+        .lines.chest!.e1,
+    ).toEqual([2100, 400]);
+  });
+
+  it("clears rather than guesses when the stored dimensions are missing", async () => {
+    const { client, calls } = makeClient();
+    const outcome = await persistPhotoEdit(
+      client,
+      { ...CALIBRATED, width: null, height: null },
+      new Blob(["e"]),
+      ROTATE_90,
+    );
+    expect(outcome).toEqual({ action: "clear", reason: "unknown-dimensions" });
+    expect(calls.update[0]!.measure_calibration).toBeNull();
   });
 });

@@ -319,10 +319,14 @@ export function PhotoUploader({
 
   // US-2208: shared with PhotoManager via photo-mutations, so an edit made here
   // preserves the original and records its recipe exactly as one made there.
-  async function saveEdit(blob: Blob, recipe: PhotoEditRecipe) {
+  async function saveEdit(
+    blob: Blob,
+    recipe: PhotoEditRecipe,
+    dims: [number, number],
+  ) {
     if (!editingPhoto) return;
     try {
-      await persistPhotoEdit(supabase, editingPhoto, blob, recipe);
+      await persistPhotoEdit(supabase, editingPhoto, blob, recipe, { dims });
     } catch (err) {
       toastError(err, "Couldn't save the edit.");
       return;

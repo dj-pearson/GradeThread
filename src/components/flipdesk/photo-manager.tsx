@@ -71,6 +71,7 @@ import {
   parseEditRecipe,
   type PhotoEditRecipe,
 } from "@/lib/photo-edit-recipe";
+import { itemPhotoQueryKeys } from "@/lib/photo-query-keys";
 import { useEbayReviseListing } from "@/hooks/use-ebay";
 import { cn } from "@/lib/utils";
 import type {
@@ -195,9 +196,12 @@ export function PhotoManager({
   // (lowest sort_order) or its image. The Listings table cover query keys under
   // the ["items_full", …] prefix, so invalidate BOTH keys — otherwise the
   // Listings row thumbnail stays stale for up to its 5-min staleTime.
+  // US-2888: the list lives in lib/photo-query-keys.ts. It used to be a
+  // sequence of calls here and one of them was missing — see that module.
   async function invalidatePhotos() {
-    await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
-    await qc.invalidateQueries({ queryKey: ["items_full"] });
+    for (const queryKey of itemPhotoQueryKeys(itemId)) {
+      await qc.invalidateQueries({ queryKey });
+    }
   }
 
   // Any pending/processing grading submission blocks deleting graded photos.
@@ -315,13 +319,17 @@ export function PhotoManager({
     photo: ItemPhotoRow,
     blob: Blob,
     recipe: PhotoEditRecipe | null,
+    dims?: [number, number],
   ) {
     // US-2407: no longer refused for a private original. persistPhotoEdit writes
     // the edit back to the bucket the bytes came from, so a phone-captured tag
     // is cropped IN the private bucket and photo_url stays "" — nothing is
     // republished, which was the whole reason the old block existed.
-    await persistPhotoEdit(supabase, photo, blob, recipe);
+    const outcome = await persistPhotoEdit(supabase, photo, blob, recipe, {
+      dims,
+    });
     photosDirtyRef.current = true;
+    return outcome;
   }
 
   /** Restore a photo's preserved pre-edit original. */
@@ -562,16 +570,33 @@ export function PhotoManager({
         // prop's own note. Geometry edits stay available.
         allowToneEdits={!editingPhoto?.used_for_grading}
         onClose={() => setEditingPhoto(null)}
-        onSave={async (blob, recipe) => {
+        onSave={async (blob, recipe, dims) => {
           if (!editingPhoto) return;
+          let outcome;
           try {
-            await persistPhotoBlob(editingPhoto, blob, recipe);
+            outcome = await persistPhotoBlob(editingPhoto, blob, recipe, dims);
           } catch (err) {
             toastError(err, "Couldn't save the edit.");
             return;
           }
           await invalidatePhotos();
-          toast.success("Photo updated.");
+          // US-2888: say what happened to the measurements, because the two
+          // outcomes are not interchangeable and only one of them costs the
+          // seller anything. A turn keeps every line exactly where it was; a
+          // crop or a straighten cannot, and finding that out by scrolling down
+          // to an empty panel is how it used to be communicated.
+          if (outcome.action === "rotate") {
+            toast.success(
+              "Photo rotated — the MeasureCard lines turned with it.",
+            );
+          } else if (outcome.action === "clear") {
+            toast.success(
+              "Photo updated. Cropping moves the MeasureCard, so the card is being read again — check the measurement lines before listing.",
+              { duration: 8000 },
+            );
+          } else {
+            toast.success("Photo updated.");
+          }
           setEditingPhoto(null);
         }}
       />

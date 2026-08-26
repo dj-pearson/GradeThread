@@ -19,6 +19,7 @@
 import { Hono } from "hono";
 import { Image } from "imagescript";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 import { encryptMeasureCardAddress } from "../lib/measure-card-pii.ts";
 import {
   bucketForItemPhoto,
@@ -75,6 +76,7 @@ import {
   calibrateAdaptive,
   rescaleCalibration,
   toGray,
+  withPreservedLines,
   type StoredCalibration,
 } from "../lib/measure-calibrate.ts";
 
@@ -169,14 +171,16 @@ flipdeskMeasureRoutes.post("/calibrate", async (c) => {
   }
   result = rescaleCalibration(result, scale);
 
-  const stored: StoredCalibration = {
+  // US-2888: withPreservedLines carries the seller's dragged line placements
+  // across a forced re-detect. See its own note for why they stay valid.
+  const stored: StoredCalibration = withPreservedLines({
     v: 1,
     cardVersion: result.cardVersion,
     ppi: result.ppi,
     homography: result.homography,
     quality: result.quality,
     computedAt: new Date().toISOString(),
-  };
+  }, photo.measure_calibration);
   // Keyed on the owned row's id (verified above) — no attacker-controlled id
   // reaches this update unscoped.
   const { error: upErr } = await supabaseAdmin
@@ -624,12 +628,12 @@ flipdeskMeasureRoutes.post("/overlay", async (c) => {
     .from("item-photos")
     .upload(path, jpeg, { contentType: "image/jpeg", upsert: true });
   if (upErr) {
-    return c.json(
-      {
-        error: "Could not save the measurements photo.",
-        detail: upErr.message,
-      },
+    return failSafe(
+      c,
       502,
+      "Could not save the measurements photo.",
+      upErr,
+      "measure.overlay.upload",
     );
   }
   // item-photo-url-ok: a staging/just-uploaded object in the public bucket,
@@ -664,12 +668,12 @@ flipdeskMeasureRoutes.post("/overlay", async (c) => {
     .select("id")
     .maybeSingle();
   if (insErr) {
-    return c.json(
-      {
-        error: "The photo was saved but we could not attach it to the item.",
-        detail: insErr.message,
-      },
+    return failSafe(
+      c,
       502,
+      "The photo was saved but we could not attach it to the item.",
+      insErr,
+      "measure.overlay.attach",
     );
   }
 

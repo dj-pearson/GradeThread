@@ -87,8 +87,19 @@ interface Props {
   /** Restore the preserved original. Shown only when there is an edit to undo. */
   onRevert?: () => Promise<void>;
   onClose: () => void;
-  /** Receives the edited image as a JPEG Blob. Must close the dialog on success. */
-  onSave: (blob: Blob, recipe: PhotoEditRecipe) => Promise<void>;
+  /**
+   * Receives the edited image as a JPEG Blob. Must close the dialog on success.
+   *
+   * `dims` is the output canvas size. It travels with the blob because the
+   * caller needs it to keep `item_photos.width/height` honest and to carry a
+   * MeasureCard calibration across a rotation (US-2888), and decoding the blob
+   * a second time to read two numbers this already has is waste.
+   */
+  onSave: (
+    blob: Blob,
+    recipe: PhotoEditRecipe,
+    dims: [number, number],
+  ) => Promise<void>;
   /**
    * When false, the tonal tools (brightness/contrast/saturation/warmth/sharpness,
    * Auto, and background removal) are withheld — geometry-only editing.
@@ -602,6 +613,7 @@ export function PhotoEditorDialog({
           bgRemoved: bgRemoved || recipeRef.current?.bgRemoved === true,
           editedAt: new Date().toISOString(),
         }),
+        [out.width, out.height],
       );
     } finally {
       setSaving(false);

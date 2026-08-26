@@ -196,3 +196,48 @@ Deno.test("US-2627: the returned gray belongs to the attempt that ran", () => {
   assertEquals(out.gray.width, 900);
   assertEquals(out.gray.height, 600);
 });
+
+// ── US-2888: re-detecting the card must not delete the seller's lines ────────
+//
+// /calibrate?force writes a whole new StoredCalibration. It used to build that
+// object from the detector's output alone, so `lines` -- the endpoint geometry
+// the seller had dragged onto the garment -- was simply absent from the row
+// afterwards. Nothing errored and nothing warned; the measurements panel just
+// came back empty, from a button whose name is about the card.
+const { withPreservedLines } = await import("../lib/measure-calibrate.ts");
+
+const FRESH = {
+  v: 1 as const,
+  cardVersion: 1,
+  ppi: 101,
+  homography: [0.0101, 0, -0.5, 0, 0.0101, -0.6, 0, 0, 1],
+  quality: {
+    markersFound: 4,
+    minMarkerSidePx: 60,
+    blurScore: 120,
+    reprojResidualIn: 0.01,
+  },
+  computedAt: "2026-08-25T00:00:00.000Z",
+};
+
+const LINES = {
+  chest: {
+    e1: [400, 900] as [number, number],
+    e2: [2400, 900] as [number, number],
+    inches: 20,
+    label: "Chest (in)",
+  },
+};
+
+Deno.test("a forced re-detect keeps the dragged lines", () => {
+  const merged = withPreservedLines(FRESH, { ...FRESH, ppi: 99, lines: LINES });
+  assertEquals(merged.lines, LINES);
+  // The RULER is the thing that was re-read, so it must be the new one.
+  assertEquals(merged.ppi, 101);
+});
+
+Deno.test("no stored lines leaves the fresh calibration exactly as detected", () => {
+  assertEquals(withPreservedLines(FRESH, null), FRESH);
+  assertEquals(withPreservedLines(FRESH, undefined), FRESH);
+  assertEquals(withPreservedLines(FRESH, { ...FRESH, lines: {} }), FRESH);
+});

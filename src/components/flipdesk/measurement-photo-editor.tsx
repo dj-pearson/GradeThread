@@ -16,7 +16,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Loader2, Ruler, ScanSearch, Sparkles } from "lucide-react";
+import {
+  Download,
+  Loader2,
+  Move,
+  RotateCw,
+  Ruler,
+  ScanSearch,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { Button } from "@/components/ui/button";
@@ -41,6 +49,19 @@ import {
   type EndpointHit,
   type NudgeDirection,
 } from "@/lib/measure-editor-math";
+import {
+  cardUprightQuarter,
+  hitLineBody,
+  lineWithinBounds,
+  quarterLabel,
+  recenterLine,
+  rotatedDims,
+  translateLine,
+  type Quarter,
+} from "@/lib/measure-photo-geometry";
+import { parseEditRecipe, buildEditRecipe } from "@/lib/photo-edit-recipe";
+import { NEUTRAL_ADJUSTMENTS } from "@/lib/image-adjustments";
+import { persistPhotoEdit } from "@/lib/photo-mutations";
 
 interface StoredLine {
   e1: [number, number];
@@ -52,6 +73,15 @@ interface StoredLine {
 interface MeasurePhotoRow {
   id: string;
   photo_url: string;
+  // US-2888: everything persistPhotoEdit needs, so "Rotate upright" can go
+  // through the same non-destructive round trip the photo editor uses rather
+  // than growing a second, subtly different write path.
+  storage_path: string | null;
+  original_storage_path: string | null;
+  thumbnail_storage_path: string | null;
+  edit_recipe: unknown | null;
+  width: number | null;
+  height: number | null;
   measure_calibration: {
     v: number;
     ppi: number;
@@ -138,7 +168,9 @@ export function MeasurementPhotoEditor({
     queryFn: async (): Promise<MeasurePhotoRow | null> => {
       const { data, error } = await supabase
         .from("item_photos")
-        .select("id, photo_url, measure_calibration")
+        .select(
+          "id, photo_url, storage_path, original_storage_path, thumbnail_storage_path, edit_recipe, width, height, measure_calibration",
+        )
         .eq("inventory_item_id", itemId)
         .eq("photo_type", "measurement")
         .order("created_at", { ascending: false })
@@ -168,6 +200,17 @@ export function MeasurementPhotoEditor({
   });
 
   const calib = photo?.measure_calibration?.v === 1 ? photo.measure_calibration : null;
+  // US-2888: which way the card says is up, and whether we can act on it.
+  // A photo already cropped or straightened is left alone: its edit recipe is
+  // absolute against the preserved original, and a rotation composed on top of
+  // a crop is not expressible as one, so offering the button there would write
+  // a recipe that re-renders wrongly on the next edit. The photo editor still
+  // rotates it by hand.
+  const priorRecipe = parseEditRecipe(photo?.edit_recipe ?? null);
+  const rotatable = !priorRecipe || (priorRecipe.fine === 0 && priorRecipe.crop === null);
+  const uprightTurns: Quarter = calib && rotatable
+    ? cardUprightQuarter(calib.homography)
+    : 0;
   // US-2607: what the last server-side pass did, so a blank measurements box
   // explains itself instead of looking broken.
   const passNote = measurePassNote(
@@ -186,9 +229,21 @@ export function MeasurementPhotoEditor({
    */
   const [announcement, setAnnouncement] = useState("");
   const [busy, setBusy] = useState<
-    "calibrate" | "extract" | "save" | "find" | "download" | null
+    "calibrate" | "extract" | "save" | "find" | "download" | "rotate" | null
   >(null);
-  const dragRef = useRef<EndpointHit | null>(null);
+  /**
+   * US-2888: a drag is now either an ENDPOINT (resize) or the LINE BODY
+   * (reposition). The body case carries the last pointer position because it
+   * moves by a delta — clamping the two endpoints independently, which is what
+   * the endpoint path does, would shorten and re-angle the line the moment it
+   * touched an edge, changing the measurement while the seller was only trying
+   * to slide it onto the right landmark.
+   */
+  const dragRef = useRef<
+    | ({ kind: "endpoint" } & EndpointHit)
+    | { kind: "body"; lineIndex: number; last: [number, number] }
+    | null
+  >(null);
   /** Photo id we've already auto-calibrated, so a failure doesn't loop. */
   const autoCalibratedRef = useRef<string | null>(null);
   // US-1580: the auto pass's proposed inches per key, snapshotted at seed
@@ -227,11 +282,19 @@ export function MeasurementPhotoEditor({
   // every one of them a step they had to know about. Once per photo: the ref
   // guards a re-run after a failure, so a shot with an unreadable card falls
   // back to the button instead of retrying on every render.
+  //
+  // US-2888: keyed on the photo's EDIT as well as its id. A crop clears the
+  // calibration, and the row that comes back has the same id — so the guard,
+  // which had already fired for that id, refused to detect the card on the new
+  // pixels. The panel then sat empty until a full page reload, which is exactly
+  // the "save and reload" ritual this story exists to remove.
   useEffect(() => {
-    if (!photo || calib || autoCalibratedRef.current === photo.id) return;
-    autoCalibratedRef.current = photo.id;
+    if (!photo || calib) return;
+    const stamp = `${photo.id}:${JSON.stringify(photo.edit_recipe ?? null)}`;
+    if (autoCalibratedRef.current === stamp) return;
+    autoCalibratedRef.current = stamp;
     void runCalibrate({ silent: true });
-  }, [photo?.id, calib]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [photo?.id, photo?.edit_recipe, calib]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // US-2595: no photo tagged 'measurement' does NOT mean no card. The photo-role
   // classifier can only assign front/back/tag/detail/defect, so on a normally
@@ -542,23 +605,46 @@ export function MeasurementPhotoEditor({
   }
 
   function onPointerDown(e: React.PointerEvent) {
-    const hit = hitEndpoint(lines, pointerPos(e), scale);
-    if (!hit) return;
-    dragRef.current = hit;
+    const pt = pointerPos(e);
+    // Endpoints win where the two hit areas overlap: on a short line the whole
+    // segment is inside the endpoint radius, and resizing has to stay the
+    // easier gesture or a seller aiming at a circle would slide the line.
+    const hit = hitEndpoint(lines, pt, scale);
+    if (hit) {
+      dragRef.current = { kind: "endpoint", ...hit };
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+      return;
+    }
+    const bodyIndex = hitLineBody(lines, pt, scale);
+    if (bodyIndex === null) return;
+    dragRef.current = { kind: "body", lineIndex: bodyIndex, last: pt };
     (e.target as Element).setPointerCapture?.(e.pointerId);
   }
 
   function onPointerMove(e: React.PointerEvent) {
     const drag = dragRef.current;
     if (!drag || !imgDims) return;
-    const [dx, dy] = pointerPos(e);
-    const ox = Math.max(0, Math.min(imgDims[0], dx / scale));
-    const oy = Math.max(0, Math.min(imgDims[1], dy / scale));
-    setLines((prev) =>
-      prev.map((l, i) =>
-        i === drag.lineIndex ? { ...l, [drag.end]: [ox, oy] } : l
-      )
-    );
+    const pt = pointerPos(e);
+    if (drag.kind === "endpoint") {
+      const ox = Math.max(0, Math.min(imgDims[0], pt[0] / scale));
+      const oy = Math.max(0, Math.min(imgDims[1], pt[1] / scale));
+      setLines((prev) =>
+        prev.map((l, i) =>
+          i === drag.lineIndex ? { ...l, [drag.end]: [ox, oy] } : l
+        )
+      );
+    } else {
+      const dx = (pt[0] - drag.last[0]) / scale;
+      const dy = (pt[1] - drag.last[1]) / scale;
+      drag.last = pt;
+      setLines((prev) =>
+        prev.map((l, i) =>
+          i === drag.lineIndex
+            ? { ...l, ...translateLine(l.e1, l.e2, dx, dy, imgDims[0], imgDims[1]) }
+            : l,
+        ),
+      );
+    }
     setTouched((prev) => {
       const next = new Set(prev);
       next.add(lines[drag.lineIndex]?.key ?? "");
@@ -568,6 +654,120 @@ export function MeasurementPhotoEditor({
 
   function onPointerUp() {
     dragRef.current = null;
+  }
+
+  /**
+   * US-2888: bring every line back inside the photo.
+   *
+   * The recovery path for geometry stored before rotation carried the
+   * calibration across. A line whose endpoints sit outside the frame renders
+   * past the edge of the SVG: visible in the saved numbers, invisible on
+   * screen, and unreachable, because until now the only way to move an endpoint
+   * was to put a pointer on it. Sliding beats resetting — the line keeps its
+   * length, so the measurement it carries survives the trip.
+   */
+  function bringLinesIntoView() {
+    if (!imgDims) return;
+    const [w, h] = imgDims;
+    const moved: string[] = [];
+    setLines((prev) =>
+      prev.map((l) => {
+        if (lineWithinBounds(l.e1, l.e2, w, h)) return l;
+        moved.push(l.key);
+        return { ...l, ...recenterLine(l.e1, l.e2, w, h) };
+      }),
+    );
+    if (moved.length === 0) return;
+    setTouched((prev) => {
+      const next = new Set(prev);
+      for (const key of moved) next.add(key);
+      return next;
+    });
+    toast.info(
+      `Moved ${moved.length} line(s) back into the photo. Drag each onto its landmark, then save.`,
+    );
+  }
+
+  /**
+   * US-2888: turn the photo the way the MeasureCard says is up.
+   *
+   * The card's four fiducials carry different ids in a known order, so the
+   * homography already knows which way the card is lying — no extra detection,
+   * no model call, and an answer that is right by construction rather than by
+   * guessing at the garment's shape. This is the affordance that stops the
+   * seller rotating photos one at a time to begin with.
+   *
+   * It writes through persistPhotoEdit, the same non-destructive round trip the
+   * photo editor uses, so the original is preserved and the calibration is
+   * carried across by exactly the code path a manual rotate takes.
+   */
+  async function rotateUpright() {
+    const p = photo;
+    if (!p || !calib || uprightTurns === 0) return;
+    setBusy("rotate");
+    try {
+      const res = await fetch(p.photo_url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const bitmap = await createImageBitmap(await res.blob());
+      // Read the dimensions BEFORE close() — a closed ImageBitmap reports zero,
+      // and they are still needed for the width/height fallback below.
+      const srcW = bitmap.width;
+      const srcH = bitmap.height;
+      const [outW, outH] = rotatedDims(srcW, srcH, uprightTurns);
+      const canvas = document.createElement("canvas");
+      canvas.width = outW;
+      canvas.height = outH;
+      const ctx = canvas.getContext("2d")!;
+      ctx.translate(outW / 2, outH / 2);
+      ctx.rotate((uprightTurns * 90 * Math.PI) / 180);
+      ctx.drawImage(bitmap, -srcW / 2, -srcH / 2);
+      bitmap.close();
+      const blob = await new Promise<Blob>((resolve, reject) =>
+        canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+          "image/jpeg",
+          0.92,
+        ),
+      );
+      const prev = parseEditRecipe(p.edit_recipe);
+      await persistPhotoEdit(
+        supabase,
+        {
+          id: p.id,
+          storage_path: p.storage_path,
+          original_storage_path: p.original_storage_path,
+          thumbnail_storage_path: p.thumbnail_storage_path,
+          photo_url: p.photo_url,
+          edit_recipe: p.edit_recipe,
+          width: p.width ?? srcW,
+          height: p.height ?? srcH,
+          measure_calibration: calib,
+        },
+        blob,
+        buildEditRecipe({
+          // Recipes are absolute against the preserved original, so the new
+          // rotation is the old one plus this turn — not the turn on its own.
+          rotation: (((prev?.rotation ?? 0) + uprightTurns * 90) % 360 + 360) % 360,
+          fine: 0,
+          crop: null,
+          aspect: null,
+          adjustments: prev?.adjustments ?? NEUTRAL_ADJUSTMENTS,
+          bgRemoved: prev?.bgRemoved === true,
+          editedAt: new Date().toISOString(),
+        }),
+        { dims: [outW, outH] },
+      );
+      await qc.invalidateQueries({ queryKey: ["measure_photo", itemId] });
+      await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success(
+        "Photo turned to match the MeasureCard — the measurement lines came with it.",
+      );
+    } catch (err) {
+      toastError(err, "Couldn't rotate the photo.");
+    } finally {
+      setBusy(null);
+    }
   }
 
   // ── US-2686: the keyboard path ──────────────────────────────────────────
@@ -628,7 +828,52 @@ export function MeasurementPhotoEditor({
     );
   }
 
+  /**
+   * US-2888: the keyboard twin of the whole-line drag.
+   *
+   * Same step rule as an endpoint nudge, so "one press moves this far" stays
+   * one sentence across both gestures and both clients. Shift is the same
+   * multiple. The line keeps its length: translateLine clamps the MOVE, never
+   * the endpoints.
+   */
+  function onLineKeyDown(e: React.KeyboardEvent, lineIndex: number) {
+    const direction = ARROW_DIRECTION[e.key];
+    if (!direction || !imgDims) return;
+    e.preventDefault();
+    const line = lines[lineIndex];
+    if (!line) return;
+    const step =
+      nudgeStep(imgDims[0], imgDims[1]) * (e.shiftKey ? NUDGE_COARSE_MULTIPLE : 1);
+    const dx = direction === "left" ? -step : direction === "right" ? step : 0;
+    const dy = direction === "up" ? -step : direction === "down" ? step : 0;
+    const moved = translateLine(
+      line.e1,
+      line.e2,
+      dx,
+      dy,
+      imgDims[0],
+      imgDims[1],
+    );
+    setLines((prev) =>
+      prev.map((l, i) => (i === lineIndex ? { ...l, ...moved } : l)),
+    );
+    setTouched((prev) => new Set(prev).add(line.key));
+    // The measurement is unchanged by a translation, so announce the POSITION
+    // move rather than repeating a number that did not move. Saying "chest 20
+    // inches" after every press would train a screen-reader user to ignore it.
+    setAnnouncement(
+      `${line.label.split(" (")[0]} moved ${direction}${e.shiftKey ? " further" : ""}`,
+    );
+  }
+
   const missing = fields.filter((f) => !lines.some((l) => l.key === f.key));
+  // US-2888: geometry saved before a rotation carried the calibration across
+  // can sit outside the frame entirely. Count it so the recovery button only
+  // appears when there is something to recover.
+  const strandedCount = imgDims
+    ? lines.filter((l) => !lineWithinBounds(l.e1, l.e2, imgDims[0], imgDims[1]))
+        .length
+    : 0;
   const displayVal = (inches: number): string =>
     unit === "cm"
       ? `${(inches * 2.54).toFixed(1)} cm`
@@ -669,6 +914,22 @@ export function MeasurementPhotoEditor({
                 <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
               )}
               Detect card
+            </Button>
+          )}
+          {calib && uprightTurns !== 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void rotateUpright()}
+              disabled={busy !== null}
+              title={`The MeasureCard in this shot is lying ${quarterLabel(uprightTurns)}. One press turns the photo to match, and the measurement lines turn with it.`}
+            >
+              {busy === "rotate" ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RotateCw className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Turn upright
             </Button>
           )}
           {calib && (
@@ -730,6 +991,38 @@ export function MeasurementPhotoEditor({
         </p>
       )}
 
+      {calib && uprightTurns !== 0 && (
+        <p className="text-xs text-muted-foreground">
+          The MeasureCard in this shot is lying {quarterLabel(uprightTurns)}.
+          Press &ldquo;Turn upright&rdquo; and the photo and its measurement
+          lines both turn.
+        </p>
+      )}
+
+      {/* US-2888: the way back from geometry that was stored before a rotation
+          carried the calibration across. An endpoint outside the frame draws
+          past the edge of the picture — it is in the saved numbers and not on
+          the screen, so there is nothing to put a pointer on. */}
+      {calib && strandedCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <span>
+            {strandedCount} measurement line
+            {strandedCount === 1 ? " sits" : "s sit"} outside this photo, so
+            {strandedCount === 1 ? " it is" : " they are"} not on screen to
+            drag.
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={bringLinesIntoView}
+            disabled={busy !== null}
+          >
+            <Move className="mr-1.5 h-3.5 w-3.5" />
+            Bring back into view
+          </Button>
+        </div>
+      )}
+
       {calib && (
         <>
           <div className="relative inline-block max-w-full">
@@ -767,6 +1060,26 @@ export function MeasurementPhotoEditor({
                     <g key={line.key}>
                       <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#fff" strokeWidth={5} />
                       <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={2.5} />
+                      {/* US-2888: the line body, as a thing you can grab.
+                          Wide and transparent so the target is forgiving, drawn
+                          UNDER the endpoint circles so a pointer on a circle
+                          still resizes. Focusable for the same reason the
+                          endpoints are: a gesture reachable by pointer alone is
+                          a gesture a keyboard user does not have. */}
+                      <line
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        stroke="transparent"
+                        strokeWidth={16}
+                        strokeLinecap="butt"
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`${line.label.split(" (")[0]}, whole line, ${displayVal(inches)}. Arrow keys move it without changing the measurement; hold shift for a larger step.`}
+                        className="cursor-move outline-none focus-visible:stroke-brand-red/40"
+                        onKeyDown={(e) => onLineKeyDown(e, lineIndex)}
+                      />
                       {([["e1", x1, y1], ["e2", x2, y2]] as const).map(
                         ([end, cx, cy], i) => (
                           <circle
@@ -835,11 +1148,13 @@ export function MeasurementPhotoEditor({
             {announcement}
           </p>
           <p className="text-[11px] text-muted-foreground">
-            Drag the circles onto the garment, or focus one and use the arrow
-            keys (hold shift to move further). Values are estimated from the
-            photo via the MeasureCard — review each before listing. Saving
-            updates the item&apos;s measurements and regenerates the
-            buyer-facing measurements photo.
+            Drag a circle to change what the line measures. Drag the middle of a
+            line to slide the whole thing without changing the number. Either
+            one also works from the keyboard: focus it and use the arrow keys,
+            holding shift to move further. Values are estimated from the photo
+            via the MeasureCard — review each before listing. Saving updates the
+            item&apos;s measurements and regenerates the buyer-facing
+            measurements photo.
           </p>
         </>
       )}

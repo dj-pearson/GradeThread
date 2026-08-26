@@ -62,7 +62,7 @@ interface Props {
     photo: ItemPhotoRow,
     blob: Blob,
     recipe: null,
-  ) => Promise<void>;
+  ) => Promise<unknown>;
   /** Invoked after every included photo has been saved. */
   onDone: () => void | Promise<void>;
 }
