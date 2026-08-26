@@ -1,5 +1,17 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+> **NOTHING IS HELD as of 2026-08-25.** Every migration through 00673 is
+> applied to prod, `scripts/held-migration-gate.mjs` reports clear, and
+> `prd-lint` no longer flags a stale HELD claim. **The branch is not frozen.**
+>
+> This file is append-only history below this line — every entry is a past
+> apply, kept for its reasoning. If you are here to find out whether you may
+> push, the answer is this banner, not the first heading under it.
+>
+> When the next migration is written, add its `## 🚨 PENDING and BLOCKING:`
+> section at the top AND replace this banner, or the two will disagree and the
+> banner is the one people read.
+
 ## APPLIED: 00673 — take SECURITY DEFINER off ensure_sourcer (US-2886)
 
 **Applied to prod by the owner on 2026-08-25**, after 00672 and before the push.
@@ -59,10 +71,14 @@ doc with the anon key on 2026-08-25: `/sourcers` is already an exposed path.
 **Frontend dependency.** The web picker reads `sourcers` straight from the
 browser, so the push had to come after this. It did.
 
-## 🚨 PENDING and BLOCKING: 00671 — unfreeze the eight columns 00668/00669 added (US-2852, US-2853)
+## ✅ APPLIED: 00671 — unfreeze the eight columns 00668/00669 added (US-2852, US-2853)
 
-**Apply this BEFORE pushing. 00668 and 00669 are already applied and are not
-enough on their own.**
+**Applied to prod by the owner, confirmed 2026-08-25.** Taken on the owner's
+word rather than measured: this migration only replaces a function BODY, so
+there is no table or column to probe for, and `applied_migrations` answers
+`42501 permission denied` to the anon key. The check that would settle it is
+`src/test/users-self-update-allowlist.test.ts` against prod, or reading
+`guard_users_protected_columns()` with the service role.
 
 **The problem it fixes.** 00526 made `public.users` self-updates DENY-BY-DEFAULT:
 an authenticated session may write only the columns the guard function
@@ -139,7 +155,13 @@ and a client SELECT naming a column it has not reloaded returns a 400, not a nul
 
 
 
-## ⏳ PENDING: 00667 — the comp read queue, and the budget that switches it off (US-2845)
+## ✅ APPLIED: 00667 — the comp read queue, and the budget that switches it off (US-2845)
+
+**Applied to prod by the owner, confirmed 2026-08-25.** Also taken on the
+owner's word. The three tables it adds are deny-all operator tables, so they
+are absent from the PostgREST OpenAPI doc whether or not they exist — a
+MISSING path proves nothing here, only a PRESENT one would. The worker stays
+inert either way: the `comp_read` feature flag ships disabled.
 
 **What it does.** Three new operator tables (`comp_read_demand`,
 `comp_read_batches`, `comp_read_jobs`), one SECURITY INVOKER function
@@ -197,7 +219,12 @@ worker left behind, and a queue with no self-healing cron is the failure the
 durable-jobs contract exists to prevent.
 
 
-## ⏳ PENDING: 00666 — flipdesk_settings.sourcing_target_roi_pct (US-2851)
+## ✅ APPLIED: 00666 — flipdesk_settings.sourcing_target_roi_pct (US-2851)
+
+**Applied to prod, VERIFIED 2026-08-25.** The one of the three that could be
+checked without credentials: `sourcing_target_roi_pct` is present on the
+`flipdesk_settings` definition in the prod PostgREST OpenAPI doc, read with
+the anon key.
 
 **What it does.** Adds one nullable integer column to
 `public.flipdesk_settings`, plus a CHECK bounding it to 0..1000. It is the
