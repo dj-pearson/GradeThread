@@ -26,6 +26,9 @@ const POLICY = "android/app/src/main/java/com/gradethread/app/settings/TwoFactor
 const STORE = "android/app/src/main/java/com/gradethread/app/settings/TwoFactorStore.kt";
 const DIALOG = "android/app/src/main/java/com/gradethread/app/settings/TwoFactorDialog.kt";
 const SETTINGS = "android/app/src/main/java/com/gradethread/app/settings/SettingsScreen.kt";
+// US-2908: the dialog's copy lives here now, in both locales.
+const STRINGS_EN = "android/app/src/main/res/values/strings.xml";
+const STRINGS_ES = "android/app/src/main/res/values-es/strings.xml";
 
 function read(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf8");
@@ -74,7 +77,15 @@ describe("the enrollment surface exists on device (US-2685 AC1)", () => {
 
 describe("the enrolled state is visible and removable (US-2685 AC2)", () => {
   it("a verified factor renders as on, and can be turned off", () => {
-    expect(code(DIALOG)).toContain("Turn off");
+    // US-2908: the button's words moved to res/values, so this follows them.
+    // Asserting the English in the Kotlin is what made this file a reason not
+    // to translate the screen — the point of the guard is that a way to turn
+    // two-factor OFF exists, not that it is spelled in English.
+    expect(code(DIALOG)).toContain("R.string.twofactor_turn_off");
+    expect(read(STRINGS_EN)).toContain(
+      '<string name="twofactor_turn_off">Turn off</string>',
+    );
+    expect(read(STRINGS_ES)).toContain('name="twofactor_turn_off"');
     expect(code(STORE)).toContain("fun remove()");
   });
 
@@ -159,7 +170,15 @@ describe("recovery codes stay on the web (US-2685 AC6)", () => {
   it("the screen says where they live instead of staying silent", () => {
     // A backup kept on the device it protects is a copy in the same box. The
     // screen has to say so, or the member assumes there is no backup at all.
-    expect(read(DIALOG)).toContain("Recovery codes live on gradethread.com");
+    //
+    // US-2908: the sentence lives in res/values now, so the assertion is in two
+    // halves — the dialog must still SHOW it, and it must still SAY that. A
+    // check on the Kotlin alone would pass on a resource id pointing at
+    // anything, and a check on the strings alone would pass on a string nothing
+    // renders.
+    expect(code(DIALOG)).toContain("R.string.twofactor_body_recovery_codes");
+    expect(read(STRINGS_EN)).toContain("Recovery codes live on gradethread.com");
+    expect(read(STRINGS_ES)).toContain('name="twofactor_body_recovery_codes"');
   });
 });
 

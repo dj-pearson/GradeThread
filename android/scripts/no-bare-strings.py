@@ -6,11 +6,23 @@ The Android counterpart to the iOS bare-strings rule. A literal passed to
 can never be translated, and nothing about it looks wrong in review — it renders
 perfectly in English forever.
 
-SCOPE IS DELIBERATE AND PARTIAL. Converting ~90 Compose files in one pass would
-either fail the build everywhere or get the guard switched off, and a
-switched-off guard protects nothing. The list below names the files that HAVE
-been converted; it grows as more are, and a file inside the scope can never
-regress.
+SCOPE IS EVERY COMPOSE FILE. There is no migration any more (US-2908).
+
+It used to be an inclusion list, and that was right while ~90 files were being
+converted: failing the build everywhere on day one gets a guard switched off,
+and a switched-off guard protects nothing. The cost was that A NEW SCREEN WAS
+OUT OF SCOPE BY DEFAULT — the guard passed on a file nobody had added to the
+list, which reads exactly like a guard finding nothing.
+
+That is not hypothetical. US-2368 declared the list complete and wrote so in
+this header. Eight files were added afterwards and none of them joined it:
+the consumer grading flow, the credit-pack sheet, the two-factor dialog and the
+sync-status host. A purchase surface, a security surface, and the thing that
+tells a seller their data is not saving — all reachable in Spanish right up to
+the point they turned English.
+
+So the list is now what a file must be EXCLUDED by, each entry named and
+reasoned, and a file containing @Composable is covered the day it is written.
 
 Run locally:  python3 android/scripts/no-bare-strings.py
 """
@@ -21,116 +33,39 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(ROOT, "app", "src", "main", "java", "com", "gradethread", "app")
 
-# Files whose UI text is fully externalized. ADD to this list when you convert
-# a screen; never remove from it.
+# Files a scan cannot judge, each named with the reason it is here. This is the
+# ONLY way out of the guard, and it is meant to stay short — an entry is a claim
+# that a human checked the file, not a convenience.
 #
-# US-2368: this list covers every Compose file under app/src/main. The last two
-# in were consignment/ConsignorPicker.kt and marketplaces/ListingCard.kt, held
-# back for a while because their copy lived in plain non-composable functions
-# that unit tests asserted on by exact wording. Those functions now return the
-# DECISION (a sealed hint, a @StringRes id) and a @Composable wrapper resolves
-# it, so the tests assert a resource instead of English and stopped being a
-# reason not to translate.
-SCOPE = [
-    "onboarding/OnboardingHost.kt",
-    "referrals/ReferralsScreen.kt",
-    "support/SupportScreen.kt",
-    "support/SupportThreadScreen.kt",
-    "feedback/FeedbackSheet.kt",
-    "workspace/WorkspaceSwitcherRow.kt",
-    "workspace/TeamScreen.kt",
-    "autolister/AutolisterSessionScreen.kt",
-    "importer/ImportScreen.kt",
-    "auth/AuthScreen.kt",
-    "home/HomeScreen.kt",
-    "money/MoneyScreen.kt",
-    "settings/SettingsScreen.kt",
-    "snap/SnapScreen.kt",
-    "analytics/AnalyticsScreen.kt",
-    "automations/AutomationsScreen.kt",
-    "autolister/DraftsLibraryScreen.kt",
-    "marketplaces/negotiation/NegotiationInboxScreen.kt",
-    "templates/TemplatesScreen.kt",
-    "marketplaces/MarketplacesScreen.kt",
-    "marketplaces/reconciliation/ReconciliationScreen.kt",
-    "marketplaces/publish/PublishSheet.kt",
-    "pricing/RepricingScreen.kt",
-    "inventory/DetailsIntakeScreen.kt",
-    "ui/shell/ToolsScreen.kt",
-    "scout/ProspectScreen.kt",
-    "inventory/ItemCanvasScreen.kt",
-    "grading/GradeRequestScreen.kt",
-    "ai/AiFillReviewSheet.kt",
-    "grading/GradeReportScreen.kt",
-    "consignment/ConsignorsScreen.kt",
-    "marketplaces/postsale/PostSaleScreen.kt",
-    "marketplaces/postsale/EbayCasesScreen.kt",
-    "marketplaces/ListingEditSheet.kt",
-    "money/InventoryEquityCard.kt",
-    "radar/MyStoresScreen.kt",
-    "radar/RadarNearbyScreen.kt",
-    "radar/RadarVenueDetailScreen.kt",
-    "grading/BulkGradeScreen.kt",
-    "inventory/InventoryListScreen.kt",
-    "marketplaces/promotions/PromotionSheet.kt",
-    "analytics/CommunityInsightsScreen.kt",
-    "inventory/ItemPhotosSection.kt",
-    "inventory/GlobalSearchScreen.kt",
-    "disclosure/DisclosureScreen.kt",
-    "scout/ScoutScreen.kt",
-    "marketplaces/pricing/BulkPricingScreen.kt",
-    "consignment/ConsignorPicker.kt",
-    "marketplaces/ListingCard.kt",
-    "money/SalesScreen.kt",
-    "inventory/CompsSection.kt",
-    "analytics/ListingPerformanceScreen.kt",
-    "grading/DisputeSheet.kt",
-    "passport/PassportScreen.kt",
-    "billing/PaywallScreen.kt",
-    "fulfillment/FulfillmentScreen.kt",
-    "inventory/MeasurementsSection.kt",
-    "verified/VerifiedScreen.kt",
-    "money/PayoutReconciliationScreen.kt",
-    "inventory/BulkActionBar.kt",
-    "consignment/ConsignmentReportScreen.kt",
-    "inventory/AspectsSection.kt",
-    "ai/AiExtractScreen.kt",
-    "billing/CreditPackSheet.kt",
-    "inventory/InventoryFilterSheet.kt",
-    "marketplaces/publish/SpecificsSection.kt",
-    "billing/PlanStepHost.kt",
-    "grading/GradesListScreen.kt",
-    "money/ExpenseFormSheet.kt",
-    "ui/shell/AppShell.kt",
-    "auth/TurnstileChallenge.kt",
-    "platform/HapticFeedback.kt",
-    "platform/locale/LanguagePicker.kt",
-    "platform/applock/LockScreen.kt",
-    "ui/a11y/A11yAnnounce.kt",
-    "ui/a11y/ReducedMotion.kt",
-    "ui/a11y/ScaledIcon.kt",
-    "ui/components/CachedThumbnail.kt",
-    "ui/components/Charts.kt",
-    "ui/components/DataRow.kt",
-    "ui/components/ErrorStateView.kt",
-    "ui/components/FieldValidation.kt",
-    "ui/components/ImeActionBar.kt",
-    "ui/components/InfoCard.kt",
-    "ui/components/LabeledDropdown.kt",
-    "ui/components/Skeleton.kt",
-    "ui/components/StatusBadge.kt",
-    "ui/shell/SyncStatusBar.kt",
-    "ui/theme/Components.kt",
-    "ui/theme/Theme.kt",
-    "capture/BarcodeScanScreen.kt",
-    "capture/CaptureScreen.kt",
-    "intake/ShareTargetActivity.kt",
-    "inventory/NotesFieldWithDictation.kt",
-    "inventory/SkuFieldWithScanner.kt",
-    "marketplaces/reconciliation/ReconcileBanner.kt",
-    "plangate/PlanGateHost.kt",
-    "widget/SellerSnapshotWidget.kt",
-]
+# Empty today. It exists because the alternative to an exclusion list is a
+# `# no-bare-strings:` suppression scattered through the source, and a list in
+# one place is reviewable in one diff.
+EXCLUDED = {
+    # "relative/path.kt": "why a scan cannot judge this file",
+}
+
+
+def composable_files():
+    """Every file under SOURCE containing @Composable, minus EXCLUDED.
+
+    Discovered rather than listed. That is the whole point of US-2908: a list
+    has to be maintained by whoever adds a screen, and the failure mode when
+    they forget is SILENCE — the guard passes, which is indistinguishable from
+    a clean file.
+    """
+    found = []
+    for dirpath, _dirs, filenames in os.walk(SOURCE):
+        for filename in sorted(filenames):
+            if not filename.endswith(".kt"):
+                continue
+            path = os.path.join(dirpath, filename)
+            with open(path, encoding="utf-8") as fh:
+                if "@Composable" not in fh.read():
+                    continue
+            rel = os.path.relpath(path, SOURCE).replace(os.sep, "/")
+            if rel not in EXCLUDED:
+                found.append(rel)
+    return found
 
 # The opening of a call/argument that renders or speaks whatever it is given.
 # Deliberately does NOT require a quote after it — see _argument_literals for
@@ -618,13 +553,62 @@ def self_test():
             failures.append(
                 f"  {name}: expected {'a hit' if should_flag else 'no hit'}, got the opposite"
             )
+    # US-2908 AC3: prove the INVERSION, not just the patterns.
+    #
+    # Every case above hands scan() a path directly, so they all pass unchanged
+    # whether the scope is discovered or listed. The thing that actually changed
+    # is that a file nobody registered anywhere is covered — and the only way to
+    # show that is to drop a new file into the tree and watch it get picked up
+    # without touching a list.
+    coverage = _self_test_discovery()
+    if coverage:
+        failures.append(coverage)
+
     if failures:
         print("no-bare-strings --self-test FAILED", file=sys.stderr)
         for line in failures:
             print(line, file=sys.stderr)
         return 1
-    print(f"no-bare-strings: self-test OK ({len(SELF_TESTS)} cases)")
+    print(f"no-bare-strings: self-test OK ({len(SELF_TESTS)} cases + discovery)")
     return 0
+
+
+def _self_test_discovery():
+    """Write an unregistered Composable with a bare string; it must be caught.
+
+    Returns an error line, or None.
+
+    The file is written INSIDE `SOURCE` on purpose. A temp directory would
+    exercise `scan()`, which was never the doubt — the doubt is whether the walk
+    reaches a file that appears in no list, which is exactly what the old
+    inclusion scope got wrong.
+    """
+    import tempfile
+
+    probe = None
+    try:
+        fd, probe = tempfile.mkstemp(
+            prefix="ZzSelfTestProbe", suffix=".kt", dir=SOURCE,
+        )
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(
+                "package com.gradethread.app\n\n"
+                "@Composable\n"
+                "fun ZzSelfTestProbe() {\n"
+                '    Text("this literal must be caught by discovery")\n'
+                "}\n"
+            )
+        rel = os.path.relpath(probe, SOURCE).replace(os.sep, "/")
+        if rel not in composable_files():
+            return f"  discovery: {rel} was not picked up — the walk is not reaching new files"
+        if not scan(probe):
+            return f"  discovery: {rel} was in scope but its bare string was not flagged"
+        return None
+    except OSError as exc:
+        return f"  discovery: could not write a probe into {SOURCE}: {exc}"
+    finally:
+        if probe and os.path.exists(probe):
+            os.unlink(probe)
 
 
 def main():
@@ -637,21 +621,31 @@ def main():
     if self_test() != 0:
         return 1
 
-    missing = [rel for rel in SCOPE if not os.path.isfile(os.path.join(SOURCE, rel))]
-    if missing:
-        # A renamed or deleted file must not silently drop out of the guard.
-        print("no-bare-strings: scoped file not found:", file=sys.stderr)
-        for rel in missing:
+    # An EXCLUDED entry naming a file that no longer exists is the same rot the
+    # old inclusion list had, pointed the other way: the exclusion silently
+    # stops meaning anything and nobody finds out.
+    stale = [rel for rel in EXCLUDED if not os.path.isfile(os.path.join(SOURCE, rel))]
+    if stale:
+        print("no-bare-strings: EXCLUDED names a file that does not exist:", file=sys.stderr)
+        for rel in stale:
             print(f"  {rel}", file=sys.stderr)
         return 1
 
+    scope = composable_files()
+    if not scope:
+        # Discovery finding nothing looks identical to a clean tree. It is not:
+        # it means the walk is pointed somewhere wrong.
+        print(f"no-bare-strings: found no Compose files under {SOURCE}", file=sys.stderr)
+        return 1
+
     failures = []
-    for rel in SCOPE:
+    for rel in scope:
         for line_no, text in scan(os.path.join(SOURCE, rel)):
             failures.append((rel, line_no, text))
 
     if not failures:
-        print(f"no-bare-strings: OK ({len(SCOPE)} files in scope)")
+        excluded = f", {len(EXCLUDED)} excluded" if EXCLUDED else ""
+        print(f"no-bare-strings: OK ({len(scope)} Compose files{excluded})")
         return 0
 
     print("no-bare-strings: hardcoded UI text found\n", file=sys.stderr)

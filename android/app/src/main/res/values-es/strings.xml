@@ -1654,4 +1654,76 @@
     <string name="sourced_by_new_name">Nombre</string>
     <string name="sourced_by_add">Agregar</string>
     <string name="sourced_by_add_failed">No se pudo agregar a esa persona. Revisa tu conexión.</string>
+    <!-- US-2908: the two-factor dialog (US-2685). Enrollment and session
+         elevation are separate states and their copy has to stay separate:
+         "enabled" shown to someone whose session is still aal1 is what leaves
+         them staring at a badge while every request is refused. -->
+    <string name="twofactor_title_default">Autenticación en dos pasos</string>
+    <string name="twofactor_title_setup">Configurar dos pasos</string>
+    <string name="twofactor_title_on">Dos pasos está activado</string>
+    <string name="twofactor_title_verify_signin">Verifica este inicio de sesión</string>
+    <string name="twofactor_body_disabled">La autenticación en dos pasos añade un código de seis dígitos de una app de autenticación además de tu contraseña. Si tu espacio de trabajo la exige, la necesitas antes de poder hacer cualquier otra cosa.</string>
+    <string name="twofactor_body_enrolling">Añade esta clave a tu app de autenticación y luego escribe los seis dígitos que muestre.</string>
+    <string name="twofactor_body_verified">Dos pasos está activado y esta sesión está verificada.</string>
+    <string name="twofactor_body_recovery_codes">Los códigos de recuperación están en gradethread.com, en Ajustes. Son tu manera de volver a entrar si pierdes este teléfono, así que no se guardan en él.</string>
+    <string name="twofactor_body_needs_elevation">Dos pasos está activado en tu cuenta, pero este inicio de sesión aún no se ha verificado. Escribe los seis dígitos actuales de tu app de autenticación.</string>
+    <string name="twofactor_code_label">Código de seis dígitos</string>
+    <string name="twofactor_turn_on">Activar</string>
+    <string name="twofactor_turn_off">Desactivar</string>
+    <string name="twofactor_verify">Verificar</string>
+    <string name="twofactor_done">Listo</string>
+    <string name="twofactor_close">Cerrar</string>
+    <string name="twofactor_try_again">Reintentar</string>
+    <!-- US-2908: two-factor messages that used to live as English constants in
+         TwoFactorStore and TwoFactorPolicy. They reach the dialog through
+         state.error / state.notice / Phase.Failed, so translating the dialog
+         alone left a Spanish seller reading English on a security surface. The
+         functions now return a @StringRes id and the Composable resolves it,
+         which also makes leaking GoTrue's raw sentence impossible by type. -->
+    <string name="twofactor_msg_read_failed">No pudimos comprobar el estado de tu autenticación en dos pasos. Desliza para actualizar o inténtalo de nuevo en un momento.</string>
+    <string name="twofactor_msg_enroll_failed">No pudimos iniciar la configuración de dos pasos. Inténtalo de nuevo en un momento.</string>
+    <string name="twofactor_msg_remove_failed">No pudimos desactivar la autenticación en dos pasos. Inténtalo de nuevo en un momento.</string>
+    <string name="twofactor_msg_removed">La autenticación en dos pasos está desactivada.</string>
+    <string name="twofactor_msg_verified">La autenticación en dos pasos está activada.</string>
+    <string name="twofactor_msg_ip_mismatch">Tu red cambió mientras comprobábamos el código. Inténtalo de nuevo; mantenerte en una sola red (Wi-Fi o datos móviles) ayuda.</string>
+    <string name="twofactor_msg_code_failed">Ese código no funcionó. Revisa tu app de autenticación y prueba los seis dígitos actuales.</string>
+    <!-- US-2908: the in-app grading camera (US-2802). Live Capture's claim is
+         that the app watched the photo being taken, so this sheet cannot be
+         replaced by the library picker and its copy has to stand on its own. -->
+    <string name="gradecamera_permission_needed">Se necesita acceso a la cámara para tomar una foto aquí. También puedes añadir una desde tu galería.</string>
+    <string name="gradecamera_back">Atrás</string>
+    <string name="gradecamera_shot_failed">No se pudo guardar esa foto. Tómala de nuevo.</string>
+    <string name="gradecamera_take_photo">Tomar la foto</string>
+    <string name="gradecamera_cancel">Cancelar</string>
+    <!-- US-2908: the consumer grading flow (US-2830, US-2802). A purchase
+         surface: a Spanish seller reached the pay step and the copy turned
+         English exactly where the money is. -->
+    <string name="consumergrade_title_label">¿Qué es?</string>
+    <string name="consumergrade_kind">Tipo</string>
+    <string name="consumergrade_garment">Prenda</string>
+    <string name="consumergrade_take">Tomar</string>
+    <string name="consumergrade_replace">Reemplazar</string>
+    <string name="consumergrade_library">Galería</string>
+    <string name="consumergrade_ready">Listo para calificar.</string>
+    <string name="consumergrade_still_needed">Aún falta: %1$s</string>
+    <string name="consumergrade_live_capture_earned">Todas las fotos se tomaron aquí — esto califica para la verificación Live-Verified, que es más estricta.</string>
+    <string name="consumergrade_live_capture_hint">Toma las fotos aquí en lugar de añadirlas desde tu galería y esto calificará para la verificación Live-Verified, que es más estricta. Tu calificación nunca baja por añadirlas.</string>
+    <string name="consumergrade_photo_unreadable">No se pudo leer esa foto. Prueba con otra.</string>
+    <string name="consumergrade_submit">Calificar esta prenda</string>
+    <string name="consumergrade_uploading">Subiendo fotos</string>
+    <string name="consumergrade_checking_grades">Comprobando tus calificaciones</string>
+    <string name="consumergrade_out_of_grades">Te quedaste sin calificaciones</string>
+    <string name="consumergrade_pack_covers_this">Un paquete de %1$d calificaciones cubre esta.</string>
+    <string name="consumergrade_top_up">Recarga para calificar esta prenda.</string>
+    <string name="consumergrade_purchase_received">Compra recibida, añadiendo tus calificaciones</string>
+    <string name="consumergrade_credits_delayed_title">Tus calificaciones están tardando un momento</string>
+    <string name="consumergrade_credits_delayed_body">La compra se realizó. Esto suele llegar en menos de un minuto.</string>
+    <string name="consumergrade_check_again">Comprobar de nuevo</string>
+    <string name="consumergrade_grading">Calificando</string>
+    <string name="consumergrade_needs_photos_title">Necesitamos un conjunto más claro</string>
+    <string name="consumergrade_needs_photos_body">Vuelve a tomar las fotos marcadas e inténtalo de nuevo.</string>
+    <string name="consumergrade_graded">Calificada</string>
+    <string name="consumergrade_see_grade">Ver la calificación</string>
+    <string name="consumergrade_failed_title">Eso no se completó</string>
+    <string name="consumergrade_not_charged">No se te ha cobrado.</string>
 </resources>

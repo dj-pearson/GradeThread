@@ -1810,4 +1810,76 @@
     <string name="sourced_by_new_name">Name</string>
     <string name="sourced_by_add">Add</string>
     <string name="sourced_by_add_failed">Could not add that person. Check your connection.</string>
+    <!-- US-2908: the two-factor dialog (US-2685). Enrollment and session
+         elevation are separate states and their copy has to stay separate:
+         "enabled" shown to someone whose session is still aal1 is what leaves
+         them staring at a badge while every request is refused. -->
+    <string name="twofactor_title_default">Two-factor authentication</string>
+    <string name="twofactor_title_setup">Set up two-factor</string>
+    <string name="twofactor_title_on">Two-factor is on</string>
+    <string name="twofactor_title_verify_signin">Verify this sign-in</string>
+    <string name="twofactor_body_disabled">Two-factor adds a six-digit code from an authenticator app on top of your password. If your workspace requires it, you need this before you can do anything else.</string>
+    <string name="twofactor_body_enrolling">Add this key to your authenticator app, then enter the six digits it shows.</string>
+    <string name="twofactor_body_verified">Two-factor is on and this session is verified.</string>
+    <string name="twofactor_body_recovery_codes">Recovery codes live on gradethread.com, in Settings. They are your way back in if you lose this phone, so they are not kept on it.</string>
+    <string name="twofactor_body_needs_elevation">Two-factor is on for your account, but this sign-in has not been verified yet. Enter the current six digits from your authenticator app.</string>
+    <string name="twofactor_code_label">Six-digit code</string>
+    <string name="twofactor_turn_on">Turn on</string>
+    <string name="twofactor_turn_off">Turn off</string>
+    <string name="twofactor_verify">Verify</string>
+    <string name="twofactor_done">Done</string>
+    <string name="twofactor_close">Close</string>
+    <string name="twofactor_try_again">Try again</string>
+    <!-- US-2908: two-factor messages that used to live as English constants in
+         TwoFactorStore and TwoFactorPolicy. They reach the dialog through
+         state.error / state.notice / Phase.Failed, so translating the dialog
+         alone left a Spanish seller reading English on a security surface. The
+         functions now return a @StringRes id and the Composable resolves it,
+         which also makes leaking GoTrue's raw sentence impossible by type. -->
+    <string name="twofactor_msg_read_failed">We couldn\'t check your two-factor status. Pull to refresh, or try again in a moment.</string>
+    <string name="twofactor_msg_enroll_failed">We couldn\'t start two-factor setup. Try again in a moment.</string>
+    <string name="twofactor_msg_remove_failed">We couldn\'t turn two-factor off. Try again in a moment.</string>
+    <string name="twofactor_msg_removed">Two-factor authentication is off.</string>
+    <string name="twofactor_msg_verified">Two-factor authentication is on.</string>
+    <string name="twofactor_msg_ip_mismatch">Your network changed while we were checking the code. Try again — staying on one network (Wi-Fi or mobile data) helps.</string>
+    <string name="twofactor_msg_code_failed">That code didn\'t work. Check your authenticator app and try the current six digits.</string>
+    <!-- US-2908: the in-app grading camera (US-2802). Live Capture's claim is
+         that the app watched the photo being taken, so this sheet cannot be
+         replaced by the library picker and its copy has to stand on its own. -->
+    <string name="gradecamera_permission_needed">Camera access is needed to take a photo here. You can add one from your library instead.</string>
+    <string name="gradecamera_back">Back</string>
+    <string name="gradecamera_shot_failed">That shot could not be saved. Take it again.</string>
+    <string name="gradecamera_take_photo">Take the photo</string>
+    <string name="gradecamera_cancel">Cancel</string>
+    <!-- US-2908: the consumer grading flow (US-2830, US-2802). A purchase
+         surface: a Spanish seller reached the pay step and the copy turned
+         English exactly where the money is. -->
+    <string name="consumergrade_title_label">What is it?</string>
+    <string name="consumergrade_kind">Kind</string>
+    <string name="consumergrade_garment">Garment</string>
+    <string name="consumergrade_take">Take</string>
+    <string name="consumergrade_replace">Replace</string>
+    <string name="consumergrade_library">Library</string>
+    <string name="consumergrade_ready">Ready to grade.</string>
+    <string name="consumergrade_still_needed">Still needed: %1$s</string>
+    <string name="consumergrade_live_capture_earned">Every photo was taken here — this qualifies for the stronger Live-Verified check.</string>
+    <string name="consumergrade_live_capture_hint">Take the photos here instead of adding them from your library and this qualifies for the stronger Live-Verified check. Your grade is never lowered for adding them.</string>
+    <string name="consumergrade_photo_unreadable">That photo could not be read. Try another.</string>
+    <string name="consumergrade_submit">Grade this garment</string>
+    <string name="consumergrade_uploading">Uploading photos</string>
+    <string name="consumergrade_checking_grades">Checking your grades</string>
+    <string name="consumergrade_out_of_grades">You are out of grades</string>
+    <string name="consumergrade_pack_covers_this">A %1$d-grade pack covers this one.</string>
+    <string name="consumergrade_top_up">Top up to grade this garment.</string>
+    <string name="consumergrade_purchase_received">Purchase received, adding your grades</string>
+    <string name="consumergrade_credits_delayed_title">Your grades are taking a moment</string>
+    <string name="consumergrade_credits_delayed_body">The purchase went through. This usually lands within a minute.</string>
+    <string name="consumergrade_check_again">Check again</string>
+    <string name="consumergrade_grading">Grading</string>
+    <string name="consumergrade_needs_photos_title">We need a clearer set</string>
+    <string name="consumergrade_needs_photos_body">Retake the flagged shots and try again.</string>
+    <string name="consumergrade_graded">Graded</string>
+    <string name="consumergrade_see_grade">See the grade</string>
+    <string name="consumergrade_failed_title">That did not go through</string>
+    <string name="consumergrade_not_charged">You have not been charged.</string>
 </resources>

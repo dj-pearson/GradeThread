@@ -26,8 +26,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.R
 import com.gradethread.app.ai.AiItemFields
 import com.gradethread.app.billing.ConsumerCreditPackSheet
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -124,18 +126,23 @@ private fun DraftStep(
             OutlinedTextField(
                 value = draft.title,
                 onValueChange = onTitleChange,
-                label = { Text("What is it?") },
+                label = { Text(stringResource(R.string.consumergrade_title_label)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
 
         item {
-            VocabularyRow("Kind", Vocabulary.TYPE, draft.garmentType, onTypeChange)
+            VocabularyRow(stringResource(R.string.consumergrade_kind), Vocabulary.TYPE, draft.garmentType, onTypeChange)
         }
 
         item {
-            VocabularyRow("Garment", Vocabulary.CATEGORY, draft.garmentCategory, onCategoryChange)
+            VocabularyRow(
+                stringResource(R.string.consumergrade_garment),
+                Vocabulary.CATEGORY,
+                draft.garmentCategory,
+                onCategoryChange,
+            )
         }
 
         items(PhotoGradeContract.requiredGradingTypes) { slot ->
@@ -147,14 +154,22 @@ private fun DraftStep(
                     PhotoGradeError.friendlyName(slot).replaceFirstChar { it.uppercase() },
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { onTakePhoto(slot) }) { Text("Take") }
+                TextButton(onClick = { onTakePhoto(slot) }) { Text(stringResource(R.string.consumergrade_take)) }
                 TextButton(onClick = {
                     pendingSlot = slot
                     picker.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
                     )
                 }) {
-                    Text(if (draft.shots.containsKey(slot)) "Replace" else "Library")
+                    Text(
+                        stringResource(
+                            if (draft.shots.containsKey(slot)) {
+                                R.string.consumergrade_replace
+                            } else {
+                                R.string.consumergrade_library
+                            },
+                        ),
+                    )
                 }
             }
         }
@@ -164,10 +179,12 @@ private fun DraftStep(
             // the vision spend, and by then the person has already waited.
             Text(
                 if (draft.missing.isEmpty()) {
-                    "Ready to grade."
+                    stringResource(R.string.consumergrade_ready)
                 } else {
-                    "Still needed: " +
-                        draft.missing.joinToString(", ") { PhotoGradeError.friendlyName(it) }
+                    stringResource(
+                        R.string.consumergrade_still_needed,
+                        draft.missing.joinToString(", ") { PhotoGradeError.friendlyName(it) },
+                    )
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -179,15 +196,13 @@ private fun DraftStep(
             // the photos were taken, so the honest thing to show is which
             // side of that line this submission is on.
             Text(
-                if (draft.isLiveCapture) {
-                    "Every photo was taken here — this qualifies for the " +
-                        "stronger Live-Verified check."
-                } else {
-                    "Take the photos here instead of adding them from your " +
-                        "library and this qualifies for the stronger " +
-                        "Live-Verified check. Your grade is never lowered for " +
-                        "adding them."
-                },
+                stringResource(
+                    if (draft.isLiveCapture) {
+                        R.string.consumergrade_live_capture_earned
+                    } else {
+                        R.string.consumergrade_live_capture_hint
+                    },
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -196,7 +211,7 @@ private fun DraftStep(
         if (draft.loadFailed) {
             item {
                 Text(
-                    "That photo could not be read. Try another.",
+                    stringResource(R.string.consumergrade_photo_unreadable),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -209,7 +224,7 @@ private fun DraftStep(
                 enabled = draft.canSubmit,
                 modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
             ) {
-                Text("Grade this garment")
+                Text(stringResource(R.string.consumergrade_submit))
             }
         }
     }
@@ -283,10 +298,10 @@ private fun ProgressStep(
                     progress = { step.fraction.toFloat() },
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text("Uploading photos")
+                Text(stringResource(R.string.consumergrade_uploading))
             }
 
-            is ConsumerGradeFlow.Step.Paying -> Busy("Checking your grades")
+            is ConsumerGradeFlow.Step.Paying -> Busy(stringResource(R.string.consumergrade_checking_grades))
 
             // US-2830: a price and a way to pay it. This used to be the
             // notice alone — the flow quoted a pack size and offered no
@@ -294,9 +309,10 @@ private fun ProgressStep(
             // every photo.
             is ConsumerGradeFlow.Step.NeedsCredits -> {
                 Notice(
-                    title = "You are out of grades",
-                    body = step.offer?.let { "A ${it.credits}-grade pack covers this one." }
-                        ?: "Top up to grade this garment.",
+                    title = stringResource(R.string.consumergrade_out_of_grades),
+                    body = step.offer?.let {
+                        stringResource(R.string.consumergrade_pack_covers_this, it.credits)
+                    } ?: stringResource(R.string.consumergrade_top_up),
                 )
                 ConsumerCreditPackSheet(
                     onPurchase = { onPurchase(step.submissionId) },
@@ -307,18 +323,18 @@ private fun ProgressStep(
             // balance moves server-side, so someone who just paid is owed a
             // sentence.
             is ConsumerGradeFlow.Step.AwaitingCredits ->
-                Busy("Purchase received, adding your grades")
+                Busy(stringResource(R.string.consumergrade_purchase_received))
 
             is ConsumerGradeFlow.Step.CreditsDelayed -> {
                 Notice(
-                    title = "Your grades are taking a moment",
-                    body = "The purchase went through. This usually lands within a minute.",
+                    title = stringResource(R.string.consumergrade_credits_delayed_title),
+                    body = stringResource(R.string.consumergrade_credits_delayed_body),
                 )
                 // The state says "check again" and, until now, gave nobody
                 // anything to check with. A grant that missed the poll
                 // window is not a failure and may already have landed.
                 BrandSecondaryButton(
-                    text = "Check again",
+                    text = stringResource(R.string.consumergrade_check_again),
                     modifier = Modifier.fillMaxWidth(),
                 ) { onRecheck(step.submissionId) }
             }
@@ -326,20 +342,26 @@ private fun ProgressStep(
             // Indeterminate on purpose: the server sends nothing until it is
             // done, so a percentage here would be invented.
             is ConsumerGradeFlow.Step.Grading ->
-                Busy(step.statusText.ifEmpty { "Grading" })
+                Busy(step.statusText.ifEmpty { stringResource(R.string.consumergrade_grading) })
 
             is ConsumerGradeFlow.Step.NeedsPhotos -> Notice(
-                title = "We need a clearer set",
-                body = step.messages.firstOrNull() ?: "Retake the flagged shots and try again.",
+                title = stringResource(R.string.consumergrade_needs_photos_title),
+                body = step.messages.firstOrNull()
+                    ?: stringResource(R.string.consumergrade_needs_photos_body),
             )
 
             is ConsumerGradeFlow.Step.Graded -> {
-                Text("Graded", style = MaterialTheme.typography.titleMedium)
-                Button(onClick = { onViewGrade(step.submissionId) }) { Text("See the grade") }
+                Text(
+                    stringResource(R.string.consumergrade_graded),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Button(onClick = { onViewGrade(step.submissionId) }) {
+                    Text(stringResource(R.string.consumergrade_see_grade))
+                }
             }
 
             is ConsumerGradeFlow.Step.Failed -> Notice(
-                title = "That did not go through",
+                title = stringResource(R.string.consumergrade_failed_title),
                 body = step.message,
             )
         }
@@ -373,7 +395,7 @@ private fun Notice(title: String, body: String, modifier: Modifier = Modifier) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         Text(body, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
-            "You have not been charged.",
+            stringResource(R.string.consumergrade_not_charged),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

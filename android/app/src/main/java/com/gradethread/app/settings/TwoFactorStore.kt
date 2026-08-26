@@ -1,5 +1,7 @@
 package com.gradethread.app.settings
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -34,9 +36,7 @@ import javax.inject.Inject
  * The screen says where they live instead.
  */
 @HiltViewModel
-class TwoFactorStore @Inject constructor(
-    private val client: SupabaseClient,
-) : ViewModel() {
+class TwoFactorStore @Inject constructor(private val client: SupabaseClient) : ViewModel() {
 
     /**
      * What the user is looking at.
@@ -51,11 +51,7 @@ class TwoFactorStore @Inject constructor(
         data object Disabled : Phase
 
         /** A factor exists but is unverified: show the QR and the code box. */
-        data class Enrolling(
-            val factorId: String,
-            val secret: String,
-            val uri: String,
-        ) : Phase
+        data class Enrolling(val factorId: String, val secret: String, val uri: String) : Phase
 
         /**
          * A verified factor exists. [aal2] says whether THIS session has been
@@ -63,14 +59,14 @@ class TwoFactorStore @Inject constructor(
          */
         data class Enabled(val factorId: String, val aal2: Boolean) : Phase
 
-        data class Failed(val message: String) : Phase
+        data class Failed(@StringRes val message: Int) : Phase
     }
 
     data class State(
         val phase: Phase = Phase.Loading,
         val busy: Boolean = false,
-        val notice: String? = null,
-        val error: String? = null,
+        @StringRes val notice: Int? = null,
+        @StringRes val error: Int? = null,
     )
 
     private val _state = MutableStateFlow(State())
@@ -240,12 +236,14 @@ class TwoFactorStore @Inject constructor(
 
     private companion object {
         const val ISSUER = "GradeThread"
-        const val READ_FAILED =
-            "We couldn't check your two-factor status. Pull to refresh, or try again in a moment."
-        const val ENROLL_FAILED =
-            "We couldn't start two-factor setup. Try again in a moment."
-        const val REMOVE_FAILED =
-            "We couldn't turn two-factor off. Try again in a moment."
-        const val REMOVED = "Two-factor authentication is off."
+
+        // US-2908: resource ids, not English. These reach the dialog through
+        // state.error / state.notice / Phase.Failed, so while they were String
+        // constants the whole security surface came back in English for a
+        // Spanish seller no matter how well the Composable was translated.
+        val READ_FAILED = R.string.twofactor_msg_read_failed
+        val ENROLL_FAILED = R.string.twofactor_msg_enroll_failed
+        val REMOVE_FAILED = R.string.twofactor_msg_remove_failed
+        val REMOVED = R.string.twofactor_msg_removed
     }
 }

@@ -1,5 +1,7 @@
 package com.gradethread.app.settings
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
 import kotlinx.coroutines.delay
 
 /**
@@ -122,13 +124,19 @@ object TwoFactorPolicy {
      * User-facing copy. NEVER GoTrue's raw sentence (the US-1025 convention):
      * the detail goes to Sentry, the user gets something they can act on.
      */
-    fun message(outcome: Outcome): String = when (outcome) {
-        Outcome.Verified -> "Two-factor authentication is on."
-        Outcome.IpMismatch ->
-            "Your network changed while we were checking the code. Try again — " +
-                "staying on one network (Wi-Fi or mobile data) helps."
-        is Outcome.Failed ->
-            "That code didn't work. Check your authenticator app and try the " +
-                "current six digits."
+    /**
+     * US-2908: the DECISION, not the words.
+     *
+     * This used to return English, which meant a Spanish seller read English on
+     * a security surface, and it meant the US-1025 rule ("the raw GoTrue
+     * sentence never reaches the user") was enforced by a test rather than by
+     * the type. An Int cannot carry `mfa_ip_address_mismatch`, so the leak is
+     * now impossible rather than merely checked for.
+     */
+    @StringRes
+    fun message(outcome: Outcome): Int = when (outcome) {
+        Outcome.Verified -> R.string.twofactor_msg_verified
+        Outcome.IpMismatch -> R.string.twofactor_msg_ip_mismatch
+        is Outcome.Failed -> R.string.twofactor_msg_code_failed
     }
 }

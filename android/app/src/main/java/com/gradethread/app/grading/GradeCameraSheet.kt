@@ -29,9 +29,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.gradethread.app.R
 import com.gradethread.app.capture.PhotoProcessor
 import com.gradethread.app.ui.theme.Spacing
 import kotlinx.coroutines.launch
@@ -87,12 +89,11 @@ fun GradeCameraSheet(onCapture: (ByteArray) -> Unit, onCancel: () -> Unit, modif
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                "Camera access is needed to take a photo here. " +
-                    "You can add one from your library instead.",
+                stringResource(R.string.gradecamera_permission_needed),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Button(onClick = onCancel, modifier = Modifier.padding(top = Spacing.md)) {
-                Text("Back")
+                Text(stringResource(R.string.gradecamera_back))
             }
         }
         return
@@ -160,7 +161,7 @@ fun GradeCameraSheet(onCapture: (ByteArray) -> Unit, onCancel: () -> Unit, modif
         ) {
             if (failed) {
                 Text(
-                    "That shot could not be saved. Take it again.",
+                    stringResource(R.string.gradecamera_shot_failed),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -169,10 +170,10 @@ fun GradeCameraSheet(onCapture: (ByteArray) -> Unit, onCancel: () -> Unit, modif
                 failed = false
                 capture()
             }, modifier = Modifier.fillMaxWidth()) {
-                Text("Take the photo")
+                Text(stringResource(R.string.gradecamera_take_photo))
             }
             Button(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
-                Text("Cancel")
+                Text(stringResource(R.string.gradecamera_cancel))
             }
         }
     }

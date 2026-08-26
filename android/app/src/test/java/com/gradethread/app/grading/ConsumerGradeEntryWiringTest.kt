@@ -59,15 +59,40 @@ class ConsumerGradeEntryWiringTest {
         // The flow decides that needs_photos and needsCredits are not failures.
         // The screen has to SAY it — that sentence is the whole difference
         // between a refusal and an apparent wasted purchase.
+        //
+        // US-2908: the sentences moved to res/values, so each assertion is in
+        // two halves. The screen must RENDER the resource, and the resource must
+        // still SAY it. Checking only the Kotlin would pass on an id pointing at
+        // anything; checking only strings.xml would pass on a string nothing
+        // renders. Asserting the English inside the Kotlin — which is what this
+        // did — is what made a guard a reason not to translate a purchase
+        // surface, so it is the one thing not to go back to.
         val screen = source("grading/ConsumerGradeScreen.kt")
+        val strings = File("src/main/res/values/strings.xml").readText()
+        val spanish = File("src/main/res/values-es/strings.xml").readText()
+
         assertTrue(
             "the reassurance is not rendered anywhere",
-            screen.contains("You have not been charged."),
+            screen.contains("R.string.consumergrade_not_charged"),
+        )
+        assertTrue(
+            "the reassurance no longer says it",
+            strings.contains("You have not been charged."),
         )
         assertTrue(
             "the post-purchase gap has a bare spinner again",
-            screen.contains("Purchase received"),
+            screen.contains("R.string.consumergrade_purchase_received"),
         )
+        assertTrue(
+            "the post-purchase sentence no longer says it",
+            strings.contains("Purchase received"),
+        )
+        // A purchase surface that falls back to English is the defect this
+        // screen was rewritten for, so the translation is part of the contract
+        // rather than a nice-to-have.
+        listOf("consumergrade_not_charged", "consumergrade_purchase_received").forEach {
+            assertTrue("$it has no Spanish", spanish.contains("name=\"$it\""))
+        }
     }
 
     @Test

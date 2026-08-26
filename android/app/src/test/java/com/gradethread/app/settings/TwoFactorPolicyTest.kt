@@ -1,5 +1,6 @@
 package com.gradethread.app.settings
 
+import com.gradethread.app.R
 import java.io.IOException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -29,7 +30,10 @@ class TwoFactorPolicyTest {
         val outcome = TwoFactorPolicy.challengeAndVerify(
             code = "123456",
             sleep = {},
-            challenge = { challenges++; "ch-$challenges" },
+            challenge = {
+                challenges++
+                "ch-$challenges"
+            },
             verify = { _, _ -> verifies++ },
         )
         assertEquals(TwoFactorPolicy.Outcome.Verified, outcome)
@@ -63,7 +67,10 @@ class TwoFactorPolicyTest {
             code = "123456",
             sleep = {},
             challenge = { "ch-${++n}" },
-            verify = { id, _ -> challengeIds += id; if (n < 3) throw ipMismatch() },
+            verify = { id, _ ->
+                challengeIds += id
+                if (n < 3) throw ipMismatch()
+            },
         )
         assertEquals(listOf("ch-1", "ch-2", "ch-3"), challengeIds)
     }
@@ -75,7 +82,10 @@ class TwoFactorPolicyTest {
             code = "000000",
             sleep = {},
             challenge = { "ch" },
-            verify = { _, _ -> verifies++; throw wrongCode() },
+            verify = { _, _ ->
+                verifies++
+                throw wrongCode()
+            },
         )
         assertTrue(outcome is TwoFactorPolicy.Outcome.Failed)
         assertEquals("a wrong code was retried", 1, verifies)
@@ -90,7 +100,10 @@ class TwoFactorPolicyTest {
         val outcome = TwoFactorPolicy.challengeAndVerify(
             code = "123456",
             sleep = {},
-            challenge = { challenges++; throw IOException("network down") },
+            challenge = {
+                challenges++
+                throw IOException("network down")
+            },
             verify = { _, _ -> throw AssertionError("verify must not run") },
         )
         assertTrue(outcome is TwoFactorPolicy.Outcome.Failed)
@@ -107,11 +120,17 @@ class TwoFactorPolicyTest {
             retries = 2,
             sleep = {},
             challenge = { "ch" },
-            verify = { _, _ -> verifies++; throw ipMismatch() },
+            verify = { _, _ ->
+                verifies++
+                throw ipMismatch()
+            },
         )
         assertEquals(TwoFactorPolicy.Outcome.IpMismatch, outcome)
         assertEquals("retries=2 means 3 attempts in total", 3, verifies)
-        assertTrue(TwoFactorPolicy.message(outcome).contains("network changed"))
+        // US-2908: message() returns a @StringRes id now, so this asserts the
+        // MAPPING rather than the English. The wording itself is res/values and
+        // res/values-es, where the translation guard can see it.
+        assertEquals(R.string.twofactor_msg_ip_mismatch, TwoFactorPolicy.message(outcome))
     }
 
     @Test
@@ -123,7 +142,10 @@ class TwoFactorPolicyTest {
                 retries = retries,
                 sleep = {},
                 challenge = { "ch" },
-                verify = { _, _ -> verifies++; throw ipMismatch() },
+                verify = { _, _ ->
+                    verifies++
+                    throw ipMismatch()
+                },
             )
             assertEquals("retries=$retries", 1, verifies)
         }
@@ -172,19 +194,30 @@ class TwoFactorPolicyTest {
         assertEquals("", TwoFactorPolicy.normalizeCode("abcdef"))
     }
 
+    /**
+     * US-1025's rule, now enforced by the TYPE rather than by this test.
+     *
+     * message() returned English until US-2908, and the risk was that a future
+     * branch would interpolate GoTrue's own sentence into it. It returns a
+     * @StringRes id now, and an Int cannot carry "mfa_ip_address_mismatch" - so
+     * the leak is impossible rather than merely checked for.
+     *
+     * What is still worth asserting is that every outcome maps to a REAL and
+     * DISTINCT resource. A `when` that fell through to one id would show the
+     * same sentence for "verified" and "that code didn't work", which is a
+     * worse failure than an untranslated string and would pass any test that
+     * only asked for non-blankness.
+     */
     @Test
-    fun `no user-facing message repeats GoTrue's sentence`() {
-        // US-1025 convention: the raw detail goes to the tracker, the user gets
-        // something they can act on.
-        val raw = "mfa_ip_address_mismatch"
-        val messages = listOf(
+    fun `every outcome maps to its own real string resource`() {
+        val ids = listOf(
             TwoFactorPolicy.message(TwoFactorPolicy.Outcome.Verified),
             TwoFactorPolicy.message(TwoFactorPolicy.Outcome.IpMismatch),
-            TwoFactorPolicy.message(TwoFactorPolicy.Outcome.Failed(RuntimeException(raw))),
+            TwoFactorPolicy.message(
+                TwoFactorPolicy.Outcome.Failed(RuntimeException("mfa_ip_address_mismatch")),
+            ),
         )
-        for (m in messages) {
-            assertFalse("leaked the raw error: $m", m.contains(raw))
-            assertTrue("empty message", m.isNotBlank())
-        }
+        for (id in ids) assertTrue("unresolved resource id", id != 0)
+        assertEquals("two outcomes share a message", ids.size, ids.toSet().size)
     }
 }

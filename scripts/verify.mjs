@@ -590,7 +590,7 @@ if (on("android")) {
     // compiler cannot -- a token in logcat, a string that can never be
     // translated, a format-arity mismatch that throws in one language only.
     run("android: no ungated logging", `${py} scripts/no-ungated-log.py`, a);
-    run("android: no bare strings (scoped)", `${py} scripts/no-bare-strings.py`, a);
+    run("android: no bare strings", `${py} scripts/no-bare-strings.py`, a);
     run("android: string format arity", `${py} scripts/check-string-formats.py`, a);
     // US-2502: a Room version whose schema JSON was never committed cannot be
     // migration-tested, ever. Catch it while the file can still be produced.
