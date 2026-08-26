@@ -22,6 +22,7 @@ import {
 import { cn } from "@/lib/utils";
 import { blockerTarget } from "@/lib/publish-blockers";
 import type { PhotoQaIssue } from "@/types/database";
+import type { SizeConflict } from "@/pages/flipdesk/autolister/group-warnings";
 
 /** One draft as the publish dialog sees it, with its eBay pre-flight result. */
 export interface PreflightItem {
@@ -59,6 +60,48 @@ export function PhotoQaBadge({
       <Camera className="h-3 w-3" />
       Photos {score}
     </Badge>
+  );
+}
+
+// US-2919: this draft's size disagrees with its own measurements.
+//
+// Amber, not destructive, and it never gates publish: US-2915 decided the check
+// offers a fix and gets out of the way. The implied size is on the chip itself
+// because the point of a queue badge is to be readable without opening anything.
+export function SizeConflictBadge({
+  conflict,
+  onFix,
+}: {
+  conflict?: SizeConflict;
+  onFix?: (itemId: string, nextSize: string) => void;
+}) {
+  if (!conflict) return null;
+  const estimate = conflict.tier === "generic" ? " (estimate)" : "";
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      <Badge
+        variant="outline"
+        className="gap-1 border-amber-500/40 bg-amber-500/10 text-[10px] text-amber-700 dark:text-amber-300"
+        title={
+          `Labelled ${conflict.labelled}, but the measurements point to ` +
+          `${conflict.impliedSize}${estimate}. Publishing is not blocked.`
+        }
+      >
+        <Ruler className="h-3 w-3" />
+        Size? {conflict.impliedSize}
+      </Badge>
+      {conflict.fix && onFix && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7 shrink-0 px-2 text-xs text-muted-foreground"
+          aria-label={`Change ${conflict.name} from size ${conflict.labelled} to ${conflict.fix}`}
+          onClick={() => onFix(conflict.itemId, conflict.fix!)}
+        >
+          Change to {conflict.fix}
+        </Button>
+      )}
+    </span>
   );
 }
 

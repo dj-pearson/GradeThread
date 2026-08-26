@@ -20,6 +20,7 @@ import { estimateListingProfit } from "@/lib/listing-profit";
 import { textChanged } from "@/lib/listing-ai-diff";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
 import { cn } from "@/lib/utils";
+import type { SizeConflict } from "@/pages/flipdesk/autolister/group-warnings";
 
 // US-2520: the bulk-edit grid's cell renderers, lifted out of
 // autolister-bulk-edit.tsx. Every one of them is prop-only — no page state, no
@@ -444,5 +445,37 @@ export function CategorySearchControl({
         )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+// US-2919: the size-versus-measurements note inside the bulk grid's Size cell.
+//
+// A grid cell is not a composer, so this is the short form: the size the
+// measurements point at, and a button that writes it into this row. The row is
+// marked dirty like any other edit and saves with the rest of the batch, so a
+// seller can sweep a whole batch of size fixes and press Save once.
+export function SizeConflictNote({
+  conflict,
+  onFix,
+}: {
+  conflict?: SizeConflict;
+  onFix: (nextSize: string) => void;
+}) {
+  if (!conflict) return null;
+  return (
+    <p className="mt-1 text-[10px] leading-tight text-amber-700 dark:text-amber-300">
+      Measures like {conflict.impliedSize}
+      {conflict.tier === "generic" ? " (estimate)" : ""}.{" "}
+      {conflict.fix && (
+        <button
+          type="button"
+          className="underline underline-offset-2"
+          aria-label={`Change ${conflict.name} from size ${conflict.labelled} to ${conflict.fix}`}
+          onClick={() => onFix(conflict.fix!)}
+        >
+          Change to {conflict.fix}
+        </button>
+      )}
+    </p>
   );
 }

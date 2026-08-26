@@ -6,8 +6,15 @@ import {
   PhotoQaBadge,
   PreflightBadge,
   PublishConfirmDialog,
+  SizeConflictBadge,
   type PreflightItem,
 } from "./autolister/queue-cells";
+import {
+  sizeCheckableDraft,
+  useApplySizeFix,
+  useSizeConflicts,
+} from "./autolister/use-size-conflicts";
+import { useAutolisterItemMeta } from "./autolister/use-item-meta";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -60,7 +67,7 @@ import { useEbayConnection } from "@/hooks/use-ebay";
 import { ReconcilePanel } from "@/components/flipdesk/reconcile-panel";
 import { VirtualList } from "@/components/flipdesk/virtual-list";
 import { PhotoUploader } from "@/components/flipdesk/photo-uploader";
-import type { ItemCategory, ItemStatus, PhotoQaIssue } from "@/types/database";
+import type { ItemCategory, ItemStatus } from "@/types/database";
 import { cn } from "@/lib/utils";
 import { FilterEmpty } from "@/components/flipdesk/filter-empty";
 
@@ -151,54 +158,30 @@ export function FlipdeskAutolisterQueuePage() {
   // meta map when the batch's id set changes without changing size.
   const itemIdsKey = useMemo(() => [...itemIds].sort().join(","), [itemIds]);
 
-  // Item titles + persisted photo-QA (US-537) for friendlier, actionable rows.
-  interface ItemMeta {
-    title: string;
-    qaScore: number | null;
-    qaIssues: PhotoQaIssue[];
-    /** US-1578: informational — the item carries flat measurements. */
-    hasMeasurements: boolean;
-    /** Feed the in-cockpit "Add photos" uploader the right slot profile + status. */
-    category: ItemCategory | null;
-    status: ItemStatus | null;
-  }
-  const { data: itemMeta = {} } = useQuery<Record<string, ItemMeta>>({
-    queryKey: ["autolister_item_meta", batchId, itemIdsKey],
-    enabled: itemIds.length > 0,
-    queryFn: async () => {
-      // US-554: chunk so large batches don't overflow the `in` list.
-      const CHUNK = 200;
-      const map: Record<string, ItemMeta> = {};
-      for (let i = 0; i < itemIds.length; i += CHUNK) {
-        const { data: rows } = await supabase
-          .from("inventory_items")
-          .select("id, title, photo_qa_score, photo_qa_issues, measurements, item_category, status")
-          .in("id", itemIds.slice(i, i + CHUNK));
-        for (
-          const r of (rows ?? []) as Array<{
-            id: string;
-            title: string;
-            photo_qa_score: number | null;
-            photo_qa_issues: PhotoQaIssue[] | null;
-            measurements: Record<string, unknown> | null;
-            item_category: ItemCategory | null; // US-2804: was `category`
-            status: ItemStatus | null;
-          }>
-        ) {
-          map[r.id] = {
-            title: r.title,
-            qaScore: r.photo_qa_score,
-            qaIssues: r.photo_qa_issues ?? [],
-            hasMeasurements: !!r.measurements &&
-              Object.keys(r.measurements).length > 0,
-            category: r.item_category ?? null,
-            status: r.status ?? null,
-          };
-        }
-      }
-      return map;
-    },
-  });
+  const { data: itemMeta = {} } = useAutolisterItemMeta(batchId, itemIds, itemIdsKey);
+
+  // US-2919: does each generated draft's size agree with its own measurements?
+  // Band tables are fetched once per distinct brand + garment + gender in the
+  // batch; a draft with no size, no measurements or no chart produces nothing
+  // at all, no warning and no empty state.
+  const sizeDrafts = useMemo(
+    () =>
+      jobs.map((j) => {
+        const m = itemMeta[j.inventory_item_id];
+        return sizeCheckableDraft({
+          itemId: j.inventory_item_id,
+          name: m?.title ?? null,
+          brand: m?.brand ?? null,
+          garment: m?.garment ?? null,
+          size: m?.size ?? null,
+          measurements: m?.measurements ?? null,
+        });
+      }),
+    [jobs, itemMeta],
+  );
+  const sizeConflicts = useSizeConflicts(sizeDrafts);
+  const applySizeFix = useApplySizeFix();
+
   // Position in the batch, so an untitled row reads "Generation 3" rather than
   // leaking a raw inventory_item_id. Keyed off the FULL job list (not the
   // filtered view) so the number stays stable as the user filters.
@@ -965,6 +948,12 @@ export function FlipdeskAutolisterQueuePage() {
               )}
               <MeasurementsBadge
                 has={itemMeta[job.inventory_item_id]?.hasMeasurements}
+              />
+              {/* US-2919: the size on the label disagrees with the numbers on
+                  the item. Never gates publish — it offers the fix and stops. */}
+              <SizeConflictBadge
+                conflict={sizeConflicts[job.inventory_item_id]}
+                onFix={applySizeFix}
               />
 
               {/* US-954: background eBay pre-flight — ready / will-block(reason)

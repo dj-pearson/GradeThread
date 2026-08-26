@@ -2846,24 +2846,6 @@
       "priority": 27
     },
     {
-      "id": "US-2919",
-      "passes": false,
-      "title": "AutoLister review: surface size-vs-measurement conflicts as a group warning",
-      "description": "As a reseller reviewing a bulk AI batch, I want mis-sized items flagged in the queue, so that I catch the AI's size mistakes before I publish forty listings.",
-      "acceptanceCriteria": [
-        "The size check runs over each generated draft that has both a size and at least one comparable measurement, and its verdict feeds src/pages/flipdesk/autolister/group-warnings.ts as a new warning kind.",
-        "The queue row shows the conflict inline (src/pages/flipdesk/autolister/queue-cells.tsx) with the implied size.",
-        "src/pages/flipdesk/autolister-bulk-edit.tsx lets the size be corrected from the warning without opening the composer.",
-        "Band tables are fetched once per distinct brand+garment pair in the batch, not once per item. A 40-item batch of 6 brands issues 6 requests or fewer.",
-        "Items with no chart at any tier produce no warning and no empty state.",
-        "A test under src/pages/flipdesk/autolister/__tests__ asserts a batch of 3 items where exactly 1 is mis-sized produces exactly 1 warning."
-      ],
-      "priority": 36,
-      "dependsOn": [
-        "US-2918"
-      ]
-    },
-    {
       "id": "US-2920",
       "passes": false,
       "title": "iOS: size check in the item composer",

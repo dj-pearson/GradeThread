@@ -6,6 +6,7 @@ import {
   DescriptionCell,
   PnlCell,
   PolicyBadges,
+  SizeConflictNote,
   SpecificsCell,
 } from "./autolister/bulk-edit-cells";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -63,6 +64,7 @@ import { pruneSources, type AspectSourceMap } from "@/lib/aspect-provenance";
 import { changesFromItemDiff } from "@/lib/title-sync";
 import { buildTitleSyncPatch } from "@/lib/title-sync-patch";
 import { itemRowLabel, rowControlLabel } from "@/lib/item-row-label";
+import { useSizeConflictsForGrid } from "@/pages/flipdesk/autolister/use-size-conflicts";
 
 const TITLE_MAX = 80;
 
@@ -343,6 +345,9 @@ export function FlipdeskAutolisterBulkEditPage() {
       prev.map((r) => (r.id === id ? { ...r, ...patch, dirty: true } : r)),
     );
   }
+
+  // US-2919: the rows labelled one size that measure like another.
+  const sizeConflicts = useSizeConflictsForGrid(rows, itemAttrs);
 
   function applyToTargets(fn: (r: EditRow) => Partial<EditRow>) {
     setRows((prev) =>
@@ -1843,6 +1848,11 @@ export function FlipdeskAutolisterBulkEditPage() {
                         className="mt-1"
                       />
                     )}
+                    {/* US-2919: fix a mis-sized draft without the composer. */}
+                    <SizeConflictNote
+                      conflict={sizeConflicts[r.itemId]}
+                      onFix={(next) => patchRow(r.id, { size: next })}
+                    />
                   </td>
                   <td className="p-2">
                     <Input aria-label={rowControlLabel("Color", rowItem)}
