@@ -55,6 +55,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useSources } from "@/hooks/use-sources";
+import { SourcerRosterCard } from "@/components/flipdesk/sourcer-roster-card";
 import {
   FLIPDESK_SOURCE_TYPES,
   FLIPDESK_SOURCE_TYPE_LABELS,
@@ -295,6 +296,8 @@ export function FlipdeskSourcesPage() {
           )}
         </CardContent>
       </Card>
+
+      <SourcerRosterCard />
 
       <SourceEditDialog
         state={editing}

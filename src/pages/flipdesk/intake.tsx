@@ -46,6 +46,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useSources } from "@/hooks/use-sources";
+import { SourcedBySelect } from "@/components/flipdesk/sourced-by-select";
 import { BulkIntake } from "@/components/flipdesk/bulk-intake";
 import { SnapCatalog } from "@/components/flipdesk/snap-catalog";
 import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
@@ -754,11 +755,12 @@ export function FlipdeskIntakePage() {
                 />
               )}
             </div>
-            <Field
+            <SourcedBySelect
+              id="intake-sourced-by"
+              className="space-y-1"
               label="Sourced By"
               value={form.sourced_by}
               onChange={(v) => patch("sourced_by", v)}
-              placeholder="e.g. Dan, Spouse, Joint"
             />
             <Field
               label="Purchase Date"

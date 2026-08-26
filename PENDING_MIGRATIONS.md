@@ -1,4 +1,64 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
+
+## PENDING and BLOCKING: 00673 — take SECURITY DEFINER off ensure_sourcer (US-2886)
+
+**Apply this. 00672 is already on prod and this closes a hole it opened.**
+
+**The problem it fixes.** 00672 shipped `public.ensure_sourcer()` as SECURITY
+DEFINER, copying the trigger functions next to it. On a Supabase stack a
+callable SECURITY DEFINER function that says nothing about who may execute it
+inherits DIRECT grants to `anon` and `authenticated` from Supabase's own
+`ALTER DEFAULT PRIVILEGES` bootstrap — so any signed-in session could POST to
+it and write a roster row into ANOTHER workspace, because the definer context
+bypasses the RLS on `public.sourcers` that is the only thing scoping that
+insert. `src/test/security-definer-grants.test.ts` (US-2282) caught it.
+
+**What it does.** No DDL on tables. One `DROP FUNCTION IF EXISTS` plus a
+`CREATE OR REPLACE` of the same body without the definer flag. The two triggers
+from 00672 are untouched: a trigger function's EXECUTE is never consulted, and a
+SECURITY INVOKER function called from inside a definer trigger still runs as the
+definer, so the roster keeps filling itself.
+
+**Why not just GRANT it to service_role.** That satisfies the guard and leaves
+the hole. The default grants are direct, so only a REVOKE removes them, and a
+REVOKE on a public function is the US-2403 segfault. Removing the flag is the
+fix that actually closes it.
+
+**Risk: LOW.** Idempotent. Dropping a function that PL/pgSQL triggers call by
+name is safe — the name resolves at runtime, so there is no dependency error and
+no window where the triggers break.
+
+**Apply order.** After 00672. `EXPECTED_SCHEMA_VERSION` is bumped to `00673`.
+No `NOTIFY pgrst` needed — a function's security flag changed, not a column.
+
+
+## APPLIED: 00672 — sourcers roster (US-2886)
+
+**Applied to prod by the owner on 2026-08-25**, before the push. The
+`SELECT public.ensure_sourcer(...)` backfill returned 28 empty rows, which is
+what a `void` function returning one row per account looks like — not an error.
+
+**What it does.** New `public.sourcers` table (workspace roster of people who
+source inventory), RLS mirroring `public.sources` (viewer+ read,
+listing_manager+ write), two helper functions and two AFTER INSERT triggers so a
+new account gets itself and a new workspace member gets added to the owner's
+roster. Backfills every distinct `inventory_items.sourced_by` name first, then
+links the user rows onto them.
+
+**`inventory_items.sourced_by` is unchanged and still text.** The roster only
+decides what the picker OFFERS. iOS, Android, the CSV importer and the Sheets
+projection keep reading and writing the same name string.
+
+**Risk: LOW.** Additive DDL, idempotent, no REVOKE. The triggers wrap their work
+in `EXCEPTION WHEN OTHERS THEN NULL` so roster bookkeeping can never fail a
+signup or an invite acceptance.
+
+**`NOTIFY pgrst` not needed** — verified by reading the prod PostgREST OpenAPI
+doc with the anon key on 2026-08-25: `/sourcers` is already an exposed path.
+
+**Frontend dependency.** The web picker reads `sourcers` straight from the
+browser, so the push had to come after this. It did.
+
 ## 🚨 PENDING and BLOCKING: 00671 — unfreeze the eight columns 00668/00669 added (US-2852, US-2853)
 
 **Apply this BEFORE pushing. 00668 and 00669 are already applied and are not

@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SourcedBySelect } from "@/components/flipdesk/sourced-by-select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
@@ -342,16 +343,12 @@ export function BulkIntake() {
               />
             )}
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="bi-sourced-by">Sourced by</Label>
-            <Input id="bi-sourced-by"
-              value={session.sourcedBy}
-              onChange={(e) =>
-                setSession((s) => ({ ...s, sourcedBy: e.target.value }))
-              }
-              placeholder="e.g. Dan"
-            />
-          </div>
+          <SourcedBySelect
+            id="bi-sourced-by"
+            className="space-y-1"
+            value={session.sourcedBy}
+            onChange={(v) => setSession((s) => ({ ...s, sourcedBy: v }))}
+          />
           <div className="space-y-1">
             <Label htmlFor="bi-container-bin">Container / Bin</Label>
             <Input id="bi-container-bin"

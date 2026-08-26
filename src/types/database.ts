@@ -1584,6 +1584,22 @@ export interface SourceRow {
   updated_at: string;
 }
 
+// US-2886 (00672): the per-workspace roster of PEOPLE who source inventory.
+// Feeds the "Sourced by" picker; inventory_items.sourced_by still stores the
+// chosen NAME as text, so iOS/Android/CSV/Sheets keep working unchanged.
+export interface SourcerRow {
+  id: string;
+  user_id: string;
+  name: string;
+  // The real user this entry IS, when it is one. NULL for people who are not
+  // users of the workspace (a spouse, a picker, "Joint").
+  member_user_id: string | null;
+  // Set = hidden from the pickers. Historical sourced_by text is untouched.
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // US-600: consignment mode. Base table from 00107 (US-676); the status /
 // Stripe-Connect / intake columns are added in 00171.
 export interface ConsignorRow {

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2886",
+  "nextId": "US-2891",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2500,6 +2500,92 @@
       ],
       "priority": 76,
       "notes": "Split out of US-2879 on 2026-08-25 rather than left as an unmet AC. It carries a migration (the token table) and session-minting logic, so it is a security-shaped story, not a UI one -- load the tenant-isolation and migrations skills before starting. The three surfaces it links out are pinned by src/test/web-only-surfaces.test.ts, so read that list rather than retyping it."
+    },
+    {
+      "id": "US-2886",
+      "passes": false,
+      "title": "Sourced by is a workspace roster, not free text",
+      "description": "inventory_items.sourced_by was a free-text box on four FlipDesk surfaces, so the same person arrived as Dan, dan and DJ and the sourcing reports could never be trusted. 00672 adds a per-workspace sourcers roster: the owner and every workspace_members row are added by trigger, existing sourced_by names are backfilled, and anyone who is not a user (a spouse, a picker, Joint) can be added inline from the picker or managed on the Sources page. The column stays text so iOS, Android, the CSV importer and the Sheets projection keep working unchanged.",
+      "acceptanceCriteria": [
+        "Composer, intake, bulk intake and snap catalog all pick Sourced by from a dropdown instead of a text input",
+        "The dropdown lists the signed-in person first, then the rest of the roster alphabetically",
+        "Add person from inside the dropdown creates the roster entry and selects it without leaving the form",
+        "Workspace owner and every workspace member appear on the roster with no manual step",
+        "A name already on an item but not on the roster stays selectable so old items do not open blank",
+        "Sources page has a roster card that adds, renames and archives people; a rename rewrites sourced_by on every item carrying the old name",
+        "PLATFORM GAP: iOS DetailsIntakeView and Android DetailsIntakeScreen still use a free-text Sourced by field"
+      ],
+      "priority": 40
+    },
+    {
+      "id": "US-2887",
+      "passes": false,
+      "title": "iOS and Android pick Sourced by from the roster too",
+      "description": "US-2886 turned the web Sourced by field into a roster picker backed by public.sourcers (00672). iOS DetailsIntakeView and Android DetailsIntakeScreen still show a plain TextField, so a name typed on a phone can reintroduce the Dan/dan/DJ spread the roster exists to stop. Needs the sourcers table pulled into the SwiftData and Room stores and synced like sources, then the text fields swapped for a picker with an inline add.",
+      "acceptanceCriteria": [
+        "sourcers is a synced local model on iOS (SwiftData) and Android (Room), refreshed by the same sync path as sources",
+        "DetailsIntakeView and DetailsIntakeScreen show a picker over the roster instead of a free-text field",
+        "Both let the user add a person inline without leaving intake",
+        "A name already on an item but not on the roster stays selectable"
+      ],
+      "priority": 60,
+      "dependsOn": [
+        "US-2886"
+      ]
+    },
+    {
+      "id": "US-2888",
+      "passes": false,
+      "title": "A rotated MeasureCard photo keeps its calibration, and a line can be moved as a whole",
+      "description": "Rotating a MeasureCard photo left item_photos.measure_calibration describing pixels that no longer existed: the homography measured along the old axis and every stored line endpoint kept its old coordinate, so on a portrait-to-landscape turn endpoints landed past the new edge of the picture. They were still saved and still counted, and there was no way to retrieve one, because dragging an endpoint was the only gesture that moved it. The panel also did not refresh after a photo edit, so 'rotate, save, reload' was the only sequence that showed the new image. A quarter turn is a rigid motion, so the calibration carries across exactly and no card has to be re-detected; anything that resamples the frame is cleared honestly instead. Adds a whole-line drag (pointer and keyboard), a recovery button for geometry stranded outside the frame, and a one-press 'Turn upright' read off the card's own orientation, which is the affordance that stops a seller rotating photos one at a time.",
+      "acceptanceCriteria": [
+        "A quarter-turn photo edit rewrites measure_calibration: the homography reads the rotated image and every stored line endpoint lands inside the new frame, with the inches unchanged.",
+        "A crop or straighten clears measure_calibration rather than leaving stale geometry, and the editor re-detects the card without a page reload.",
+        "item_photos.width/height are written on every photo edit that changes the pixel dimensions.",
+        "Dragging the middle of a measurement line slides the whole line: length and angle are preserved, and the clamp applies to the move, not to the endpoints.",
+        "The whole-line move has a keyboard equivalent on the same step rule as the endpoint nudge, announced as a move rather than as a measurement.",
+        "Lines stored outside the photo are counted and can be brought back into view in one press, keeping their length.",
+        "When the MeasureCard is not upright, the panel offers a one-press turn derived from the calibration homography, written through persistPhotoEdit so the original is preserved.",
+        "A forced re-detect (/calibrate force) keeps the seller's dragged line placements instead of writing a calibration with no lines.",
+        "Saving a photo edit refreshes the MeasureCard panel and its generated overlay without a page reload.",
+        "OPERATOR: auto-rotating photos at AutoLister/AI intake is NOT in this story - it needs a server-side image rewrite and is tracked separately."
+      ],
+      "priority": 2
+    },
+    {
+      "id": "US-2889",
+      "passes": false,
+      "title": "iOS: a rotate leaves the MeasureCard calibration describing the old pixels",
+      "description": "PhotoRotateService rewrites a photo's bytes and never touches item_photos.measure_calibration, which is exactly the failure the web half fixed in US-2888: the homography goes on measuring along the old axis and every stored line endpoint keeps its old coordinate, so a portrait-to-landscape turn puts endpoints outside the frame. MeasurementPhotoEditorView then draws them off-screen with no way to reach them, because the iOS editor moves an endpoint by dragging it or by the four nudge buttons and both need the endpoint to be on screen. The math is already written and unit-tested in src/lib/measure-photo-geometry.ts - a quarter turn is rigid, so the calibration carries across exactly (rotate every endpoint, post-multiply the homography by the inverse quarter affine) and nothing has to be re-detected. Port that, plus the whole-line drag and the bring-back-into-view recovery, so a seller who uses both clients does not meet two different answers. NOT verifiable on the Windows dev box - Swift needs the macOS runners.",
+      "acceptanceCriteria": [
+        "A quarter-turn rotate on iOS rewrites measure_calibration: endpoints land inside the new frame and the measured inches are unchanged.",
+        "Any non-quarter-turn edit clears the calibration rather than leaving stale geometry.",
+        "The iOS measurement editor can move a whole line without changing its length or angle.",
+        "Lines stored outside the photo can be brought back into view in one action.",
+        "The rotation and recenter math matches src/lib/measure-photo-geometry.ts case for case, through the shared fixture file rather than a second implementation."
+      ],
+      "priority": 4,
+      "dependsOn": [
+        "US-2888"
+      ]
+    },
+    {
+      "id": "US-2890",
+      "passes": false,
+      "title": "Turn a sideways intake photo upright automatically, using the MeasureCard as the reference",
+      "description": "A seller shooting a rail of items ends up rotating photo after photo by hand before anything else can happen. US-2888 made that one press per item ('Turn upright' in the measurements panel, derived from the calibration homography, because the card's four fiducials carry different ids in a known order so the orientation is known rather than guessed). It should be zero presses. The automatic measure pass (services/edge-functions/src/lib/measure-autofill.ts) already finds and calibrates the card server-side during AutoLister/AI intake, so it already holds the answer; what it does not do is rewrite the stored image. Doing that means a server-side rotate through the item-photos bucket with the original preserved the same way persistPhotoEdit preserves it, and it has to leave grading evidence alone - a photo that fed a grade keeps the framing it was graded from. Deliberately held out of US-2888 rather than half-built: silently rewriting a seller's uploaded photos is not a thing to ship as a side effect of a bug fix.",
+      "acceptanceCriteria": [
+        "The intake measure pass records the card's upright quarter-turn alongside the calibration.",
+        "A photo whose card is not upright is rotated server-side at intake, with the pre-rotation original preserved and revertible.",
+        "The calibration and any stored lines are carried across that rotation by the same rigid-motion math, not re-detected.",
+        "Photos used as grading evidence are never auto-rotated.",
+        "The seller is told it happened, and can undo it.",
+        "Auto-rotation is off by default until it has been measured on a real batch, behind one setting."
+      ],
+      "priority": 3,
+      "dependsOn": [
+        "US-2888"
+      ]
     }
   ]
 }

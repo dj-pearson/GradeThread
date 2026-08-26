@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SourcedBySelect } from "@/components/flipdesk/sourced-by-select";
 import {
   Select,
   SelectContent,
@@ -320,14 +321,12 @@ export function SnapCatalog() {
                 placeholder="e.g. A1"
               />
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="snap-sourced-by">Sourced by</Label>
-              <Input
-                id="snap-sourced-by"
-                value={sourcedBy}
-                onChange={(e) => setSourcedBy(e.target.value)}
-              />
-            </div>
+            <SourcedBySelect
+              id="snap-sourced-by"
+              className="space-y-1"
+              value={sourcedBy}
+              onChange={setSourcedBy}
+            />
             <div className="space-y-1">
               <Label htmlFor="snap-cost-per-item">Cost per item</Label>
               <Input

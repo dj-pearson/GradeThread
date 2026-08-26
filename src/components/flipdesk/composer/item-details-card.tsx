@@ -9,6 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { SourcedBySelect } from "@/components/flipdesk/sourced-by-select";
 import {
   Select,
   SelectContent,
@@ -144,15 +145,11 @@ export function ItemDetailsCard({
             in sync unless you set it here yourself.
           </p>
         </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="item-sourced-by">Sourced by</Label>
-          <Input
-            id="item-sourced-by"
-            value={sourcedBy}
-            onChange={(e) => onSourcedByChange(e.target.value)}
-            placeholder="Who picked it up"
-          />
-        </div>
+        <SourcedBySelect
+          id="item-sourced-by"
+          value={sourcedBy}
+          onChange={onSourcedByChange}
+        />
         <div className="space-y-1.5">
           <Label htmlFor="item-acquired-date">Purchase date</Label>
           <Input
