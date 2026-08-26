@@ -7,6 +7,7 @@ import com.gradethread.app.capture.DetailsIntakeState
 import com.gradethread.app.speech.DictationMerge
 import com.gradethread.app.sync.db.GradeThreadDb
 import com.gradethread.app.sync.db.SourceEntity
+import com.gradethread.app.sync.db.SourcerEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,12 +27,15 @@ import javax.inject.Inject
 @HiltViewModel
 class DetailsIntakeViewModel @Inject constructor(
     private val repository: IntakeRepository,
+    private val sourcers: SourcerRepository,
     private val db: GradeThreadDb,
 ) : ViewModel() {
 
     data class UiState(
         val form: DetailsIntakeState = DetailsIntakeState(),
         val sources: List<SourceEntity> = emptyList(),
+        /** US-2886: the "Sourced by" roster. */
+        val sourcerRoster: List<SourcerEntity> = emptyList(),
         val saving: Boolean = false,
         /** A recovered draft awaiting resume/discard. Null = no prompt. */
         val pendingDraft: DetailsIntakeState? = null,
@@ -58,8 +62,31 @@ class DetailsIntakeViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val sources = runCatching { repository.sources() }.getOrDefault(emptyList())
+            val roster = runCatching { sourcers.roster() }.getOrDefault(emptyList())
             val draft = runCatching { DetailsDraftStore.load(db) }.getOrNull()
-            _state.value = _state.value.copy(sources = sources, pendingDraft = draft)
+            _state.value = _state.value.copy(
+                sources = sources,
+                sourcerRoster = roster,
+                pendingDraft = draft,
+            )
+        }
+    }
+
+    /**
+     * US-2886: add a person to the roster, then hand the caller the name to
+     * select. `null` means nothing was written — the picker says so rather than
+     * selecting a name the server has never heard of.
+     */
+    fun addSourcer(name: String, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            val saved = runCatching { sourcers.add(name) }.getOrNull()
+            if (saved != null) {
+                _state.value = _state.value.copy(
+                    sourcerRoster = runCatching { sourcers.roster() }
+                        .getOrDefault(_state.value.sourcerRoster),
+                )
+            }
+            onResult(saved)
         }
     }
 

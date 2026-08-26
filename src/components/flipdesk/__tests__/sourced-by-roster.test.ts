@@ -101,3 +101,54 @@ describe("every FlipDesk sourcing surface uses the picker", () => {
     expect(src).not.toMatch(/setSourcedBy\(e\.target\.value\)/);
   });
 });
+
+// US-2887. Neither client compiles on this machine (no Swift toolchain here, and
+// Gradle is a separate lane), so this is a SOURCE SCAN and says so. It catches
+// the regression that actually happens — somebody reverting one client's field
+// to a text box while the other two stay pickers — which is the shape that let
+// "Dan" and "dan" coexist in the first place.
+describe("the phones pick from the roster too", () => {
+  const IOS = [
+    "ios/GradeThread/DetailsIntake/DetailsIntakeView.swift",
+    "ios/GradeThread/Inventory/ItemCanvas/ItemCanvasView.swift",
+  ];
+  const ANDROID = [
+    "android/app/src/main/java/com/gradethread/app/inventory/DetailsIntakeScreen.kt",
+    "android/app/src/main/java/com/gradethread/app/inventory/ItemCanvasScreen.kt",
+  ];
+
+  it.each(IOS)("%s renders SourcedByField", (rel) => {
+    const src = readFileSync(join(process.cwd(), rel), "utf8");
+    expect(src).toContain("SourcedByField(");
+    // A SwiftUI TextField bound to the name is the shape being replaced.
+    expect(src).not.toMatch(/TextField\("Sourced by"/);
+  });
+
+  it.each(ANDROID)("%s renders SourcedByPicker", (rel) => {
+    const src = readFileSync(join(process.cwd(), rel), "utf8");
+    expect(src).toContain("SourcedByPicker(");
+    expect(src).not.toMatch(/ValidatedTextField\([^)]*sourcedBy/s);
+  });
+
+  it("all three clients still write a plain NAME, not an id", () => {
+    // The roster decides what the picker OFFERS. The moment one client starts
+    // storing a sourcers.id in sourced_by, the CSV importer, the Sheets
+    // projection and every historical row disagree with it.
+    const web = readFileSync(
+      join(process.cwd(), "src/components/flipdesk/sourced-by-select.tsx"),
+      "utf8",
+    );
+    const ios = readFileSync(
+      join(process.cwd(), "ios/GradeThread/DetailsIntake/SourcedByField.swift"),
+      "utf8",
+    );
+    const android = readFileSync(
+      join(process.cwd(), "android/app/src/main/java/com/gradethread/app/inventory/SourcedByPicker.kt"),
+      "utf8",
+    );
+    // Each picker's option value is the row's NAME.
+    expect(web).toContain("value={s.name}");
+    expect(ios).toContain(".tag(person.name)");
+    expect(android).toContain(".map { it.name }");
+  });
+});

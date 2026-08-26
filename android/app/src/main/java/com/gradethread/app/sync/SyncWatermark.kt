@@ -31,14 +31,16 @@ class SyncWatermark(private val context: Context) {
         LISTINGS("listings"),
         SOURCES("sources"),
 
+        /** US-2886: the "Sourced by" roster. */
+        SOURCERS("sourcers"),
+
         /** US-1365: eBay payouts, the deposit side of reconciliation. */
         PAYOUTS("payouts"),
     }
 
     private fun cursorKey(table: Table) = stringPreferencesKey("cursor.${table.key}")
 
-    suspend fun cursor(table: Table): String? =
-        context.syncDataStore.data.first()[cursorKey(table)]
+    suspend fun cursor(table: Table): String? = context.syncDataStore.data.first()[cursorKey(table)]
 
     /** Monotonic: only moves forward (lexical ISO compare). */
     suspend fun advance(table: Table, candidate: String) {
@@ -65,8 +67,7 @@ class SyncWatermark(private val context: Context) {
     fun needsFullBackfill(lastSeen: Int?, current: Int = GradeThreadDb.WATERMARK_SCHEMA_VERSION): Boolean =
         lastSeen == null || lastSeen < current
 
-    suspend fun lastSeenSchemaVersion(): Int? =
-        context.syncDataStore.data.first()[schemaKey]
+    suspend fun lastSeenSchemaVersion(): Int? = context.syncDataStore.data.first()[schemaKey]
 
     /** Reset cursors + record the current shape — the one-time backfill gate. */
     suspend fun migrateToCurrentSchema() {

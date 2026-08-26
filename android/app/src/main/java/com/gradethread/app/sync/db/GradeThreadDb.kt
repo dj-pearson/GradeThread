@@ -26,13 +26,14 @@ import kotlinx.coroutines.flow.StateFlow
         ExpenseEntity::class,
         ListingEntity::class,
         SourceEntity::class,
+        SourcerEntity::class,
         PayoutEntity::class,
         PendingMutationEntity::class,
         CaptureDraftEntity::class,
         IntakeBatchEntity::class,
         AutolisterSessionEntity::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = true,
 )
 abstract class GradeThreadDb : RoomDatabase() {
@@ -42,6 +43,7 @@ abstract class GradeThreadDb : RoomDatabase() {
     abstract fun expenses(): ExpenseDao
     abstract fun listings(): ListingDao
     abstract fun sources(): SourceDao
+    abstract fun sourcers(): SourcerDao
     abstract fun payouts(): PayoutDao
     abstract fun pendingMutations(): PendingMutationDao
     abstract fun captureDrafts(): CaptureDraftDao
@@ -323,6 +325,32 @@ object DatabaseProvider {
     }
 
     /**
+     * US-2886: the "Sourced by" roster.
+     *
+     * A new table, so nothing existing is rewritten and no cached row becomes
+     * incomplete — which is why [WATERMARK_SCHEMA_VERSION] does NOT move. The
+     * table starts with no sync cursor, so its first pull is a full backfill by
+     * construction rather than by a forced one.
+     */
+    internal val MIGRATION_7_8 = object : androidx.room.migration.Migration(7, 8) {
+        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS sourcers (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    userId TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    memberUserId TEXT,
+                    archivedAt INTEGER,
+                    createdAt INTEGER NOT NULL,
+                    updatedAt INTEGER NOT NULL
+                )
+                """.trimIndent(),
+            )
+        }
+    }
+
+    /**
      * Every migration, in order, declared ONCE.
      *
      * US-2502: [build] used to list them inline and the instrumented migration
@@ -342,5 +370,6 @@ object DatabaseProvider {
         MIGRATION_4_5,
         MIGRATION_5_6,
         MIGRATION_6_7,
+        MIGRATION_7_8,
     )
 }

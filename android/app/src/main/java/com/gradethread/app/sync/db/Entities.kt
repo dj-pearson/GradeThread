@@ -244,6 +244,27 @@ data class SourceEntity(
     val updatedAt: Long,
 )
 
+/**
+ * US-2886: the workspace roster of PEOPLE who source inventory.
+ *
+ * `inventory_items.sourcedBy` is still a NAME string — this table only decides
+ * which names the "Sourced by" picker offers. The workspace owner and every
+ * workspace member are added to it server-side by the 00672 triggers, so the
+ * roster fills itself and the phone only has to read it.
+ */
+@Entity(tableName = "sourcers")
+data class SourcerEntity(
+    @PrimaryKey val id: String,
+    val userId: String,
+    val name: String,
+    /** The workspace user this entry IS, when it is one. Null for anyone else. */
+    val memberUserId: String?,
+    /** Set = hidden from the pickers; historical sourcedBy text is untouched. */
+    val archivedAt: Long?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
 @Entity(
     tableName = "pending_mutations",
     indices = [Index("createdAt")],
@@ -261,8 +282,7 @@ data class PendingMutationEntity(
     val createdAt: Long,
 ) {
     // ByteArray needs manual equality for a data class.
-    override fun equals(other: Any?): Boolean =
-        other is PendingMutationEntity && other.id == id
+    override fun equals(other: Any?): Boolean = other is PendingMutationEntity && other.id == id
 
     override fun hashCode(): Int = id.hashCode()
 }
@@ -272,11 +292,7 @@ data class PendingMutationEntity(
  * slots as JSON) so process death/backgrounding recovers the draft.
  */
 @Entity(tableName = "capture_drafts")
-data class CaptureDraftEntity(
-    @PrimaryKey val id: String,
-    val stateJson: String,
-    val updatedAt: Long,
-)
+data class CaptureDraftEntity(@PrimaryKey val id: String, val stateJson: String, val updatedAt: Long)
 
 /**
  * US-1382: one batch of photos shared into the app from somewhere else.
@@ -296,11 +312,7 @@ data class CaptureDraftEntity(
  * carries their paths, the grouping, and nothing else.
  */
 @Entity(tableName = "autolister_sessions")
-data class AutolisterSessionEntity(
-    @PrimaryKey val id: String,
-    val stateJson: String,
-    val updatedAt: Long,
-)
+data class AutolisterSessionEntity(@PrimaryKey val id: String, val stateJson: String, val updatedAt: Long)
 
 @Entity(tableName = "intake_batches")
 data class IntakeBatchEntity(

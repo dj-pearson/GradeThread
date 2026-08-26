@@ -89,26 +89,26 @@ class SessionScope(
 
     companion object {
         /** All cache tables (+ optionally the queue) in one transaction. */
-        suspend fun wipeAllTables(db: GradeThreadDb, includeQueue: Boolean) =
-            withContext(Dispatchers.IO) {
-                db.withTransaction {
-                    db.items().clearAll() // cascades item_photos
-                    db.photos().clearAll() // belt & braces for orphans
-                    db.sales().clearAll()
-                    db.expenses().clearAll()
-                    db.listings().clearAll()
-                    db.sources().clearAll()
-                    db.payouts().clearAll() // US-1365: deposits are tenant data too
-                    db.captureDrafts().clearAll() // an in-flight capture is tenant data
-                    // US-1382: staged share photos are someone's garments, in
-                    // their house. The FILES are removed separately, by
-                    // IntakeInboxStore.clearAll — this only drops the rows.
-                    db.intakeBatches().clearAll()
-                    // US-2408: an unsent AutoLister batch is someone's stock,
-                    // photographed in their house.
-                    db.autolisterSessions().clearAll()
-                    if (includeQueue) db.pendingMutations().clearAll()
-                }
+        suspend fun wipeAllTables(db: GradeThreadDb, includeQueue: Boolean) = withContext(Dispatchers.IO) {
+            db.withTransaction {
+                db.items().clearAll() // cascades item_photos
+                db.photos().clearAll() // belt & braces for orphans
+                db.sales().clearAll()
+                db.expenses().clearAll()
+                db.listings().clearAll()
+                db.sources().clearAll()
+                db.sourcers().clearAll()
+                db.payouts().clearAll() // US-1365: deposits are tenant data too
+                db.captureDrafts().clearAll() // an in-flight capture is tenant data
+                // US-1382: staged share photos are someone's garments, in
+                // their house. The FILES are removed separately, by
+                // IntakeInboxStore.clearAll — this only drops the rows.
+                db.intakeBatches().clearAll()
+                // US-2408: an unsent AutoLister batch is someone's stock,
+                // photographed in their house.
+                db.autolisterSessions().clearAll()
+                if (includeQueue) db.pendingMutations().clearAll()
             }
+        }
     }
 }

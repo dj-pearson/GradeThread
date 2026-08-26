@@ -212,6 +212,7 @@ final class InventoryFilterTests: XCTestCase {
             LocalListing.self,
             LocalSale.self,
             LocalSource.self,
+            LocalSourcer.self,
             LocalPendingMutation.self,
         ])
         let config = ModelConfiguration(

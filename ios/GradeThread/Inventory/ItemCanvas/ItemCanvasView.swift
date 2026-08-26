@@ -1506,8 +1506,9 @@ struct ItemCanvasView: View {
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
 
-            TextField("Sourced by", text: $state.draft.sourcedBy)
-                .textInputAutocapitalization(.words)
+            // US-2886: a roster pick, not a typed name, so the same person
+            // cannot arrive as three spellings across three sessions.
+            SourcedByField(value: $state.draft.sourcedBy, userId: item.userId)
 
             TextField("Container", text: $state.draft.container)
                 .textInputAutocapitalization(.characters)

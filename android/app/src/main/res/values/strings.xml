@@ -1804,4 +1804,10 @@
     <string name="radar_venue_grade_note">Across %1$d graded scans. Estimated from photos in the field, not a certified grade.</string>
     <string name="tools_radar">Sourcing Radar</string>
     <string name="tools_radar_subtitle">Which shops near you are worth the walk in</string>
+    <!-- US-2886: the "Sourced by" roster picker. -->
+    <string name="sourced_by_not_set">Not set</string>
+    <string name="sourced_by_add_person">Add person</string>
+    <string name="sourced_by_new_name">Name</string>
+    <string name="sourced_by_add">Add</string>
+    <string name="sourced_by_add_failed">Could not add that person. Check your connection.</string>
 </resources>

@@ -20,7 +20,7 @@ struct DetailsIntakeView: View {
     /// US-651: explicit field order so the keyboard 'Next' key walks the form
     /// top-to-bottom instead of dismissing after each field.
     private enum Field: Hashable {
-        case title, sku, brand, style, size, color, material, container, sourcedBy, purchasePrice
+        case title, sku, brand, style, size, color, material, container, purchasePrice
     }
     @FocusState private var focusedField: Field?
     /// One optional driving ONE `.sheet(item:)`. A view has a single sheet
@@ -379,13 +379,11 @@ struct DetailsIntakeView: View {
                 .autocorrectionDisabled()
                 .focused($focusedField, equals: .container)
                 .submitLabel(.next)
-                .onSubmit { focusedField = .sourcedBy }
-
-            TextField("Sourced by", text: $form.sourcedBy)
-                .textInputAutocapitalization(.words)
-                .focused($focusedField, equals: .sourcedBy)
-                .submitLabel(.next)
                 .onSubmit { focusedField = .purchasePrice }
+
+            // US-2886: a roster pick, not a typed name. The keyboard traversal
+            // skips it because a Picker is not a text field.
+            SourcedByField(value: $form.sourcedBy, userId: currentUserId())
 
             DatePicker(
                 "Purchase date",

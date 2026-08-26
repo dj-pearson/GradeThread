@@ -23,6 +23,7 @@ final class SchemaVersioningTests: XCTestCase {
             "LocalSale",
             "LocalExpense",
             "LocalSource",
+            "LocalSourcer",
             "LocalPendingMutation",
         ]
         let actual = Set(ModelStoreProvider.schema.entities.map(\.name))

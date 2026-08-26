@@ -10,7 +10,6 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -28,8 +27,7 @@ class IntakeRepository @Inject constructor(
 ) {
 
     /** The tenant every query is scoped to: active workspace, else self. */
-    private fun ownerId(): String? =
-        client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
+    private fun ownerId(): String? = client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
 
     /** Local sources feed the picker; archived ones are filtered by the caller. */
     suspend fun sources(): List<SourceEntity> = db.sources().all()

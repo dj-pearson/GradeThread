@@ -424,6 +424,7 @@ final class GradingTests: XCTestCase {
             LocalListing.self,
             LocalSale.self,
             LocalSource.self,
+            LocalSourcer.self,
             LocalPendingMutation.self,
         ])
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)

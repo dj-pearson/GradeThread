@@ -263,6 +263,18 @@ interface SourceDao {
 }
 
 @Dao
+interface SourcerDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(sourcers: List<SourcerEntity>)
+
+    @Query("SELECT * FROM sourcers ORDER BY name")
+    suspend fun all(): List<SourcerEntity>
+
+    @Query("DELETE FROM sourcers")
+    suspend fun clearAll()
+}
+
+@Dao
 interface PendingMutationDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun enqueue(mutation: PendingMutationEntity)

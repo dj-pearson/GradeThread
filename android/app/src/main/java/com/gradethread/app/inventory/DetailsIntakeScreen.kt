@@ -33,10 +33,7 @@ import com.gradethread.app.ui.theme.Spacing
  * cataloging a haul — photos come later (US-1328's capture flow).
  */
 @Composable
-fun DetailsIntakeScreen(
-    modifier: Modifier = Modifier,
-    viewModel: DetailsIntakeViewModel = hiltViewModel(),
-) {
+fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     val form = state.form
 
@@ -188,10 +185,13 @@ fun DetailsIntakeScreen(
             )
         }
         item {
-            ValidatedTextField(
+            // US-2886: a roster pick, not a typed name.
+            SourcedByPicker(
+                label = stringResource(R.string.intake_sourced_by),
                 value = form.sourcedBy,
                 onValueChange = { v -> viewModel.update { it.copy(sourcedBy = v) } },
-                label = stringResource(R.string.intake_sourced_by),
+                sourcers = SourcerRoster(state.sourcerRoster),
+                onAddPerson = viewModel::addSourcer,
                 modifier = Modifier.fillMaxWidth(),
             )
         }

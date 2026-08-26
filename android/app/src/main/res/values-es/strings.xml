@@ -1648,4 +1648,10 @@
     <string name="radar_venue_grade_note">Sobre %1$d escaneos calificados. Estimado a partir de fotos en la tienda, no es una calificación certificada.</string>
     <string name="tools_radar">Radar de compras</string>
     <string name="tools_radar_subtitle">Qué tiendas cerca de ti valen el viaje</string>
+    <!-- US-2886: the "Sourced by" roster picker. -->
+    <string name="sourced_by_not_set">Sin asignar</string>
+    <string name="sourced_by_add_person">Agregar persona</string>
+    <string name="sourced_by_new_name">Nombre</string>
+    <string name="sourced_by_add">Agregar</string>
+    <string name="sourced_by_add_failed">No se pudo agregar a esa persona. Revisa tu conexión.</string>
 </resources>

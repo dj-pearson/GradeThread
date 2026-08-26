@@ -101,7 +101,9 @@ fun ItemCanvasScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            BrandPrimaryButton(text = stringResource(R.string.canvas_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+            BrandPrimaryButton(text = stringResource(R.string.canvas_back), modifier = Modifier.fillMaxWidth()) {
+                onClose()
+            }
         }
         return
     }
@@ -149,7 +151,9 @@ fun ItemCanvasScreen(
         Field(stringResource(R.string.canvas_field_sku), draft.sku) { v -> viewModel.edit { it.copy(sku = v) } }
         Field(stringResource(R.string.canvas_field_size), draft.size) { v -> viewModel.edit { it.copy(size = v) } }
         Field(stringResource(R.string.canvas_field_color), draft.color) { v -> viewModel.edit { it.copy(color = v) } }
-        Field(stringResource(R.string.canvas_field_material), draft.material) { v -> viewModel.edit { it.copy(material = v) } }
+        Field(stringResource(R.string.canvas_field_material), draft.material) { v ->
+            viewModel.edit { it.copy(material = v) }
+        }
         Field(stringResource(R.string.canvas_field_style), draft.style) { v -> viewModel.edit { it.copy(style = v) } }
 
         SectionHeader(stringResource(R.string.canvas_category))
@@ -212,8 +216,18 @@ fun ItemCanvasScreen(
         Field(stringResource(R.string.canvas_field_target_price), draft.targetPriceText, numeric = true) { v ->
             viewModel.edit { it.copy(targetPriceText = v) }
         }
-        Field(stringResource(R.string.canvas_field_sourced_by), draft.sourcedBy) { v -> viewModel.edit { it.copy(sourcedBy = v) } }
-        Field(stringResource(R.string.canvas_field_container), draft.container) { v -> viewModel.edit { it.copy(container = v) } }
+        // US-2886: a roster pick, not a typed name, so the same person cannot
+        // arrive as three spellings across three sessions.
+        SourcedByPicker(
+            label = stringResource(R.string.canvas_field_sourced_by),
+            value = draft.sourcedBy,
+            onValueChange = { v -> viewModel.edit { it.copy(sourcedBy = v) } },
+            sourcers = SourcerRoster(state.sourcerRoster),
+            onAddPerson = viewModel::addSourcer,
+        )
+        Field(stringResource(R.string.canvas_field_container), draft.container) { v ->
+            viewModel.edit { it.copy(container = v) }
+        }
         Field(stringResource(R.string.canvas_field_location_bin), draft.locationBin) { v ->
             viewModel.edit { it.copy(locationBin = v) }
         }
@@ -306,7 +320,9 @@ fun ItemCanvasScreen(
 
         SectionHeader(stringResource(R.string.canvas_grading))
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            BrandSecondaryButton(text = stringResource(R.string.canvas_grade), modifier = Modifier.weight(1f)) { onGrade(itemId) }
+            BrandSecondaryButton(text = stringResource(R.string.canvas_grade), modifier = Modifier.weight(1f)) {
+                onGrade(itemId)
+            }
             BrandSecondaryButton(text = stringResource(R.string.canvas_report), modifier = Modifier.weight(1f)) {
                 onOpenReport(itemId)
             }
@@ -377,7 +393,9 @@ fun ItemCanvasScreen(
             modifier = Modifier.fillMaxWidth(),
         ) { disclosing = true }
 
-        BrandSecondaryButton(text = stringResource(R.string.canvas_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.canvas_back), modifier = Modifier.fillMaxWidth()) {
+            onClose()
+        }
     }
 
     if (measuring) {
@@ -408,10 +426,7 @@ fun ItemCanvasScreen(
  * without saying so is a button they learn not to trust.
  */
 @Composable
-private fun AiFillAspectsRow(
-    state: ItemCanvasViewModel.State,
-    viewModel: ItemCanvasViewModel,
-) {
+private fun AiFillAspectsRow(state: ItemCanvasViewModel.State, viewModel: ItemCanvasViewModel) {
     Column(Modifier.fillMaxWidth()) {
         BrandSecondaryButton(
             text = if (state.fillingAspects) {
@@ -454,10 +469,7 @@ private fun AiFillAspectsRow(
  * retyping it, is not worth saving one tap.
  */
 @Composable
-private fun ListingCopyCard(
-    state: ItemCanvasViewModel.State,
-    viewModel: ItemCanvasViewModel,
-) {
+private fun ListingCopyCard(state: ItemCanvasViewModel.State, viewModel: ItemCanvasViewModel) {
     val copy = state.listingCopy
     Column(Modifier.fillMaxWidth()) {
         if (copy == null) {
@@ -523,13 +535,7 @@ private fun SectionHeader(text: String) {
 }
 
 @Composable
-private fun Field(
-    label: String,
-    value: String,
-    numeric: Boolean = false,
-    lines: Int = 1,
-    onChange: (String) -> Unit,
-) {
+private fun Field(label: String, value: String, numeric: Boolean = false, lines: Int = 1, onChange: (String) -> Unit) {
     OutlinedTextField(
         value = value,
         onValueChange = onChange,
@@ -546,11 +552,7 @@ private fun Field(
 }
 
 @Composable
-private fun Banner(
-    message: String,
-    tone: androidx.compose.ui.graphics.Color,
-    onDismiss: (() -> Unit)?,
-) {
+private fun Banner(message: String, tone: androidx.compose.ui.graphics.Color, onDismiss: (() -> Unit)?) {
     Row(
         Modifier
             .fillMaxWidth()

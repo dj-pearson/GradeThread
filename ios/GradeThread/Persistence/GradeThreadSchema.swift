@@ -57,6 +57,7 @@ enum GradeThreadSchemaV1: VersionedSchema {
             LocalSale.self,
             LocalExpense.self,
             LocalSource.self,
+            LocalSourcer.self,
             LocalPendingMutation.self,
         ]
     }

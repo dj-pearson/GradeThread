@@ -1,3 +1,12 @@
+// ktlint's filename rule wants this file called SyncMerger.kt. detekt already
+// carries the same finding as a BASELINED exception
+// (MatchingDeclarationName:SyncMerge.kt$SyncMerger in config/detekt/baseline.xml),
+// so the rename is a decision that has already been made and recorded --
+// re-making it as a side effect of an unrelated change would move a core sync
+// file out from under every open branch. spotless is RATCHETED against
+// origin/main, so this only surfaced when the file was next touched.
+@file:Suppress("ktlint:standard:filename")
+
 package com.gradethread.app.sync
 
 import androidx.room.withTransaction
@@ -10,6 +19,7 @@ import com.gradethread.app.sync.db.ListingEntity
 import com.gradethread.app.sync.db.PayoutEntity
 import com.gradethread.app.sync.db.SaleEntity
 import com.gradethread.app.sync.db.SourceEntity
+import com.gradethread.app.sync.db.SourcerEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -148,10 +158,13 @@ class SyncMerger(private val db: GradeThreadDb) {
     )
 
     /** Any user-owned field differing while dirty = a real conflict. */
-    internal fun userOwnedDiffers(a: InventoryItemEntity, b: InventoryItemEntity): Boolean =
-        a.title != b.title || a.brand != b.brand || a.sku != b.sku ||
-            a.conditionNotes != b.conditionNotes || a.measurementsJson != b.measurementsJson ||
-            a.targetPrice != b.targetPrice || a.itemDescription != b.itemDescription
+    internal fun userOwnedDiffers(a: InventoryItemEntity, b: InventoryItemEntity): Boolean = a.title != b.title ||
+        a.brand != b.brand ||
+        a.sku != b.sku ||
+        a.conditionNotes != b.conditionNotes ||
+        a.measurementsJson != b.measurementsJson ||
+        a.targetPrice != b.targetPrice ||
+        a.itemDescription != b.itemDescription
 
     // ── Transactional apply (off-main; AC3) ──────────────────────────────────
 
@@ -162,6 +175,7 @@ class SyncMerger(private val db: GradeThreadDb) {
         val expenses: List<ExpenseEntity> = emptyList(),
         val listings: List<ListingEntity> = emptyList(),
         val sources: List<SourceEntity> = emptyList(),
+        val sourcers: List<SourcerEntity> = emptyList(),
         val payouts: List<PayoutEntity> = emptyList(),
     )
 
@@ -198,6 +212,7 @@ class SyncMerger(private val db: GradeThreadDb) {
                 db.listings().upsert(batch.listings.map { mergeListing(cached[it.id], it) })
             }
             if (batch.sources.isNotEmpty()) db.sources().upsert(batch.sources)
+            if (batch.sourcers.isNotEmpty()) db.sourcers().upsert(batch.sourcers)
             // US-1365: payouts are wholly server-authored — there is no local
             // edit to protect, so a plain upsert is correct here.
             if (batch.payouts.isNotEmpty()) db.payouts().upsert(batch.payouts)

@@ -44,6 +44,8 @@ class ItemCanvasViewModel @Inject constructor(
     private val aspectWriteBack: AspectWriteBackService,
     // US-2481: queue a cross-list for the desktop extension from the phone.
     private val extensionQueue: com.gradethread.app.marketplaces.ExtensionQueueRepository,
+    // US-2886: the "Sourced by" roster behind the picker.
+    private val sourcers: SourcerRepository,
 ) : ViewModel() {
 
     data class State(
@@ -97,6 +99,8 @@ class ItemCanvasViewModel @Inject constructor(
          * hidden rather than shown and then apologised for.
          */
         val hasMeasurementPhoto: Boolean = false,
+        /** US-2886: the workspace roster the "Sourced by" picker offers. */
+        val sourcerRoster: List<com.gradethread.app.sync.db.SourcerEntity> = emptyList(),
     ) {
         /** Required specifics with no value — the publish blockers. */
         val missingRequiredAspects: List<String>
@@ -135,7 +139,28 @@ class ItemCanvasViewModel @Inject constructor(
                 draft = draft,
                 hasMeasurementPhoto = db.photos().forItem(itemId)
                     .any { it.photoType == MEASUREMENT_PHOTO_TYPE },
+                // US-2886: the "Sourced by" roster, read from the synced cache
+                // so the picker is populated before the next pull.
+                sourcerRoster = runCatching { sourcers.roster() }.getOrDefault(emptyList()),
             )
+        }
+    }
+
+    /**
+     * US-2886: add a person to the roster and hand back the name to select.
+     * `null` means nothing was written, and the picker says so rather than
+     * selecting a name the server has never heard of.
+     */
+    fun addSourcer(name: String, onResult: (String?) -> Unit) {
+        viewModelScope.launch {
+            val saved = runCatching { sourcers.add(name) }.getOrNull()
+            if (saved != null) {
+                _state.value = _state.value.copy(
+                    sourcerRoster = runCatching { sourcers.roster() }
+                        .getOrDefault(_state.value.sourcerRoster),
+                )
+            }
+            onResult(saved)
         }
     }
 
@@ -293,11 +318,17 @@ class ItemCanvasViewModel @Inject constructor(
 
         val draft = _state.value.draft
         val reconciled = AspectSync.reconcileDerived(
-            draft.aspects, draft.aspectSources, result.derived, result.validAspectNames,
+            draft.aspects,
+            draft.aspectSources,
+            result.derived,
+            result.validAspectNames,
         )
         val owned = AspectSync.applyColumnAuthority(
-            reconciled.first, reconciled.second,
-            result.derived, result.columnOwned, result.columnCleared,
+            reconciled.first,
+            reconciled.second,
+            result.derived,
+            result.columnOwned,
+            result.columnCleared,
         )
         // The server derived from the PERSISTED row, so its five column-owned
         // values are one save behind anything the seller is typing right now.
@@ -370,7 +401,9 @@ class ItemCanvasViewModel @Inject constructor(
         val itemId = _state.value.itemId ?: return
         if (_state.value.fillingAspects) return
         _state.value = _state.value.copy(
-            fillingAspects = true, aspectAiError = null, aspectsFilled = null,
+            fillingAspects = true,
+            aspectAiError = null,
+            aspectsFilled = null,
         )
         viewModelScope.launch {
             runCatching {
@@ -405,7 +438,10 @@ class ItemCanvasViewModel @Inject constructor(
     /** A manual edit from the specifics editor — outranks derivation. */
     fun setAspect(name: String, values: List<String>) = edit { draft ->
         val (aspects, sources) = AspectSync.setManual(
-            draft.aspects, draft.aspectSources, name, values,
+            draft.aspects,
+            draft.aspectSources,
+            name,
+            values,
         )
         draft.copy(aspects = aspects, aspectSources = sources)
     }
@@ -436,8 +472,11 @@ class ItemCanvasViewModel @Inject constructor(
     fun addComp(comp: ItemComp) = edit { it.copy(comps = it.comps + comp) }
 
     fun removeComp(index: Int) = edit { draft ->
-        if (index !in draft.comps.indices) draft
-        else draft.copy(comps = draft.comps.filterIndexed { i, _ -> i != index })
+        if (index !in draft.comps.indices) {
+            draft
+        } else {
+            draft.copy(comps = draft.comps.filterIndexed { i, _ -> i != index })
+        }
     }
 
     fun dismissSizeEstimate() {
@@ -632,7 +671,9 @@ class ItemCanvasViewModel @Inject constructor(
         ebayAspectsJson = AspectSync.projectColumnAspects(draft, draft.aspects, draft.aspectSources)
             .let { (aspects, _) -> AspectSync.encodeAspects(aspects) },
         ebayAspectSourcesJson = AspectSync.projectColumnAspects(
-            draft, draft.aspects, draft.aspectSources,
+            draft,
+            draft.aspects,
+            draft.aspectSources,
         ).let { (aspects, sources) ->
             AspectSync.encodeSources(AspectSync.pruneSources(sources, aspects))
         },
@@ -640,16 +681,14 @@ class ItemCanvasViewModel @Inject constructor(
         hasLocalChanges = true,
     )
 
-    private fun ownerId(): String? =
-        client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
+    private fun ownerId(): String? = client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
 
     private fun patchPayload(itemId: String, patch: JsonObject): ByteArray =
         """{"id":"$itemId","patch":$patch}""".encodeToByteArray()
 
-    private fun message(error: Throwable): String =
-        (error as? EdgeApiError)?.userMessage()
-            ?: error.message
-            ?: "Couldn't save those changes."
+    private fun message(error: Throwable): String = (error as? EdgeApiError)?.userMessage()
+        ?: error.message
+        ?: "Couldn't save those changes."
 
     private companion object {
         const val TABLE = "inventory_items"

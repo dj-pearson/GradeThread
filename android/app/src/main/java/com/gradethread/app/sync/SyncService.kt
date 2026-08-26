@@ -9,6 +9,7 @@ import com.gradethread.app.sync.db.ListingEntity
 import com.gradethread.app.sync.db.PayoutEntity
 import com.gradethread.app.sync.db.SaleEntity
 import com.gradethread.app.sync.db.SourceEntity
+import com.gradethread.app.sync.db.SourcerEntity
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
@@ -54,8 +55,7 @@ class SyncService @Inject constructor(
     val syncing: kotlinx.coroutines.flow.StateFlow<Boolean> = syncingFlow
 
     /** Active workspace, else self — matching every other tenant-scoped read. */
-    private fun ownerId(): String? =
-        client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
+    private fun ownerId(): String? = client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
 
     /**
      * @return null when signed out — there is no tenant to scope to, and an
@@ -81,6 +81,7 @@ class SyncService @Inject constructor(
             itemsPlan(owner),
             photosPlan(owner),
             sourcesPlan(owner),
+            sourcersPlan(owner),
             listingsPlan(owner),
             salesPlan(owner),
             expensesPlan(owner),
@@ -95,6 +96,17 @@ class SyncService @Inject constructor(
         fetchPage = { cursor, offset -> page("sources", owner, cursor, offset) },
         decode = { raw -> (raw as? JsonObject)?.let(SyncRows::decodeSourceRow) },
         apply = { rows -> merger.apply(SyncMerger.PulledBatch(sources = rows)) },
+    )
+
+    /**
+     * US-2886: the "Sourced by" roster, pulled like any other reference table so
+     * the picker still offers the right people on a thrift trip with no signal.
+     */
+    private fun sourcersPlan(owner: String) = SyncCoordinator.TablePlan(
+        table = SyncWatermark.Table.SOURCERS,
+        fetchPage = { cursor, offset -> page("sourcers", owner, cursor, offset) },
+        decode = { raw -> (raw as? JsonObject)?.let(SyncRows::decodeSourcerRow) },
+        apply = { rows -> merger.apply(SyncMerger.PulledBatch(sourcers = rows)) },
     )
 
     private fun listingsPlan(owner: String) = SyncCoordinator.TablePlan(
@@ -157,21 +169,17 @@ class SyncService @Inject constructor(
      * The order is not cosmetic — [SyncPull.safeCursor] and the monotonic
      * watermark both assume ascending cursors.
      */
-    private suspend fun page(
-        table: String,
-        owner: String,
-        cursor: String?,
-        offset: Int,
-    ): List<JsonElement> = client.from(table).select {
-        filter {
-            eq("user_id", owner)
-            // Strictly greater-than: a row exactly at the cursor was already
-            // consumed, and re-fetching it every pass would never drain.
-            cursor?.let { gt("updated_at", it) }
-        }
-        order("updated_at", Order.ASCENDING)
-        range(offset.toLong(), (offset + SyncPull.PAGE_SIZE - 1).toLong())
-    }.decodeList<JsonObject>()
+    private suspend fun page(table: String, owner: String, cursor: String?, offset: Int): List<JsonElement> =
+        client.from(table).select {
+            filter {
+                eq("user_id", owner)
+                // Strictly greater-than: a row exactly at the cursor was already
+                // consumed, and re-fetching it every pass would never drain.
+                cursor?.let { gt("updated_at", it) }
+            }
+            order("updated_at", Order.ASCENDING)
+            range(offset.toLong(), (offset + SyncPull.PAGE_SIZE - 1).toLong())
+        }.decodeList<JsonObject>()
 
     /**
      * US-2207: the surviving server ids for one table, or null when the set
@@ -203,38 +211,37 @@ class SyncService @Inject constructor(
      * `updated_at` ordering is wrong here because a row updated mid-scan would
      * move between pages.
      */
-    suspend fun survivingIds(table: DeleteReconciler.Table): Set<String>? =
-        withContext(Dispatchers.IO) {
-            val owner = ownerId() ?: return@withContext null
-            val ids = mutableSetOf<String>()
-            var offset = 0
-            try {
-                while (true) {
-                    val page = client.from(table.remote).select(
-                        // listings / item_photos carry no user_id — RLS scopes
-                        // them through the parent item, so the filter below is
-                        // applied only where the column exists.
-                        Columns.raw("id"),
-                    ) {
-                        filter { if (table.userScoped) eq("user_id", owner) }
-                        order("id", Order.ASCENDING)
-                        range(offset.toLong(), (offset + ID_PAGE_SIZE - 1).toLong())
-                    }.decodeList<RemoteId>()
+    suspend fun survivingIds(table: DeleteReconciler.Table): Set<String>? = withContext(Dispatchers.IO) {
+        val owner = ownerId() ?: return@withContext null
+        val ids = mutableSetOf<String>()
+        var offset = 0
+        try {
+            while (true) {
+                val page = client.from(table.remote).select(
+                    // listings / item_photos carry no user_id — RLS scopes
+                    // them through the parent item, so the filter below is
+                    // applied only where the column exists.
+                    Columns.raw("id"),
+                ) {
+                    filter { if (table.userScoped) eq("user_id", owner) }
+                    order("id", Order.ASCENDING)
+                    range(offset.toLong(), (offset + ID_PAGE_SIZE - 1).toLong())
+                }.decodeList<RemoteId>()
 
-                    page.forEach { ids.add(it.id) }
-                    offset += page.size
-                    when (idScanStep(received = page.size, scanned = offset)) {
-                        ScanStep.COMPLETE -> return@withContext ids
-                        ScanStep.ABANDON -> return@withContext null
-                        ScanStep.CONTINUE -> Unit
-                    }
+                page.forEach { ids.add(it.id) }
+                offset += page.size
+                when (idScanStep(received = page.size, scanned = offset)) {
+                    ScanStep.COMPLETE -> return@withContext ids
+                    ScanStep.ABANDON -> return@withContext null
+                    ScanStep.CONTINUE -> Unit
                 }
-                @Suppress("UNREACHABLE_CODE")
-                ids
-            } catch (_: Throwable) {
-                null
             }
+            @Suppress("UNREACHABLE_CODE")
+            ids
+        } catch (_: Throwable) {
+            null
         }
+    }
 
     @Serializable
     private data class RemoteId(val id: String)
@@ -295,28 +302,28 @@ class SyncService @Inject constructor(
         }
     }
 
-    private suspend fun photoPage(
-        owner: String,
-        cursor: String?,
-        offset: Int,
-    ): List<JsonElement> = client.from("item_photos").select(
-        // Ownership via the parent row — item_photos carries no user_id, and
-        // an unscoped read here would be a cross-tenant leak.
-        io.github.jan.supabase.postgrest.query.Columns.raw("*, inventory_items!inner(user_id)"),
-    ) {
-        filter {
-            eq("inventory_items.user_id", owner)
-            cursor?.let { gt("updated_at", it) }
-        }
-        order("updated_at", Order.ASCENDING)
-        range(offset.toLong(), (offset + SyncPull.PAGE_SIZE - 1).toLong())
-    }.decodeList<JsonObject>()
+    private suspend fun photoPage(owner: String, cursor: String?, offset: Int): List<JsonElement> =
+        client.from("item_photos").select(
+            // Ownership via the parent row — item_photos carries no user_id, and
+            // an unscoped read here would be a cross-tenant leak.
+            io.github.jan.supabase.postgrest.query.Columns.raw("*, inventory_items!inner(user_id)"),
+        ) {
+            filter {
+                eq("inventory_items.user_id", owner)
+                cursor?.let { gt("updated_at", it) }
+            }
+            order("updated_at", Order.ASCENDING)
+            range(offset.toLong(), (offset + SyncPull.PAGE_SIZE - 1).toLong())
+        }.decodeList<JsonObject>()
 }
 
 /** US-2151: row decoders for the pull that realtime doesn't already cover. */
 object SyncRows {
 
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     @Serializable
     private data class RemotePhotoRow(
@@ -379,6 +386,31 @@ object SyncRows {
             name = row.name ?: "",
             sourceType = row.sourceType ?: "other",
             notes = row.notes,
+            // NULL archived_at is the active flag, not missing data.
+            archivedAt = RealtimeRows.parseTimestamp(row.archivedAt),
+            createdAt = RealtimeRows.parseTimestamp(row.createdAt) ?: 0L,
+            updatedAt = RealtimeRows.parseTimestamp(row.updatedAt) ?: 0L,
+        )
+    }.getOrNull()
+
+    @Serializable
+    private data class RemoteSourcerRow(
+        val id: String,
+        @SerialName("user_id") val userId: String,
+        val name: String? = null,
+        @SerialName("member_user_id") val memberUserId: String? = null,
+        @SerialName("archived_at") val archivedAt: String? = null,
+        @SerialName("created_at") val createdAt: String? = null,
+        @SerialName("updated_at") val updatedAt: String? = null,
+    )
+
+    fun decodeSourcerRow(record: JsonObject): SourcerEntity? = runCatching {
+        val row = json.decodeFromJsonElement(RemoteSourcerRow.serializer(), record)
+        SourcerEntity(
+            id = row.id.lowercase(),
+            userId = row.userId,
+            name = row.name ?: "",
+            memberUserId = row.memberUserId?.lowercase(),
             // NULL archived_at is the active flag, not missing data.
             archivedAt = RealtimeRows.parseTimestamp(row.archivedAt),
             createdAt = RealtimeRows.parseTimestamp(row.createdAt) ?: 0L,
