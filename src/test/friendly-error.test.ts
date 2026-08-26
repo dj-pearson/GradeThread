@@ -345,10 +345,27 @@ describe("the edge stopped sending raw database text (US-2869)", () => {
     });
   }
 
-  it("the human sentence and the technical one are separate fields", () => {
+  // CORRECTED 2026-08-25. This case used to assert the opposite: that
+  // flipdesk-measure kept the raw storage message in a `detail` field beside the
+  // human sentence. That shape is the exact leak US-1445/US-1943 forbid, and
+  // `no-raw-db-error_test.ts` was failing on it in the edge suite while this one
+  // passed — two guards asserting contradictory things about the same four lines,
+  // which is worse than either rule being absent.
+  //
+  // The security rule wins, and US-2869's actual intent survives intact: the
+  // client still gets a sentence saying what to do, and the technical text still
+  // exists — it goes to the server log through failSafe(), redacted, under a
+  // stable tag. What changed is only WHERE an operator reads it. A raw PostgREST
+  // or Storage message can name a table, a column, an internal hostname or a
+  // customer, and none of that belongs in a response body however it is labelled.
+  it("the human sentence reaches the client and the technical one does not", () => {
     const src = read("services/edge-functions/src/routes/flipdesk-measure.ts");
-    expect(src).toContain('error: "Could not save the measurements photo."');
-    expect(src).toContain("detail: upErr.message");
+    expect(src).toContain('"Could not save the measurements photo."');
+    // Routed through failSafe, which logs the redacted cause and returns the
+    // generic body — so no `detail:` carrying a raw `.message` survives.
+    expect(src).toContain("failSafe(");
+    expect(src).toContain('"measure.overlay.upload"');
+    expect(src).not.toMatch(/detail:\s*\w+\.message/);
   });
 });
 
