@@ -421,9 +421,33 @@ export function measurementGroupForItem(
   return measurementGroupFor(garmentDescriptorFor(item));
 }
 
-// A Google search for "<brand> size guide" — always a valid URL, works for
-// any brand without maintaining a per-brand lookup table.
-export function sizeGuideUrl(brand: string): string {
+/**
+ * Where to send a seller who wants the brand's size guide.
+ *
+ * US-2918: prefer the REAL guide. `sourceUrl` is the `source_url` recorded on
+ * the brand's chart row — the brand's own published guide, checked by a human
+ * before `verified` was allowed to flip true — and it arrives with the band
+ * table from GET /api/flipdesk/size-bands. A Google search was the only option
+ * while there was no per-brand URL to hold; it is the fallback now, not the
+ * answer, because "lululemon size guide" on Google is three ads and a reseller
+ * blog before the brand's own page.
+ *
+ * Only http(s) is accepted. A chart row is admin-editable, and a `javascript:`
+ * or `data:` value reaching an href would be a stored XSS on every composer
+ * that renders it.
+ */
+export function sizeGuideUrl(brand: string, sourceUrl?: string | null): string {
+  const candidate = (sourceUrl ?? "").trim();
+  if (candidate) {
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol === "https:" || parsed.protocol === "http:") {
+        return parsed.toString();
+      }
+    } catch {
+      // Not a URL at all — fall through to the search.
+    }
+  }
   return `https://www.google.com/search?q=${encodeURIComponent(
     brand + " size guide",
   )}`;

@@ -29,14 +29,16 @@ function fitModelEase(src: string, name: string): { slim: number; relaxed: numbe
     new RegExp(`const ${name}\\s*:\\s*CircBands\\s*=\\s*\\{([^}]*)\\}`),
   );
   if (!m) throw new Error(`fit-model.ts no longer declares ${name}`);
-  return { slim: field(m[1], "slim", name), relaxed: field(m[1], "relaxed", name) };
+  const body = m[1] ?? "";
+  return { slim: field(body, "slim", name), relaxed: field(body, "relaxed", name) };
 }
 
 /** `const TOP_CHEST_EASE: Ease = { slim: 3, relaxed: 10 };` */
 function sizeCheckEase(src: string, name: string): { slim: number; relaxed: number } {
   const m = src.match(new RegExp(`const ${name}\\s*:\\s*Ease\\s*=\\s*\\{([^}]*)\\}`));
   if (!m) throw new Error(`size-check.ts no longer declares ${name}`);
-  return { slim: field(m[1], "slim", name), relaxed: field(m[1], "relaxed", name) };
+  const body = m[1] ?? "";
+  return { slim: field(body, "slim", name), relaxed: field(body, "relaxed", name) };
 }
 
 function field(body: string, key: string, owner: string): number {

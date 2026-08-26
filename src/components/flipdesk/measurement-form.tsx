@@ -19,6 +19,19 @@ import {
   isOutsideBand,
   type MeasurementDrift,
 } from "@/lib/measurement-drift";
+import {
+  checkSize,
+  discrepancyNote,
+  fixableSize,
+  resolveSizeRow,
+  tierNote,
+  type SizeBandsResponse,
+} from "@/lib/size-check";
+import {
+  fetchSizeBands,
+  NO_SIZE_BANDS,
+  sizeBandsQueryKey,
+} from "@/lib/size-bands";
 
 type MeasurementValues = Record<string, number | string>;
 
@@ -46,6 +59,19 @@ interface Props {
   size?: string | null;
   /** The garment category the cohort is keyed on. Defaults to `category`. */
   garmentCategory?: string | null;
+  /**
+   * US-2918: the item's department ("Men", "Women", …), usually from
+   * inferDepartment. Without it a brand selling to more than one department
+   * cannot be resolved and the check falls back to a generic chart.
+   */
+  gender?: string | null;
+  /**
+   * US-2918: write the item's size. Supplying it turns the size-discrepancy
+   * note's "Change to XS" button on. Without it the note still renders — the
+   * seller should see the disagreement either way — but with no button rather
+   * than a dead one.
+   */
+  onSizeChange?: (nextSize: string) => void;
 }
 
 function unitSuffix(field: MeasurementField, lengthUnit: "in" | "cm"): string {
@@ -62,6 +88,8 @@ export function MeasurementForm({
   aiSources,
   size,
   garmentCategory,
+  gender,
+  onSizeChange,
 }: Props) {
   const user = useAuthStore((s) => s.user);
   const cohortKey = (garmentCategory ?? category ?? "").trim() || null;
@@ -78,6 +106,18 @@ export function MeasurementForm({
       return fetchMeasurementDrift(cohortKey, sizeKey);
     },
   });
+  // US-2918: the expected-size band table for this brand + garment. One request
+  // per distinct (brand, garment, gender); the verdict below is pure arithmetic
+  // on the result, so it re-runs on every keystroke with no network call.
+  const brandKey = (brand ?? "").trim() || null;
+  const genderKey = (gender ?? "").trim() || null;
+  const { data: sizeBands = NO_SIZE_BANDS } = useQuery<SizeBandsResponse>({
+    queryKey: sizeBandsQueryKey(brandKey, cohortKey, genderKey),
+    enabled: !!user && !!cohortKey && !!sizeKey,
+    staleTime: 30 * 60 * 1000,
+    queryFn: () => fetchSizeBands(brandKey, cohortKey, genderKey),
+  });
+
   const { unit, setUnit } = useMeasurementPrefs();
   const group = measurementGroupFor(category);
   const template = MEASUREMENT_TEMPLATES[group];
@@ -104,6 +144,27 @@ export function MeasurementForm({
   // US-2827: fields whose cohort note the seller waved off this session. It is
   // a check, not an error, so it must be silenceable.
   const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+  // US-2918: the size-vs-measurements note, waved off for this session. Same
+  // reasoning as the cohort note above, and deliberately a separate flag: they
+  // make different claims and dismissing one should not silence the other.
+  const [sizeNoteDismissed, setSizeNoteDismissed] = useState(false);
+
+  // US-2918: does the size on the label agree with what the item measures?
+  //
+  // ONE note per form, not one per field. Two of these fields can disagree with
+  // the same chart at once (a dress's waist and hip), and repeating the same
+  // point twice under two inputs reads as two problems.
+  const sizeRowIndex = resolveSizeRow(sizeBands.rows, size ?? null);
+  const sizeVerdict = checkSize({
+    bands: sizeBands.rows,
+    rowIndex: sizeRowIndex,
+    measurements: values,
+    tier: sizeBands.tier,
+  });
+  const showSizeNote = sizeVerdict.status === "off" && !sizeNoteDismissed;
+  const fixSize = fixableSize(sizeVerdict);
+  const sizeEstimateNote = tierNote(sizeBands.tier, sizeBands.brandLabel);
 
   function set(key: string, raw: string) {
     const next = { ...values };
@@ -139,7 +200,7 @@ export function MeasurementForm({
         <div className="flex items-center gap-2">
           {brand && (
             <a
-              href={sizeGuideUrl(brand)}
+              href={sizeGuideUrl(brand, sizeBands.sourceUrl)}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-xs text-brand-red-text hover:underline"
@@ -168,6 +229,39 @@ export function MeasurementForm({
           </div>
         </div>
       </div>
+
+      {showSizeNote && (
+        <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <Info className="mt-0.5 h-3 w-3 shrink-0" />
+          <span>
+            {discrepancyNote(sizeVerdict, (size ?? "").trim())}
+            {sizeEstimateNote ? ` ${sizeEstimateNote}` : ""}{" "}
+            {fixSize && onSizeChange && (
+              <>
+                <button
+                  type="button"
+                  className="underline underline-offset-2"
+                  // US-2450: every button on this form says a bare word, so the
+                  // accessible name has to carry the field and the value the
+                  // way the Dismiss buttons below do.
+                  aria-label={`Change the size from ${(size ?? "").trim()} to ${fixSize}`}
+                  onClick={() => onSizeChange(fixSize)}
+                >
+                  Change to {fixSize}
+                </button>{" "}
+              </>
+            )}
+            <button
+              type="button"
+              className="underline underline-offset-2"
+              aria-label={`Dismiss the size-versus-measurements check on this item`}
+              onClick={() => setSizeNoteDismissed(true)}
+            >
+              Dismiss
+            </button>
+          </span>
+        </p>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
         {template.map((field) => {

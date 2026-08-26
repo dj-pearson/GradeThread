@@ -10,8 +10,12 @@ export interface MeasurementsCardProps {
    *  vertical set — and "clothing" resolves to the generic length+width
    *  template, so the fields a buyer actually asks for were never offered. */
   garment?: string | null;
+  /** US-2918: the item's department, for resolving the brand's size chart. */
+  gender?: string | null;
   measurements: Record<string, number | string>;
   setMeasurements: (next: Record<string, number | string>) => void;
+  /** US-2918: write the item's size from the discrepancy note's one-click fix. */
+  onSizeChange?: (nextSize: string) => void;
 }
 // Flat measurements buyers ask about (US-1567) plus the US-1574 calibrated
 // photo measuring. Synced live with matching free-text eBay item specifics, which
@@ -19,8 +23,10 @@ export interface MeasurementsCardProps {
 export function MeasurementsCard({
   item,
   garment,
+  gender,
   measurements,
   setMeasurements,
+  onSizeChange,
 }: MeasurementsCardProps) {
   const category = garment ?? item.category;
   return (
@@ -41,6 +47,8 @@ export function MeasurementsCard({
           aiSources={item.ai_field_sources ?? null}
           size={item.size}
           garmentCategory={item.garment_category ?? category}
+          gender={gender}
+          onSizeChange={onSizeChange}
         />
         {/* US-1574: calibrated photo measuring — renders only when the
             item has a MeasureCard shot; drag-adjust + save syncs the

@@ -2846,28 +2846,6 @@
       "priority": 27
     },
     {
-      "id": "US-2918",
-      "passes": false,
-      "title": "Composer and Prep: flag a size that disagrees with the measurements, with a one-click fix",
-      "description": "As a reseller measuring an item, I want a note under the measurement that says the size looks wrong and lets me correct it in one tap, so that I do not publish a mis-sized listing.",
-      "acceptanceCriteria": [
-        "New src/lib/size-check.ts holds the pure lookup only: given the band table from /api/flipdesk/size-bands plus the item's measurements and size, it returns the same verdict shape the edge lib defines. Unit tested in src/lib/size-check.test.ts against the SAME fixture cases as services/edge-functions/src/tests/size-check_test.ts.",
-        "MeasurementForm (src/components/flipdesk/measurement-form.tsx) fetches the band table with TanStack Query keyed on brand + garment + gender, enabled only when brand and size are both present, and renders at most ONE discrepancy note per form.",
-        "The note names both numbers in plain words, for example: Measurements point to XS, not Large. A Large usually measures 22 to 26.5 in here.",
-        "The chart tier is stated in the note. A generic chart reads as an estimate and says so, for example: estimate only, no Lululemon chart on file.",
-        "A 'Change to XS' button writes the item's size field. MeasurementForm gains an optional onSizeChange prop; the composer's src/components/flipdesk/composer/measurements-card.tsx and src/pages/flipdesk/prep.tsx both pass it. Without the prop the note renders with no button rather than a dead one.",
-        "Publishing is never blocked by this check.",
-        "The note is dismissible for the session, matching the existing US-2827 cohort note. Both notes can be visible on the same field without repeating the same point or overlapping.",
-        "The brand size guide link stops being a Google search: sizeGuideUrl in src/lib/measurement-templates.ts uses the band table's sourceUrl when there is one, falling back to the search only when there is not.",
-        "US-2450 accessibility guard: the 'Change to XS' button's accessible name names the field and the size, the way the existing Dismiss button names its field.",
-        "npm run ui:check stays at zero findings and npx tsc -b passes."
-      ],
-      "priority": 34,
-      "dependsOn": [
-        "US-2917"
-      ]
-    },
-    {
       "id": "US-2919",
       "passes": false,
       "title": "AutoLister review: surface size-vs-measurement conflicts as a group warning",
