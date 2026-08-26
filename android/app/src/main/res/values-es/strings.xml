@@ -1206,6 +1206,14 @@
     <string name="common_that_didnt_work">Eso no funcionó</string>
     <string name="measure_title">Medidas</string>
     <string name="measure_subtitle">Medidas en plano — el pecho es de axila a axila.</string>
+    <!-- US-2921: la talla de la etiqueta no coincide con las medidas. -->
+    <string name="size_check_note">Las medidas indican %1$s, no %2$s.</string>
+    <string name="size_check_expected">Una %1$s suele medir de %2$s a %3$s pulgadas aqu\u00ed.</string>
+    <string name="size_check_estimate_brand">Solo una estimaci\u00f3n: no hay tabla de %1$s en el archivo.</string>
+    <string name="size_check_estimate_generic">Solo una estimaci\u00f3n: no hay tabla de la marca en el archivo.</string>
+    <string name="size_check_change_to">Cambiar a %1$s</string>
+    <string name="size_check_change_to_a11y">Cambiar la talla de %1$s a %2$s</string>
+    <string name="size_check_dismiss_a11y">Descartar la comprobaci\u00f3n de talla frente a medidas</string>
     <string name="measure_estimating">Estimando…</string>
     <string name="measure_estimate_cta">Estimar talla desde las fotos</string>
     <string name="measure_estimate_unusable">Las fotos no mostraron lo suficiente para deducir una talla. Una foto de la etiqueta o en plano con una cinta métrica ayuda más.</string>

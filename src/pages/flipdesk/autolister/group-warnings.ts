@@ -1,4 +1,11 @@
 import { FLIPDESK_PHOTO_TYPES, REQUIRED_PHOTO_TYPES } from "@/lib/constants";
+import {
+  checkSize,
+  fixableSize,
+  resolveSizeRow,
+  type SizeBandsResponse,
+  type SizeCheckVerdict,
+} from "@/lib/size-check";
 
 // US-1546 AC2: the pre-generate checkpoint. Every reason a group is worth a
 // second look before the seller spends money on it, in one place.
@@ -112,4 +119,137 @@ export function buildGroupWarnings(
   }
 
   return warnings;
+}
+
+// -- US-2919: size versus measurements, over a generated batch ---------------
+//
+// The checkpoint above runs BEFORE generation, on photo groups that have no
+// measurements yet. This half runs AFTER, on the drafts in the queue, and asks
+// the US-2916 question of each one: does the size on the label agree with what
+// the garment measures?
+//
+// It lives here because this is the module that owns "what is worth a second
+// look", and a batch of forty listings is exactly where a mis-sized item slips
+// through. Nobody re-reads forty drafts, but they will read a list of the three
+// that disagree with their own chart.
+
+/** Only the fields the size check reads off a generated draft. */
+export interface SizeCheckableDraft {
+  /** The inventory item id, which is what the queue row and the grid key on. */
+  itemId: string;
+  name: string;
+  brand: string | null;
+  /** The garment word the chart is resolved by ("tee", "jeans"). */
+  garment: string | null;
+  /** "Men" / "Women" / null. Null resolves to a generic chart, never a guess. */
+  gender: string | null;
+  size: string | null;
+  measurements: Record<string, unknown> | null;
+}
+
+export interface SizeConflict {
+  itemId: string;
+  name: string;
+  /** The size printed on the label. */
+  labelled: string;
+  /** What the measurements point at ("XS", or "smaller than XS"). */
+  impliedSize: string;
+  /** The size a one-click fix would write, or null when there is nothing to write. */
+  fix: string | null;
+  verdict: SizeCheckVerdict;
+  tier: SizeBandsResponse["tier"];
+}
+
+/**
+ * The distinct chart lookups a batch needs.
+ *
+ * A 40-item batch across 6 brands must issue 6 requests, not 40: the band table
+ * depends only on (brand, garment, gender), and forty requests for six answers
+ * is how a review screen earns a rate limit.
+ */
+export function sizeBandPairKey(
+  brand: string | null,
+  garment: string | null,
+  gender: string | null,
+): string {
+  return [brand ?? "", garment ?? "", gender ?? ""]
+    .map((s) => s.trim().toLowerCase())
+    .join("|");
+}
+
+export interface SizeBandPair {
+  key: string;
+  brand: string | null;
+  garment: string | null;
+  gender: string | null;
+}
+
+export function sizeBandPairs(
+  drafts: readonly SizeCheckableDraft[],
+): SizeBandPair[] {
+  const out = new Map<string, SizeBandPair>();
+  for (const d of drafts) {
+    // A draft with no size, no garment or nothing comparable to measure cannot
+    // produce a verdict, so it must not produce a request either.
+    if (!d.size?.trim() || !d.garment?.trim()) continue;
+    if (!d.measurements || Object.keys(d.measurements).length === 0) continue;
+    const key = sizeBandPairKey(d.brand, d.garment, d.gender);
+    if (!out.has(key)) {
+      out.set(key, { key, brand: d.brand, garment: d.garment, gender: d.gender });
+    }
+  }
+  return [...out.values()];
+}
+
+/**
+ * The drafts whose size disagrees with their own measurements.
+ *
+ * Silent on everything else, including every item with no chart at any tier.
+ * "We could not check this" is not a finding, and a queue that says it forty
+ * times has buried the three that matter.
+ */
+export function buildSizeConflicts(
+  drafts: readonly SizeCheckableDraft[],
+  bandsByPair: Readonly<Record<string, SizeBandsResponse | undefined>>,
+): SizeConflict[] {
+  const out: SizeConflict[] = [];
+  for (const d of drafts) {
+    const labelled = (d.size ?? "").trim();
+    if (!labelled || !d.measurements) continue;
+    const bands = bandsByPair[sizeBandPairKey(d.brand, d.garment, d.gender)];
+    if (!bands || bands.rows.length === 0) continue;
+    const verdict = checkSize({
+      bands: bands.rows,
+      rowIndex: resolveSizeRow(bands.rows, labelled),
+      measurements: d.measurements,
+      tier: bands.tier,
+    });
+    if (verdict.status !== "off" || !verdict.impliedSize) continue;
+    out.push({
+      itemId: d.itemId,
+      name: d.name || "Untitled item",
+      labelled,
+      impliedSize: verdict.impliedSize,
+      fix: fixableSize(verdict),
+      verdict,
+      tier: bands.tier,
+    });
+  }
+  return out;
+}
+
+/** The same conflicts as checkpoint warnings, so they render in the one list. */
+export function sizeWarningsFrom(
+  conflicts: readonly SizeConflict[],
+): GroupWarning[] {
+  return conflicts.map((c) => ({
+    key: `size-${c.itemId}`,
+    groupId: c.itemId,
+    label: `${quoted(c.name)} is labelled ${c.labelled} but measures like ${c.impliedSize}`,
+  }));
+}
+
+/** Matches the curly quoting the checkpoint labels above already use. */
+function quoted(name: string): string {
+  return `“${name}”`;
 }

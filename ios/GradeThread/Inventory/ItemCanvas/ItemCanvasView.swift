@@ -56,6 +56,14 @@ struct ItemCanvasView: View {
     /// reads a cached value instead of re-decoding JSON on every `body` pass.
     /// Rebuilt via `.onChange(of: item.measurementsJSON)`.
     @State private var measurements: [String: Double]?
+    /// US-2920: the expected-size band table for this item's brand + garment,
+    /// loaded once per (brand, garment, department) and looked up locally on
+    /// every edit. `.empty` means "nothing to say", which is also what a failed
+    /// fetch and a brand with no chart both look like.
+    @State private var sizeBands: SizeCheck.BandsResponse = .empty
+    /// The size note, waved off for this visit. It is a check, not an error, so
+    /// it has to be silenceable.
+    @State private var sizeNoteDismissed = false
     // Draft fields for the "Add comp" row in the saved-comps editor.
     @State private var newCompPriceText = ""
     @State private var newCompSource = ""
@@ -436,6 +444,15 @@ struct ItemCanvasView: View {
             measurements = ItemCanvasView.decodeMeasurements(item.measurementsJSON)
         }
         .task { await consignorStore.load() }
+        // US-2920: reload the band table only when the brand, the garment or the
+        // department actually changes — not on every keystroke in the size field.
+        .task(id: sizeBandsSignature) {
+            sizeBands = await SizeBandsService.load(
+                brand: sizeBandsBrand,
+                garment: sizeBandsGarment,
+                gender: sizeBandsDepartment
+            )
+        }
         // Build + load the inline specifics editor once per item. Keyed on the
         // item id so opening a different item rebuilds it rather than showing
         // the previous item's category and aspects.
@@ -1806,6 +1823,93 @@ struct ItemCanvasView: View {
         }
     }
 
+
+    // MARK: - US-2920 size check
+
+    /// The brand the size chart is resolved by: the seller's live edit if there
+    /// is one, otherwise the saved column.
+    private var sizeBandsBrand: String? {
+        guard let draft = state?.draft else { return item.brand }
+        return draft.brand.nonEmpty ?? item.brand
+    }
+
+    /// The garment word, not the coarse category. `item_category` reads
+    /// "clothing" on anything with a vertical set, and "clothing" resolves to no
+    /// chart at all.
+    private var sizeBandsGarment: String? {
+        guard let draft = state?.draft else { return item.garmentCategory ?? item.itemCategory }
+        return draft.garmentCategory.nonEmpty ?? item.garmentCategory ?? item.itemCategory
+    }
+
+    private var sizeBandsSizeText: String? {
+        guard let draft = state?.draft else { return item.size }
+        return draft.size.nonEmpty ?? item.size
+    }
+
+    private var sizeBandsDepartment: String? {
+        SizeCheck.department(fromText: [
+            state?.draft.title ?? item.title,
+            sizeBandsBrand,
+            sizeBandsSizeText,
+            sizeBandsGarment
+        ])
+    }
+
+    /// Changes exactly when the table would change. Keeps the reload off the
+    /// size field, which is edited a character at a time.
+    private var sizeBandsSignature: String {
+        [sizeBandsBrand, sizeBandsGarment, sizeBandsDepartment]
+            .map { $0 ?? "" }
+            .joined(separator: "|")
+    }
+
+    /// One note, under the measurements, when the size disagrees with them.
+    ///
+    /// ONE for the whole section rather than one per field: a dress can disagree
+    /// on waist and hip at once, and saying the same thing twice reads as two
+    /// problems. Publishing is never blocked by it — US-2915 decided this check
+    /// offers a fix and gets out of the way.
+    @ViewBuilder
+    private func sizeCheckNote(state: ItemCanvasState) -> some View {
+        // No `@Bindable` here: the only write is `state.draft.size = fix`, which
+        // is a plain reference-type mutation. The binding wrapper exists for
+        // `$state.draft.…` two-way fields, and this view has none.
+        let labelled = state.draft.size.trimmingCharacters(in: .whitespacesAndNewlines)
+        let verdict = SizeCheck.check(
+            rows: sizeBands.rows,
+            rowIndex: SizeCheck.resolveRow(sizeBands.rows, size: labelled),
+            measurements: state.draft.measurements,
+            tier: sizeBands.tier
+        )
+        if verdict.status == .off, !sizeNoteDismissed {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(SizeCheck.note(verdict, labelled: labelled))
+                if let estimate = SizeCheck.tierNote(
+                    tier: sizeBands.tier, brand: sizeBands.brandLabel
+                ) {
+                    Text(estimate)
+                        .foregroundStyle(.secondary)
+                }
+                HStack(spacing: 16) {
+                    if let fix = SizeCheck.fixableSize(verdict) {
+                        Button("Change to \(fix)") {
+                            AppRouter.haptic()
+                            state.draft.size = fix
+                        }
+                        .accessibilityLabel("Change the size from \(labelled) to \(fix)")
+                    }
+                    Button("Dismiss") {
+                        AppRouter.haptic()
+                        sizeNoteDismissed = true
+                    }
+                    .accessibilityLabel("Dismiss the size versus measurements check")
+                }
+            }
+            .font(.footnote)
+            .padding(.vertical, 2)
+        }
+    }
+
     private func measurementsSection(state: ItemCanvasState) -> some View {
         @Bindable var state = state
         // Existing measurements first (canonical order), then any catalog fields
@@ -1842,6 +1946,8 @@ struct ItemCanvasView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+            // US-2920: the size on the label disagrees with the numbers above.
+            sizeCheckNote(state: state)
         } header: {
             Text("Measurements")
         } footer: {

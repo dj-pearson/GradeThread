@@ -87,6 +87,7 @@ import { estimateListingProfit } from "@/lib/listing-profit";
 import { buildComposerAiInput } from "@/lib/composer-ai-input";
 import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
 import {
+  inferDepartment,
   mapEbayCondition,
   projectColumnAspectsForSpec,
   reverseProjectAspectColumns,
@@ -684,6 +685,17 @@ export function FlipdeskComposerPage({
         : null,
     [item, ebayMapping, measurements],
   );
+
+  // US-2918: the department the size check resolves a brand's chart by. Prefer
+  // an eBay Department specific the seller has already set — that is a stated
+  // fact — and fall back to inferDepartment reading the title, style and size
+  // text. Null is a fine answer: the endpoint drops to a generic chart rather
+  // than guessing a department, and says so in the note.
+  const itemDepartment = useMemo<string | null>(() => {
+    const stated = (ebayMapping?.attributes ?? {})["Department"];
+    if (typeof stated === "string" && stated.trim()) return stated.trim();
+    return itemAspectSource ? inferDepartment(itemAspectSource) : null;
+  }, [ebayMapping, itemAspectSource]);
 
   // Seed editable fields once the item, photos, and listing have settled.
   // Everything the item already knows is carried in (description, condition
@@ -2217,6 +2229,28 @@ export function FlipdeskComposerPage({
     }
   }
 
+  // US-2918: the one-click fix behind the size-versus-measurements note. Same
+  // write and the same invalidations as Size AI above, because it is the same
+  // column — the difference is only who worked out the answer.
+  async function handleSizeChange(nextSize: string) {
+    if (!item) return;
+    const previous = item.size ?? "";
+    try {
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({ size: nextSize } as never)
+        .eq("id", item.id);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
+      toast.success(
+        previous ? `Size changed from ${previous} to ${nextSize}.` : `Size set to ${nextSize}.`,
+      );
+    } catch (err) {
+      toast.error(`Couldn't save the size: ${errorMessage(err)}`);
+    }
+  }
+
   // Duplicate: a second, near-identical piece from the same haul. Copies the
   // catalog fields and nothing transactional — no photos, no listing, no cost
   // history, and it starts at "cataloged" rather than inheriting a status it
@@ -3126,8 +3160,10 @@ export function FlipdeskComposerPage({
           <MeasurementsCard
             item={item}
             garment={measurementGarment}
+            gender={itemDepartment}
             measurements={measurements}
             setMeasurements={applyMeasurements}
+            onSizeChange={handleSizeChange}
           />
 
           <TitleCard

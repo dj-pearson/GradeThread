@@ -136,6 +136,12 @@ interface BrandSizeChartRow {
   category_match: string[] | null;
   rows: unknown;
   note: string | null;
+  // US-2917 provenance. These decide the TIER the composer shows, so they are
+  // read from the DB row rather than inferred: a chart is only "verified" when
+  // a human said so against the brand's own guide.
+  source_url: string | null;
+  verified: boolean | null;
+  measurement_basis: string | null;
 }
 
 // ── Pure assembly + budget (unit-tested without a DB) ───────────────────────
@@ -188,6 +194,12 @@ function chartFromRow(r: BrandSizeChartRow): SizingChart {
     // rows is jsonb; the shape mirrors SizingRow[] as seeded from SIZING_CHARTS.
     rows: (r.rows as SizingChart["rows"]) ?? [],
     note: r.note ?? undefined,
+    sourceUrl: r.source_url ?? null,
+    verified: r.verified === true,
+    // A row written before 00674 has no basis. NULL reads as "body", the same
+    // default the column carries, because every chart seeded before that
+    // migration held body measurements.
+    measurementBasis: r.measurement_basis === "flat" ? "flat" : "body",
   };
 }
 
@@ -358,7 +370,7 @@ export async function resolveBrandKnowledgePack(
       supabaseAdmin
         .from("brand_size_charts")
         .select(
-          "brand_label, brand_match, department, garment, category_match, rows, note",
+          "brand_label, brand_match, department, garment, category_match, rows, note, source_url, verified, measurement_basis",
         )
         .eq("brand_key", key),
     ]);

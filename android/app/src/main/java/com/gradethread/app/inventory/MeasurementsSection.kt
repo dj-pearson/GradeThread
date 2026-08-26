@@ -20,6 +20,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import com.gradethread.app.R
@@ -207,6 +209,85 @@ fun SizeEstimateCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
+        }
+    }
+}
+
+/**
+ * US-2921: one note when the size on the label disagrees with the measurements.
+ *
+ * ONE for the whole section rather than one per field: a dress can disagree on
+ * waist and hip at once, and saying the same thing twice reads as two problems.
+ * Publishing is never blocked by it — US-2915 decided this check offers a fix
+ * and gets out of the way.
+ */
+@Composable
+fun SizeCheckNote(
+    verdict: SizeCheck.Verdict,
+    labelledSize: String,
+    tier: String,
+    brandLabel: String?,
+    dismissed: Boolean,
+    onChangeSize: (String) -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val implied = verdict.impliedSize
+    if (verdict.status != SizeCheck.Status.OFF || implied == null || dismissed) return
+
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
+        Text(
+            stringResource(R.string.size_check_note, implied, labelledSize),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        verdict.expected?.takeIf { it.size == 2 }?.let { band ->
+            Text(
+                stringResource(
+                    R.string.size_check_expected,
+                    labelledSize,
+                    MeasurementCatalog.editableString(band[0]),
+                    MeasurementCatalog.editableString(band[1]),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        // A generic chart is an estimate and must say so out loud: US-2915
+        // accepted that this check catches gross errors and stays quiet on
+        // subtle ones, and a note that hides which kind of chart it used cannot
+        // be judged by the person reading it.
+        if (tier == "generic") {
+            Text(
+                if (brandLabel.isNullOrBlank()) {
+                    stringResource(R.string.size_check_estimate_generic)
+                } else {
+                    stringResource(R.string.size_check_estimate_brand, brandLabel)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        // Absent when the measurements land off the end of the chart: "smaller
+        // than XS" is not a size the brand makes, so there is nothing to change
+        // TO and the seller has to decide.
+        val fix = SizeCheck.fixableSize(verdict)
+        // Read outside the semantics lambda — stringResource is a Composable and
+        // cannot be called from inside one.
+        val changeSpoken = fix?.let {
+            stringResource(R.string.size_check_change_to_a11y, labelledSize, it)
+        }
+        val dismissSpoken = stringResource(R.string.size_check_dismiss_a11y)
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            if (fix != null && changeSpoken != null) {
+                TextButton(
+                    onClick = { onChangeSize(fix) },
+                    modifier = Modifier.semantics { contentDescription = changeSpoken },
+                ) { Text(stringResource(R.string.size_check_change_to, fix)) }
+            }
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.semantics { contentDescription = dismissSpoken },
+            ) { Text(stringResource(R.string.common_dismiss)) }
         }
     }
 }

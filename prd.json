@@ -2730,7 +2730,7 @@
       ],
       "priority": 24,
       "passes": false,
-      "notes": ""
+      "notes": "STATUS 2026-08-26, read from the code rather than done here. AC1, AC2, AC3, AC4 and AC6 are ALREADY DONE and were never recorded - this story had empty notes, so the next reader would have re-derived all of it. android/scripts/no-bare-strings.py is inverted: its header says 'SCOPE IS EVERY COMPOSE FILE. There is no migration any more (US-2908)', EXCLUDED is empty with a comment saying an entry is a claim a human checked the file, and composable_files() WALKS the tree for @Composable instead of reading a list. AC3 is satisfied better than it asked: _self_test_discovery() writes a probe Composable with a bare string INSIDE the source tree on every invocation (not behind a flag, because a guard whose own test is opt-in is back where it started), and fails if the walk does not reach it or does not flag it. There is also a staleness check on EXCLUDED and an empty-scope check, since discovery finding nothing looks identical to a clean tree. Verified by running it here: 'self-test OK (24 cases + discovery)' then 'OK (106 Compose files)' - 106 is the full count the story named, so the eight stragglers are in scope. Spot-checked four of the eight named files: ConsumerCreditPackSheet, ConsumerGradeScreen and TwoFactorDialog carry 2, 27 and 19 stringResource calls and zero bare Text literals; SyncStatusHost has no user-visible text at all. AC4 green: check-string-formats OK across 1565 resources in en and es. STILL OPEN: AC5 alone, the pseudo-locale (en-XA / en-XB) pass over the eight converted screens for clipping and RTL. That is a look-at-it criterion on a device or emulator, and this host has neither an Android SDK nor a way to install one (dl.google.com is blocked by the network policy). Filing rather than faking."
     },
     {
       "id": "US-2909",
@@ -2843,124 +2843,8 @@
         "The architecture is the band-table split, chosen over a per-keystroke verdict endpoint and over bundling the charts into each client: the edge resolves brand, department, garment and ease and returns a small precomputed table of expected FLAT ranges per size; each client only does the lookup, so the check is instant while typing and the judgement lives in one place.",
         "The honesty limit is stated in the UI copy and is accepted: garment ease varies by cut, so the check catches gross errors (an XS labelled Large) and deliberately stays quiet on subtle ones (an oversized tee labelled Small)."
       ],
-      "priority": 27
-    },
-    {
-      "id": "US-2916",
-      "passes": false,
-      "title": "Size check: turn a body-measurement chart into expected FLAT bands per size (pure edge lib)",
-      "description": "As a developer, I want one pure function that converts a brand size chart into expected flat-lay ranges per size, so that every client can check a measurement without re-deriving garment ease.",
-      "acceptanceCriteria": [
-        "New services/edge-functions/src/lib/size-check.ts exports buildSizeBands(chart, garmentGroup, basis) returning ordered rows of { size, index, bands: { chest?: [lo, hi], bust?, waist?, hip?, inseam? } } in inches.",
-        "When basis is 'body' (the default and what every existing chart holds), circumference keys convert body to flat as (bodyInches + ease) / 2, low edge using the group's slim ease and high edge its relaxed ease. When basis is 'flat' the chart values are used directly with no ease applied.",
-        "Ease numbers match the ones already in src/lib/fit-model.ts: top chest 3/10, outerwear chest 6/16, waist 1/5, hip 2/8, dress chest 3/10. The edge module declares its own copy because edge code cannot import from src/; a guard test src/test/size-check-ease-parity.test.ts fails if the two sets of numbers ever diverge.",
-        "Length keys (inseam) compare directly with no doubling and no ease.",
-        "Chart values parse in both shapes the corpus uses: ranges (\"34-36\") and singletons (\"31\"). A non-numeric value is skipped, never coerced to zero. Regression case: the Sweaty Betty rows carry a cross-reference key 'us' whose value is a US size number, and it must not be read as a measurement.",
-        "resolveSizeRow(bands, sizeLabel) maps an item's size text to a row index, case-insensitively, across the spellings the corpus and sellers actually use: Large/L, XXL/2XL, numeric 8, and compound labels like \"UK 12 / M\". No match returns null, never index 0.",
-        "checkSize({ bands, rowIndex, measurements, tier }) returns { status: 'ok' | 'off' | 'unknown', impliedSize, stepsOff, key, expected }. stepsOff counts rows between the labelled size and the nearest size whose band contains the measurement. status is 'off' only when stepsOff >= 1 for tier 'verified' or 'brand', and >= 2 for tier 'generic'.",
-        "A measurement below the smallest band or above the largest returns 'off' with impliedSize naming that edge (for example 'smaller than XS'), not 'unknown'.",
-        "When more than one measurement key has a band, the verdict reports the key with the LARGEST stepsOff, so the note names the measurement actually driving the disagreement.",
-        "The module is pure: no network, no env read, no Anthropic import, so deno test covers it with no fixtures.",
-        "services/edge-functions/src/tests/size-check_test.ts asserts the motivating case (Lululemon men's tops, chest 17.5 in, label Large returns 'off' with stepsOff >= 2 and impliedSize below XS) AND the no-false-alarm case (generic men's tee, chest 22 in, label L returns 'ok')."
-      ],
-      "priority": 29
-    },
-    {
-      "id": "US-2917",
-      "passes": false,
-      "title": "Size check: serve the expected-size band table to the clients",
-      "description": "As a client app, I want one endpoint that returns the size bands for a brand and garment, so that the composer can check a measurement instantly without shipping the whole chart corpus.",
-      "acceptanceCriteria": [
-        "New GET /api/flipdesk/size-bands takes brand, garment and optional gender as query params and returns { tier, brandLabel, department, garment, sourceUrl, sizeSystem, sizeClass, measurementBasis, rows }.",
-        "Charts resolve DB-first through resolveBrandKnowledgePack (services/edge-functions/src/lib/brand-knowledge.ts) against public.brand_size_charts, falling back to the in-code SIZING_CHARTS seed when the DB has no matching row. This mirrors the DB-first pattern ai-size-estimate.ts already uses, so an admin chart edit changes what the composer shows with no deploy.",
-        "tier is 'verified' when the winning brand_size_charts row has verified = true, 'brand' when a brand-specific chart matched but is unverified, 'generic' when the generic fallback chart was used (brandMatch empty), and 'none' when nothing matched. The response never reports a brand chart it did not use.",
-        "Department is chosen with normalizeDepartment from size-systems.ts. When the item has no gender AND the brand has charts for more than one department, the response downgrades to tier 'generic' rather than guessing a department.",
-        "Migration adds measurement_basis text NOT NULL DEFAULT 'body' CHECK (measurement_basis IN ('body','flat')) to public.brand_size_charts, and the route passes it through to buildSizeBands. This exists so a brand that publishes garment-flat specs can be recorded honestly instead of having ease added on top of ease.",
-        "The migration satisfies the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the SAME commit, and the self-record footer.",
-        "US-268: the route takes NO item id and reads NO tenant table. A tenant-isolation_test.ts case asserts the route ignores/rejects an itemId param and that brand_size_charts is its only table read.",
-        "An unauthenticated request returns 401. The route is rate limited like the other read routes.",
-        "The response is cacheable: identical params return an identical body, and Cache-Control lets a client hold it for the life of an item edit.",
-        "An unknown brand with no generic chart for the garment returns 200 with rows: [] and tier: 'none', not a 404."
-      ],
-      "priority": 33,
-      "dependsOn": [
-        "US-2916"
-      ]
-    },
-    {
-      "id": "US-2918",
-      "passes": false,
-      "title": "Composer and Prep: flag a size that disagrees with the measurements, with a one-click fix",
-      "description": "As a reseller measuring an item, I want a note under the measurement that says the size looks wrong and lets me correct it in one tap, so that I do not publish a mis-sized listing.",
-      "acceptanceCriteria": [
-        "New src/lib/size-check.ts holds the pure lookup only: given the band table from /api/flipdesk/size-bands plus the item's measurements and size, it returns the same verdict shape the edge lib defines. Unit tested in src/lib/size-check.test.ts against the SAME fixture cases as services/edge-functions/src/tests/size-check_test.ts.",
-        "MeasurementForm (src/components/flipdesk/measurement-form.tsx) fetches the band table with TanStack Query keyed on brand + garment + gender, enabled only when brand and size are both present, and renders at most ONE discrepancy note per form.",
-        "The note names both numbers in plain words, for example: Measurements point to XS, not Large. A Large usually measures 22 to 26.5 in here.",
-        "The chart tier is stated in the note. A generic chart reads as an estimate and says so, for example: estimate only, no Lululemon chart on file.",
-        "A 'Change to XS' button writes the item's size field. MeasurementForm gains an optional onSizeChange prop; the composer's src/components/flipdesk/composer/measurements-card.tsx and src/pages/flipdesk/prep.tsx both pass it. Without the prop the note renders with no button rather than a dead one.",
-        "Publishing is never blocked by this check.",
-        "The note is dismissible for the session, matching the existing US-2827 cohort note. Both notes can be visible on the same field without repeating the same point or overlapping.",
-        "The brand size guide link stops being a Google search: sizeGuideUrl in src/lib/measurement-templates.ts uses the band table's sourceUrl when there is one, falling back to the search only when there is not.",
-        "US-2450 accessibility guard: the 'Change to XS' button's accessible name names the field and the size, the way the existing Dismiss button names its field.",
-        "npm run ui:check stays at zero findings and npx tsc -b passes."
-      ],
-      "priority": 34,
-      "dependsOn": [
-        "US-2917"
-      ]
-    },
-    {
-      "id": "US-2919",
-      "passes": false,
-      "title": "AutoLister review: surface size-vs-measurement conflicts as a group warning",
-      "description": "As a reseller reviewing a bulk AI batch, I want mis-sized items flagged in the queue, so that I catch the AI's size mistakes before I publish forty listings.",
-      "acceptanceCriteria": [
-        "The size check runs over each generated draft that has both a size and at least one comparable measurement, and its verdict feeds src/pages/flipdesk/autolister/group-warnings.ts as a new warning kind.",
-        "The queue row shows the conflict inline (src/pages/flipdesk/autolister/queue-cells.tsx) with the implied size.",
-        "src/pages/flipdesk/autolister-bulk-edit.tsx lets the size be corrected from the warning without opening the composer.",
-        "Band tables are fetched once per distinct brand+garment pair in the batch, not once per item. A 40-item batch of 6 brands issues 6 requests or fewer.",
-        "Items with no chart at any tier produce no warning and no empty state.",
-        "A test under src/pages/flipdesk/autolister/__tests__ asserts a batch of 3 items where exactly 1 is mis-sized produces exactly 1 warning."
-      ],
-      "priority": 36,
-      "dependsOn": [
-        "US-2918"
-      ]
-    },
-    {
-      "id": "US-2920",
-      "passes": false,
-      "title": "iOS: size check in the item composer",
-      "description": "As an iOS reseller, I want the same size-versus-measurements warning the web composer shows, so that measuring on my phone catches the same mistakes.",
-      "acceptanceCriteria": [
-        "ios/GradeThread/Inventory/ItemCanvas/MeasurementCatalog.swift gains a SizeCheck type that consumes the /api/flipdesk/size-bands response and returns the same verdict shape as src/lib/size-check.ts.",
-        "ItemCanvasView.swift renders one discrepancy note in the measurements section with the same wording as web, plus a 'Change to <size>' action that writes the item's size field.",
-        "The tier tolerance rule matches web exactly: one step on a verified or brand chart, two on a generic one.",
-        "ios/GradeThreadTests/SizeCheckTests.swift runs the SAME fixture cases as services/edge-functions/src/tests/size-check_test.ts (Lululemon 17.5 in labelled Large is 'off'; generic tee 22 in labelled L is 'ok'), so the three implementations cannot drift silently.",
-        "All six ios/Scripts/*.py guards stay clean: no ungated print, no URLSession.shared, no raw JPEG, no bare user-facing strings, no force unwrap, no ATS exception.",
-        "iOS CI compiles on the macOS runner."
-      ],
-      "priority": 39,
-      "dependsOn": [
-        "US-2917"
-      ]
-    },
-    {
-      "id": "US-2921",
-      "passes": false,
-      "title": "Android: size check in the item composer",
-      "description": "As an Android reseller, I want the same size-versus-measurements warning the web composer shows, so that measuring on my phone catches the same mistakes.",
-      "acceptanceCriteria": [
-        "android/app/src/main/java/com/gradethread/app/inventory/MeasurementCatalog.kt gains a SizeCheck type consuming the /api/flipdesk/size-bands response and returning the same verdict shape as src/lib/size-check.ts.",
-        "MeasurementsSection.kt renders one discrepancy note with the same wording as web, plus a 'Change to <size>' action wired through ItemCanvasViewModel.kt that writes the item's size field.",
-        "The tier tolerance rule matches web exactly: one step on a verified or brand chart, two on a generic one.",
-        "android/app/src/test/java/com/gradethread/app/inventory/SizeCheckTest.kt runs the SAME fixture cases as the edge and iOS suites.",
-        "npm run verify:android passes end to end: format, detekt, lint, unit tests, the coverage floor, and the debug/release/bundle builds."
-      ],
-      "priority": 41,
-      "dependsOn": [
-        "US-2917"
-      ]
+      "priority": 27,
+      "notes": "Status 2026-08-26. SIX of seven children pass: US-2916 (the math), US-2917 (the endpoint + migration 00674), US-2918 (Composer and Prep), US-2919 (AutoLister queue), US-2920 (iOS), US-2921 (Android). US-2922 is PARTIAL - its guard, its admin field and its coverage script are done, but the top-100 ranking needs prod inventory and each chart needs a human check before verified flips true. The epic stays open on that one child, per AC1. The motivating case works end to end in code and is pinned by a fixture that all four implementations run: a Lululemon men's top measuring 17.5 in flat but labelled Large raises a discrepancy naming 'smaller than XS', and an ordinary 22 in tee labelled L stays silent because a generic Large is exactly 22 to 26.5 in flat. All four founder decisions are implemented as written: the checker shipped before the curation; the note offers a one-click fix and never blocks publish; it fires in Composer, Prep and the AutoLister review; tolerance is one size step on a verified or brand chart and two on a generic one. The band-table split held up - the edge resolves brand, department, garment and ease once and returns a table, and each client does a pure lookup, so the check runs on every keystroke with no request. The honesty limit is in the UI copy: a generic chart says 'Estimate only - no <brand> chart on file'. TWO THINGS THE BUILD ADDED that the epic did not anticipate, both worth keeping. (1) The fix button is ABSENT when the measurements land off the end of a chart. 'smaller than XS' is not a size the brand makes, so there is nothing to change to and writing it into the size column would be worse than saying nothing. (2) findSizingCharts and the pack assembler both fall back to the WHOLE chart pool when a category narrows to nothing - right for the grading prompt, wrong here. The first draft of the endpoint returned a men's TOPS chart for garment=wristwatch. It now requires a real category match and returns tier 'none' otherwise. BLOCKING THE MERGE: migration 00674 is HELD in PENDING_MIGRATIONS.md and must be applied to prod first."
     },
     {
       "id": "US-2922",
@@ -2981,7 +2865,8 @@
       "priority": 43,
       "dependsOn": [
         "US-2917"
-      ]
+      ],
+      "notes": "PARTIAL 2026-08-26. The checkable half is done; the curation itself is BLOCKED and needs the owner. DONE: (AC5) new services/edge-functions/src/tests/verified-chart-parity_test.ts parses every brand_size_charts INSERT across all 674 migrations (a hand-rolled VALUES splitter, because the rows carry ARRAY[], $json$ and prose full of commas) and fails when a chart marked verified has no sizing-charts.ts counterpart and is not classified DB-only. It found SEVEN on its first run - New Era x2, Stetson, Kangol, Goorin Bros, golf shoe widths, western boot widths - all real and all correctly DB-only: headwear circumference and shoe-width letter axes have no ease and no band, so compiling them into the edge would add rows nothing reads. They are now classified with that reason, plus a guards-the-guard case (the parser must find >100 charts, since a broken parse reads exactly like a clean corpus) and a case that a verified chart carries a source_url, since verified without a URL is a row nobody could have checked. (AC6) measurement_basis added to the admin allow-list on BOTH sides - src/pages/admin/brand-knowledge.tsx EDITABLE and the edge KB_TABLES in admin-brand-knowledge.ts, which is the one that actually enforces it. (AC7) new services/edge-functions/scripts/size-chart-coverage.ts ranks brands by real inventory_items.brand row count, reads the department each brand actually sells from the items rather than guessing, and prints coverage per brand+department: any chart / verified chart / tops AND bottoms / source_url, plus the flat-basis count. Read-only, deno lint and deno check clean. BLOCKED, and why: (AC1) the top-100 ranking is a fact about PROD inventory. There is no prod access from this sandbox and Docker will not start here, so the script has never been executed and the ranked list cannot be written into these notes. (AC2/AC3/AC4/AC8) seeding 100 brands' charts requires that ranking first, and every row needs a human to compare it against the brand's own published guide before verified flips true - that is the whole point of the tier and it is not something to fabricate. (AC9) is an OPERATOR step by its own wording. NEXT STEP FOR THE OWNER: run 'deno run --allow-net --allow-env services/edge-functions/scripts/size-chart-coverage.ts --top 100 --json' against prod with SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY set, and paste the ranking here. The seeding work can then be scoped against real numbers instead of intuition."
     }
   ]
 }

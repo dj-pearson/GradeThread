@@ -37,6 +37,7 @@ import { SoldCompRecommendation } from "@/components/flipdesk/sold-comp-recommen
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { useGradeBandedPrice } from "@/hooks/use-ebay";
 import { ebaySoldSearchUrl } from "@/lib/comps";
+import { inferDepartment } from "@/lib/ebay-prefill";
 import { rankOf, resolveStatus, factsOf } from "@/lib/workflow";
 import { cn } from "@/lib/utils";
 import type { ItemCategory } from "@/types/database";
@@ -47,6 +48,14 @@ const DRAFTED_RANK = rankOf("drafted");
 interface PrepState {
   measurements: Record<string, number | string>;
   targetPrice: string;
+  /**
+   * US-2918: the item's size, editable here so the size-versus-measurements
+   * note's one-click fix has something to write. It is saved with the rest of
+   * the draft rather than immediately — prep is a batch surface, and a size
+   * that changed while the seller was measuring should travel with the numbers
+   * that changed it.
+   */
+  size: string;
 }
 
 export function FlipdeskPrepPage() {
@@ -86,6 +95,7 @@ export function FlipdeskPrepPage() {
             : {},
         targetPrice:
           current.target_price == null ? "" : String(current.target_price),
+        size: current.size ?? "",
       });
     } else {
       setDraft(null);
@@ -120,6 +130,7 @@ export function FlipdeskPrepPage() {
         measurements:
           Object.keys(d.measurements).length > 0 ? d.measurements : null,
         target_price: targetPrice,
+        size: d.size.trim() === "" ? null : d.size.trim(),
         status: resolved,
       } as never)
       .eq("id", current.id);
@@ -291,6 +302,19 @@ export function FlipdeskPrepPage() {
             values={draft.measurements}
             onChange={(m) => setDraft({ ...draft, measurements: m })}
             aiSources={currentDetail?.ai_field_sources ?? null}
+            size={draft.size}
+            gender={inferDepartment({
+              title: current.item_title,
+              brand: current.brand,
+              size: draft.size,
+              color: null,
+              material: null,
+              style: null,
+              description: null,
+              condition_notes: null,
+              item_category: current.category,
+            })}
+            onSizeChange={(next) => setDraft({ ...draft, size: next })}
           />
         </CardContent>
       </Card>

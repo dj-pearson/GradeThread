@@ -46,6 +46,8 @@ class ItemCanvasViewModel @Inject constructor(
     private val extensionQueue: com.gradethread.app.marketplaces.ExtensionQueueRepository,
     // US-2886: the "Sourced by" roster behind the picker.
     private val sourcers: SourcerRepository,
+    /** US-2921: the expected-size band table behind the size check. */
+    private val sizeBandsService: SizeBandsService,
 ) : ViewModel() {
 
     data class State(
@@ -64,6 +66,17 @@ class ItemCanvasViewModel @Inject constructor(
         val sizeEstimate: SizeEstimate? = null,
         val estimatingSize: Boolean = false,
         val sizeErrorMessage: String? = null,
+        /**
+         * US-2921: the expected-size band table for this item's brand and
+         * garment. EMPTY means "nothing to say", which is also what a failed
+         * fetch and a brand with no chart on file both look like.
+         */
+        val sizeBands: SizeCheck.BandsResponse = SizeCheck.BandsResponse.EMPTY,
+        /**
+         * US-2921: the size-versus-measurements note, waved off for this visit.
+         * It is a check, not an error, so it has to be silenceable.
+         */
+        val sizeNoteDismissed: Boolean = false,
         /** US-1346: the eBay comps panel. */
         val comps: CompsState = CompsState.Idle,
         /** US-1347: the category's aspect spec. */
@@ -244,6 +257,57 @@ class ItemCanvasViewModel @Inject constructor(
     fun applyInferredSize(size: String) {
         edit { it.copy(size = size) }
         dismissSizeEstimate()
+    }
+
+    // ── US-2921: size versus measurements ───────────────────────────────
+
+    /** The last (brand, garment, department) a table was fetched for. */
+    private var loadedSizeBandKey: String? = null
+
+    /**
+     * Load the band table when the brand, the garment or the department changes
+     * — not on every keystroke in the size field, which is edited a character at
+     * a time and would issue a request per character.
+     */
+    fun refreshSizeBands() {
+        val draft = _state.value.draft
+        val brand = draft.brand.trim().ifBlank { null }
+        val garment = draft.garmentCategory.trim().ifBlank { null }
+            ?: draft.category?.wire
+        val department = SizeCheck.departmentFromText(
+            listOf(draft.title, brand, draft.size, garment),
+        )
+        val key = listOf(brand, garment, department).joinToString("|") { it ?: "" }
+        if (key == loadedSizeBandKey) return
+        loadedSizeBandKey = key
+        viewModelScope.launch {
+            val table = sizeBandsService.load(brand, garment, department)
+            // Drop a response that lost the race to a newer brand or garment.
+            if (loadedSizeBandKey == key) {
+                _state.value = _state.value.copy(sizeBands = table)
+            }
+        }
+    }
+
+    /** Does the size on the label agree with what this item measures? */
+    fun sizeVerdict(): SizeCheck.Verdict {
+        val state = _state.value
+        val rows = state.sizeBands.rows
+        return SizeCheck.check(
+            rows = rows,
+            rowIndex = SizeCheck.resolveRow(rows, state.draft.size),
+            measurements = state.draft.measurements,
+            tier = state.sizeBands.tier,
+        )
+    }
+
+    /** US-2921: the one-click fix behind the size-versus-measurements note. */
+    fun applyCheckedSize(size: String) {
+        edit { it.copy(size = size) }
+    }
+
+    fun dismissSizeNote() {
+        _state.value = _state.value.copy(sizeNoteDismissed = true)
     }
 
     fun estimateSize() {
