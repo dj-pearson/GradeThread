@@ -71,11 +71,21 @@ cannot be predicted from source.
 
 ## Not done
 
-- `android/app/lint-baseline.xml` (step 1 above)
-- `android/app/src/test/screenshots/*.png` (step 3)
-- the real coverage number (step 4). `koverLineFloor` is a provisional 40 and
-  the comment above it says so
-- `npm run verify:android` end to end
+**All four are now done.** Kept as a record of what the handoff was for rather
+than deleted, because "generated on a machine with an SDK" is the reason each of
+them could not be produced in a cloud session, and that constraint has not
+changed.
+
+- ~~`android/app/lint-baseline.xml` (step 1 above)~~ **DONE** — 251 entries,
+  regenerated most recently under US-2891
+- ~~`android/app/src/test/screenshots/*.png` (step 3)~~ **DONE** — seven PNGs
+  (buttons, data rows, error state, info cards, status badges; light and dark).
+  They are all `ui/components` primitives and not one is a screen, which is
+  US-2902's problem, not this handoff's
+- ~~the real coverage number (step 4)~~ **DONE 2026-08-26 (US-2903)** —
+  `:app:koverLogDebug` reported **46.1643%**, so `koverLineFloor` is **45**
+- ~~`npm run verify:android` end to end~~ **DONE** — green, most recently under
+  US-2891 on JDK 21
 
 ## One thing to tell Dj
 

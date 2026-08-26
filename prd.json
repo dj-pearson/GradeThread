@@ -2669,22 +2669,6 @@
       "notes": ""
     },
     {
-      "id": "US-2903",
-      "title": "The Android coverage floor is a guess nobody has replaced with the measurement",
-      "description": "app/build.gradle.kts sets `val koverLineFloor = 40` under a doc comment that says, in its own words, '40 is PROVISIONAL. The suite has never been measured on a machine with an Android SDK.' It then gives the exact recipe: run :app:koverLogDebug, round the reported line percentage DOWN to the nearest 5, put it here. HANDOFF-US-2502.md lists the same step under 'Not done'.  Everything else on that handoff list has since been done - the lint baseline exists (253 entries), the screenshot goldens exist (seven PNGs). This one has not, and it is the cheapest of the three: one Gradle task, one number.  WHY A PROVISIONAL FLOOR IS WORSE THAN NO FLOOR. The comment above it makes the argument itself: a floor should be the MEASURED number, because a floor above what the suite reaches gets lowered within a week, and a floor at today's number still catches the change that deletes tests. A floor at 40 when the suite actually covers, say, 62 catches nothing - a third of the tests could be deleted and koverVerifyDebug would still pass. With 179 unit test files the real number is very unlikely to be 40, so the gate is almost certainly inert right now, and it reads as enforced in both verify.mjs and android-ci.yml.",
-      "acceptanceCriteria": [
-        ":app:koverLogDebug is run and the reported line coverage is written into the story with the date.",
-        "koverLineFloor is set to that number rounded down to the nearest 5, and the 'PROVISIONAL' paragraph is replaced with the measurement and when it was taken.",
-        "npm run verify:android passes with the new floor - if it does not, that is the finding and it gets fixed here rather than by lowering the number.",
-        "The exclusions are sanity-checked while the report is open: Composables and generated code are excluded on purpose, so confirm the measured number is over real logic and not inflated by something the filter missed.",
-        "HANDOFF-US-2502.md's 'Not done' list is updated, since it is the only place recording that this was outstanding.",
-        "The rule for raising it - in the same commit as the tests that earned it - is confirmed to still be in the comment."
-      ],
-      "priority": 18,
-      "passes": false,
-      "notes": ""
-    },
-    {
       "id": "US-2904",
       "title": "Android has no in-app help, and no buyer surface at all",
       "description": "Two whole modules exist on iOS and have no Android counterpart. This is not a naming difference - the directories and every file in them are absent.  HELP. ios/GradeThread/Help holds HelpSheet.swift, HelpSlugs.swift and ProductTerms.swift: contextual help articles reachable from the screen the seller is stuck on, and a glossary of the product's own vocabulary. Android has support/ - SupportScreen, SupportThreadScreen, SupportService - which is TICKETING. Those are different things: one answers the question now, the other files it with a human. A seller on Android who does not understand what 'comped' means, or why an aspect is required, has no answer inside the app and one route out of the confusion, which is to open a ticket. That is a worse product and it is also more support load.  BUYER. ios/GradeThread/Buyer holds seven files: BuyerAlertsView, BuyerEntitlements, BuyerEntitlementsStore, BuyerGuaranteeView, BuyerPortfolioView, BuyerToolsSection, BuyerTrustScoreView. Android has none of it. The buyer economy (US-1816/1817 and the six buyer epics) is built server-side, on the web, and on iOS. An Android user who buys a graded garment has no alerts, no portfolio, no trust score and no view of the guarantee they are covered by.  NEITHER BLOCKS SUBMISSION and that is why they are one story at this priority rather than two urgent ones. The app is a seller tool first and it is complete as one. But 'production ready' against the product as it exists on the other two clients means naming these, and the buyer half in particular is a feature customers have been sold on a certificate page that an Android phone cannot open into the app.",

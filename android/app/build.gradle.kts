@@ -34,11 +34,24 @@ plugins {
  * gets lowered within a week, and a floor at today's number still catches the
  * change that deletes tests.
  *
- * 40 is PROVISIONAL. The suite has never been measured on a machine with an
- * Android SDK. Run `node scripts/gradlew.mjs :app:koverLogDebug`, round the
- * reported line percentage DOWN to the nearest 5, and put it here.
+ * MEASURED 2026-08-26 (US-2903): `:app:koverLogDebug` reported
+ * **46.1643%** application line coverage over 1,864 unit tests. 45 is that
+ * number rounded down to the nearest 5, which is the whole rule - the floor is
+ * a tripwire under where the suite already stands, not a target above it.
+ *
+ * It replaces a provisional 40 that had never been measured. 40 was not
+ * catastrophically wrong, and it was still inert in the way that matters: six
+ * points of slack is roughly an eighth of the suite, so a change could have
+ * deleted that much and `koverVerifyDebug` would have stayed green while
+ * reading as enforced in both `verify.mjs` and `android-ci.yml`.
+ *
+ * RAISE IT IN THE SAME COMMIT AS THE TESTS THAT EARNED IT, never on its own and
+ * never to a number nobody has run. Re-measure with
+ * `node scripts/gradlew.mjs :app:koverLogDebug` - through the wrapper, which
+ * resolves JDK 21; a bare `gradlew.bat` picks up whatever JAVA_HOME holds, and
+ * on JDK 17 twenty-two Robolectric classes fail before any coverage is counted.
  */
-val koverLineFloor = 40
+val koverLineFloor = 45
 
 // US-1301: build-time secrets — CI env var first, then local.properties, then
 // an empty placeholder (AppConfig treats empty as absent; required values fail
