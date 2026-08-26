@@ -29,10 +29,36 @@ import { createClient } from "@supabase/supabase-js";
 import { brandKey } from "../src/lib/brand-normalize.ts";
 import { normalizeDepartment } from "../src/lib/size-systems.ts";
 
-const url = Deno.env.get("SUPABASE_URL");
-const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+// Trimmed, because a key that arrives with a trailing newline or a stray space
+// is the normal outcome of copying it out of a dashboard or a file, and Deno
+// then rejects the Authorization header with "failed to parse header value" -
+// which supabase-js reports per query, so the script prints a full zeroed
+// report instead of stopping. A zeroed report is a wrong answer that looks
+// like a real one, so the key is checked here and the run refuses to start.
+const url = Deno.env.get("SUPABASE_URL")?.trim();
+const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")?.trim();
 if (!url || !key) {
   console.error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required.");
+  Deno.exit(1);
+}
+// A JWT is three base64url segments. Anything else here never reached the
+// database, so say WHICH thing is wrong rather than letting it fail per query.
+const badChar = /[^!-~]/.exec(key);
+if (badChar) {
+  console.error(
+    `! SUPABASE_SERVICE_ROLE_KEY contains a character that cannot go in an HTTP ` +
+      `header (code point ${badChar[0].codePointAt(0)} at index ${badChar.index}). ` +
+      `The key is ${key.length} characters long; a service-role JWT is usually ` +
+      `200+. It looks like the paste did not land in full.`,
+  );
+  Deno.exit(1);
+}
+if (key.split(".").length !== 3 || key.length < 100) {
+  console.error(
+    `! SUPABASE_SERVICE_ROLE_KEY is not shaped like a JWT: ${key.length} ` +
+      `characters, ${key.split(".").length} dot-separated segments (expected 3, ` +
+      `200+ characters). Refusing to run rather than report zeros.`,
+  );
   Deno.exit(1);
 }
 
