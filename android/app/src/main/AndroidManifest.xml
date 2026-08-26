@@ -161,6 +161,18 @@
                 <data android:pathPrefix="/app/support" />
                 <data android:pathPrefix="/app/capture" />
                 <data android:pathPrefix="/app/add" />
+                <!-- US-2898: this was missing while DeepLinkRoute had parsed
+                     /app/shipping since US-1377, so the link opened a BROWSER
+                     and the seller landed on the website. The same destination
+                     via the widget (com.gradethread.app://widget/shipping)
+                     worked, because the widget host is claimed below — one of
+                     the two routes to the shipping queue worked and the other
+                     silently did not.
+
+                     DeepLinkRouteManifestTest now compares this list against
+                     DeepLinkRoute in BOTH directions, so the two cannot drift
+                     again. -->
+                <data android:pathPrefix="/app/shipping" />
                 <!-- US-1350: the eBay consent bounce-back. Claimed via
                      assetlinks.json so no other app can intercept it. -->
                 <data android:pathPrefix="/app/oauth/ebay" />

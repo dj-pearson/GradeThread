@@ -2620,22 +2620,6 @@
       "notes": ""
     },
     {
-      "id": "US-2898",
-      "title": "A gradethread.com/app/shipping link opens a browser, because the manifest never claimed it",
-      "description": "DeepLinkRoute.fromAppLink resolves twelve https paths. AndroidManifest.xml's autoVerify intent-filter lists eleven pathPrefixes. The one it does not list is /app/shipping, which DeepLinkRoute maps to ShellRoutes.FULFILLMENT.  So the parser handles the route, the shell has a destination for it, and Android never delivers the intent - the URL opens in Chrome and the seller lands on the website. The same destination reached through the widget (com.gradethread.app://widget/shipping) works, because the widget host IS in the manifest. One of the two paths to the shipping queue works and the other silently does not, which is the worst version of this bug: nothing errors, it just goes somewhere else.  THE GUARD DOES NOT COVER THIS. scripts/check-merged-manifest.mjs verifies that four system-reachable COMPONENTS survive the merge - the widget receiver, the share target, and the two activities. It says nothing about which paths those activities claim. So the drift between DeepLinkRoute and the manifest is invisible to CI and will happen again the next time a route is added, which is exactly how this one happened.  Fixing the missing prefix is a one-line change. The story is the guard, because the two lists are maintained by hand in two files, in two languages, and they have already fallen out of step once.",
-      "acceptanceCriteria": [
-        "The manifest claims /app/shipping, and a link to it opens the fulfillment queue on a release build with App Links verified.",
-        "A guard compares the https paths DeepLinkRoute.fromAppLink accepts against the pathPrefixes in the merged manifest and fails on a mismatch in EITHER direction - a route with no prefix, and a prefix no route handles.",
-        "The guard has a self-test that reddens on a removed prefix and on an added unparsed route, since a guard that reports nothing is indistinguishable from a clean tree.",
-        "The guard runs in npm run verify:android and in android-ci.yml, next to check-merged-manifest.mjs.",
-        "The custom-scheme hosts (widget, shortcut, auth-callback) are covered by the same comparison, so the widget and shortcut paths cannot drift either.",
-        "/app/auth-callback stays claimed exclusively by AuthCallbackActivity - the guard must not 'fix' the split by widening MainActivity's filter."
-      ],
-      "priority": 8,
-      "passes": false,
-      "notes": ""
-    },
-    {
       "id": "US-2899",
       "title": "A cold launch on a dark-mode phone flashes a white window",
       "description": "res/values/themes.xml is three lines: Theme.GradeThread extends android:Theme.Material.Light.NoActionBar. There is no values-night. So the window background is white on every device, in every system theme, from the moment the launcher starts the activity until Compose draws its first frame.  On a phone in dark mode that is a full-screen white flash before a dark app appears. It is the first thing anyone sees, it is the single most common 'this app feels cheap' tell on Android, and it is entirely a resource file.  IT COMPOUNDS WITH THE AUTH GATE. MainActivity renders `AuthRepository.Phase.Loading -> Unit`, deliberately, so a sign-in form does not flash and vanish on every cold start. The comment defending that is right about the flash and leaves a hole: for however long the session takes to restore from encrypted storage, the app shows an empty white window with nothing on it. The correct shape for both problems is the same one - the platform SplashScreen API, held on screen with keepOnScreenCondition until the auth phase leaves Loading, so the launch icon stays up instead of a blank rectangle, and it is themed for the system's dark mode.  Neither androidx.core:core-splashscreen nor any splash theme exists in the project today; grepping libs.versions.toml for splashscreen returns nothing.",
