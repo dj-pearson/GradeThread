@@ -53,6 +53,8 @@ import com.gradethread.app.ui.theme.Spacing
 fun HomeScreen(
     onAddItem: () -> Unit,
     onSnap: () -> Unit,
+    onScout: () -> Unit,
+    onProspect: () -> Unit,
     onOpenInventory: () -> Unit,
     onOpenMoney: () -> Unit,
     onOpenGrades: () -> Unit,
@@ -195,11 +197,31 @@ fun HomeScreen(
                             ActivationStep.ADD_ITEM.id -> onAddItem()
                             ActivationStep.CONNECT_EBAY.id -> onOpenMarketplaces()
                             // Opens system settings rather than firing a runtime
-                            // permission request. Push DELIVERY is US-1378 and
-                            // isn't built yet — prompting for a permission
-                            // nothing can use would be asking under false
-                            // pretences. Reading the real setting keeps the step
-                            // honest in the meantime.
+                            // permission request.
+                            //
+                            // US-2907: the reason used to read "push DELIVERY is
+                            // US-1378 and isn't built yet". US-1378 SHIPPED —
+                            // platform/push holds nine files including a working
+                            // registration and notifier — so that sentence had
+                            // been false for as long as the feature has existed.
+                            // Same stale-forward-reference shape as the Scout and
+                            // Prospect comment ten lines below, in the same file.
+                            //
+                            // The BEHAVIOUR is still right, for a different
+                            // reason. Android gives an app one usable
+                            // POST_NOTIFICATIONS dialog: a second ask after a
+                            // refusal is auto-denied, and the seller is left
+                            // thinking they said yes. OnboardingHost already
+                            // spends that one ask on a checklist row the person
+                            // taps deliberately, which is the good version of
+                            // asking. From here, settings is the route that
+                            // still works afterwards.
+                            //
+                            // OPEN, and not settled here: a seller who never
+                            // finished onboarding has an UNSPENT ask, and this
+                            // path sends them to settings anyway. Wiring the
+                            // real prompt for that case is a behaviour change
+                            // with its own argument, not a comment fix.
                             ActivationStep.NOTIFICATIONS.id -> context.startActivity(
                                 Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                                     .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
@@ -214,21 +236,48 @@ fun HomeScreen(
         item {
             Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
                 Text(stringResource(R.string.home_quick_actions), style = MaterialTheme.typography.titleMedium)
+                // US-2899 sibling note, US-2907: TWO ROWS OF TWO, not one row
+                // of four. At 320dp the four labels are "Add item", "Snap to
+                // Value", "Scout" and "Prospect" — a quarter width each leaves
+                // "Snap to Value" wrapping to three lines or ellipsing, and a
+                // horizontally scrolling row hides the last action behind a
+                // gesture nothing signals. A 2x2 grid keeps every label on one
+                // line at the small end and costs one row of height.
                 Row(
                     Modifier.fillMaxWidth().padding(top = Spacing.xs),
                     horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                 ) {
-                    BrandSecondaryButton(text = stringResource(R.string.home_add_item), modifier = Modifier.weight(1f)) {
+                    BrandSecondaryButton(
+                        text = stringResource(R.string.home_add_item),
+                        modifier = Modifier.weight(1f),
+                    ) {
                         onAddItem()
                     }
-                    BrandSecondaryButton(text = stringResource(R.string.home_snap_to_value), modifier = Modifier.weight(1f)) {
+                    BrandSecondaryButton(
+                        text = stringResource(R.string.home_snap_to_value),
+                        modifier = Modifier.weight(1f),
+                    ) {
                         onSnap()
                     }
                 }
-                // Scout and Prospect are the other two actions US-1370 AC2 names.
-                // They are deliberately absent rather than stubbed: US-1374 hasn't
-                // landed, and a button that opens a placeholder is worse than no
-                // button — it teaches sellers the app is broken.
+                Row(
+                    Modifier.fillMaxWidth().padding(top = Spacing.xs),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    // Same strings the Tools sheet uses. One feature, one name:
+                    // a second copy would let the two drift and teach a seller
+                    // that Scout and whatever-it-got-renamed-to are different
+                    // things.
+                    BrandSecondaryButton(text = stringResource(R.string.tools_scout), modifier = Modifier.weight(1f)) {
+                        onScout()
+                    }
+                    BrandSecondaryButton(
+                        text = stringResource(R.string.tools_prospect),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        onProspect()
+                    }
+                }
             }
         }
 
@@ -242,7 +291,10 @@ fun HomeScreen(
                         .clickable(onClick = onOpenGrades),
                 ) {
                     Column(Modifier.padding(Spacing.sm)) {
-                        Text(stringResource(R.string.home_certified_grades), style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            stringResource(R.string.home_certified_grades),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
                         Text(
                             state.grades.label,
                             style = MaterialTheme.typography.bodySmall,
@@ -350,11 +402,7 @@ private fun StatTile(
 }
 
 @Composable
-private fun ChecklistCard(
-    state: ActivationState,
-    onDismiss: () -> Unit,
-    onStep: (ActivationStep) -> Unit,
-) {
+private fun ChecklistCard(state: ActivationState, onDismiss: () -> Unit, onStep: (ActivationStep) -> Unit) {
     Card(Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs)) {
         Column(Modifier.padding(Spacing.sm)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

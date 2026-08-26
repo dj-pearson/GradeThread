@@ -249,6 +249,8 @@ private fun ShellNavHost(navController: NavHostController) {
             com.gradethread.app.home.HomeScreen(
                 onAddItem = { navController.navigate("capture/photos") },
                 onSnap = { navController.navigate(ShellRoutes.SNAP) },
+                onScout = { navController.navigate(ShellRoutes.SCOUT) },
+                onProspect = { navController.navigate(ShellRoutes.PROSPECT) },
                 onOpenInventory = { toSection(ShellSection.INVENTORY) },
                 onOpenMoney = { toSection(ShellSection.MONEY) },
                 onOpenGrades = { navController.navigate(ShellRoutes.GRADES) },

@@ -2717,21 +2717,6 @@
       "notes": ""
     },
     {
-      "id": "US-2907",
-      "title": "The home screen still says Scout and Prospect do not exist, and they have shipped",
-      "description": "HomeScreen.kt has two quick-action buttons, Add item and Snap to value, followed by a comment: 'Scout and Prospect are the other two actions US-1370 AC2 names. They are deliberately absent rather than stubbed: US-1374 hasn't landed, and a button that opens a placeholder is worse than no button.'  The reasoning was right. The premise has expired. US-1374 is archived as done, and scout/ is a real module: ScoutScreen, ScoutService, ScoutViewModel, ProspectScreen, ProspectViewModel, ProspectTypes. Both are routed in AppShell (ShellRoutes.SCOUT, ShellRoutes.PROSPECT). The features work and the home screen does not offer them, because nobody came back to the comment that was waiting on them.  SO US-1370 AC2 IS STILL UNMET, and it now reads as met to anyone who greps for it - the story is closed, the comment explains the gap, and the explanation is out of date. That is a worse state than the honest gap it describes.  This is small. It is here because it is the only one of its kind found in the whole Android tree - the codebase has zero TODO/FIXME markers and one stale forward-reference, which is a good ratio and an argument for closing the one.",
-      "acceptanceCriteria": [
-        "Scout and Prospect appear as home quick actions and open the real screens.",
-        "The stale comment goes, rather than being edited to describe a different gap.",
-        "The four actions lay out sensibly at the small end - two rows, or a scrolling row, not four buttons crushed into one line on a compact phone.",
-        "US-1370 AC2 is re-read against the finished screen to confirm nothing else on it was left behind the same way.",
-        "The rest of the tree is swept once for comments naming a story id that is now archived, since this one was invisible until someone read the file."
-      ],
-      "priority": 22,
-      "passes": false,
-      "notes": ""
-    },
-    {
       "id": "US-2908",
       "title": "Eight Compose files sit outside the localization guard, and the guard cannot tell",
       "description": "scripts/no-bare-strings.py enforces string extraction over an explicit SCOPE list, and the header is honest about it: 'SCOPE IS DELIBERATE AND PARTIAL ... it grows as more are [converted], and a file inside the scope can never regress.' That was the right way to do a staged migration across ~90 files.  The migration is now eight files from finished. 106 files in the tree contain @Composable; 98 are in scope. The remainder: billing/ConsumerCreditPackSheet.kt, grading/ConsumerGradeScreen.kt, grading/GradeCameraSheet.kt, inventory/SourcedByPicker.kt, measure/MeasurementPhotoEditorSheet.kt, settings/TwoFactorDialog.kt, sync/PersistenceHealthHost.kt, sync/SyncStatusHost.kt.  THE LIST IS NOT RANDOM AND THAT IS THE PROBLEM. It includes the consumer grading flow, the credit-pack purchase sheet, the two-factor dialog and the sync-status host - a purchase surface, a security surface, and the thing that tells the seller their data is not saving. Spanish is otherwise complete (1460 strings in both values/ and values-es/), so a Spanish-speaking seller gets a fully translated app right up until they hit one of these eight, at which point the credit-pack sheet or the 2FA dialog comes back in English.  AND A NEW FILE IS OUT OF SCOPE BY DEFAULT. The guard passes on a file nobody added to the list, which is the same silence a clean tree produces. That is the shape this repo has been bitten by before - a guard reporting nothing reads exactly like a guard finding nothing.  US-2499 covers the iOS half of this and the guard's migration framing; this is the Android half, which is small and finishable.",
