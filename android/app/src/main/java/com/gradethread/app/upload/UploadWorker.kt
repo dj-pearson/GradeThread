@@ -34,10 +34,7 @@ import java.util.concurrent.TimeUnit
  * WorkManager backoff; terminal (staged file gone, 4xx) → queue a pending
  * uploadPhoto mutation for the inspector and stop retrying.
  */
-class UploadWorker(
-    appContext: Context,
-    params: WorkerParameters,
-) : CoroutineWorker(appContext, params) {
+class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
         val staged = inputData.getString(KEY_STAGED_PATH)?.let(::File)
@@ -72,7 +69,11 @@ class UploadWorker(
 
             // Phase 1: short-TTL mint (fresh per attempt). Phase 2: ONE PUT.
             val signedUrl = PhotoUpload.mintSignedUploadUrl(
-                http, supabaseUrl, session.accessToken, bucket, path,
+                http,
+                supabaseUrl,
+                session.accessToken,
+                bucket,
+                path,
             )
             PhotoUpload.putBytes(http, signedUrl, staged)
 
@@ -103,7 +104,13 @@ class UploadWorker(
                 MutationKind.UPLOAD_PHOTO,
                 targetId = itemId,
                 payload = uploadPayload(
-                    photoId, itemId, serverType, photoRole, path, sortOrder, capturedAt,
+                    photoId,
+                    itemId,
+                    serverType,
+                    photoRole,
+                    path,
+                    sortOrder,
+                    capturedAt,
                 ),
             )
 
@@ -204,7 +211,7 @@ class UploadWorker(
                     .putInt(KEY_HEIGHT, height ?: 0)
                     .build(),
             )
-            .addTag("photo-upload")
+            .addTag(TAG_ALL)
             // US-1334: the AI publish gate has to tell "this item's front shot
             // failed terminally" from "it's still uploading", and WorkInfo
             // exposes tags but never input data. Two tags — the item and the
@@ -213,7 +220,31 @@ class UploadWorker(
             .addTag(ORDER_TAG_PREFIX + sortOrder)
             .build()
 
+        /**
+         * The tag every photo upload carries, whichever entry point queued it.
+         *
+         * US-2895: a named constant because [cancelAll] has to match it. A
+         * cancel written against a copy-pasted `"photo-upload"` keeps compiling
+         * after a rename and silently cancels nothing, which at an account
+         * boundary means the outgoing seller's photos keep uploading.
+         */
+        const val TAG_ALL = "photo-upload"
+
         private const val ORDER_TAG_PREFIX = "photo-upload-order:"
+
+        /**
+         * US-2895: stop every queued and running photo upload.
+         *
+         * Called at sign-out, BEFORE the row wipe. WorkManager work outlives the
+         * Activity, the ViewModel and the session: each job carries its staged
+         * file path in its own input Data and a signed URL minted for the
+         * OUTGOING account, so without this it keeps PUTting one seller's
+         * garments into their storage folder while the next seller is signing
+         * in. The row wipe cannot stop it — the worker reads nothing from Room.
+         */
+        fun cancelAll(context: Context) {
+            androidx.work.WorkManager.getInstance(context).cancelAllWorkByTag(TAG_ALL)
+        }
 
         fun itemTag(itemId: String): String = "photo-upload-item:${itemId.lowercase()}"
 

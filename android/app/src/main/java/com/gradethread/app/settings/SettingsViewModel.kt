@@ -3,6 +3,7 @@ package com.gradethread.app.settings
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import coil.imageLoader
 import com.gradethread.app.auth.AuthRepository
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.platform.workspace.WorkspaceScope
@@ -337,9 +338,24 @@ class SettingsViewModel @Inject constructor(
                     // arriving mid-wipe would write the outgoing account's
                     // rows back into a database we are emptying.
                     stopRealtime = { runCatching { realtime.pause() } },
-                    // Upload teardown belongs to its own story;
-                    // the row + watermark wipe is what AC2 requires and what
-                    // leaks tenant data without it.
+                    // US-2895: the upload teardown this comment used to defer.
+                    //
+                    // WorkManager work outlives the Activity, the ViewModel and
+                    // the session. Each queued job carries its staged file path
+                    // in its own input Data and a signed URL minted for the
+                    // OUTGOING account, so without this it kept PUTting one
+                    // seller's garments into their storage folder after they
+                    // signed out — possibly while the next seller was signing
+                    // in. The row wipe could not stop it: the worker reads
+                    // nothing from Room.
+                    //
+                    // Ordered with stopRealtime and for the same reason the
+                    // class doc gives — anything still in flight during the
+                    // wipe writes the outgoing account's state back into a
+                    // database being emptied.
+                    cancelUploads = {
+                        runCatching { com.gradethread.app.upload.UploadWorker.cancelAll(context) }
+                    },
                     //
                     // US-2496: these three are RETENTION, not correctness.
                     // Correctness is the owner-scoped cache key in EdgeApi,
@@ -354,10 +370,37 @@ class SettingsViewModel @Inject constructor(
                     // On a shared phone that is one seller's data sitting in
                     // another seller's process. Two separate jobs; do not
                     // delete either thinking it duplicates the other.
+                    //
+                    // US-2895 adds the two below, and they are the LARGEST and
+                    // most identifying bytes the app holds: the photos
+                    // themselves. Everything above drops metadata about a
+                    // seller; these drop pictures of their clothes, taken in
+                    // their house. The row wipe cannot reach either — no row
+                    // references a staged file or a Coil cache entry.
                     clearances = listOf<suspend () -> Unit>(
                         { com.gradethread.app.platform.net.EdgeApi.clearAllResponseCaches() },
                         photoUrls.signOutClearance(),
                         { runCatching { verifiedCache.clear() } },
+                        // Fourteen staging directories, listed in one place so
+                        // a new one cannot be added without appearing here —
+                        // StagedMediaCoverageTest scans src/main and fails when
+                        // the list falls behind the code.
+                        { runCatching { com.gradethread.app.platform.storage.StagedMedia.clearAll(context) } },
+                        // Coil holds garment thumbnails fetched through PRIVATE
+                        // signed URLs and then writes them to disk in the
+                        // clear, so the next account can be served the previous
+                        // one's photo from a cache hit with no network call.
+                        {
+                            @OptIn(coil.annotation.ExperimentalCoilApi::class)
+                            runCatching {
+                                context.imageLoader.memoryCache?.clear()
+                                // diskCache is @ExperimentalCoilApi in Coil 2.x.
+                                // Opted in rather than skipped: the memory cache
+                                // dies with the process anyway, so the DISK half
+                                // is the one that actually leaks across accounts.
+                                context.imageLoader.diskCache?.clear()
+                            }
+                        },
                     ),
                 ),
             )

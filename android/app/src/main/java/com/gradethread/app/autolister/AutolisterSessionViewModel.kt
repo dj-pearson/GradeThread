@@ -115,7 +115,11 @@ class AutolisterSessionViewModel @Inject constructor(
         if (wanted.isEmpty()) return
 
         _state.value = _state.value.copy(
-            busy = Busy.IMPORTING, done = 0, total = wanted.size, skipped = 0, errorMessage = null,
+            busy = Busy.IMPORTING,
+            done = 0,
+            total = wanted.size,
+            skipped = 0,
+            errorMessage = null,
         )
         viewModelScope.launch {
             val staged = mutableListOf<SessionPhoto>()
@@ -123,7 +127,10 @@ class AutolisterSessionViewModel @Inject constructor(
             val outputDir = File(context.cacheDir, "autolister").apply { mkdirs() }
 
             for (result in PhotoImport.importPicked(
-                context, wanted, outputDir, limit = AutolisterGroups.MAX_PHOTOS,
+                context,
+                wanted,
+                outputDir,
+                limit = AutolisterGroups.MAX_PHOTOS,
             )) {
                 val imported = result.getOrNull()
                 if (imported == null) {
@@ -143,16 +150,24 @@ class AutolisterSessionViewModel @Inject constructor(
         }
     }
 
-    private suspend fun stage(
-        stagingSessionId: String,
-        imported: PhotoImport.Imported,
-    ): SessionPhoto {
+    private suspend fun stage(stagingSessionId: String, imported: PhotoImport.Imported): SessionPhoto {
         val file = imported.processed.file
         val upload = service.stagePhoto(
             stagingSessionId = stagingSessionId,
             fileName = file.name,
             bytes = file.readBytes(),
-            thumbnail = runCatching { PhotoProcessor.thumbnailFor(file, context.cacheDir) }
+            // US-2895: the "autolister" subdirectory, NOT the cache root.
+            //
+            // This passed `context.cacheDir`, so 160px thumbnails of a seller's
+            // garments were written loose into the top of the cache
+            // (`<cache>/<name>_<mtime>_thumb.jpg`) rather than inside any named
+            // directory. Sign-out clears StagedMedia's directories and would
+            // have stepped straight over them, leaving one seller's garment
+            // thumbnails for whoever signs in next. Same directory the import
+            // above already stages into.
+            thumbnail = runCatching {
+                PhotoProcessor.thumbnailFor(file, File(context.cacheDir, "autolister"))
+            }
                 .getOrNull()?.readBytes(),
         )
         return SessionPhoto(
@@ -177,7 +192,10 @@ class AutolisterSessionViewModel @Inject constructor(
         if (!_state.value.canPropose) return
         val windows = AutolisterGroups.proposeWindows(_state.value.session.ungrouped)
         _state.value = _state.value.copy(
-            busy = Busy.PROPOSING, done = 0, total = windows.size, errorMessage = null,
+            busy = Busy.PROPOSING,
+            done = 0,
+            total = windows.size,
+            errorMessage = null,
         )
         viewModelScope.launch {
             var failure: String? = null
@@ -226,8 +244,7 @@ class AutolisterSessionViewModel @Inject constructor(
         )
     }
 
-    fun dismissSuggestion(suggestion: GroupSuggestion) =
-        update { AutolisterGroups.withoutSuggestion(it, suggestion) }
+    fun dismissSuggestion(suggestion: GroupSuggestion) = update { AutolisterGroups.withoutSuggestion(it, suggestion) }
 
     // ── the manual edits ─────────────────────────────────────────────────
 
@@ -237,16 +254,13 @@ class AutolisterSessionViewModel @Inject constructor(
     fun splitFromGroup(groupId: String, photoIds: List<String>) =
         update { AutolisterGroups.split(it, groupId, photoIds, UUID.randomUUID().toString()) }
 
-    fun mergeGroups(intoId: String, fromId: String) =
-        update { AutolisterGroups.merged(it, intoId, fromId) }
+    fun mergeGroups(intoId: String, fromId: String) = update { AutolisterGroups.merged(it, intoId, fromId) }
 
-    fun moveToGroup(photoIds: List<String>, groupId: String) =
-        update { AutolisterGroups.moved(it, photoIds, groupId) }
+    fun moveToGroup(photoIds: List<String>, groupId: String) = update { AutolisterGroups.moved(it, photoIds, groupId) }
 
     fun ungroup(groupId: String) = update { AutolisterGroups.ungrouped(it, groupId) }
 
-    fun setCover(groupId: String, photoId: String) =
-        update { AutolisterGroups.withCover(it, groupId, photoId) }
+    fun setCover(groupId: String, photoId: String) = update { AutolisterGroups.withCover(it, groupId, photoId) }
 
     fun removePhoto(photoId: String) = update { AutolisterGroups.withoutPhoto(it, photoId) }
 
@@ -328,6 +342,9 @@ class AutolisterSessionViewModel @Inject constructor(
         /** One in-flight batch — see AutolisterSessionEntity. */
         const val SESSION_ID = "active"
         const val UPLOAD_FAILED = "None of those photos could be uploaded."
-        val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+        val json = Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
     }
 }
