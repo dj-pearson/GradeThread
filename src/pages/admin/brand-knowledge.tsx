@@ -129,6 +129,10 @@ const EDITABLE: Record<string, string[]> = {
   brand_size_charts: [
     "brand_label", "brand_match", "department", "garment", "category_match",
     "rows", "note", "source_url", "confidence", "verified",
+    // US-2922: what the chart's numbers MEAN. A brand publishing garment-flat
+    // specs must be recordable as "flat" here, or the band builder adds ease
+    // on top of ease and flags every correctly sized item on that brand.
+    "measurement_basis",
   ],
 };
 
