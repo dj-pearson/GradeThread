@@ -111,6 +111,20 @@ jobs:
       - name: Room schemas exported
         run: node scripts/check-room-schemas.mjs
 
+      # US-2892: the release-config checker guards android-release.yml, which
+      # runs rarely and matters enormously. Its SELF-TEST runs here, on every
+      # push, because a gate that has quietly stopped detecting anything looks
+      # exactly like a gate that keeps finding nothing -- and the release lane
+      # is the worst place to discover which one it is.
+      #
+      # Only the self-test. The real check needs the production values, and
+      # this lane deliberately builds release with empty placeholders (see the
+      # note on "Build release APK" below), so running it against this
+      # artifact would fail every PR for the correct reason and teach everyone
+      # to ignore it.
+      - name: Release-config checker still detects
+        run: node scripts/check-release-config.mjs --self-test
+
       # ------------------------------------------------------- static analysis
       # US-2502. Cheapest-first: a formatting failure should not cost the eight
       # minutes assembleRelease takes to surface.
@@ -247,6 +261,16 @@ jobs:
       # rules, and the signing config. Unsigned on a PR (no secret is exposed
       # to a fork), which still catches an R8 rule that strips something the
       # app needs at runtime.
+      #
+      # US-2892 — WHAT THIS ARTIFACT IS NOT. It carries no SUPABASE_ANON_KEY, no
+      # SENTRY_DSN and no FIREBASE_*: `secret()` in build.gradle.kts defaults
+      # each to an empty string, so this APK builds cleanly and would throw out
+      # of AppConfig.validateAtStartup() on the first launch. That is fine and
+      # intended — the point here is R8 and the manifest merge, not a runnable
+      # app. Do NOT hand this APK to a tester, and do not read a green run here
+      # as "the release is configured". The bundle that ships is built by
+      # android-release.yml, which asserts the config both before the build and
+      # against the finished binary.
       - name: Build release APK
         run: ./gradlew assembleRelease --stacktrace
         env:

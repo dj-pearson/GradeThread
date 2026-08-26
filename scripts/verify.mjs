@@ -595,6 +595,11 @@ if (on("android")) {
     // US-2502: a Room version whose schema JSON was never committed cannot be
     // migration-tested, ever. Catch it while the file can still be produced.
     run("android: room schemas exported", "node scripts/check-room-schemas.mjs", a);
+    // US-2892: only the SELF-TEST here, matching android-ci.yml. The real
+    // check needs the production values and a release bundle; what this
+    // catches is the checker having quietly stopped detecting anything, which
+    // is otherwise indistinguishable from a correctly configured build.
+    run("android: release-config checker still detects", "node scripts/check-release-config.mjs --self-test", a);
 
     run("android: format (spotless/ktlint)", `${gw} :app:spotlessCheck`, a);
     run("android: static analysis (detekt)", `${gw} :app:detekt`, a);
