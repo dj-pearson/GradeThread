@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      US-2899: the dark-mode window theme.
+
+      The background colour alone did not need this file — `@color/window_background`
+      already resolves per configuration from values-night/colors.xml. THE PARENT
+      DID. The light definition extends `android:Theme.Material.Light.NoActionBar`,
+      and a Light platform theme in dark mode is not only a white window: it also
+      sets light-mode defaults for everything Compose does not draw — platform
+      dialogs, the text-selection handles and toolbar, the autofill and share
+      sheets, and `windowLightStatusBar`. Those surfaces would render dark text
+      on dark chrome while the app around them is correct.
+
+      So the override is the parent, and the background is restated only because
+      a style definition in a qualified folder replaces the whole style rather
+      than merging with the default one.
+    -->
+    <style name="Theme.GradeThread" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+</resources>

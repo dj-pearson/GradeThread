@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      US-2899: the dark half of the pre-Compose window background.
+
+      #1A1A2E is BrandPalette.Night, which is `background` and `surface` in
+      DarkColors (ui/theme/Theme.kt). Nothing here restates the launcher icon
+      background: that colour is the icon's own and does not follow the system
+      theme.
+    -->
+    <color name="window_background">#1A1A2E</color>
+</resources>

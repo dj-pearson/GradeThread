@@ -2,13 +2,19 @@ package com.gradethread.app
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 import com.gradethread.app.auth.AuthRepository
 import com.gradethread.app.auth.AuthScreen
@@ -20,6 +26,7 @@ import com.gradethread.app.platform.deeplink.DeepLinkController
 import com.gradethread.app.ui.shell.AppShell
 import com.gradethread.app.ui.theme.GradeThreadTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.delay
 
 /**
  * US-1313: hosts the adaptive five-section shell. US-1315: FragmentActivity
@@ -43,7 +50,24 @@ class MainActivity : FragmentActivity() {
 
     @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
+        // US-2899: BEFORE super.onCreate. The library swaps the window theme
+        // here, and it has to happen before the content view exists.
+        val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
+        // One clock for both escapes below, read after super.onCreate because
+        // that is where Hilt fills authRepository.
+        val launchedAt = SystemClock.elapsedRealtime()
+        splash.setKeepOnScreenCondition {
+            // A LOCKED LAUNCH IS NOT WAITING ON ANYTHING. AppLock.initialize
+            // has already run (blocking, in Application.onCreate), so `locked`
+            // is settled before the first composition and the lock screen can
+            // draw immediately. Holding the splash for the session restore
+            // would delay it behind up to five seconds of logo for no reason -
+            // the lock is what the seller has to answer either way.
+            !AppLock.locked.value &&
+                authRepository.phase.value is AuthRepository.Phase.Loading &&
+                SystemClock.elapsedRealtime() - launchedAt < SPLASH_MAX_HOLD_MS
+        }
         enableEdgeToEdge()
         // US-1314: the launch intent may carry a deep link. isReady=true until
         // the auth-gated shell story wires the real signed-in check; the
@@ -66,17 +90,40 @@ class MainActivity : FragmentActivity() {
                     // encrypted storage in milliseconds, and a sign-in screen
                     // that appears and vanishes on every cold start reads as a
                     // bug.
+                    // US-2899: the escape hatch for a restore that never
+                    // finishes. The splash lets go at SPLASH_MAX_HOLD_MS and
+                    // this flips off the SAME clock, so the two cannot
+                    // disagree about when the app gave up waiting.
+                    var restoreGaveUp by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) {
+                        val remaining =
+                            SPLASH_MAX_HOLD_MS - (SystemClock.elapsedRealtime() - launchedAt)
+                        if (remaining > 0) delay(remaining)
+                        restoreGaveUp = true
+                    }
                     when (authPhase) {
                         is AuthRepository.Phase.SignedIn -> {
                             val sizeClass = calculateWindowSizeClass(this)
                             AppShell(
                                 isCompactWidth =
-                                    sizeClass.widthSizeClass == WindowWidthSizeClass.Compact,
+                                sizeClass.widthSizeClass == WindowWidthSizeClass.Compact,
                             )
                         }
 
                         AuthRepository.Phase.SignedOut -> AuthScreen()
-                        AuthRepository.Phase.Loading -> Unit
+                        // US-2899: Loading renders nothing WHILE THE SPLASH IS
+                        // UP, which is the whole point - the launch icon is on
+                        // screen, not a blank rectangle. Past the bound it
+                        // renders the sign-in screen instead of nothing: the
+                        // shell cannot draw without a session, so sign-in is
+                        // the only surface with an action on it, and a restore
+                        // that has not finished in five seconds has failed.
+                        // The cost of being wrong is a form that appears and is
+                        // replaced by the shell - the flash US-2369 avoids -
+                        // but only on the failure path, where it is the right
+                        // trade against staring at a logo forever.
+                        AuthRepository.Phase.Loading ->
+                            if (restoreGaveUp) AuthScreen() else Unit
                     }
                 }
             }
@@ -100,5 +147,17 @@ class MainActivity : FragmentActivity() {
         super.onNewIntent(intent)
         DeepLinkController.shared.offer(intent.data, isReady = true)
         EbayOAuthCallbacks.offer(intent.data)
+    }
+
+    private companion object {
+        /**
+         * US-2899: how long the launch icon may cover a session restore.
+         *
+         * Generous on purpose. The session comes out of encrypted storage in
+         * milliseconds, so a normal cold start never reaches this and never
+         * shows the sign-in form. Five seconds is the point at which "still
+         * restoring" stops being a plausible explanation.
+         */
+        const val SPLASH_MAX_HOLD_MS = 5_000L
     }
 }

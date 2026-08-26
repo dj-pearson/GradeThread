@@ -116,11 +116,18 @@
                 android:resource="@xml/seller_snapshot_widget_info" />
         </receiver>
 
+        <!-- US-2899: the launcher entry point is the ONLY activity on the
+             splash theme. It swaps itself to Theme.GradeThread the moment the
+             splash is dismissed (postSplashScreenTheme), so this is a
+             launch-time wrapper rather than a second app theme. The other
+             activities here are entered from a share sheet, an OAuth return or
+             a widget tap - each already inside a visible app - so a launch
+             logo there would be an interruption, not a cover. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
-            android:theme="@style/Theme.GradeThread">
+            android:theme="@style/Theme.GradeThread.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

@@ -2,4 +2,14 @@
 <resources>
     <!-- US-1381: brand navy, the same value the app's theme uses. -->
     <color name="ic_launcher_background">#0F3460</color>
+
+    <!--
+      US-2899: what the system paints before Compose exists.
+
+      Must equal the Compose scheme's `background` for the matching mode, or the
+      first frame is a visible colour change: SoftGray in light, Night in dark
+      (ui/theme/Theme.kt, ui/theme/Color.kt). The dark value lives in
+      values-night/colors.xml — change one and change both.
+    -->
+    <color name="window_background">#F5F5F5</color>
 </resources>

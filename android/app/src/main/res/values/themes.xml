@@ -1,5 +1,38 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Compose owns the real theming; this is the pre-Compose window theme. -->
-    <style name="Theme.GradeThread" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+      US-2899: the window theme, which is what the system paints from the moment
+      the launcher starts an activity until Compose commits its first frame.
+
+      Compose owns the real theming, but it cannot own THIS. Between the tap and
+      the first frame there is no Compose, so `android:windowBackground` is the
+      only thing deciding what the seller looks at — and it used to be the
+      Material.Light default, i.e. white, on every device in every system theme.
+      On a phone in dark mode that is a full-screen white flash in front of a
+      dark app. `values-night/` carries the dark answer; the two must stay
+      paired with the Compose scheme in ui/theme/Theme.kt (background =
+      SoftGray light / Night dark).
+    -->
+    <style name="Theme.GradeThread" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+    </style>
+
+    <!--
+      The launch theme, and MainActivity's ONLY theme in the manifest.
+
+      `postSplashScreenTheme` is what the SplashScreen library swaps to once the
+      splash is dismissed, so the activity ends up on Theme.GradeThread exactly
+      as before — this style is a launch-time wrapper, not a second app theme.
+
+      THE ICON IS THE ADAPTIVE LAUNCHER ICON, not its foreground layer, and that
+      is deliberate: the foreground mark is white (drawable/ic_launcher_foreground)
+      and would disappear against the light splash background. The adaptive icon
+      brings its own navy circle, so the mark is legible under both palettes
+      without maintaining a second copy of it.
+    -->
+    <style name="Theme.GradeThread.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/window_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.GradeThread</item>
+    </style>
 </resources>
