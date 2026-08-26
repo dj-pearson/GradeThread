@@ -2846,26 +2846,6 @@
       "priority": 27
     },
     {
-      "id": "US-2916",
-      "passes": false,
-      "title": "Size check: turn a body-measurement chart into expected FLAT bands per size (pure edge lib)",
-      "description": "As a developer, I want one pure function that converts a brand size chart into expected flat-lay ranges per size, so that every client can check a measurement without re-deriving garment ease.",
-      "acceptanceCriteria": [
-        "New services/edge-functions/src/lib/size-check.ts exports buildSizeBands(chart, garmentGroup, basis) returning ordered rows of { size, index, bands: { chest?: [lo, hi], bust?, waist?, hip?, inseam? } } in inches.",
-        "When basis is 'body' (the default and what every existing chart holds), circumference keys convert body to flat as (bodyInches + ease) / 2, low edge using the group's slim ease and high edge its relaxed ease. When basis is 'flat' the chart values are used directly with no ease applied.",
-        "Ease numbers match the ones already in src/lib/fit-model.ts: top chest 3/10, outerwear chest 6/16, waist 1/5, hip 2/8, dress chest 3/10. The edge module declares its own copy because edge code cannot import from src/; a guard test src/test/size-check-ease-parity.test.ts fails if the two sets of numbers ever diverge.",
-        "Length keys (inseam) compare directly with no doubling and no ease.",
-        "Chart values parse in both shapes the corpus uses: ranges (\"34-36\") and singletons (\"31\"). A non-numeric value is skipped, never coerced to zero. Regression case: the Sweaty Betty rows carry a cross-reference key 'us' whose value is a US size number, and it must not be read as a measurement.",
-        "resolveSizeRow(bands, sizeLabel) maps an item's size text to a row index, case-insensitively, across the spellings the corpus and sellers actually use: Large/L, XXL/2XL, numeric 8, and compound labels like \"UK 12 / M\". No match returns null, never index 0.",
-        "checkSize({ bands, rowIndex, measurements, tier }) returns { status: 'ok' | 'off' | 'unknown', impliedSize, stepsOff, key, expected }. stepsOff counts rows between the labelled size and the nearest size whose band contains the measurement. status is 'off' only when stepsOff >= 1 for tier 'verified' or 'brand', and >= 2 for tier 'generic'.",
-        "A measurement below the smallest band or above the largest returns 'off' with impliedSize naming that edge (for example 'smaller than XS'), not 'unknown'.",
-        "When more than one measurement key has a band, the verdict reports the key with the LARGEST stepsOff, so the note names the measurement actually driving the disagreement.",
-        "The module is pure: no network, no env read, no Anthropic import, so deno test covers it with no fixtures.",
-        "services/edge-functions/src/tests/size-check_test.ts asserts the motivating case (Lululemon men's tops, chest 17.5 in, label Large returns 'off' with stepsOff >= 2 and impliedSize below XS) AND the no-false-alarm case (generic men's tee, chest 22 in, label L returns 'ok')."
-      ],
-      "priority": 29
-    },
-    {
       "id": "US-2917",
       "passes": false,
       "title": "Size check: serve the expected-size band table to the clients",
