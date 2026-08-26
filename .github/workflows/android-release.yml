@@ -205,6 +205,15 @@ jobs:
           node scripts/check-release-config.mjs --self-test
           node scripts/check-release-config.mjs app/build/outputs/bundle/release/app-release.aab
 
+      - name: 16 KB page-size compatibility
+        # US-2893: the same check CI runs on every push, repeated against the
+        # artifact that actually uploads. Cheap, and the last moment before a
+        # bundle that cannot load on a 16 KB device becomes a download people
+        # have already taken.
+        run: |
+          node scripts/check-16kb-alignment.mjs --self-test
+          node scripts/check-16kb-alignment.mjs app/build/outputs/bundle/release/app-release.aab
+
       # US-2150: the same per-ABI budget the CI lane enforces, run against the
       # artifact that actually ships. A release is the last moment the number
       # is still cheap to look at — after the upload it is a download people

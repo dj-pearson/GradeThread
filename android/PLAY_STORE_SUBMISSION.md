@@ -549,6 +549,35 @@ errors) → unit tests → coverage floor → screenshots → assemble → bundl
 Run it locally before tagging; the pre-push hook runs it automatically when the push
 touches `android/**`.
 
+### 6.4a 16 KB page-size support — measured, and now guarded
+
+Play requires 16 KB memory page support for apps targeting Android 15+. A shared
+library whose `PT_LOAD` segments are aligned to the old 4 KB page cannot be
+mapped on such a device: the app installs and then fails to load the library,
+surfacing as a crash in whatever feature touched it first.
+
+**Measured 2026-08-25 against the real release AAB: all 16 sixty-four-bit
+libraries already report a 16 KB minimum alignment**, ML Kit's two included
+(`libmlkit_google_ocr_pipeline.so` 10.55 MB, `libbarhopper_v3.so` 4.72 MB), plus
+both Sentry libraries, CameraX's and Compose's. `extractNativeLibs` is `false`
+(AGP's default), which is the correct packaging mode — the libraries are mapped
+straight out of the APK rather than extracted. The armeabi-v7a slice is exempt:
+16 KB pages are a 64-bit concern.
+
+US-2893 was filed assuming the pinned ML Kit versions predated the requirement.
+They do not. **The check still earns its place, and the reason is worth stating:
+the app compiles none of this code.** Every `.so` arrives prebuilt from a
+dependency, so alignment is a property the app inherits silently and can lose
+silently on any version bump — and the symptom is a crash on a class of device
+nobody here owns. The fix for a failure is always a dependency upgrade, never a
+Gradle flag; AGP aligns what it packages and cannot re-link someone else's
+binary.
+
+`android/scripts/check-16kb-alignment.mjs` runs in `verify:android`, on every
+push in `android-ci.yml` (it needs no secrets, so the placeholder release build
+is enough), and again in `android-release.yml` against the bundle that uploads.
+Each invocation self-tests first.
+
 ### 6.5 Target API level — the deadline, and what moving to 36 changed
 
 Read from developer.android.com/google/play/requirements/target-sdk on

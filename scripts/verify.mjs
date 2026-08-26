@@ -626,6 +626,14 @@ if (on("android")) {
     run("android: bundleRelease (the shipped artifact)", `${gw} :app:bundleRelease`, a);
     // US-2150: the self-test first, so a size gate that only ever sees passing
     // input cannot report PASS forever.
+    // US-2893: reads the same bundle the ABI budget does. No secrets needed,
+    // so unlike the release-config check this one runs for real here.
+    run(
+      "android: 16 KB page-size compatibility",
+      "node scripts/check-16kb-alignment.mjs --self-test && "
+        + "node scripts/check-16kb-alignment.mjs app/build/outputs/bundle/release/app-release.aab",
+      a,
+    );
     run(
       "android: per-ABI download size",
       `${py} scripts/abi-size-report.py --self-test && ${py} scripts/abi-size-report.py`,

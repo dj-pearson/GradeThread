@@ -309,6 +309,21 @@ jobs:
       # ever sees passing input is one that reports PASS forever, so the two
       # failures that matter (over budget, unwatched ABI) are exercised against
       # a synthetic bundle every run.
+      - name: 16 KB page-size compatibility
+        # US-2893: Play requires 16 KB page support for apps targeting Android
+        # 15+. A 4 KB-aligned .so installs and then fails to load, which
+        # surfaces as a crash in the barcode scanner or the tag OCR rather than
+        # as anything naming pages.
+        #
+        # Runs on every push, unlike the release-config check, because it needs
+        # NO secrets -- the placeholder release build carries the same prebuilt
+        # .so files. That matters: the app compiles none of this code, so the
+        # alignment is inherited from dependencies and is lost by a version
+        # bump, which is a PR-shaped event.
+        run: |
+          node scripts/check-16kb-alignment.mjs --self-test
+          node scripts/check-16kb-alignment.mjs app/build/outputs/bundle/release/app-release.aab
+
       - name: Per-ABI download size
         run: |
           python3 scripts/abi-size-report.py --self-test
