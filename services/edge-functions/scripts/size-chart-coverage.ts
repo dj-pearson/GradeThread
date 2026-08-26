@@ -135,15 +135,39 @@ interface ChartRow {
   measurement_basis: string | null;
 }
 
+// `measurement_basis` arrives with migration 00674, which is HELD at the time
+// this script was written - so on prod the column does not exist yet, and asking
+// for it fails the WHOLE select with 42703. That failure is the dangerous kind:
+// it returns zero charts, and zero charts reads as "no brand has a chart", which
+// is a plausible-looking answer to exactly the question being asked. So the
+// column is optional: ask for it, and on a missing-column error fall back to the
+// pre-00674 shape and say so, rather than reporting a fabricated zero.
+let basisColumnExists = true;
+
 async function readCharts(): Promise<ChartRow[]> {
   const page = 1000;
   const out: ChartRow[] = [];
   for (let from = 0; ; from += page) {
+    const columns = basisColumnExists
+      ? "brand_key, department, garment, verified, source_url, measurement_basis"
+      : "brand_key, department, garment, verified, source_url";
     const { data, error } = await db
       .from("brand_size_charts")
-      .select("brand_key, department, garment, verified, source_url, measurement_basis")
+      .select(columns)
       .range(from, from + page - 1);
     if (error) {
+      const missingBasis = basisColumnExists &&
+        (error.code === "42703" || /measurement_basis/.test(error.message ?? ""));
+      if (missingBasis) {
+        console.error(
+          "! brand_size_charts.measurement_basis is absent - migration 00674 is " +
+            "not applied here. Re-reading without it; the flat-basis counts below " +
+            "are UNKNOWN, not zero.",
+        );
+        basisColumnExists = false;
+        from -= page; // retry this same page with the narrower select
+        continue;
+      }
       console.error(`! brand_size_charts unreadable: ${error.message}`);
       return out;
     }
@@ -175,7 +199,8 @@ interface Coverage {
   tops: boolean;
   bottoms: boolean;
   sourced: number;
-  flatBasis: number;
+  /** null when migration 00674 is not applied where this ran. */
+  flatBasis: number | null;
 }
 
 interface BrandReport {
@@ -206,7 +231,9 @@ const report: BrandReport[] = ranked.map((stat, i) => {
         tops: forDept.some((c) => TOPS.test(c.garment)),
         bottoms: forDept.some((c) => BOTTOMS.test(c.garment)),
         sourced: forDept.filter((c) => (c.source_url ?? "").trim().length > 0).length,
-        flatBasis: forDept.filter((c) => c.measurement_basis === "flat").length,
+        flatBasis: basisColumnExists
+          ? forDept.filter((c) => c.measurement_basis === "flat").length
+          : null,
       };
     }),
   };
@@ -224,7 +251,10 @@ const summary = {
   withVerifiedChart: pairs.filter((p) => p.verified > 0).length,
   withTopsAndBottoms: pairs.filter((p) => p.tops && p.bottoms).length,
   withSourceUrl: pairs.filter((p) => p.sourced > 0).length,
-  flatBasisCharts: charts.filter((c) => c.measurement_basis === "flat").length,
+  flatBasisCharts: basisColumnExists
+    ? charts.filter((c) => c.measurement_basis === "flat").length
+    : null,
+  measurementBasisKnown: basisColumnExists,
 };
 
 if (AS_JSON) {
@@ -249,5 +279,9 @@ if (AS_JSON) {
   console.log(`  with a VERIFIED chart          ${summary.withVerifiedChart}`);
   console.log(`  covering tops AND bottoms      ${summary.withTopsAndBottoms}`);
   console.log(`  with a source_url              ${summary.withSourceUrl}`);
-  console.log(`charts recorded as flat basis    ${summary.flatBasisCharts}`);
+  console.log(
+    `charts recorded as flat basis    ${
+      summary.flatBasisCharts ?? "unknown (00674 not applied here)"
+    }`,
+  );
 }
