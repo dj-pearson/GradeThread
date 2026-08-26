@@ -60,8 +60,19 @@ phone got a posture the web side had already decided was unacceptable for them,
 under one shared privacy policy.
 
 Android now mirrors the web. **iOS still does not** — it remains opt-out
-worldwide, tracked as its own story, and `ios/APP_STORE_SUBMISSION.md` must say
-so until that lands rather than implying parity.
+worldwide, tracked as US-2914, and `ios/APP_STORE_SUBMISSION.md` must say so
+until that lands rather than implying parity.
+
+The rule itself, the three-client comparison and the reasoning live in
+`vault/20-domain/client-analytics-consent.md`. That note is the source of truth;
+this section describes what to type into the Console. Change one and change both.
+
+**No seller was silently switched.** The question of grandfathering an existing
+collected population does not arise here: this app has never been submitted, so
+there is no installed base — every Console blocker in the table above is still
+open. The tri-state store means the migration would be a no-op anyway; a seller
+who never touched the toggle has no stored key, so the regime simply starts
+deciding.
 
 ---
 

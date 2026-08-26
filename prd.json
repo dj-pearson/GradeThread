@@ -2604,22 +2604,6 @@
       "notes": ""
     },
     {
-      "id": "US-2897",
-      "title": "Android sends analytics by default while iOS asks first",
-      "description": "Telemetry.bootstrap reads one key out of DataStore and starts PostHog unless the seller has already opted out: `if (!optedOut) startPostHog(context)`. On a fresh install nothing is set, so analytics is ON before the first screen renders and before anyone has been asked. The iOS app treats the same signal as opt-in.  PLAY_STORE_SUBMISSION.md already flags this and stops short of deciding: it notes both are declarable in Data safety, that they cannot be described the same way, and that the EU consent posture the web adopted in US-2513 points at opt-in. It calls it a one-line default in Telemetry.kt. It is a one-line default and a four-place consequence, which is why it needs a story rather than a line edit.  THE FOUR PLACES. The Play Data safety form declares App interactions as collected and OPTIONAL, and 'optional' in Play's sense means the user has a real choice - a toggle buried in Settings that defaults to on is a weaker claim than the form implies, and Play compares the form against the binary. The App Store answer for the same product says something different. The subprocessors page and the privacy policy describe one product, not two. And any EU seller is covered by the consent rules the web side already accepted.  The decision is the deliverable here. Either default matches SOME defensible posture; what is not defensible is the two clients disagreeing while both point at the same privacy policy.",
-      "acceptanceCriteria": [
-        "A decision is made and recorded in the vault: opt-in everywhere (matching iOS and the web's US-2513 posture) or opt-out everywhere, with the reasoning and the date.",
-        "Telemetry.bootstrap implements the decision, and the Settings toggle's copy matches what actually happens on a fresh install.",
-        "If opt-in wins, sellers who have already been collected under the current default are handled explicitly - either grandfathered with a note saying so, or asked - rather than silently switched in either direction.",
-        "The Play Data safety answers in PLAY_STORE_SUBMISSION.md section 3.6 are updated to match, including whether App interactions is genuinely 'optional'.",
-        "The iOS and Android answers are compared side by side and any remaining difference is deliberate and written down.",
-        "Sentry is looked at in the same pass and the answer recorded: crash reporting is declared non-optional in the Data safety form, and that should be true on purpose rather than by omission."
-      ],
-      "priority": 8,
-      "passes": false,
-      "notes": ""
-    },
-    {
       "id": "US-2899",
       "title": "A cold launch on a dark-mode phone flashes a white window",
       "description": "res/values/themes.xml is three lines: Theme.GradeThread extends android:Theme.Material.Light.NoActionBar. There is no values-night. So the window background is white on every device, in every system theme, from the moment the launcher starts the activity until Compose draws its first frame.  On a phone in dark mode that is a full-screen white flash before a dark app appears. It is the first thing anyone sees, it is the single most common 'this app feels cheap' tell on Android, and it is entirely a resource file.  IT COMPOUNDS WITH THE AUTH GATE. MainActivity renders `AuthRepository.Phase.Loading -> Unit`, deliberately, so a sign-in form does not flash and vanish on every cold start. The comment defending that is right about the flash and leaves a hole: for however long the session takes to restore from encrypted storage, the app shows an empty white window with nothing on it. The correct shape for both problems is the same one - the platform SplashScreen API, held on screen with keepOnScreenCondition until the auth phase leaves Loading, so the launch icon stays up instead of a blank rectangle, and it is themed for the system's dark mode.  Neither androidx.core:core-splashscreen nor any splash theme exists in the project today; grepping libs.versions.toml for splashscreen returns nothing.",
