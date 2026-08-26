@@ -30,7 +30,9 @@ import javax.inject.Inject
  * SingletonComponent as they land (networking, sync, telemetry…).
  */
 @HiltAndroidApp
-class GradeThreadApp : Application(), Configuration.Provider {
+class GradeThreadApp :
+    Application(),
+    Configuration.Provider {
 
     /**
      * US-1328: cap upload parallelism at 3 (the iOS maxConcurrent) — this
@@ -47,8 +49,12 @@ class GradeThreadApp : Application(), Configuration.Provider {
         // US-1301: a build with a missing/cleartext base URL dies HERE with a
         // named error, not deep inside the first network call.
         AppConfig.validateAtStartup()
-        // US-1308: crash reporting (DSN-gated) + opt-out-respecting analytics.
-        Telemetry.bootstrap(this)
+        // US-1308: crash reporting (DSN-gated) + consent-respecting analytics.
+        // US-2897: takes the app scope now — Sentry still starts inline, but
+        // whether PostHog starts depends on the seller's stored choice and, if
+        // they have not made one, on the consent regime for where they are.
+        // That needs a network round trip, so it cannot happen on this thread.
+        Telemetry.bootstrap(this, appScope)
         // US-1309: the workspace scope backs every X-Workspace-Owner header.
         WorkspaceScope.initialize(this)
         // US-1315: a cold launch with the lock enabled starts locked.

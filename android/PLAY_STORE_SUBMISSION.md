@@ -44,12 +44,24 @@ Read this first. Everything else in this file is fillable once these are true.
 | 7 | **Server env for Play billing** — `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`, `GOOGLE_PLAY_PACKAGE_NAME`, `GOOGLE_RTDN_WEBHOOK_SECRET` in Coolify (§5.4). Without them every purchase verifies as an error and the buyer is charged with no plan. | Operator | ☐ |
 | 8 | **App config in the bundle.** `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `EDGE_API_URL` must be in Infisical `prod /`. `secret()` defaults the anon key to an empty string and `AppConfig.validateAtStartup()` throws on it, so a release built without it is signed, versioned, under budget — and **crashes on launch for every user**, with every gate in the lane green. | Code | **Fixed** — US-2892. The release lane asserts all three before building and then re-checks the finished AAB's dex, because the env being right does not prove the value reached the binary. The seven optional values (`SENTRY_DSN`, `POSTHOG_API_KEY`, `TURNSTILE_SITE_KEY`, the four `FIREBASE_*`) warn into the job summary naming what ships dead. Operator still has to put them in Infisical. |
 
-Not a blocker, but decide before launch: **analytics defaults to ON here and to
-OFF on iOS.** `Telemetry.bootstrap` starts PostHog unless `analytics_opt_out` is
-set; the iOS app treats it as opt-in. Both are declarable in Data safety, but they
-cannot both be described the same way, and the EU consent posture the web side
-adopted (US-2513) points at opt-in. Changing it is a one-line default in
-`Telemetry.kt`; leaving it is a deliberate choice that §3.6 has to describe honestly.
+**Analytics consent is location-aware (US-2897).** Android resolves the same
+consent regime the web uses: **opt-in everywhere except the United States**,
+failing safe to opt-in whenever the country is unknown. A seller who has made
+an explicit choice keeps it under either regime.
+
+⚠ AN EARLIER VERSION OF THIS SECTION WAS WRONG, and the correction is worth
+keeping because it was repeated into a story before anyone checked. It said
+"analytics defaults to ON here and to OFF on iOS". iOS did **not** default to
+off: `Telemetry.swift` reads `object(forKey:) ?? true` and its own comment says
+"Opt-out, on by default". Both mobile clients behaved identically. The real gap
+was between MOBILE and WEB — `src/lib/consent-regime.ts` had been
+location-aware since US-2513 while both phones were not, so an EU seller on a
+phone got a posture the web side had already decided was unacceptable for them,
+under one shared privacy policy.
+
+Android now mirrors the web. **iOS still does not** — it remains opt-out
+worldwide, tracked as its own story, and `ios/APP_STORE_SUBMISSION.md` must say
+so until that lands rather than implying parity.
 
 ---
 
@@ -281,7 +293,7 @@ the user, whether it is optional, and the purposes.
 | Location → Approximate location | Yes | No | Yes | **Yes** | App functionality | `ACCESS_COARSE_LOCATION`, requested from the "Use my location" button in Sourcing Radar only. Radar works with it refused. |
 | Photos and videos → Photos | Yes | No | Yes | No | App functionality | Garment photos uploaded for grading and listing |
 | Audio → Voice or sound recordings | **No** | No | — | — | — | `RECORD_AUDIO` exists for dictation into item notes. The app hands the mic to the platform `SpeechRecognizer` and keeps only the returned text; it never records, stores or transmits audio itself. Declare the permission's presence in the review notes so the mismatch is explained before it is questioned. |
-| App activity → App interactions | Yes | No | No | **Yes** | Analytics | PostHog. Manual screen names only, no autocapture. Toggle in Settings → Privacy. |
+| App activity → App interactions | Yes | No | No | **Yes** | Analytics | PostHog. Manual screen names only, no autocapture. Toggle in Settings → Privacy. **Off by default outside the US** (US-2897): consent regime resolved from a coarse country signal, failing safe to opt-in when unknown. "Optional" is therefore true in Play's sense rather than nominally true. |
 | App info and performance → Crash logs | Yes | No | No | No | App functionality (diagnostics) | Sentry, `isSendDefaultPii = false`, every string through `TelemetryScrubber` |
 | App info and performance → Diagnostics | Yes | No | No | No | App functionality (diagnostics) | Sentry performance/breadcrumbs |
 

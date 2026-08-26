@@ -13,8 +13,12 @@ import io.sentry.Sentry
 import io.sentry.SentryLevel
 import io.sentry.android.core.SentryAndroid
 import io.sentry.protocol.User
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 
 private val Context.telemetryDataStore by preferencesDataStore(name = "telemetry")
 
@@ -22,8 +26,9 @@ private val Context.telemetryDataStore by preferencesDataStore(name = "telemetry
  * US-1308: the telemetry facade (iOS Telemetry, US-662). Rules carried over:
  *  - CRASH reporting (Sentry) is always-on when a DSN exists — independent of
  *    the analytics toggle (crashes are operational, not product analytics);
- *  - PRODUCT analytics (PostHog) honors the user's opt-out (default: enabled)
- *    persisted in DataStore;
+ *  - PRODUCT analytics (PostHog) honors the seller's stored choice, and when
+ *    they have not made one the CONSENT REGIME decides (US-2897) - opt-in
+ *    everywhere except the US, mirroring src/lib/consent-regime.ts;
  *  - a missing DSN / key disables that half silently (AppConfig empty
  *    placeholders read as absent);
  *  - identity is ONLY the Supabase user id — never email/name;
@@ -35,22 +40,76 @@ object Telemetry {
 
     private val OPT_OUT_KEY = booleanPreferencesKey("analytics_opt_out")
 
-    @Volatile
-    private var analyticsEnabled = false
+    /**
+     * US-2897: OBSERVABLE, not just a volatile flag.
+     *
+     * Analytics now starts asynchronously — after a DataStore read and, for a
+     * seller who has never chosen, a geo lookup. The Settings toggle used to
+     * read this once when its ViewModel was built, which after this change
+     * would render "off" and stay there while analytics quietly came on a
+     * moment later. A toggle that disagrees with what the app is doing is
+     * worse than no toggle on a privacy screen.
+     */
+    private val analyticsState = MutableStateFlow(false)
+
+    /** The live state of product analytics. */
+    val analyticsEnabledFlow: StateFlow<Boolean> = analyticsState.asStateFlow()
+
+    private var analyticsEnabled: Boolean
+        get() = analyticsState.value
+        set(value) {
+            analyticsState.value = value
+        }
 
     @Volatile
     private var appContext: Context? = null
 
-    /** Call once from Application.onCreate. */
-    fun bootstrap(context: Context) {
+    /**
+     * Call once from Application.onCreate.
+     *
+     * US-2897: NO LONGER BLOCKS, and no longer assumes consent.
+     *
+     * It used to do `runBlocking { dataStore.first() }` on the main thread and
+     * start PostHog unless an opt-out was already stored — so on a fresh
+     * install analytics was running before the first screen drew and before
+     * anyone had been asked. Now the seller's stored choice is TRI-STATE and
+     * the regime decides when they have not made one; see [Consent].
+     *
+     * Sentry still starts synchronously and unconditionally (DSN permitting).
+     * Crash reporting is operational rather than product analytics, it is
+     * declared non-optional in the Play Data safety form, and a crash in the
+     * first second of a cold start is exactly the one worth having.
+     *
+     * [scope] is the application scope, so this outlives any screen. Nothing
+     * user-facing waits on it: the only thing gated is whether events are
+     * captured, and events before it resolves are simply not captured — which
+     * is the correct outcome for a seller who may turn out to be in an opt-in
+     * jurisdiction. (This also removes one of the two main-thread DataStore
+     * reads US-2900 AC2 is about; AppLock's is the other.)
+     */
+    fun bootstrap(context: Context, scope: CoroutineScope) {
         appContext = context.applicationContext
         startSentry(context)
-        // One small disk read at process start; the toggle is then in-memory.
-        val optedOut = runBlocking {
-            context.telemetryDataStore.data.first()[OPT_OUT_KEY] ?: false
+        scope.launch {
+            val stored = storedChoice(context)
+            val regime = Consent.regimeFor(
+                // Only ask where the seller is when it can change the answer.
+                // An explicit choice already settles it, and resolving geo
+                // anyway would be a location lookup with no purpose.
+                if (stored == null) GeoService.signal() else null,
+            )
+            if (Consent.analyticsAllowed(regime, stored)) startPostHog(context)
         }
-        if (!optedOut) startPostHog(context)
     }
+
+    /**
+     * The seller's own choice, or null if they have never made one.
+     *
+     * Absent key means never asked — NOT "opted in". That distinction is the
+     * whole of this change: the old code read a missing key as consent.
+     */
+    internal suspend fun storedChoice(context: Context): Boolean? =
+        context.telemetryDataStore.data.first()[OPT_OUT_KEY]?.let { !it }
 
     private fun startSentry(context: Context) {
         val dsn = AppConfig.sentryDsn ?: return // silently disabled

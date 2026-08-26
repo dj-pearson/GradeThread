@@ -160,6 +160,17 @@ class SettingsViewModel @Inject constructor(
     val state: StateFlow<State> = _state.asStateFlow()
 
     init {
+        // US-2897: COLLECTED, not read once. Analytics now resolves
+        // asynchronously — a DataStore read, plus a geo lookup for a seller who
+        // has never chosen — so a one-shot read at construction renders "off"
+        // and stays there while analytics comes on a moment later. On a privacy
+        // screen a toggle that disagrees with what the app is doing is worse
+        // than no toggle at all.
+        viewModelScope.launch {
+            Telemetry.analyticsEnabledFlow.collect { enabled ->
+                update { it.copy(analyticsEnabled = enabled) }
+            }
+        }
         viewModelScope.launch {
             auth.phase.collect { phase ->
                 update {
