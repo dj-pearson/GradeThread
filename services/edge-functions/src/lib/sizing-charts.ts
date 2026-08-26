@@ -46,6 +46,23 @@ export interface SizingChart {
    * row, the corpus's only extended chart, which crams three classes into one.
    */
   sizeClass?: string;
+  /**
+   * US-2917 provenance. These three carry no value on a SEED chart and are
+   * absent here on purpose: the seed's own numbers are approximations from
+   * widely published guides, which is exactly what `verified` must not claim.
+   * They are populated when a chart is read out of `public.brand_size_charts`,
+   * where a human has compared the rows against the brand's own guide.
+   */
+  /** The brand's OWN published size guide, never a reseller blog. */
+  sourceUrl?: string | null;
+  /** True only after a human checked these rows against `sourceUrl`. */
+  verified?: boolean;
+  /**
+   * What the numbers MEAN. Every seeded chart is `body` (the wearer), which is
+   * why absent reads as `body`. A brand that publishes garment-flat specs is
+   * recorded as `flat` so the band builder does not add ease on top of ease.
+   */
+  measurementBasis?: "body" | "flat";
 }
 
 // ── Seed charts ─────────────────────────────────────────────────────────────

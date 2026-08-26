@@ -54,6 +54,7 @@ import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { flipdeskScoutRoutes } from "./routes/flipdesk-scout.ts";
 import { flipdeskRadarRoutes } from "./routes/flipdesk-radar.ts";
 import { flipdeskMeasureRoutes } from "./routes/flipdesk-measure.ts";
+import { flipdeskSizeBandsRoutes } from "./routes/flipdesk-size-bands.ts";
 import { flipdeskForecastRoutes } from "./routes/flipdesk-forecast.ts";
 import { flipdeskEquityRoutes } from "./routes/flipdesk-equity.ts";
 import { flipdeskProductRoutes } from "./routes/flipdesk-product.ts";
@@ -532,6 +533,12 @@ app.use("/api/flipdesk/scout/*", authMiddleware);
 // scout — it is the same surface, one layer up.
 app.use("/api/flipdesk/radar/*", authMiddleware);
 app.use("/api/flipdesk/measure/*", authMiddleware);
+// US-2917: the expected-size band table. Authed like every other read on the
+// composer, but it reads ONLY the global brand_size_charts reference table, so
+// it needs no workspace context — there is no tenant row to scope. The path is
+// exact, not a wildcard: the router has one route and nothing else belongs
+// under this prefix.
+app.use("/api/flipdesk/size-bands", authMiddleware);
 app.use("/api/flipdesk/product/*", authMiddleware);
 app.use("/api/flipdesk/templates/*", authMiddleware);
 app.use("/api/flipdesk/autolister/*", authMiddleware);
@@ -984,6 +991,10 @@ app.use(
 // US-1572: calibration is CPU-bound image decode + CV (no model call) — cap
 // enough for a capture-review loop without letting one client hog the worker.
 app.use("/api/flipdesk/measure/*", rateLimiter(15, 60_000, "flipdesk-measure"));
+// US-2917: a cached reference read, hit once per distinct brand+garment while a
+// seller works a batch. Roomy enough for a 40-item AutoLister review that spans
+// a dozen brands, and the response is client-cacheable for half an hour.
+app.use("/api/flipdesk/size-bands", rateLimiter(60, 60_000, "flipdesk-size-bands"));
 // US-598: barcode/UPC lookup is a single cheap eBay Browse call — roomy budget
 // so scanning a haul item-by-item never trips the limiter.
 app.use("/api/flipdesk/product/*", rateLimiter(40, 60_000, "flipdesk-product"));
@@ -1337,6 +1348,7 @@ app.route("/api/flipdesk/scout", flipdeskScoutRoutes);
 // Read-only, Pro+ (compPulls), k-anonymity floor enforced server-side.
 app.route("/api/flipdesk/radar", flipdeskRadarRoutes);
 app.route("/api/flipdesk/measure", flipdeskMeasureRoutes);
+app.route("/api/flipdesk/size-bands", flipdeskSizeBandsRoutes);
 // US-1104 Garment Passport resale-value & depreciation forecast — list price,
 // days-to-sell, 12-month resale projection + CI from the owner's SKU-class sale
 // ledger. Tenant-scoped; compPulls plan tier + passport_forecast kill-switch.

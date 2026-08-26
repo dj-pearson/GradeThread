@@ -2846,28 +2846,6 @@
       "priority": 27
     },
     {
-      "id": "US-2917",
-      "passes": false,
-      "title": "Size check: serve the expected-size band table to the clients",
-      "description": "As a client app, I want one endpoint that returns the size bands for a brand and garment, so that the composer can check a measurement instantly without shipping the whole chart corpus.",
-      "acceptanceCriteria": [
-        "New GET /api/flipdesk/size-bands takes brand, garment and optional gender as query params and returns { tier, brandLabel, department, garment, sourceUrl, sizeSystem, sizeClass, measurementBasis, rows }.",
-        "Charts resolve DB-first through resolveBrandKnowledgePack (services/edge-functions/src/lib/brand-knowledge.ts) against public.brand_size_charts, falling back to the in-code SIZING_CHARTS seed when the DB has no matching row. This mirrors the DB-first pattern ai-size-estimate.ts already uses, so an admin chart edit changes what the composer shows with no deploy.",
-        "tier is 'verified' when the winning brand_size_charts row has verified = true, 'brand' when a brand-specific chart matched but is unverified, 'generic' when the generic fallback chart was used (brandMatch empty), and 'none' when nothing matched. The response never reports a brand chart it did not use.",
-        "Department is chosen with normalizeDepartment from size-systems.ts. When the item has no gender AND the brand has charts for more than one department, the response downgrades to tier 'generic' rather than guessing a department.",
-        "Migration adds measurement_basis text NOT NULL DEFAULT 'body' CHECK (measurement_basis IN ('body','flat')) to public.brand_size_charts, and the route passes it through to buildSizeBands. This exists so a brand that publishes garment-flat specs can be recorded honestly instead of having ease added on top of ease.",
-        "The migration satisfies the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the SAME commit, and the self-record footer.",
-        "US-268: the route takes NO item id and reads NO tenant table. A tenant-isolation_test.ts case asserts the route ignores/rejects an itemId param and that brand_size_charts is its only table read.",
-        "An unauthenticated request returns 401. The route is rate limited like the other read routes.",
-        "The response is cacheable: identical params return an identical body, and Cache-Control lets a client hold it for the life of an item edit.",
-        "An unknown brand with no generic chart for the garment returns 200 with rows: [] and tier: 'none', not a 404."
-      ],
-      "priority": 33,
-      "dependsOn": [
-        "US-2916"
-      ]
-    },
-    {
       "id": "US-2918",
       "passes": false,
       "title": "Composer and Prep: flag a size that disagrees with the measurements, with a one-click fix",

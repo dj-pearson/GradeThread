@@ -1,16 +1,43 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> **NOTHING IS HELD as of 2026-08-25.** Every migration through 00673 is
-> applied to prod, `scripts/held-migration-gate.mjs` reports clear, and
-> `prd-lint` no longer flags a stale HELD claim. **The branch is not frozen.**
->
-> This file is append-only history below this line — every entry is a past
-> apply, kept for its reasoning. If you are here to find out whether you may
-> push, the answer is this banner, not the first heading under it.
->
-> When the next migration is written, add its `## 🚨 PENDING and BLOCKING:`
-> section at the top AND replace this banner, or the two will disagree and the
-> banner is the one people read.
+## ⏳ HELD: 00674_brand_size_charts_measurement_basis.sql (US-2917) — PENDING and BLOCKING
+
+**HELD.** Not applied to prod as of 2026-08-26. Apply it before this branch
+merges to main, then flip this heading to APPLIED.
+
+**What it does.** One `ADD COLUMN IF NOT EXISTS measurement_basis text NOT NULL
+DEFAULT 'body'` on `public.brand_size_charts`, plus a guarded CHECK constraint
+limiting it to `body` or `flat`, plus a column comment. No data change: every
+row that exists today holds body measurements, which is what the default says.
+
+**Why it exists.** The US-2916 size checker converts a chart's body
+measurements into expected flat-lay ranges by adding garment ease and halving
+the circumference. A brand that publishes garment-FLAT specs would get ease
+added on top of ease, and every correctly sized item on that brand would be
+flagged. The column lets that case be recorded honestly instead of worked
+around by editing the numbers.
+
+**What breaks if the edge deploys first.**
+`services/edge-functions/src/lib/brand-knowledge.ts` now SELECTs `source_url,
+verified, measurement_basis` from `brand_size_charts`. Against a database
+without the column PostgREST returns an error for that one query, which the
+resolver already catches — size charts silently fall back to the in-code seed
+and every chart reads as tier `brand`/`generic` instead of `verified`. Degraded,
+not broken, and it logs the existing `[BrandKnowledge] … IN-CODE fallback`
+warning. Nothing 500s and no frontend page breaks.
+
+**Frontend read of the new column: NONE.** The SPA never touches
+`brand_size_charts` directly; it reads `GET /api/flipdesk/size-bands`, which
+returns `measurementBasis` computed server-side and defaulting to `body`.
+
+**Risk: LOW.** Idempotent, additive, no backfill, no lock beyond a brief
+ACCESS EXCLUSIVE for the ADD COLUMN (the table has a few hundred rows).
+
+**Apply order.** 00674 alone. Then `NOTIFY pgrst, 'reload schema';` — PostgREST
+caches the column list, and without the reload the new SELECT keeps failing
+against a database that already has the column.
+
+---
 
 ## APPLIED: 00673 — take SECURITY DEFINER off ensure_sourcer (US-2886)
 

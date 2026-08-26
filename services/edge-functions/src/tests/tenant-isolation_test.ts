@@ -6602,3 +6602,66 @@ Deno.test({
     assertEquals(body.key, "shipping_address");
   },
 });
+
+// ── US-2917: GET /api/flipdesk/size-bands ───────────────────────────────────
+//
+// This route is the odd one out on the FlipDesk surface: it reads ONLY the
+// global brand_size_charts reference table and takes no id at all. There is
+// nothing here to scope by a user, so the property to assert is not "B cannot
+// read A's row" — it is that the route never grows the ability to read one.
+// A future caller passing an item id to "make the check smarter" is exactly how
+// a reference lookup becomes a tenant read, so the route refuses the param
+// outright and these two cases hold it to that.
+
+Deno.test({
+  name: "size-bands refuses an item id, so it cannot become a tenant read",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/size-bands?brand=Lululemon&garment=tee&gender=men&itemId=${itemId}`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    const body = await res.json();
+    assertEquals(res.status, 400, "an itemId param must be refused, not ignored");
+    assert(
+      String(body.error).includes("no item or user id"),
+      `expected the no-id refusal, got: ${JSON.stringify(body)}`,
+    );
+    // Nothing tenant-shaped may come back on the refusal path either.
+    assert(!("rows" in body), "the refusal must not carry a band table");
+  },
+});
+
+Deno.test({
+  name: "size-bands is unauthenticated-deny and reads no tenant table",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const url = `${BASE}/api/flipdesk/size-bands?brand=Lululemon&garment=tee&gender=men`;
+
+    const anon = await fetch(url);
+    await anon.body?.cancel();
+    assertEquals(anon.status, 401, "size-bands must require auth");
+
+    // B gets the same reference answer A would: the table is global, and a
+    // per-tenant difference here would mean a tenant column leaked into it.
+    const asB = await fetch(url, { headers: authHeaders(B_JWT!) });
+    assertEquals(asB.status, 200);
+    const bodyB = await asB.json();
+    const asA = await fetch(url, { headers: authHeaders(A_JWT!) });
+    assertEquals(asA.status, 200);
+    const bodyA = await asA.json();
+    assertEquals(
+      JSON.stringify(bodyB),
+      JSON.stringify(bodyA),
+      "two tenants must get an identical reference table",
+    );
+
+    // The response shape carries chart provenance only — no ids, no user
+    // columns, nothing that could have come from inventory_items.
+    const serialized = JSON.stringify(bodyA);
+    for (const leak of ["user_id", "userId", "inventory_items", "sku"]) {
+      assert(!serialized.includes(leak), `size-bands response leaked ${leak}`);
+    }
+  },
+});
