@@ -60,6 +60,13 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
     sourceNote: "vault/10-ops/deploy.md",
+    // Re-read 2026-08-25. NOTHING to carry, for the same reason as every check
+    // before it: US-2845 added the two comp-read rows and moved the count
+    // 80 -> 82, and this copy names no count. Five consecutive checks now where
+    // the only diff was a cron arriving. That is the design working, not the
+    // guard being noisy — the alternative is a copy that quotes a number and
+    // goes stale on the next job.
+    //
     // Re-read 2026-08-19. NOTHING to carry: the only change in deploy.md since
     // the last check is the cron count moving 77 -> 78, and this copy names no
     // count on purpose (it says Scheduled Tasks survive a redeploy and points at
@@ -91,7 +98,7 @@ export const RUNBOOKS: Runbook[] = [
     // (it cannot know which line changed) and the phrasing doing its job. If a
     // future copy is ever tempted to name the number, this is the four-check
     // record of why not.
-    reviewed: "2026-08-21",
+    reviewed: "2026-08-25",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -392,6 +399,10 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "launch-readiness",
     sourceNote: "vault/10-ops/launch-checklist.md",
+    // Re-read 2026-08-25. Nothing to carry: US-2845's two comp-read rows and
+    // the count line 80 -> 82. Both ship OFF behind the comp_read flag, so
+    // neither is a launch gate, and §2 still names no number.
+    //
     // Re-read 2026-08-15. Two changes in the vault note, neither of which this
     // copy carries. (1) One more generated table row (grading-self-consistency)
     // and the count line 77 → 78 — §2 here says "all Coolify Scheduled Tasks
@@ -431,7 +442,7 @@ export const RUNBOOKS: Runbook[] = [
     // `VITE_*` set in Cloudflare Pages" — so the retired row was never here to
     // remove. The generic line is why, and it is the same instinct that keeps
     // the cron count out of §2: name the class, let the source hold the list.
-    reviewed: "2026-08-22",
+    reviewed: "2026-08-25",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:

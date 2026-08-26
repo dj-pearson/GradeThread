@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { failSafe } from "../lib/http-errors.ts";
 // US-2677: a batch of nine template-written titles is only visible as a problem
 // when the whole batch is looked at at once.
 import { findDuplicatesWithinBatch } from "../lib/title-similarity.ts";
@@ -913,9 +914,12 @@ flipdeskAutolisterRoutes.post("/staging/upload", async (c) => {
       contentType: verdict.contentType,
     });
   if (upErr) {
-    return c.json(
-      { error: "Could not upload that photo.", detail: upErr.message },
+    return failSafe(
+      c,
       500,
+      "Could not upload that photo.",
+      upErr,
+      "autolister.staging-photo.upload",
     );
   }
   // item-photo-url-ok: a staging/just-uploaded object in the public bucket,

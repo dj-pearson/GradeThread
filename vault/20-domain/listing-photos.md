@@ -19,7 +19,7 @@ code_refs:
   - supabase/migrations/00587_item_photo_role_qualifier.sql
   - supabase/migrations/00589_submission_image_role.sql
   - services/edge-functions/src/routes/flipdesk-grading.ts
-reviewed: 2026-08-23
+reviewed: 2026-08-25
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
@@ -302,6 +302,28 @@ pre-edit thumbnail from cache while the row and the object were both correct.
 Between the save and the next cron tick an edited photo loads full-res in
 galleries. That is the deliberate trade, and it is bounded by the cron interval
 rather than permanent.
+
+### A rotation now carries the MeasureCard calibration with it (US-2888)
+
+Because rotation replaces the pixels, everything stored in that photo's pixel
+coordinates was silently invalidated by it. `item_photos.measure_calibration`
+is exactly that: a homography mapping pixels to card-plane inches, plus the
+endpoints of every measurement line. Nothing rewrote either one, so after a
+quarter turn the homography measured along the old axis and an endpoint at
+x=3000 in a photo now 2000 wide drew past the edge of the SVG -- still saved,
+still counted in the inches, and unreachable, because dragging an endpoint was
+the only gesture that could move one.
+
+A quarter turn is a rigid motion, so inches are preserved and no card has to be
+detected again: the endpoints go through the same map the editor's canvas
+performs and the homography is post-multiplied by that map's inverse. The turn
+that matters is the DIFFERENCE between the old rotation recipe and the new one,
+not the new one alone, because recipes are absolute against the preserved
+original.
+
+**Any future writer of pixel-space data on `item_photos` inherits this.** If
+you add a column whose values are image coordinates, the rotate path has to
+transform it or the rotate path has to refuse.
 
 ## Which bucket a photo is in is a fact about the bytes, not about its type
 

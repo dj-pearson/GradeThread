@@ -25,7 +25,7 @@ code_refs:
   - supabase/migrations/00535_ingested_listings.sql
   - supabase/migrations/00536_buyer_video_grading.sql
   - supabase/migrations/00537_buyer_growth_metrics.sql
-reviewed: 2026-08-22
+reviewed: 2026-08-25
 tags: [buyer, plans, entitlements, contract]
 summary: A buyer's effective tier is the higher of their buyer subscription and the tier their seller plan already includes; the plan matrix is written twice and only a cross-boundary parity test keeps the halves honest.
 ---

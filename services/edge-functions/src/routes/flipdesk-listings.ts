@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
+import { redactError } from "../lib/log-redact.ts";
 import {
   type AdapterResult,
   type CrossListingPlatform,
@@ -1457,11 +1458,10 @@ export const bulkEditListingsHandler = async (c: Context<any>) => {
         .update(writePatch as never)
         .eq("id", listing.id);
       if (error) {
-        return {
-          ok: false,
-          error: "Could not save the listing.",
-          detail: error.message.slice(0, 200),
-        };
+        // Not a Response, so failSafe() cannot be used here: log the raw cause
+        // under the same tag shape and return only the safe half.
+        console.error(`[listings.bulk-edit.save] ${redactError(error)}`);
+        return { ok: false, error: "Could not save the listing." };
       }
     }
 

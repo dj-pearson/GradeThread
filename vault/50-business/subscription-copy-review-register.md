@@ -9,12 +9,20 @@ code_refs:
   - services/edge-functions/src/tests/subscription-copy-register_test.ts
   - src/test/subscription-disclosure-coverage.test.ts
   - src/test/legal-page-dates-and-crossrefs.test.ts
-reviewed: 2026-08-23
+reviewed: 2026-08-25
 tags: [legal, billing, subscriptions, compliance, counsel]
 summary: Every place GradeThread tells a customer about a recurring charge, its ending, or where their data goes — who drafted the wording, and whether counsel has seen it.
 ---
 
 # Subscription copy review register
+
+> **The operator kill switch cannot suppress any of this (US-2854).**
+> `deliverEmail()` checks `emailCategoryDisabled()` before anything else, and
+> a disabled category is a terminal no-op that neither retries nor queues.
+> `emailCategoryDisabled()` refuses the protected categories by name — auth,
+> receipts, payment failures — so nothing an operator can switch off removes
+> a disclosure counsel has signed off on. If a category is ever added to this
+> register, check it is on that protected list before assuming the same.
 
 US-2114 is a review gate: the disclosure wording, the consent wording and the
 retention period are legal determinations, and that story says plainly **do not

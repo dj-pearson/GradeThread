@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/help-center.ts
   - services/edge-functions/src/routes/help-center.ts
   - src/pages/help-reader.tsx
-reviewed: 2026-08-15
+reviewed: 2026-08-25
 tags: [help-center, seo, security, contract]
 summary: Help articles have three visibilities, not two; the wall is RLS plus one edge function, and public by default is the rule that pays for the whole feature.
 ---

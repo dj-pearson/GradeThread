@@ -15,7 +15,7 @@ code_refs:
   - scripts/audit-unwired-exports.mjs
   - scripts/check-unwired-modules.mjs
   - scripts/check-web-unwired.mjs
-reviewed: 2026-08-23
+reviewed: 2026-08-25
 tags: [quality, testing, dead-code, gotcha]
 summary: Modules that pass their tests while nothing calls them; one was a real unenforced guarantee now half-wired, one was ruled uncalled-by-design and that ruling turned out to be wrong, one was a policy retirement that got deleted once a live switch started promising it, one was assumed correct because being unwired hid a broken table, and one was a UI component whose absence left a lockout switch armed — telling the shapes apart is the point.
 ---
@@ -64,9 +64,9 @@ boot warning reports ungated for every version until real labeled cases exist.
 
 ## Three modules have since graduated, which is the thesis holding
 
-The allowlist in `scripts/check-unwired-modules.mjs` holds five entries:
-`drip-trigger.ts`, `rubric.ts`, `brand-seed.ts`, `content-ai-email.ts` and
-`seller-digest.ts`. Three names left it between 2026-08-15 and 2026-08-20, and
+The allowlist in `scripts/check-unwired-modules.mjs` holds six entries:
+`drip-trigger.ts`, `rubric.ts`, `brand-seed.ts`, `content-ai-email.ts`,
+`seller-digest.ts` and `condition-curve-measured.ts`. Three names left it between 2026-08-15 and 2026-08-20, and
 each left the same way — the codebase changed around a verdict that had been
 correct when written:
 
@@ -81,6 +81,16 @@ correct when written:
   said to remove it when a route imports it. `routes/flipdesk-sync.ts` imports
   `planObservations` and `planSaleEffects`, and **the gate had been failing since
   that route landed** — the allowlist doing exactly what it is for.
+
+**The sixth, `condition-curve-measured.ts`, is the same shape one story later**
+(2026-08-25). US-2847 shipped the WRITING half of measured condition curves —
+`buildMeasuredCurvePoints` and `writeMeasuredCurve` — and the job that reads
+`comp_reads`, calls the fitter and hands the result over does not exist.
+`comp-curve-fit.ts` is dead the same way and is deliberately NOT listed
+separately: this module is its only importer, so the audit reports the root
+rather than the branch. The seeded path is live and unaffected. Two PENDING
+entries arriving two days apart is not the allowlist growing slack; it is two
+stories that shipped a half each, and the gate saying so out loud.
 
 Each was left in the script as a COMMENT rather than deleted, so the next reader
 sees a module that graduated instead of a name that quietly vanished. That is

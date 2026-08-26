@@ -12,7 +12,7 @@ import { join, relative, resolve } from "node:path";
 // "Bulk with AI". "Take photos" is a different verb, and a user reading it
 // after reading "Add item" does not know they are the same action.
 //
-// The vault note is vault/20-domain/one-verb-add-item.md.
+// The vault note is vault/20-domain/product-vocabulary.md.
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(resolve(ROOT, p), "utf8");

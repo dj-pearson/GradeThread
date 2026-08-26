@@ -9,7 +9,7 @@ code_refs:
   - scripts/setup-stripe-pricing.mjs
   - src/pages/legal/refund.tsx
   - src/pages/legal/terms.tsx
-reviewed: 2026-08-22
+reviewed: 2026-08-25
 tags: [pricing, billing, stripe, contract]
 summary: The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
 ---

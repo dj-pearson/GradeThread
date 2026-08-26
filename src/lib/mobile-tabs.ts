@@ -75,7 +75,7 @@ export const MOBILE_TABS: readonly MobileTab[] = [
  * fixed the naming on iOS and did not reach the web, so the same seller met
  * "Photos first" on the phone app and "Snap & Catalog" on the phone browser.
  * These are the canonical names; the vault note is
- * vault/20-domain/one-verb-add-item.md.
+ * vault/20-domain/product-vocabulary.md.
  */
 export const ADD_MODES: readonly { label: string; hint: string; to: string }[] = [
   {

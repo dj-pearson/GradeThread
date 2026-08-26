@@ -8,13 +8,18 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-08-22
+reviewed: 2026-08-25
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
 
 # The listings table — column inventory and read policy
 
+> **Re-reviewed 2026-08-25.** Drift flagged `src/types/database.ts` a third
+> time, and a third time nothing about `listings` moved: US-2851 added scout
+> ceiling fields, US-2852/2853 added seller listing defaults and quiet hours,
+> and US-2886 added `SourcerRow` — all on other tables in the same file.
+>
 > **Re-reviewed 2026-08-22.** Drift flagged `src/types/database.ts`, and the
 > change was on a DIFFERENT TABLE: US-2777 added `lister_locales` to
 > `FlipdeskSettingsRow`. Nothing about `listings` moved. Recorded rather than

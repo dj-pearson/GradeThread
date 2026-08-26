@@ -197,6 +197,6 @@ export function tierLabelForGrade(grade: number): string {
   // US-2871: the bands moved to GRADE_TIER_BANDS in constants.ts so the report
   // can show the RANGE beside the tier name without a second copy of the
   // numbers. Same bands, same results -- pinned by a fixture in
-  // src/test/grade-tier-bands.test.ts.
+  // src/test/score-explanation.test.ts.
   return tierBandForScore(grade).label;
 }

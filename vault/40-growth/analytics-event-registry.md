@@ -8,7 +8,7 @@ code_refs:
   - src/lib/analytics.ts
   - src/lib/buyer-analytics.ts
   - src/lib/__tests__/analytics-events.test.ts
-reviewed: 2026-08-21
+reviewed: 2026-08-25
 tags: [analytics, posthog, measurement, naming]
 summary: Every product event name is declared in src/lib/analytics-events.ts and enforced by tsc; two naming conventions are live and neither may be renamed.
 ---
@@ -70,7 +70,7 @@ assumed to have happened. Two entries exist because that distinction is real:
 Both are cases where a reasonable person reads the name and gets the meaning
 backwards. That is what the notes are for.
 
-## The computed-name family
+## The computed-name families
 
 `buyerFunnelEventName()` builds its name from a step, so its events cannot be
 listed as literals. They are typed as a **template literal**
@@ -80,6 +80,17 @@ step to `BUYER_FUNNEL_STEPS` legalises its event automatically, and a typo in a
 hand-written `buyer_funnel_*` literal is still rejected. No `as`, no `any`, no
 widening — which matters, because any of those would have reopened exactly the
 hole the registry closes.
+
+US-2884 added the SECOND family the same way, deliberately rather than by
+precedent: `activationEventName()` computes `activation_${step}` from the ordered
+step list in `activation-analytics.ts`, and `ActivationEventName` is the matching
+template literal. Two families for the same idea would have made the two funnels
+uncomparable, so the shape was copied on purpose. The steps and their splits are
+[[activation-funnel]]; the iOS half is generated from the same array, so the
+names cannot fork across clients.
+
+A third family is a decision, not a default. Add one only when the names really
+are computed from an ordered list, and copy this shape when you do.
 
 ## An absent event is a claim you cannot check (GT-001, 2026-08-15)
 

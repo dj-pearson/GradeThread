@@ -8,7 +8,7 @@ code_refs:
   - .env.example
   - services/edge-functions/.env.example
   - services/edge-functions/src/lib/env-validation.ts
-reviewed: 2026-08-22
+reviewed: 2026-08-25
 tags: [ops, env, deploy, contract]
 summary: Every env var the codebase reads, which of the eight deployment surfaces it belongs to, and which six are boot-fatal in production.
 ---

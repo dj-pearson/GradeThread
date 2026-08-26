@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/cron-fleet-governance.ts
   - services/edge-functions/src/routes/jobs-cron-fleet.ts
   - services/edge-functions/src/tests/cron-registry-drift_test.ts
-reviewed: 2026-08-22
+reviewed: 2026-08-25
 tags: [ops, cron, jobs, decision]
 summary: The 77 production schedules live in Coolify and are governed by a manifest in the repo plus a drift check, rather than being created from code.
 ---

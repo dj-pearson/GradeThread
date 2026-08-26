@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/feature-flags.ts
   - services/edge-functions/src/routes/admin-flags.ts
   - supabase/migrations/00210_feature_flag_rules.sql
-reviewed: 2026-08-19
+reviewed: 2026-08-25
 tags: [ops, config, admin, contract, flags]
 summary: A flag rule is resolved against the caller's EFFECTIVE plan, resolved inside isFeatureEnabled rather than supplied by the caller — and only the flags whose every call site can name a user may be plan-targeted at all.
 ---
@@ -75,13 +75,17 @@ and log `feature_flag.plan_unresolved`.
 `PLAN_TARGETABLE_FLAGS` lists the keys whose **every** call site can name a user:
 `grading`, `autolister`, `content_ai`, `authenticity_addon`, `forensic_grade`,
 `passport_forecast`, `video_grading` (US-1762 — only `/grade/submit` evaluates
-it, always with the workspace owner in hand) and `rewards_tangible` (US-1848 —
-`grantTangibleRewards` always acts for one named user).
+it, always with the workspace owner in hand), `rewards_tangible` (US-1848 —
+`grantTangibleRewards` always acts for one named user) and `rewards_quests`
+(US-1852 — `loadQuestsState` only ever runs for the authed reader).
 
 Everything else has at least one platform-wide caller — a cron that runs the flag
 once for the whole fleet, with nobody to resolve a plan for:
 
 - `repricing` — `handleRepriceScanCron` scans every owner in one call.
+- `comp_read` (US-2845) — `handleCompReadCron` drains a queue of market cells,
+  which belong to nobody. It doubles as the kill switch for the comp-read AI
+  budget, so the gate and the guardrail are one switch.
 - `inventory_equity` — `handleEquitySnapshotCron`, same shape.
 - `newsletter`, `lifecycle_journeys`, `trial_conversion_drip` — cron senders.
 - `support_assistant` — a launch check, not a per-user gate.

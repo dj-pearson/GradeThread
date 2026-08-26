@@ -11,7 +11,7 @@ code_refs:
   - scripts/ops/edge-watchdog.sh
   - scripts/ops/host-schedules.json
   - services/edge-functions/src/routes/jobs-watchdog-heartbeat.ts
-reviewed: 2026-08-22
+reviewed: 2026-08-25
 tags: [edge, incident, outage, ops]
 summary: Two edge failure modes with opposite signatures — a dying process that restarts itself, and a live process that never will. Telling them apart is the whole job; the hang recurred 2026-08-09 and ran far longer than the watchdog is meant to allow.
 ---

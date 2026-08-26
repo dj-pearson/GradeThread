@@ -12,7 +12,7 @@ code_refs:
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/defect-weighting.ts
   - services/edge-functions/src/tests/weighted-grade-parity_test.ts
-reviewed: 2026-08-22
+reviewed: 2026-08-25
 tags: [grading, contract]
 summary: The 1.0-10.0 scale, the five weighted factors, the rounding rule that has now shipped wrong twice, and which engine criteria are published and therefore no longer free to tune.
 ---
@@ -28,6 +28,15 @@ summary: The 1.0-10.0 scale, the five weighted factors, the rounding rule that h
 
 Grades run **1.0 – 10.0**. Individual factors are scored in **0.5 steps**; the
 weighted overall is rounded to **0.1**. Tiers run NWT (10) down to Poor (3–4).
+
+> **Where the bands live (US-2871).** `GRADE_TIER_BANDS` in
+> `src/lib/constants.ts` is the single table mapping a tier to its inclusive
+> floor, and `tierBandForScore()` / `tierBandRange()` are the only readers.
+> `tierLabelForGrade()` in `condition-value-curve.ts` used to carry its own
+> copy of the numbers and now delegates. One thing the table says that the
+> published scale does not: Poor's floor is **1.0**, not 3.0. The scale calls
+> Poor 3–4, but a grade can come back below 3 and it still has to render as
+> something.
 
 Confidence below **0.75** routes the submission to human review.
 

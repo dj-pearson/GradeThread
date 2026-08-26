@@ -58,3 +58,17 @@ gradlew text eol=lf
 # that predates it. Blobs are already LF, so this changes the working tree only.
 *.ts text eol=lf
 *.tsx text eol=lf
+
+# FIFTH time, same shape (US-2886). scripts/prd-story.test.mjs asserts the
+# backlog files are canonically formatted by re-serializing them and comparing
+# the BYTES: re-serializing at two-space indent with a trailing newline must
+# give back the file exactly.
+# JSON.stringify emits LF, so on a CRLF working tree the comparison fails by
+# exactly one byte per line -- 42,081 of them on prd.archive.json -- and reports
+# the archive as malformed when nothing is wrong with it. CI on Linux stays
+# green, so `npm run verify` fails only on the machine that runs it as the
+# pre-push hook. The writers (scripts/prd-story.mjs and friends) all emit LF.
+prd.json text eol=lf
+prd.archive.json text eol=lf
+prd-seo.json text eol=lf
+prd-connector.json text eol=lf

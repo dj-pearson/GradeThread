@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/help-analytics.ts
   - functions/_shared/help-analytics.ts
   - src/lib/analytics-events.ts
-reviewed: 2026-08-21
+reviewed: 2026-08-25
 tags: [help-center, analytics, seo, contract]
 summary: PostHog cannot see the public help pages because they are server-rendered, so views are counted in Postgres for the public surface and in PostHog for the app, and adding the two together produces a wrong number rather than a bigger one.
 ---
