@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2891",
+  "nextId": "US-2914",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2554,6 +2554,376 @@
       "dependsOn": [
         "US-2888"
       ]
+    },
+    {
+      "id": "US-2891",
+      "title": "Android targets API 35 while Play's floor for a new app moves to 36",
+      "description": "android/app/build.gradle.kts sets compileSdk 35 and targetSdk 35, and PLAY_STORE_SUBMISSION.md records that as 'meets Play's API 35 floor for new apps'. That was true for the 2025 window. Google's target-API policy steps up once a year on 31 August, and the step after 35 is 36 (Android 16). GradeThread has never been submitted, so it is a NEW app, and a new app is held to the current floor with no grandfathering and no six-month grace - the grace extension is for existing apps requesting more time on an update, and it does not create a path for a first upload. If the floor has already moved, the AAB is rejected at upload with a policy error, not a build error, which means it fails at the very end of a green release lane.  THIS IS FIRST IN THE LIST BECAUSE IT INVALIDATES THE OTHERS. Every remaining story here is work done against a bundle that Play will accept. Moving to 36 is not a version bump: API 36 makes edge-to-edge non-optional (the opt-out that still exists on 35 is gone), changes predictive-back defaults, and tightens foreground-service and JobScheduler behaviour. Those are exactly the surfaces the other Android stories in this batch touch, so doing this first stops the same screens being reworked twice.  WHAT MUST BE CONFIRMED, NOT ASSUMED: read the current requirement in Play Console -> Dashboard -> the target API warning, or developer.android.com/google/play/requirements/target-sdk. This story is written from the annual pattern, not from a page anyone read on the day.",
+      "acceptanceCriteria": [
+        "The current Play target-API floor for a NEW app is read from Play Console or the official requirements page and written into PLAY_STORE_SUBMISSION.md with the date it was read, replacing the 'meets Play's API 35 floor' line.",
+        "compileSdk and targetSdk move to whatever that floor is (36 unless the page says otherwise), and the app builds, lints and passes the unit suite at that level.",
+        "The API 36 behaviour changes that touch this app are each checked and the finding recorded: mandatory edge-to-edge (the app already calls enableEdgeToEdge, so the question is whether any screen relied on the opt-out), predictive back, and any foreground-service or JobScheduler change that reaches UploadWorker or BackgroundRefreshWorker.",
+        "The app is run on an API 36 emulator or device and the five shell sections plus capture, publish and settings are checked for content drawing under the status or navigation bar.",
+        "android-ci.yml and the release lane build against the new compileSdk, and android/scripts/doctor.mjs still resolves a working SDK on this machine.",
+        "The AGP version is confirmed to support the new compileSdk; if it does not, the AGP upgrade is part of this story rather than a follow-up."
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2892",
+      "title": "The release lane never checks the secrets that decide whether the app starts",
+      "description": "android-release.yml has a step called 'Check the secrets that must be present' and it names five: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD, PLAY_SERVICE_ACCOUNT_JSON. All five are about SIGNING and UPLOADING. Not one of them is about whether the app works.  AppConfig.validateAtStartup() runs in GradeThreadApp.onCreate and calls ConfigValidation.requireNonBlank('SUPABASE_ANON_KEY', BuildConfig.SUPABASE_ANON_KEY), which throws IllegalStateException on an empty value. build.gradle.kts's secret() helper defaults SUPABASE_ANON_KEY to an empty string. So if that key is not in the Infisical prod path when the release lane runs, the lane produces a signed, correctly-versioned, size-budgeted AAB that CRASHES ON LAUNCH FOR EVERY USER, and every gate in the lane passes: 'Confirm the bundle is signed' passes, the per-ABI budget passes, fastlane uploads it.  THE SAME SHAPE, QUIETER, FOR FOUR MORE. SENTRY_DSN, POSTHOG_API_KEY, TURNSTILE_SITE_KEY and the four FIREBASE_* values do not throw when absent - AppConfig treats blank as absent and the feature disables silently. That is the right runtime behaviour and the wrong release behaviour: a build that ships with FIREBASE_* missing has no push at all, and nothing anywhere says so. The first symptom is sellers not being told they sold something.  The keystore step exists because someone reasoned through what a missing keystore looks like at the end of a twenty-minute job. This is the same reasoning applied to the other half of the environment.",
+      "acceptanceCriteria": [
+        "The release lane fails BEFORE the build when SUPABASE_URL, SUPABASE_ANON_KEY or EDGE_API_URL is absent or blank, with a message naming the variable and where it lives.",
+        "The lane WARNS, loudly and in the job summary, when SENTRY_DSN, POSTHOG_API_KEY, TURNSTILE_SITE_KEY or any of the four FIREBASE_* values is absent, naming the feature that ships dead as a result.",
+        "A post-build assertion proves the shipped artifact actually carries the values: read BuildConfig out of the built AAB or APK (dex string scan, or a generated resource) and fail if SUPABASE_ANON_KEY is empty. The env check alone does not prove the value reached the binary.",
+        "A test or a self-check proves the assertion can fail: run it against a build with the key deliberately blanked and confirm it reddens.",
+        "PLAY_STORE_SUBMISSION.md section 0 gains a row for this, because 'the app crashes on launch' is a worse blocker than anything already listed there.",
+        "The same reasoning is applied to android-ci.yml's release build, which today also builds with empty placeholders and proves nothing about the real configuration."
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2893",
+      "title": "Nothing in the Android build proves the native libraries are 16 KB page-size compatible",
+      "description": "The app ships prebuilt native code it does not compile: ML Kit barcode scanning (17.3.0) and text recognition (16.0.1, plus the Japanese model), roughly 16 MB of .so per ABI according to the comment on ndk.abiFilters. Google Play requires apps targeting Android 15 and above to support 16 KB memory page sizes on 64-bit devices; a bundle whose shared libraries are aligned only to 4 KB is rejected at upload or crashes on a 16 KB device.  There is NO handling of this anywhere in the repo. gradle.properties has eight lines and none of them touch packaging. build.gradle.kts has no jniLibs block, no useLegacyPackaging, no alignment check. android/scripts/abi-size-report.py measures the SIZE of app/build/intermediates/stripped_native_libs and says nothing about ALIGNMENT, which is the thing that matters here. Grepping the whole android tree for '16 KB', 'pageSize' or 'jniLibs' returns nothing.  WHY IT IS NOT SAFE TO ASSUME AGP HANDLES IT. AGP aligns the libraries it PACKAGES; it cannot re-link an .so a vendor shipped. The ELF segment alignment has to come from the ML Kit build, which means the fix is a dependency upgrade, not a Gradle flag - and the versions pinned here predate the 16 KB requirement's enforcement date. arm64-v8a is the only ABI that matters for this (16 KB pages are a 64-bit concern), and it is the ABI almost every real device uses.  This is cheap to answer and expensive to discover at upload: unzip the AAB, run the alignment check over each arm64-v8a .so, and the answer is either 'fine' or 'upgrade ML Kit'.",
+      "acceptanceCriteria": [
+        "Every arm64-v8a .so in the release AAB is checked for 16 KB ELF segment alignment (zipalign -c -P 16, or Google's check_elf_alignment.sh), and the result is recorded per library so it is clear which dependency owns any failure.",
+        "Any library that fails is fixed by upgrading the dependency that ships it; if no released version is aligned, that is written down as a submission blocker with the dependency named, not worked around.",
+        "The check runs in the release lane against the artifact that ships, next to 'Confirm the bundle is signed' and the per-ABI budget - the same place and for the same reason.",
+        "The check has a self-test that proves it fails on a deliberately misaligned input, in the idiom android/scripts/abi-size-report.py --self-test already uses.",
+        "The app is launched on a device or emulator image configured with 16 KB pages and the barcode scanner and tag OCR are both exercised, since those are the two features that load the native code.",
+        "PLAY_STORE_SUBMISSION.md records the answer and the date, so the next dependency bump has something to compare against."
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2894",
+      "title": "The Play listing has no icon, no feature graphic and no screenshots",
+      "description": "android/fastlane/metadata/android/en-US/ holds four text files and two READMEs. images/phoneScreenshots/ contains README.txt and nothing else. images/tenInchScreenshots/ contains README.txt and nothing else. There is no images/icon.png, no images/featureGraphic.png, and no sevenInchScreenshots directory at all.  Play will not publish a listing without a 512x512 icon, a 1024x500 feature graphic, and at least two phone screenshots. This is not a quality issue - it is a hard stop at the Console, and it is the one blocker on the list that cannot be delegated to a script, because someone has to decide what the app looks like to a stranger.  THE STORYLINE IS ALREADY DECIDED. PLAY_STORE_SUBMISSION.md section 2 names seven shots in order and says the first two are what 90% of browsers see: guided capture with AI fields filling in, then the AI-extracted draft. It also names the two ways to produce them - npm run android:device screenshot against a real device, or the Roborazzi renders - and the one rule that gets listings rejected, which is that a price, a rating or a Play badge inside the image is a claim Play has to enforce per region.  THE TABLET SETS ARE NOT OPTIONAL IN PRACTICE. Omitting them puts a 'not designed for tablets' notice on the listing for tablet and ChromeOS users. Note that the tablet shots are worth taking only after the two-pane work, because today a 10-inch device renders the same single stretched column with a navigation rail down the side, and a screenshot of that argues against taking the app to a tablet.",
+      "acceptanceCriteria": [
+        "images/icon.png exists at 512x512, 32-bit PNG, no alpha, under 1 MB, and is visually the same mark as the adaptive launcher icon rather than a separate drawing.",
+        "images/featureGraphic.png exists at 1024x500 with no alpha, and carries no price, no rating and no Play badge.",
+        "At least four phone screenshots exist, named to sort in the section 2 order (1_capture.png, 2_ai_draft.png, ...), each 320-3840px per side.",
+        "Every screenshot is taken against a seeded account with plausible garment data - no lorem, no empty states, no debug build banner, no personal data.",
+        "Tablet sets are either taken (after the two-pane story lands) or deliberately skipped, with the choice and its listing consequence written into PLAY_STORE_SUBMISSION.md.",
+        "bundle exec fastlane metadata pushes the images and the text, and the result is read back in the Console rather than assumed."
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2895",
+      "title": "Sign-out empties the database and leaves the previous seller's photos on the phone",
+      "description": "SettingsViewModel.tearDownSession is careful and it is incomplete, and it says so itself: 'Upload teardown belongs to its own story'. This is that story, and it turns out to be two problems, not one.  ONE: IN-FLIGHT UPLOADS ARE NOT CANCELLED. SessionScope.Hooks has a cancelUploads slot. tearDownSession does not pass it. So WorkManager keeps running photo-upload jobs across the account boundary, holding a signed URL minted for the outgoing account, PUTting the outgoing account's garment photos into the outgoing account's storage folder - after the seller has signed out and possibly while another seller is signing in. The row wipe cannot stop it because UploadWorker reads a staged file path out of its own input Data, not out of Room.  TWO: THE STAGED FILES ARE STILL THERE. The wipe clears Room and three caches (EdgeApi responses, signed URLs, the verified profile) and IntakeInboxStore. It does not touch filesDir/captures (every camera shot staged for upload), filesDir/consumer-grade, filesDir/consumer-grade-camera, or the cacheDir staging directories used by ai-ocr, autolister, canvas-add, prospect-capture, import-staging, share-staging and the account export. Nor does it clear Coil's disk cache, which holds every garment thumbnail the previous account viewed, fetched through a private signed URL and then written to disk in the clear.  THE CODE ALREADY MAKES THIS ARGUMENT. The comment above the clearances list distinguishes correctness from retention and says the point of a clearance is to drop 'the outgoing account's BYTES ... on a shared phone that is one seller's data sitting in another seller's process'. Garment photos are the largest and most identifying bytes the app holds, and they are the ones not on the list. The IntakeInboxStore clearance right below it makes exactly this point about shared photos: 'someone's garments, in their house'.",
+      "acceptanceCriteria": [
+        "tearDownSession passes cancelUploads, and it cancels by the 'photo-upload' tag so no job survives the boundary regardless of which entry point queued it.",
+        "Cancellation happens BEFORE the row wipe, alongside stopRealtime, for the reason the class doc already gives: a job completing mid-wipe writes the outgoing account's state back into a database being emptied.",
+        "A clearance deletes every staged-photo directory: filesDir/captures, filesDir/consumer-grade, filesDir/consumer-grade-camera, and the cacheDir directories ai-ocr, autolister, canvas-add, prospect-capture, import-staging, share-staging and the account-export dir.",
+        "A clearance clears Coil's disk AND memory image cache, so a thumbnail of the previous account's garment cannot be served to the next one.",
+        "The directory list is derived from a single named source rather than copied into the clearance by hand, so a new staging directory cannot be added without appearing here - and a test pins that source against a scan of File(context.cacheDir, ...) / File(context.filesDir, ...) call sites, in the source-scanning idiom CameraCaptureProcessedTest already uses.",
+        "A test proves the whole boundary: stage a file in each directory, queue an upload, run tearDownSession, assert the queue is empty and every directory is gone. Sabotage each clearance in turn and confirm it reddens.",
+        "Account deletion runs the same teardown, since a deleted account leaving photos on the phone is the case the tearDownSession doc comment opens with."
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2896",
+      "title": "Photo uploads run with no network constraint, no backoff and no expedited request",
+      "description": "UploadWorker.request() builds a OneTimeWorkRequest with input data and three tags. That is all. No setConstraints, no setRequiredNetworkType, no setBackoffCriteria, no setExpedited, no ForegroundInfo.  Every other worker in the app has constraints. BackgroundRefreshWorker sets NetworkType.CONNECTED. PushActionWorker sets NetworkType.CONNECTED. The one worker that moves multi-megabyte JPEGs over the network is the one with none, which reads like an omission rather than a decision - there is no comment defending it, and the ones defending the tags are three lines long.  WHAT IT COSTS, IN ORDER. Offline, WorkManager runs the job immediately, the PUT fails, the attempt is consumed, and the default exponential backoff pushes the retry out - so a seller shooting twenty photos in a dead spot burns their retry budget before they ever reach signal, and the photos arrive far later than they need to. Backgrounded, an unexpedited, unforegrounded job with no constraint competes with everything else the system has queued, on a platform that has spent five versions getting more aggressive about exactly this. And a failure that is purely 'no network' is indistinguishable, in WorkInfo, from the terminal 4xx the US-1334 publish gate is trying to detect - the gate asks 'did this item's front shot fail terminally', and a no-network failure looks the same from the outside.  The three tags exist because someone worked out that WorkInfo exposes tags and not input data. The same care has not been applied to when the job is allowed to run.",
+      "acceptanceCriteria": [
+        "The request sets NetworkType.CONNECTED, so an offline capture waits for signal instead of failing and consuming an attempt.",
+        "Backoff is set explicitly rather than inherited, with the chosen policy and delay justified in a comment against the retry budget the publish gate reads.",
+        "Uploads triggered by a user action the seller is watching are expedited (setExpedited with a foreground fallback), and the choice of which entry points count is written down.",
+        "A batch that outlives the foreground shows a notification through ForegroundInfo, or the story records why it does not and what the seller sees instead.",
+        "A test proves the constraints are on the request, not merely intended - assert on the built WorkRequest's constraints and backoff.",
+        "The publish gate's terminal-vs-pending distinction is re-checked against the new retry behaviour, since changing when a job runs changes what a failed WorkInfo means."
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2897",
+      "title": "Android sends analytics by default while iOS asks first",
+      "description": "Telemetry.bootstrap reads one key out of DataStore and starts PostHog unless the seller has already opted out: `if (!optedOut) startPostHog(context)`. On a fresh install nothing is set, so analytics is ON before the first screen renders and before anyone has been asked. The iOS app treats the same signal as opt-in.  PLAY_STORE_SUBMISSION.md already flags this and stops short of deciding: it notes both are declarable in Data safety, that they cannot be described the same way, and that the EU consent posture the web adopted in US-2513 points at opt-in. It calls it a one-line default in Telemetry.kt. It is a one-line default and a four-place consequence, which is why it needs a story rather than a line edit.  THE FOUR PLACES. The Play Data safety form declares App interactions as collected and OPTIONAL, and 'optional' in Play's sense means the user has a real choice - a toggle buried in Settings that defaults to on is a weaker claim than the form implies, and Play compares the form against the binary. The App Store answer for the same product says something different. The subprocessors page and the privacy policy describe one product, not two. And any EU seller is covered by the consent rules the web side already accepted.  The decision is the deliverable here. Either default matches SOME defensible posture; what is not defensible is the two clients disagreeing while both point at the same privacy policy.",
+      "acceptanceCriteria": [
+        "A decision is made and recorded in the vault: opt-in everywhere (matching iOS and the web's US-2513 posture) or opt-out everywhere, with the reasoning and the date.",
+        "Telemetry.bootstrap implements the decision, and the Settings toggle's copy matches what actually happens on a fresh install.",
+        "If opt-in wins, sellers who have already been collected under the current default are handled explicitly - either grandfathered with a note saying so, or asked - rather than silently switched in either direction.",
+        "The Play Data safety answers in PLAY_STORE_SUBMISSION.md section 3.6 are updated to match, including whether App interactions is genuinely 'optional'.",
+        "The iOS and Android answers are compared side by side and any remaining difference is deliberate and written down.",
+        "Sentry is looked at in the same pass and the answer recorded: crash reporting is declared non-optional in the Data safety form, and that should be true on purpose rather than by omission."
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2898",
+      "title": "A gradethread.com/app/shipping link opens a browser, because the manifest never claimed it",
+      "description": "DeepLinkRoute.fromAppLink resolves twelve https paths. AndroidManifest.xml's autoVerify intent-filter lists eleven pathPrefixes. The one it does not list is /app/shipping, which DeepLinkRoute maps to ShellRoutes.FULFILLMENT.  So the parser handles the route, the shell has a destination for it, and Android never delivers the intent - the URL opens in Chrome and the seller lands on the website. The same destination reached through the widget (com.gradethread.app://widget/shipping) works, because the widget host IS in the manifest. One of the two paths to the shipping queue works and the other silently does not, which is the worst version of this bug: nothing errors, it just goes somewhere else.  THE GUARD DOES NOT COVER THIS. scripts/check-merged-manifest.mjs verifies that four system-reachable COMPONENTS survive the merge - the widget receiver, the share target, and the two activities. It says nothing about which paths those activities claim. So the drift between DeepLinkRoute and the manifest is invisible to CI and will happen again the next time a route is added, which is exactly how this one happened.  Fixing the missing prefix is a one-line change. The story is the guard, because the two lists are maintained by hand in two files, in two languages, and they have already fallen out of step once.",
+      "acceptanceCriteria": [
+        "The manifest claims /app/shipping, and a link to it opens the fulfillment queue on a release build with App Links verified.",
+        "A guard compares the https paths DeepLinkRoute.fromAppLink accepts against the pathPrefixes in the merged manifest and fails on a mismatch in EITHER direction - a route with no prefix, and a prefix no route handles.",
+        "The guard has a self-test that reddens on a removed prefix and on an added unparsed route, since a guard that reports nothing is indistinguishable from a clean tree.",
+        "The guard runs in npm run verify:android and in android-ci.yml, next to check-merged-manifest.mjs.",
+        "The custom-scheme hosts (widget, shortcut, auth-callback) are covered by the same comparison, so the widget and shortcut paths cannot drift either.",
+        "/app/auth-callback stays claimed exclusively by AuthCallbackActivity - the guard must not 'fix' the split by widening MainActivity's filter."
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2899",
+      "title": "A cold launch on a dark-mode phone flashes a white window",
+      "description": "res/values/themes.xml is three lines: Theme.GradeThread extends android:Theme.Material.Light.NoActionBar. There is no values-night. So the window background is white on every device, in every system theme, from the moment the launcher starts the activity until Compose draws its first frame.  On a phone in dark mode that is a full-screen white flash before a dark app appears. It is the first thing anyone sees, it is the single most common 'this app feels cheap' tell on Android, and it is entirely a resource file.  IT COMPOUNDS WITH THE AUTH GATE. MainActivity renders `AuthRepository.Phase.Loading -> Unit`, deliberately, so a sign-in form does not flash and vanish on every cold start. The comment defending that is right about the flash and leaves a hole: for however long the session takes to restore from encrypted storage, the app shows an empty white window with nothing on it. The correct shape for both problems is the same one - the platform SplashScreen API, held on screen with keepOnScreenCondition until the auth phase leaves Loading, so the launch icon stays up instead of a blank rectangle, and it is themed for the system's dark mode.  Neither androidx.core:core-splashscreen nor any splash theme exists in the project today; grepping libs.versions.toml for splashscreen returns nothing.",
+      "acceptanceCriteria": [
+        "res/values-night/themes.xml exists and the window background matches the app's dark surface, so a cold start in dark mode never shows a light frame.",
+        "The platform splash screen (androidx.core:core-splashscreen for the pre-31 backport) is wired, with the brand icon and a background that follows the system theme.",
+        "keepOnScreenCondition holds the splash until AuthRepository.phase leaves Loading, replacing the blank window the Loading branch currently renders.",
+        "The splash does not outstay a slow restore - a bound is set past which the shell or the sign-in screen renders anyway, so a broken session cannot leave the seller staring at a logo.",
+        "Cold, warm and hot starts are each checked on a device in both light and dark mode, and the flash is confirmed gone rather than assumed.",
+        "The app-lock path is checked in the same pass: a launch that starts locked goes splash -> lock screen with no flash of the shell behind it."
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2900",
+      "title": "Two blocking disk reads on the main thread before the first frame, and no baseline profile",
+      "description": "GradeThreadApp.onCreate starts twelve subsystems and two of them block. Telemetry.bootstrap does `runBlocking { context.telemetryDataStore.data.first()[OPT_OUT_KEY] ?: false }`. AppLock.initialize does `runBlocking { Mode.fromStorage(context.appLockDataStore.data.first()[MODE_KEY]) }`. Both comments call it 'one small disk read'. Both are on the main thread, in Application.onCreate, before any activity exists - and each one is a DataStore first collection, which means creating the DataStore, opening the file, and parsing it, on the critical path of every cold start. Under storage contention this is the textbook ANR shape, and StrictMode would flag both.  AppLock's is the harder one to just move, and that is the interesting part: the lock state has to be known before the first frame or the shell renders unlocked for a moment. Which is the same constraint the splash-screen story solves for auth, with the same mechanism - hold the splash, resolve asynchronously, then render. Telemetry's has no such constraint at all; PostHog can start a few hundred milliseconds late and lose nothing.  AND THERE IS NO BASELINE PROFILE. No androidx.baselineprofile plugin, no profileinstaller, no macrobenchmark module - grepping libs.versions.toml returns nothing for any of them. A Compose app of this size without a baseline profile pays JIT cost on every screen the first time it is opened, and the whole shell is Compose. Play's Android vitals will show it, and so will the first reviewer on a mid-range phone.  Nobody has measured the number. That is the first acceptance criterion, because a startup story with no before-figure cannot be finished.",
+      "acceptanceCriteria": [
+        "Cold, warm and hot start are measured on a real mid-range device before any change, and the numbers are written into the story, so the after-figures mean something.",
+        "Telemetry.bootstrap no longer blocks: the opt-out is resolved asynchronously and PostHog starts when it resolves.",
+        "AppLock.initialize no longer blocks the main thread, and the first frame still cannot render unlocked - resolved by holding the splash rather than by blocking, alongside the splash-screen story.",
+        "No runBlocking remains anywhere on the Application.onCreate path; a guard or a test pins that, since this is a pattern that returns.",
+        "A baseline profile is generated from a macrobenchmark that walks the real critical path - launch, shell, inventory list, item detail, capture - and is committed and packaged.",
+        "The twelve subsystem starts in onCreate are triaged into 'must be before the first frame' and 'can be deferred', and the deferred ones are moved off it.",
+        "The measured improvement is recorded in the story, and Android vitals is named as where it will be watched after release."
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2901",
+      "title": "Play Billing is a major version behind and never shows Play's own recovery message",
+      "description": "libs.versions.toml pins billing = 7.1.1. Play Billing Library 8 has been out for over a year, and Google enforces a minimum PBL version on an annual clock the same way it enforces target API - an app on the version below the floor cannot upload. 7.1.1 is one step from that edge and the app has not shipped yet, which means the first update after launch is likely to be the one that gets blocked.  THE MISSING PIECE IS MORE INTERESTING THAN THE VERSION. RealPlayBilling wires launchBillingFlow, queryPurchasesAsync, consume, acknowledge, pending purchases and the response codes - it is a complete and careful implementation. What it does not call anywhere is BillingClient.showInAppMessages. That is Play's own in-app surface for a subscriber whose payment method has declined, and it is the mechanism that turns a grace period into a recovered subscription instead of a lapsed one.  PLAY_STORE_SUBMISSION.md section 5.1 turns the grace period ON, deliberately, with the reasoning that 'a failed card should not drop a paying seller's inventory limits mid-week'. That decision buys three days. Nothing in the app uses them: the seller is never told, and the only thing that happens is the plan quietly lapses when the grace period ends and the sweep catches it. The server-side handling (RTDN, the 72-hour sweep) is built. The one client-side call that lets the seller actually fix it is not there.",
+      "acceptanceCriteria": [
+        "The current Play minimum Billing Library version is read from the official page and recorded with the date, the same way the target-API floor is.",
+        "The Billing Library is upgraded to 8.x, every deprecated call it removes is migrated, and the six subscriptions plus four credit packs are re-tested end to end against license testers using the five-step round trip in PLAY_STORE_SUBMISSION.md section 5.5.",
+        "BillingClient.showInAppMessages is called on a foreground where the seller's plan is in grace or on account hold, so a declined card is recoverable inside the app.",
+        "The paywall and any plan-gated screen tell the seller their subscription is in grace, rather than behaving normally until it lapses.",
+        "SubscriptionCatalog and services/edge-functions/src/lib/google-play/products.ts stay pinned to each other by the existing test through the upgrade.",
+        "PlayPurchaseRules' settlement logic is re-verified against the 8.x purchase model, since consume-vs-acknowledge is where a billing migration goes wrong silently."
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2902",
+      "title": "The two Android lanes that would catch a visual or startup regression are both non-blocking",
+      "description": "android-ci.yml runs Roborazzi with continue-on-error: true, and the whole instrumented E2E job with continue-on-error: true. scripts/verify.mjs runs the screenshot lane through advisory() rather than run(). So the two lanes that exercise the app as a user meets it can both be red for weeks and every push is green.  THE CONDITION FOR TURNING THEM ON IS ALREADY WRITTEN and has been met halfway. The comment in build.gradle.kts explains the reason for the screenshot lane's advisory status precisely: Robolectric's native graphics ship their own fonts so output is portable, but sub-pixel antialiasing can differ between a Windows checkout and the Linux runner, and the goldens had never been recorded on a runner. They have since been recorded - seven PNGs are committed. What has not happened is the comparison that decides whether the flake is real.  AND THE COVERAGE IS THIN EVEN IF IT WERE BLOCKING. Seven goldens: buttons, data rows, error state, info cards, status badges. All of them are ui/components primitives. Not one is a screen, and the app has 53. A padding change that clips a price on the publish screen passes every one of them.  THE INSTRUMENTED LANE IS THINNER. Four files, and one is the Hilt runner: RoomMigrationTest, AppLaunchTest, SignInValidationTest. Nothing walks capture, nothing walks publish, nothing walks a purchase. The lane is called 'Critical-flow E2E' and it does not cover a critical flow. There are also zero testTag calls in the entire app, which is the reason it cannot easily be extended - a Compose UI test with no test tags is written against display strings, which the localization work has just made a moving target.",
+      "acceptanceCriteria": [
+        "The screenshot goldens are recorded on the Linux CI runner and compared against the Windows-recorded set; the actual pixel difference is measured rather than assumed, and the finding is written down.",
+        "Roborazzi becomes a blocking gate in both android-ci.yml and verify.mjs, with a tolerance justified by that measurement - or, if the difference is genuinely irreducible, the goldens are recorded only on the runner and the local lane compares against them.",
+        "Screen-level goldens are added for the screens a regression would hurt most: capture, the AI draft review, the grade report, publish, inventory, money. Light and dark.",
+        "testTag is added to the elements those flows depend on, so UI tests are written against structure rather than against display strings the localization work is still moving.",
+        "The instrumented lane gains at least one real critical-flow test end to end, and becomes blocking once it is stable - or its continue-on-error carries a comment naming the specific condition for removing it, the way the screenshot one does.",
+        "Any lane left advisory says in a comment what has to be true to make it blocking, and that condition is checkable rather than a matter of opinion."
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2903",
+      "title": "The Android coverage floor is a guess nobody has replaced with the measurement",
+      "description": "app/build.gradle.kts sets `val koverLineFloor = 40` under a doc comment that says, in its own words, '40 is PROVISIONAL. The suite has never been measured on a machine with an Android SDK.' It then gives the exact recipe: run :app:koverLogDebug, round the reported line percentage DOWN to the nearest 5, put it here. HANDOFF-US-2502.md lists the same step under 'Not done'.  Everything else on that handoff list has since been done - the lint baseline exists (253 entries), the screenshot goldens exist (seven PNGs). This one has not, and it is the cheapest of the three: one Gradle task, one number.  WHY A PROVISIONAL FLOOR IS WORSE THAN NO FLOOR. The comment above it makes the argument itself: a floor should be the MEASURED number, because a floor above what the suite reaches gets lowered within a week, and a floor at today's number still catches the change that deletes tests. A floor at 40 when the suite actually covers, say, 62 catches nothing - a third of the tests could be deleted and koverVerifyDebug would still pass. With 179 unit test files the real number is very unlikely to be 40, so the gate is almost certainly inert right now, and it reads as enforced in both verify.mjs and android-ci.yml.",
+      "acceptanceCriteria": [
+        ":app:koverLogDebug is run and the reported line coverage is written into the story with the date.",
+        "koverLineFloor is set to that number rounded down to the nearest 5, and the 'PROVISIONAL' paragraph is replaced with the measurement and when it was taken.",
+        "npm run verify:android passes with the new floor - if it does not, that is the finding and it gets fixed here rather than by lowering the number.",
+        "The exclusions are sanity-checked while the report is open: Composables and generated code are excluded on purpose, so confirm the measured number is over real logic and not inflated by something the filter missed.",
+        "HANDOFF-US-2502.md's 'Not done' list is updated, since it is the only place recording that this was outstanding.",
+        "The rule for raising it - in the same commit as the tests that earned it - is confirmed to still be in the comment."
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2904",
+      "title": "Android has no in-app help, and no buyer surface at all",
+      "description": "Two whole modules exist on iOS and have no Android counterpart. This is not a naming difference - the directories and every file in them are absent.  HELP. ios/GradeThread/Help holds HelpSheet.swift, HelpSlugs.swift and ProductTerms.swift: contextual help articles reachable from the screen the seller is stuck on, and a glossary of the product's own vocabulary. Android has support/ - SupportScreen, SupportThreadScreen, SupportService - which is TICKETING. Those are different things: one answers the question now, the other files it with a human. A seller on Android who does not understand what 'comped' means, or why an aspect is required, has no answer inside the app and one route out of the confusion, which is to open a ticket. That is a worse product and it is also more support load.  BUYER. ios/GradeThread/Buyer holds seven files: BuyerAlertsView, BuyerEntitlements, BuyerEntitlementsStore, BuyerGuaranteeView, BuyerPortfolioView, BuyerToolsSection, BuyerTrustScoreView. Android has none of it. The buyer economy (US-1816/1817 and the six buyer epics) is built server-side, on the web, and on iOS. An Android user who buys a graded garment has no alerts, no portfolio, no trust score and no view of the guarantee they are covered by.  NEITHER BLOCKS SUBMISSION and that is why they are one story at this priority rather than two urgent ones. The app is a seller tool first and it is complete as one. But 'production ready' against the product as it exists on the other two clients means naming these, and the buyer half in particular is a feature customers have been sold on a certificate page that an Android phone cannot open into the app.",
+      "acceptanceCriteria": [
+        "The iOS Help sheet's article set and slugs are mirrored on Android, reachable from the same screens, reading from the same help-article source rather than a second copy of the text.",
+        "ProductTerms - the in-app glossary - is available on Android wherever iOS offers it.",
+        "The buyer surface is scoped explicitly: which of the seven iOS views Android needs for parity, and which are deliberately not being built, each with a reason.",
+        "Whatever is in scope from that list is built, including buyer entitlement resolution, so a buyer's Android app knows what they are entitled to.",
+        "A certificate deep link opens the Android app for a buyer, rather than dropping them on the website - which is the moment the missing surface is actually felt.",
+        "The parity table (or vault note) recording which client has which surface is updated, so the next person asking this question reads an answer instead of two directory listings."
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2905",
+      "title": "On a tablet the app is a phone layout with a rail down the side",
+      "description": "MainActivity computes a WindowSizeClass and reduces it to one boolean, isCompactWidth. Sections.navKindForWidth turns that boolean into NavigationBar or NavigationRail. That is the entire adaptive story: on a 10-inch tablet the seller gets the same single stretched column of inventory with the navigation moved to the left edge.  PLAY_STORE_SUBMISSION.md section 2 says 'the app is Compose with material3-window-size-class wired in, so it adapts; take the shots.' The library is wired in. The app does not adapt beyond the navigation chrome, and a screenshot of a 1200dp-wide list of single-line rows is an argument against installing this on a tablet, not for it.  WHAT PLAY DOES WITH THAT. Omitting the tablet screenshot sets puts a 'not designed for tablets' notice on the listing for tablet and ChromeOS users. Supplying screenshots of a stretched phone layout is worse - it is the same notice, delivered by the images. Play also surfaces large-screen quality in its own app-quality checks, and a list-detail surface with no detail pane is the specific thing those checks look for.  THE APP HAS THE SHAPE FOR IT ALREADY. Inventory is a list of items that open a detail screen. Money is a list of sales that open a sale. Marketplaces is a list of listings. Every one of those is a list-detail pair that becomes two panes on a wide screen with no new concepts, and Compose has a supporting library for exactly this pattern.",
+      "acceptanceCriteria": [
+        "Inventory renders as list-detail on Medium and Expanded widths: the list stays, the item opens beside it, and nothing about the compact layout changes.",
+        "The same treatment is applied to at least Money/Sales and Marketplaces, or those are explicitly deferred with a reason.",
+        "Rotation and window resize (split screen, a foldable unfolding, a ChromeOS window drag) preserve the selected item and the scroll position rather than resetting.",
+        "Text measure stays readable on a wide screen - a 65-75ch bound rather than a line of body text running the full width of a tablet.",
+        "Screenshot goldens cover the expanded layout, so the two-pane arrangement is a thing a regression can break visibly.",
+        "The tablet screenshot sets in the listing are taken from the new layout, and PLAY_STORE_SUBMISSION.md's 'so it adapts' claim is rewritten to say what actually adapts."
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2906",
+      "title": "The Android dependency set is a year stale and lint is told not to mention it",
+      "description": "gradle/libs.versions.toml pins AGP 8.13.2, Kotlin 2.1.20, Compose BOM 2025.04.00, Room 2.7.0, core-ktx 1.15.0, Hilt 2.56, Sentry 7.22.0, PostHog 3.11.2, Firebase BOM 33.7.0, Play Billing 7.1.1, ML Kit barcode 17.3.0 and text recognition 16.0.1. That set was current in the first half of 2025.  The lint block disables GradleDependency, AndroidGradlePluginVersion and NewerVersionAvailable, with a comment that is right about why: 'a newer version exists' is a real thing to know and a terrible thing to fail a build on, since it turns red the day an unrelated library ships. The comment also names the intended replacement - ./gradlew dependencyUpdates reports it on purpose - and npm run android:updates exists to run it. Nothing schedules it, so nobody runs it, and the version set has drifted for a year with the one check that would have said so switched off by design.  THREE OF THESE ARE NOT COSMETIC. Play SDK Index findings, which lint DOES report and which checkDependencies = true was turned on to catch, will block an upload outright when a dependency version is flagged as known-vulnerable - and old versions accumulate those. ML Kit is where the 16 KB page-size answer lives. Play Billing 7.1.1 is one step from the enforced floor. Those three have their own stories; this one is the other twenty and the process that let them drift.  A pre-submission upgrade is also the cheapest time to do it. After launch every dependency bump is a change to an app people have installed.",
+      "acceptanceCriteria": [
+        "npm run android:updates is run and its full report is attached to the story, so the gap is a list rather than an impression.",
+        "Every dependency is either upgraded or has a written reason for staying, and the reasons are in libs.versions.toml next to the pin, in the idiom that file already uses.",
+        "lintRelease is run with checkDependencies = true and every Play SDK Index finding is resolved - a known-vulnerable dependency version is an upload rejection, not a warning.",
+        "The full suite, the screenshot lane and a real-device smoke pass on the upgraded set before it is committed; a Compose BOM jump in particular is a visual change.",
+        "A recurring check is scheduled (a monthly workflow, or the vault deploy runbook) so this cannot silently drift for another year with the lint checks still disabled for the same good reason.",
+        "The Data safety form is re-checked after the upgrade, as PLAY_STORE_SUBMISSION.md section 3.6 requires: an SDK that starts collecting an advertising id makes the form false with no change to our code."
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2907",
+      "title": "The home screen still says Scout and Prospect do not exist, and they have shipped",
+      "description": "HomeScreen.kt has two quick-action buttons, Add item and Snap to value, followed by a comment: 'Scout and Prospect are the other two actions US-1370 AC2 names. They are deliberately absent rather than stubbed: US-1374 hasn't landed, and a button that opens a placeholder is worse than no button.'  The reasoning was right. The premise has expired. US-1374 is archived as done, and scout/ is a real module: ScoutScreen, ScoutService, ScoutViewModel, ProspectScreen, ProspectViewModel, ProspectTypes. Both are routed in AppShell (ShellRoutes.SCOUT, ShellRoutes.PROSPECT). The features work and the home screen does not offer them, because nobody came back to the comment that was waiting on them.  SO US-1370 AC2 IS STILL UNMET, and it now reads as met to anyone who greps for it - the story is closed, the comment explains the gap, and the explanation is out of date. That is a worse state than the honest gap it describes.  This is small. It is here because it is the only one of its kind found in the whole Android tree - the codebase has zero TODO/FIXME markers and one stale forward-reference, which is a good ratio and an argument for closing the one.",
+      "acceptanceCriteria": [
+        "Scout and Prospect appear as home quick actions and open the real screens.",
+        "The stale comment goes, rather than being edited to describe a different gap.",
+        "The four actions lay out sensibly at the small end - two rows, or a scrolling row, not four buttons crushed into one line on a compact phone.",
+        "US-1370 AC2 is re-read against the finished screen to confirm nothing else on it was left behind the same way.",
+        "The rest of the tree is swept once for comments naming a story id that is now archived, since this one was invisible until someone read the file."
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2908",
+      "title": "Eight Compose files sit outside the localization guard, and the guard cannot tell",
+      "description": "scripts/no-bare-strings.py enforces string extraction over an explicit SCOPE list, and the header is honest about it: 'SCOPE IS DELIBERATE AND PARTIAL ... it grows as more are [converted], and a file inside the scope can never regress.' That was the right way to do a staged migration across ~90 files.  The migration is now eight files from finished. 106 files in the tree contain @Composable; 98 are in scope. The remainder: billing/ConsumerCreditPackSheet.kt, grading/ConsumerGradeScreen.kt, grading/GradeCameraSheet.kt, inventory/SourcedByPicker.kt, measure/MeasurementPhotoEditorSheet.kt, settings/TwoFactorDialog.kt, sync/PersistenceHealthHost.kt, sync/SyncStatusHost.kt.  THE LIST IS NOT RANDOM AND THAT IS THE PROBLEM. It includes the consumer grading flow, the credit-pack purchase sheet, the two-factor dialog and the sync-status host - a purchase surface, a security surface, and the thing that tells the seller their data is not saving. Spanish is otherwise complete (1460 strings in both values/ and values-es/), so a Spanish-speaking seller gets a fully translated app right up until they hit one of these eight, at which point the credit-pack sheet or the 2FA dialog comes back in English.  AND A NEW FILE IS OUT OF SCOPE BY DEFAULT. The guard passes on a file nobody added to the list, which is the same silence a clean tree produces. That is the shape this repo has been bitten by before - a guard reporting nothing reads exactly like a guard finding nothing.  US-2499 covers the iOS half of this and the guard's migration framing; this is the Android half, which is small and finishable.",
+      "acceptanceCriteria": [
+        "All eight files have their user-visible strings extracted to strings.xml with Spanish translations, and are added to SCOPE.",
+        "SCOPE is inverted: the guard covers every file containing @Composable by default, with an explicit, named, reasoned exclusion list instead of an explicit inclusion list - so a new screen is covered the day it is written.",
+        "The self-test proves the inversion works: add a temporary Composable file with a bare string and confirm the guard reddens without anyone editing a list.",
+        "check-string-formats.py still passes across both locales after the new strings land.",
+        "The pseudo-locale build (en-XA / en-XB, already enabled on debug) is used to check the eight converted screens for clipping and RTL, which is what those locales were turned on for.",
+        "The 'migration under way' framing in the guard header is replaced, since after this there is no migration - matching what US-2499 asks for on the iOS side."
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2909",
+      "title": "The widget shows up in the picker as a grey box with no preview",
+      "description": "res/xml/seller_snapshot_widget_info.xml declares description, initialLayout, sizes, resizeMode, updatePeriodMillis and widgetCategory. It declares neither android:previewImage nor android:previewLayout.  Without one of those the system has nothing to draw in the widget picker, so it falls back to the app icon on a plain background. The seller browsing widgets sees every other app's widget rendered as itself and GradeThread's rendered as a launcher icon, which is the difference between 'this shows me today's takings' and 'I don't know what this is'. It is the only place the widget is ever advertised.  previewLayout is the modern answer (Android 12+) and it renders the real layout with sample values; previewImage is the pre-12 fallback and minSdk here is 26, so both are wanted. Glance has a supported way to produce the preview from the same composable the widget uses, which avoids the usual failure of a hand-drawn PNG drifting from the widget it depicts.  SECOND, SMALLER THING IN THE SAME FILE: resizeMode is 'horizontal' only, and targetCellWidth/Height are 2x1. A seller who wants the snapshot taller cannot have it. Worth a decision rather than an accident - if 2x1 is the deliberate shape, the comment in that file (which explains updatePeriodMillis at length) should say so.",
+      "acceptanceCriteria": [
+        "previewLayout renders the real snapshot layout with plausible sample numbers - no zeroes, no lorem, no real seller data.",
+        "previewImage is supplied for pre-Android-12 devices, generated from the same composable rather than drawn by hand.",
+        "The picker is checked on an Android 12+ device and on an older one, and the widget is confirmed to be recognisable in both.",
+        "resizeMode and the target cell size are decided deliberately and the reasoning added to the file, alongside the existing updatePeriodMillis note.",
+        "The signed-out state is checked in the picker and on the home screen, since WidgetPublisher.publishSignedOut is what a fresh install renders.",
+        "The widget is included in a screenshot for the listing, per the PLAY_STORE_SUBMISSION.md section 2 storyline, which names it as shot 7."
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2910",
+      "title": "Error and empty states are handled in three screens out of fifty-three",
+      "description": "The app has ErrorStateView in ui/components and three screens use it. It has two pull-to-refresh implementations. It has 53 screens.  That is not an assertion that the other fifty handle failure badly - most of them surface something - but it is a strong signal that failure UX was built per screen rather than as a pattern, and the count is the kind of thing that is true of an app right before the first bad review about a blank page.  WHAT MAKES IT WORTH A STORY HERE RATHER THAN LATER. This app is offline-tolerant by design: there is a mutation queue, a watermark-based sync, a connectivity monitor, realtime, and a SyncStatusHost. All of that machinery exists so a seller can work in a dead spot in a thrift store, which is the actual usage the product is built around. The failure states are therefore not an edge case, they are the primary environment - and a screen that renders an empty list when the pull failed is indistinguishable, to the seller, from a screen that correctly says they have no items.  PULL-TO-REFRESH IS THE OTHER HALF. Two uses across fifty-three screens. On Android a list that cannot be pulled reads as broken, and it is the gesture a seller reaches for the moment they suspect the app is stale - which, given the sync model, is a reasonable suspicion they should be able to act on.",
+      "acceptanceCriteria": [
+        "Every screen that loads from the network is audited and the finding tabulated: what it shows while loading, when the load fails, and when it succeeds with nothing.",
+        "The three states are distinguishable on every one of them - a failed load never renders as an empty list.",
+        "Every list backed by a sync pull supports pull-to-refresh, and the gesture is wired to the real pull rather than to a local re-read.",
+        "Error copy tells the seller what to do, in strings.xml with Spanish, and never shows a raw exception or an HTTP status.",
+        "The offline case is exercised deliberately with the device in airplane mode across the main flows, and what the seller sees is confirmed rather than assumed.",
+        "Screenshot goldens cover the error and empty state of at least the inventory, money and marketplaces lists, so this cannot silently regress."
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2911",
+      "title": "Predictive back is off, and in-app updates were never wired",
+      "description": "Two platform integrations that are each a small amount of work and are each what separates an app that feels current from one that feels ported.  PREDICTIVE BACK. AndroidManifest.xml does not set android:enableOnBackInvokedCallback, and nothing in the tree uses the predictive-back APIs. So the back gesture gets no preview animation anywhere in the app: no peek at the screen behind, no shared-element transition out of a detail screen, and every dismissible surface - the sheets, the dialogs, the item detail - snaps rather than animates. On Android 14+ this is the default experience of every well-maintained app, and it is the kind of thing a reviewer registers as 'this feels old' without being able to name why. Moving to API 36 makes this more pressing, not less, since the platform defaults shift again there.  IN-APP UPDATES. PLAY_STORE_SUBMISSION.md notes, under 'the things to leave alone at first release', that in-app updates are not wired and the Play Core library is not a dependency. That is the correct call for the first submission and the wrong steady state: this app talks to a server whose API moves, and the only way to get a seller off a broken client version today is to hope they update. A flexible update prompt for ordinary releases and an immediate one for a version the server can no longer support is the mechanism, and the second half of that needs a server-side minimum-version signal that does not exist yet.  Neither blocks submission. Both are cheap now and awkward later, and the second one is only useful if it ships BEFORE the version it needs to rescue people from.",
+      "acceptanceCriteria": [
+        "android:enableOnBackInvokedCallback is set and the back gesture previews correctly across the shell, the detail screens, the bottom sheets and the dialogs.",
+        "Anything that intercepted back predictively-unaware (a sheet, a multi-step flow, the capture screen) is migrated to the predictive-back APIs rather than left on a plain back handler.",
+        "The gesture is checked on a device running the current Android release, in both gesture and three-button navigation.",
+        "The Play in-app update API is wired: a flexible prompt for an ordinary new version, and an immediate one for a version below a server-declared minimum.",
+        "The server exposes that minimum supported client version, and the client asks for it - the immediate path is worthless without a signal to trigger it.",
+        "PLAY_STORE_SUBMISSION.md section 4.4's 'not wired' line is updated once it is."
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2912",
+      "title": "747 baselined findings, and two Room schema versions that cannot be migration-tested",
+      "description": "Three pieces of accepted debt, grouped because each is a gate that is on and quietly not looking at part of the tree.  LINT: 253 baselined issues, with warningsAsErrors = true and checkDependencies = true. The pairing is correct - a baseline is what lets a gate be turned on over an existing codebase - and the comment says so, including the rule that the baseline is regenerated deliberately and in the same commit as the fix. But 253 findings from a lint configuration that treats warnings as errors is 253 things someone decided were true and not now, and nobody has read them since. Some will be Play SDK Index entries, which are the ones that block an upload.  DETEKT: 494 baselined findings, recorded in HANDOFF-US-2502.md as the output of the one :app:detektBaseline run that created it. Never triaged.  ROOM: check-room-schemas.mjs reports 'version 8, 6 exported, 7 migrations (known historical gap: 3, 4)'. Two schema JSONs were never exported, so MigrationTestHelper cannot replay a database at version 3 or 4 against the real migrations. Anyone still on a build that old upgrades untested. The gap predates the check and the check names it, which is the good outcome - but naming it is not closing it, and the answer might legitimately be 'nobody is on v3, prove it and drop the concern'.  NONE OF THIS BLOCKS SUBMISSION. It is here because the moment before the first public release is the last time this codebase has no installed base, and a schema gap in particular gets more expensive with every user.",
+      "acceptanceCriteria": [
+        "The 253 lint findings are read and triaged into fixed / genuinely-accepted-with-a-reason / stale, and the baseline shrinks to only the third category, regenerated in the same commit as the fixes.",
+        "Every Play SDK Index finding among them is resolved rather than accepted, since those become upload rejections.",
+        "The 494 detekt findings get the same triage, with the counts before and after recorded.",
+        "The Room v3/v4 gap is closed - either the schemas are reconstructed and the migration tests extended, or it is proven no installed client is below v5 and the gap is formally retired with that evidence.",
+        "A ratchet stops both baselines growing: a CI check that fails when the entry count rises, so the debt can only shrink.",
+        "The before and after counts go in the story, because 'we cleaned up lint' is not checkable and '253 to 41' is."
+      ],
+      "priority": 45,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-2913",
+      "title": "Play Console setup and the reviewer demo account: the five operator blockers",
+      "description": "PLAY_STORE_SUBMISSION.md section 0 lists seven things that block submission. Two are marked Fixed (in-app account deletion, the data-deletion URL). Five are unticked and every one needs a human with credentials - no amount of code closes them, and each one fails LATE and expensively if skipped.  3. UPLOAD KEY. ANDROID_KEYSTORE_BASE64 plus its password and alias, and PLAY_SERVICE_ACCOUNT_JSON, in Infisical prod /. Without them the release lane fails at its first step - which is the good outcome, since that step was added specifically so a missing keystore does not surface as an unsigned AAB rejected twenty minutes later.  4. TEN IN-APP PRODUCTS. Six subscriptions and four consumable credit packs, with ids matching ANDROID_CATALOG exactly. The server fails closed on an unknown id, so a typo in the Console is a real charge with no entitlement, and a test pins the client catalog to the server one but nothing pins the Console. Each subscription also needs a base plan AND an offer - the paywall reads offerToken and renders a row as unpurchasable without one, so a base plan with no offer ships as a price tag with a dead button.  5. REVIEWER DEMO ACCOUNT. The app is login-gated from the first screen. Without credentials in App access, review returns 'we could not access the app' and the clock restarts. The review-notes block is already written in section 3.2, including that the eBay connection must be SANDBOX so a reviewer cannot touch the live marketplace.  7. SERVER ENV FOR PLAY BILLING. GOOGLE_PLAY_SERVICE_ACCOUNT_JSON, GOOGLE_PLAY_PACKAGE_NAME and GOOGLE_RTDN_WEBHOOK_SECRET in Coolify, plus the RTDN Pub/Sub topic pointed at the webhook. Missing, every purchase verifies as an error: the buyer is charged and gets nothing.  And one decision, not on that list: the public support email. Section 4.2 says pick one and use it everywhere; the checklist assumes support@gradethread.com. It is shown publicly on the listing and it has to be an address someone reads.",
+      "acceptanceCriteria": [
+        "The upload keystore is generated once, base64'd into Infisical prod / with its password and alias, the local file deleted, and PLAY_SERVICE_ACCOUNT_JSON stored with release-manager rights.",
+        "All ten in-app products exist in Play Console with ids matching ANDROID_CATALOG exactly, each subscription carrying a base plan AND at least one offer, and grace period / account hold / resubscribe set per section 5.1.",
+        "The three server vars are set in Coolify and the RTDN Pub/Sub topic pushes to https://functions.gradethread.com/api/webhooks/google-play with the shared secret.",
+        "License testers are added and the five-step round trip in section 5.5 is run and passes: buy a subscription, buy credits, re-verify the same token grants nothing more, cancel, expire.",
+        "A seeded demo account exists with sample inventory, photos, a completed grade with certificate, listings, sales, payouts and a credit balance, its eBay connection on SANDBOX, and its credentials plus the section 3.2 review-notes block are in App access.",
+        "The public support email is chosen, monitored by a human, and used identically in the Console, the listing copy and the app.",
+        "Every box in the section 7 pre-submission checklist is ticked from something that was actually observed, not from an intention."
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
     }
   ]
 }
