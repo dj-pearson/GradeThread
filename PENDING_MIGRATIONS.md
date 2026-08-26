@@ -1,8 +1,8 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## PENDING and BLOCKING: 00673 — take SECURITY DEFINER off ensure_sourcer (US-2886)
+## APPLIED: 00673 — take SECURITY DEFINER off ensure_sourcer (US-2886)
 
-**Apply this. 00672 is already on prod and this closes a hole it opened.**
+**Applied to prod by the owner on 2026-08-25**, after 00672 and before the push.
 
 **The problem it fixes.** 00672 shipped `public.ensure_sourcer()` as SECURITY
 DEFINER, copying the trigger functions next to it. On a Supabase stack a

@@ -2502,38 +2502,6 @@
       "notes": "Split out of US-2879 on 2026-08-25 rather than left as an unmet AC. It carries a migration (the token table) and session-minting logic, so it is a security-shaped story, not a UI one -- load the tenant-isolation and migrations skills before starting. The three surfaces it links out are pinned by src/test/web-only-surfaces.test.ts, so read that list rather than retyping it."
     },
     {
-      "id": "US-2886",
-      "passes": false,
-      "title": "Sourced by is a workspace roster, not free text",
-      "description": "inventory_items.sourced_by was a free-text box on four FlipDesk surfaces, so the same person arrived as Dan, dan and DJ and the sourcing reports could never be trusted. 00672 adds a per-workspace sourcers roster: the owner and every workspace_members row are added by trigger, existing sourced_by names are backfilled, and anyone who is not a user (a spouse, a picker, Joint) can be added inline from the picker or managed on the Sources page. The column stays text so iOS, Android, the CSV importer and the Sheets projection keep working unchanged.",
-      "acceptanceCriteria": [
-        "Composer, intake, bulk intake and snap catalog all pick Sourced by from a dropdown instead of a text input",
-        "The dropdown lists the signed-in person first, then the rest of the roster alphabetically",
-        "Add person from inside the dropdown creates the roster entry and selects it without leaving the form",
-        "Workspace owner and every workspace member appear on the roster with no manual step",
-        "A name already on an item but not on the roster stays selectable so old items do not open blank",
-        "Sources page has a roster card that adds, renames and archives people; a rename rewrites sourced_by on every item carrying the old name",
-        "PLATFORM GAP: iOS DetailsIntakeView and Android DetailsIntakeScreen still use a free-text Sourced by field"
-      ],
-      "priority": 40
-    },
-    {
-      "id": "US-2887",
-      "passes": false,
-      "title": "iOS and Android pick Sourced by from the roster too",
-      "description": "US-2886 turned the web Sourced by field into a roster picker backed by public.sourcers (00672). iOS DetailsIntakeView and Android DetailsIntakeScreen still show a plain TextField, so a name typed on a phone can reintroduce the Dan/dan/DJ spread the roster exists to stop. Needs the sourcers table pulled into the SwiftData and Room stores and synced like sources, then the text fields swapped for a picker with an inline add.",
-      "acceptanceCriteria": [
-        "sourcers is a synced local model on iOS (SwiftData) and Android (Room), refreshed by the same sync path as sources",
-        "DetailsIntakeView and DetailsIntakeScreen show a picker over the roster instead of a free-text field",
-        "Both let the user add a person inline without leaving intake",
-        "A name already on an item but not on the roster stays selectable"
-      ],
-      "priority": 60,
-      "dependsOn": [
-        "US-2886"
-      ]
-    },
-    {
       "id": "US-2888",
       "passes": false,
       "title": "A rotated MeasureCard photo keeps its calibration, and a line can be moved as a whole",
