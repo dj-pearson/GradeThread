@@ -2914,27 +2914,6 @@
       ]
     },
     {
-      "id": "US-2960",
-      "passes": false,
-      "title": "Composer: the description block list, with toggles, reorder and live preview",
-      "description": "As a reseller, I want to see my description as a list of blocks I can switch off, reorder and edit one at a time, so that I can delete a redundant section without a full rewrite.",
-      "acceptanceCriteria": [
-        "src/components/flipdesk/composer/description-card.tsx renders one ROW per block (not a nested card) with a source label, an on/off switch and a drag handle, using the existing @dnd-kit/sortable dependency.",
-        "Toggling a block off dims the row, keeps its array position and drops it from the preview; toggling it back on restores it to the SAME position.",
-        "The facts and credentials rows have no drag handle and cannot be reordered.",
-        "AI and snippet rows open an in-place textarea on Edit (no modal, no route change); derived rows show a go-to-field control that focuses the matching input in the Item Details or Measurements card.",
-        "A collapsible preview panel calls POST /api/flipdesk/description/preview debounced at 400ms and shows a character count; an out-of-order response never overwrites a newer one.",
-        "Opening a listing whose description_blocks is null shows blocks from the legacy parse, and the preview equals the stored listing_description BYTE FOR BYTE before any edit.",
-        "saveDraft() calls POST /:listingId/save AFTER its item and listing field writes, so derived blocks read the values that just landed.",
-        "descriptionMentions (composer.tsx:272) and the stale-description reminder it feeds (composer.tsx:1596) are DELETED, and no test still references them.",
-        "npm run ui:check stays at zero findings for src/."
-      ],
-      "priority": 14,
-      "dependsOn": [
-        "US-2958"
-      ]
-    },
-    {
       "id": "US-2961",
       "passes": false,
       "title": "Account-level listing snippets, with apply-to-open-drafts",
