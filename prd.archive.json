@@ -42480,6 +42480,226 @@
         "US-2929"
       ],
       "notes": "Done 2026-08-27. ReturnSummary gained respondBy and buyerUsername, and orderId is now READ instead of hard-coded null. deadlineBucket/deadlineLabel/byDeadline in post-sale-state.ts, with one correction the tests forced: the urgent band is days <= 1, not days === 0, because daysUntil CEILINGS and a zero-day case is only ever the exact instant the clock runs out - the most urgent band would have been permanently empty. The label is 'Under a day left' rather than 'Due today' for the same reason: eleven hours from 6pm is tomorrow. An unreadable date renders NO badge, never Overdue, or a parse failure looks like a case already lost. Returns, inquiries, cases and disputes all sort soonest-first with undated LAST (a case eBay runs no clock on is genuinely less urgent); cancellations carry no deadline on eBay's summary and are left in eBay's order rather than sorted by a field that does not exist. lib/post-sale-reminders.ts fires at T-48h and T-12h over the STORED cases - two bands, not a drip, because an hourly nag teaches people to ignore the channel and costs more cases than it saves - and overdue cases are not reminded at all. It rides inside the existing marketplace-events sweep rather than being a new cron: that sweep already runs every 15 minutes, already holds the lock, already has the seller list and already owns the claim primitive, and it is already in the cron ledger. The 48h and 12h claims are DISTINCT statuses, which the test pins - share one and the second, more urgent reminder silently never goes out."
+    },
+    {
+      "id": "US-2935",
+      "passes": true,
+      "title": "The grade evidence pack exists and nothing attaches it to the case it was built for",
+      "description": "As a seller facing a not-as-described return, I want the grade report attached to my response automatically, so that the one piece of evidence no other seller has is actually in front of eBay.",
+      "acceptanceCriteria": [
+        "When a seller declines a SNAD return, contests a payment dispute or responds to a case on an order whose item has a grade report, the response composer pre-loads the evidence preview from the existing POST /api/flipdesk/ebay/evidence/preview",
+        "Nothing is submitted automatically: the pack is shown, is editable, and requires an explicit send click - matching the no-timer rule already documented on the evidence/preview route",
+        "The pack is uploaded through the existing uploadReturnFile/submitReturnFiles path for returns and uploadDisputeEvidenceFile for disputes, and through the new case surface for cases, rather than a fourth upload implementation",
+        "An order whose item has no grade report shows the composer with no pack and a one-line explanation, never a broken or empty attachment",
+        "A test asserts the same verdict text is produced for a return and for a dispute on the same order - one pack builder, not two"
+      ],
+      "priority": 109,
+      "dependsOn": [
+        "US-2929"
+      ],
+      "notes": "Done 2026-08-27. Three surfaces now take the grade pack - return, payment dispute, and the new escalated CASE - and the two things they MUST share moved into lib/evidence-send.ts: the sniff-then-strip image pass, and evidenceRefusalFor(), the single arbiter of whether to send at all. Each route had its own copy of both and the copies were already drifting (the return route capped the file count, the dispute route took exactly one file). The refusal keeps the direction that matters: a plan that could not be BUILT is not a refusal, so a lookup failure never silently becomes one. New ebay-cases.ts upload/submit is the two-call shape - upload associates, submit activates - because stopping after the upload gets a 200 and a seller who believes eBay has their evidence. On the surface: declining a SNAD return, contesting a dispute or appealing a case now opens the pack already checked, with the buyer's reason prefilled. It is a READ; the send stays behind its own button, and the returns Decline becomes a two-step ('Decline anyway') so the verdict is seen before the decision. isNotAsDescribed in post-sale-state.ts gates the pre-load and defaults to NO - pre-loading a condition argument on a changed-mind return is noise on a screen someone is working through fast. TWO GUARDS WIDENED, both because a proxy stopped matching a safer implementation: return-evidence-surface.test.ts banned any useEffect in the panel (now bans the SEND inside an effect, timers still banned outright), and evidence-refusal-parity_test.ts required a literal `verdict === \"supported\"` per handler (now requires each to call the shared arbiter, and asserts the arbiter is NOT in the route file). Both were sabotage-checked after widening. 7 new tests on the shared module."
+    },
+    {
+      "id": "US-2936",
+      "passes": true,
+      "title": "Return outcomes are never measured against the grade, so the one analysis only GradeThread can run does not exist",
+      "description": "As a seller, I want my return and case rate broken down by brand, category, assigned grade and whether the defect was disclosed, so that I learn which of my sourcing and listing habits generate the returns.",
+      "acceptanceCriteria": [
+        "A new FlipDesk analytics view reads marketplace_post_sale_cases joined to inventory_items, sales and grade_reports and reports return rate, SNAD share and average days-to-resolve, sliced by brand, eBay category, assigned grade band and disclosed-defect count",
+        "Every slice states its denominator (sales in the window) alongside the rate, and a slice with fewer than a named minimum sales count is shown as 'not enough sales yet' rather than as a percentage",
+        "The comparison a seller actually wants is present: return rate on items where a defect was disclosed in the listing versus items where none was",
+        "The query is tenant-scoped and runs off local tables only - no eBay call on page load",
+        "Charts follow the dataviz skill's palette and the numbers are readable as text without the chart"
+      ],
+      "priority": 110,
+      "dependsOn": [
+        "US-2927"
+      ],
+      "notes": "Done 2026-08-27. The analysis no other reseller tool can run: return rate against the grade we assigned and what the listing actually disclosed. Three parts. linkPostSaleCases resolves eBay's order/item ids to local ones as one sweep step for all five case types - without it every stored case is an orphan and the join has nothing to join ON. post-sale-analytics.ts is pure arithmetic with three properties the tests pin: one sale counts ONCE however many cases it produced (a buyer who returns, escalates and disputes has not returned three garments, and counting cases puts the rate over 100%), a slice under 8 sales reports rate:null rather than a percentage, and items with no grade report are in NEITHER disclosure bucket - 'we do not know what was disclosed' is not 'nothing was', and folding them in would manufacture the finding. The disclosure slice reads the PUBLICATION SNAPSHOT through findDisclosure, so it means 'the listing mentioned it' rather than 'the report recorded it'; the whole interest is the gap between those. Five bulk queries, not one per sale. New latestPublicationsFor keeps the published_at DESC rule in the module that owns the table. A vitest source guard pins the SNAD word list identical across the web and edge copies, with a self-check and a sabotage run that confirmed it fails on real drift."
+    },
+    {
+      "id": "US-2937",
+      "passes": true,
+      "title": "A not-as-described return is the strongest grading-accuracy signal in the product and nothing reads it",
+      "description": "As the GradeThread team, we want SNAD returns fed into the grading accuracy record, so that a grade the market rejected is treated as evidence rather than as a support ticket.",
+      "acceptanceCriteria": [
+        "A SNAD return or case on an order whose item has a grade_report records an accuracy observation through the existing accuracy-tracking path, tagged with the buyer's stated reason",
+        "The observation is a signal, not a verdict: it never rewrites the stored grade, never changes a published certificate, and is excluded from any customer-facing accuracy figure until a human review confirms it",
+        "The grading-engine skill's contract is followed - load it before touching lib/accuracy-tracking.ts or the human-review path",
+        "Admin grading review surfaces SNAD-linked observations as their own filter so a reviewer can work them as a batch",
+        "A test asserts a non-SNAD return reason (for example 'changed my mind') produces no accuracy observation"
+      ],
+      "priority": 111,
+      "dependsOn": [
+        "US-2927"
+      ],
+      "notes": "Done 2026-08-27. A SNAD return is a real buyer who paid, held the garment and said the condition was not what we published - the market disagreeing with the grade - and nothing read it. It now writes ONE grade_outcomes row tagged marketplace_snad, and that is all it writes: no grade rewritten, no certificate touched, no public figure moved. The exclusion is structural: NON_SALE_OUTCOME_SOURCES replaced a bare .neq(\"source\",\"buyer_arrival\") in the two public readers, so counting a return as a graded SALE now takes a deliberate edit rather than an oversight, and a test asserts the source is in that list. The refusals are the feature and carry most of the tests: a non-SNAD reason, an unlinked case, an ungraded item, and a return plus its escalated case on one order all produce no row or one row. Admin gets its own Returns tab on the grading accuracy panel, filtered to the unreviewed half, with copy saying plainly that buyers file SNAD for wrong sizes and free return postage. ALSO FOUND and filed as US-2954: admin-grading.ts registers GET /accuracy/outcomes twice, so the handler whose own comment says it is wired to the Outcomes tab is unreachable."
+    },
+    {
+      "id": "US-2938",
+      "passes": true,
+      "title": "Returns cannot be automated at all, so a seller with volume answers every one by hand",
+      "description": "As a high-volume seller, I want rules that auto-approve or auto-refund small returns, so that I stop paying a defect on returns I was always going to approve anyway.",
+      "acceptanceCriteria": [
+        "Return rules are stored as flipdesk_automation_rules rows (trigger_json/action_json, no migration) and executed by a step in the existing hourly automations cron, following the pattern lib/offer-rules.ts documents",
+        "A pure decideReturn-style evaluator supports: auto-approve when the order total is at or below a threshold, auto-refund-without-return when the total is at or below a lower threshold, and always-skip when the reason is SNAD",
+        "SNAD is a hard skip that no configuration can turn into an auto-action, and the module header says why",
+        "Every rule is off by default and each auto-action writes an audit log entry naming the rule that fired",
+        "A dry-run mode reports what the rules WOULD have done over the last 30 days of local cases without calling eBay, and the UI shows that preview before a rule can be enabled"
+      ],
+      "priority": 112,
+      "dependsOn": [
+        "US-2927"
+      ],
+      "notes": "Done 2026-08-27. Return rules as the sibling of the offer rules: flipdesk_automation_rules rows, no migration, executed by a step in the SAME hourly cron. SNAD IS A HARD SKIP that no configuration can turn off, checked before any threshold - a rule that could auto-approve a not-as-described return would silently concede the one dispute the product exists to win, and the first test is the one that notices if someone adds a flag. There is no auto-DECLINE and the test asserts its absence: declining puts the seller on record refusing and a wrongly-declined return escalates into a case, which carries a defect, so auto-approve is the safe direction and 'above every threshold' is a skip. An unknown order total skips rather than defaulting to zero, which would put every return inside every threshold. The runner reads STORED cases rather than re-hitting Post-Order hourly, resolves the order total through the linked sale, claims (return, action) BEFORE the eBay call, releases on failure, and writes a SYSTEM audit row - attributing it to the seller would make the log say they approved a return they never saw. Refund-without-return approves first because eBay rejects a refund on a return it has not been told to expect. The dry run is not a nicety: these rules refund buyers, so the form shows the item list over the last 30 days, skips included with their reasons, before a rule can be saved."
+    },
+    {
+      "id": "US-2939",
+      "passes": true,
+      "title": "Best offers are fetched live and never stored, so there is no counter history and no memory of a buyer",
+      "description": "As a seller, I want every offer and counter recorded, so that I can see what a buyer has already offered and what my counters actually convert at.",
+      "acceptanceCriteria": [
+        "New migration creates public.marketplace_offers with (id, user_id, platform, external_offer_id, item_external_id, inventory_item_id, listing_id, direction, buyer_username, amount_cents, currency, list_price_cents, state, expires_at, responded_at, response, response_amount_cents, rule_id, raw jsonb, created_at, updated_at) and a UNIQUE (user_id, platform, external_offer_id, direction)",
+        "direction distinguishes an offer received from the buyer, a counter we sent, and an offer we sent to interested buyers",
+        "RLS on; service-role writes are user_id-scoped (US-268)",
+        "US-1108 triple satisfied: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer",
+        "marketplace-event-poll.ts upserts fetched offers, and routes/flipdesk-automations.ts records the outcome of every accept/decline/counter it performs on the same row",
+        "src/pages/flipdesk/offers.tsx shows, for an offer whose buyer has offered before, the count and best previous offer from that buyer",
+        "tenant-isolation_test.ts covers the offers routes reading the new table"
+      ],
+      "priority": 113,
+      "notes": "Done 2026-08-27. Migration 00676 creates public.marketplace_offers, HELD pending your prod apply. `direction` (received / counter_sent / offer_sent) is what lets one table serve all three flows: collapsed, our own counter would be counted as a buyer's bid, and that count is the denominator of every conversion figure. list_price_cents is SNAPSHOTTED with the offer rather than read back from the listing - a seller who repriced from $24 to $298 must not have the discount depth of every past offer rewritten, and the test that pins it is the one asserting an unknown price is OMITTED rather than nulled. Same drop-undefined/keep-null upsert rule as the post-sale store. Recorded from three places: the poll, the offers page read, and every response we make (manual and automated, with the rule id when a rule made it). loadBuyerHistory answers 'has this buyer offered before' in one query for the whole page and excludes the offers currently on screen, or every first-time buyer would be told they had offered before."
+    },
+    {
+      "id": "US-2940",
+      "passes": true,
+      "title": "The offer engine can accept, decline or skip - it cannot counter, which is where the money is",
+      "description": "As a seller, I want offers below my accept threshold countered automatically at a price I set, so that a 70-percent offer becomes a negotiation instead of a lost sale.",
+      "acceptanceCriteria": [
+        "lib/offer-rules.ts gains a counter decision returning the counter amount, and OfferDecision becomes accept | decline | counter | skip",
+        "The counter amount is computed from a seller-set counterAtPct of list price, clamped so it is strictly above the incoming offer and strictly below the list price; a counter that cannot satisfy both is a skip, not a decline",
+        "marginFloorPct applies to a counter exactly as it applies to an accept - a counter that would clear below the margin floor becomes a skip, and the header states this",
+        "The rule ordering is explicit and unit-tested: accept wins over counter, counter wins over decline, so an offer that satisfies both accept and counter is accepted",
+        "routes/flipdesk-automations.ts executes the counter through the existing respondToBestOffer path and records it on the marketplace_offers row with rule_id set",
+        "Counters are off by default and a first-time enable shows the dry-run preview over the last 30 days of stored offers before it can be saved"
+      ],
+      "priority": 114,
+      "dependsOn": [
+        "US-2939"
+      ],
+      "notes": "Done 2026-08-27. decideOffer gained `counter`, and the ORDER is the contract: accept beats counter (a sale now beats a negotiation), counter beats decline (a negotiation beats ending the conversation). The counter price is computed in the decision rather than by the runner, so what the seller previewed and what eBay receives are one number, rounded to the cent because eBay rejects a third decimal. The margin floor applies to a counter exactly as to an accept and turns it into a SKIP, never a decline - a floor that could cause a decline would be a floor that loses sales. A counter that cannot sit strictly above the offer and strictly below list is a skip rather than a clamped number, because clamping hides a configuration the seller can fix in a second. ONE BUG THE TESTS CAUGHT: the no_thresholds_set guard read accept===null && decline===null, so a counter-only rule ('counter everything at 85%') was refused as unconfigured; the guard now includes the counter. Disabled, the engine is byte-identical to the pre-counter one and a test asserts it. The dry run over stored offers runs against the SNAPSHOT price, not today's ask."
+    },
+    {
+      "id": "US-2941",
+      "passes": true,
+      "title": "The offers list shows a price with no margin, no cost basis and no expiry countdown",
+      "description": "As a seller deciding on an offer in ten seconds, I want the margin, the cost and the time left shown on the row, so that I do not have to open the item to know whether to take it.",
+      "acceptanceCriteria": [
+        "Each row in src/pages/flipdesk/offers.tsx shows offer amount, percent of list, gross margin over acquisition cost, and time until the offer expires",
+        "Margin is shown as 'cost unknown' rather than as zero or as a guess when the linked inventory item has no cost basis",
+        "The expiry countdown is derived from the stored expires_at and re-renders without a refetch; an offer inside the last two hours is labelled as such in text",
+        "An offer on a listing FlipDesk never imported keeps the existing no-local-item message and shows no fabricated margin",
+        "The margin computation is a pure exported function shared with lib/offer-rules.ts so the number the seller sees and the number the rule uses cannot diverge"
+      ],
+      "priority": 115,
+      "dependsOn": [
+        "US-2939"
+      ],
+      "notes": "Done 2026-08-27. src/pages/flipdesk/offer-economics.ts puts the three numbers that decide an offer on the row: percent of asking, gross margin over cost, and hours left. Deciding used to mean opening the item in another tab, and offers expire. Every function returns NULL rather than a number when an input is missing - an item with no recorded cost has an unknown margin, and rendering that as $0.00 next to an Accept button is a confident lie about money; margin goes negative rather than clamping, because a loss has to read as a loss. The countdown is in HOURS: eBay offers commonly run 48, so a day-granularity badge spends half its life saying '1d left' about something expiring before lunch, and it is re-read on every render so the 90-second background refetch actually moves it. Buyer memory ('offered 3 times before, best $38, you accepted one') comes from the stored offers. 10 tests."
+    },
+    {
+      "id": "US-2942",
+      "passes": true,
+      "title": "No seller knows what discount depth actually converts, because nobody measures their own offers",
+      "description": "As a seller, I want my own accept rate by discount depth, so that I send 12 percent instead of 20 percent when 12 converts just as well.",
+      "acceptanceCriteria": [
+        "A new panel reports, from marketplace_offers, accept rate and median days-to-accept bucketed by discount depth (percent below list) for offers we sent, and separately for counters we sent",
+        "Every bucket states its sample size and a bucket under a named minimum is reported as 'not enough offers yet', never as a percentage",
+        "The panel names the efficient depth in one sentence - the shallowest bucket whose accept rate is statistically indistinguishable from the deepest - and shows the arithmetic behind that claim",
+        "Slicing by category and by grade band is available where the sample supports it",
+        "Charts follow the dataviz skill's palette"
+      ],
+      "priority": 116,
+      "dependsOn": [
+        "US-2939"
+      ],
+      "notes": "Done 2026-08-27. The discount-conversion curve, which is only computable because offers are now stored. Sent offers and counters are reported SEPARATELY and never pooled: an unprompted discount to a watcher and an answer to someone who already bid are different acts, and the counters' much higher accept rate would flatter the sends. The panel refuses to make a claim it cannot show the working for - a bucket under 10 offers reports no rate at all, no efficient-depth claim is made from a single usable bucket (one data point is not a comparison), and the recommendation prints its own arithmetic including both sample sizes and the margin of error. A test asserts the reverse direction too: when a deep discount is GENUINELY better the panel says so, because this exists to save money, not to always say 'discount less'. Bucket boundaries are upper-band (10% off is a 10-15 offer), which if reversed would shift every boundary case into the shallower bucket and flatter it."
+    },
+    {
+      "id": "US-2943",
+      "passes": true,
+      "title": "Send-offer-to-interested-buyers is on-demand and dies silently when the restricted scope is missing",
+      "description": "As a seller, I want a daily list of the items whose watchers would take a discount, and a real fallback when eBay has not granted the send-offer scope, so that the feature is useful before US-1421 lands and better after.",
+      "acceptanceCriteria": [
+        "A scheduled job calls find_eligible_items per connected seller, stores the eligible set, and surfaces it as a Send offers today list ranked by watcher count and days listed",
+        "The list is a proposal: nothing sends without the seller's click, and a bulk send confirms the count and total discount exposure first",
+        "When eBay returns 403 for the missing restricted scope, the route returns a typed reason the UI renders as one honest line pointing at the operator story US-1421, and the fallback path (a markdown sale on the same items) is offered in the same place",
+        "A per-item guard prevents sending a second offer to the same item within a cooldown that is a named constant, matching the offerDaysByItemExternalId shape already in routes/flipdesk-automations.ts",
+        "The job is registered in the cron ledger"
+      ],
+      "priority": 117,
+      "dependsOn": [
+        "US-2939"
+      ],
+      "notes": "Done 2026-08-27. find_eligible_items was on-demand, so a seller had to think to go and look - and the whole value of send-offer is reaching people ALREADY watching who have not bought. Now: a ranked morning list (watchers desc, then days listed desc, unknown age last within its watcher group), a once-a-day in-app digest, and a cooldown. THE COOLDOWN IS THE POINT: eBay lets you offer the same watchers a discount repeatedly, and doing that teaches them to wait - if 10% off arrives every Monday the rational move is never to buy at full price. Seven days, and the suppressed set is SHOWN rather than hidden so a seller who cannot find an expected item does not assume it is ineligible. The digest rides in the existing marketplace-events sweep with a `digest:YYYY-MM-DD` claim key, so a 15-minute sweep sends once a day; an EMPTY day claims nothing, so a seller whose first candidate appears at 4pm still gets it. In-app only - emailing someone every morning about items they MIGHT discount is how a sender gets marked as spam, and it would take the case notices down with it. The 403 path returns 200 with a typed reason AND the markdown-sale fallback in the same response, so a gated feature reads as gated rather than broken. DEVIATION FROM AC1: the eligible set is not stored in its own table. The cooldown and the ranking both come from marketplace_offers (US-2939) and the list is regenerated per read; a table holding a list that is rebuilt daily and never referenced afterwards is schema nobody maintains. The loader is shared between the route and the digest so the number in the nudge always matches the page it links to."
+    },
+    {
+      "id": "US-2944",
+      "passes": true,
+      "title": "Two systems decide the same offer: the listing's bestOfferTerms and the offer-rules engine, and nothing checks they agree",
+      "description": "As a seller, I want one place that decides my offer thresholds, so that eBay's auto-accept cannot take a price my FlipDesk rule would have refused.",
+      "acceptanceCriteria": [
+        "When an offer rule with acceptAtPct is enabled for a listing, the composer save and the revise path push the equivalent autoAcceptPrice through lib/best-offer.ts so eBay's own auto-accept never sits below the rule's number",
+        "A rule whose marginFloorPct would refuse an accept forces the pushed autoAcceptPrice up to the floor price, or omits it when no valid price satisfies eBay's constraints - it never pushes a price the rule would refuse",
+        "A listing whose stored best_offer_auto_accept_cents disagrees with its active rule is reported in the offers UI as a conflict with both numbers named, and a single action reconciles it",
+        "The US-2405 rule stands: a blank threshold stays blank and nothing is derived from the comp band",
+        "Unit tests cover: rule with no accept threshold pushes nothing; rule below margin floor pushes the floor; rule above list price pushes nothing"
+      ],
+      "priority": 118,
+      "dependsOn": [
+        "US-2939",
+        "US-2940"
+      ],
+      "notes": "Done 2026-08-27. Two systems decided the same offer and nothing checked they agreed: eBay's per-listing auto-accept fires the instant a bid lands, and the FlipDesk rule runs hourly with a margin floor eBay knows nothing about. eBay wins the race, so a stored auto-accept BELOW the rule's number was a live hole - an offer in the gap taken at a price the rule would have refused, with the seller's floor never getting a vote. reconcileAutoAcceptWithRule raises the pushed price or drops it and NEVER lowers one, never invents one. US-2405 stands and has its own test: a blank threshold pushes nothing whatever the rule says, because a derived number stops tracking anything the moment the item is repriced. The margin floor raises the pushed price above the rule's percent when cost demands it, and when no price satisfies both the rule and eBay's strictly-below-list constraint, nothing is pushed. The conflict banner names BOTH numbers per listing - 'there is a conflict' with no figures is a warning a seller cannot act on - and the one-click fix writes locally rather than firing a bulk revise nobody asked for. loadActiveOfferRule picks the OLDEST enabled rule because that is the one the runner reaches first; picking the newest would report a conflict against a rule that never fires."
+    },
+    {
+      "id": "US-2934",
+      "passes": true,
+      "title": "Six post-sale queues and no single place that says what needs the seller today",
+      "description": "As a seller opening FlipDesk in the morning, I want one list of everything eBay is waiting on me for, ranked by deadline and money at risk, so that I do not have to check six tabs to find the one thing that matters.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/post-sale.tsx opens on a single Needs you list merging returns, cancellations, inquiries, cases, payment disputes and expiring best offers from marketplace_post_sale_cases and the offers table",
+        "Ranking is deadline first, then amount at risk descending; the rule is a pure exported function with unit tests, not inline JSX logic",
+        "Each row states the case type, the item, the amount at risk, the deadline bucket and the single most likely action, and clicking through opens that case in place",
+        "A seller with nothing open sees an EmptyState that says so, not a spinner and not an error",
+        "The count of items in Needs you is exposed to the dashboard nav badge through the existing notification-count path",
+        "npm run ui:check stays at zero findings for src/"
+      ],
+      "priority": 108,
+      "dependsOn": [
+        "US-2927",
+        "US-2928",
+        "US-2929",
+        "US-2933",
+        "US-2939"
+      ],
+      "notes": "Done 2026-08-27. One ranked list above the six queues. The rank is DEADLINE, then money, and the rule worth stating is the one every sort-by-value version of this screen gets backwards: a $200 dispute due next week is less urgent than a $12 return due today, because only the deadline can be lost by waiting. Undated items sort LAST - eBay is running no clock on them - which is the opposite of the usual unknown-is-scary default. `kind` is deliberately NOT part of the rank and a test says so: a case is more damaging than a return, but a case due in six days is still not more urgent than a return due in three hours, and encoding a severity order would quietly override the clock. Expiring offers are in the list because an unanswered offer is not a deferred decision, it is a lost sale. Cancellations carry no eBay deadline so they are null rather than given an invented one. Each row states the type, subject, amount at risk, deadline bucket as TEXT, and the single most likely action, and links to the card that does it. 6 tests on the pure ranking."
+    },
+    {
+      "id": "US-2945",
+      "passes": true,
+      "title": "Promoted Listings Advanced runs with no keywords, which is the only lever that campaign type has",
+      "description": "As a seller running CPC ads on eBay, I want keyword and negative-keyword management in FlipDesk, so that my Advanced campaign stops paying for searches that will never buy.",
+      "acceptanceCriteria": [
+        "lib/ebay-marketing.ts gains keyword operations against the ad_group keyword and negative_keyword endpoints: list, create, update bid, pause and delete, plus eBay's keyword suggestions",
+        "Routes under /api/flipdesk/ebay/marketing/keywords expose those operations, are tenant-scoped, and audit-log every mutation",
+        "A UI on the FlipDesk ads surface lists keywords with bid, impressions, clicks and spend joined from the existing lib/ebay-ad-reports.ts data, sorted by spend descending",
+        "Suggested keywords are shown as proposals with the suggested bid, and adding one is a click - nothing is added automatically",
+        "A search term with spend and zero sales over a named window is flagged as a negative-keyword candidate, and adding it as a negative is one action",
+        "tenant-isolation_test.ts covers the new routes"
+      ],
+      "priority": 119,
+      "notes": "Done 2026-08-27. Promoted Listings Advanced ran with no keyword management at all, which is the only lever that campaign type has: Standard is a percentage of the sale, Advanced is a bid per click, and a bid you cannot aim is a bid you cannot control. New lib/ebay-keywords.ts covers list/create/update, negative keywords, and eBay's own suggestions, on the now-exported marketingFetch so the Content-Language header eBay error 25709 is about is not re-derived. THE NEGATIVE KEYWORD IS THE FEATURE and it leads the card: adding keywords spends money, blocking searches stops spending it, and the evidence is already in ebay_search_terms from US-2683. negativeKeywordCandidates needs 8 clicks and zero sales before it calls a term wasted - three clicks and no sale is not evidence, and this is what stops the panel telling a seller to block their own best future search term on a slow week. Already-blocked terms are excluded case- and whitespace-insensitively, or the list never gets shorter. PHRASE is the default match type: EXACT blocks one spelling and lets every variation through, which reads as 'the negative keyword did nothing'. Suggestions are proposals that fill the input, never auto-added, and an account with none is a normal state reported as none rather than an error. Every route resolves the campaign through ensureCpcCampaign, so a campaign id is never taken from the request."
     }
   ]
 }

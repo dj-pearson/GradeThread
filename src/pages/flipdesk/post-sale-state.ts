@@ -206,3 +206,40 @@ export function byDeadline<T>(
 ): T[] {
   return [...cases].sort((a, b) => deadlineSortKey(respondBy(a)) - deadlineSortKey(respondBy(b)));
 }
+
+
+/**
+ * US-2935: is this case an "item not as described" complaint?
+ *
+ * The one class of post-sale case a grade report can actually argue about. An
+ * INR case is about the post; a changed-mind return is about the buyer. Only a
+ * SNAD turns on what condition the garment was in, which is the question a
+ * grade report answers.
+ *
+ * DEFAULT IS NO, unlike isClosedCase. Pre-loading the evidence pack on a
+ * changed-mind return would put a condition argument in front of a seller whose
+ * case has nothing to do with condition — noise on the surface where they are
+ * trying to act quickly. A missed SNAD costs one extra click on a button that
+ * is still right there.
+ *
+ * eBay's reason vocabulary differs per case type and is not published in this
+ * repo, so this is a substring match on the words that only ever appear in a
+ * condition complaint.
+ */
+export const SNAD_MARKERS = [
+  "NOT_AS_DESCRIBED",
+  "NOTASDESCRIBED",
+  "SNAD",
+  "DEFECT", // DEFECTIVE_ITEM
+  "DAMAGED",
+  "WRONG_ITEM",
+  "MISSING_PARTS",
+  "AUTHENTICITY",
+  "COUNTERFEIT",
+] as const;
+
+export function isNotAsDescribed(reason: string | null | undefined): boolean {
+  const raw = (reason ?? "").toUpperCase();
+  if (!raw) return false;
+  return SNAD_MARKERS.some((m) => raw.includes(m));
+}

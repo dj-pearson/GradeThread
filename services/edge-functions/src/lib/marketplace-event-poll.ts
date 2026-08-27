@@ -25,11 +25,22 @@ import { type PaymentDisputeSummary, searchPaymentDisputes } from "./ebay-disput
 import { type InquirySummary, searchInquiries } from "./ebay-inquiries.ts";
 import { type CaseSummary, searchCases } from "./ebay-cases.ts";
 import { remindDueCasesForUser } from "./post-sale-reminders.ts";
+import { recordSnadObservations } from "./grade-snad-signal.ts";
+import { sendOfferDigestForUser, utcDayStamp } from "./offer-digest.ts";
+import { loadRankedOfferCandidates } from "./offer-candidates-load.ts";
+import { isNegotiationScopeAvailable } from "./ebay-client.ts";
+import {
+  incomingOfferToInput,
+  loadListPricesByItemId,
+  type OfferInput,
+  recordOffers,
+} from "./offer-store.ts";
 import { isClosedCase } from "./post-sale-state.ts";
 import {
   cancellationToCaseInput,
   caseToCaseInput,
   disputeToCaseInput,
+  linkPostSaleCases,
   inquiryToCaseInput,
   type PostSaleCaseInput,
   recordPostSaleCases,
@@ -44,6 +55,7 @@ import {
   notifyDisputeOpened,
   notifyCaseOpened,
   notifyInquiryOpened,
+  notifyOfferCandidateDigest,
   notifyOfferReceived,
   notifyReturnOpened,
   type CaseOpenedEvent,
@@ -64,6 +76,12 @@ export interface MarketplacePollResult {
   cases: number;
   /** US-2933: deadline reminders fired on cases already known. */
   reminders: number;
+  /** US-2936: stored cases newly linked to a local item. */
+  linked: number;
+  /** US-2937: SNAD accuracy observations written against a grade report. */
+  snadSignals: number;
+  /** US-2943: send-offer digests fired (at most one per seller per day). */
+  digests: number;
   errors: string[];
 }
 
@@ -113,6 +131,20 @@ export interface MarketplacePollDeps {
   // US-2933: the deadline pass over cases ALREADY stored. Optional so existing
   // fakes keep type-checking; an omitted one simply sends no reminders.
   remind?: (ownerId: string) => Promise<number>;
+  // US-2936: resolve eBay's order/item ids to local ones. Optional like the
+  // others so existing fakes keep type-checking.
+  link?: (ownerId: string) => Promise<number>;
+  // US-2937: the accuracy signal. Optional like the rest.
+  snad?: (ownerId: string) => Promise<number>;
+  // US-2943: the once-a-day nudge about watchers worth an offer. Optional like
+  // the rest, and a no-op when the deployment lacks the restricted scope.
+  digest?: (ownerId: string) => Promise<number>;
+  // US-2939: record the offers this poll saw. Optional so existing fakes keep
+  // type-checking and a dedupe test needs no database.
+  recordOffers?: (ownerId: string, inputs: OfferInput[]) => Promise<number>;
+  // The asking price at the moment the offer is seen. A snapshot, not a lookup:
+  // reading it later would divide a historic discount by today's price.
+  loadListPrices?: (ownerId: string, itemIds: string[]) => Promise<Map<string, number>>;
   // US-2927: write what this poll saw to marketplace_post_sale_cases before it
   // decides whether to notify. A seam, and optional, so every existing fake
   // keeps type-checking and a test that only cares about notification dedupe
@@ -137,6 +169,22 @@ const defaultDeps: MarketplacePollDeps = {
   notifyCase: notifyCaseOpened,
   record: recordPostSaleCases,
   remind: remindDueCasesForUser,
+  link: linkPostSaleCases,
+  snad: recordSnadObservations,
+  digest: (ownerId) =>
+    // Gated on the deployment scope so a build without send-offer never spends
+    // an eBay call per seller per tick to discover it still cannot send.
+    isNegotiationScopeAvailable()
+      ? sendOfferDigestForUser(ownerId, {
+        loadCandidates: async (id) => (await loadRankedOfferCandidates(id)).candidates,
+        claim: claimMarketplaceEvent,
+        release: releaseMarketplaceEvent,
+        notify: notifyOfferCandidateDigest,
+        today: () => utcDayStamp(),
+      })
+      : Promise.resolve(0),
+  recordOffers,
+  loadListPrices: loadListPricesByItemId,
 };
 
 // A dispute in one of these states still needs the seller's attention; CLOSED /
@@ -165,12 +213,30 @@ export async function pollMarketplaceEventsForUser(
     inquiries: 0,
     cases: 0,
     reminders: 0,
+    linked: 0,
+    snadSignals: 0,
+    digests: 0,
     errors: [],
   };
 
   // ── Offers ────────────────────────────────────────────────────────
   try {
     const offers = await deps.fetchOffers(ownerId);
+    // US-2939: record BEFORE the notify loop, for the same reason the post-sale
+    // sources do — the loop `continue`s past an already-claimed offer, so
+    // recording inside it would freeze each offer at the state it arrived in
+    // and never see it expire.
+    const listPrices = (await deps.loadListPrices?.(
+      ownerId,
+      offers.map((o) => o.itemId).filter(Boolean),
+    )) ?? new Map<string, number>();
+    await deps.recordOffers?.(
+      ownerId,
+      // `undefined` when we have no local listing, which LEAVES any stored
+      // snapshot alone rather than nulling it — an offer seen once with a price
+      // keeps that price even if the listing later goes missing.
+      offers.map((o) => incomingOfferToInput(o, listPrices.get(o.itemId))),
+    );
     for (const offer of offers) {
       if (!offer.bestOfferId) continue;
       const fresh = await deps.claim(
@@ -434,6 +500,41 @@ export async function pollMarketplaceEventsForUser(
     result.errors.push(`disputes: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // ── Link stored cases to local items (US-2936) ────────────────────
+  //
+  // AFTER every source has recorded and BEFORE the reminders, because the
+  // reminder message names the order and the analytics join needs the item. One
+  // pass for all five case types: the link is the same question each time, and
+  // doing it per source would be five copies of one lookup.
+  try {
+    result.linked = (await deps.link?.(ownerId)) ?? 0;
+  } catch (err) {
+    result.errors.push(`link: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // ── Grading-accuracy signal (US-2937) ─────────────────────────────
+  //
+  // AFTER the link, because an unlinked case cannot be attributed to a grade
+  // report. A SIGNAL, never a verdict: it writes one grade_outcomes row tagged
+  // marketplace_snad and touches no grade, no certificate and no public figure.
+  try {
+    result.snadSignals = (await deps.snad?.(ownerId)) ?? 0;
+  } catch (err) {
+    result.errors.push(`snad: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // ── Send-offer digest (US-2943) ───────────────────────────────────
+  //
+  // Once a day per seller, enforced by the claim key rather than by a second
+  // cron — see lib/offer-digest.ts. Costs one eBay eligibility call per seller
+  // per DAY, not per tick, because an empty result claims nothing and a sent
+  // digest claims the day.
+  try {
+    result.digests = (await deps.digest?.(ownerId)) ?? 0;
+  } catch (err) {
+    result.errors.push(`digest: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // ── Deadline reminders (US-2933) ──────────────────────────────────
   //
   // LAST, and over the STORED cases rather than the freshly fetched ones. Every
@@ -468,6 +569,9 @@ export async function sweepMarketplaceEvents(
     inquiries: number;
     cases: number;
     reminders: number;
+    linked: number;
+    snadSignals: number;
+    digests: number;
     errors: number;
   }
 > {
@@ -479,6 +583,9 @@ export async function sweepMarketplaceEvents(
   let inquiries = 0;
   let cases = 0;
   let reminders = 0;
+  let linked = 0;
+  let snadSignals = 0;
+  let digests = 0;
   let errors = 0;
   for (const ownerId of ownerIds) {
     const r = await pollMarketplaceEventsForUser(ownerId);
@@ -489,6 +596,9 @@ export async function sweepMarketplaceEvents(
     inquiries += r.inquiries;
     cases += r.cases;
     reminders += r.reminders;
+    linked += r.linked;
+    snadSignals += r.snadSignals;
+    digests += r.digests;
     errors += r.errors.length;
   }
   return {
@@ -500,6 +610,9 @@ export async function sweepMarketplaceEvents(
     inquiries,
     cases,
     reminders,
+    linked,
+    snadSignals,
+    digests,
     errors,
   };
 }

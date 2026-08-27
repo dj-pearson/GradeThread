@@ -159,7 +159,7 @@ function makeDeps(over: Partial<MarketplacePollDeps> = {}) {
 Deno.test("first poll notifies once per source", async () => {
   const { deps, fired } = makeDeps();
   const r = await pollMarketplaceEventsForUser("u1", deps);
-  assertEquals(r, { offers: 1, returns: 1, disputes: 1, cancellations: 1, inquiries: 1, cases: 1, reminders: 0, errors: [] });
+  assertEquals(r, { offers: 1, returns: 1, disputes: 1, cancellations: 1, inquiries: 1, cases: 1, reminders: 0, linked: 0, snadSignals: 0, digests: 0, errors: [] });
   assertEquals(fired, { offer: 1, return: 1, dispute: 1, cancellation: 1, inquiry: 1, case: 1 });
 });
 
@@ -167,7 +167,7 @@ Deno.test("re-polling identical data fires NO new notifications (idempotent)", a
   const { deps, fired } = makeDeps();
   await pollMarketplaceEventsForUser("u1", deps);
   const r2 = await pollMarketplaceEventsForUser("u1", deps);
-  assertEquals(r2, { offers: 0, returns: 0, disputes: 0, cancellations: 0, inquiries: 0, cases: 0, reminders: 0, errors: [] });
+  assertEquals(r2, { offers: 0, returns: 0, disputes: 0, cancellations: 0, inquiries: 0, cases: 0, reminders: 0, linked: 0, snadSignals: 0, digests: 0, errors: [] });
   // Still only one of each across BOTH polls.
   assertEquals(fired, { offer: 1, return: 1, dispute: 1, cancellation: 1, inquiry: 1, case: 1 });
 });

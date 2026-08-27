@@ -432,6 +432,119 @@ export async function markPostSaleCaseClosed(
 }
 
 /**
+ * US-2936: fill in `inventory_item_id` / `sale_id` on stored cases that have
+ * neither yet.
+ *
+ * eBay hands back an order id and (on some case types) its own item id, and
+ * neither is a FlipDesk id. Without this step every stored case is an orphan:
+ * the analytics join has nothing to join ON, and the whole point of the table —
+ * measuring returns against the grade we assigned — cannot be computed.
+ *
+ * Runs as a step in the sweep rather than inline in each source, because the
+ * link is the SAME question for all five case types and doing it per source
+ * would be five copies of one lookup, free to drift.
+ *
+ * Only ever fills a NULL. A row already linked is left alone, so a later eBay
+ * payload cannot re-point a case at a different item.
+ */
+export async function linkPostSaleCases(ownerId: string): Promise<number> {
+  const { data, error } = await supabaseAdmin
+    .from("marketplace_post_sale_cases")
+    .select("id, external_order_id, item_external_id")
+    .eq("user_id", ownerId)
+    .eq("platform", "ebay")
+    .is("inventory_item_id", null)
+    .limit(LINK_SCAN_CAP);
+  if (error) {
+    console.error("[post-sale-store] linkPostSaleCases scan:", error.message);
+    return 0;
+  }
+  const rows = (data ?? []) as unknown as Array<{
+    id: string;
+    external_order_id: string | null;
+    item_external_id: string | null;
+  }>;
+  if (rows.length === 0) return 0;
+
+  const orderIds = [...new Set(rows.map((r) => r.external_order_id).filter(Boolean))] as string[];
+  const itemIds = [...new Set(rows.map((r) => r.item_external_id).filter(Boolean))] as string[];
+
+  // Order id first — a sale is the stronger signal, and it is the only one that
+  // also yields a sale_id.
+  const byOrder = new Map<string, { itemId: string; saleId: string }>();
+  if (orderIds.length > 0) {
+    const { data: sales, error: salesError } = await supabaseAdmin
+      .from("sales")
+      .select("id, inventory_item_id, platform_order_id")
+      .eq("user_id", ownerId)
+      .in("platform_order_id", orderIds);
+    if (salesError) {
+      console.error("[post-sale-store] linkPostSaleCases sales:", salesError.message);
+    } else {
+      for (
+        const s of (sales ?? []) as unknown as Array<{
+          id: string;
+          inventory_item_id: string | null;
+          platform_order_id: string | null;
+        }>
+      ) {
+        if (s.platform_order_id && s.inventory_item_id) {
+          byOrder.set(s.platform_order_id, { itemId: s.inventory_item_id, saleId: s.id });
+        }
+      }
+    }
+  }
+
+  const byItem = new Map<string, string>();
+  if (itemIds.length > 0) {
+    const { data: listings, error: listingsError } = await supabaseAdmin
+      .from("listings")
+      .select("inventory_item_id, platform_listing_id")
+      .eq("user_id", ownerId)
+      .eq("platform", "ebay")
+      .in("platform_listing_id", itemIds);
+    if (listingsError) {
+      console.error("[post-sale-store] linkPostSaleCases listings:", listingsError.message);
+    } else {
+      for (
+        const l of (listings ?? []) as unknown as Array<{
+          inventory_item_id: string | null;
+          platform_listing_id: string | null;
+        }>
+      ) {
+        if (l.platform_listing_id && l.inventory_item_id) {
+          byItem.set(l.platform_listing_id, l.inventory_item_id);
+        }
+      }
+    }
+  }
+
+  let linked = 0;
+  for (const row of rows) {
+    const viaOrder = row.external_order_id ? byOrder.get(row.external_order_id) : undefined;
+    const itemId = viaOrder?.itemId ??
+      (row.item_external_id ? byItem.get(row.item_external_id) : undefined);
+    if (!itemId) continue;
+    const patch: Record<string, unknown> = { inventory_item_id: itemId };
+    if (viaOrder?.saleId) patch.sale_id = viaOrder.saleId;
+    const { error: writeError } = await supabaseAdmin
+      .from("marketplace_post_sale_cases")
+      .update(patch)
+      .eq("id", row.id)
+      .eq("user_id", ownerId);
+    if (writeError) {
+      console.error("[post-sale-store] linkPostSaleCases write:", writeError.message);
+      continue;
+    }
+    linked++;
+  }
+  return linked;
+}
+
+/** Bound on one sweep's linking work. A backlog drains over successive sweeps. */
+const LINK_SCAN_CAP = 200;
+
+/**
  * Merge a patch into one stored case's `raw` payload.
  *
  * US-2931 needs this: the buyer's return shipment has no column of its own and

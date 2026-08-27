@@ -1667,6 +1667,20 @@ export interface EbayBestOffer {
   // US-2236 AC2: the item's acquisition cost (dollars) for margin context on the
   // counter input. null when the listing/cost isn't known.
   itemCost?: number | null;
+  /**
+   * US-2939: what the listing was asking when the offer landed, in cents.
+   *
+   * The SNAPSHOT, not today's price — a seller who repriced must not see the
+   * discount depth of a past offer rewritten. Null when we have no local
+   * listing for the item.
+   */
+  listPriceCents?: number | null;
+  /** US-2939: what this seller already knows about the buyer. Null for a stranger. */
+  buyerHistory?: {
+    priorOffers: number;
+    bestPriorCents: number | null;
+    everAccepted: boolean;
+  } | null;
 }
 
 export interface EbayEligibleItem {
@@ -2022,7 +2036,7 @@ export function useEbaySendReturnEvidence() {
     Error,
     {
       caseId: string;
-      kind: "return" | "dispute";
+      kind: "return" | "dispute" | "case";
       orderId: string;
       complaint: string;
       files: File[];
@@ -2037,9 +2051,14 @@ export function useEbaySendReturnEvidence() {
       // FormData sets its own multipart boundary; a JSON content-type here
       // makes the route reject the request before it reads a file.
       delete (headers as Record<string, string>)["Content-Type"];
+      // US-2935: three surfaces, one pack. The path is the only thing that
+      // varies — the plan, the refusal and the condition sheet are the same
+      // question asked of the same grade report.
       const path = kind === "return"
         ? `returns/${encodeURIComponent(caseId)}/evidence`
-        : `payment-disputes/${encodeURIComponent(caseId)}/evidence`;
+        : kind === "case"
+          ? `cases/${encodeURIComponent(caseId)}/evidence`
+          : `payment-disputes/${encodeURIComponent(caseId)}/evidence`;
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/${path}`,
         { method: "POST", headers, body: form },
@@ -3370,6 +3389,105 @@ export function useEbayIssueOrderRefund() {
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Refund failed.");
       return json;
+    },
+  });
+}
+
+
+// ── Return analytics (US-2936) ──────────────────────────────────────
+//
+// The slice no other reseller tool can compute: return rate against the grade
+// GradeThread assigned and what the listing actually disclosed.
+
+export interface ReturnSlice {
+  key: string;
+  sales: number;
+  returns: number;
+  snad: number;
+  /** null when the slice has too few sales for a rate to mean anything. */
+  rate: number | null;
+  snadShare: number | null;
+  avgDaysToResolve: number | null;
+}
+
+export interface ReturnAnalytics {
+  days: number;
+  truncated: boolean;
+  minSalesForRate: number;
+  overall: ReturnSlice;
+  byBrand: ReturnSlice[];
+  byCategory: ReturnSlice[];
+  byGradeBand: ReturnSlice[];
+  byDisclosure: ReturnSlice[];
+}
+
+export function useReturnAnalytics(days = 90, enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_return_analytics", days],
+    enabled,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<ReturnAnalytics> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/post-sale/analytics?days=${days}`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't load return analytics.");
+      return json as ReturnAnalytics;
+    },
+  });
+}
+
+// ── Offer analytics (US-2942) ───────────────────────────────────────
+//
+// What discount depth actually converts, for this seller. Only possible once
+// offers are stored (US-2939) — before that there was nothing to measure.
+
+export interface OfferDepthBucket {
+  key: string;
+  fromPct: number;
+  offers: number;
+  accepted: number;
+  /** null when the bucket has too few offers for a rate to mean anything. */
+  acceptRate: number | null;
+  medianDaysToAccept: number | null;
+}
+
+export interface OfferEfficientDepth {
+  key: string;
+  acceptRate: number;
+  bestKey: string;
+  bestAcceptRate: number;
+  /** The arithmetic behind the claim, so a seller can check it. */
+  explanation: string;
+}
+
+export interface OfferCurve {
+  buckets: OfferDepthBucket[];
+  efficientDepth: OfferEfficientDepth | null;
+  totalOffers: number;
+  minBucketSample: number;
+}
+
+export interface OfferAnalytics {
+  days: number;
+  sentOffers: OfferCurve;
+  counters: OfferCurve;
+}
+
+export function useOfferAnalytics(days = 180, enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_offer_analytics", days],
+    enabled,
+    staleTime: 5 * 60_000,
+    queryFn: async (): Promise<OfferAnalytics> => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/negotiation/analytics?days=${days}`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't load offer analytics.");
+      return json as OfferAnalytics;
     },
   });
 }

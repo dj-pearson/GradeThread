@@ -33,6 +33,34 @@ import {
   searchInquiries,
 } from "../lib/ebay-inquiries.ts";
 import { caseToCaseInput, inquiryToCaseInput } from "../lib/post-sale-store.ts";
+import { dryRunOfferRule, normalizeThresholdPct } from "../lib/offer-rules.ts";
+import { summarizeOffers } from "../lib/offer-analytics.ts";
+import { loadActiveOfferRule } from "../lib/offer-rule-lookup.ts";
+import {
+  OFFER_COOLDOWN_DAYS,
+  totalDiscountExposureCents,
+} from "../lib/offer-candidates.ts";
+import { loadRankedOfferCandidates } from "../lib/offer-candidates-load.ts";
+import {
+  createKeyword,
+  createNegativeKeyword,
+  listKeywords,
+  listNegativeKeywords,
+  type MatchType,
+  negativeKeywordCandidates,
+  suggestKeywords,
+  updateKeyword,
+} from "../lib/ebay-keywords.ts";
+import { ensureCpcCampaign } from "../lib/ebay-marketing.ts";
+import { loadSearchTerms } from "../lib/ebay-ad-reports.ts";
+import {
+  incomingOfferToInput,
+  loadBuyerHistory,
+  loadOffers,
+  loadListPricesByItemId,
+  recordOfferResponse,
+  recordOffers,
+} from "../lib/offer-store.ts";
 import {
   appealCase,
   type CaseSummary,
@@ -41,7 +69,16 @@ import {
   issueCaseRefund,
   provideCaseShipmentInfo,
   searchCases,
+  submitCaseFiles,
+  uploadCaseFile,
 } from "../lib/ebay-cases.ts";
+import { cleanEvidenceFiles, evidenceRefusalFor } from "../lib/evidence-send.ts";
+import { MIN_SALES_FOR_RATE, summarizeReturns } from "../lib/post-sale-analytics.ts";
+import { loadReturnAnalyticsInputs } from "../lib/post-sale-analytics-load.ts";
+import {
+  dryRunReturnRule,
+  normalizeThresholdCents as normalizeReturnThresholdCents,
+} from "../lib/return-rules.ts";
 import { matchComplaint, type ReportedDefect } from "../lib/complaint-match.ts";
 import { compositeReturnEvidenceSheet } from "../lib/defect-annotations.ts";
 import type { EvidenceStamp } from "../lib/evidence-pack.ts";
@@ -350,6 +387,7 @@ import { refreshExpiringEtsyConnections } from "../lib/etsy-client.ts";
 import { refreshExpiringWhatnotConnections } from "../lib/whatnot-client.ts";
 import {
   centsToMoneyString,
+  reconcileAutoAcceptWithRule,
   resolveBestOfferThresholds,
 } from "../lib/best-offer.ts";
 import { decryptToken } from "../lib/crypto-aes.ts";
@@ -4760,6 +4798,707 @@ flipdeskEbayRoutes.post("/cases/:caseId/refund", async (c) => {
   return c.json({ ok: true });
 });
 
+// GET /negotiation/threshold-conflicts — US-2944.
+//
+// Which listings have an eBay auto-accept sitting BELOW the active rule's
+// number. eBay wins the race, so each of these is a live hole: an offer in the
+// gap gets taken at a price the rule would have refused, and the seller's
+// margin floor never gets a vote.
+//
+// Reports both numbers. "There is a conflict" with no figures is a warning a
+// seller cannot act on.
+flipdeskEbayRoutes.get("/negotiation/threshold-conflicts", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    const rule = await loadActiveOfferRule(ownerId);
+    if (!rule || rule.acceptAtPct == null) {
+      return c.json({ rule: null, conflicts: [] });
+    }
+    const { data, error } = await supabaseAdmin
+      .from("listings")
+      .select(
+        "id, listing_title, listing_price, best_offer_auto_accept_cents, platform_listing_id, " +
+          "inventory_items!inner(user_id, acquired_price)",
+      )
+      .eq("user_id", ownerId)
+      .eq("platform", "ebay")
+      .eq("best_offer_enabled", true)
+      .not("best_offer_auto_accept_cents", "is", null)
+      .eq("inventory_items.user_id", ownerId)
+      .limit(500);
+    if (error) throw new Error(error.message);
+
+    const conflicts = ((data ?? []) as unknown as Array<{
+      id: string;
+      listing_title: string | null;
+      listing_price: number | null;
+      best_offer_auto_accept_cents: number | null;
+      platform_listing_id: string | null;
+      inventory_items:
+        | { acquired_price: number | null }
+        | { acquired_price: number | null }[]
+        | null;
+    }>)
+      .map((row) => {
+        const inv = Array.isArray(row.inventory_items)
+          ? row.inventory_items[0]
+          : row.inventory_items;
+        const priceCents = row.listing_price != null
+          ? Math.round(Number(row.listing_price) * 100)
+          : 0;
+        const reconciled = reconcileAutoAcceptWithRule({
+          priceCents,
+          sellerAcceptCents: row.best_offer_auto_accept_cents,
+          ruleAcceptAtPct: rule.acceptAtPct,
+          ruleMarginFloorPct: rule.marginFloorPct,
+          itemCostCents: typeof inv?.acquired_price === "number"
+            ? Math.round(inv.acquired_price * 100)
+            : null,
+        });
+        return { row, reconciled };
+      })
+      // `matched` and `no_rule` are agreement, not conflict. Only a price the
+      // reconciler actually moved is worth telling the seller about.
+      .filter(({ reconciled }) =>
+        reconciled.reason === "raised_to_rule" ||
+        reconciled.reason === "raised_to_margin_floor" ||
+        reconciled.reason === "dropped_no_valid_price"
+      )
+      .map(({ row, reconciled }) => ({
+        listing_id: row.id,
+        title: row.listing_title,
+        platform_listing_id: row.platform_listing_id,
+        stored_auto_accept_cents: row.best_offer_auto_accept_cents,
+        rule_auto_accept_cents: reconciled.autoAcceptCents,
+        reason: reconciled.reason,
+      }));
+
+    return c.json({
+      rule: {
+        id: rule.id,
+        accept_at_pct: rule.acceptAtPct,
+        margin_floor_pct: rule.marginFloorPct,
+      },
+      conflicts,
+    });
+  } catch (err) {
+    return failSafe(
+      c,
+      500,
+      "Couldn't check your offer thresholds.",
+      err,
+      "ebay.offers.threshold_conflicts",
+    );
+  }
+});
+
+// POST /negotiation/threshold-conflicts/reconcile — US-2944. One action.
+//
+// Writes the rule's number onto every conflicting listing locally. It does NOT
+// push to eBay here: the next publish or revise carries it, and firing a bulk
+// revise from a "fix this" button would be a large, slow, rate-limited side
+// effect the seller did not ask for.
+flipdeskEbayRoutes.post("/negotiation/threshold-conflicts/reconcile", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { listing_ids?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  const ids = Array.isArray(body.listing_ids)
+    ? body.listing_ids.filter((x): x is string => typeof x === "string").slice(0, 500)
+    : [];
+  if (ids.length === 0) return c.json({ error: "listing_ids is required." }, 400);
+
+  try {
+    const rule = await loadActiveOfferRule(ownerId);
+    if (!rule || rule.acceptAtPct == null) {
+      return c.json({ error: "No active offer rule to reconcile against." }, 409);
+    }
+    const { data, error } = await supabaseAdmin
+      .from("listings")
+      .select(
+        "id, listing_price, best_offer_auto_accept_cents, " +
+          "inventory_items!inner(user_id, acquired_price)",
+      )
+      // Owner-scoped BEFORE the id filter, so a listing id from another tenant
+      // in the request body resolves to nothing rather than being updated.
+      .eq("user_id", ownerId)
+      .in("id", ids)
+      .eq("inventory_items.user_id", ownerId);
+    if (error) throw new Error(error.message);
+
+    let updated = 0;
+    for (
+      const row of (data ?? []) as unknown as Array<{
+        id: string;
+        listing_price: number | null;
+        best_offer_auto_accept_cents: number | null;
+        inventory_items:
+          | { acquired_price: number | null }
+          | { acquired_price: number | null }[]
+          | null;
+      }>
+    ) {
+      const inv = Array.isArray(row.inventory_items)
+        ? row.inventory_items[0]
+        : row.inventory_items;
+      const reconciled = reconcileAutoAcceptWithRule({
+        priceCents: row.listing_price != null ? Math.round(Number(row.listing_price) * 100) : 0,
+        sellerAcceptCents: row.best_offer_auto_accept_cents,
+        ruleAcceptAtPct: rule.acceptAtPct,
+        ruleMarginFloorPct: rule.marginFloorPct,
+        itemCostCents: typeof inv?.acquired_price === "number"
+          ? Math.round(inv.acquired_price * 100)
+          : null,
+      });
+      if (reconciled.reason === "matched" || reconciled.reason === "no_rule") continue;
+      const { error: writeError } = await supabaseAdmin
+        .from("listings")
+        .update({ best_offer_auto_accept_cents: reconciled.autoAcceptCents })
+        .eq("id", row.id)
+        .eq("user_id", ownerId);
+      if (writeError) {
+        console.error("[ebay.offers.reconcile] write:", writeError.message);
+        continue;
+      }
+      updated++;
+    }
+    await writeAuditLog(c, {
+      action: "ebay.offer_thresholds.reconcile",
+      targetType: "flipdesk_automation_rule",
+      targetId: rule.id,
+      details: { requested: ids.length, updated },
+    });
+    return c.json({ ok: true, updated });
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't reconcile the thresholds.", err, "ebay.offers.reconcile");
+  }
+});
+
+// ── Promoted Listings Advanced keywords (US-2945) ───────────────────
+//
+// FlipDesk could create a CPC campaign and an ad group and then had no way to
+// put a keyword in either. A bid you cannot aim is a bid you cannot control,
+// and that aim is the only difference between Advanced and Standard.
+//
+// Every route resolves the seller's own campaign through ensureCpcCampaign, so
+// a campaign id is never taken from the request (US-268).
+
+// GET /marketing/keywords — the seller's keywords, plus the negative-keyword
+// candidates their own reported search terms already prove.
+flipdeskEbayRoutes.get("/marketing/keywords", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
+    const [keywords, negatives, terms] = await Promise.all([
+      listKeywords(ownerId, campaignId, adGroupId),
+      listNegativeKeywords(ownerId, campaignId),
+      loadSearchTerms(ownerId, { limit: 500 }),
+    ]);
+    return c.json({
+      campaignId,
+      adGroupId,
+      keywords,
+      negatives,
+      // Computed here rather than in the UI: it is the half a seller can act on
+      // today, and the rule for what counts as waste is one number the page and
+      // the test have to agree about.
+      negativeCandidates: negativeKeywordCandidates(
+        terms.map((t) => ({
+          term: t.term,
+          impressions: t.impressions,
+          clicks: t.clicks,
+          attributedSales: t.attributedSales,
+        })),
+        negatives.map((n) => n.text),
+      ),
+    });
+  } catch (err) {
+    return failSafe(c, 502, "Couldn't load your eBay keywords.", err, "ebay.marketing.keywords");
+  }
+});
+
+// GET /marketing/keywords/suggestions — eBay's own suggestions.
+flipdeskEbayRoutes.get("/marketing/keywords/suggestions", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
+    return c.json({ suggestions: await suggestKeywords(ownerId, campaignId, adGroupId) });
+  } catch (err) {
+    // A marketplace or account without suggestions is a normal state, not an
+    // outage: report none rather than an error the seller cannot act on.
+    console.warn(
+      "[ebay.marketing.keyword_suggestions]",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ suggestions: [] });
+  }
+});
+
+// POST /marketing/keywords — body { text, match_type?, bid_cents? }
+flipdeskEbayRoutes.post("/marketing/keywords", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { text?: unknown; match_type?: unknown; bid_cents?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const text = typeof body.text === "string" ? body.text.trim() : "";
+  if (!text) return c.json({ error: "text is required." }, 400);
+  const matchType = normalizeMatchType(body.match_type);
+  const bidCents = Number.isFinite(Number(body.bid_cents)) && Number(body.bid_cents) > 0
+    ? Math.round(Number(body.bid_cents))
+    : null;
+  try {
+    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
+    const keywordId = await createKeyword(ownerId, campaignId, adGroupId, {
+      text,
+      matchType,
+      bidCents,
+    });
+    await writeAuditLog(c, {
+      action: "ebay.marketing.keyword.create",
+      targetType: "ebay_ad_campaign",
+      targetId: campaignId,
+      details: { keyword_id: keywordId, text, match_type: matchType, bid_cents: bidCents },
+    });
+    return c.json({ ok: true, keyword_id: keywordId });
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the keyword.", err, "ebay.marketing.keyword.create");
+  }
+});
+
+// PATCH /marketing/keywords/:keywordId — body { bid_cents?, status? }
+flipdeskEbayRoutes.patch("/marketing/keywords/:keywordId", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const keywordId = c.req.param("keywordId");
+  let body: { bid_cents?: unknown; status?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const bidCents = Number.isFinite(Number(body.bid_cents)) && Number(body.bid_cents) > 0
+    ? Math.round(Number(body.bid_cents))
+    : null;
+  const status = body.status === "ACTIVE" || body.status === "PAUSED" ? body.status : undefined;
+  if (bidCents == null && !status) {
+    return c.json({ error: "Nothing to change — send bid_cents or status." }, 400);
+  }
+  try {
+    const { campaignId } = await ensureCpcCampaign(ownerId);
+    await updateKeyword(ownerId, campaignId, keywordId, { bidCents, status });
+    await writeAuditLog(c, {
+      action: "ebay.marketing.keyword.update",
+      targetType: "ebay_ad_campaign",
+      targetId: campaignId,
+      details: { keyword_id: keywordId, bid_cents: bidCents, status: status ?? null },
+    });
+    return c.json({ ok: true });
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the change.", err, "ebay.marketing.keyword.update");
+  }
+});
+
+// POST /marketing/negative-keywords — body { text, match_type? }
+flipdeskEbayRoutes.post("/marketing/negative-keywords", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { text?: unknown; match_type?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const text = typeof body.text === "string" ? body.text.trim() : "";
+  if (!text) return c.json({ error: "text is required." }, 400);
+  try {
+    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
+    const id = await createNegativeKeyword(
+      ownerId,
+      campaignId,
+      adGroupId,
+      text,
+      normalizeMatchType(body.match_type),
+    );
+    await writeAuditLog(c, {
+      action: "ebay.marketing.negative_keyword.create",
+      targetType: "ebay_ad_campaign",
+      targetId: campaignId,
+      details: { negative_keyword_id: id, text },
+    });
+    return c.json({ ok: true, negative_keyword_id: id });
+  } catch (err) {
+    return failSafe(
+      c,
+      502,
+      "eBay rejected the negative keyword.",
+      err,
+      "ebay.marketing.negative_keyword.create",
+    );
+  }
+});
+
+// PHRASE by default: EXACT blocks one spelling and lets every variation through,
+// which reads to a seller as "the negative keyword did nothing".
+function normalizeMatchType(raw: unknown): MatchType {
+  return raw === "EXACT" || raw === "BROAD" ? raw : "PHRASE";
+}
+
+// GET /negotiation/analytics — US-2942. What discount depth actually converts.
+//
+// Every reseller guesses at this. "Send 10% off" is folklore; nobody measures
+// whether 10% converts worse than 20%, because nobody has the data. Once offers
+// are stored it is arithmetic — and if 12% converts as well as 20%, every 20%
+// offer that seller has ever sent gave away eight points for nothing.
+//
+// The two DIRECTIONS are reported separately and never pooled. An unprompted
+// discount to a watcher and a counter to someone who already bid are different
+// acts, and the counters' much higher accept rate would flatter the sends.
+flipdeskEbayRoutes.get("/negotiation/analytics", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const days = Math.min(Math.max(Number(c.req.query("days")) || 180, 7), 730);
+  const sinceIso = new Date(Date.now() - days * 86_400_000).toISOString();
+  try {
+    const [sent, counters] = await Promise.all([
+      loadOffers(ownerId, { direction: "offer_sent", sinceIso, limit: 1000 }),
+      loadOffers(ownerId, { direction: "counter_sent", sinceIso, limit: 1000 }),
+    ]);
+    const toAnalytics = (rows: Awaited<ReturnType<typeof loadOffers>>) =>
+      rows.map((o) => ({
+        amountCents: o.amountCents,
+        listPriceCents: o.listPriceCents,
+        response: o.response,
+        createdAt: o.createdAt,
+        respondedAt: o.respondedAt,
+      }));
+    return c.json({
+      days,
+      sentOffers: summarizeOffers(toAnalytics(sent)),
+      counters: summarizeOffers(toAnalytics(counters)),
+    });
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't build the offer analytics.", err, "ebay.offers.analytics");
+  }
+});
+
+// POST /negotiation/rule-dry-run — US-2940. What an offer rule WOULD have done.
+//
+// Reads the STORED offers, which is the only reason this is possible: before
+// US-2939 there was no history to run a rule against, so a seller enabling an
+// auto-counter was guessing. Reads only — no eBay call, no write, no rule
+// created.
+//
+// body { accept_at_pct?, counter_at_pct?, decline_below_pct?, margin_floor_pct?, days? }
+flipdeskEbayRoutes.post("/negotiation/rule-dry-run", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: {
+    accept_at_pct?: unknown;
+    counter_at_pct?: unknown;
+    decline_below_pct?: unknown;
+    margin_floor_pct?: unknown;
+    days?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const cfg = {
+    acceptAtPct: normalizeThresholdPct(body.accept_at_pct),
+    declineBelowPct: normalizeThresholdPct(body.decline_below_pct),
+    counterAtPct: normalizeThresholdPct(body.counter_at_pct),
+    marginFloorPct: normalizeThresholdPct(body.margin_floor_pct) ?? 10,
+  };
+  if (cfg.acceptAtPct == null && cfg.declineBelowPct == null && cfg.counterAtPct == null) {
+    return c.json({ error: "Set an auto-accept, auto-counter or auto-decline threshold." }, 400);
+  }
+  const days = Math.min(Math.max(Number(body.days) || 30, 1), 180);
+  const sinceIso = new Date(Date.now() - days * 86_400_000).toISOString();
+
+  try {
+    const stored = await loadOffers(ownerId, {
+      direction: "received",
+      sinceIso,
+      limit: 300,
+    });
+    // The acquisition cost per item, so the preview applies the margin floor
+    // the same way the runner does. Owner-scoped through the parent item.
+    const itemIds = [...new Set(stored.map((o) => o.itemExternalId).filter(Boolean))] as string[];
+    const costByItemId = new Map<string, number>();
+    if (itemIds.length > 0) {
+      const { data: rows } = await supabaseAdmin
+        .from("listings")
+        .select("platform_listing_id, inventory_items!inner(user_id, acquired_price)")
+        .eq("platform", "ebay")
+        .in("platform_listing_id", itemIds)
+        .eq("inventory_items.user_id", ownerId);
+      for (
+        const r of (rows ?? []) as unknown as Array<{
+          platform_listing_id: string | null;
+          inventory_items:
+            | { acquired_price: number | null }
+            | { acquired_price: number | null }[]
+            | null;
+        }>
+      ) {
+        const inv = Array.isArray(r.inventory_items) ? r.inventory_items[0] : r.inventory_items;
+        if (r.platform_listing_id && typeof inv?.acquired_price === "number") {
+          costByItemId.set(r.platform_listing_id, inv.acquired_price);
+        }
+      }
+    }
+
+    return c.json({
+      days,
+      ...dryRunOfferRule(
+        cfg,
+        stored.map((o) => ({
+          externalOfferId: o.externalOfferId,
+          offerPrice: o.amountCents == null ? null : o.amountCents / 100,
+          // The SNAPSHOT price, not today's. Running the preview against the
+          // current ask would score a rule on prices these offers never saw.
+          listPrice: o.listPriceCents == null ? null : o.listPriceCents / 100,
+          itemCost: o.itemExternalId ? (costByItemId.get(o.itemExternalId) ?? null) : null,
+        })),
+      ),
+    });
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't run the preview.", err, "ebay.offers.dry_run");
+  }
+});
+
+// POST /returns/rule-dry-run — US-2938. What a return rule WOULD have done.
+//
+// Not a nicety. These rules refund buyers, and a seller who cannot see the item
+// list before switching one on is being asked to trust a number they typed
+// against data they have not looked at. Reads only: no eBay call, no write, and
+// no rule is created here.
+//
+// body { approve_at_or_below_cents?, refund_without_return_at_or_below_cents?, days? }
+flipdeskEbayRoutes.post("/returns/rule-dry-run", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: {
+    approve_at_or_below_cents?: unknown;
+    refund_without_return_at_or_below_cents?: unknown;
+    days?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const cfg = {
+    approveAtOrBelowCents: normalizeReturnThresholdCents(body.approve_at_or_below_cents),
+    refundWithoutReturnAtOrBelowCents: normalizeReturnThresholdCents(
+      body.refund_without_return_at_or_below_cents,
+    ),
+  };
+  if (cfg.approveAtOrBelowCents == null && cfg.refundWithoutReturnAtOrBelowCents == null) {
+    return c.json({ error: "Set an auto-approve or a refund-without-return limit." }, 400);
+  }
+  const days = Math.min(Math.max(Number(body.days) || 30, 1), 180);
+  const sinceIso = new Date(Date.now() - days * 86_400_000).toISOString();
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("marketplace_post_sale_cases")
+      .select("external_id, reason, state, sale_id, opened_at")
+      .eq("user_id", ownerId)
+      .eq("platform", "ebay")
+      .eq("case_type", "return")
+      .gte("opened_at", sinceIso)
+      .order("opened_at", { ascending: false })
+      .limit(200);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as unknown as Array<{
+      external_id: string;
+      reason: string | null;
+      state: string | null;
+      sale_id: string | null;
+    }>;
+
+    // The order total comes through the linked sale. A return with no linked
+    // sale has none, and the evaluator skips it rather than treating unknown as
+    // zero — which the preview then shows as a skip with its reason.
+    const saleIds = [...new Set(rows.map((r) => r.sale_id).filter(Boolean))] as string[];
+    const totalBySale = new Map<string, number>();
+    if (saleIds.length > 0) {
+      const { data: sales } = await supabaseAdmin
+        .from("sales")
+        .select("id, sale_price")
+        .eq("user_id", ownerId)
+        .in("id", saleIds);
+      for (
+        const sale of (sales ?? []) as unknown as Array<{
+          id: string;
+          sale_price: number | null;
+        }>
+      ) {
+        const n = sale.sale_price == null ? Number.NaN : Number(sale.sale_price);
+        if (Number.isFinite(n)) totalBySale.set(sale.id, Math.round(n * 100));
+      }
+    }
+
+    return c.json({
+      days,
+      ...dryRunReturnRule(
+        cfg,
+        rows.map((r) => ({
+          externalId: r.external_id,
+          reason: r.reason,
+          state: r.state,
+          orderTotalCents: r.sale_id ? (totalBySale.get(r.sale_id) ?? null) : null,
+        })),
+      ),
+    });
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't run the preview.", err, "ebay.returns.dry_run");
+  }
+});
+
+// GET /post-sale/analytics — US-2936. Return outcomes against the grade.
+//
+// The analysis no other reseller tool can run: every marketplace shows a seller
+// their return RATE, and none of them knows what condition the item was in when
+// it went out, because none of them graded it.
+//
+// Local tables only. No eBay call on page load, which is also what makes a
+// ninety-day window affordable.
+flipdeskEbayRoutes.get("/post-sale/analytics", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const days = Math.min(Math.max(Number(c.req.query("days")) || 90, 7), 365);
+  const sinceIso = new Date(Date.now() - days * 86_400_000).toISOString();
+  try {
+    const { sales, cases, truncated } = await loadReturnAnalyticsInputs(ownerId, sinceIso);
+    return c.json({
+      days,
+      truncated,
+      // Echoed so the UI can say why a slice reads "not enough sales yet"
+      // instead of leaving the reader to guess the threshold.
+      minSalesForRate: MIN_SALES_FOR_RATE,
+      ...summarizeReturns(sales, cases),
+    });
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't build the return analytics.", err, "ebay.postsale.analytics");
+  }
+});
+
+// POST /cases/:caseId/evidence — US-2935. The grade pack, on the surface that
+// costs a defect.
+//
+// Multipart, exactly like the return route, and it shares that route's two
+// rules through lib/evidence-send.ts: the sniff-then-strip pass, and the
+// refusal when the grade report AGREES with the buyer. What differs is only the
+// eBay upload API, which is the case surface's own.
+//
+// TENANT SCOPE (US-268): every eBay call runs under the OWNER's token, so a
+// caseId belonging to another seller reaches eBay as this seller's case and
+// comes back 404/403. There is no local query here that could read another
+// tenant's row, and the audit entry is written against the same owner.
+flipdeskEbayRoutes.post("/cases/:caseId/evidence", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const caseId = c.req.param("caseId");
+
+  let form: FormData;
+  try {
+    form = await c.req.formData();
+  } catch {
+    return c.json({ error: "Invalid form data. Expected multipart/form-data." }, 400);
+  }
+  const files = form.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+  const cleanResult = await cleanEvidenceFiles(files, MAX_RETURN_EVIDENCE_FILES);
+  if (!cleanResult.ok) return c.json({ error: cleanResult.error }, cleanResult.status);
+  const cleaned = cleanResult.files;
+
+  const complaint = String(form.get("complaint") ?? "").trim();
+  const orderId = String(form.get("order_id") ?? "").trim();
+  let context: EvidenceContext | null = null;
+  if (complaint && orderId) {
+    context = await planEvidence(ownerId, orderId, complaint);
+    const refusal = evidenceRefusalFor(context?.plan);
+    if (refusal) return c.json({ error: "refused", ...refusal }, 409);
+  }
+
+  // The sheet goes first so the reviewer reads what this is before they look at
+  // a close-up of a cuff, and only for a CERTIFIED grade — a cover page reading
+  // "Not certified" argues against the seller on the one asset that exists to
+  // argue for them.
+  if (context?.stamp.certificateNumber) {
+    try {
+      cleaned.unshift({
+        bytes: await compositeReturnEvidenceSheet(
+          context.stamp,
+          context.defectCount,
+          context.gradedAt,
+        ),
+        filename: "condition-report.jpg",
+        contentType: "image/jpeg",
+      });
+    } catch (err) {
+      console.error(
+        "[ebay.cases.evidence] sheet render failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  const fileIds: string[] = [];
+  try {
+    for (const file of cleaned) {
+      fileIds.push(
+        await uploadCaseFile(ownerId, caseId, {
+          bytes: file.bytes,
+          filename: file.filename,
+          purpose: "ITEM_RELATED",
+        }),
+      );
+    }
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the evidence upload.", err, "ebay.cases.evidence.upload");
+  }
+
+  let removedFileIds: string[] = [];
+  try {
+    ({ removedFileIds } = await submitCaseFiles(ownerId, caseId, "ITEM_RELATED"));
+  } catch (err) {
+    return failSafe(c, 502, "eBay accepted the files but would not activate them.", err, "ebay.cases.evidence.submit");
+  }
+
+  await writeAuditLog(c, {
+    action: "ebay.case.evidence",
+    targetType: "ebay_case",
+    targetId: caseId,
+    details: { files: fileIds.length, removed: removedFileIds.length },
+  });
+
+  return c.json({
+    ok: true,
+    attached: fileIds.length - removedFileIds.length,
+    removed: removedFileIds.length,
+  });
+});
+
 // POST /cases/:caseId/appeal — body { comments }
 //
 // eBay requires an argument; a bare appeal is rejected, so the 400 happens here
@@ -5008,34 +5747,12 @@ flipdeskEbayRoutes.post("/returns/:returnId/evidence", async (c) => {
     return c.json({ error: "Invalid form data. Expected multipart/form-data." }, 400);
   }
   const files = form.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
-  if (files.length === 0) {
-    return c.json({ error: "Missing evidence file." }, 400);
-  }
-  // eBay caps what a return will carry, and a pack that is mostly filler argues
-  // worse than a pack that is only the flaw. The seller picked these already.
-  if (files.length > MAX_RETURN_EVIDENCE_FILES) {
-    return c.json(
-      { error: `Too many files — ${MAX_RETURN_EVIDENCE_FILES} is the limit.` },
-      400,
-    );
-  }
-
-  // US-2706 AC4: sniff the magic bytes rather than trusting the client MIME,
-  // and strip EXIF/GPS before anything leaves for a buyer-facing surface. Same
-  // order as the payment-dispute evidence route above.
-  const cleaned: Array<{ bytes: Uint8Array; filename: string }> = [];
-  for (const [i, file] of files.entries()) {
-    const rawBytes = new Uint8Array(await file.arrayBuffer());
-    const verdict = validateImageUpload(rawBytes, { allow: ["jpeg", "png"] });
-    if (!verdict.ok) {
-      return c.json({ error: `Invalid image: ${verdict.reason}` }, 400);
-    }
-    const { bytes } = stripImageMetadata(rawBytes, verdict.format);
-    cleaned.push({
-      bytes,
-      filename: file.name || `evidence-${i + 1}.${verdict.ext}`,
-    });
-  }
+  // US-2935: the sniff-then-strip pass is shared with the case and dispute
+  // routes. It used to be copied per surface, and the copies had already
+  // drifted on the file cap.
+  const cleanResult = await cleanEvidenceFiles(files, MAX_RETURN_EVIDENCE_FILES);
+  if (!cleanResult.ok) return c.json({ error: cleanResult.error }, cleanResult.status);
+  const cleaned = cleanResult.files;
 
   // US-2706 + the epic's standing safety constraint (US-2703 AC5): REFUSE when
   // the grade report agrees with the buyer.
@@ -5056,16 +5773,8 @@ flipdeskEbayRoutes.post("/returns/:returnId/evidence", async (c) => {
   let context: EvidenceContext | null = null;
   if (complaint && orderId) {
     context = await planEvidence(ownerId, orderId, complaint);
-    if (context?.plan.verdict === "supported") {
-      return c.json(
-        {
-          error: "refused",
-          verdict: context.plan.verdict,
-          reason: context.plan.reason,
-        },
-        409,
-      );
-    }
+    const refusal = evidenceRefusalFor(context?.plan);
+    if (refusal) return c.json({ error: "refused", ...refusal }, 409);
   }
 
   // US-2706 AC3: the sheet goes FIRST, so the reviewer opening the pack reads
@@ -5086,6 +5795,7 @@ flipdeskEbayRoutes.post("/returns/:returnId/evidence", async (c) => {
           context.gradedAt,
         ),
         filename: "condition-report.jpg",
+        contentType: "image/jpeg",
       });
     } catch (err) {
       // The photographs are still the evidence. A failed sheet costs the pack
@@ -6044,16 +6754,10 @@ flipdeskEbayRoutes.post("/payment-disputes/:id/evidence", async (c) => {
   let packContext: EvidenceContext | null = null;
   if (packOrderId && packComplaint) {
     packContext = await planEvidence(ownerId, packOrderId, packComplaint);
-    if (packContext?.plan.verdict === "supported") {
-      return c.json(
-        {
-          error: "refused",
-          verdict: packContext.plan.verdict,
-          reason: packContext.plan.reason,
-        },
-        409,
-      );
-    }
+    // US-2935: the same arbiter the return and case routes use. Three surfaces,
+    // one rule about whether to send at all.
+    const refusal = evidenceRefusalFor(packContext?.plan);
+    if (refusal) return c.json({ error: "refused", ...refusal }, 409);
   }
 
   let detail: PaymentDisputeDetail;
@@ -9871,9 +10575,29 @@ flipdeskEbayRoutes.get("/negotiation/offers", async (c) => {
         }
       }
     }
+    // US-2939 + US-2941: the asking price at the time of the offer, and what
+    // this seller already knows about the buyer. Both come from the local
+    // record, so the page shows margin and buyer history without a second eBay
+    // call — and the list price is the SNAPSHOT, not today's number.
+    const listPrices = await loadListPricesByItemId(userId, itemIds);
+    const buyerHistory = await loadBuyerHistory(
+      userId,
+      offers.map((o) => o.buyerUsername).filter((b): b is string => !!b),
+      // The offers on screen right now are not "prior" — counting them would
+      // tell every first-time buyer they had offered before.
+      offers.map((o) => o.bestOfferId),
+    );
+    // Record what this read saw, so a seller who never leaves the Offers page
+    // still builds the history the analytics is computed from.
+    await recordOffers(
+      userId,
+      offers.map((o) => incomingOfferToInput(o, listPrices.get(o.itemId))),
+    );
     const enriched = offers.map((o) => ({
       ...o,
       itemCost: costByItemId.get(o.itemId) ?? null,
+      listPriceCents: listPrices.get(o.itemId) ?? null,
+      buyerHistory: o.buyerUsername ? (buyerHistory.get(o.buyerUsername) ?? null) : null,
     }));
     return c.json({ offers: enriched });
   } catch (err) {
@@ -9935,6 +10659,22 @@ flipdeskEbayRoutes.post("/negotiation/offers/:bestOfferId/respond", async (c) =>
     // notify; tenant-scoped to the workspace owner. Best-effort — fire-and-forget.
     const responded: OfferAction =
       action === "Accept" ? "accepted" : action === "Decline" ? "declined" : "countered";
+    // US-2939: record the outcome the moment we make it, rather than inferring
+    // it later from a state eBay will have dropped. A countered offer also
+    // becomes a row of its OWN — our counter is a distinct event from the bid
+    // it answered, and the conversion figures divide by both.
+    await recordOfferResponse(userId, bestOfferId, responded, {
+      amountCents: counterPrice != null ? Math.round(counterPrice * 100) : null,
+    });
+    if (action === "Counter" && counterPrice != null) {
+      await recordOffers(userId, [{
+        direction: "counter_sent",
+        externalOfferId: bestOfferId,
+        itemExternalId: itemId,
+        amountCents: Math.round(counterPrice * 100),
+        state: "Countered",
+      }]);
+    }
     void (async () => {
       const fresh = await claimMarketplaceEvent(
         userId,
@@ -10210,6 +10950,75 @@ flipdeskEbayRoutes.get("/negotiation/eligible", async (c) => {
   }
 });
 
+// GET /negotiation/send-offer-today — US-2943. The morning list.
+//
+// find_eligible_items is on-demand, and the whole value of send-offer is that
+// it reaches people ALREADY watching an item who have not pulled the trigger.
+// A list nobody thinks to open is a feature that does not exist.
+//
+// A PROPOSAL. Nothing sends from here; the seller picks and presses, and the
+// exposure figure below tells them the largest number that can come out of it.
+//
+// When the restricted scope is missing this returns 200 with a typed
+// `unavailable` reason and the MARKDOWN FALLBACK in the same response, rather
+// than a bare 501 — a seller who cannot send offers can still put those exact
+// items in a sale, and making them go and find that out separately is how the
+// feature reads as broken rather than as gated.
+flipdeskEbayRoutes.get("/negotiation/send-offer-today", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const discountPct = Math.min(Math.max(Number(c.req.query("discount_pct")) || 10, 1), 60);
+
+  const unavailable = (detail: string) =>
+    c.json({
+      available: false,
+      detail,
+      // The fallback, offered here rather than somewhere the seller has to go
+      // and look for it.
+      fallback: {
+        kind: "markdown_sale",
+        detail:
+          "You can still put these items in a markdown sale, which reaches the same watchers.",
+        href: "/dashboard/flipdesk/promotions",
+      },
+      candidates: [],
+      suppressed: [],
+    });
+
+  if (!isNegotiationScopeAvailable()) {
+    return unavailable(NEGOTIATION_UNAVAILABLE.error);
+  }
+
+  try {
+    // The SAME assembly the daily digest uses. A digest that counted a
+    // different set from the page it links to is worse than no digest — the
+    // seller clicks through and the number does not match.
+    const ranked = await loadRankedOfferCandidates(userId);
+    await markNegotiationDenied(userId, false);
+    return c.json({
+      available: true,
+      cooldownDays: OFFER_COOLDOWN_DAYS,
+      discountPct,
+      ...ranked,
+      exposureCents: totalDiscountExposureCents(ranked.candidates, discountPct),
+    });
+  } catch (err) {
+    if (isScopeForbidden(err)) {
+      await markNegotiationDenied(userId, true);
+      return unavailable(negotiationScope403Body(isNegotiationScopeAvailable()).error);
+    }
+    return failSafe(
+      c,
+      502,
+      "Couldn't load today's offer candidates.",
+      err,
+      "ebay.offers.send_today",
+    );
+  }
+});
+
 // POST /negotiation/send-offer — send a discount offer to interested buyers.
 // Body: { listing_ids: string[], discount_percentage?: string, message? }
 flipdeskEbayRoutes.post("/negotiation/send-offer", async (c) => {
@@ -10252,6 +11061,34 @@ flipdeskEbayRoutes.post("/negotiation/send-offer", async (c) => {
     }
     // US-1421: offers went out — the scope works; clear any stale denial flag.
     await markNegotiationDenied(userId, false);
+    // US-2939/US-2943: record what went out. This is what powers the discount
+    // curve AND the cooldown — without it tomorrow's list offers the same
+    // watchers the same discount, which teaches them to wait.
+    //
+    // The offer id is eBay's listing id: send-offer answers with no per-offer
+    // id of its own, and the unique key is (offer id, direction), so a re-send
+    // after the cooldown updates the row rather than making a second one. That
+    // is a known limit and it is why `lastOfferedAt` reads created_at.
+    const discountPct = typeof body.discount_percentage === "string"
+      ? Number(body.discount_percentage)
+      : Number.NaN;
+    const listPrices = await loadListPricesByItemId(userId, listingIds);
+    await recordOffers(
+      userId,
+      listingIds.map((id) => {
+        const listCents = listPrices.get(id) ?? null;
+        return {
+          direction: "offer_sent" as const,
+          externalOfferId: id,
+          itemExternalId: id,
+          listPriceCents: listCents,
+          amountCents: listCents != null && Number.isFinite(discountPct)
+            ? Math.round(listCents * (1 - discountPct / 100))
+            : null,
+          state: "Sent",
+        };
+      }),
+    );
     return c.json({ ok: true, count: listingIds.length });
   } catch (err) {
     console.error("[flipdesk-ebay] sendOfferToInterestedBuyers failed:", err);
@@ -11077,6 +11914,45 @@ export function variantSku(baseSku: string, variant: ListingVariation): string {
       .replace(/[^a-zA-Z0-9-]+/g, "")
       .toUpperCase();
   return `${baseSku}-${suffix || "V"}`.slice(0, 50);
+}
+
+/**
+ * US-2944: what the item behind a listing cost, in cents, owner-scoped.
+ *
+ * Read here rather than added to the PublishListing select because it is needed
+ * on exactly one branch (best-offer enabled with an active rule) and widening
+ * the publish query would make every publish pay for it.
+ *
+ * Null on any miss — an unknown cost means the margin floor does not apply at
+ * publish time, and the offer runner still enforces it hourly. Assuming zero
+ * would make the floor push the auto-accept to nothing.
+ */
+async function acquiredCostCentsForListing(
+  ownerId: string,
+  listingId: string | null,
+): Promise<number | null> {
+  if (!listingId) return null;
+  const { data, error } = await supabaseAdmin
+    .from("listings")
+    .select("inventory_items!inner(user_id, acquired_price)")
+    .eq("id", listingId)
+    .eq("inventory_items.user_id", ownerId)
+    .maybeSingle();
+  if (error) {
+    console.error("[flipdesk-ebay] acquired cost lookup:", error.message);
+    return null;
+  }
+  const row = data as
+    | {
+      inventory_items:
+        | { acquired_price: number | null }
+        | { acquired_price: number | null }[]
+        | null;
+    }
+    | null;
+  const inv = Array.isArray(row?.inventory_items) ? row?.inventory_items[0] : row?.inventory_items;
+  const cost = inv?.acquired_price;
+  return typeof cost === "number" && Number.isFinite(cost) ? Math.round(cost * 100) : null;
 }
 
 interface PublishListing {
@@ -12428,9 +13304,24 @@ export async function assemblePublishContext(
   let bestOfferAutoDecline: string | null = null;
   if (bestOfferEnabled) {
     const priceCents = priceNumber ? Math.round(priceNumber * 100) : 0;
+    // US-2944: eBay's auto-accept fires the instant a bid lands and knows
+    // nothing about the rule's margin floor, so a stored threshold BELOW an
+    // active rule's number is a hole — an offer in the gap gets taken at a
+    // price the rule would have refused. Raise it here, before it is pushed.
+    //
+    // One direction only. A blank threshold stays blank (US-2405), and a
+    // seller stricter than their own rule is left alone.
+    const activeRule = await loadActiveOfferRule(userId);
+    const reconciled = reconcileAutoAcceptWithRule({
+      priceCents,
+      sellerAcceptCents: listing?.best_offer_auto_accept_cents ?? null,
+      ruleAcceptAtPct: activeRule?.acceptAtPct ?? null,
+      ruleMarginFloorPct: activeRule?.marginFloorPct ?? 10,
+      itemCostCents: await acquiredCostCentsForListing(userId, listing?.id ?? null),
+    });
     const thresholds = resolveBestOfferThresholds({
       priceCents,
-      acceptCents: listing?.best_offer_auto_accept_cents ?? null,
+      acceptCents: reconciled.autoAcceptCents,
       declineCents: listing?.best_offer_auto_decline_cents ?? null,
     });
     bestOfferAutoAccept =

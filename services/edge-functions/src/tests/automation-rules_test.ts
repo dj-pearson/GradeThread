@@ -783,6 +783,10 @@ Deno.test("US-2236: a valid rule normalizes, clamps and defaults the margin floo
     type: "offer_threshold",
     accept_at_pct: 100,
     decline_below_pct: 1,
+    // US-2940: absent means null, which is the pre-counter behaviour exactly.
+    // Every rule stored before the counter existed keeps parsing, and none of
+    // them starts countering.
+    counter_at_pct: null,
     // Defaulted, not required — every rule gets the safety net even from a
     // seller who never thinks about it.
     margin_floor_pct: 10,

@@ -470,6 +470,37 @@ export function buildCaseOpened(ev: CaseOpenedEvent): NotifyInput {
   };
 }
 
+export interface OfferCandidateDigestEvent {
+  userId: string;
+  /** How many items are worth an offer today, after the cooldown. */
+  count: number;
+  /** The watcher total across them — the reach the discount would buy. */
+  watchers: number;
+}
+
+/**
+ * US-2943: the morning nudge.
+ *
+ * ONCE A DAY AND ONLY WHEN THERE IS SOMETHING TO SAY. A digest that arrives
+ * every morning saying "0 items" is a digest people mute in a week, and a muted
+ * channel takes the deadline reminders with it.
+ *
+ * Reuses the `offer_received` type for the same reason the post-sale additions
+ * reuse `return_opened`: notification_type is a Postgres enum, and the right
+ * preference category IS offers — a seller who muted offer notices meant this.
+ */
+export function buildOfferCandidateDigest(ev: OfferCandidateDigestEvent): NotifyInput {
+  return {
+    type: "offer_received",
+    title: "Watchers worth an offer today",
+    message: `${ev.count} item${ev.count === 1 ? "" : "s"} ${
+      ev.count === 1 ? "has" : "have"
+    } watchers who have not bought yet` +
+      `${ev.watchers > 0 ? ` — ${ev.watchers} watcher${ev.watchers === 1 ? "" : "s"} in total` : ""}.`,
+    link: OFFERS_LINK,
+  };
+}
+
 export interface CaseDeadlineEvent {
   userId: string;
   caseType: "return" | "cancellation" | "payment_dispute" | "inquiry" | "case";
@@ -656,6 +687,25 @@ export function notifyCaseOpened(
       }),
     push: (userId) => pushCaseOpened(userId, ev.orderLabel),
   }, deps);
+}
+
+/**
+ * In-app only, deliberately.
+ *
+ * This is a nudge about an opportunity, not a deadline. Emailing a seller every
+ * morning about items they MIGHT discount is the shape that gets a sender
+ * marked as spam, and it would take the return and case notices down with it.
+ */
+export function notifyOfferCandidateDigest(
+  ev: OfferCandidateDigestEvent,
+  deps: MarketplaceNotifyDeps = defaultDeps,
+): Promise<void> {
+  return deps.notify(ev.userId, buildOfferCandidateDigest(ev)).catch((err) => {
+    console.error(
+      "[marketplace-notify] offer digest failed:",
+      err instanceof Error ? err.message : err,
+    );
+  });
 }
 
 export function notifyCaseDeadline(

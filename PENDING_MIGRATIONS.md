@@ -1,5 +1,38 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🔒 HELD: 00676_marketplace_offers.sql (US-2939)
+
+**NOT YET APPLIED. This commit stays on local main until you have run the SQL.**
+
+**What it does.** Creates `public.marketplace_offers` — one row per marketplace
+offer in either direction (`received` from a buyer, `counter_sent` by the
+seller, `offer_sent` to interested buyers). Three partial indexes, an
+`updated_at` trigger, RLS on with a single own-rows SELECT policy. New table
+only; nothing existing is altered. It references `public.users`,
+`public.inventory_items`, `public.listings` and
+`public.flipdesk_automation_rules`, all of which exist.
+
+**Why it exists.** Best offers were fetched live and never stored, so counter
+history, buyer memory, the discount-conversion curve and the send-offer cooldown
+were all impossible. `list_price_cents` is snapshotted with the offer so a later
+reprice cannot rewrite what a past discount was worth.
+
+**What breaks if the edge deploys first.** Nothing user-visible, and nothing
+silent. Every writer logs a PostgREST error and returns 0 (`recordOffers`,
+`recordOfferResponse`); every reader logs and returns an empty list
+(`loadOffers`, `loadBuyerHistory`, `loadListPricesByItemId` reads `listings`,
+which is unaffected). Concretely:
+
+- The Offers page renders exactly as it did before, minus the new margin/buyer
+  history lines — `buyerHistory` comes back null and the row omits it.
+- "What your discounts convert at" shows its empty state.
+- "Watchers worth an offer" shows every eligible item with no cooldown applied,
+  because there is no send history to read.
+- The offer-rule dry run reports 0 offers considered, and says so in words.
+
+**Apply order.** After 00675. Run the SQL, then `NOTIFY pgrst, 'reload schema';`
+(a new table), then redeploy the edge, then OK the push.
+
 ## ✅ APPLIED: 00675_marketplace_post_sale_cases.sql (US-2927)
 
 **Applied to prod. The user confirmed the apply on 2026-08-26 while the story

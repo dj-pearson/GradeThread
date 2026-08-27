@@ -12,6 +12,7 @@ import {
   deadlineLabel,
   daysUntil,
   isClosedCase,
+  isNotAsDescribed,
   isOverdue,
   splitByOpenState,
 } from "@/pages/flipdesk/post-sale-state";
@@ -209,5 +210,34 @@ describe("byDeadline (US-2933)", () => {
     const before = rows.map((r) => r.id);
     byDeadline(rows, (r) => r.respondBy);
     expect(rows.map((r) => r.id)).toEqual(before);
+  });
+});
+
+
+describe("isNotAsDescribed (US-2935)", () => {
+  it("recognises the condition complaints a grade report can argue about", () => {
+    expect(isNotAsDescribed("NOT_AS_DESCRIBED")).toBe(true);
+    expect(isNotAsDescribed("DEFECTIVE_ITEM")).toBe(true);
+    expect(isNotAsDescribed("ARRIVED_DAMAGED")).toBe(true);
+    expect(isNotAsDescribed("WRONG_ITEM")).toBe(true);
+    expect(isNotAsDescribed("COUNTERFEIT")).toBe(true);
+  });
+
+  it("says no to complaints that are not about condition", () => {
+    // An INR case is about the post and a changed-mind return is about the
+    // buyer. Pre-loading a condition argument on either puts noise in front of
+    // a seller trying to act quickly.
+    expect(isNotAsDescribed("ITEM_NOT_RECEIVED")).toBe(false);
+    expect(isNotAsDescribed("BUYER_CHANGED_MIND")).toBe(false);
+    expect(isNotAsDescribed("ORDERED_WRONG_SIZE")).toBe(false);
+  });
+
+  it("defaults to NO on an unknown or missing reason", () => {
+    // The opposite asymmetry to isClosedCase, and deliberately: a missed SNAD
+    // costs one extra click on a button still sitting right there.
+    expect(isNotAsDescribed(null)).toBe(false);
+    expect(isNotAsDescribed(undefined)).toBe(false);
+    expect(isNotAsDescribed("")).toBe(false);
+    expect(isNotAsDescribed("SOMETHING_EBAY_ADDED_TOMORROW")).toBe(false);
   });
 });

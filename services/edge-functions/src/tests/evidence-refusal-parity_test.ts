@@ -51,6 +51,9 @@ function handlerFor(path: string): string | null {
 const PATHS = {
   returns: "/returns/:returnId/evidence",
   disputes: "/payment-disputes/:id/evidence",
+  // US-2935 added the third surface — an escalated eBay case, the one that
+  // costs a defect. It is exactly the "rarer path" this guard exists for.
+  cases: "/cases/:caseId/evidence",
 };
 
 Deno.test("US-2707: the guard can parse both handlers", () => {
@@ -66,21 +69,53 @@ Deno.test("US-2707: the guard can parse both handlers", () => {
   }
 });
 
-Deno.test("US-2707 AC2: BOTH evidence paths refuse a supported verdict", () => {
+Deno.test("US-2707 AC2: EVERY evidence path refuses a supported verdict", () => {
+  // ⚠ WIDENED IN US-2935, and the reason matters more than the change.
+  //
+  // This used to require the literal `verdict === "supported"` inside each
+  // handler. That was a proxy for "this handler refuses", correct until the
+  // refusal moved into ONE shared arbiter (lib/evidence-send.ts
+  // evidenceRefusalFor) — at which point the guard failed on code that was
+  // strictly safer than the code it was written against.
+  //
+  // The proxy is now: each handler builds a plan AND hands it to the shared
+  // arbiter. What the arbiter then does is pinned by evidence-send_test.ts,
+  // including the direction that matters — a plan that could not be built is
+  // NOT a refusal.
   const missing: string[] = [];
   for (const [name, path] of Object.entries(PATHS)) {
     const body = handlerFor(path) ?? "";
     const asksThePlanner = body.includes("planEvidence(");
-    const refuses = /verdict === "supported"/.test(body);
+    const refuses = body.includes("evidenceRefusalFor(");
     if (!asksThePlanner) missing.push(`${name}: never builds an evidence plan`);
     else if (!refuses) missing.push(`${name}: builds a plan and ignores the verdict`);
   }
   assertEquals(
     missing,
     [],
-    "an evidence path can assemble a pack the other would refuse. When the " +
+    "an evidence path can assemble a pack the others would refuse. When the " +
       "grade report documents a flaw the listing did not disclose, sending it " +
       "hands eBay a signed document proving our own user sold it undisclosed.",
+  );
+});
+
+Deno.test("US-2935: ONE arbiter decides the refusal, not one per surface", () => {
+  // The same argument as the single-planner test below, one layer up. Three
+  // copies of "is this verdict supported" is three chances for the rarest
+  // surface to keep an older answer.
+  const arbiters = [...src.matchAll(/function evidenceRefusalFor\(/g)];
+  assertEquals(
+    arbiters.length,
+    0,
+    "the refusal arbiter must live in lib/evidence-send.ts, not in the route file",
+  );
+  const callers = [...src.matchAll(/evidenceRefusalFor\(/g)];
+  assertEquals(
+    callers.length,
+    Object.keys(PATHS).length,
+    `${callers.length} calls to the refusal arbiter for ${
+      Object.keys(PATHS).length
+    } evidence surfaces — every surface must ask, and nothing else should`,
   );
 });
 

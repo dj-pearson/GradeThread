@@ -28,7 +28,18 @@ export type AutomationTrigger =
     type: "offer_threshold";
     accept_at_pct: number | null;
     decline_below_pct: number | null;
+    /** US-2940: counter at this percent of list. Optional on the wire — a rule
+     * stored before the counter existed has no field, and absent means null. */
+    counter_at_pct?: number | null;
     margin_floor_pct: number;
+    cooldown_days: number;
+  }
+  // US-2938: judged per RETURN, same reasoning as offer_threshold. The action is
+  // implied by the limits, so a rule of this type ignores its action_json.
+  | {
+    type: "return_threshold";
+    approve_at_or_below_cents: number | null;
+    refund_without_return_at_or_below_cents: number | null;
     cooldown_days: number;
   };
 

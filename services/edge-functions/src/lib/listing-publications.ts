@@ -162,6 +162,43 @@ export async function latestPublication(
   return (data as PublicationRow | null) ?? null;
 }
 
+/**
+ * US-2936: the latest snapshot for MANY listings in one query.
+ *
+ * Lives here rather than in the analytics module for the reason the singular
+ * reader's comment already gives: one module owns this table, so
+ * `published_at DESC` cannot be re-derived by a caller who would then pick a
+ * different revision. A per-listing loop would also be one query per sale, on a
+ * page that reads ninety days of them.
+ *
+ * Ordered newest-first and kept first-seen-per-listing, which is the same rule
+ * `latestPublication` applies with LIMIT 1.
+ */
+export async function latestPublicationsFor(
+  supabase: SupabaseClient,
+  listingIds: string[],
+  ownerUserId: string,
+): Promise<Map<string, PublicationRow>> {
+  const out = new Map<string, PublicationRow>();
+  const ids = [...new Set(listingIds.filter(Boolean))];
+  if (ids.length === 0 || !ownerUserId) return out;
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select("listing_id, description, aspects, published_at, last_confirmed_at")
+    .eq("owner_user_id", ownerUserId)
+    .in("listing_id", ids)
+    .order("published_at", { ascending: false });
+  if (error) {
+    console.error("[publication] bulk read failed:", error.message);
+    return out;
+  }
+  for (const row of (data ?? []) as unknown as Array<PublicationRow & { listing_id: string }>) {
+    if (!row.listing_id || out.has(row.listing_id)) continue;
+    out.set(row.listing_id, row);
+  }
+  return out;
+}
+
 /** One stored snapshot, as a reader sees it. */
 export interface PublicationRow {
   description: string | null;

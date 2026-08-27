@@ -30,7 +30,7 @@
 // basis is wrong loses a sale on the strength of a bookkeeping error.
 
 /** What the runner should do with one offer. */
-export type OfferDecision = "accept" | "decline" | "skip";
+export type OfferDecision = "accept" | "decline" | "counter" | "skip";
 
 export interface OfferRuleConfig {
   /** Accept at or above this percent of list price. Null disables accepting. */
@@ -42,6 +42,14 @@ export interface OfferRuleConfig {
    * Only consulted when the cost is known — see the header.
    */
   marginFloorPct: number;
+  /**
+   * US-2940: counter at this percent of list price. Null disables countering.
+   *
+   * A counter is what an offer below the accept threshold is actually worth: an
+   * offer at 70% of list is a negotiation, and declining it ends one. This is
+   * the single most valuable thing the rules engine could not do.
+   */
+  counterAtPct?: number | null;
 }
 
 export interface OfferFacts {
@@ -62,6 +70,8 @@ export interface OfferOutcome {
    */
   reason:
     | "accepted_at_threshold"
+    | "countered_at_threshold"
+    | "counter_not_possible"
     | "declined_below_threshold"
     | "between_thresholds"
     | "no_list_price"
@@ -71,6 +81,13 @@ export interface OfferOutcome {
     | "no_thresholds_set";
   /** The offer as a percent of list price, rounded to 0.1. Null when unknowable. */
   pctOfList: number | null;
+  /**
+   * US-2940: what to counter at, in dollars. Present only on a `counter`.
+   *
+   * Computed here rather than by the runner so the number the seller previews
+   * and the number eBay receives are the same one.
+   */
+  counterPrice?: number;
 }
 
 export const MIN_OFFER_THRESHOLD_PCT = 1;
@@ -131,8 +148,13 @@ export function normalizeThresholdPct(raw: unknown): number | null {
 export function decideOffer(cfg: OfferRuleConfig, facts: OfferFacts): OfferOutcome {
   const accept = cfg.acceptAtPct;
   const decline = cfg.declineBelowPct;
+  const counterAt = cfg.counterAtPct ?? null;
 
-  if (accept === null && decline === null) {
+  // US-2940 widened this. "Counter everything at 85%" is a complete rule on its
+  // own, and before the counter existed this guard read `accept === null &&
+  // decline === null` — which would have refused it as unconfigured. The test
+  // that caught it is the rounding one, which needed a counter-only config.
+  if (accept === null && decline === null && counterAt === null) {
     return { decision: "skip", reason: "no_thresholds_set", pctOfList: null };
   }
 
@@ -166,11 +188,42 @@ export function decideOffer(cfg: OfferRuleConfig, facts: OfferFacts): OfferOutco
     return { decision: "accept", reason: "accepted_at_threshold", pctOfList };
   }
 
+  // US-2940. AFTER accept and BEFORE decline, and that order is the contract:
+  // an offer that qualifies for both accept and counter is ACCEPTED (a sale now
+  // beats a negotiation), and an offer that qualifies for both counter and
+  // decline is COUNTERED (a negotiation beats ending the conversation).
+  if (counterAt !== null) {
+    const counterPrice = round2(list * (counterAt / 100));
+    // Strictly above the offer and strictly below list: a counter at or below
+    // what the buyer already offered is an insult with extra steps, and one at
+    // or above list is not a counter at all. Neither is fixable by clamping, so
+    // it becomes a SKIP rather than a silently-adjusted number.
+    if (counterPrice <= offer || counterPrice >= list) {
+      return { decision: "skip", reason: "counter_not_possible", pctOfList };
+    }
+    // The margin floor applies to a counter EXACTLY as it applies to an accept.
+    // A counter is an offer to sell at that price, so a counter under the floor
+    // is a loss the seller merely has to wait for.
+    const cost = facts.itemCost;
+    if (typeof cost === "number" && Number.isFinite(cost) && cost > 0) {
+      const floor = cost * (1 + cfg.marginFloorPct / 100);
+      if (counterPrice < floor) {
+        return { decision: "skip", reason: "below_margin_floor", pctOfList };
+      }
+    }
+    return { decision: "counter", reason: "countered_at_threshold", pctOfList, counterPrice };
+  }
+
   if (decline !== null && pctOfList < decline) {
     return { decision: "decline", reason: "declined_below_threshold", pctOfList };
   }
 
   return { decision: "skip", reason: "between_thresholds", pctOfList };
+}
+
+/** Money, to the cent. eBay rejects a counter with more precision than that. */
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 /** Seller-facing one-liner for a decision. Pure, so the copy is testable. */
@@ -179,6 +232,12 @@ export function describeOfferOutcome(o: OfferOutcome): string {
   switch (o.reason) {
     case "accepted_at_threshold":
       return `Accepted automatically — the offer was ${pct} of your asking price.`;
+    case "countered_at_threshold":
+      return `Countered automatically — the offer was ${pct} of your asking price${
+        o.counterPrice != null ? `, countered at $${o.counterPrice.toFixed(2)}` : ""
+      }.`;
+    case "counter_not_possible":
+      return `Left for you — ${pct} of asking, and no counter fits above the offer and below your price.`;
     case "declined_below_threshold":
       return `Declined automatically — the offer was ${pct} of your asking price.`;
     case "between_thresholds":
@@ -194,4 +253,58 @@ export function describeOfferOutcome(o: OfferOutcome): string {
     case "no_thresholds_set":
       return "Left for you — no auto-accept or auto-decline threshold is set.";
   }
+}
+
+// ── US-2940: the dry run ────────────────────────────────────────────
+//
+// Countering answers a buyer with a price, automatically, with no human in the
+// loop. A seller who cannot see what the rule WOULD have done to the last month
+// of real offers is being asked to trust a percentage they typed against data
+// they have not looked at — the same argument the return rules make, and for
+// the same reason.
+
+export interface OfferDryRunSummary {
+  considered: number;
+  wouldAccept: number;
+  wouldCounter: number;
+  wouldDecline: number;
+  skipped: number;
+  lines: Array<{
+    externalOfferId: string;
+    decision: OfferDecision;
+    copy: string;
+    counterPrice: number | null;
+  }>;
+}
+
+/** Pure. What the config would have done to a set of past offers. */
+export function dryRunOfferRule(
+  cfg: OfferRuleConfig,
+  offers: Array<OfferFacts & { externalOfferId: string }>,
+): OfferDryRunSummary {
+  const summary: OfferDryRunSummary = {
+    considered: offers.length,
+    wouldAccept: 0,
+    wouldCounter: 0,
+    wouldDecline: 0,
+    skipped: 0,
+    lines: [],
+  };
+  for (const o of offers) {
+    const outcome = decideOffer(cfg, o);
+    if (outcome.decision === "accept") summary.wouldAccept++;
+    else if (outcome.decision === "counter") summary.wouldCounter++;
+    else if (outcome.decision === "decline") summary.wouldDecline++;
+    else summary.skipped++;
+    summary.lines.push({
+      externalOfferId: o.externalOfferId,
+      decision: outcome.decision,
+      // Every line, including the skips, with its reason. "Nothing would have
+      // fired" is the most useful answer this can give and it is invisible if
+      // only the hits are listed.
+      copy: describeOfferOutcome(outcome),
+      counterPrice: outcome.counterPrice ?? null,
+    });
+  }
+  return summary;
 }

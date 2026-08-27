@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { SNAD_OUTCOME_SOURCE } from "../lib/grade-snad-signal.ts";
 import {
   CALIBRATION_SETTING_KEY,
   EMPTY_CALIBRATION,
@@ -351,6 +352,102 @@ adminGradingRoutes.get("/accuracy/outcomes", async (c) => {
   } catch (err) {
     return c.json(
       { error: "Failed to compute outcome feedback", detail: err instanceof Error ? err.message : String(err) },
+      500,
+    );
+  }
+});
+
+// GET /accuracy/snad-observations — US-2937. Grades the market disagreed with.
+//
+// A human review says "the model called it 8.5 and a reviewer said 8.0". These
+// rows say something rarer: a real buyer paid, held the garment, and said the
+// condition was not what we published. That is worth a reviewer's time, and
+// until now it landed in the seller's post-sale page and stopped there.
+//
+// A SIGNAL, NOT A VERDICT. Buyers file "not as described" for wrong sizes,
+// screen colour, and because it is the reason that gets free return postage. So
+// these rows are excluded from every public accuracy figure until a human has
+// looked — this endpoint is where that looking happens.
+//
+// Operator surface: the admin middleware above is the tenant boundary, and
+// nothing here is scoped to one seller by design.
+adminGradingRoutes.get("/accuracy/snad-observations", async (c) => {
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 100, 1), 500);
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("grade_outcomes")
+      .select("id, grade_report_id, inventory_item_id, sale_id, created_at")
+      .eq("source", SNAD_OUTCOME_SOURCE)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error) throw new Error(error.message);
+    const rows = (data ?? []) as unknown as Array<{
+      id: string;
+      grade_report_id: string;
+      inventory_item_id: string | null;
+      sale_id: string | null;
+      created_at: string;
+    }>;
+    if (rows.length === 0) return c.json({ observations: [], total: 0 });
+
+    // The grade the market disagreed with, plus whether a human has already
+    // been through it. A row with a review is not new work.
+    const reportIds = [...new Set(rows.map((r) => r.grade_report_id))];
+    const { data: reports } = await supabaseAdmin
+      .from("grade_reports")
+      .select("id, overall_score, grade_tier, confidence_score, needs_human_review, submission_id")
+      .in("id", reportIds);
+    const reportById = new Map(
+      ((reports ?? []) as unknown as Array<{
+        id: string;
+        overall_score: number | string | null;
+        grade_tier: string | null;
+        confidence_score: number | string | null;
+        needs_human_review: boolean | null;
+        submission_id: string | null;
+      }>).map((r) => [r.id, r]),
+    );
+    const { data: reviewed } = await supabaseAdmin
+      .from("human_reviews")
+      .select("grade_report_id")
+      .in("grade_report_id", reportIds);
+    const hasReview = new Set(
+      ((reviewed ?? []) as unknown as Array<{ grade_report_id: string | null }>)
+        .map((r) => r.grade_report_id)
+        .filter((id): id is string => !!id),
+    );
+
+    return c.json({
+      total: rows.length,
+      observations: rows.map((r) => {
+        const report = reportById.get(r.grade_report_id);
+        const score = report?.overall_score == null ? null : Number(report.overall_score);
+        const confidence = report?.confidence_score == null
+          ? null
+          : Number(report.confidence_score);
+        return {
+          id: r.id,
+          grade_report_id: r.grade_report_id,
+          inventory_item_id: r.inventory_item_id,
+          sale_id: r.sale_id,
+          observed_at: r.created_at,
+          overall_score: score != null && Number.isFinite(score) ? score : null,
+          grade_tier: report?.grade_tier ?? null,
+          confidence_score: confidence != null && Number.isFinite(confidence)
+            ? confidence
+            : null,
+          needs_human_review: report?.needs_human_review ?? null,
+          // The batch a reviewer wants is the UNREVIEWED half.
+          already_reviewed: hasReview.has(r.grade_report_id),
+        };
+      }),
+    });
+  } catch (err) {
+    return c.json(
+      {
+        error: "Failed to load SNAD observations",
+        detail: err instanceof Error ? err.message : String(err),
+      },
       500,
     );
   }

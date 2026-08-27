@@ -89,3 +89,109 @@ export function resolveBestOfferThresholds(
 export function centsToMoneyString(cents: number): string {
   return (Math.round(cents) / 100).toFixed(2);
 }
+
+// ── US-2944: reconciling the LISTING's thresholds with the RULES engine ─────
+//
+// Two systems decide the same offer and nothing checked they agreed.
+//
+//   • eBay's own auto-accept, set per offer via `bestOfferTerms`, fires the
+//     instant a qualifying bid lands.
+//   • The FlipDesk offer rule (lib/offer-rules.ts), which runs hourly and
+//     applies a MARGIN FLOOR eBay knows nothing about.
+//
+// eBay always wins the race, so a listing whose stored autoAcceptPrice sits
+// BELOW the rule's number is a hole: an offer in the gap is taken by eBay at a
+// price the rule would have refused, and the seller's margin floor never gets a
+// vote. Nothing in the product noticed.
+//
+// The fix is one direction only. This function can RAISE the pushed
+// auto-accept to match the rule, or drop it entirely; it never lowers one, and
+// it never invents one. US-2405 still governs: a seller who left the box blank
+// gets nothing pushed, because a derived threshold that stops tracking anything
+// is how a $28 offer came to be auto-accepted on a $298 item.
+
+export interface RuleReconcileInput {
+  /** The listing price, in cents. */
+  priceCents: number;
+  /** The seller's own auto-accept, in cents. Null when they left it blank. */
+  sellerAcceptCents: number | null;
+  /** The active rule's accept threshold, as a percent of list. Null when none. */
+  ruleAcceptAtPct: number | null;
+  /** The rule's margin floor, in percent over cost. */
+  ruleMarginFloorPct: number;
+  /** Acquisition cost in cents, or null when the item has none recorded. */
+  itemCostCents: number | null;
+}
+
+export interface RuleReconcileResult {
+  /** What to push to eBay, in cents. Null means push nothing. */
+  autoAcceptCents: number | null;
+  /**
+   * Why, for the conflict banner. `matched` means the seller's own number
+   * already satisfied the rule and nothing changed.
+   */
+  reason:
+    | "no_rule"
+    | "no_seller_threshold"
+    | "matched"
+    | "raised_to_rule"
+    | "raised_to_margin_floor"
+    | "dropped_no_valid_price";
+}
+
+/**
+ * Decide the auto-accept price to push, given both systems' opinions. Pure.
+ *
+ * The order is the contract:
+ *   1. No rule, or no seller threshold → leave it exactly as it was. Blank
+ *      means blank, and a rule is not permission to invent a number.
+ *   2. Compute the rule's price from its percent of list.
+ *   3. The MARGIN FLOOR raises that price when it is higher. A floor that could
+ *      only ever lower the accept price would be a floor that loses sales,
+ *      which is the asymmetry offer-rules.ts is built around.
+ *   4. Take the HIGHER of the seller's number and the rule's. Never the lower —
+ *      that is the hole this exists to close.
+ */
+export function reconcileAutoAcceptWithRule(
+  input: RuleReconcileInput,
+): RuleReconcileResult {
+  const price = Number.isFinite(input.priceCents) && input.priceCents > 0
+    ? Math.round(input.priceCents)
+    : 0;
+  const seller = positive(input.sellerAcceptCents);
+
+  if (input.ruleAcceptAtPct == null) {
+    return { autoAcceptCents: seller, reason: "no_rule" };
+  }
+  // US-2405. A rule is not permission to derive a threshold the seller never
+  // set: with the box blank, an offer waits for them, which is the safe
+  // direction and the whole point of that story.
+  if (seller == null) {
+    return { autoAcceptCents: null, reason: "no_seller_threshold" };
+  }
+  if (price <= 0) {
+    return { autoAcceptCents: seller, reason: "no_rule" };
+  }
+
+  let ruleCents = Math.round(price * (input.ruleAcceptAtPct / 100));
+  let reason: RuleReconcileResult["reason"] = "raised_to_rule";
+
+  const cost = positive(input.itemCostCents);
+  if (cost != null) {
+    const floorCents = Math.round(cost * (1 + input.ruleMarginFloorPct / 100));
+    if (floorCents > ruleCents) {
+      ruleCents = floorCents;
+      reason = "raised_to_margin_floor";
+    }
+  }
+
+  // No valid price satisfies eBay's "strictly below list" constraint, so push
+  // nothing rather than a number the rule would refuse.
+  if (ruleCents >= price) {
+    return { autoAcceptCents: null, reason: "dropped_no_valid_price" };
+  }
+  if (seller >= ruleCents) {
+    return { autoAcceptCents: seller, reason: "matched" };
+  }
+  return { autoAcceptCents: ruleCents, reason };
+}

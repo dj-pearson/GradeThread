@@ -44,6 +44,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MarketplaceConnectionSummary } from "@/components/flipdesk/marketplace-connection-summary";
 import { EbayPromotionsCard } from "@/components/flipdesk/ebay-promotions-card";
+import { EbayKeywordsCard } from "@/components/flipdesk/ebay-keywords-card";
 import { EbayProgramsCard } from "@/components/flipdesk/ebay-programs-card";
 import {
   Table,
@@ -1748,6 +1749,8 @@ export function FlipdeskMarketplacesPage() {
           {connection && <PromotedListingsSection />}
           {/* US-1448: surface the seller's eBay Promotions Manager offers. */}
           {connection && <EbayPromotionsCard />}
+          {/* US-2945: keywords are the only lever a cost-per-click campaign has. */}
+          {connection && <EbayKeywordsCard />}
           {/* US-2157: eBay account-level program opt-in (out-of-stock control,
               business policy management). */}
           {connection && <EbayProgramsCard />}

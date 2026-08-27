@@ -5,7 +5,7 @@
 // toward the happy path. The single most important one is the margin floor: an
 // automation that sells below cost is worse than no automation at all.
 
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import {
   decideOffer,
   DEFAULT_OFFER_MARGIN_FLOOR_PCT,
@@ -203,4 +203,102 @@ Deno.test("US-2236: every outcome has seller-facing copy, and no skip is unexpla
     describeOfferOutcome(decideOffer(CFG, { offerPrice: 90, listPrice: 100, itemCost: 100 })),
     "Left for you — 90% of asking, but that is at or below what the item cost.",
   );
+});
+
+// ── US-2940: the counter ────────────────────────────────────────────
+//
+// Countering is what an offer below the accept threshold is actually worth: an
+// offer at 70% of list is a negotiation, and declining it ends one. The rules
+// engine could accept, decline or skip, and the missing verb was the valuable
+// one.
+//
+// The ORDER is the contract and is what these pin: accept beats counter (a sale
+// now beats a negotiation), counter beats decline (a negotiation beats ending
+// the conversation).
+
+const COUNTER_CFG = {
+  acceptAtPct: 90,
+  declineBelowPct: 50,
+  marginFloorPct: 10,
+  counterAtPct: 85,
+};
+
+Deno.test("US-2940: an offer between the bands is COUNTERED, not skipped", () => {
+  const out = decideOffer(COUNTER_CFG, { offerPrice: 70, listPrice: 100, itemCost: 20 });
+  assertEquals(out.decision, "counter");
+  assertEquals(out.reason, "countered_at_threshold");
+  assertEquals(out.counterPrice, 85);
+});
+
+Deno.test("US-2940: accept wins over counter", () => {
+  // 95% clears the accept threshold AND is below the counter price. A sale now
+  // beats a negotiation.
+  const out = decideOffer(COUNTER_CFG, { offerPrice: 95, listPrice: 100, itemCost: 20 });
+  assertEquals(out.decision, "accept");
+});
+
+Deno.test("US-2940: counter wins over decline", () => {
+  // 30% is below the decline threshold. With countering on, it becomes a
+  // negotiation rather than the end of one.
+  const out = decideOffer(COUNTER_CFG, { offerPrice: 30, listPrice: 100, itemCost: 20 });
+  assertEquals(out.decision, "counter");
+});
+
+Deno.test("US-2940: with countering OFF the decline band behaves exactly as before", () => {
+  // The additive-feature rule: disabled, the engine is byte-identical to the
+  // one that shipped before it.
+  const off = { ...COUNTER_CFG, counterAtPct: null };
+  assertEquals(
+    decideOffer(off, { offerPrice: 30, listPrice: 100, itemCost: 20 }).decision,
+    "decline",
+  );
+  assertEquals(
+    decideOffer(off, { offerPrice: 70, listPrice: 100, itemCost: 20 }).decision,
+    "skip",
+  );
+});
+
+Deno.test("US-2940: the margin floor turns a counter into a SKIP, never a decline", () => {
+  // A counter is an offer to sell at that price, so a counter under the floor
+  // is a loss the seller merely has to wait for. It must not become a decline:
+  // that would be the floor causing a lost sale, which the header forbids.
+  const out = decideOffer(COUNTER_CFG, { offerPrice: 70, listPrice: 100, itemCost: 90 });
+  assertEquals(out.decision, "skip");
+  assertEquals(out.reason, "below_margin_floor");
+});
+
+Deno.test("US-2940: a counter that cannot sit above the offer is a skip", () => {
+  // Offer 88, counter at 85% of 100 = 85. Countering BELOW what the buyer
+  // already offered is an insult with extra steps, and clamping it would hide
+  // a configuration the seller can fix in a second.
+  const out = decideOffer(COUNTER_CFG, { offerPrice: 88, listPrice: 100, itemCost: 10 });
+  assertEquals(out.decision, "skip");
+  assertEquals(out.reason, "counter_not_possible");
+});
+
+Deno.test("US-2940: a counter at or above list is a skip", () => {
+  const out = decideOffer(
+    { ...COUNTER_CFG, acceptAtPct: null, counterAtPct: 100 },
+    { offerPrice: 50, listPrice: 100, itemCost: 10 },
+  );
+  assertEquals(out.decision, "skip");
+  assertEquals(out.reason, "counter_not_possible");
+});
+
+Deno.test("US-2940: the counter price is money, rounded to the cent", () => {
+  // eBay rejects a counter with more precision than that, and a 502 from a
+  // third decimal place is a defect that only shows up in production.
+  const out = decideOffer(
+    { acceptAtPct: null, declineBelowPct: null, marginFloorPct: 0, counterAtPct: 83 },
+    { offerPrice: 10, listPrice: 33.33, itemCost: null },
+  );
+  assertEquals(out.decision, "counter");
+  assertEquals(out.counterPrice, 27.66);
+});
+
+Deno.test("US-2940: the copy names the counter price", () => {
+  const out = decideOffer(COUNTER_CFG, { offerPrice: 70, listPrice: 100, itemCost: 20 });
+  const copy = describeOfferOutcome(out);
+  assert(copy.includes("85.00"), copy);
+  assert(copy.toLowerCase().includes("countered"), copy);
 });

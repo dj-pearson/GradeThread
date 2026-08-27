@@ -6,6 +6,7 @@ import {
   daysUntil,
   deadlineBucket,
   deadlineLabel,
+  isNotAsDescribed,
   splitByOpenState,
 } from "@/pages/flipdesk/post-sale-state";
 import { toast } from "sonner";
@@ -82,6 +83,8 @@ import {
   type EbayReturn,
 } from "@/hooks/use-ebay";
 import { PageHelp } from "@/components/help/page-help";
+import { ReturnAnalyticsCard } from "@/components/flipdesk/return-analytics-card";
+import { NeedsYouCard } from "@/components/flipdesk/needs-you-card";
 import {
   centsToDisplay,
   suggestKeepItRefund,
@@ -130,11 +133,16 @@ export function FlipdeskPostSalePage() {
         feature="post_sale"
         noun="Returns, cancellations and disputes"
       />
+      {/* US-2934: first, because it is the answer to "what do I open". The
+          cards below are still where the work gets done. */}
+      <NeedsYouCard />
       <DisputesCard />
       <CasesCard />
       <InquiriesCard />
       <ReturnsCard />
       <CancellationsCard />
+      {/* Last: the open cases are the work, this is the pattern behind them. */}
+      <ReturnAnalyticsCard />
     </div>
   );
 }
@@ -227,6 +235,10 @@ function DisputesCard() {
   function openContest(d: EbayPaymentDispute) {
     setContestNote("");
     setContestFor(d);
+    // US-2935: contesting is the moment the grade report is the argument. Open
+    // the pack with it, already checked. It is a READ — the send stays behind
+    // its own button inside the panel.
+    if (isNotAsDescribed(d.reason) && d.orderId) setPackFor(d.paymentDisputeId);
   }
 
   async function submitContest() {
@@ -238,7 +250,7 @@ function DisputesCard() {
   }
 
   return (
-    <Card className="border-brand-red/30">
+    <Card id="payment-disputes" className="border-brand-red/30">
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-2 text-base">
           <span className="flex items-center gap-2">
@@ -345,6 +357,8 @@ function DisputesCard() {
                     caseId={d.paymentDisputeId}
                     orderId={d.orderId}
                     kind="dispute"
+                    initialComplaint={d.reason ?? ""}
+                    autoCheck={isNotAsDescribed(d.reason)}
                   />
                 )}
               </div>
@@ -543,6 +557,20 @@ function ReturnsCard() {
   }
 
   async function decideReturn(r: EbayReturn, decision: "approve" | "decline") {
+    // US-2935: declining a condition complaint is the moment the grade report
+    // is worth reading, and it is the moment a seller is least likely to go
+    // looking for it. First press opens the pack, already checked; the second
+    // declines. A read, not a send — nothing leaves for eBay here.
+    if (
+      decision === "decline" &&
+      isNotAsDescribed(r.reason) &&
+      r.orderId &&
+      evidenceFor !== r.returnId
+    ) {
+      setEvidenceFor(r.returnId);
+      toast.info("Checked your grade report below. Press Decline again to go ahead.");
+      return;
+    }
     if (decision === "approve") {
       const ok = await confirm({
         title: "Approve this return?",
@@ -637,7 +665,7 @@ function ReturnsCard() {
   }
 
   return (
-    <Card>
+    <Card id="returns">
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-2 text-base">
           <span className="flex items-center gap-2">
@@ -760,7 +788,7 @@ function ReturnsCard() {
                   ) : (
                     <X className="mr-1 h-4 w-4" />
                   )}
-                  Decline
+                  {evidenceFor === r.returnId ? "Decline anyway" : "Decline"}
                 </Button>
                 <Button
                   size="sm"
@@ -837,6 +865,8 @@ function ReturnsCard() {
                   caseId={r.returnId}
                   orderId={r.orderId}
                   kind="return"
+                  initialComplaint={r.reason ?? ""}
+                  autoCheck={isNotAsDescribed(r.reason)}
                 />
               )}
               {partialFor === r.returnId && (
@@ -965,7 +995,7 @@ function CancellationsCard() {
   }
 
   return (
-    <Card>
+    <Card id="cancellations">
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-2 text-base">
           <span className="flex items-center gap-2">
@@ -1214,7 +1244,7 @@ function InquiriesCard() {
   }
 
   return (
-    <Card>
+    <Card id="item-not-received">
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-2 text-base">
           <span className="flex items-center gap-2">
@@ -1335,6 +1365,9 @@ function CasesCard() {
   const [trackingFor, setTrackingFor] = useState<EbayCase | null>(null);
   const [appealFor, setAppealFor] = useState<EbayCase | null>(null);
   const [appealText, setAppealText] = useState("");
+  // US-2935: which case's grade pack is open. One at a time — two open packs is
+  // two complaint boxes and a good way to send the wrong one.
+  const [evidenceFor, setEvidenceFor] = useState<string | null>(null);
   const { open: openOnes, closed: closedOnes } = useMemo(
     () => splitByOpenState(cases),
     [cases],
@@ -1390,7 +1423,7 @@ function CasesCard() {
   }
 
   return (
-    <Card>
+    <Card id="ebay-cases">
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-2 text-base">
           <span className="flex items-center gap-2">
@@ -1474,12 +1507,33 @@ function CasesCard() {
                     <Truck className="mr-1 h-4 w-4" />
                     Add tracking
                   </Button>
+                  {/* US-2935: the pack, on the surface that costs a defect.
+                      Opens a review panel and sends nothing until the seller
+                      reads the verdict and clicks — and refuses outright when
+                      our own report agrees with the buyer. */}
+                  <Button
+                    aria-label={`Grade evidence for case ${kase.caseId}`}
+                    size="sm"
+                    variant="outline"
+                    disabled={!!busy}
+                    onClick={() =>
+                      setEvidenceFor(evidenceFor === kase.caseId ? null : kase.caseId)}
+                  >
+                    Evidence…
+                  </Button>
                   <Button
                     aria-label={`Appeal case ${kase.caseId}`}
                     size="sm"
                     variant="outline"
                     disabled={!!busy}
-                    onClick={() => setAppealFor(kase)}
+                    onClick={() => {
+                      setAppealFor(kase);
+                      // The appeal argument IS the evidence. Open the pack with
+                      // the dialog rather than making the seller find it.
+                      if (isNotAsDescribed(kase.reason) && kase.orderId) {
+                        setEvidenceFor(kase.caseId);
+                      }
+                    }}
                   >
                     <Gavel className="mr-1 h-4 w-4" />
                     Appeal
@@ -1499,6 +1553,15 @@ function CasesCard() {
                     Refund
                   </Button>
                 </div>
+              )}
+              {evidenceFor === kase.caseId && !showClosed && (
+                <ReturnEvidencePanel
+                  caseId={kase.caseId}
+                  orderId={kase.orderId}
+                  kind="case"
+                  initialComplaint={kase.reason ?? ""}
+                  autoCheck={isNotAsDescribed(kase.reason)}
+                />
               )}
             </div>
           ))

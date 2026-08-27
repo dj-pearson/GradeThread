@@ -1,4 +1,6 @@
 import { useId, useMemo, useState } from "react";
+import { toastError } from "@/lib/toast-error";
+import { edgeFetch } from "@/lib/edge-fetch";
 import {
   Activity,
   FlaskConical,
@@ -108,8 +110,23 @@ function describeTrigger(t: AutomationTrigger): string {
     case "offer_threshold": {
       const parts: string[] = [];
       if (t.accept_at_pct != null) parts.push(`accept at ${t.accept_at_pct}%+`);
+      if (t.counter_at_pct != null) parts.push(`counter at ${t.counter_at_pct}%`);
       if (t.decline_below_pct != null) parts.push(`decline under ${t.decline_below_pct}%`);
       return `an offer arrives — ${parts.join(", ") || "no thresholds set"}`;
+    }
+    case "return_threshold": {
+      const parts: string[] = [];
+      if (t.approve_at_or_below_cents != null) {
+        parts.push(`approve at or under $${(t.approve_at_or_below_cents / 100).toFixed(0)}`);
+      }
+      if (t.refund_without_return_at_or_below_cents != null) {
+        parts.push(
+          `refund and let them keep it at or under $${
+            (t.refund_without_return_at_or_below_cents / 100).toFixed(0)
+          }`,
+        );
+      }
+      return `a return arrives — ${parts.join(", ") || "no limits set"}`;
     }
   }
 }
@@ -176,7 +193,7 @@ const EBAY_BACKED_ACTIONS = new Set<AutomationAction["type"]>([
 const TRIGGER_OPTIONS: Array<{
   value: AutomationTrigger["type"];
   label: string;
-  group: "Aging" | "Pipeline" | "Offers";
+  group: "Aging" | "Pipeline" | "Offers" | "Returns";
   /** Shows the trailing "…days" input. */
   days: boolean;
 }> = [
@@ -190,6 +207,7 @@ const TRIGGER_OPTIONS: Array<{
   { value: "compliance_violation", label: "A policy violation is open", group: "Pipeline", days: false },
   { value: "comp_price_moved", label: "Price drifted from comps…", group: "Pipeline", days: false },
   { value: "offer_threshold", label: "An offer arrives (auto answer)…", group: "Offers", days: false },
+  { value: "return_threshold", label: "A return arrives (auto answer)…", group: "Returns", days: false },
 ];
 
 const ACTION_OPTIONS: Array<{
@@ -278,12 +296,32 @@ function RuleDialog({
       ? String(initial.trigger_json.decline_below_pct)
       : "",
   );
+  const [counterAtPct, setCounterAtPct] = useState(
+    initial?.trigger_json.type === "offer_threshold" &&
+      initial.trigger_json.counter_at_pct != null
+      ? String(initial.trigger_json.counter_at_pct)
+      : "",
+  );
   const [offerMarginFloorPct, setOfferMarginFloorPct] = useState(
     String(
       initial?.trigger_json.type === "offer_threshold"
         ? initial.trigger_json.margin_floor_pct
         : 10,
     ),
+  );
+  // US-2938. Whole dollars in the box, cents on the wire. Empty means "off",
+  // never zero — the same blank-means-blank discipline the offer thresholds use.
+  const [approveAtDollars, setApproveAtDollars] = useState(
+    initial?.trigger_json.type === "return_threshold" &&
+      initial.trigger_json.approve_at_or_below_cents != null
+      ? String(initial.trigger_json.approve_at_or_below_cents / 100)
+      : "",
+  );
+  const [keepItAtDollars, setKeepItAtDollars] = useState(
+    initial?.trigger_json.type === "return_threshold" &&
+      initial.trigger_json.refund_without_return_at_or_below_cents != null
+      ? String(initial.trigger_json.refund_without_return_at_or_below_cents / 100)
+      : "",
   );
   const [actionType, setActionType] = useState<AutomationAction["type"]>(
     initial?.action_json.type ?? "price_drop_pct",
@@ -412,8 +450,27 @@ function RuleDialog({
         return {
           type: triggerType,
           accept_at_pct: pct(acceptAtPct),
+          counter_at_pct: pct(counterAtPct),
           decline_below_pct: pct(declineBelowPct),
           margin_floor_pct: Math.max(0, Math.trunc(Number(offerMarginFloorPct) || 0)),
+          cooldown_days: cooldown,
+        };
+      }
+      case "return_threshold": {
+        // A BLANK field is null, not 0 — `Number("")` is 0, and a zero limit
+        // would read as "auto-approve nothing" when the seller meant "off",
+        // which is the harmless direction here but the wrong one everywhere
+        // else. One rule, spelled the same way in both places.
+        const cents = (v: string) => {
+          const t = v.trim();
+          if (!t) return null;
+          const n = Number(t);
+          return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
+        };
+        return {
+          type: triggerType,
+          approve_at_or_below_cents: cents(approveAtDollars),
+          refund_without_return_at_or_below_cents: cents(keepItAtDollars),
           cooldown_days: cooldown,
         };
       }
@@ -636,6 +693,23 @@ function RuleDialog({
                   />
                   % of asking
                 </div>
+                {/* US-2940. Between accept and decline in the form because it
+                    is between them in the decision: accept beats counter, and
+                    counter beats decline. */}
+                <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                  Counter at
+                  <Input
+                    type="number"
+                    min={1}
+                    max={100}
+                    placeholder="off"
+                    value={counterAtPct}
+                    onChange={(e) => setCounterAtPct(e.target.value)}
+                    className="w-20"
+                    aria-label="Auto-counter at percent of asking price"
+                  />
+                  % of asking
+                </div>
                 <div className="flex flex-wrap items-center gap-1.5 text-sm">
                   Decline under
                   <Input
@@ -664,12 +738,27 @@ function RuleDialog({
                   %
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Leave a box empty to turn that half off. The cost floor only
-                  ever blocks an accept — it never causes a decline, so a missing
-                  or wrong purchase price can't lose you a sale. Items with no
-                  purchase price recorded are accepted on the percentage alone.
+                  Leave a box empty to turn that part off. Countering beats
+                  declining, so with a counter set, an offer that would have been
+                  declined becomes a counter instead. The cost floor blocks an
+                  accept or a counter and never causes a decline, so a missing or
+                  wrong purchase price can't lose you a sale.
                 </p>
+                <OfferRulePreview
+                  acceptAtPct={acceptAtPct}
+                  counterAtPct={counterAtPct}
+                  declineBelowPct={declineBelowPct}
+                  marginFloorPct={offerMarginFloorPct}
+                />
               </div>
+            )}
+            {triggerType === "return_threshold" && (
+              <ReturnRuleFields
+                approveAtDollars={approveAtDollars}
+                setApproveAtDollars={setApproveAtDollars}
+                keepItAtDollars={keepItAtDollars}
+                setKeepItAtDollars={setKeepItAtDollars}
+              />
             )}
             {triggerType === "offer_received" && (
               <p className="text-xs text-muted-foreground">
@@ -689,6 +778,14 @@ function RuleDialog({
                 Answers eBay Best Offers hourly. This rule's action below is
                 ignored — accepting or declining IS the action. You are told
                 every time it answers one.
+              </p>
+            )}
+            {triggerType === "return_threshold" && (
+              <p className="text-xs text-muted-foreground">
+                Answers eBay returns hourly. This rule's action below is ignored
+                — approving or refunding IS the action. A return filed as "not
+                as described" is never answered automatically, whatever you set
+                here.
               </p>
             )}
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -1225,6 +1322,255 @@ export function FlipdeskAutomationsPage() {
           onOpenChange={setDialogOpen}
           initial={editing}
         />
+      )}
+    </div>
+  );
+}
+
+
+// ── US-2938: the return-rule fields, with the dry run built in ──────
+//
+// The preview is not a nicety. This rule refunds buyers, and a seller who
+// cannot see the item list before switching it on is being asked to trust a
+// number they typed against data they have not looked at. So the preview sits
+// in the form rather than behind a link, and it reports the SKIPS with their
+// reasons too — "nothing would have fired" is the most useful answer this can
+// give, and it is invisible if only the hits are listed.
+
+interface DryRunLine {
+  externalId: string;
+  decision: "approve" | "refund_keep" | "skip";
+  reason: string;
+}
+
+interface DryRunResult {
+  days: number;
+  considered: number;
+  wouldApprove: number;
+  wouldRefundKeep: number;
+  skipped: number;
+  lines: DryRunLine[];
+}
+
+function ReturnRuleFields({
+  approveAtDollars,
+  setApproveAtDollars,
+  keepItAtDollars,
+  setKeepItAtDollars,
+}: {
+  approveAtDollars: string;
+  setApproveAtDollars: (v: string) => void;
+  keepItAtDollars: string;
+  setKeepItAtDollars: (v: string) => void;
+}) {
+  const [preview, setPreview] = useState<DryRunResult | null>(null);
+  const [running, setRunning] = useState(false);
+  const dollarsToCents = (v: string) => {
+    const t = v.trim();
+    if (!t) return null;
+    const n = Number(t);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
+  };
+  const canPreview =
+    dollarsToCents(approveAtDollars) != null || dollarsToCents(keepItAtDollars) != null;
+
+  async function runPreview() {
+    setRunning(true);
+    setPreview(null);
+    try {
+      const res = await edgeFetch("/api/flipdesk/ebay/returns/rule-dry-run", {
+        method: "POST",
+        body: JSON.stringify({
+          approve_at_or_below_cents: dollarsToCents(approveAtDollars),
+          refund_without_return_at_or_below_cents: dollarsToCents(keepItAtDollars),
+          days: 30,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "The preview failed.");
+      setPreview(json as DryRunResult);
+    } catch (err) {
+      toastError(err, "Couldn't run the preview.");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+      <div className="flex flex-wrap items-center gap-1.5 text-sm">
+        Approve returns at or under $
+        <Input
+          type="number"
+          min={1}
+          placeholder="off"
+          value={approveAtDollars}
+          onChange={(e) => setApproveAtDollars(e.target.value)}
+          className="w-24"
+          aria-label="Auto-approve returns at or below this order total, in dollars"
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5 text-sm">
+        Refund and let them keep it at or under $
+        <Input
+          type="number"
+          min={1}
+          placeholder="off"
+          value={keepItAtDollars}
+          onChange={(e) => setKeepItAtDollars(e.target.value)}
+          className="w-24"
+          aria-label="Refund without asking for the item back, at or below this order total, in dollars"
+        />
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Leave a box empty to turn that half off. There is no auto-decline:
+        declining puts you on record refusing, and a return declined by mistake
+        becomes an eBay case, which counts against your account. A "not as
+        described" return is always left for you.
+      </p>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={!canPreview || running}
+        onClick={runPreview}
+      >
+        {running ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+        Show me what this would have done
+      </Button>
+      {preview && (
+        <div className="space-y-2 rounded-md border bg-background p-2">
+          <p className="text-sm">
+            Over the last {preview.days} days: {preview.considered} return
+            {preview.considered === 1 ? "" : "s"}, {preview.wouldApprove} approved,{" "}
+            {preview.wouldRefundKeep} refunded outright, {preview.skipped} left for you.
+          </p>
+          {preview.lines.length > 0 && (
+            <ul className="max-h-48 space-y-1 overflow-y-auto text-xs text-muted-foreground">
+              {preview.lines.map((l) => (
+                <li key={l.externalId}>
+                  <span className="font-medium">{l.externalId}</span> — {l.reason}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ── US-2940: the offer-rule preview ─────────────────────────────────
+//
+// Countering answers a buyer with a price, automatically, with nobody watching.
+// A seller who cannot see what the rule would have done to the last month of
+// real offers is being asked to trust a percentage they typed against data they
+// have not looked at.
+//
+// This is only possible at all because US-2939 started storing offers. Before
+// that there was no history to run a rule against.
+
+interface OfferDryRunLine {
+  externalOfferId: string;
+  decision: "accept" | "counter" | "decline" | "skip";
+  copy: string;
+  counterPrice: number | null;
+}
+
+interface OfferDryRunResult {
+  days: number;
+  considered: number;
+  wouldAccept: number;
+  wouldCounter: number;
+  wouldDecline: number;
+  skipped: number;
+  lines: OfferDryRunLine[];
+}
+
+function OfferRulePreview({
+  acceptAtPct,
+  counterAtPct,
+  declineBelowPct,
+  marginFloorPct,
+}: {
+  acceptAtPct: string;
+  counterAtPct: string;
+  declineBelowPct: string;
+  marginFloorPct: string;
+}) {
+  const [preview, setPreview] = useState<OfferDryRunResult | null>(null);
+  const [running, setRunning] = useState(false);
+  const num = (v: string) => {
+    const t = v.trim();
+    if (!t) return null;
+    const n = Number(t);
+    return Number.isFinite(n) ? n : null;
+  };
+  const canPreview =
+    num(acceptAtPct) != null || num(counterAtPct) != null || num(declineBelowPct) != null;
+
+  async function run() {
+    setRunning(true);
+    setPreview(null);
+    try {
+      const res = await edgeFetch("/api/flipdesk/ebay/negotiation/rule-dry-run", {
+        method: "POST",
+        body: JSON.stringify({
+          accept_at_pct: num(acceptAtPct),
+          counter_at_pct: num(counterAtPct),
+          decline_below_pct: num(declineBelowPct),
+          margin_floor_pct: num(marginFloorPct),
+          days: 30,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "The preview failed.");
+      setPreview(json as OfferDryRunResult);
+    } catch (err) {
+      toastError(err, "Couldn't run the preview.");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={!canPreview || running}
+        onClick={run}
+      >
+        {running ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+        Show me what this would have done
+      </Button>
+      {preview && (
+        <div className="space-y-2 rounded-md border bg-background p-2">
+          <p className="text-sm">
+            Over the last {preview.days} days: {preview.considered} offer
+            {preview.considered === 1 ? "" : "s"}, {preview.wouldAccept} accepted,{" "}
+            {preview.wouldCounter} countered, {preview.wouldDecline} declined,{" "}
+            {preview.skipped} left for you.
+          </p>
+          {preview.considered === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No offers on record for this window yet, so there is nothing to
+              check the rule against. Offers start being recorded from the first
+              time we read them.
+            </p>
+          )}
+          {preview.lines.length > 0 && (
+            <ul className="max-h-48 space-y-1 overflow-y-auto text-xs text-muted-foreground">
+              {preview.lines.map((l) => (
+                <li key={l.externalOfferId}>
+                  <span className="font-medium">{l.externalOfferId}</span> — {l.copy}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );

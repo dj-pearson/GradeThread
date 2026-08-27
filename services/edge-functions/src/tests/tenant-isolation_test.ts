@@ -6930,3 +6930,74 @@ Deno.test({
     assertDenied(res.status, "POST eBay return message");
   },
 });
+
+// ── US-2935: the grade pack on the case surface ─────────────────────
+//
+// Same shape as the return and dispute evidence cases: a caseId straight from
+// the path, plus from-pack mode carrying an order id that must resolve to
+// NOTHING for a tenant who does not own it.
+Deno.test({
+  name: "B cannot attach evidence to A's eBay case",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_CASE_ID"),
+  fn: async () => {
+    const caseId = Deno.env.get("TEST_USER_A_EBAY_CASE_ID")!;
+    const png = Uint8Array.from(atob(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    ), (ch) => ch.charCodeAt(0));
+    const form = new FormData();
+    form.append("file", new File([png], "evidence.png", { type: "image/png" }));
+    const orderId = Deno.env.get("TEST_USER_A_EBAY_ORDER_ID");
+    if (orderId) {
+      form.append("order_id", orderId);
+      form.append("complaint", "There is a stain on the cuff.");
+    }
+    const headers = authHeaders(B_JWT!) as Record<string, string>;
+    delete headers["Content-Type"];
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/cases/${encodeURIComponent(caseId)}/evidence`,
+      { method: "POST", headers, body: form },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST eBay case evidence");
+  },
+});
+
+// ── US-2944: reconcile takes listing ids from the REQUEST BODY ──────
+//
+// The one shape in this story that can leak: every other new offer route is an
+// owner-scoped read with no attacker-controlled id. This one accepts a list of
+// listing ids and WRITES to them, so a missing owner filter would let B rewrite
+// the best-offer threshold on A's listings — and the response would be a
+// cheerful 200 with a count, not a 403.
+Deno.test({
+  name: "B cannot reconcile the offer thresholds on A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/negotiation/threshold-conflicts/reconcile`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ listing_ids: [listingId] }),
+      },
+    );
+    // 409 (B has no offer rule) and a denial are both fine. A 200 that reports
+    // `updated > 0` is the failure — it means A's listing was written.
+    if (res.status === 200) {
+      const body = await res.json().catch(() => ({}));
+      assertEquals(
+        body.updated,
+        0,
+        "reconcile wrote to a listing belonging to another tenant",
+      );
+      return;
+    }
+    await res.body?.cancel();
+    assert(
+      res.status === 409 || res.status === 401 || res.status === 403 ||
+        res.status === 404 || res.status === 400,
+      `unexpected status ${res.status} for cross-tenant reconcile`,
+    );
+  },
+});

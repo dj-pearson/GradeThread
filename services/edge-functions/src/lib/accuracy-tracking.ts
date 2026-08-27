@@ -2,6 +2,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { evalThresholds } from "./grading-eval.ts";
 import { reviewConfidenceThreshold } from "./ai-config.ts";
 import { computeIrrReport, type ItemRatings } from "./irr.ts";
+import { NON_SALE_OUTCOME_SOURCES } from "./grade-snad-signal.ts";
 import {
   aggregateClaimSignals,
   type ClaimAccuracySignalReport,
@@ -1043,12 +1044,14 @@ export async function computePublicStats(): Promise<PublicStats> {
       .select("id", { count: "exact", head: true })
       .eq("verified_enabled", true)
       .not("verified_handle", "is", null),
-    // Sale-outcome count only — exclude US-1812 buyer_arrival confirmations,
-    // which aren't sales.
+    // Sale-outcome count only. US-2937 replaced the bare
+    // `.neq("source", "buyer_arrival")` here with the shared list: a
+    // marketplace SNAD observation is a graded item coming BACK, and counting
+    // it as a graded SALE inflates the public figure with returns.
     supabaseAdmin
       .from("grade_outcomes")
       .select("id", { count: "exact", head: true })
-      .neq("source", "buyer_arrival"),
+      .not("source", "in", `(${NON_SALE_OUTCOME_SOURCES.join(",")})`),
     // The agreement rate reuses the existing accuracy engine (sample-gated).
     computeAccuracySummary(),
   ]);
@@ -1240,8 +1243,10 @@ export async function computeOutcomeFeedback(): Promise<OutcomeFeedbackSummary> 
     .from("grade_outcomes")
     .select("grade_report_id, listing_price, sold_price, dispute_reported")
     // Sale-outcome feedback only — US-1812 buyer_arrival confirmations feed the
-    // seller Grade Integrity aggregate, not this sold-price/dispute-rate metric.
-    .neq("source", "buyer_arrival");
+    // seller Grade Integrity aggregate, not this sold-price/dispute-rate metric,
+    // and US-2937 marketplace SNAD observations are unconfirmed signals that a
+    // human has not looked at yet.
+    .not("source", "in", `(${NON_SALE_OUTCOME_SOURCES.join(",")})`);
   if (error) throw new Error(`Failed to fetch grade outcomes: ${error.message}`);
 
   const empty: OutcomeFeedbackSummary = {

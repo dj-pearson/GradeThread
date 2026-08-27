@@ -43,6 +43,16 @@ import {
 import { useNegotiationDraft } from "@/hooks/use-ai-extract";
 import { applyNegotiationDraft } from "@/pages/flipdesk/negotiation-draft-prefill";
 import { PageHelp } from "@/components/help/page-help";
+import { OfferAnalyticsCard } from "@/components/flipdesk/offer-analytics-card";
+import { OfferThresholdConflicts } from "@/components/flipdesk/offer-threshold-conflicts";
+import { SendOffersToday } from "@/components/flipdesk/send-offers-today";
+import {
+  formatMoney,
+  grossMarginCents,
+  marginPct,
+  pctOfList,
+  readExpiry,
+} from "@/pages/flipdesk/offer-economics";
 
 // US-1040/1041: web parity for eBay Best Offers (accept/decline/counter), send
 // offers to interested buyers, and the buyer-message inbox — features that were
@@ -132,9 +142,19 @@ export function FlipdeskOffersPage() {
           one. Without saying so, an empty list means "no offers" to a seller
           who also lists on Poshmark — when it means "we do not read Poshmark". */}
       <PlatformCoverageNote feature="offers" noun="Offers and buyer messages" />
+      {/* US-2944: above the offers, because it is about the ones that will
+          never reach this list — eBay answers them first. Renders nothing when
+          there is no rule or no conflict. */}
+      <OfferThresholdConflicts />
       <BestOffersCard />
+      {/* US-2943: above the manual send-offer picker, because it is the answer
+          to the question that picker makes the seller work out for themselves —
+          which items are worth offering today. */}
+      <SendOffersToday />
       <SendOfferCard />
       <MessagesCard />
+      {/* Last: the open offers are the work, this is the pattern behind them. */}
+      <OfferAnalyticsCard />
     </div>
   );
 }
@@ -213,6 +233,21 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
   const [warnings, setWarnings] = useState<string[]>([]);
   const busy = respond.isPending;
   const cur = offer.currency ?? "USD";
+  // US-2941. The economics module is shared with nothing on this page by
+  // accident: it is the same arithmetic the edge's margin floor applies, so the
+  // number the seller reads and the number an automation acts on cannot differ.
+  const economics = {
+    offerPrice: offer.price,
+    listPrice: offer.listPriceCents != null ? offer.listPriceCents / 100 : null,
+    itemCost: offer.itemCost,
+  };
+  const sharePct = pctOfList(economics);
+  const margin = grossMarginCents(economics);
+  const marginShare = marginPct(economics);
+  // Re-read on every render rather than memoized: the row re-renders on the
+  // 90-second background refetch, which is exactly when the countdown should
+  // move. Memoizing it would freeze the clock until the offer changed.
+  const expiry = readExpiry(offer.expiresAt);
 
   async function act(action: "Accept" | "Decline" | "Counter") {
     const counter = Number(counterPrice);
@@ -287,17 +322,57 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
               : "—"}
             {offer.quantity ? ` · qty ${offer.quantity}` : ""}
           </p>
+          {/* US-2941: the three numbers that decide it, on the row. Deciding
+              used to mean opening the item in another tab to find out what it
+              cost and what it was listed at — and offers expire. */}
+          <p className="text-xs text-muted-foreground">
+            {sharePct != null ? `${sharePct}% of asking` : "asking price unknown"}
+            {" · "}
+            {margin == null
+              ? "cost unknown"
+              : `${formatMoney(margin, cur)} margin${
+                marginShare != null ? ` (${marginShare}%)` : ""
+              }`}
+          </p>
+          {/* Buyer memory: same person, third offer, second item. Invisible
+              before US-2939 started storing offers. */}
+          {offer.buyerHistory && offer.buyerHistory.priorOffers > 0 && (
+            <p className="text-xs text-muted-foreground">
+              This buyer has offered {offer.buyerHistory.priorOffers} time
+              {offer.buyerHistory.priorOffers === 1 ? "" : "s"} before
+              {offer.buyerHistory.bestPriorCents != null
+                ? `, best ${formatMoney(offer.buyerHistory.bestPriorCents, cur)}`
+                : ""}
+              {offer.buyerHistory.everAccepted ? " · you accepted one" : ""}.
+            </p>
+          )}
           {offer.message && (
             <p className="mt-1 text-xs italic text-muted-foreground">
               "{offer.message}"
             </p>
           )}
         </div>
-        {offer.status && (
-          <Badge variant="outline" className="shrink-0 text-[10px]">
-            {offer.status}
-          </Badge>
-        )}
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          {offer.status && (
+            <Badge variant="outline" className="text-[10px]">
+              {offer.status}
+            </Badge>
+          )}
+          {/* Hours, not days: eBay offers commonly run 48, so a day countdown
+              says "1d left" about something that expires before lunch. */}
+          {expiry && (
+            <Badge
+              variant={
+                expiry.urgency === "expired" || expiry.urgency === "last_hours"
+                  ? "destructive"
+                  : "outline"
+              }
+              className="text-[10px]"
+            >
+              {expiry.label}
+            </Badge>
+          )}
+        </div>
       </div>
 
       {countering ? (

@@ -25,7 +25,23 @@ import { getBestOffers, respondToBestOffer } from "../lib/ebay-trading.ts";
 import {
   claimMarketplaceEvent,
   notifyOfferResponded,
+  releaseMarketplaceEvent,
 } from "../lib/marketplace-event-notify.ts";
+import {
+  decideReturnRule,
+  type ReturnRuleDecision,
+  type ReturnRuleFacts,
+} from "../lib/return-rules.ts";
+import {
+  decideReturn,
+  issueReturnRefund,
+} from "../lib/ebay-postorder.ts";
+import {
+  markPostSaleCaseClosed,
+  updatePostSaleCaseState,
+} from "../lib/post-sale-store.ts";
+import { writeSystemAuditLog } from "../lib/audit-log.ts";
+import { recordOfferResponse, recordOffers } from "../lib/offer-store.ts";
 import {
   decideOffer,
   describeOfferOutcome,
@@ -1110,12 +1126,29 @@ async function runRulesForOwner(ownerId: string): Promise<AutomationRunResult> {
   // rule table and nothing else.
   try {
     const offerRun = await runOfferRulesForOwner(ownerId, rules);
-    result.applied += offerRun.accepted + offerRun.declined;
+    result.applied += offerRun.accepted + offerRun.countered + offerRun.declined;
     result.errors += offerRun.errors;
   } catch (err) {
     result.errors++;
     console.error(
       "[automations] offer rules failed",
+      ownerId,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
+  // US-2938: returns next, and BEFORE the listing pass — approving a return can
+  // put stock back, and a price drop computed against an item that is coming
+  // home is spent on the wrong number. Independent of both neighbours for the
+  // same reason the offer half is: they share a rule table and nothing else.
+  try {
+    const returnRun = await runReturnRulesForOwner(ownerId, rules);
+    result.applied += returnRun.approved + returnRun.refunded_keep;
+    result.errors += returnRun.errors;
+  } catch (err) {
+    result.errors++;
+    console.error(
+      "[automations] return rules failed",
       ownerId,
       err instanceof Error ? err.message : String(err),
     );
@@ -1384,6 +1417,8 @@ async function loadOfferContext(
 export interface OfferRunResult {
   offers_seen: number;
   accepted: number;
+  /** US-2940: offers answered with a counter rather than a yes or a no. */
+  countered: number;
   declined: number;
   skipped: number;
   errors: number;
@@ -1405,6 +1440,7 @@ export async function runOfferRulesForOwner(
   const result: OfferRunResult = {
     offers_seen: 0,
     accepted: 0,
+    countered: 0,
     declined: 0,
     skipped: 0,
     errors: 0,
@@ -1452,6 +1488,7 @@ export async function runOfferRulesForOwner(
 
     let decision: OfferDecision = "skip";
     let copy = "";
+    let counterPrice: number | undefined;
     let firedRule: AutomationRuleRow | null = null;
     for (const rule of offerRules) {
       const t = rule.trigger_json as Extract<
@@ -1462,6 +1499,7 @@ export async function runOfferRulesForOwner(
         acceptAtPct: t.accept_at_pct,
         declineBelowPct: t.decline_below_pct,
         marginFloorPct: t.margin_floor_pct,
+        counterAtPct: t.counter_at_pct ?? null,
       }, {
         offerPrice: offer.price,
         listPrice: c.listPrice,
@@ -1470,6 +1508,7 @@ export async function runOfferRulesForOwner(
       if (outcome.decision !== "skip") {
         decision = outcome.decision;
         copy = describeOfferOutcome(outcome);
+        counterPrice = outcome.counterPrice;
         firedRule = rule;
         break;
       }
@@ -1502,10 +1541,48 @@ export async function runOfferRulesForOwner(
       await respondToBestOffer(ownerId, {
         itemId: offer.itemId,
         bestOfferId: offer.bestOfferId,
-        action: decision === "accept" ? "Accept" : "Decline",
+        action: decision === "accept"
+          ? "Accept"
+          : decision === "counter"
+          ? "Counter"
+          : "Decline",
+        // US-2940: the price comes from the decision, not from the runner. One
+        // number, computed once, so what the seller previewed and what eBay
+        // receives cannot differ.
+        counterPrice: decision === "counter" ? counterPrice : undefined,
       }, c.connectionId);
       if (decision === "accept") result.accepted++;
+      else if (decision === "counter") result.countered++;
       else result.declined++;
+      // US-2939: record the outcome AND the rule that made it, so the offer
+      // analytics can tell an automated answer from a human one. Best-effort —
+      // eBay has already been told, and a bookkeeping failure must not look
+      // like the response failed.
+      await recordOfferResponse(
+        ownerId,
+        offer.bestOfferId,
+        decision === "accept"
+          ? "accepted"
+          : decision === "counter"
+          ? "countered"
+          : "declined",
+        {
+          ruleId: firedRule.id,
+          amountCents: counterPrice != null ? Math.round(counterPrice * 100) : null,
+        },
+      );
+      if (decision === "counter" && counterPrice != null) {
+        // Our counter is its OWN event, not a property of the bid it answered.
+        // The conversion figures divide by both.
+        await recordOffers(ownerId, [{
+          direction: "counter_sent",
+          externalOfferId: offer.bestOfferId,
+          itemExternalId: offer.itemId,
+          amountCents: Math.round(counterPrice * 100),
+          state: "Countered",
+          ruleId: firedRule.id,
+        }]);
+      }
       // Always tell the seller, through the SAME notifier the manual response
       // uses — in-app, email and push, honouring their preferences. An
       // automation that answers a buyer without saying so is indistinguishable
@@ -1516,7 +1593,7 @@ export async function runOfferRulesForOwner(
       await notifyOfferResponded(
         ownerId,
         offer.itemTitle,
-        decision === "accept" ? "accepted" : "declined",
+        decision === "accept" ? "accepted" : decision === "counter" ? "countered" : "declined",
       );
     } catch (err) {
       result.errors++;
@@ -1581,5 +1658,211 @@ export async function handleAutomationRulesCron(c: Context): Promise<Response> {
     });
   } finally {
     await lock.release();
+  }
+}
+
+
+// ── US-2938: the return rules runner ────────────────────────────────
+//
+// The return-shaped sibling of runOfferRulesForOwner, and it lives beside it
+// for the same reason: the evaluation unit is a RETURN, not a listing, so the
+// listing planner cannot express it. Same hourly cron, same lock, same plan
+// gate, no new job.
+//
+// Order matters, and this runs AFTER the offer rules and BEFORE the listing
+// pass. Offers first because an accepted offer ends a listing; returns before
+// the price pass because approving a return can put stock back and a price drop
+// computed against an item that is coming home is spent on the wrong number.
+
+export interface ReturnRunResult {
+  returns_seen: number;
+  approved: number;
+  refunded_keep: number;
+  skipped: number;
+  errors: number;
+}
+
+/**
+ * Answer the returns this owner's rules cover.
+ *
+ * Reads the STORED cases (marketplace_post_sale_cases) rather than calling
+ * eBay: the sweep already refreshed them, the order total is already resolved
+ * through the linked sale, and a cron that re-hits Post-Order once an hour per
+ * seller buys nothing but call quota.
+ */
+export async function runReturnRulesForOwner(
+  ownerId: string,
+  rules: AutomationRuleRow[],
+): Promise<ReturnRunResult> {
+  const result: ReturnRunResult = {
+    returns_seen: 0,
+    approved: 0,
+    refunded_keep: 0,
+    skipped: 0,
+    errors: 0,
+  };
+  const returnRules = rules.filter((r) => r.trigger_json?.type === "return_threshold");
+  if (returnRules.length === 0) return result;
+  if (!isEbayConfigured()) return result;
+
+  const open = await loadOpenReturnFacts(ownerId);
+  result.returns_seen = open.length;
+  if (open.length === 0) return result;
+
+  for (const ret of open) {
+    let decision: ReturnRuleDecision = "skip";
+    let copy = "";
+    for (const rule of returnRules) {
+      const t = rule.trigger_json as Extract<
+        AutomationTrigger,
+        { type: "return_threshold" }
+      >;
+      const outcome = decideReturnRule({
+        approveAtOrBelowCents: t.approve_at_or_below_cents,
+        refundWithoutReturnAtOrBelowCents: t.refund_without_return_at_or_below_cents,
+      }, ret);
+      if (outcome.decision !== "skip") {
+        decision = outcome.decision;
+        copy = outcome.reason;
+        break;
+      }
+    }
+    if (decision === "skip") {
+      result.skipped++;
+      continue;
+    }
+
+    // IDEMPOTENCY BEFORE THE EBAY CALL, exactly as the offer runner does it. The
+    // cron can overlap a manual decision, a retry, or its own previous run;
+    // claiming the (return, action) pair first means a duplicate attempt does
+    // nothing instead of racing eBay and logging a stale-return failure that
+    // reads like a defect.
+    const fresh = await claimMarketplaceEvent(
+      ownerId,
+      "return",
+      ret.externalId,
+      `auto:${decision}`,
+      "return_auto_answered",
+      null,
+    );
+    if (!fresh) {
+      result.skipped++;
+      continue;
+    }
+
+    try {
+      if (decision === "approve") {
+        await decideReturn(ownerId, ret.externalId, "APPROVE");
+        await updatePostSaleCaseState(ownerId, "return", ret.externalId, {
+          state: "RETURN_APPROVED",
+        });
+        result.approved++;
+      } else {
+        // Refund and let the buyer keep it. Two eBay calls in sequence and the
+        // ORDER is load-bearing: approve first, because eBay rejects a refund
+        // on a return it has not been told to expect.
+        await decideReturn(ownerId, ret.externalId, "APPROVE");
+        await issueReturnRefund(ownerId, ret.externalId);
+        await markPostSaleCaseClosed(ownerId, "return", ret.externalId, "auto_refunded");
+        result.refunded_keep++;
+      }
+      console.log(`[automations:returns] ${ownerId} ${ret.externalId}: ${copy}`);
+      await writeAutomationAudit(ownerId, ret.externalId, decision, copy);
+    } catch (err) {
+      result.errors++;
+      // Hand the claim back so the next run retries, same as the offer runner.
+      await releaseMarketplaceEvent(ownerId, "return", ret.externalId, `auto:${decision}`);
+      console.error(
+        "[automations:returns] failed",
+        ownerId,
+        ret.externalId,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return result;
+}
+
+/**
+ * The open returns this owner has, with the order total resolved through the
+ * linked sale.
+ *
+ * Owner-scoped (US-268). A return with no linked sale has no order total, and
+ * decideReturnRule skips it rather than treating unknown as zero.
+ */
+async function loadOpenReturnFacts(
+  ownerId: string,
+): Promise<Array<ReturnRuleFacts & { externalId: string }>> {
+  const { data, error } = await supabaseAdmin
+    .from("marketplace_post_sale_cases")
+    .select("external_id, reason, state, sale_id")
+    .eq("user_id", ownerId)
+    .eq("platform", "ebay")
+    .eq("case_type", "return")
+    .is("closed_at", null)
+    .limit(RETURN_RULE_SCAN_CAP);
+  if (error) {
+    console.error("[automations:returns] load failed", ownerId, error.message);
+    return [];
+  }
+  const rows = (data ?? []) as unknown as Array<{
+    external_id: string;
+    reason: string | null;
+    state: string | null;
+    sale_id: string | null;
+  }>;
+  if (rows.length === 0) return [];
+
+  const saleIds = [...new Set(rows.map((r) => r.sale_id).filter(Boolean))] as string[];
+  const totalBySale = new Map<string, number>();
+  if (saleIds.length > 0) {
+    const { data: sales } = await supabaseAdmin
+      .from("sales")
+      .select("id, sale_price")
+      .eq("user_id", ownerId)
+      .in("id", saleIds);
+    for (
+      const s of (sales ?? []) as unknown as Array<{ id: string; sale_price: number | null }>
+    ) {
+      if (s.sale_price != null && Number.isFinite(Number(s.sale_price))) {
+        totalBySale.set(s.id, Math.round(Number(s.sale_price) * 100));
+      }
+    }
+  }
+  return rows.map((r) => ({
+    externalId: r.external_id,
+    reason: r.reason,
+    state: r.state,
+    orderTotalCents: r.sale_id ? (totalBySale.get(r.sale_id) ?? null) : null,
+  }));
+}
+
+const RETURN_RULE_SCAN_CAP = 200;
+
+/**
+ * Every auto-action names the rule that fired, in the audit log.
+ *
+ * A SYSTEM row: no human pressed anything, and attributing it to the seller
+ * would make the log say they approved a return they never saw. Best-effort —
+ * a missing audit row must not undo a refund already sent to a buyer.
+ */
+async function writeAutomationAudit(
+  ownerId: string,
+  returnId: string,
+  decision: ReturnRuleDecision,
+  copy: string,
+): Promise<void> {
+  try {
+    await writeSystemAuditLog({
+      action: `ebay.return.auto_${decision}`,
+      targetType: "ebay_return",
+      targetId: returnId,
+      details: { owner_user_id: ownerId, reason: copy },
+    });
+  } catch (err) {
+    console.error(
+      "[automations:returns] audit write failed",
+      err instanceof Error ? err.message : String(err),
+    );
   }
 }

@@ -67,15 +67,43 @@ describe("US-2706: the return-evidence surface", () => {
   });
 
   it("AC5: nothing sends without a click, and nothing sends on a timer", () => {
-    // The plan is a read; the send is a separate mutation behind its own
-    // button. A useEffect that fired either would turn a review surface into an
-    // auto-submit.
+    // The plan is a read; the send is a separate mutation behind its own button.
+    //
+    // ⚠ THIS ASSERTION WAS WIDENED IN US-2935, and the widening is the point of
+    // the comment. It used to ban `useEffect` outright, which was a proxy for
+    // "nothing runs on its own" — correct until the panel gained an on-mount
+    // PREVIEW (a read: no eBay call, no write). Banning the proxy would have
+    // meant either losing the pre-load or deleting the guard, and deleting a
+    // guard to ship a feature is how the rule it protects goes missing.
+    //
+    // So the ban is now on the thing that actually matters: the SEND must not
+    // appear inside an effect or a timer. Timers stay banned outright — there
+    // is no read worth doing on a schedule on a review surface.
     expect(panel).toMatch(/useEbayReturnEvidencePlan/);
     expect(panel).toMatch(/useEbaySendReturnEvidence/);
     expect(
-      /useEffect|setTimeout|setInterval/.test(panel),
-      "the panel runs something on its own - a review surface must not",
+      /setTimeout|setInterval/.test(panel),
+      "a review surface must not run anything on a timer",
     ).toBe(false);
+
+    // Every useEffect body, and none of them may reach the send. Sliced from
+    // the call to its dependency array rather than matched with one regex,
+    // because a body containing braces defeats a lazy [\s\S]*? and would then
+    // silently check an empty string.
+    const effects: string[] = [];
+    let at = panel.indexOf("useEffect(");
+    while (at !== -1) {
+      const end = panel.indexOf("}, [", at);
+      effects.push(panel.slice(at, end === -1 ? panel.length : end));
+      at = panel.indexOf("useEffect(", at + 1);
+    }
+    expect(effects.length, "the effect scan found nothing to check").toBeGreaterThan(0);
+    for (const body of effects) {
+      expect(
+        /send\.mutate|useEbaySendReturnEvidence\(/.test(body),
+        "an effect reaches the SEND - that is an auto-submit",
+      ).toBe(false);
+    }
   });
 
   it("AC5: the send is refused on the surface when the report agrees with the buyer", () => {
@@ -108,18 +136,24 @@ describe("US-2706: the return-evidence surface", () => {
     expect(page).toMatch(/evidenceFor === r\.returnId && !showClosed/);
   });
 
-  it("US-2707: the DISPUTE list offers the same panel, on open cases only", () => {
+  it("US-2707/US-2935: every case surface offers the SAME panel, on open cases only", () => {
     // The rarer path is not the one where GradeThread hands the seller a file
     // picker and no verdict. One panel, so the refusal cannot be present on one
     // surface and missing on the other.
+    //
+    // US-2935 added the third surface — an escalated eBay case, which is the
+    // one that costs a defect. The count is asserted as "every kind, once" now
+    // rather than as the literal 2, so adding a fourth surface fails here only
+    // if it mounts something OTHER than this panel.
     const page = copy(PAGE);
     expect(page).toMatch(/packFor === d\.paymentDisputeId && !showClosed/);
-    expect(page).toMatch(/kind="dispute"/);
-    expect(page).toMatch(/kind="return"/);
+    expect(page).toMatch(/evidenceFor === kase\.caseId && !showClosed/);
+    const kinds = (page.match(/kind="(return|dispute|case)"/g) ?? []).sort();
+    expect(kinds).toEqual(['kind="case"', 'kind="dispute"', 'kind="return"']);
     const mounts = page.match(/<ReturnEvidencePanel/g) ?? [];
     expect(
       mounts.length,
-      "both surfaces must mount the SAME panel component",
-    ).toBe(2);
+      "every case surface must mount the SAME panel component",
+    ).toBe(kinds.length);
   });
 });

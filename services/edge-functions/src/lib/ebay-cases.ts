@@ -209,3 +209,70 @@ export function isCaseAlreadySettled(err: unknown): boolean {
   }
   return /already\s+(closed|refunded|resolved|appealed)/i.test(e?.message ?? "");
 }
+
+// ── Case evidence files (US-2935) ───────────────────────────────────
+//
+// Same two-call shape as the return surface, and the second call is what makes
+// the evidence real: `file/upload` associates each image and hands back a
+// fileId, and the files stay INERT until `file/submit` activates them. Stopping
+// after the upload gets a 200, a fileId, and a seller who believes eBay has
+// their evidence.
+//
+// Submit activates by PURPOSE, not by id, so the whole pack goes up before this
+// runs once — a partial batch cannot be activated selectively.
+
+export type CaseFilePurpose = "ITEM_RELATED" | "REFUND_RELATED" | "SHIPMENT_RELATED";
+
+/** base64 without a data: prefix, chunked so a large image cannot blow the stack. */
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const CHUNK = 8192;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+export async function uploadCaseFile(
+  userId: string,
+  caseId: string,
+  file: { bytes: Uint8Array; filename: string; purpose?: CaseFilePurpose },
+): Promise<string> {
+  const data = await postOrderFetch<{ fileId?: string }>(
+    userId,
+    `/casemanagement/${encodeURIComponent(caseId)}/file/upload`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        fileName: file.filename,
+        data: toBase64(file.bytes),
+        filePurpose: file.purpose ?? "ITEM_RELATED",
+      }),
+    },
+  );
+  const fileId = data.fileId;
+  if (!fileId) {
+    // A 2xx with no id. Treating that as success would activate nothing and
+    // tell the seller their evidence is on the case.
+    const err = new Error("eBay accepted the upload but returned no fileId") as Error & {
+      status?: number;
+    };
+    err.status = 502;
+    throw err;
+  }
+  return fileId;
+}
+
+/** Returns the ids eBay REMOVED at activation, so a shrunken pack is reportable. */
+export async function submitCaseFiles(
+  userId: string,
+  caseId: string,
+  purpose: CaseFilePurpose = "ITEM_RELATED",
+): Promise<{ removedFileIds: string[] }> {
+  const data = await postOrderFetch<{ removedFileIds?: string[] }>(
+    userId,
+    `/casemanagement/${encodeURIComponent(caseId)}/file/submit`,
+    { method: "POST", body: JSON.stringify({ filePurpose: purpose }) },
+  );
+  return { removedFileIds: data.removedFileIds ?? [] };
+}

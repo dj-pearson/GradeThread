@@ -8,6 +8,9 @@ import {
   DEFAULT_OFFER_MARGIN_FLOOR_PCT,
   normalizeThresholdPct,
 } from "./offer-rules.ts";
+import {
+  normalizeThresholdCents as normalizeReturnThresholdCents,
+} from "./return-rules.ts";
 
 export const AUTOMATION_NAME_MAX = 80;
 export const MAX_PRICE_DROP_PCT = 90;
@@ -106,8 +109,26 @@ export type AutomationTrigger =
     accept_at_pct: number | null;
     /** Decline strictly below this percent of list. Null = never auto-decline. */
     decline_below_pct: number | null;
+    /**
+     * US-2940: counter at this percent of list. Null = never auto-counter.
+     *
+     * Optional on the wire so every rule stored before US-2940 keeps parsing —
+     * an absent field is null, which is the pre-counter behaviour exactly.
+     */
+    counter_at_pct?: number | null;
     /** Minimum margin over acquisition cost an auto-ACCEPT must clear. */
     margin_floor_pct: number;
+    cooldown_days: number;
+  }
+  // US-2938: the return-shaped sibling. Same reasoning as offer_threshold — the
+  // evaluation unit is a RETURN, not a listing, so triggerMatches() refuses it
+  // and a per-return runner executes it inside the same hourly cron.
+  | {
+    type: "return_threshold";
+    /** Auto-approve at or below this order total, in cents. Null = never. */
+    approve_at_or_below_cents: number | null;
+    /** Refund without asking for the item back, in cents. Null = never. */
+    refund_without_return_at_or_below_cents: number | null;
     cooldown_days: number;
   };
 
@@ -330,11 +351,33 @@ function normalizeTrigger(
       }
       return { type: "comp_price_moved", direction, pct, cooldown_days: cooldown };
     }
+    case "return_threshold": {
+      const approve = normalizeReturnThresholdCents(t.approve_at_or_below_cents);
+      const keep = normalizeReturnThresholdCents(t.refund_without_return_at_or_below_cents);
+      if (approve === null && keep === null) {
+        return { error: "Set an auto-approve or a refund-without-return limit" };
+      }
+      // Refused at CONFIGURATION time, like the offer overlap above. Refunding
+      // without the item back is strictly more generous than approving a
+      // return, so a keep-it limit above the approve limit describes a rule
+      // whose cheaper band is never reached.
+      if (approve !== null && keep !== null && keep > approve) {
+        return {
+          error: "The refund-without-return limit must be at or below the auto-approve limit",
+        };
+      }
+      return {
+        type: "return_threshold",
+        approve_at_or_below_cents: approve,
+        refund_without_return_at_or_below_cents: keep,
+        cooldown_days: cooldown,
+      };
+    }
     case "offer_threshold": {
       const accept = normalizeThresholdPct(t.accept_at_pct);
       const decline = normalizeThresholdPct(t.decline_below_pct);
-      if (accept === null && decline === null) {
-        return { error: "Set an auto-accept or an auto-decline threshold" };
+      if (accept === null && decline === null && normalizeThresholdPct(t.counter_at_pct) === null) {
+        return { error: "Set an auto-accept, auto-counter or auto-decline threshold" };
       }
       // Refused at CONFIGURATION time, not silently skipped at run time. The
       // decision function also handles the overlap defensively, but a rule the
@@ -343,11 +386,20 @@ function normalizeTrigger(
       if (accept !== null && decline !== null && accept <= decline) {
         return { error: "The accept threshold must be above the decline threshold" };
       }
+      const counter = normalizeThresholdPct(t.counter_at_pct);
+      // US-2940: refused at CONFIGURATION time, like the accept/decline overlap
+      // above. A counter at or above the accept threshold can never fire —
+      // anything that high is accepted first — and a rule the seller can see in
+      // their list that will never act is worse than a validation error.
+      if (accept !== null && counter !== null && counter >= accept) {
+        return { error: "The counter price must be below the accept threshold" };
+      }
       const floorRaw = normalizeThresholdPct(t.margin_floor_pct);
       return {
         type: "offer_threshold",
         accept_at_pct: accept,
         decline_below_pct: decline,
+        counter_at_pct: counter,
         // Defaulted rather than required: every rule gets the safety net, and a
         // seller who never thinks about it is protected anyway.
         margin_floor_pct: floorRaw ?? DEFAULT_OFFER_MARGIN_FLOOR_PCT,
@@ -663,6 +715,11 @@ export function triggerMatches(
     // failure mode of a wrong answer here is an offer answered by the price-drop
     // engine.
     case "offer_threshold":
+      return false;
+    // US-2938: same refusal, same reason. An omission here would fall through
+    // to whatever exhaustiveness left behind, and the failure mode is a RETURN
+    // answered by the price-drop engine.
+    case "return_threshold":
       return false;
   }
 }

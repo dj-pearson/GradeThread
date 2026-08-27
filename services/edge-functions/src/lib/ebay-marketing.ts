@@ -197,7 +197,9 @@ interface MarketingError extends Error {
   ebayErrorIds?: number[];
 }
 
-async function marketingFetch<T>(
+// US-2945: exported so lib/ebay-keywords.ts reuses this exact call shape rather
+// than re-deriving the Content-Language header eBay error 25709 is about.
+export async function marketingFetch<T>(
   userId: string,
   path: string,
   init?: RequestInit,

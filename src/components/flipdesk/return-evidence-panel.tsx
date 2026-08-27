@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2, Paperclip, ShieldCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -34,6 +34,8 @@ export function ReturnEvidencePanel({
   caseId,
   orderId,
   kind,
+  initialComplaint,
+  autoCheck,
 }: {
   caseId: string;
   /** Null when the case carries no order id — nothing to look the item up by. */
@@ -43,21 +45,53 @@ export function ReturnEvidencePanel({
    * nothing else — the plan, the refusal and the wording are the same question
    * asked of the same grade report, and a second panel would be a second place
    * for the refusal to go missing.
+   *
+   * US-2935 adds "case", which is the surface that costs a defect.
    */
-  kind: "return" | "dispute";
+  kind: "return" | "dispute" | "case";
+  /**
+   * US-2935: the buyer's stated reason, prefilled when the seller opens this
+   * from a decline / contest / case response. Editable — eBay's reason token is
+   * a category, not what the buyer actually wrote.
+   */
+  initialComplaint?: string;
+  /**
+   * US-2935: run the READ on mount. It is a read: no eBay endpoint, no write.
+   * The SEND stays behind its own button, because the useful outcome of this
+   * feature is often the one where we tell the seller not to fight.
+   */
+  autoCheck?: boolean;
 }) {
-  const [complaint, setComplaint] = useState("");
+  const [complaint, setComplaint] = useState(initialComplaint ?? "");
   const [plan, setPlan] = useState<ReturnEvidencePlan | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const preview = useEbayReturnEvidencePlan();
   const send = useEbaySendReturnEvidence();
+  // Once. `checkedRef` rather than a dependency list, so re-rendering while the
+  // seller types in the box cannot fire a second preview.
+  const checkedRef = useRef(false);
+  useEffect(() => {
+    if (!autoCheck || checkedRef.current || !orderId) return;
+    const seed = (initialComplaint ?? "").trim();
+    if (!seed) return;
+    checkedRef.current = true;
+    preview
+      .mutateAsync({ orderId, complaint: seed })
+      .then(setPlan)
+      .catch(() => {
+        // Silent. The seller can press the button; a toast on mount for a read
+        // they did not ask for is noise on a page they opened to do something
+        // else.
+        checkedRef.current = false;
+      });
+  }, [autoCheck, orderId, initialComplaint, preview]);
 
   if (!orderId) {
     return (
       <p className="text-xs text-muted-foreground">
-        This {kind === "return" ? "return" : "dispute"} has no order id, so we
-        can't find the graded item behind it.
+        This {kind === "return" ? "return" : kind === "case" ? "case" : "dispute"}{" "}
+        has no order id, so we can't find the graded item behind it.
       </p>
     );
   }

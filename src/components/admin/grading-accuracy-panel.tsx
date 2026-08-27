@@ -159,6 +159,7 @@ export function GradingAccuracyPanel() {
             <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
             <TabsTrigger value="defects">Defects</TabsTrigger>
             <TabsTrigger value="outcomes">Outcomes</TabsTrigger>
+            <TabsTrigger value="snad">Returns</TabsTrigger>
             <TabsTrigger value="shadow">Shadow</TabsTrigger>
             <TabsTrigger value="tools">Tools</TabsTrigger>
           </TabsList>
@@ -186,6 +187,13 @@ export function GradingAccuracyPanel() {
 
           <TabsContent value="outcomes" className="pt-3">
             <OutcomesTab />
+          </TabsContent>
+
+          {/* US-2937: grades the market disagreed with. Its own tab rather than
+              a row in Outcomes, because these are a REVIEW QUEUE — each one is
+              a piece of work for a person, not a number to read. */}
+          <TabsContent value="snad" className="pt-3">
+            <SnadObservationsTab />
           </TabsContent>
 
           <TabsContent value="shadow" className="pt-3">
@@ -633,6 +641,92 @@ function MiniTable({ title, head, rows }: { title: string; head: string[]; rows:
           </TableBody>
         </Table>
       </div>
+    </div>
+  );
+}
+
+// ── US-2937: SNAD observations ──────────────────────────────────────
+//
+// A human review says the model was 0.5 off. These rows say a buyer paid, held
+// the garment, and said the condition was not what we published — the market
+// disagreeing with the grade.
+//
+// A SIGNAL, NOT A VERDICT, and the copy says so. Buyers file "not as described"
+// for wrong sizes, for screen colour, and because it is the reason that gets
+// free return postage. None of these rows reaches a public accuracy figure
+// until a person has been through it, which is what this tab is for.
+
+interface SnadObservation {
+  id: string;
+  grade_report_id: string;
+  inventory_item_id: string | null;
+  observed_at: string;
+  overall_score: number | null;
+  grade_tier: string | null;
+  confidence_score: number | null;
+  needs_human_review: boolean | null;
+  already_reviewed: boolean;
+}
+
+function SnadObservationsTab() {
+  const [unreviewedOnly, setUnreviewedOnly] = useState(true);
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["admin-grading-snad-observations"],
+    queryFn: () =>
+      getJson<{ total: number; observations: SnadObservation[] }>(
+        "/api/admin/grading/accuracy/snad-observations?limit=200",
+      ),
+    staleTime: 60 * 1000,
+  });
+  if (isLoading) return <Skeleton className="h-32 w-full" />;
+  if (error || !data) {
+    return <p className="text-sm text-destructive">Couldn't load return observations.</p>;
+  }
+  const rows = unreviewedOnly
+    ? data.observations.filter((o) => !o.already_reviewed)
+    : data.observations;
+  if (data.total === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No not-as-described returns on graded items yet.
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        A buyer returned one of these as not as described. That is a signal about
+        the grade, not a ruling on it — buyers pick this reason for wrong sizes
+        and for free return postage too. Nothing here reaches a published figure
+        until you have been through it.
+      </p>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => setUnreviewedOnly((v) => !v)}
+      >
+        {unreviewedOnly
+          ? `Show all (${data.observations.length})`
+          : `Show unreviewed only (${data.observations.filter((o) => !o.already_reviewed).length})`}
+      </Button>
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Every one of these has already been reviewed.
+        </p>
+      ) : (
+        <MiniTable
+          title={`${rows.length} observation${rows.length === 1 ? "" : "s"}`}
+          head={["Grade", "Tier", "Confidence", "Flagged at grading", "Reviewed", "Seen"]}
+          rows={rows.map((o) => [
+            o.overall_score == null ? "—" : o.overall_score.toFixed(1),
+            o.grade_tier ?? "—",
+            o.confidence_score == null ? "—" : o.confidence_score.toFixed(2),
+            o.needs_human_review ? "yes" : "no",
+            o.already_reviewed ? "yes" : "no",
+            o.observed_at.slice(0, 10),
+          ])}
+        />
+      )}
     </div>
   );
 }
