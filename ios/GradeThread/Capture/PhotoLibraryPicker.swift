@@ -25,6 +25,23 @@ struct PhotoLibraryPicker: UIViewControllerRepresentable {
     /// "cancel".
     let onResults: ([PHPickerResult]) -> Void
 
+    /// US-2926: SwiftUI dismisses this, NOT UIKit.
+    ///
+    /// The coordinator used to call `picker.dismiss(animated: true)` itself.
+    /// That tears the controller down imperatively, behind the back of the
+    /// `.sheet` binding that presented it, so SwiftUI still believes its sheet
+    /// is up. The next presentation change on that view then acts on a stale
+    /// belief and dismisses the wrong thing — which, for a picker opened from
+    /// inside Snap-to-Value or Prospect (both themselves sheets), was the
+    /// module, on the next state change after the pick. That state change is
+    /// the submit button setting `isLoading`, which is why it read as "it
+    /// closes when I hit submit" and why nothing ever reached the server.
+    ///
+    /// ``CameraPicker`` has always done it this way and has never had the bug:
+    /// a photo taken with the camera submits fine, and the same item picked
+    /// from the library does not. That asymmetry is the whole diagnosis.
+    @Environment(\.dismiss) private var dismiss
+
     func makeUIViewController(context: Context) -> PHPickerViewController {
         // Bare config (no `photoLibrary:`) → no library permission, no prompt.
         var config = PHPickerConfiguration()
@@ -40,18 +57,30 @@ struct PhotoLibraryPicker: UIViewControllerRepresentable {
 
     func updateUIViewController(_ uiViewController: PHPickerViewController, context: Context) {}
 
-    func makeCoordinator() -> Coordinator { Coordinator(onResults: onResults) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onResults: onResults, dismiss: { dismiss() })
+    }
 
     final class Coordinator: NSObject, PHPickerViewControllerDelegate {
         let onResults: ([PHPickerResult]) -> Void
+        let dismiss: () -> Void
 
-        init(onResults: @escaping ([PHPickerResult]) -> Void) {
+        init(
+            onResults: @escaping ([PHPickerResult]) -> Void,
+            dismiss: @escaping () -> Void
+        ) {
             self.onResults = onResults
+            self.dismiss = dismiss
         }
 
         func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
-            picker.dismiss(animated: true)
+            // Results first, then dismiss — the order ``CameraPicker`` uses.
+            // Several callers clear their own binding inside `onResults`; that
+            // is harmless, because the dismiss below then finds nothing left to
+            // do. Six others do NOT, which is why the dismissal has to live
+            // here rather than being pushed out to eleven call sites.
             onResults(results)
+            dismiss()
         }
     }
 }

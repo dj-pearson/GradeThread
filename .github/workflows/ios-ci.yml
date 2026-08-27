@@ -53,6 +53,14 @@ jobs:
         # "Prospect an item" and "What's it worth?", and it is invisible in review.
         run: python3 ios/Scripts/check-chained-sheets.py
 
+      - name: Lint — SwiftUI owns representable dismissal
+        # A UIViewControllerRepresentable that calls `controller.dismiss(animated:)`
+        # tears itself down behind the `.sheet` binding that presented it, so
+        # SwiftUI still believes its sheet is up and the next state change
+        # dismisses the wrong thing. That is US-2926: a LIBRARY photo closed
+        # Snap-to-Value and Prospect on submit while a CAMERA photo worked.
+        run: python3 ios/Scripts/no-uikit-self-dismiss.py
+
       - name: Lint — AI-inference routes use the long-idle session
         # These routes stream nothing until the model finishes, so the 20s-idle
         # session kills a request the server completed AND billed. ScoutAI and

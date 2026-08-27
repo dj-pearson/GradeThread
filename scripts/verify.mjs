@@ -272,6 +272,7 @@ const IOS_GUARDS = [
   ["no force unwrap", "no-force-unwrap.py"],
   ["ATS not relaxed", "check-ats.py"],
   ["one sheet modifier per view", "check-chained-sheets.py"],
+  ["SwiftUI owns representable dismissal", "no-uikit-self-dismiss.py"],
   ["AI routes on the AI session", "check-ai-session.py"],
   ["no trailing comma in a param list", "no-trailing-comma.py"],
   ["help slugs exist in the shared registry", "check-help-slugs.py"],
