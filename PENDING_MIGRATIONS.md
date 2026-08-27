@@ -1,9 +1,22 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ HELD: 00674_brand_size_charts_measurement_basis.sql (US-2917) — PENDING and BLOCKING
+## ✅ APPLIED: 00674_brand_size_charts_measurement_basis.sql (US-2917)
 
-**HELD.** Not applied to prod as of 2026-08-26. Apply it before this branch
-merges to main, then flip this heading to APPLIED.
+**Applied to prod. Confirmed 2026-08-26 by reading the database**, not by
+reading this file. `public.applied_migrations` holds a row for `00674`, and
+since the self-record footer is the LAST statement in the migration, that row
+means the ADD COLUMN, the CHECK constraint and the comment all ran.
+
+**This heading said HELD and BLOCKING for longer than it was true**, while the
+commit was already on origin/main and prod already had the column. That is the
+opposite of the failure `scripts/held-migration-gate.mjs` was built to catch,
+and it is just as expensive: the gate blocked every push, the session-start
+hook warned on every session, and two story notes told the next reader the
+branch was frozen. A marker maintained by hand is not evidence about a
+database. Check with `deno run --allow-net --allow-env --allow-read
+services/edge-functions/scripts/check-prod-migration.ts` (read-only, needs
+`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`) before trusting a heading here
+in either direction.
 
 **What it does.** One `ADD COLUMN IF NOT EXISTS measurement_basis text NOT NULL
 DEFAULT 'body'` on `public.brand_size_charts`, plus a guarded CHECK constraint

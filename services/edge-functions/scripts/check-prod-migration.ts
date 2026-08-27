@@ -100,6 +100,44 @@ const real = gaps.filter((v) => !DELIBERATELY_UNAPPLIED[v]);
 const expected = gaps.filter((v) => DELIBERATELY_UNAPPLIED[v]);
 console.log(`${files.length} migration file(s) in ${migrationsDir}`);
 
+// THE OTHER DIRECTION, which the gap list alone cannot show: versions the
+// database records that no file in this build produces. That is what a rollback
+// leaves behind (00638 dropped what earlier migrations built and removed their
+// applied_migrations rows), and it is also what a database ahead of the checkout
+// looks like. Reported, not failed - an older checkout is a normal state, and
+// making it an error would train people to ignore the exit code.
+const fileSet = new Set(files);
+
+// Some rows carry an extra leading zero - '000355' alongside '00355', for three
+// versions, both forms recorded. They are duplicate records of a migration that
+// did run, not evidence of anything, and left unexplained they put a permanent
+// three-line complaint on a report whose whole value is that its output is
+// normally empty. Normalised to the five-digit form before comparing, and
+// counted separately so the oddity stays visible without being alarming.
+const fiveDigit = (v: string) => v.replace(/^0+(\d{5})$/, "$1");
+const miscounted = [...applied]
+  .filter((v) => !fileSet.has(v) && fileSet.has(fiveDigit(v)))
+  .sort();
+const orphans = [...applied]
+  .filter((v) => !fileSet.has(v) && !fileSet.has(fiveDigit(v)))
+  .sort();
+
+if (miscounted.length > 0) {
+  console.log(
+    `  (${miscounted.length} row(s) recorded with an extra leading zero, ` +
+      `duplicating a version that did run: ${miscounted.join(", ")})`,
+  );
+}
+if (orphans.length > 0) {
+  console.log(
+    `
+${orphans.length} version(s) recorded on prod with NO migration file here: ${
+      orphans.join(", ")
+    }`,
+  );
+  console.log("  (a rollback, or this checkout is behind the database)");
+}
+
 for (const v of expected) {
   console.log(`  (expected gap) ${v} - ${DELIBERATELY_UNAPPLIED[v]}`);
 }
