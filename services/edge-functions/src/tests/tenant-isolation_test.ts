@@ -4681,6 +4681,75 @@ Deno.test({
   },
 });
 
+// -- US-2923: the photoless re-pull --------------------------------------------
+//
+// WHY THIS NEEDS ITS OWN CASE. /prospect used to reject a body with no photo at
+// the top of the handler, which meant a malformed or hostile request stopped
+// before it reached the gate, the quota or the sourcing target. A re-pull sends
+// NO photos on purpose, so that early return is now conditional - and a
+// conditional early return is exactly the shape that quietly opens a route.
+//
+// The body below is the smallest thing that reaches the new path. It names no
+// resource id, because there is none to name: the boundary here is the identity
+// the request is admitted under, and what a re-pull can reach through it is the
+// owner's comp-pull entitlement, their AI quota and their sourcing target.
+const REPULL_BODY = JSON.stringify({
+  titleOverride: "Lululemon ABC Pant 32",
+  gradeValue: 7.5,
+});
+
+Deno.test({
+  name: "US-2923: non-member B cannot re-pull comps inside A's workspace",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/prospect`, {
+      method: "POST",
+      headers: foreignWorkspaceHeaders(),
+      body: REPULL_BODY,
+    });
+    await res.body?.cancel();
+    assertDenied(
+      res.status,
+      "POST scout/prospect with a title override as a non-member of A's workspace",
+    );
+  },
+});
+
+Deno.test({
+  // A viewer is INSIDE the workspace, so the header admits them and only
+  // blockViewerWrites stops them. A re-pull spends no AI action, which makes it
+  // the cheapest-looking way for a read-only member to slip past that rule - and
+  // it still spends a comp pull against the owner's plan.
+  name: "US-2923: viewer cannot re-pull comps against the owner's plan",
+  ignore: !VIEWER_READY,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/prospect`, {
+      method: "POST",
+      headers: viewerHeaders(),
+      body: REPULL_BODY,
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST scout/prospect re-pull as viewer");
+  },
+});
+
+Deno.test({
+  // The photoless path must not become an unauthenticated one. Before US-2923
+  // an anonymous caller was stopped by the missing-photo 400 as well as by
+  // authMiddleware; only one of those two guards is left.
+  name: "US-2923: scout/prospect rejects an unauthenticated re-pull",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/scout/prospect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: REPULL_BODY,
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST scout/prospect re-pull with no credentials");
+  },
+});
+
 Deno.test({
   // Unauthenticated must never reach the grader: the route sits behind
   // authMiddleware, and a fallback-to-anonymous regression here would hand a

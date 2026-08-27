@@ -40,6 +40,7 @@ import {
   pickVisualImageIndex,
   planProspectIdentification,
 } from "../lib/prospect-identify.ts";
+import { parseProspectOverride } from "../lib/prospect-repull.ts";
 import {
   chooseProviders,
   ebayImageProvider,
@@ -782,6 +783,12 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     costCents?: unknown;
     lat?: unknown;
     lng?: unknown;
+    // US-2923: the seller correcting a wrong identification. When present, this
+    // request identifies NOTHING and grades NOTHING - see lib/prospect-repull.ts.
+    titleOverride?: unknown;
+    brandOverride?: unknown;
+    gradeValue?: unknown;
+    gradeTier?: unknown;
   };
   try {
     body = await c.req.json();
@@ -796,6 +803,18 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   // opted out still contributes nothing, because the consent check is
   // server-side and reads `users.radar_contribute` on every scan.
   const fix = parseFix(body.lat, body.lng);
+
+  // US-2923: is this a RE-PULL? The seller saw the identification was wrong,
+  // typed the right title, and wants the comps re-run against it. A re-pull
+  // sends no photos, identifies nothing and grades nothing, so it costs zero AI
+  // actions - it is still a comp pull and still passes the gate above.
+  //
+  // An override that is present but unusable is refused by name rather than
+  // falling through to the identify path, because falling through would spend
+  // two AI actions on what the seller experienced as a typo.
+  const override = parseProspectOverride(body);
+  if (override.kind === "invalid") return jsonError(c, 400, override.error);
+  const isRepull = override.kind === "override";
 
   // Accept a single `image` or up to two `images` (front + tag). Front is used
   // for the condition grade; all are fed to the identifier (the tag carries the
@@ -818,7 +837,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   }
   const capped = rawImages.slice(0, 2);
   const cappedRoles = capped.map((_, i) => rawRoles[i] ?? null);
-  if (capped.length === 0) {
+  if (capped.length === 0 && !isRepull) {
     return jsonError(c, 400, "Provide a photo (front and/or the brand tag).");
   }
   for (const img of capped) {
@@ -837,7 +856,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
       frontDataUri = `data:${parsed.mediaType};base64,${parsed.base64}`;
     }
   }
-  if (visionImages.length === 0) {
+  if (visionImages.length === 0 && !isRepull) {
     return jsonError(c, 400, "Couldn't read that image. Try a clearer photo.");
   }
 
@@ -875,7 +894,17 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   // should not read like a measurement.
   let identifyConfidence = 0;
 
-  if (idPlan.useVisual) {
+  if (isRepull && override.kind === "override") {
+    // The seller identified it. Nothing here runs: no visual search, no hints,
+    // no AI action. `keywords` carries the corrected words so the category
+    // lookup and the comp query below are unchanged in shape.
+    brand = override.brand;
+    keywords = override.title.split(/\s+/).filter(Boolean).slice(0, 12);
+    identitySource = "seller";
+    // The one authoritative source in the union. A human looked at the garment.
+    identityIsAuthoritative = true;
+    identifyConfidence = 1;
+  } else if (idPlan.useVisual) {
     const vIdx = pickVisualImageIndex(cappedRoles);
     // -1 would mean the plan and the picker disagree; a unit test pins that they
     // cannot, and this stays as the runtime floor rather than a default of 0.
@@ -899,7 +928,11 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     }
   }
 
-  if (visualComps?.matchedTitle) {
+  if (isRepull) {
+    // Already identified by the seller, above. Deliberately first, so that
+    // adding a branch below can never reach a re-pull by accident: the cost
+    // claim in prospect-repull_test.ts is that NO AI action is spent here.
+  } else if (visualComps?.matchedTitle) {
     // Visual search carried it. NO AI action was spent here.
     identitySource = visualComps.identitySource;
     identityIsAuthoritative = visualComps.identityIsAuthoritative;
@@ -941,7 +974,12 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     identityIsAuthoritative = false;
   }
   const query = [brand, ...keywords].filter(Boolean).join(" ").trim();
-  const displayTitle = titleizeWords([brand ?? "", ...keywords].filter(Boolean));
+  // A corrected title is shown back EXACTLY as the seller typed it. titleizeWords
+  // would rewrite "ABC Pant" to "Abc Pant" and "L'AGENCE" to "L'agence", which
+  // reads as the app having failed to understand the correction.
+  const displayTitle = isRepull && override.kind === "override"
+    ? override.title
+    : titleizeWords([brand ?? "", ...keywords].filter(Boolean));
 
   // No brand AND no keywords → we can't comp. Return the (empty) identification
   // honestly rather than a misleading "0 comps" against a blank search.
@@ -1031,9 +1069,27 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
 
   const categoryId = categoryOutcome.categoryId;
   const categoryPath = categoryOutcome.categoryPath;
-  const shadowGrade = gradeOutcome.shadowGrade;
-  const gradeTier = gradeOutcome.gradeTier;
-  const gradeConfidence = gradeOutcome.gradeConfidence;
+
+  // US-2923: on a re-pull the grade is CARRIED ACROSS from the run being
+  // corrected, not recomputed. The photos did not change, so neither did the
+  // condition; only the identification was wrong. The grade branch above
+  // already returned nulls (there is no front photo on a re-pull, so it never
+  // reserved an AI action), and this substitutes what the first run measured.
+  //
+  // It arrives from the client, so it is range-checked in parseProspectOverride
+  // rather than trusted. All it selects is which eBay condition bucket the comps
+  // are filtered to, on this caller's own screen. Absent or out of range means
+  // null, which prices at the default used bucket - exactly what an ungraded
+  // prospect has always done.
+  const isRepullGrade = isRepull && override.kind === "override";
+  const shadowGrade = isRepullGrade ? override.gradeValue : gradeOutcome.shadowGrade;
+  const gradeTier = isRepullGrade ? override.gradeTier : gradeOutcome.gradeTier;
+  // A carried-across grade reports the confidence of a measurement that is not
+  // being re-made. 0 would read as "we are unsure"; the honest statement is that
+  // this run did not grade, and the client shows the grade it already had.
+  const gradeConfidence = isRepullGrade
+    ? (override.gradeValue != null ? 1 : 0)
+    : gradeOutcome.gradeConfidence;
 
   // 4) Condition-matched value range. The speculative comps usually already
   //    hold the condition the grade wants, so this is normally free.
@@ -1106,7 +1162,11 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   // have DIFFERENT gates: the reseller's own visit history is free and needs no
   // consent (rule 7), while the anonymous contribution to the shared map needs
   // both the kill-switch and `users.radar_contribute`.
-  if (fix) {
+  // US-2923: a re-pull is a CORRECTION of a scan already recorded, not a new
+  // one. Recording it again would double-count one garment in the shared map
+  // and put a second visit in the seller's own history for an item they never
+  // picked up twice.
+  if (fix && !isRepull) {
     voidRecordScanLocation({
       accountId: userId,
       lat: fix.lat,
@@ -1159,8 +1219,13 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     // "active" today; flips to "sold" automatically once Marketplace Insights
     // is granted — the client labels its pricing copy off this.
     source: "active",
-    disclaimer:
-      "Identified by AI from your photos. Prices come from condition-matched ACTIVE eBay listings (asking prices) — real sold prices are often lower, so treat the going rate as a ceiling. Tap to see sold comps on eBay.",
+    // US-2923: on a re-pull the first sentence would be a lie. Nothing was
+    // identified by AI on this request; the seller typed the title and the
+    // grade is the one the earlier run measured. The pricing half is identical
+    // because the comp query is identical.
+    disclaimer: isRepull
+      ? "You corrected the title, so these comps are matched to your words, not to an AI reading of the photo. The condition grade is the one from your first scan. Prices come from condition-matched ACTIVE eBay listings (asking prices); real sold prices are often lower, so treat the going rate as a ceiling."
+      : "Identified by AI from your photos. Prices come from condition-matched ACTIVE eBay listings (asking prices) — real sold prices are often lower, so treat the going rate as a ceiling. Tap to see sold comps on eBay.",
   });
 });
 

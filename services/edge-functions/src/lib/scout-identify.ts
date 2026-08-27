@@ -103,8 +103,14 @@ export function roleCanIdentify(role: string | null | undefined): boolean {
  *            teal tank with no brand mark anywhere in frame returning five
  *            Lululemon tanks, with no expressed doubt. It may be right, and the
  *            photo cannot say.
+ *   seller   A HUMAN HOLDING THE GARMENT typed it, correcting what the machine
+ *            said (US-2923). This sits at the top of the ladder, above barcode:
+ *            a barcode is authoritative about the tag it is printed on, and a
+ *            thrifted garment is exactly where a tag and a garment part company.
+ *            The seller can see both. Nothing else in this union has looked at
+ *            the item.
  */
-export type IdentitySource = "barcode" | "tag" | "visual";
+export type IdentitySource = "barcode" | "tag" | "visual" | "seller";
 
 export interface IdentifyOutcome {
   /** Comps to value against. */
