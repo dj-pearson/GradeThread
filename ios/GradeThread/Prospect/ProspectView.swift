@@ -13,6 +13,10 @@ struct ProspectView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var showCamera = false
     @State private var showLibrary = false
+    /// US-2923: which named slot the next captured photo fills. Set before the
+    /// picker opens, because the picker's callback has no way to know which slot
+    /// was tapped and a wrong role is worse than a missing photo.
+    @State private var pendingRole: ProspectPhotoRole = .front
     // US-1225: surface a library pick that fails to load instead of a silent
     // no-op (mirrors Snap's loadError pattern from US-1181).
     @State private var loadError: String?
@@ -25,7 +29,7 @@ struct ProspectView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Snap the item and its brand/size tag. We'll identify it and pull eBay comps — how many are out there, the going rate, and how fast it sells.")
+                    Text("Snap the item, and its tag if it has one. We'll identify it and pull eBay comps: how many are listed, what they're asking, and how fast it should move. Got the wrong item? Tap the title to fix it.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
@@ -90,18 +94,22 @@ struct ProspectView: View {
                     }
                 }
             }
+            // US-2923: one photo at a time, into the slot the seller tapped.
+            // `selectionLimit: 1` rather than the old "however many are free"
+            // because a photo now lands in a NAMED role, and a multi-pick would
+            // have to guess which role each of them filled.
             .sheet(isPresented: $showLibrary) {
-                PhotoLibraryPicker(selectionLimit: max(1, ProspectStore.maxPhotos - store.images.count)) { results in
+                PhotoLibraryPicker(selectionLimit: 1) { results in
                     showLibrary = false
+                    let role = pendingRole
                     Task {
-                        for result in results {
-                            if let img = await result.loadImage() {
-                                await MainActor.run { store.addImage(img) }
-                            } else {
-                                // US-1225: don't silently swallow a failed load.
-                                await MainActor.run {
-                                    loadError = "Couldn't load that photo — it may still be downloading from iCloud. Try again or pick another."
-                                }
+                        guard let first = results.first else { return }
+                        if let img = await first.loadImage() {
+                            await MainActor.run { store.setImage(img, for: role) }
+                        } else {
+                            // US-1225: don't silently swallow a failed load.
+                            await MainActor.run {
+                                loadError = "Couldn't load that photo — it may still be downloading from iCloud. Try again or pick another."
                             }
                         }
                     }
@@ -109,7 +117,7 @@ struct ProspectView: View {
                 .ignoresSafeArea()
             }
             .fullScreenCover(isPresented: $showCamera) {
-                CameraPicker { img in store.addImage(img) }
+                CameraPicker { img in store.setImage(img, for: pendingRole) }
                     .ignoresSafeArea()
             }
             .alert(
@@ -125,52 +133,85 @@ struct ProspectView: View {
 
     // MARK: - Capture
 
-    @ViewBuilder private var photoStrip: some View {
-        if store.images.isEmpty {
-            RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous)
-                .fill(Color.secondary.opacity(0.1))
-                .frame(height: 200)
-                .overlay {
-                    VStack(spacing: 8) {
-                        Image(systemName: "camera.viewfinder").font(.system(size: 34))
-                        Text("Add the front + the tag").font(.subheadline)
-                    }
-                    .foregroundStyle(.secondary)
-                }
-        } else {
-            HStack(spacing: 10) {
-                // US-1180: key by the UIImage's (identity-based) hash, not the
-                // array offset, so removing a non-last photo doesn't mis-animate
-                // / reuse identities.
-                ForEach(Array(store.images.enumerated()), id: \.element) { index, image in
+    /// US-2923: two NAMED slots, not a strip of interchangeable photos.
+    ///
+    /// The slot the seller fills is what the server is told the photo shows, and
+    /// that single fact decides whether it reads the tag or runs eBay visual
+    /// search. Both slots are optional and either alone is a valid scan.
+    private var photoStrip: some View {
+        HStack(spacing: 10) {
+            ForEach(ProspectPhotoRole.allCases, id: \.self) { role in
+                photoSlot(role)
+            }
+        }
+    }
+
+    @ViewBuilder private func photoSlot(_ role: ProspectPhotoRole) -> some View {
+        let image = store.image(for: role)
+        VStack(alignment: .leading, spacing: 4) {
+            ZStack {
+                if let image {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 150, height: 200)
-                        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
-                        .overlay(alignment: .topTrailing) {
-                            Button {
-                                AppRouter.haptic()
-                                store.removeImage(at: index)
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.title3)
-                                    .foregroundStyle(.white, .black.opacity(0.5))
+                } else {
+                    RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous)
+                        .fill(Color.secondary.opacity(0.1))
+                        .overlay {
+                            VStack(spacing: 6) {
+                                Image(systemName: role.systemImage).font(.system(size: 28))
+                                Text(role.hint)
+                                    .font(.caption2)
+                                    .multilineTextAlignment(.center)
                             }
-                            .accessibilityLabel("Remove photo")
-                            .padding(6)
+                            .foregroundStyle(.secondary)
+                            .padding(8)
                         }
                 }
             }
+            .frame(maxWidth: .infinity)
+            .frame(height: 190)
+            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: CornerRadius.control, style: .continuous))
+            .onTapGesture {
+                guard image == nil else { return }
+                AppRouter.haptic()
+                pendingRole = role
+                if cameraAvailable { showCamera = true } else { showLibrary = true }
+            }
+            .overlay(alignment: .topTrailing) {
+                if image != nil {
+                    Button {
+                        AppRouter.haptic()
+                        store.removeImage(for: role)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.white, .black.opacity(0.5))
+                    }
+                    .accessibilityLabel(Text("Remove \(role.label)"))
+                    .padding(6)
+                }
+            }
+            .accessibilityLabel(Text(image == nil ? "Add \(role.label)" : role.label))
+
+            Text(role.label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(image == nil ? Color.secondary : Color.brandNavy)
         }
     }
 
     @ViewBuilder private var captureButtons: some View {
         if store.canAddPhoto {
+            // The buttons fill the FIRST empty slot, so tapping a slot and
+            // tapping a button lead to the same place. Without this the buttons
+            // would need a role of their own and the two paths could disagree.
+            let target = ProspectPhotoRole.allCases.first { store.image(for: $0) == nil }
             HStack(spacing: 10) {
                 if cameraAvailable {
                     Button {
                         AppRouter.haptic()
+                        if let target { pendingRole = target }
                         showCamera = true
                     } label: {
                         Label("Take photo", systemImage: "camera.fill").frame(maxWidth: .infinity)
@@ -179,6 +220,7 @@ struct ProspectView: View {
                 }
                 Button {
                     AppRouter.haptic()
+                    if let target { pendingRole = target }
                     showLibrary = true
                 } label: {
                     Label("Library", systemImage: "photo.on.rectangle").frame(maxWidth: .infinity)
@@ -233,7 +275,7 @@ struct ProspectView: View {
                 Divider()
                 priceBlock(result)
                 if let st = result.sellThrough, st.label != "unknown" {
-                    sellThroughBlock(st)
+                    sellThroughBlock(st, source: result.source)
                 }
                 if let decision = result.decision, result.costCents != nil {
                     decisionBlock(decision)
@@ -260,10 +302,92 @@ struct ProspectView: View {
         }
     }
 
+    /// US-2923: the correction field, shown in place of the title while editing.
+    ///
+    /// The whole point is speed — the seller is standing in an aisle holding the
+    /// garment — so it opens prefilled with the current title, the keyboard's
+    /// return key runs the re-pull, and nothing else on the card moves.
+    @ViewBuilder private func titleEditor(_ draft: String) -> some View {
+        @Bindable var store = store
+        VStack(alignment: .leading, spacing: 8) {
+            TextField(
+                "What is it really?",
+                text: Binding(
+                    get: { store.titleDraft ?? draft },
+                    set: { store.titleDraft = $0 }
+                )
+            )
+            .textFieldStyle(.roundedBorder)
+            .textInputAutocapitalization(.words)
+            .autocorrectionDisabled()
+            .submitLabel(.search)
+            .onSubmit { Task { await store.repull() } }
+
+            HStack(spacing: 10) {
+                Button {
+                    AppRouter.haptic()
+                    Task { await store.repull() }
+                } label: {
+                    if store.isRepulling {
+                        ProgressView().frame(maxWidth: .infinity)
+                    } else {
+                        Label("Re-pull comps", systemImage: "arrow.clockwise")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.brandNavy)
+                .disabled(!store.canRepull)
+
+                Button("Cancel") { store.cancelTitleEdit() }
+                    .buttonStyle(.bordered)
+                    .disabled(store.isRepulling)
+            }
+            Text("Keeps your condition grade and photos. No AI charge.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private func identityHeader(_ result: ProspectResponse) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(result.item.title ?? result.item.brand ?? "Item")
-                .font(.brandTitle2)
+            if let draft = store.titleDraft {
+                titleEditor(draft)
+            } else {
+                Button {
+                    AppRouter.haptic()
+                    store.beginTitleEdit()
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(result.item.title ?? result.item.brand ?? "Item")
+                            .font(.brandTitle2)
+                            .multilineTextAlignment(.leading)
+                        Image(systemName: "pencil")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.brandNavy)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Edit title"))
+                .accessibilityHint(Text("Correct the title and pull fresh comps"))
+
+                // How the title was arrived at. A similarity match is worth
+                // checking: US-2758 measured eBay visual search being exactly as
+                // confident when it was wrong as when it was right.
+                if let source = result.item.sourceLabel {
+                    HStack(spacing: 4) {
+                        Image(systemName: result.item.isUnverifiedGuess
+                              ? "exclamationmark.triangle.fill" : "checkmark.seal")
+                            .font(.caption2)
+                        Text(result.item.isUnverifiedGuess
+                             ? "\(source). Tap the title to correct it." : source)
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(result.item.isUnverifiedGuess
+                                     ? Color.brandAmber : Color.secondary)
+                }
+            }
             // US-1170: show the brand the AI read off the tag so the user can
             // sanity-check the identification before committing a purchase.
             if let brand = result.item.brand, !brand.isEmpty,
@@ -295,7 +419,11 @@ struct ProspectView: View {
                 Text(dollars(stats.medianCents))
                     .font(.brandData(36, weight: .bold))
                     .foregroundStyle(Color.brandNavy)
-                Text("going rate · range \(dollars(stats.lowCents))–\(dollars(stats.highCents))")
+                // US-2923: name the basis on the number itself. "Going rate" over
+                // ACTIVE listings is a median of what sellers are ASKING, and
+                // nothing on this card said so except a disclaimer at the bottom
+                // that a seller comparing two garments in an aisle never reads.
+                Text("\(result.source == "sold" ? "sold median" : "median asking price") · range \(dollars(stats.lowCents))–\(dollars(stats.highCents))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("Based on \(stats.count) condition-matched \(result.source == "sold" ? "sold" : "active") listing\(stats.count == 1 ? "" : "s")")
@@ -315,13 +443,26 @@ struct ProspectView: View {
         }
     }
 
-    private func sellThroughBlock(_ st: ProspectSellThrough) -> some View {
-        HStack(spacing: 8) {
+    /// US-2923: this is a FORECAST, and the wording now says so.
+    ///
+    /// `sellThroughPct` is not a measured sell-through rate. lib/sell-through.ts
+    /// derives it from where the price sits in the comp range; no sold data
+    /// touches it, because eBay Marketplace Insights is not granted yet. The old
+    /// copy read "~62% likely", which is the register of a measurement, and a
+    /// seller has no way to tell that apart from one. It flips to real
+    /// sell-through with no change here once `source` becomes "sold".
+    private func sellThroughBlock(_ st: ProspectSellThrough, source: String) -> some View {
+        let measured = source == "sold"
+        return HStack(spacing: 8) {
             Image(systemName: "speedometer").foregroundStyle(sellThroughColor(st.label))
             VStack(alignment: .leading, spacing: 1) {
-                Text("Sells \(st.label) · ~\(Int((st.sellThroughPct * 100).rounded()))% likely")
+                Text(measured
+                     ? "Sells \(st.label) · \(Int((st.sellThroughPct * 100).rounded()))% sell-through"
+                     : "Likely sells \(st.label)")
                     .font(.subheadline.weight(.medium))
-                Text("est. \(st.daysLow)–\(st.daysHigh) days at the going rate")
+                Text(measured
+                     ? "\(st.daysLow)–\(st.daysHigh) days at the going rate"
+                     : "Rough guide only: estimated from where this price sits against active listings, not from sold data.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

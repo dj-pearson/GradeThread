@@ -4,10 +4,14 @@ import Foundation
 /// unit-tested with a fake (no network).
 @MainActor
 protocol Prospecting {
-    /// Identify + comp an item from 1–2 photos (front + tag). `fix` is the
-    /// US-1861 Thrift Radar contribution and is nil unless the user has turned
-    /// that switch on.
-    func prospect(images: [Data], costCents: Int?, fix: RadarFix?) async throws -> ProspectResponse
+    /// Run a prospect request: either an ordinary scan (photos plus their roles)
+    /// or a US-2923 re-pull (a corrected title, no photos).
+    ///
+    /// One method rather than two, because it is one endpoint returning one
+    /// response shape — which is what lets the store swap a re-pull's result
+    /// straight in. ``ProspectRequest/repull(title:brand:gradeValue:gradeTier:costCents:)``
+    /// is what distinguishes the two at the call site.
+    func prospect(_ request: ProspectRequest) async throws -> ProspectResponse
     /// Commit a prospected item into inventory at `sourced`.
     func buy(_ request: ProspectBuyRequest) async throws -> ProspectBuyResponse
 }
@@ -33,10 +37,8 @@ final class ProspectService: Prospecting {
         self.session = session
     }
 
-    func prospect(images: [Data], costCents: Int?, fix: RadarFix?) async throws -> ProspectResponse {
-        let dataURIs = images.map { "data:image/jpeg;base64," + $0.base64EncodedString() }
-        let body = ProspectRequest(images: dataURIs, costCents: costCents, fix: fix)
-        return try await post(path: "/api/flipdesk/scout/prospect", body: body)
+    func prospect(_ request: ProspectRequest) async throws -> ProspectResponse {
+        return try await post(path: "/api/flipdesk/scout/prospect", body: request)
     }
 
     func buy(_ request: ProspectBuyRequest) async throws -> ProspectBuyResponse {

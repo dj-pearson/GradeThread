@@ -92,7 +92,6 @@ def all_hits():
 # static prefix is NOT here is treated as NEW.
 BASELINE = frozenset({
     # Prospect / Vision / Speech (US-1224 baseline).
-    "Add the front + the tag",
     "Add to inventory",
     "Added — view inventory",
     "Based on ",
@@ -104,12 +103,28 @@ BASELINE = frozenset({
     "Only ",
     "Re-run to apply this cost to the buy / skip verdict.",
     "See sold comps on eBay",
-    "Sells ",
-    "Snap the item and its brand/size tag. We'll identify it and pull eBay comps "
-    "— how many are out there, the going rate, and how fast it sells.",
     "Take photo",
-    "est. ",
-    "going rate · range ",
+    # ── US-2923 (2026-08-26): point-shoot-correct in Prospect ────────────────
+    #
+    # Acknowledged rather than translated, for the reason spelled out in the
+    # Thrift Radar block below: Localizable.xcstrings is still empty, so a
+    # "localized key" and a bare SwiftUI literal are the same artifact today.
+    #
+    # FIVE ENTRIES WERE REMOVED HERE, not just added. "Add the front + the tag",
+    # the old "Snap the item and its brand/size tag…" copy, "Sells ", "est. "
+    # and "going rate · range " no longer appear in any scoped file — the photo
+    # strip became two named slots, and the price and sell-through lines were
+    # reworded to stop a formula reading as a measurement. A baseline nobody
+    # prunes stops being a record of what is there and becomes a record of what
+    # once was, which is how the stale half hides a real regression.
+    "Correct the title and pull fresh comps",
+    "Edit title",
+    "Keeps your condition grade and photos. No AI charge.",
+    "Re-pull comps",
+    "Remove ",
+    "Snap the item, and its tag if it has one. We'll identify it and pull eBay "
+    "comps: how many are listed, what they're asking, and how fast it should "
+    "move. Got the wrong item? Tap the title to fix it.",
     # Settings priority flow (US-1155 baseline). "" = an interpolation-only
     # Text("\\(…)") whose static prefix is empty.
     "",

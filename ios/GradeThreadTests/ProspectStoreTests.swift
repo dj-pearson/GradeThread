@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 @testable import GradeThread
 
@@ -21,18 +22,29 @@ final class ProspectStoreTests: XCTestCase {
 
     private final class FakeProspecting: Prospecting {
         var prospectResult: ProspectResponse?
+        /// When set, the next `prospect` call throws instead of returning.
+        var prospectError: Error?
         var buyResult: ProspectBuyResponse = .init(id: "item-1", status: "sourced")
         /// Captures the request `addToInventory()` builds so we can assert the
         /// notes / target / grade it folded in.
         private(set) var capturedBuy: ProspectBuyRequest?
-        /// US-1861: what the store handed us for Thrift Radar. `didProspect`
-        /// distinguishes "no fix sent" from "never called".
-        private(set) var capturedFix: RadarFix?
-        private(set) var didProspect = false
+        /// US-2923: every prospect request in order, so a test can assert the
+        /// roles that were sent and what a re-pull carried across.
+        private(set) var captured: [ProspectRequest] = []
+        var last: ProspectRequest? { captured.last }
+        /// US-1861: the Thrift Radar coordinate the store sent, if any. Read off
+        /// the request rather than stored separately, so it cannot disagree with
+        /// what actually went over the wire. `didProspect` distinguishes "no fix
+        /// sent" from "never called".
+        var capturedFix: RadarFix? {
+            guard let lat = last?.lat, let lng = last?.lng else { return nil }
+            return RadarFix(latitude: lat, longitude: lng)
+        }
+        var didProspect: Bool { !captured.isEmpty }
 
-        func prospect(images: [Data], costCents: Int?, fix: RadarFix?) async throws -> ProspectResponse {
-            didProspect = true
-            capturedFix = fix
+        func prospect(_ request: ProspectRequest) async throws -> ProspectResponse {
+            captured.append(request)
+            if let prospectError { throw prospectError }
             guard let prospectResult else { throw EdgeAPIError.network("no fixture") }
             return prospectResult
         }
@@ -47,8 +59,12 @@ final class ProspectStoreTests: XCTestCase {
 
     private func item(brand: String? = "Patagonia",
                       title: String? = "Patagonia Synchilla Fleece",
-                      keywords: [String] = ["fleece", "synchilla"]) -> ProspectItem {
-        ProspectItem(brand: brand, title: title, keywords: keywords, identifyConfidence: 0.9)
+                      keywords: [String] = ["fleece", "synchilla"],
+                      identitySource: String? = "tag",
+                      identityIsAuthoritative: Bool? = false) -> ProspectItem {
+        ProspectItem(brand: brand, title: title, keywords: keywords, identifyConfidence: 0.9,
+                     identitySource: identitySource,
+                     identityIsAuthoritative: identityIsAuthoritative)
     }
 
     private func response(identified: Bool = true,
@@ -196,5 +212,251 @@ final class ProspectStoreTests: XCTestCase {
         XCTAssertNil(fake.capturedBuy, "Nothing to buy when the item wasn't identified.")
         XCTAssertNotNil(store.addError)
         XCTAssertNil(store.addedItemId)
+    }
+
+    // MARK: - US-2923: photo roles
+    //
+    // The role is the ONLY thing the server uses to decide whether it reads the
+    // tag or runs eBay visual search, so these assert what actually goes over
+    // the wire. Before US-2923 the app sent no roles at all, which meant the
+    // server's `no-usable-role` branch fired on every scan and visual search was
+    // unreachable from the phone however the flag was set.
+
+    private func pixel() -> UIImage {
+        UIGraphicsBeginImageContextWithOptions(CGSize(width: 8, height: 8), true, 1)
+        UIColor.gray.setFill()
+        UIRectFill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        let img = UIGraphicsGetImageFromCurrentImageContext()!
+        UIGraphicsEndImageContext()
+        return img
+    }
+
+    func test_run_sendsFrontRoleForAnItemOnlyScan() async {
+        let fake = FakeProspecting()
+        fake.prospectResult = response(costCents: nil)
+        let store = ProspectStore(service: fake)
+        store.setImage(pixel(), for: .front)
+
+        await store.run()
+
+        XCTAssertEqual(fake.last?.imageRoles, ["front"])
+        XCTAssertEqual(fake.last?.images.count, 1)
+    }
+
+    func test_run_labelsATagOnlyScanAsTagNeverAsFront() async {
+        let fake = FakeProspecting()
+        fake.prospectResult = response(costCents: nil)
+        let store = ProspectStore(service: fake)
+        store.setImage(pixel(), for: .tag)
+
+        await store.run()
+
+        XCTAssertEqual(
+            fake.last?.imageRoles, ["tag"],
+            "A lone tag photo must not be labelled `front`. US-2758 measured a " +
+            "care label returning a midi dress, joggers and a mini skirt when " +
+            "sent to visual search as though it were a garment."
+        )
+    }
+
+    func test_run_sendsBothRolesInFrontThenTagOrder() async {
+        let fake = FakeProspecting()
+        fake.prospectResult = response(costCents: nil)
+        let store = ProspectStore(service: fake)
+        store.setImage(pixel(), for: .tag)
+        store.setImage(pixel(), for: .front)
+
+        await store.run()
+
+        XCTAssertEqual(
+            fake.last?.imageRoles, ["front", "tag"],
+            "Order is role order, not the order they were added: /prospect " +
+            "documents its FIRST image as the front and grades from it."
+        )
+    }
+
+    func test_run_rolesStayParallelToImages() async {
+        let fake = FakeProspecting()
+        fake.prospectResult = response(costCents: nil)
+        let store = ProspectStore(service: fake)
+        store.setImage(pixel(), for: .front)
+        store.setImage(pixel(), for: .tag)
+
+        await store.run()
+
+        XCTAssertEqual(
+            fake.last?.images.count, fake.last?.imageRoles.count,
+            "The server reads roles POSITIONALLY. A mismatch silently mislabels " +
+            "every photo after the gap."
+        )
+    }
+
+    func test_run_sendsNoOverrideOnAnOrdinaryScan() async {
+        let fake = FakeProspecting()
+        fake.prospectResult = response(costCents: nil)
+        let store = ProspectStore(service: fake)
+        store.setImage(pixel(), for: .front)
+
+        await store.run()
+
+        XCTAssertNil(fake.last?.titleOverride, "An ordinary scan is not a re-pull.")
+    }
+
+    // MARK: - US-2923: correcting the title
+
+    func test_canRepull_falseUntilTheTitleActuallyChanges() {
+        let store = ProspectStore(service: FakeProspecting())
+        store.result = response(costCents: nil)
+        store.beginTitleEdit()
+
+        XCTAssertEqual(store.titleDraft, "Patagonia Synchilla Fleece")
+        XCTAssertFalse(
+            store.canRepull,
+            "Re-pulling the title the server already returned spends a comp pull " +
+            "to be told the same thing."
+        )
+    }
+
+    func test_canRepull_falseOnABlankDraft() {
+        let store = ProspectStore(service: FakeProspecting())
+        store.result = response(costCents: nil)
+        store.titleDraft = "   "
+        XCTAssertFalse(store.canRepull)
+    }
+
+    func test_canRepull_falseWhenNothingWasIdentified() {
+        let store = ProspectStore(service: FakeProspecting())
+        store.result = response(identified: false, costCents: nil)
+        store.titleDraft = "Lululemon ABC Pant"
+        XCTAssertFalse(store.canRepull, "There is no identification to correct.")
+    }
+
+    func test_canRepull_trueOnARealCorrection() {
+        let store = ProspectStore(service: FakeProspecting())
+        store.result = response(costCents: nil)
+        store.titleDraft = "Lululemon ABC Pant 32"
+        XCTAssertTrue(store.canRepull)
+    }
+
+    func test_repull_sendsTheCorrectionWithNoPhotosAndCarriesTheGrade() async {
+        let fake = FakeProspecting()
+        fake.prospectResult = response(
+            item: item(title: "Lululemon ABC Pant 32", identitySource: "seller",
+                       identityIsAuthoritative: true),
+            costCents: 1500
+        )
+        let store = ProspectStore(service: fake)
+        store.result = response(gradeValue: 7.5, costCents: 1500)
+        store.costText = "15"
+        store.titleDraft = "Lululemon ABC Pant 32"
+
+        await store.repull()
+
+        let sent = fake.last
+        XCTAssertEqual(sent?.titleOverride, "Lululemon ABC Pant 32")
+        XCTAssertTrue(sent?.images.isEmpty == true, "A re-pull sends no photos.")
+        XCTAssertTrue(sent?.imageRoles.isEmpty == true)
+        XCTAssertEqual(sent?.gradeValue, 7.5, "The grade is carried across, not recomputed.")
+        XCTAssertEqual(sent?.gradeTier, "excellent")
+        XCTAssertEqual(sent?.costCents, 1500)
+        XCTAssertNil(
+            sent?.lat,
+            "A re-pull corrects a scan already recorded; sending a coordinate " +
+            "would ask to double-count one garment in the shared Radar map."
+        )
+        XCTAssertNil(
+            sent?.brandOverride,
+            "The old brand came from the identification being corrected. Pinning " +
+            "it would let a wrong brand survive the fix and keep pricing the " +
+            "item against the wrong comps."
+        )
+    }
+
+    func test_repull_replacesTheResultAndClosesTheEditor() async {
+        let fake = FakeProspecting()
+        fake.prospectResult = response(item: item(title: "Lululemon ABC Pant 32"), costCents: nil)
+        let store = ProspectStore(service: fake)
+        store.result = response(costCents: nil)
+        store.titleDraft = "Lululemon ABC Pant 32"
+
+        await store.repull()
+
+        XCTAssertEqual(store.result?.item.title, "Lululemon ABC Pant 32")
+        XCTAssertNil(store.titleDraft, "A successful correction closes the field.")
+        XCTAssertFalse(store.isRepulling)
+    }
+
+    func test_repull_keepsThePreviousNumbersOnFailure() async {
+        let fake = FakeProspecting()
+        fake.prospectError = EdgeAPIError.network("offline")
+        let store = ProspectStore(service: fake)
+        store.result = response(medianCents: 4200, costCents: nil)
+        store.titleDraft = "Lululemon ABC Pant 32"
+
+        await store.repull()
+
+        XCTAssertEqual(
+            store.result?.stats?.medianCents, 4200,
+            "A failed correction must not blank the card. The seller is standing " +
+            "in a shop with numbers they already had."
+        )
+        XCTAssertNotNil(store.errorMessage)
+        XCTAssertEqual(store.titleDraft, "Lululemon ABC Pant 32", "Their typing survives a retry.")
+    }
+
+    func test_repull_appliesACostEditedAfterTheScan() async {
+        let fake = FakeProspecting()
+        fake.prospectResult = response(costCents: 3500)
+        let store = ProspectStore(service: fake)
+        store.result = response(costCents: 2000)   // scanned at $20
+        store.costText = "35"                       // then bumped to $35
+        store.titleDraft = "Lululemon ABC Pant 32"
+
+        await store.repull()
+
+        XCTAssertEqual(
+            fake.last?.costCents, 3500,
+            "A re-pull recomputes the verdict server-side anyway, so it is the " +
+            "cheapest moment to apply a cost the seller edited after the scan."
+        )
+        XCTAssertFalse(store.costNeedsRerun)
+    }
+
+    // MARK: - US-2923: a new photo invalidates a correction
+
+    func test_changingAPhotoDiscardsTheCorrectedTitle() {
+        let store = ProspectStore(service: FakeProspecting())
+        store.result = response(costCents: nil)
+        store.titleDraft = "Lululemon ABC Pant 32"
+
+        store.setImage(pixel(), for: .front)
+
+        XCTAssertNil(store.result, "A new photo invalidates the old result.")
+        XCTAssertNil(
+            store.titleDraft,
+            "And the title corrected for a garment that is no longer on screen."
+        )
+    }
+
+    // MARK: - US-2923: provenance the card reads
+
+    func test_visualMatchIsFlaggedAsWorthChecking() {
+        let guess = item(identitySource: "visual", identityIsAuthoritative: false)
+        XCTAssertTrue(guess.isUnverifiedGuess)
+        XCTAssertEqual(guess.sourceLabel, "Matched on looks")
+    }
+
+    func test_aTagReadAndTheSellersOwnTitleAreNotFlagged() {
+        XCTAssertFalse(item(identitySource: "tag").isUnverifiedGuess)
+        XCTAssertFalse(
+            item(identitySource: "seller", identityIsAuthoritative: true).isUnverifiedGuess
+        )
+        XCTAssertEqual(item(identitySource: "seller").sourceLabel, "You set this title")
+    }
+
+    func test_anUnknownOrAbsentSourceMakesNoClaim() {
+        XCTAssertNil(item(identitySource: nil).sourceLabel)
+        XCTAssertNil(item(identitySource: "something-new").sourceLabel)
+        XCTAssertFalse(item(identitySource: nil).isUnverifiedGuess)
     }
 }
