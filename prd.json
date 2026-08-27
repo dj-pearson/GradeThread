@@ -2895,26 +2895,6 @@
       "priority": 40
     },
     {
-      "id": "US-2958",
-      "passes": false,
-      "title": "Description blocks: edge routes and the single persist path",
-      "description": "As a reseller, I want the server to be the only thing that writes my description, so that the blocks and the published text are written together and cannot drift apart.",
-      "acceptanceCriteria": [
-        "New renderAndPersistDescription(listingId, ownerId) in the edge loads the item, grade report, seller credential and snippets, renders, and writes description_blocks and listing_description in a SINGLE .update() on listings.",
-        "Four routes exist under /api/flipdesk/description/: GET /:listingId/blocks, POST /preview, POST /:listingId/save, POST /:listingId/regenerate, registered in services/edge-functions/src/main.ts.",
-        "GET /:listingId/blocks on a listing whose description_blocks is null returns parseLegacyDescription(listing_description) and performs NO write (the row updated_at is unchanged).",
-        "US-268: all four routes scope the listing lookup on c.get(\"workspaceOwnerId\") ?? c.get(\"userId\"), and services/edge-functions/src/tests/tenant-isolation_test.ts gains one case per route proving another user listing id returns 404 with no data.",
-        "POST /preview requires a listing id for context and rejects a request that supplies a free-floating item payload instead.",
-        "After POST /:listingId/save, the stored listing_description equals renderDescription of the blocks just stored.",
-        "POST /:listingId/regenerate with block=features changes only that block text; every other block in the array is byte-identical afterwards.",
-        "Routes answer on functions.gradethread.com, not api.gradethread.com."
-      ],
-      "priority": 12,
-      "dependsOn": [
-        "US-2957"
-      ]
-    },
-    {
       "id": "US-2959",
       "passes": false,
       "title": "Listing generation writes description blocks instead of one prose string",
