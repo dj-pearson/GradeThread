@@ -33,6 +33,53 @@ Deno.test("capForPath: JSON-only paths get the 256KB cap", () => {
   assertEquals(capForPath("/api/flipdesk/pricing/scan"), JSON_MAX_BYTES);
 });
 
+// The prospect/appraise scan posts its photos as base64 data URIs inside JSON.
+// A single 1600px/q0.75 JPEG is ~450-500 KB raw, ~600-670 KB base64, so under
+// the 256 KB JSON cap the whole flow answered "Request body too large" on the
+// FIRST photo, before the route's own 12 MB check ever ran.
+Deno.test("capForPath: photo-bearing JSON endpoints get the upload cap", () => {
+  assertEquals(capForPath("/api/flipdesk/scout/prospect"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/scout/appraise"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/grading/public/authenticity-check"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/buyer/authenticity"), UPLOAD_MAX_BYTES);
+  // Support screenshots: `data_url` entries at 2400px/q0.85, up to 3 per message.
+  assertEquals(capForPath("/api/support-tickets"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/support-tickets/abc/messages"), UPLOAD_MAX_BYTES);
+  // Reconcile's visual pass, which posts up to 40 inline photos.
+  assertEquals(capForPath("/api/flipdesk/ai/embed-photos"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/ai/classify-photos"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/ai/suggest-item-match"), UPLOAD_MAX_BYTES);
+});
+
+// The rest of the AI surface is JSON-only and must not inherit the photo cap
+// from its siblings: these are listed one path at a time for exactly that reason.
+Deno.test("capForPath: image-free AI endpoints stay on the JSON cap", () => {
+  assertEquals(capForPath("/api/flipdesk/ai/log/xyz"), JSON_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/ai"), JSON_MAX_BYTES);
+});
+
+// Sibling scout routes carry no image bytes and must stay on the JSON cap.
+// `appraise-url` is the one that would be easy to widen by accident: it shares
+// the first nine characters with `appraise` and submits URLs, never photos.
+Deno.test("capForPath: image-free scout siblings stay on the JSON cap", () => {
+  assertEquals(capForPath("/api/flipdesk/scout/appraise-url"), JSON_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/scout/buy"), JSON_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/scout"), JSON_MAX_BYTES);
+});
+
+// eBay evidence uploads are multipart images behind a path parameter, so they
+// are matched by an anchored pattern rather than a prefix.
+Deno.test("capForPath: eBay evidence uploads match through the path parameter", () => {
+  assertEquals(capForPath("/api/flipdesk/ebay/cases/5-1234/evidence"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/ebay/returns/abc/evidence"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/ebay/payment-disputes/99/evidence"), UPLOAD_MAX_BYTES);
+  // Not the multipart upload: the JSON preview, a deeper path, and an unrelated
+  // surface that merely ends in the same word.
+  assertEquals(capForPath("/api/flipdesk/ebay/evidence/preview"), JSON_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/ebay/cases/5-1234/evidence/extra"), JSON_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/ebay/offers/1/evidence"), JSON_MAX_BYTES);
+});
+
 Deno.test("capForPath: prefix match is boundary-safe", () => {
   // A path that merely starts with the same letters as an upload prefix but is
   // a different segment must NOT inherit the upload cap.
