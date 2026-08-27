@@ -30,14 +30,20 @@ import { supabaseAdmin } from "./supabase.ts";
 import { notifyUser, type NotifyInput, PREF_KEY } from "./notify.ts";
 import {
   sendCancellationRequestedEmail,
+  sendCaseOpenedEmail,
   sendDisputeOpenedEmail,
+  sendInquiryOpenedEmail,
+  sendPostSaleDeadlineEmail,
   sendOfferReceivedEmail,
   sendOfferRespondedEmail,
   sendReturnOpenedEmail,
 } from "./email.ts";
 import {
   pushCancellationRequested,
+  pushCaseOpened,
   pushDisputeOpened,
+  pushInquiryOpened,
+  pushPostSaleDeadline,
   pushOfferReceived,
   pushOfferResponded,
   pushReturnOpened,
@@ -46,7 +52,17 @@ import {
 // US-2560 added "cancellation". `source_kind` is a TEXT column (00247), not an
 // enum, so widening this union needs no migration — the enum that does is
 // notification_type, and that is 00601.
-export type MarketplaceEventKind = "offer" | "return" | "dispute" | "cancellation";
+// US-2928/US-2929 add "inquiry" and "case". `source_kind` is a TEXT column
+// (00247), so widening this union needs no migration — and it is what keeps the
+// dedupe distinct even though both events reuse the `return_opened`
+// notification TYPE (see buildInquiryOpened for why).
+export type MarketplaceEventKind =
+  | "offer"
+  | "return"
+  | "dispute"
+  | "cancellation"
+  | "inquiry"
+  | "case";
 
 // ── Idempotency ─────────────────────────────────────────────────────
 
@@ -396,6 +412,115 @@ export function buildReturnOpened(ev: ReturnOpenedEvent): NotifyInput {
   };
 }
 
+export interface InquiryOpenedEvent {
+  userId: string;
+  inquiryId: string;
+  orderLabel: string | null;
+  reason: string | null;
+  respondBy: string | null;
+}
+
+/**
+ * US-2928: an Item Not Received inquiry.
+ *
+ * THE TYPE IS `return_opened` AND THAT IS DELIBERATE. `notification_type` is a
+ * Postgres enum (00601), so a distinct in-app type would need an ALTER TYPE and
+ * the deploy-order care that comes with it — for a value whose only job is to
+ * pick a preference category. The right category IS the returns one: a seller
+ * who muted post-sale notices meant this too. The title, message and link are
+ * what the seller reads, and all three are specific to an inquiry. The email
+ * and push categories ARE distinct, so nothing downstream conflates them.
+ */
+export function buildInquiryOpened(ev: InquiryOpenedEvent): NotifyInput {
+  const order = ev.orderLabel?.trim() || "an order";
+  const reason = ev.reason?.trim().replace(/_/g, " ").toLowerCase();
+  const deadline = ev.respondBy ? ` Respond by ${ev.respondBy.slice(0, 10)}.` : "";
+  return {
+    type: "return_opened",
+    title: "Item not received",
+    message: reason
+      ? `A buyer says ${order} never arrived (${reason}). Add tracking before it escalates.${deadline}`
+      : `A buyer says ${order} never arrived. Add tracking before it escalates.${deadline}`,
+    link: POST_SALE_LINK,
+  };
+}
+
+export interface CaseOpenedEvent {
+  userId: string;
+  caseId: string;
+  orderLabel: string | null;
+  reason: string | null;
+  respondBy: string | null;
+}
+
+/** US-2929: the escalation. Same type-reuse rationale as buildInquiryOpened. */
+export function buildCaseOpened(ev: CaseOpenedEvent): NotifyInput {
+  const order = ev.orderLabel?.trim() || "an order";
+  const reason = ev.reason?.trim().replace(/_/g, " ").toLowerCase();
+  const deadline = ev.respondBy
+    ? ` Respond by ${ev.respondBy.slice(0, 10)} or eBay decides without you.`
+    : "";
+  return {
+    type: "return_opened",
+    title: "eBay case opened",
+    message: reason
+      ? `A buyer escalated ${order} to eBay (${reason}). A case decided against you is a defect.${deadline}`
+      : `A buyer escalated ${order} to eBay. A case decided against you is a defect.${deadline}`,
+    link: POST_SALE_LINK,
+  };
+}
+
+export interface CaseDeadlineEvent {
+  userId: string;
+  caseType: "return" | "cancellation" | "payment_dispute" | "inquiry" | "case";
+  externalId: string;
+  orderLabel: string | null;
+  reason: string | null;
+  respondBy: string | null;
+  tier: "48h" | "12h";
+  amountCents: number | null;
+  currency: string | null;
+}
+
+/** What to call each case type in a sentence a seller reads at speed. */
+const CASE_LABEL: Record<CaseDeadlineEvent["caseType"], string> = {
+  return: "return",
+  cancellation: "cancellation request",
+  payment_dispute: "payment dispute",
+  inquiry: "item-not-received inquiry",
+  case: "eBay case",
+};
+
+export function caseLabelFor(caseType: CaseDeadlineEvent["caseType"]): string {
+  return CASE_LABEL[caseType];
+}
+
+/**
+ * US-2933: the deadline is close.
+ *
+ * Same `return_opened` type reuse as the other two post-sale additions — the
+ * preference category a seller would mute for this is the returns one, and a
+ * distinct value would mean an enum migration for a routing key nobody reads.
+ * What the seller sees is the title and message, and both name the case type.
+ */
+export function buildCaseDeadline(ev: CaseDeadlineEvent): NotifyInput {
+  const label = caseLabelFor(ev.caseType);
+  const order = ev.orderLabel?.trim() || "an order";
+  const window = ev.tier === "12h" ? "in about 12 hours" : "in two days";
+  const amount = formatMoney(
+    ev.amountCents != null ? ev.amountCents / 100 : null,
+    ev.currency,
+  );
+  const stake = amount ? ` ${amount} is at stake.` : "";
+  return {
+    type: "return_opened",
+    title: `eBay deadline ${window}`,
+    message: `The ${label} on ${order} still needs your answer.${stake} ` +
+      "If the clock runs out, eBay decides it without you.",
+    link: POST_SALE_LINK,
+  };
+}
+
 export interface CancellationRequestedEvent {
   userId: string;
   cancelId: string;
@@ -496,6 +621,58 @@ export function notifyReturnOpened(
         reason: ev.reason,
       }),
     push: (userId) => pushReturnOpened(userId, ev.itemLabel),
+  }, deps);
+}
+
+export function notifyInquiryOpened(
+  ev: InquiryOpenedEvent,
+  deps: MarketplaceNotifyDeps = defaultDeps,
+): Promise<void> {
+  return deliver(ev.userId, {
+    inApp: buildInquiryOpened(ev),
+    email: (to, userName) =>
+      sendInquiryOpenedEmail(to, {
+        userName,
+        orderLabel: ev.orderLabel?.trim() || "an order",
+        reason: ev.reason,
+        respondBy: ev.respondBy,
+      }),
+    push: (userId) => pushInquiryOpened(userId, ev.orderLabel),
+  }, deps);
+}
+
+export function notifyCaseOpened(
+  ev: CaseOpenedEvent,
+  deps: MarketplaceNotifyDeps = defaultDeps,
+): Promise<void> {
+  return deliver(ev.userId, {
+    inApp: buildCaseOpened(ev),
+    email: (to, userName) =>
+      sendCaseOpenedEmail(to, {
+        userName,
+        orderLabel: ev.orderLabel?.trim() || "an order",
+        reason: ev.reason,
+        respondBy: ev.respondBy,
+      }),
+    push: (userId) => pushCaseOpened(userId, ev.orderLabel),
+  }, deps);
+}
+
+export function notifyCaseDeadline(
+  ev: CaseDeadlineEvent,
+  deps: MarketplaceNotifyDeps = defaultDeps,
+): Promise<void> {
+  return deliver(ev.userId, {
+    inApp: buildCaseDeadline(ev),
+    email: (to, userName) =>
+      sendPostSaleDeadlineEmail(to, {
+        userName,
+        caseLabel: caseLabelFor(ev.caseType),
+        orderLabel: ev.orderLabel?.trim() || "an order",
+        respondBy: ev.respondBy,
+        tier: ev.tier,
+      }),
+    push: (userId) => pushPostSaleDeadline(userId, ev.orderLabel),
   }, deps);
 }
 

@@ -1,5 +1,29 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED: 00675_marketplace_post_sale_cases.sql (US-2927)
+
+**Applied to prod. The user confirmed the apply on 2026-08-26 while the story
+was being written.** Verify rather than trust this line: `deno run --allow-net
+--allow-env --allow-read services/edge-functions/scripts/check-prod-migration.ts`
+is a read and settles it in either direction.
+
+**What it does.** Creates `public.marketplace_post_sale_cases` — one row per
+post-sale case a marketplace opens against a seller (return, cancellation,
+payment dispute, and the two US-2928/US-2929 will fill: inquiry and MBG case).
+Three partial indexes, an `updated_at` trigger, RLS on with a single
+own-rows SELECT policy. New table only; nothing existing is altered.
+
+**Why it exists.** Every return, cancellation and dispute was a LIVE eBay fetch
+on page load. So the page cost call quota each time it opened, nothing survived
+eBay's retention window, and no deadline, history or analytic could exist
+because there was nothing to read.
+
+**What breaks if the edge deploys first.** Nothing user-visible.
+`loadCachedSummaries` logs a PostgREST error and returns `{ items: [], fresh:
+false }`, so the three list routes fall straight through to the live eBay call
+they already made — the pre-US-2927 behaviour exactly. `recordPostSaleCases`
+logs and returns 0. The frontend reads no new column.
+
 ## ✅ APPLIED: 00674_brand_size_charts_measurement_basis.sql (US-2917)
 
 **Applied to prod. Confirmed 2026-08-26 by reading the database**, not by

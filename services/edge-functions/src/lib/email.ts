@@ -1922,6 +1922,125 @@ export async function sendReturnOpenedEmail(
   });
 }
 
+interface PostSaleEscalationData {
+  userName: string;
+  orderLabel: string;
+  reason: string | null;
+  respondBy: string | null;
+}
+
+/**
+ * US-2928: an Item Not Received inquiry.
+ *
+ * Deliberately not a reuse of the return email. The seller's next move is
+ * different (supply tracking, not approve or decline a return) and the wrong
+ * instruction on a timed email is worse than no email.
+ */
+export async function sendInquiryOpenedEmail(
+  to: string,
+  data: PostSaleEscalationData,
+): Promise<boolean> {
+  const reason = data.reason
+    ? `<p style="margin: 0 0 16px; color: #666; font-size: 14px;">Reason: <strong>${escapeHtml(data.reason)}</strong></p>`
+    : "";
+  const deadline = data.respondBy
+    ? `<p style="margin: 0 0 16px; color: #666; font-size: 14px;">Respond by <strong>${escapeHtml(data.respondBy.slice(0, 10))}</strong>.</p>`
+    : "";
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      A buyer says their order never arrived
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, a buyer opened an Item Not Received inquiry on
+      <strong>${escapeHtml(data.orderLabel)}</strong>. Adding tracking usually settles it.
+      Left unanswered it becomes an eBay case, and a lost case counts against your account.
+    </p>
+    ${reason}
+    ${deadline}
+    ${ctaButton("Answer the inquiry", `${SITE_URL}/dashboard/flipdesk/post-sale`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `Item not received: ${data.orderLabel}`,
+    html: emailLayout(content),
+    category: "inquiry_opened",
+  });
+}
+
+/** US-2929: the escalation. This is the one that carries a seller defect. */
+export async function sendCaseOpenedEmail(
+  to: string,
+  data: PostSaleEscalationData,
+): Promise<boolean> {
+  const reason = data.reason
+    ? `<p style="margin: 0 0 16px; color: #666; font-size: 14px;">Reason: <strong>${escapeHtml(data.reason)}</strong></p>`
+    : "";
+  const deadline = data.respondBy
+    ? `<p style="margin: 0 0 16px; color: #666; font-size: 14px;">Respond by <strong>${escapeHtml(data.respondBy.slice(0, 10))}</strong> or eBay decides without you.</p>`
+    : "";
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      A buyer escalated to eBay
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, a case is now open on
+      <strong>${escapeHtml(data.orderLabel)}</strong>. eBay decides this one, and a case
+      decided against you counts as a defect on your seller account.
+    </p>
+    ${reason}
+    ${deadline}
+    ${ctaButton("Respond to the case", `${SITE_URL}/dashboard/flipdesk/post-sale`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `eBay case opened: ${data.orderLabel}`,
+    html: emailLayout(content),
+    category: "case_opened",
+  });
+}
+
+interface PostSaleDeadlineData {
+  userName: string;
+  caseLabel: string;
+  orderLabel: string;
+  respondBy: string | null;
+  tier: "48h" | "12h";
+}
+
+/**
+ * US-2933: the reminder that a deadline is close.
+ *
+ * Sent at most twice per case (T-48h and T-12h), because a nag on an open case
+ * teaches people to ignore the channel and costs more cases than it saves.
+ */
+export async function sendPostSaleDeadlineEmail(
+  to: string,
+  data: PostSaleDeadlineData,
+): Promise<boolean> {
+  const window = data.tier === "12h" ? "in about 12 hours" : "in two days";
+  const by = data.respondBy
+    ? `<p style="margin: 0 0 16px; color: #666; font-size: 14px;">Deadline: <strong>${escapeHtml(data.respondBy.slice(0, 10))}</strong>.</p>`
+    : "";
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      eBay needs your answer ${escapeHtml(window)}
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, the ${escapeHtml(data.caseLabel)} on
+      <strong>${escapeHtml(data.orderLabel)}</strong> is still open. If the clock runs
+      out, eBay decides it without you.
+    </p>
+    ${by}
+    ${ctaButton("Answer it now", `${SITE_URL}/dashboard/flipdesk/post-sale`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `Deadline ${window}: ${data.orderLabel}`,
+    html: emailLayout(content),
+    category: "post_sale_deadline",
+  });
+}
+
 interface CancellationRequestedData {
   userName: string;
   orderLabel: string; // order id or item

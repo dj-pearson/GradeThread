@@ -22,7 +22,19 @@ import {
   searchReturns,
 } from "./ebay-postorder.ts";
 import { type PaymentDisputeSummary, searchPaymentDisputes } from "./ebay-disputes.ts";
+import { type InquirySummary, searchInquiries } from "./ebay-inquiries.ts";
+import { type CaseSummary, searchCases } from "./ebay-cases.ts";
+import { remindDueCasesForUser } from "./post-sale-reminders.ts";
 import { isClosedCase } from "./post-sale-state.ts";
+import {
+  cancellationToCaseInput,
+  caseToCaseInput,
+  disputeToCaseInput,
+  inquiryToCaseInput,
+  type PostSaleCaseInput,
+  recordPostSaleCases,
+  returnToCaseInput,
+} from "./post-sale-store.ts";
 import {
   type CancellationRequestedEvent,
   claimMarketplaceEvent,
@@ -30,8 +42,12 @@ import {
   type MarketplaceEventKind,
   notifyCancellationRequested,
   notifyDisputeOpened,
+  notifyCaseOpened,
+  notifyInquiryOpened,
   notifyOfferReceived,
   notifyReturnOpened,
+  type CaseOpenedEvent,
+  type InquiryOpenedEvent,
   type OfferReceivedEvent,
   releaseMarketplaceEvent,
   type ReturnOpenedEvent,
@@ -42,6 +58,12 @@ export interface MarketplacePollResult {
   returns: number;
   disputes: number;
   cancellations: number;
+  /** US-2928: Item Not Received inquiries. */
+  inquiries: number;
+  /** US-2929: escalated Money Back Guarantee cases — the ones that carry a defect. */
+  cases: number;
+  /** US-2933: deadline reminders fired on cases already known. */
+  reminders: number;
   errors: string[];
 }
 
@@ -56,6 +78,11 @@ export interface MarketplacePollDeps {
   // fetcher yields no cancellations rather than a crash, which is the safe way
   // for a seam to default and is what the other optional deps here already do.
   fetchCancellations?: (userId: string) => Promise<CancellationSummary[]>;
+  // US-2928. Optional so every existing fake keeps type-checking; an omitted
+  // fetcher yields no inquiries rather than a crash.
+  fetchInquiries?: (userId: string) => Promise<InquirySummary[]>;
+  // US-2929. Optional for the same reason as the others.
+  fetchCases?: (userId: string) => Promise<CaseSummary[]>;
   claim: (
     userId: string,
     kind: MarketplaceEventKind,
@@ -81,6 +108,16 @@ export interface MarketplacePollDeps {
   notifyReturn: (ev: ReturnOpenedEvent) => Promise<void>;
   notifyDispute: (ev: DisputeOpenedEvent) => Promise<void>;
   notifyCancellation?: (ev: CancellationRequestedEvent) => Promise<void>;
+  notifyInquiry?: (ev: InquiryOpenedEvent) => Promise<void>;
+  notifyCase?: (ev: CaseOpenedEvent) => Promise<void>;
+  // US-2933: the deadline pass over cases ALREADY stored. Optional so existing
+  // fakes keep type-checking; an omitted one simply sends no reminders.
+  remind?: (ownerId: string) => Promise<number>;
+  // US-2927: write what this poll saw to marketplace_post_sale_cases before it
+  // decides whether to notify. A seam, and optional, so every existing fake
+  // keeps type-checking and a test that only cares about notification dedupe
+  // does not have to stub a database.
+  record?: (ownerId: string, inputs: PostSaleCaseInput[]) => Promise<number>;
 }
 
 const defaultDeps: MarketplacePollDeps = {
@@ -88,12 +125,18 @@ const defaultDeps: MarketplacePollDeps = {
   fetchReturns: (userId) => searchReturns(userId, { limit: 100 }),
   fetchDisputes: (userId) => searchPaymentDisputes(userId, { limit: 100 }),
   fetchCancellations: (userId) => searchCancellations(userId, { limit: 100 }),
+  fetchInquiries: (userId) => searchInquiries(userId, { limit: 100 }),
+  fetchCases: (userId) => searchCases(userId, { limit: 100 }),
   claim: claimMarketplaceEvent,
   release: releaseMarketplaceEvent,
   notifyOffer: notifyOfferReceived,
   notifyReturn: notifyReturnOpened,
   notifyDispute: notifyDisputeOpened,
   notifyCancellation: notifyCancellationRequested,
+  notifyInquiry: notifyInquiryOpened,
+  notifyCase: notifyCaseOpened,
+  record: recordPostSaleCases,
+  remind: remindDueCasesForUser,
 };
 
 // A dispute in one of these states still needs the seller's attention; CLOSED /
@@ -119,6 +162,9 @@ export async function pollMarketplaceEventsForUser(
     returns: 0,
     disputes: 0,
     cancellations: 0,
+    inquiries: 0,
+    cases: 0,
+    reminders: 0,
     errors: [],
   };
 
@@ -165,6 +211,11 @@ export async function pollMarketplaceEventsForUser(
   // ── Returns (Post-Order) ──────────────────────────────────────────
   try {
     const returns = await deps.fetchReturns(ownerId);
+    // US-2927: record BEFORE the notify loop. The loop `continue`s past a
+    // return that has already been claimed, so recording inside it would store
+    // each case exactly once and never update it again.
+    const nowIso = new Date().toISOString();
+    await deps.record?.(ownerId, returns.map((r) => returnToCaseInput(r, nowIso)));
     for (const ret of returns) {
       if (!ret.returnId) continue;
       const fresh = await deps.claim(
@@ -203,6 +254,11 @@ export async function pollMarketplaceEventsForUser(
   // ran a clock on it.
   try {
     const cancellations = (await deps.fetchCancellations?.(ownerId)) ?? [];
+    const cancelNowIso = new Date().toISOString();
+    await deps.record?.(
+      ownerId,
+      cancellations.map((c) => cancellationToCaseInput(c, cancelNowIso)),
+    );
     for (const ca of cancellations) {
       if (!ca.cancelId) continue;
 
@@ -250,11 +306,105 @@ export async function pollMarketplaceEventsForUser(
     result.errors.push(`cancellations: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // ── Item Not Received inquiries (Post-Order) ──────────────────────
+  //
+  // US-2928. The webhook for these already arrived and already triggered this
+  // poll — classifyEbayTopic routes INQUIRY_* to the return bucket — and the
+  // poll then had no inquiry source, so the round trip ended in silence. This
+  // is the source that was missing, not a new notification path.
+  try {
+    const inquiries = (await deps.fetchInquiries?.(ownerId)) ?? [];
+    const inquiryNowIso = new Date().toISOString();
+    await deps.record?.(
+      ownerId,
+      inquiries.map((i) => inquiryToCaseInput(i, inquiryNowIso)),
+    );
+    for (const inq of inquiries) {
+      if (!inq.inquiryId) continue;
+      // Same denylist-on-terminal-words rule the cancellation source uses, and
+      // for the same reason: it has to agree with what the Post-sale page calls
+      // open, or the seller is sent looking for work that is not there.
+      if (isClosedCase(inq.state)) continue;
+      const fresh = await deps.claim(
+        ownerId,
+        "inquiry",
+        inq.inquiryId,
+        "opened",
+        "inquiry_opened",
+        inq.itemId || null,
+      );
+      if (!fresh) continue;
+      try {
+        await deps.notifyInquiry?.({
+          userId: ownerId,
+          inquiryId: inq.inquiryId,
+          orderLabel: inq.orderId ?? inq.itemId,
+          reason: inq.reason,
+          respondBy: inq.respondBy,
+        });
+        result.inquiries++;
+      } catch (err) {
+        await deps.release?.(ownerId, "inquiry", inq.inquiryId, "opened");
+        result.errors.push(
+          `inquiry ${inq.inquiryId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  } catch (err) {
+    result.errors.push(`inquiries: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // ── Escalated cases (Post-Order case management) ──────────────────
+  //
+  // US-2929. The one post-sale event that costs a defect, and the one FlipDesk
+  // had no reader for. Its notification deliberately says so — a case is not a
+  // return with a different name, and a seller who treats it as one loses it.
+  try {
+    const cases = (await deps.fetchCases?.(ownerId)) ?? [];
+    const caseNowIso = new Date().toISOString();
+    await deps.record?.(ownerId, cases.map((x) => caseToCaseInput(x, caseNowIso)));
+    for (const kase of cases) {
+      if (!kase.caseId) continue;
+      if (isClosedCase(kase.state)) continue;
+      const fresh = await deps.claim(
+        ownerId,
+        "case",
+        kase.caseId,
+        "opened",
+        "case_opened",
+        kase.itemId || null,
+      );
+      if (!fresh) continue;
+      try {
+        await deps.notifyCase?.({
+          userId: ownerId,
+          caseId: kase.caseId,
+          orderLabel: kase.orderId ?? kase.itemId,
+          reason: kase.reason,
+          respondBy: kase.respondBy,
+        });
+        result.cases++;
+      } catch (err) {
+        await deps.release?.(ownerId, "case", kase.caseId, "opened");
+        result.errors.push(
+          `case ${kase.caseId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  } catch (err) {
+    result.errors.push(`cases: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // ── Payment disputes ──────────────────────────────────────────────
   try {
     // fetchDisputes (searchPaymentDisputes) already treats the eBay "no
     // disputes" 404 as an empty list, so a clean account is a no-op here.
     const disputes = await deps.fetchDisputes(ownerId);
+    const disputeNowIso = new Date().toISOString();
+    await deps.record?.(
+      ownerId,
+      disputes.map((d) => disputeToCaseInput(d, disputeNowIso)),
+    );
     for (const dispute of disputes) {
       if (!dispute.paymentDisputeId) continue;
       if (dispute.status && !ACTIONABLE_DISPUTE_STATUSES.has(dispute.status.toUpperCase())) {
@@ -284,6 +434,18 @@ export async function pollMarketplaceEventsForUser(
     result.errors.push(`disputes: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // ── Deadline reminders (US-2933) ──────────────────────────────────
+  //
+  // LAST, and over the STORED cases rather than the freshly fetched ones. Every
+  // source above has just upserted what it saw, so by this point the table is
+  // current — and reading it rather than the fetch results is what lets one
+  // pass cover all five case types instead of five near-identical blocks.
+  try {
+    result.reminders = (await deps.remind?.(ownerId)) ?? 0;
+  } catch (err) {
+    result.errors.push(`reminders: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   return result;
 }
 
@@ -303,6 +465,9 @@ export async function sweepMarketplaceEvents(
     returns: number;
     disputes: number;
     cancellations: number;
+    inquiries: number;
+    cases: number;
+    reminders: number;
     errors: number;
   }
 > {
@@ -311,6 +476,9 @@ export async function sweepMarketplaceEvents(
   let returns = 0;
   let disputes = 0;
   let cancellations = 0;
+  let inquiries = 0;
+  let cases = 0;
+  let reminders = 0;
   let errors = 0;
   for (const ownerId of ownerIds) {
     const r = await pollMarketplaceEventsForUser(ownerId);
@@ -318,7 +486,20 @@ export async function sweepMarketplaceEvents(
     returns += r.returns;
     disputes += r.disputes;
     cancellations += r.cancellations;
+    inquiries += r.inquiries;
+    cases += r.cases;
+    reminders += r.reminders;
     errors += r.errors.length;
   }
-  return { users: ownerIds.length, offers, returns, disputes, cancellations, errors };
+  return {
+    users: ownerIds.length,
+    offers,
+    returns,
+    disputes,
+    cancellations,
+    inquiries,
+    cases,
+    reminders,
+    errors,
+  };
 }

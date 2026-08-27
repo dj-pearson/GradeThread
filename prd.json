@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2923",
+  "nextId": "US-2954",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2867,6 +2867,356 @@
         "US-2917"
       ],
       "notes": "PARTIAL 2026-08-26. The checkable half is done; the curation itself is BLOCKED and needs the owner. DONE: (AC5) new services/edge-functions/src/tests/verified-chart-parity_test.ts parses every brand_size_charts INSERT across all 674 migrations (a hand-rolled VALUES splitter, because the rows carry ARRAY[], $json$ and prose full of commas) and fails when a chart marked verified has no sizing-charts.ts counterpart and is not classified DB-only. It found SEVEN on its first run - New Era x2, Stetson, Kangol, Goorin Bros, golf shoe widths, western boot widths - all real and all correctly DB-only: headwear circumference and shoe-width letter axes have no ease and no band, so compiling them into the edge would add rows nothing reads. They are now classified with that reason, plus a guards-the-guard case (the parser must find >100 charts, since a broken parse reads exactly like a clean corpus) and a case that a verified chart carries a source_url, since verified without a URL is a row nobody could have checked. (AC6) measurement_basis added to the admin allow-list on BOTH sides - src/pages/admin/brand-knowledge.tsx EDITABLE and the edge KB_TABLES in admin-brand-knowledge.ts, which is the one that actually enforces it. (AC7) new services/edge-functions/scripts/size-chart-coverage.ts ranks brands by real inventory_items.brand row count, reads the department each brand actually sells from the items rather than guessing, and prints coverage per brand+department: any chart / verified chart / tops AND bottoms / source_url, plus the flat-basis count. Read-only, deno lint and deno check clean. BLOCKED, and why: (AC1) the top-100 ranking is a fact about PROD inventory. There is no prod access from this sandbox and Docker will not start here, so the script has never been executed and the ranked list cannot be written into these notes. (AC2/AC3/AC4/AC8) seeding 100 brands' charts requires that ranking first, and every row needs a human to compare it against the brand's own published guide before verified flips true - that is the whole point of the tier and it is not something to fabricate. (AC9) is an OPERATOR step by its own wording. NEXT STEP FOR THE OWNER: run 'deno run --allow-net --allow-env services/edge-functions/scripts/size-chart-coverage.ts --top 100 --json' against prod with SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY set, and paste the ranking here. The seeding work can then be scoped against real numbers instead of intuition. | AC1/AC7 UNBLOCKED 2026-08-26: the script ran against prod. 711 items scanned, 321 charts in the DB, 100 brands ranked, 119 brand+department pairs. HEADLINE: 38 of 119 pairs have any chart, 13 cover tops AND bottoms, and only FOUR have a verified chart - Lululemon Men and Women, Athleta Women, Nike Men. Weighted by items rather than by brand: 49.3% of paired items have some chart, 19.7% have a verified one. flat-basis charts: 0 (every one of the 321 is 'body', as 00674's comment predicted).  THE RANKING CHANGES THE STORY'S SCOPE, and this is the reason the AC insisted it come from data. The platform holds 711 items, not the tens of thousands the phrase 'top 100 brands' implies. Rank 1 (Lululemon) has 63 items; rank 10 has 8; rank 50 has 3; rank 100 has 2. The top 100 brands are 63.9% of all items, so ranking deeper buys almost nothing, and the bottom half of the 100 is a two-item tail that a human would be checking a size guide for on spec.  Real work remaining, by unit: 115 of the 119 pairs lack a verified chart, but they collapse into 87 BRANDS, and a brand's own size page usually serves both departments in one visit. 34 of the 115 pairs ALREADY have a chart and only need a human to compare it to its source_url (all 38 charted pairs carry one). 81 need a chart built from scratch.  RECOMMENDED SCOPE: verify 20 brands, not 100. The first 20 brands by item count cover 132 of the 269 uncovered items (49%); going to 87 brands to reach 100% is 4x the work for 2x the coverage. In order: Vuori(15), Peter Millar(12), prAna(8), GANT(7), Bonobos(7), Vineyard Vines(7), Polo Ralph Lauren(7), Carhartt(7), Patagonia(7), Ermenegildo Zegna(6), Lauren Ralph Lauren(6), Vince(6), Banana Republic(6), Quince(5), Free Fly(5), L'AGENCE(5), Beyond Yoga(4), Christian Dior(4), St. John(4), Mizzen+Main(4). Six of those twenty (Vuori, Peter Millar, Bonobos, Vineyard Vines, Vince, Banana Republic) are CHECK-not-build, so they are the cheapest wins and should go first.  Kids is negligible and should be dropped from AC2: 4 pairs, 7 items total, zero charts, spread across Carhartt, Polo Ralph Lauren and Patagonia.  TWO SCRIPT DEFECTS FOUND BY RUNNING IT, both fixed before the numbers above were trusted. (1) It selected brand_size_charts.measurement_basis, and against a database without 00674 PostgREST fails the WHOLE select with 42703, so readCharts() returned an empty list and every brand printed NONE - a fabricated zero that reads exactly like the real answer to the question the script exists to ask. The column is optional now and the flat count reports 'unknown' rather than 0. (2) The first prod attempt captured one character of the pasted service-role key; Deno rejected the Authorization header, supabase-js surfaced it per query, and the script wrote a complete report of zeros. It now trims both env values and refuses to start on a key that is not header-safe and JWT-shaped. Both paths were verified against the local stack, whose brand_size_charts is the same pre-00674 shape.  ALSO: migration 00674 IS ALREADY APPLIED TO PROD, though PENDING_MIGRATIONS.md still lists it as HELD and BLOCKING. measurement_basis appears in prod's PostgREST OpenAPI definition for brand_size_charts, and all 321 rows read back with a basis value. Confirm applied_migrations holds '00674' and then clear the hold; the session-start hook is warning about a migration that has shipped. | CONFIRMED APPLIED 2026-08-26: migration 00674 is on prod. The evidence is a row for '00674' in public.applied_migrations, read with services/edge-functions/scripts/check-prod-migration.ts - not the column showing up in the schema, which would only prove the file got that far. The self-record insert is the LAST statement in the migration, so the row means the ADD COLUMN, the CHECK constraint and the comment all ran. Prod records every migration that is meant to be applied; the only gap is 00527, which is the owner's permanent do-not-apply. Anything above in these notes calling 00674 HELD or BLOCKING is superseded. PENDING_MIGRATIONS.md now reads APPLIED and held-migration-gate.mjs passes. Prod's 321 charts are all measurement_basis='body', so AC4's flat path has no production data behind it yet. | STATUS CORRECTION 2026-08-26. Migration 00674 is applied to production, and 00527 is the owner's permanent do-not-apply. Every earlier segment of these notes that describes either one as still awaiting the operator is superseded and should not be acted on. Evidence is a row in public.applied_migrations, read with services/edge-functions/scripts/check-prod-migration.ts, whose sweep reports that prod records every migration meant to be applied. PENDING_MIGRATIONS.md reads APPLIED and scripts/held-migration-gate.mjs passes."
+    },
+    {
+      "id": "US-2926",
+      "passes": false,
+      "title": "EPIC: eBay after the listing - returns, cases, offers and promotions as the reason to switch",
+      "description": "As a reseller running volume on eBay, I want FlipDesk to own everything that happens after a listing goes live - returns, inquiries, Money Back Guarantee cases, offers and promotions - better than Seller Hub does, so that I run the business here instead of keeping a second tab open for the parts that actually cost me money.",
+      "acceptanceCriteria": [
+        "Umbrella only: children are US-2927..US-2953; this story closes when every child passes",
+        "Standing constraint: every new route added by a child is tenant-scoped per US-268 (workspaceOwnerId ?? userId, or ownership proven through a parent row) and carries a case in services/edge-functions/src/tests/tenant-isolation_test.ts",
+        "Standing constraint: no child writes an eBay-side action from a background job without an explicit seller opt-in row; auto-actions default OFF, matching lib/offer-rules.ts and the promoted-listings default in vault/30-platform/ebay-ranking-playbook.md",
+        "At close, the three surfaces named in the epic each read from a local table rather than a live eBay fetch on page load, so a page reload does not consume eBay call quota",
+        "At close, vault/30-platform/flipdesk-reseller-gaps.md section 1 is re-baselined against the shipped code and the '2026-06-20 re-baseline' block is superseded by a dated entry naming this epic"
+      ],
+      "priority": 100
+    },
+    {
+      "id": "US-2934",
+      "passes": false,
+      "title": "Six post-sale queues and no single place that says what needs the seller today",
+      "description": "As a seller opening FlipDesk in the morning, I want one list of everything eBay is waiting on me for, ranked by deadline and money at risk, so that I do not have to check six tabs to find the one thing that matters.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/post-sale.tsx opens on a single Needs you list merging returns, cancellations, inquiries, cases, payment disputes and expiring best offers from marketplace_post_sale_cases and the offers table",
+        "Ranking is deadline first, then amount at risk descending; the rule is a pure exported function with unit tests, not inline JSX logic",
+        "Each row states the case type, the item, the amount at risk, the deadline bucket and the single most likely action, and clicking through opens that case in place",
+        "A seller with nothing open sees an EmptyState that says so, not a spinner and not an error",
+        "The count of items in Needs you is exposed to the dashboard nav badge through the existing notification-count path",
+        "npm run ui:check stays at zero findings for src/"
+      ],
+      "priority": 108,
+      "dependsOn": [
+        "US-2927",
+        "US-2928",
+        "US-2929",
+        "US-2933",
+        "US-2939"
+      ]
+    },
+    {
+      "id": "US-2935",
+      "passes": false,
+      "title": "The grade evidence pack exists and nothing attaches it to the case it was built for",
+      "description": "As a seller facing a not-as-described return, I want the grade report attached to my response automatically, so that the one piece of evidence no other seller has is actually in front of eBay.",
+      "acceptanceCriteria": [
+        "When a seller declines a SNAD return, contests a payment dispute or responds to a case on an order whose item has a grade report, the response composer pre-loads the evidence preview from the existing POST /api/flipdesk/ebay/evidence/preview",
+        "Nothing is submitted automatically: the pack is shown, is editable, and requires an explicit send click - matching the no-timer rule already documented on the evidence/preview route",
+        "The pack is uploaded through the existing uploadReturnFile/submitReturnFiles path for returns and uploadDisputeEvidenceFile for disputes, and through the new case surface for cases, rather than a fourth upload implementation",
+        "An order whose item has no grade report shows the composer with no pack and a one-line explanation, never a broken or empty attachment",
+        "A test asserts the same verdict text is produced for a return and for a dispute on the same order - one pack builder, not two"
+      ],
+      "priority": 109,
+      "dependsOn": [
+        "US-2929"
+      ]
+    },
+    {
+      "id": "US-2936",
+      "passes": false,
+      "title": "Return outcomes are never measured against the grade, so the one analysis only GradeThread can run does not exist",
+      "description": "As a seller, I want my return and case rate broken down by brand, category, assigned grade and whether the defect was disclosed, so that I learn which of my sourcing and listing habits generate the returns.",
+      "acceptanceCriteria": [
+        "A new FlipDesk analytics view reads marketplace_post_sale_cases joined to inventory_items, sales and grade_reports and reports return rate, SNAD share and average days-to-resolve, sliced by brand, eBay category, assigned grade band and disclosed-defect count",
+        "Every slice states its denominator (sales in the window) alongside the rate, and a slice with fewer than a named minimum sales count is shown as 'not enough sales yet' rather than as a percentage",
+        "The comparison a seller actually wants is present: return rate on items where a defect was disclosed in the listing versus items where none was",
+        "The query is tenant-scoped and runs off local tables only - no eBay call on page load",
+        "Charts follow the dataviz skill's palette and the numbers are readable as text without the chart"
+      ],
+      "priority": 110,
+      "dependsOn": [
+        "US-2927"
+      ]
+    },
+    {
+      "id": "US-2937",
+      "passes": false,
+      "title": "A not-as-described return is the strongest grading-accuracy signal in the product and nothing reads it",
+      "description": "As the GradeThread team, we want SNAD returns fed into the grading accuracy record, so that a grade the market rejected is treated as evidence rather than as a support ticket.",
+      "acceptanceCriteria": [
+        "A SNAD return or case on an order whose item has a grade_report records an accuracy observation through the existing accuracy-tracking path, tagged with the buyer's stated reason",
+        "The observation is a signal, not a verdict: it never rewrites the stored grade, never changes a published certificate, and is excluded from any customer-facing accuracy figure until a human review confirms it",
+        "The grading-engine skill's contract is followed - load it before touching lib/accuracy-tracking.ts or the human-review path",
+        "Admin grading review surfaces SNAD-linked observations as their own filter so a reviewer can work them as a batch",
+        "A test asserts a non-SNAD return reason (for example 'changed my mind') produces no accuracy observation"
+      ],
+      "priority": 111,
+      "dependsOn": [
+        "US-2927"
+      ]
+    },
+    {
+      "id": "US-2938",
+      "passes": false,
+      "title": "Returns cannot be automated at all, so a seller with volume answers every one by hand",
+      "description": "As a high-volume seller, I want rules that auto-approve or auto-refund small returns, so that I stop paying a defect on returns I was always going to approve anyway.",
+      "acceptanceCriteria": [
+        "Return rules are stored as flipdesk_automation_rules rows (trigger_json/action_json, no migration) and executed by a step in the existing hourly automations cron, following the pattern lib/offer-rules.ts documents",
+        "A pure decideReturn-style evaluator supports: auto-approve when the order total is at or below a threshold, auto-refund-without-return when the total is at or below a lower threshold, and always-skip when the reason is SNAD",
+        "SNAD is a hard skip that no configuration can turn into an auto-action, and the module header says why",
+        "Every rule is off by default and each auto-action writes an audit log entry naming the rule that fired",
+        "A dry-run mode reports what the rules WOULD have done over the last 30 days of local cases without calling eBay, and the UI shows that preview before a rule can be enabled"
+      ],
+      "priority": 112,
+      "dependsOn": [
+        "US-2927"
+      ]
+    },
+    {
+      "id": "US-2939",
+      "passes": false,
+      "title": "Best offers are fetched live and never stored, so there is no counter history and no memory of a buyer",
+      "description": "As a seller, I want every offer and counter recorded, so that I can see what a buyer has already offered and what my counters actually convert at.",
+      "acceptanceCriteria": [
+        "New migration creates public.marketplace_offers with (id, user_id, platform, external_offer_id, item_external_id, inventory_item_id, listing_id, direction, buyer_username, amount_cents, currency, list_price_cents, state, expires_at, responded_at, response, response_amount_cents, rule_id, raw jsonb, created_at, updated_at) and a UNIQUE (user_id, platform, external_offer_id, direction)",
+        "direction distinguishes an offer received from the buyer, a counter we sent, and an offer we sent to interested buyers",
+        "RLS on; service-role writes are user_id-scoped (US-268)",
+        "US-1108 triple satisfied: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer",
+        "marketplace-event-poll.ts upserts fetched offers, and routes/flipdesk-automations.ts records the outcome of every accept/decline/counter it performs on the same row",
+        "src/pages/flipdesk/offers.tsx shows, for an offer whose buyer has offered before, the count and best previous offer from that buyer",
+        "tenant-isolation_test.ts covers the offers routes reading the new table"
+      ],
+      "priority": 113
+    },
+    {
+      "id": "US-2940",
+      "passes": false,
+      "title": "The offer engine can accept, decline or skip - it cannot counter, which is where the money is",
+      "description": "As a seller, I want offers below my accept threshold countered automatically at a price I set, so that a 70-percent offer becomes a negotiation instead of a lost sale.",
+      "acceptanceCriteria": [
+        "lib/offer-rules.ts gains a counter decision returning the counter amount, and OfferDecision becomes accept | decline | counter | skip",
+        "The counter amount is computed from a seller-set counterAtPct of list price, clamped so it is strictly above the incoming offer and strictly below the list price; a counter that cannot satisfy both is a skip, not a decline",
+        "marginFloorPct applies to a counter exactly as it applies to an accept - a counter that would clear below the margin floor becomes a skip, and the header states this",
+        "The rule ordering is explicit and unit-tested: accept wins over counter, counter wins over decline, so an offer that satisfies both accept and counter is accepted",
+        "routes/flipdesk-automations.ts executes the counter through the existing respondToBestOffer path and records it on the marketplace_offers row with rule_id set",
+        "Counters are off by default and a first-time enable shows the dry-run preview over the last 30 days of stored offers before it can be saved"
+      ],
+      "priority": 114,
+      "dependsOn": [
+        "US-2939"
+      ]
+    },
+    {
+      "id": "US-2941",
+      "passes": false,
+      "title": "The offers list shows a price with no margin, no cost basis and no expiry countdown",
+      "description": "As a seller deciding on an offer in ten seconds, I want the margin, the cost and the time left shown on the row, so that I do not have to open the item to know whether to take it.",
+      "acceptanceCriteria": [
+        "Each row in src/pages/flipdesk/offers.tsx shows offer amount, percent of list, gross margin over acquisition cost, and time until the offer expires",
+        "Margin is shown as 'cost unknown' rather than as zero or as a guess when the linked inventory item has no cost basis",
+        "The expiry countdown is derived from the stored expires_at and re-renders without a refetch; an offer inside the last two hours is labelled as such in text",
+        "An offer on a listing FlipDesk never imported keeps the existing no-local-item message and shows no fabricated margin",
+        "The margin computation is a pure exported function shared with lib/offer-rules.ts so the number the seller sees and the number the rule uses cannot diverge"
+      ],
+      "priority": 115,
+      "dependsOn": [
+        "US-2939"
+      ]
+    },
+    {
+      "id": "US-2942",
+      "passes": false,
+      "title": "No seller knows what discount depth actually converts, because nobody measures their own offers",
+      "description": "As a seller, I want my own accept rate by discount depth, so that I send 12 percent instead of 20 percent when 12 converts just as well.",
+      "acceptanceCriteria": [
+        "A new panel reports, from marketplace_offers, accept rate and median days-to-accept bucketed by discount depth (percent below list) for offers we sent, and separately for counters we sent",
+        "Every bucket states its sample size and a bucket under a named minimum is reported as 'not enough offers yet', never as a percentage",
+        "The panel names the efficient depth in one sentence - the shallowest bucket whose accept rate is statistically indistinguishable from the deepest - and shows the arithmetic behind that claim",
+        "Slicing by category and by grade band is available where the sample supports it",
+        "Charts follow the dataviz skill's palette"
+      ],
+      "priority": 116,
+      "dependsOn": [
+        "US-2939"
+      ]
+    },
+    {
+      "id": "US-2943",
+      "passes": false,
+      "title": "Send-offer-to-interested-buyers is on-demand and dies silently when the restricted scope is missing",
+      "description": "As a seller, I want a daily list of the items whose watchers would take a discount, and a real fallback when eBay has not granted the send-offer scope, so that the feature is useful before US-1421 lands and better after.",
+      "acceptanceCriteria": [
+        "A scheduled job calls find_eligible_items per connected seller, stores the eligible set, and surfaces it as a Send offers today list ranked by watcher count and days listed",
+        "The list is a proposal: nothing sends without the seller's click, and a bulk send confirms the count and total discount exposure first",
+        "When eBay returns 403 for the missing restricted scope, the route returns a typed reason the UI renders as one honest line pointing at the operator story US-1421, and the fallback path (a markdown sale on the same items) is offered in the same place",
+        "A per-item guard prevents sending a second offer to the same item within a cooldown that is a named constant, matching the offerDaysByItemExternalId shape already in routes/flipdesk-automations.ts",
+        "The job is registered in the cron ledger"
+      ],
+      "priority": 117,
+      "dependsOn": [
+        "US-2939"
+      ]
+    },
+    {
+      "id": "US-2944",
+      "passes": false,
+      "title": "Two systems decide the same offer: the listing's bestOfferTerms and the offer-rules engine, and nothing checks they agree",
+      "description": "As a seller, I want one place that decides my offer thresholds, so that eBay's auto-accept cannot take a price my FlipDesk rule would have refused.",
+      "acceptanceCriteria": [
+        "When an offer rule with acceptAtPct is enabled for a listing, the composer save and the revise path push the equivalent autoAcceptPrice through lib/best-offer.ts so eBay's own auto-accept never sits below the rule's number",
+        "A rule whose marginFloorPct would refuse an accept forces the pushed autoAcceptPrice up to the floor price, or omits it when no valid price satisfies eBay's constraints - it never pushes a price the rule would refuse",
+        "A listing whose stored best_offer_auto_accept_cents disagrees with its active rule is reported in the offers UI as a conflict with both numbers named, and a single action reconciles it",
+        "The US-2405 rule stands: a blank threshold stays blank and nothing is derived from the comp band",
+        "Unit tests cover: rule with no accept threshold pushes nothing; rule below margin floor pushes the floor; rule above list price pushes nothing"
+      ],
+      "priority": 118,
+      "dependsOn": [
+        "US-2939",
+        "US-2940"
+      ]
+    },
+    {
+      "id": "US-2945",
+      "passes": false,
+      "title": "Promoted Listings Advanced runs with no keywords, which is the only lever that campaign type has",
+      "description": "As a seller running CPC ads on eBay, I want keyword and negative-keyword management in FlipDesk, so that my Advanced campaign stops paying for searches that will never buy.",
+      "acceptanceCriteria": [
+        "lib/ebay-marketing.ts gains keyword operations against the ad_group keyword and negative_keyword endpoints: list, create, update bid, pause and delete, plus eBay's keyword suggestions",
+        "Routes under /api/flipdesk/ebay/marketing/keywords expose those operations, are tenant-scoped, and audit-log every mutation",
+        "A UI on the FlipDesk ads surface lists keywords with bid, impressions, clicks and spend joined from the existing lib/ebay-ad-reports.ts data, sorted by spend descending",
+        "Suggested keywords are shown as proposals with the suggested bid, and adding one is a click - nothing is added automatically",
+        "A search term with spend and zero sales over a named window is flagged as a negative-keyword candidate, and adding it as a negative is one action",
+        "tenant-isolation_test.ts covers the new routes"
+      ],
+      "priority": 119
+    },
+    {
+      "id": "US-2946",
+      "passes": false,
+      "title": "eBay will say which listings to promote and at what budget and bid, and FlipDesk asks for none of it",
+      "description": "As a seller, I want eBay's own promote/budget/bid suggestions surfaced next to my own margin data, so that I am not guessing at ad rates on items whose economics I know better than eBay does.",
+      "acceptanceCriteria": [
+        "lib/ebay-marketing.ts gains suggestItems, suggestBudget and suggestBids wrapping the corresponding Marketing API suggestion endpoints",
+        "GET /api/flipdesk/ebay/marketing/suggestions returns eBay's suggested items joined to the local inventory item's cost, margin and days-listed, tenant-scoped",
+        "A suggested ad rate that would push the item below its margin floor is shown with the floor named and the rate capped, not silently applied",
+        "The UI ranks suggestions by margin-after-ad-fee descending rather than by eBay's own order, and says which ordering it used",
+        "A seller on a marketplace where the suggestion API is unsupported sees one honest line, reusing the recommendationApiSupported() gate already in lib/ebay-marketing.ts",
+        "tenant-isolation_test.ts covers the new route"
+      ],
+      "priority": 120
+    },
+    {
+      "id": "US-2947",
+      "passes": false,
+      "title": "A seller can create an eBay ad campaign from FlipDesk and cannot pause, resume, end or clone one",
+      "description": "As a seller, I want full control of the campaign lifecycle from FlipDesk, so that a campaign I started here does not have to be stopped somewhere else.",
+      "acceptanceCriteria": [
+        "lib/ebay-marketing.ts gains pauseCampaign, resumeCampaign, endCampaign and cloneCampaign against the Marketing API campaign endpoints",
+        "Routes POST /api/flipdesk/ebay/marketing/campaigns/:id/{pause,resume,end,clone} exist, are tenant-scoped, audit-log, and treat an already-in-that-state response as success rather than a 502",
+        "Ending a campaign requires a confirm dialog that names the campaign and the number of live ads it carries",
+        "The campaign list shows status, budget, spend to date and ad count, and the actions available are exactly those legal for the current status",
+        "The cached ebay_cpc_campaign_id / ebay_cpc_ad_group_id on marketplace_connections is cleared when the campaign it points at is ended, so ensureCpcCampaign does not keep handing out a dead id",
+        "tenant-isolation_test.ts covers the new routes"
+      ],
+      "priority": 121
+    },
+    {
+      "id": "US-2948",
+      "passes": false,
+      "title": "Ad rates are pushed one listing at a time, so promoting a hundred items is a hundred eBay calls",
+      "description": "As a seller with a large catalogue, I want to create and re-rate ads in bulk, so that a portfolio-wide rate change is one operation and not an afternoon.",
+      "acceptanceCriteria": [
+        "lib/ebay-marketing.ts gains bulkCreateAdsByListingId and bulkUpdateAdRateByListingId against the Marketing API bulk endpoints, batching at eBay's documented per-call limit",
+        "POST /api/flipdesk/ebay/marketing/ads/bulk accepts a set of local listing ids, resolves them to eBay listing ids under the owner's scope only, and returns per-listing success/failure rather than one aggregate ok",
+        "Partial failure is reported per listing with eBay's own error text mapped through lib/ebay-error-map.ts; the operation never reports success for a listing eBay rejected",
+        "A bulk rate change is confirmed with the count and the estimated fee delta at current sell-through before it runs",
+        "The bulk path is used by the listings table's existing bulk actions rather than a separate screen",
+        "tenant-isolation_test.ts asserts a listing id belonging to another seller in the request body is rejected, not silently skipped"
+      ],
+      "priority": 122
+    },
+    {
+      "id": "US-2949",
+      "passes": false,
+      "title": "A markdown sale or coupon has no measured lift, because promotion reporting is never called and promotions are not stored",
+      "description": "As a seller, I want to know whether a sale or coupon actually sold more, so that I stop repeating discounts that only cost me margin.",
+      "acceptanceCriteria": [
+        "New migration creates public.marketplace_promotions with (id, user_id, platform, external_promotion_id, promotion_type, name, status, discount_pct, starts_at, ends_at, item_count, raw jsonb, created_at, updated_at) plus a UNIQUE (user_id, platform, external_promotion_id)",
+        "US-1108 triple satisfied: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer; RLS on and service-role writes user_id-scoped",
+        "lib/ebay-marketing.ts gains promotion reporting against the Marketing API promotion summary report, and a sync job upserts both the promotions and their reported results",
+        "The promotions card reports, per promotion, units sold and revenue during the promotion against the same item set in the equal window before it, and states both windows",
+        "A promotion too new or too small to compare is labelled as such rather than shown with a lift number",
+        "src/components/flipdesk/ebay-promotions-card.tsx reads the local table, so opening the page does not call eBay"
+      ],
+      "priority": 123
+    },
+    {
+      "id": "US-2950",
+      "passes": false,
+      "title": "Markdown sales cannot be scheduled, so nothing discounts aged inventory unless the seller remembers",
+      "description": "As a seller, I want a standing rule that marks down items past a chosen age, floored by grade and by margin, so that dead stock clears itself without me pricing it by hand.",
+      "acceptanceCriteria": [
+        "A markdown rule is stored as a flipdesk_automation_rules row and evaluated by the existing hourly automations cron, following the lib/offer-rules.ts pattern",
+        "The rule takes: days listed threshold, markdown percent, a hard margin floor over acquisition cost, and an optional minimum grade below which items are excluded",
+        "A pure evaluator selects the item set and is unit-tested; an item whose markdown would breach the margin floor is excluded from the sale, never discounted to the floor silently",
+        "The rule creates or updates one eBay markdown sale through the existing createMarkdownSale/updateMarkdownSale path rather than repricing listings individually",
+        "The rule is off by default, shows a dry-run of the item set and total discount exposure before it can be enabled, and every run audit-logs the item count and the rule id",
+        "clampMarkdownPct in lib/ebay-marketing.ts remains the single place eBay's percent bounds are enforced"
+      ],
+      "priority": 124,
+      "dependsOn": [
+        "US-2949"
+      ]
+    },
+    {
+      "id": "US-2951",
+      "passes": false,
+      "title": "A markdown, a coupon and an accepted offer can stack an item below cost and nothing checks",
+      "description": "As a seller, I want FlipDesk to refuse a discount stack that takes an item under my floor, so that a coupon I set up in March cannot combine with today's sale to sell at a loss.",
+      "acceptanceCriteria": [
+        "A pure resolver computes the worst-case realised price for an item given every promotion it is in, its best-offer auto-accept threshold and its shipping cost, and is unit-tested with a stacked markdown plus coupon plus auto-accept",
+        "Adding an item to a promotion, enabling an auto-accept threshold or enabling a markdown rule is blocked with a named error when the worst case breaches the item's margin floor, and the message names each contributing discount and its amount",
+        "Existing items already in a breaching stack are listed as a warning on the promotions card with the same breakdown - the check reports, it does not silently remove anything",
+        "The floor is the seller's configured margin floor, defaulting to DEFAULT_OFFER_MARGIN_FLOOR_PCT so there is one default and not two",
+        "An item with no known cost basis is excluded from the check and labelled as unchecked rather than assumed safe"
+      ],
+      "priority": 125,
+      "dependsOn": [
+        "US-2949"
+      ]
+    },
+    {
+      "id": "US-2952",
+      "passes": false,
+      "title": "Ad fees and markdown discounts never reach the money view, so reported profit is higher than real profit",
+      "description": "As a seller, I want promoted-listing fees and discounts given as part of a promotion shown in my P&L, so that the profit number I look at is the one I actually banked.",
+      "acceptanceCriteria": [
+        "Promoted-listing fees from the eBay finances transaction feed are attributed to the sale they came from and appear as their own line in src/pages/flipdesk/money.tsx alongside eBay fees and shipping",
+        "A discount given through a markdown sale or coupon is shown as a discount line on the sale rather than folded into a lower sale price with no explanation",
+        "Net margin per item and per period subtracts both, and a test asserts the period total equals the sum of its lines",
+        "The promotions and ads surfaces link through to the money view filtered to that promotion or campaign",
+        "Fees that arrive after the period is displayed do not silently change a previously shown total without the view marking the period as still settling"
+      ],
+      "priority": 126,
+      "dependsOn": [
+        "US-2949"
+      ]
+    },
+    {
+      "id": "US-2953",
+      "passes": false,
+      "title": "The seller's own eBay follower list is the cheapest channel they have and FlipDesk cannot send to it",
+      "description": "As a seller with an eBay Store, I want to send a campaign to my followers from FlipDesk using items it already knows are aged or newly listed, so that I use the audience I already own.",
+      "acceptanceCriteria": [
+        "lib/ebay-marketing.ts gains email-campaign operations against the Marketing API email_campaign endpoints: list, create, update, send and report",
+        "Routes under /api/flipdesk/ebay/marketing/email-campaigns exist, are tenant-scoped, and audit-log every send",
+        "A seller without an eBay Store subscription sees one honest line explaining the feature needs a Store, detected from the API response rather than assumed",
+        "Campaign item selection can be seeded from a FlipDesk saved filter (for example newly listed this week, or aged over 60 days), and the seeded set is editable before send",
+        "A send is confirmed with the recipient count and cannot be triggered by any automation rule - sends are always an explicit human action",
+        "Open and click results from eBay's campaign report are shown against the campaign after send",
+        "tenant-isolation_test.ts covers the new routes"
+      ],
+      "priority": 127
     }
   ]
 }

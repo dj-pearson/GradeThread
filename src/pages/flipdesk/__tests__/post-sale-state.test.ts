@@ -6,6 +6,10 @@
 // that safe, and the one word that must never be matched loosely.
 import { describe, it, expect } from "vitest";
 import {
+  byDeadline,
+  canMarkReceived,
+  deadlineBucket,
+  deadlineLabel,
   daysUntil,
   isClosedCase,
   isOverdue,
@@ -113,5 +117,97 @@ describe("shared fixture (web ↔ Android)", () => {
       );
     }
     expect(isOverdue("next tuesday", now)).toBe(false);
+  });
+});
+
+
+describe("canMarkReceived (US-2930)", () => {
+  it("says no while the return is still waiting on the buyer", () => {
+    // The case the rule exists for. Offering the action here invites the seller
+    // to tell eBay a parcel arrived that was never posted.
+    expect(canMarkReceived("RETURN_REQUESTED")).toBe(false);
+    expect(canMarkReceived("RETURN_APPROVED")).toBe(false);
+    expect(canMarkReceived("AWAITING_SHIPMENT")).toBe(false);
+  });
+
+  it("says yes once the item is moving", () => {
+    expect(canMarkReceived("ITEM_SHIPPED")).toBe(true);
+    expect(canMarkReceived("IN_TRANSIT")).toBe(true);
+    expect(canMarkReceived("ITEM_DELIVERED")).toBe(true);
+  });
+
+  it("says yes on tracking alone, because eBay's state lags the carrier scan", () => {
+    expect(canMarkReceived("RETURN_APPROVED", true)).toBe(true);
+  });
+
+  it("says no once it is already received or the case is closed", () => {
+    expect(canMarkReceived("ITEM_RECEIVED")).toBe(false);
+    expect(canMarkReceived("ITEM_RECEIVED", true)).toBe(false);
+    expect(canMarkReceived("RETURN_CLOSED")).toBe(false);
+    expect(canMarkReceived("REFUNDED", true)).toBe(false);
+  });
+
+  it("defaults to NO on an unknown state — the opposite of isClosedCase", () => {
+    expect(canMarkReceived(null)).toBe(false);
+    expect(canMarkReceived("")).toBe(false);
+    expect(canMarkReceived("SOMETHING_EBAY_ADDED_TOMORROW")).toBe(false);
+  });
+});
+
+
+describe("deadlineBucket / deadlineLabel (US-2933)", () => {
+  const NOW = Date.parse("2026-08-27T12:00:00.000Z");
+  const inDays = (d: number) => new Date(NOW + d * 86_400_000).toISOString();
+
+  it("buckets by days left", () => {
+    expect(deadlineBucket(inDays(-1), NOW)).toBe("overdue");
+    // Under a day, not "days === 0": daysUntil ceilings, so a zero-day case is
+    // only ever the exact instant the clock runs out.
+    expect(deadlineBucket(inDays(0.2), NOW)).toBe("imminent");
+    expect(deadlineBucket(inDays(0.9), NOW)).toBe("imminent");
+    expect(deadlineBucket(inDays(1.5), NOW)).toBe("soon");
+    expect(deadlineBucket(inDays(9), NOW)).toBe("later");
+  });
+
+  it("returns null for a date it cannot read — never 'overdue'", () => {
+    // The one that matters. A parse failure rendering as Overdue looks exactly
+    // like a case the seller has already lost, and they go hunting for work
+    // that is not there.
+    expect(deadlineBucket(null, NOW)).toBeNull();
+    expect(deadlineBucket(undefined, NOW)).toBeNull();
+    expect(deadlineBucket("not a date", NOW)).toBeNull();
+    expect(deadlineLabel(null, NOW)).toBeNull();
+  });
+
+  it("labels the bucket as words, so colour is never the only signal", () => {
+    expect(deadlineLabel(inDays(-1), NOW)).toBe("Overdue");
+    expect(deadlineLabel(inDays(0.2), NOW)).toBe("Under a day left");
+    expect(deadlineLabel(inDays(1.5), NOW)).toBe("2d left");
+  });
+});
+
+describe("byDeadline (US-2933)", () => {
+  const rows = [
+    { id: "none", respondBy: null },
+    { id: "late", respondBy: "2026-09-10T00:00:00.000Z" },
+    { id: "soon", respondBy: "2026-08-28T00:00:00.000Z" },
+    { id: "unreadable", respondBy: "whenever" },
+  ];
+
+  it("sorts soonest first and puts undated cases LAST", () => {
+    // Undated last, not first: a case eBay is running no clock on is genuinely
+    // less urgent than any case that has one.
+    expect(byDeadline(rows, (r) => r.respondBy).map((r) => r.id)).toEqual([
+      "soon",
+      "late",
+      "none",
+      "unreadable",
+    ]);
+  });
+
+  it("does not mutate its input", () => {
+    const before = rows.map((r) => r.id);
+    byDeadline(rows, (r) => r.respondBy);
+    expect(rows.map((r) => r.id)).toEqual(before);
   });
 });

@@ -1910,6 +1910,14 @@ export async function resolveInventoryItemIdForEbayItem(
 
 // ── Returns (US-1043) ───────────────────────────────────────────────
 
+export interface EbayReturnShipment {
+  carrier: string | null;
+  trackingNumber: string | null;
+  labelStatus: string | null;
+  shippedAt: string | null;
+  deliveredAt: string | null;
+}
+
 export interface EbayReturn {
   returnId: string;
   state: string | null;
@@ -1917,6 +1925,17 @@ export interface EbayReturn {
   itemId: string | null;
   reason: string | null;
   creationDate: string | null;
+  /** US-2933: the date eBay acts on if the seller does not. Null when eBay gives none. */
+  respondBy: string | null;
+  buyerUsername: string | null;
+  /**
+   * US-2931: the buyer's return shipment, once someone has looked it up.
+   *
+   * Absent until the label is read, then carried on the cached row so a page
+   * reload keeps it without a second eBay call. `null` after a read means the
+   * buyer has not posted the item — a real answer, not a missing one.
+   */
+  label?: EbayReturnShipment | null;
 }
 
 export function useEbayReturns(enabled = true) {
@@ -2058,6 +2077,77 @@ export function useEbayDecideReturn() {
   });
 }
 
+/**
+ * US-2930: tell eBay the returned item arrived.
+ *
+ * Its absence is what leaves eBay's clock running on an item already back in
+ * the seller's hands, and that clock ends in an automatic refund.
+ */
+export function useEbayMarkReturnReceived() {
+  const qc = useQueryClient();
+  return useMutation<{ ok: true }, Error, { returnId: string; comments?: string }>({
+    mutationFn: async ({ returnId, comments }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/returns/${encodeURIComponent(returnId)}/received`,
+        { method: "POST", headers: await ebayHeaders(), body: JSON.stringify({ comments }) },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Marking the return received failed.");
+      return json;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["ebay_returns"] });
+    },
+  });
+}
+
+/**
+ * US-2931: read the buyer's return shipment on demand.
+ *
+ * A mutation rather than a query on purpose. Fetching it for every open return
+ * on mount would be one eBay call per row on a page a seller opens all day; the
+ * seller asks for the one they are deciding about, and the answer is then
+ * stored on the case so the next list read carries it for free.
+ */
+export function useEbayReadReturnShipment() {
+  const qc = useQueryClient();
+  return useMutation<{ label: EbayReturnShipment | null }, Error, { returnId: string }>({
+    mutationFn: async ({ returnId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/returns/${encodeURIComponent(returnId)}/label`,
+        { headers: await ebayHeaders() },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't read the return shipment.");
+      return json;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["ebay_returns"] });
+    },
+  });
+}
+
+/**
+ * US-2932: message the buyer inside the return.
+ *
+ * Not the member-message inbox on the Offers page. eBay reads the RETURN thread
+ * when it decides a case, so a keep-it agreement made in the other inbox is one
+ * eBay cannot see.
+ */
+export function useEbaySendReturnMessage() {
+  return useMutation<{ ok: true }, Error, { returnId: string; message: string }>({
+    mutationFn: async ({ returnId, message }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/returns/${encodeURIComponent(returnId)}/message`,
+        { method: "POST", headers: await ebayHeaders(), body: JSON.stringify({ message }) },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "The message did not send.");
+      return json;
+    },
+  });
+}
+
 export function useEbayRefundReturn() {
   return useMutation<
     { ok: true },
@@ -2089,6 +2179,155 @@ export interface EbayCancellation {
   reason: string | null;
   requestorType: string | null;
   creationDate: string | null;
+}
+
+// ── Item Not Received inquiries (US-2928) ───────────────────────────
+//
+// The buyer's first move when a parcel does not arrive. Answered with tracking
+// it costs nothing; ignored it becomes a case, and a lost case is a defect.
+
+export interface EbayInquiry {
+  inquiryId: string;
+  state: string | null;
+  orderId: string | null;
+  itemId: string | null;
+  reason: string | null;
+  buyerUsername: string | null;
+  respondBy: string | null;
+  creationDate: string | null;
+}
+
+export function useEbayInquiries(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_inquiries"],
+    enabled,
+    queryFn: async (): Promise<EbayInquiry[]> => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/inquiries`, {
+        headers: await ebayHeaders(),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't load inquiries.");
+      return (json.inquiries ?? []) as EbayInquiry[];
+    },
+  });
+}
+
+/**
+ * One mutation for all three inquiry actions.
+ *
+ * They share a path shape, a body shape and an invalidation, and splitting them
+ * into three hooks would be three places to forget the invalidation.
+ */
+export function useEbayInquiryAction() {
+  const qc = useQueryClient();
+  return useMutation<
+    { ok: true },
+    Error,
+    {
+      inquiryId: string;
+      action: "shipment" | "refund" | "close";
+      carrier?: string;
+      trackingNumber?: string;
+      comments?: string;
+      orderId?: string;
+    }
+  >({
+    mutationFn: async ({ inquiryId, action, carrier, trackingNumber, comments, orderId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/inquiries/${encodeURIComponent(inquiryId)}/${action}`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({
+            carrier,
+            tracking_number: trackingNumber,
+            comments,
+            order_id: orderId,
+          }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "The inquiry action failed.");
+      return json;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["ebay_inquiries"] });
+    },
+  });
+}
+
+// ── Escalated eBay cases (US-2929) ──────────────────────────────────
+//
+// A return or inquiry the buyer escalated. eBay decides it, and a case decided
+// against the seller is a defect on their account — which is why this is a
+// separate type from a return rather than a state on one.
+
+export interface EbayCase {
+  caseId: string;
+  state: string | null;
+  orderId: string | null;
+  itemId: string | null;
+  reason: string | null;
+  buyerUsername: string | null;
+  respondBy: string | null;
+  creationDate: string | null;
+  /** The return or inquiry id this case grew out of, when eBay says. */
+  escalatedFrom: string | null;
+  amountCents: number | null;
+  currency: string | null;
+}
+
+export function useEbayCases(enabled = true) {
+  return useQuery({
+    queryKey: ["ebay_cases"],
+    enabled,
+    queryFn: async (): Promise<EbayCase[]> => {
+      const res = await fetch(`${edgeApiUrl()}/api/flipdesk/ebay/cases`, {
+        headers: await ebayHeaders(),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't load cases.");
+      return (json.cases ?? []) as EbayCase[];
+    },
+  });
+}
+
+export function useEbayCaseAction() {
+  const qc = useQueryClient();
+  return useMutation<
+    { ok: true },
+    Error,
+    {
+      caseId: string;
+      action: "shipment" | "refund" | "appeal" | "close";
+      carrier?: string;
+      trackingNumber?: string;
+      comments?: string;
+      orderId?: string;
+    }
+  >({
+    mutationFn: async ({ caseId, action, carrier, trackingNumber, comments, orderId }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/cases/${encodeURIComponent(caseId)}/${action}`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({
+            carrier,
+            tracking_number: trackingNumber,
+            comments,
+            order_id: orderId,
+          }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "The case action failed.");
+      return json;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["ebay_cases"] });
+    },
+  });
 }
 
 export function useEbayCancellations(enabled = true) {

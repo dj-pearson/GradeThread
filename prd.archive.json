@@ -42345,6 +42345,141 @@
         "US-2917"
       ],
       "notes": "Done 2026-08-26. MeasurementCatalog.kt gains a pure SizeCheck object mirroring the Swift and TS copies: @Serializable BandsResponse/BandRow, resolveRow, check, fixableSize, toleranceForTier and departmentFromText. SizeBandsService.kt fetches GET /api/flipdesk/size-bands through the @Named(\"shared\") EdgeApi with a 30-minute cache TTL and returns BandsResponse.EMPTY on any failure. ItemCanvasViewModel holds sizeBands + sizeNoteDismissed, refreshSizeBands() keys on brand+garment+department (not on the size field, which is edited a character at a time) and drops a response that lost the race, and applyCheckedSize writes the draft. MeasurementsSection.kt renders SizeCheckNote with the same wording as web, all seven strings localized in values/strings.xml, and contentDescription resolved OUTSIDE the semantics lambda since stringResource is a Composable. ItemCanvasScreen wires it under the measurements. 12 test methods in SizeCheckTest.kt run the same two fixtures as the edge, web and iOS. VERIFICATION, stated exactly: npm run verify:android could NOT run here - there is no Android SDK in this container and dl.google.com is blocked by the network policy, so the Gradle lanes (format, detekt, lint, unit tests, coverage, builds) are Android CI's to prove. What WAS run: the SizeCheck object was extracted, compiled with kotlinc 2.0.21 and EXECUTED against 40 assertions covering both fixture cases, the tolerance rule, every label spelling, the UK-12 refusal, all four unknown paths, the fixable/not-fixable split, departmentFromText and the larger-than edge - ALL PASS. That is the logic verified for real rather than asserted. Not covered by it: Hilt graph wiring, Compose types, detekt/ktlint style and the resource ids. check-android-orphans and the fixture-parity guard are green. | FOLLOW-UP 2026-08-26: the seven new size_check_* strings landed in values/strings.xml WITHOUT their Spanish counterparts, which reddened android/scripts/check-string-formats.py (values-es: missing string size_check_note, and five more). Caught and fixed the same session; values-es now carries all seven and the guard reports OK across 1565 resources in both locales. Worth recording because of WHERE it would have been caught: not by anything in npm run verify web lanes and not by tsc, but by a Python guard in the android lane - and this story AC5 (npm run verify:android end to end) is the one that could not run here. A localized app fails silently in the untranslated locale, which is exactly the shape US-2908 was filed about."
+    },
+    {
+      "id": "US-2927",
+      "passes": true,
+      "title": "Nothing about an eBay return, cancellation or dispute is stored locally, so there is no history, no clock and no analytics",
+      "description": "As a seller, I want every post-sale case eBay opens against me recorded in FlipDesk, so that I can see its history and deadline after a page reload and after eBay stops serving it.",
+      "acceptanceCriteria": [
+        "New migration creates public.marketplace_post_sale_cases with (id, user_id, platform, case_type, external_id, external_order_id, item_external_id, inventory_item_id, sale_id, state, reason, buyer_username, amount_cents, currency, opened_at, respond_by, closed_at, outcome, raw jsonb, created_at, updated_at) and a UNIQUE (user_id, platform, case_type, external_id)",
+        "case_type is an enum or CHECK covering exactly: return, cancellation, payment_dispute, inquiry, case",
+        "RLS is on and users select only their own rows; the edge service writes with the service-role client and every write is scoped by user_id (US-268)",
+        "US-1108 triple: the SQL is idempotent, EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts is bumped in the SAME commit, and the migration ends with its own self-record footer",
+        "services/edge-functions/src/lib/marketplace-event-poll.ts upserts every fetched return, cancellation and payment dispute into the table on each poll, keyed on the UNIQUE tuple, before it decides whether to notify",
+        "GET /api/flipdesk/ebay/returns, /cancellations and /payment-disputes read the local table first and fall back to the live eBay call only when the row is older than a freshness window that is a named constant, not a literal",
+        "A unit test asserts the upsert is idempotent: polling the same return twice produces one row and does not overwrite a locally-set field with null",
+        "tenant-isolation_test.ts gains a case proving one seller cannot read another seller's marketplace_post_sale_cases row through any of the three routes"
+      ],
+      "priority": 101,
+      "notes": "Done 2026-08-26. Migration 00675 creates public.marketplace_post_sale_cases (5 case types in a CHECK, unique on user_id+platform+case_type+external_id, three partial indexes, RLS with one own-rows SELECT policy); applied to prod the same day. New lib/post-sale-store.ts owns the record: toCaseRow DROPS undefined and WRITES null, which is the whole design - a summary poll must not erase a respond_by a detail fetch already stored, and the test asserts exactly that. loadCachedSummaries reads the stored raw payload rather than reassembling from the flat columns, so nothing outside the projection (a cancellation's requestorType, for one) is lost. Freshness is the OLDEST row and an EMPTY cache is never fresh, because 'we have no rows' and 'this seller has no cases' are different claims. marketplace-event-poll.ts records BEFORE the notify loop, not inside it: the loop continues past an already-claimed case, so recording inside would freeze each case at the state it opened in. GET /returns, /cancellations and /payment-disputes now serve the cache when fresh, record what they fetch when not, and fall back to stale cache rather than a 502 - each says which in a 'source' field. A status-filtered dispute query is never served from cache (the cache stores one set). Return decide/refund, cancellation approve/reject and dispute accept close the local row immediately. 9 store tests + 2 poll tests + 3 tenant-isolation cases asserting B's list never CONTAINS A's id - a leak here is a 200 with someone else's cases, not a 403."
+    },
+    {
+      "id": "US-2928",
+      "passes": true,
+      "title": "Item Not Received inquiries are invisible in FlipDesk - the webhook arrives, the poll has no source for them",
+      "description": "As a seller, I want an eBay Item Not Received inquiry to appear in FlipDesk with the actions that close it, so that I answer it before it escalates into a case and a defect.",
+      "acceptanceCriteria": [
+        "New services/edge-functions/src/lib/ebay-inquiries.ts wraps the Post-Order v2 inquiry surface using the same IAF-auth postOrderFetch shape as lib/ebay-postorder.ts: search, get, provide shipment info, issue refund, close",
+        "A pure normalizeInquiry() flattens eBay's nested shape to { inquiryId, state, orderId, itemId, reason, buyerUsername, respondBy, creationDate } and is unit-tested against a captured payload with fields at both nesting depths",
+        "Routes GET /api/flipdesk/ebay/inquiries, POST /inquiries/:id/shipment, POST /inquiries/:id/refund and POST /inquiries/:id/close exist on routes/flipdesk-ebay.ts, each tenant-scoped and each writing an audit log entry through writeAuditLog",
+        "marketplace-event-poll.ts gains an inquiries source that upserts into marketplace_post_sale_cases with case_type='inquiry' and fires a notification on a newly-seen inquiry, using the same claimMarketplaceEvent dedupe as returns",
+        "src/pages/flipdesk/post-sale.tsx renders open inquiries with the shipment/refund/close actions; the section is absent (not an error) when eBay returns none",
+        "An inquiry eBay reports as already closed returns ok rather than a 502, matching the isAlreadyResolved branch the returns routes use",
+        "tenant-isolation_test.ts covers all four new routes"
+      ],
+      "priority": 102,
+      "dependsOn": [
+        "US-2927"
+      ],
+      "notes": "Done 2026-08-27. New lib/ebay-inquiries.ts wraps Post-Order v2 inquiry (search/get/provide_shipment_info/issue_refund/close) on the exported postOrderFetch, so the IAF auth scheme lives in one place rather than three. normalizeInquiry reads BOTH nesting depths and is tested against each - eBay serves these fields flat from search and nested from a detail read, and handling one depth produces rows with a null item and a null reason that render as unactionable and read exactly like an outage. Four routes on flipdesk-ebay.ts, all tenant-scoped and audit-logged; GET /inquiries is local-first through marketplace_post_sale_cases. The poll gained an inquiries source: this closes a round trip that already existed and ended in silence - classifyEbayTopic routes INQUIRY_* to the return bucket, so the webhook arrived and triggered a poll that had no inquiry source. Notification reuses the return_opened TYPE deliberately (notification_type is a Postgres enum and the right preference category IS returns) while the email and push categories are distinct; new sendInquiryOpenedEmail and pushInquiryOpened say 'add tracking', not 'approve or decline', because the wrong instruction on a timed email is worse than no email. isInquiryAlreadySettled is narrow on purpose - 5 tests, and the half that matters asserts a 401 or a 500 stays an error. Post-sale page renders the section above returns. Also registered cancellation_requested in TRANSACTIONAL_CATEGORIES, which had been transactional only by accident of no caller passing a marketing flag."
+    },
+    {
+      "id": "US-2929",
+      "passes": true,
+      "title": "eBay Money Back Guarantee cases have zero implementation, so the event that carries the seller defect never reaches the seller",
+      "description": "As a seller, I want an escalated eBay case shown in FlipDesk with its deadline and its actions, so that the one post-sale event that damages my seller standing is not the one I only find out about in Seller Hub.",
+      "acceptanceCriteria": [
+        "New services/edge-functions/src/lib/ebay-cases.ts wraps Post-Order v2 casemanagement: search, get, provide shipment info, issue refund, appeal, close - built on the same IAF postOrderFetch shape as lib/ebay-postorder.ts",
+        "A pure normalizeCase() produces { caseId, state, orderId, itemId, reason, buyerUsername, respondBy, escalatedFrom, amount } and is unit-tested",
+        "Routes GET /api/flipdesk/ebay/cases, POST /cases/:id/shipment, POST /cases/:id/refund, POST /cases/:id/appeal, POST /cases/:id/close exist, are tenant-scoped, and audit-log",
+        "marketplace-event-poll.ts gains a cases source upserting case_type='case' into marketplace_post_sale_cases and notifying once per newly-seen case",
+        "A case is visually distinguished from a return in src/pages/flipdesk/post-sale.tsx and its copy states plainly that losing it counts as a defect",
+        "escalatedFrom links the case row to the originating return or inquiry row via external_id when eBay supplies it, and the UI shows the two as one thread rather than two entries",
+        "tenant-isolation_test.ts covers all five new routes"
+      ],
+      "priority": 103,
+      "dependsOn": [
+        "US-2927",
+        "US-2928"
+      ],
+      "notes": "Done 2026-08-27. New lib/ebay-cases.ts wraps Post-Order v2 casemanagement (search/get/shipment/refund/appeal/close). The trap the tests pin: eBay serves caseId as a bare string on some shapes and as { caseId } on others, and reading only the string form normalizes the object ones to an empty id, which searchCases then drops - half a seller's cases vanish with no error anywhere. escalatedFrom links the case to the return or inquiry it grew out of and the page shows them as one thread, because a seller looking at 'a return' and 'a case' on the same order has no way to tell they are the same argument. Five routes, tenant-scoped, audit-logged; appeal requires comments and 400s locally rather than after an opaque round trip. The card says plainly that eBay decides a case and that losing one is a defect - the reason this is not a return with a different state. isCaseAlreadySettled is narrow for the sharpest version of the usual reason: a case wrongly reported as handled costs the defect it was there to avoid."
+    },
+    {
+      "id": "US-2930",
+      "passes": true,
+      "title": "FlipDesk never marks a return received, so eBay's clock keeps running on an item already back in the seller's hands",
+      "description": "As a seller, I want to tell eBay the returned item arrived, so that the refund clock reflects reality and I am not auto-refunded on an item I could still inspect.",
+      "acceptanceCriteria": [
+        "lib/ebay-postorder.ts gains markReturnReceived(userId, returnId, comments?) calling the Post-Order v2 return mark_as_received endpoint",
+        "POST /api/flipdesk/ebay/returns/:returnId/received exists on routes/flipdesk-ebay.ts, is tenant-scoped, audit-logs as ebay.return.received, and treats an already-received response as success via the existing isAlreadyResolved branch",
+        "src/pages/flipdesk/post-sale.tsx shows a Mark received action only on returns whose state indicates the item is in transit or delivered, never on a return still awaiting the buyer's shipment",
+        "Marking received updates the local marketplace_post_sale_cases row's state without waiting for the next poll",
+        "tenant-isolation_test.ts covers the new route"
+      ],
+      "priority": 104,
+      "dependsOn": [
+        "US-2927"
+      ],
+      "notes": "Done 2026-08-27. markReturnReceived + POST /returns/:returnId/received, tenant-scoped, audit-logged, already-received treated as success. The action's ABSENCE was the defect: eBay's clock keeps running on an item already back with the seller and that clock ends in an automatic refund. canMarkReceived in post-sale-state.ts gates the button and is the OPPOSITE asymmetry to isClosedCase - default NO, because offering it on a return the buyer has not posted invites the seller to tell eBay a parcel arrived that was never sent. Tracking alone opens it independently of state, since eBay's state lags the carrier scan. 5 vitest cases including the unknown-state default."
+    },
+    {
+      "id": "US-2931",
+      "passes": true,
+      "title": "A seller cannot see whether the buyer actually shipped the return, because return shipping labels are never read",
+      "description": "As a seller, I want the return's shipping label and tracking shown next to the return, so that I know whether the item is genuinely on its way before I decide anything.",
+      "acceptanceCriteria": [
+        "lib/ebay-postorder.ts gains getReturnShippingLabel(userId, returnId) reading the Post-Order v2 return shipping-label surface and returning { carrier, trackingNumber, labelStatus, shippedAt, deliveredAt } or null when eBay has no label",
+        "GET /api/flipdesk/ebay/returns/:returnId/label exists, is tenant-scoped, and returns { label: null } rather than an error when eBay reports no label",
+        "src/pages/flipdesk/post-sale.tsx shows carrier plus tracking on a return that has one, linked to the carrier's tracking page, and shows a plain 'buyer has not shipped yet' line when it does not",
+        "The tracking number is stored on the marketplace_post_sale_cases row so it survives a reload without a second eBay call",
+        "tenant-isolation_test.ts covers the new route"
+      ],
+      "priority": 105,
+      "dependsOn": [
+        "US-2927",
+        "US-2930"
+      ],
+      "notes": "Done 2026-08-27. getReturnShipment + GET /returns/:returnId/label. Read off the return DETAIL rather than the dedicated label endpoint on purpose: a label endpoint only answers for eBay-issued labels, so a buyer who posted it themselves would read as 'not shipped', which is the exact wrong answer to the question the seller is asking. extractReturnShipment takes the LAST entry of a tracking list (a re-shipped return carries both, and the current one is the later) and returns null when there is no carrier AND no tracking. Three states in the UI, not two: undefined = we have not checked, null = eBay says the buyer has not posted it, a value = carrier plus tracking plus dates. The result is merged into the case row's raw via mergePostSaleCaseRaw, so it rides along on the next list read with no second eBay call. Fetched on demand rather than per row on mount - one call for the return the seller is deciding about, not one per row on a page they open all day. 4 tests."
+    },
+    {
+      "id": "US-2932",
+      "passes": true,
+      "title": "The return conversation and the partial-refund offer happen on eBay, not in FlipDesk - so the cheapest resolution is the one sellers never take",
+      "description": "As a seller, I want to message the buyer inside the return and offer a partial refund to keep the item, so that I can settle a low-value return without paying return shipping on a garment worth less than the label.",
+      "acceptanceCriteria": [
+        "lib/ebay-postorder.ts gains sendReturnMessage(userId, returnId, body) and offerPartialRefund(userId, returnId, amountCents, comments) against the Post-Order v2 return message and partial-refund surfaces",
+        "POST /api/flipdesk/ebay/returns/:returnId/message and POST /returns/:returnId/partial-refund exist, are tenant-scoped, and audit-log",
+        "The partial-refund route rejects an amount at or above the order total with 400 and the error key partial_refund_not_partial, reusing the validation in src/lib/refund-amount.ts rather than a second copy of the rule",
+        "src/pages/flipdesk/post-sale.tsx offers a Keep it action on an open return that computes a suggested partial from the item's cost basis and the estimated return shipping, and states the number it used",
+        "The suggestion is a suggestion: the field is editable and nothing is sent without a second click",
+        "tenant-isolation_test.ts covers both new routes"
+      ],
+      "priority": 106,
+      "dependsOn": [
+        "US-2927"
+      ],
+      "notes": "Done 2026-08-27. Two halves. sendReturnMessage + POST /returns/:returnId/message adds the return-scoped thread, which is NOT the member-message inbox on the Offers page: eBay reads the return thread when it decides a case, so a keep-it agreement reached in the other inbox is one eBay cannot see. And src/pages/flipdesk/keep-it-offer.ts computes what a partial is worth offering, with the arithmetic on show - taking a return back costs salePrice - acquiredPrice + returnShipping, so that is the ceiling, and the suggestion is 60% of it floored to whole dollars. It returns NULL rather than a number whenever it is guessing (no cost basis, or a ceiling at or below zero because the garment is worth more back than the discount saves) and the hint renders nothing in that case - a suggested refund with no cost behind it looks identical to one that was computed and sits next to a button that moves money. Deliberately did NOT add a second Post-Order partial-refund path: the order-level one already works and is wired, and two ways to refund the same order is the drift this codebase keeps warning about. useCaseItems now carries acquiredPrice. 6 tests on the suggester, all but one about refusing."
+    },
+    {
+      "id": "US-2933",
+      "passes": true,
+      "title": "respondByDate is parsed and then thrown away - no case in FlipDesk has a visible deadline",
+      "description": "As a seller, I want every open post-sale case to show how long I have left and to nag me as that runs out, so that I never lose a case by default.",
+      "acceptanceCriteria": [
+        "marketplace_post_sale_cases.respond_by is populated for every case type that eBay dates: returns, inquiries, cases and payment disputes",
+        "A pure helper in src/pages/flipdesk/post-sale-state.ts turns respond_by into one of overdue / today / soon / later and is unit-tested at the boundaries including a null respond_by",
+        "src/pages/flipdesk/post-sale.tsx sorts open cases by deadline ascending with null deadlines last, and renders the bucket as text (for example 'due today'), never as colour alone",
+        "A scheduled job reminds the seller through the existing notification path at T-48h and T-12h for any open case with a respond_by, deduped through claimMarketplaceEvent so one case cannot fire the same reminder twice",
+        "The reminder job is registered in the cron ledger like the other scheduled jobs, so a run that stops is visible"
+      ],
+      "priority": 107,
+      "dependsOn": [
+        "US-2927",
+        "US-2928",
+        "US-2929"
+      ],
+      "notes": "Done 2026-08-27. ReturnSummary gained respondBy and buyerUsername, and orderId is now READ instead of hard-coded null. deadlineBucket/deadlineLabel/byDeadline in post-sale-state.ts, with one correction the tests forced: the urgent band is days <= 1, not days === 0, because daysUntil CEILINGS and a zero-day case is only ever the exact instant the clock runs out - the most urgent band would have been permanently empty. The label is 'Under a day left' rather than 'Due today' for the same reason: eleven hours from 6pm is tomorrow. An unreadable date renders NO badge, never Overdue, or a parse failure looks like a case already lost. Returns, inquiries, cases and disputes all sort soonest-first with undated LAST (a case eBay runs no clock on is genuinely less urgent); cancellations carry no deadline on eBay's summary and are left in eBay's order rather than sorted by a field that does not exist. lib/post-sale-reminders.ts fires at T-48h and T-12h over the STORED cases - two bands, not a drip, because an hourly nag teaches people to ignore the channel and costs more cases than it saves - and overdue cases are not reminded at all. It rides inside the existing marketplace-events sweep rather than being a new cron: that sweep already runs every 15 minutes, already holds the lock, already has the seller list and already owns the claim primitive, and it is already in the cron ledger. The 48h and 12h claims are DISTINCT statuses, which the test pins - share one and the second, more urgent reminder silently never goes out."
     }
   ]
 }

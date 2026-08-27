@@ -134,6 +134,52 @@ export function pushReturnOpened(userId: string, itemLabel?: string | null): Pro
   });
 }
 
+/**
+ * US-2928: a buyer says their parcel never arrived (an INR inquiry).
+ *
+ * Its own push rather than a reuse of pushReturnOpened, because the two need
+ * opposite actions from the seller: a return wants an approve/decline decision,
+ * an INR inquiry wants tracking supplied. A seller who reads "return opened"
+ * goes to the wrong screen.
+ */
+export function pushInquiryOpened(userId: string, orderLabel?: string | null): Promise<void> {
+  return safePush(userId, {
+    title: "Item not received",
+    body: orderLabel
+      ? `A buyer says ${orderLabel} never arrived. Add tracking before it escalates.`
+      : "A buyer says their order never arrived. Add tracking before it escalates.",
+    category: "inquiry.opened",
+    data: { kind: "inquiry_opened" },
+  });
+}
+
+/** US-2929: an inquiry or return the buyer escalated to eBay. This one carries a defect. */
+export function pushCaseOpened(userId: string, orderLabel?: string | null): Promise<void> {
+  return safePush(userId, {
+    title: "eBay case opened",
+    body: orderLabel
+      ? `A buyer escalated ${orderLabel} to eBay. Losing a case counts against your account.`
+      : "A buyer escalated an order to eBay. Losing a case counts against your account.",
+    category: "case.opened",
+    data: { kind: "case_opened" },
+  });
+}
+
+/** US-2933: a post-sale deadline is close. Fires at most twice per case. */
+export function pushPostSaleDeadline(
+  userId: string,
+  orderLabel?: string | null,
+): Promise<void> {
+  return safePush(userId, {
+    title: "eBay deadline is close",
+    body: orderLabel
+      ? `An open case on ${orderLabel} needs your answer before eBay decides it.`
+      : "An open eBay case needs your answer before eBay decides it.",
+    category: "case.deadline",
+    data: { kind: "case_deadline" },
+  });
+}
+
 /** A buyer asked to cancel an order before it ships. */
 export function pushCancellationRequested(
   userId: string,

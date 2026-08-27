@@ -161,6 +161,30 @@ export const EMAIL_CATEGORY_CATALOG: readonly EmailCategoryMeta[] = [
     group: "selling",
     protected: false,
   },
+  // US-2928/US-2929. Unprotected, like every other selling notice — the bar for
+  // PROTECTED is "someone loses account access or money we charged them, or we
+  // are legally obliged", not "this one matters a lot". An eBay case costs the
+  // seller real money, and so does an unanswered dispute sitting two entries up
+  // at protected:false; treating these two differently would make the set mean
+  // something other than what its own comment says.
+  {
+    category: "inquiry_opened",
+    label: "Item not received",
+    group: "selling",
+    protected: false,
+  },
+  {
+    category: "case_opened",
+    label: "eBay case opened",
+    group: "selling",
+    protected: false,
+  },
+  {
+    category: "post_sale_deadline",
+    label: "Post-sale deadline reminder",
+    group: "selling",
+    protected: false,
+  },
   {
     category: "cancellation_requested",
     label: "Cancellation requested",

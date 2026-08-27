@@ -76,6 +76,18 @@ export const TRANSACTIONAL_CATEGORIES: ReadonlySet<string> = new Set([
   "offer_responded",
   "return_opened",
   "dispute_opened",
+  // US-2928/US-2929: the two post-sale escalations that had no reader at all.
+  // Both are deadline-bearing and a lost case is a defect on the account, so a
+  // marketing opt-out must not be able to suppress them.
+  "inquiry_opened",
+  "case_opened",
+  // US-2933: the deadline reminder. Same class as the openings it follows up.
+  "post_sale_deadline",
+  // Registered here in the same pass because it belongs to the same class and
+  // was simply missed: sendCancellationRequestedEmail has used this category
+  // since US-2560 and it was never listed, so it was transactional only by
+  // accident of no caller passing a marketing flag.
+  "cancellation_requested",
   "ai_budget_alert",
   "content_digest",
   "dispute_filed_admin",

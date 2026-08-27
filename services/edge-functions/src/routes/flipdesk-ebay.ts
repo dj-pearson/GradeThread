@@ -2,7 +2,46 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { latestPublication, recordPublication } from "../lib/listing-publications.ts";
-import { submitReturnFiles, uploadReturnFile } from "../lib/ebay-postorder.ts";
+import {
+  getReturnShipment,
+  markReturnReceived,
+  sendReturnMessage,
+  submitReturnFiles,
+  uploadReturnFile,
+} from "../lib/ebay-postorder.ts";
+import {
+  cancellationToCaseInput,
+  disputeToCaseInput,
+  loadCachedSummaries,
+  markPostSaleCaseClosed,
+  mergePostSaleCaseRaw,
+  recordPostSaleCases,
+  returnToCaseInput,
+  updatePostSaleCaseState,
+} from "../lib/post-sale-store.ts";
+import type {
+  CancellationSummary,
+  ReturnSummary,
+} from "../lib/ebay-postorder.ts";
+import type { PaymentDisputeSummary } from "../lib/ebay-disputes.ts";
+import {
+  closeInquiry,
+  type InquirySummary,
+  isInquiryAlreadySettled,
+  issueInquiryRefund,
+  provideInquiryShipmentInfo,
+  searchInquiries,
+} from "../lib/ebay-inquiries.ts";
+import { caseToCaseInput, inquiryToCaseInput } from "../lib/post-sale-store.ts";
+import {
+  appealCase,
+  type CaseSummary,
+  closeCase,
+  isCaseAlreadySettled,
+  issueCaseRefund,
+  provideCaseShipmentInfo,
+  searchCases,
+} from "../lib/ebay-cases.ts";
 import { matchComplaint, type ReportedDefect } from "../lib/complaint-match.ts";
 import { compositeReturnEvidenceSheet } from "../lib/defect-annotations.ts";
 import type { EvidenceStamp } from "../lib/evidence-pack.ts";
@@ -4357,9 +4396,23 @@ flipdeskEbayRoutes.get("/returns", async (c) => {
   }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 1), 200);
+  // US-2927: local first. A page reload inside the freshness window costs eBay
+  // nothing; an empty cache is never treated as "no returns", because only eBay
+  // can tell an empty cache from an empty account.
+  const cached = await loadCachedSummaries<ReturnSummary>(ownerId, "return", { limit });
+  if (cached.fresh) return c.json({ returns: cached.items, source: "cache" });
   try {
-    return c.json({ returns: await searchReturns(ownerId, { limit }) });
+    const live = await searchReturns(ownerId, { limit });
+    const nowIso = new Date().toISOString();
+    await recordPostSaleCases(ownerId, live.map((r) => returnToCaseInput(r, nowIso)));
+    return c.json({ returns: live, source: "ebay" });
   } catch (err) {
+    // A live failure falls back to whatever we last stored rather than to an
+    // error page — stale returns are more useful than none, and the response
+    // says which it is so the UI can label it.
+    if (cached.items.length > 0) {
+      return c.json({ returns: cached.items, source: "cache_stale" });
+    }
     return failSafe(c, 502, "Couldn't load eBay returns.", err, "ebay.returns.list");
   }
 });
@@ -4396,6 +4449,12 @@ flipdeskEbayRoutes.post("/returns/:returnId/decide", async (c) => {
   }
   if (decision === "decline") {
     await applyOutcomeToSale(ownerId, body.order_id, "return_declined");
+    // US-2927: reflect the decision on the stored case now rather than waiting
+    // for the next poll, so the page the seller acted from is not still showing
+    // the return as needing them.
+    await markPostSaleCaseClosed(ownerId, "return", returnId, "declined");
+  } else {
+    await updatePostSaleCaseState(ownerId, "return", returnId, { state: "RETURN_APPROVED" });
   }
   await writeAuditLog(c, {
     action: `ebay.return.${decision}`,
@@ -4428,6 +4487,7 @@ flipdeskEbayRoutes.post("/returns/:returnId/refund", async (c) => {
     }
   }
   await applyOutcomeToSale(ownerId, body.order_id, "return_refunded");
+  await markPostSaleCaseClosed(ownerId, "return", returnId, "refunded");
   await writeAuditLog(c, {
     action: "ebay.return.refund",
     targetType: "ebay_return",
@@ -4435,6 +4495,430 @@ flipdeskEbayRoutes.post("/returns/:returnId/refund", async (c) => {
     details: { order_id: body.order_id ?? null },
   });
   return c.json({ ok: true });
+});
+
+// ── Item Not Received inquiries (US-2928, Post-Order v2) ────────────
+//
+// The first move a buyer makes when a parcel does not arrive. FlipDesk had no
+// reader for it, so the webhook arrived, kicked off a poll with no inquiry
+// source, and the seller learned nothing. Answered with tracking, an inquiry
+// costs the seller nothing; ignored, it escalates into a case (US-2929) and a
+// lost case is a defect.
+//
+// Every route resolves the owner the same way the rest of this file does, and
+// eBay serves only that seller's own inquiries under their own token.
+
+// GET /inquiries — open inquiries for the seller. Local-first like /returns.
+flipdeskEbayRoutes.get("/inquiries", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 1), 200);
+  const cached = await loadCachedSummaries<InquirySummary>(ownerId, "inquiry", { limit });
+  if (cached.fresh) return c.json({ inquiries: cached.items, source: "cache" });
+  try {
+    const live = await searchInquiries(ownerId, { limit });
+    const nowIso = new Date().toISOString();
+    await recordPostSaleCases(ownerId, live.map((i) => inquiryToCaseInput(i, nowIso)));
+    return c.json({ inquiries: live, source: "ebay" });
+  } catch (err) {
+    if (cached.items.length > 0) {
+      return c.json({ inquiries: cached.items, source: "cache_stale" });
+    }
+    return failSafe(c, 502, "Couldn't load eBay inquiries.", err, "ebay.inquiries.list");
+  }
+});
+
+// POST /inquiries/:inquiryId/shipment — body { carrier, tracking_number, shipped_date?, comments? }
+//
+// The action that settles most INR inquiries. Validated before the eBay call so
+// a missing tracking number is a 400 here rather than an opaque 502 from eBay.
+flipdeskEbayRoutes.post("/inquiries/:inquiryId/shipment", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const inquiryId = c.req.param("inquiryId");
+  let body: {
+    carrier?: unknown;
+    tracking_number?: unknown;
+    shipped_date?: unknown;
+    comments?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const carrier = typeof body.carrier === "string" ? body.carrier.trim() : "";
+  const trackingNumber = typeof body.tracking_number === "string"
+    ? body.tracking_number.trim()
+    : "";
+  if (!carrier || !trackingNumber) {
+    return c.json({ error: "carrier and tracking_number are both required." }, 400);
+  }
+  try {
+    await provideInquiryShipmentInfo(ownerId, inquiryId, {
+      carrier,
+      trackingNumber,
+      shippedDate: typeof body.shipped_date === "string" ? body.shipped_date : undefined,
+      comments: typeof body.comments === "string" ? body.comments : undefined,
+    });
+  } catch (err) {
+    if (!isInquiryAlreadySettled(err)) {
+      return failSafe(c, 502, "eBay rejected the shipment details.", err, "ebay.inquiries.shipment");
+    }
+  }
+  await updatePostSaleCaseState(ownerId, "inquiry", inquiryId, {
+    state: "SHIPMENT_PROVIDED",
+  });
+  await writeAuditLog(c, {
+    action: "ebay.inquiry.shipment",
+    targetType: "ebay_inquiry",
+    targetId: inquiryId,
+    details: { carrier, tracking_number: trackingNumber },
+  });
+  return c.json({ ok: true });
+});
+
+// POST /inquiries/:inquiryId/refund — body { comments?, order_id? }
+flipdeskEbayRoutes.post("/inquiries/:inquiryId/refund", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const inquiryId = c.req.param("inquiryId");
+  let body: { comments?: unknown; order_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  try {
+    await issueInquiryRefund(
+      ownerId,
+      inquiryId,
+      typeof body.comments === "string" ? body.comments : undefined,
+    );
+  } catch (err) {
+    if (!isInquiryAlreadySettled(err)) {
+      return failSafe(c, 502, "eBay rejected the refund.", err, "ebay.inquiries.refund");
+    }
+  }
+  await applyOutcomeToSale(ownerId, body.order_id, "return_refunded");
+  await markPostSaleCaseClosed(ownerId, "inquiry", inquiryId, "refunded");
+  await writeAuditLog(c, {
+    action: "ebay.inquiry.refund",
+    targetType: "ebay_inquiry",
+    targetId: inquiryId,
+    details: { order_id: body.order_id ?? null },
+  });
+  return c.json({ ok: true });
+});
+
+// POST /inquiries/:inquiryId/close — body { comments? }
+flipdeskEbayRoutes.post("/inquiries/:inquiryId/close", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const inquiryId = c.req.param("inquiryId");
+  let body: { comments?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  try {
+    await closeInquiry(
+      ownerId,
+      inquiryId,
+      typeof body.comments === "string" ? body.comments : undefined,
+    );
+  } catch (err) {
+    if (!isInquiryAlreadySettled(err)) {
+      return failSafe(c, 502, "eBay rejected closing the inquiry.", err, "ebay.inquiries.close");
+    }
+  }
+  await markPostSaleCaseClosed(ownerId, "inquiry", inquiryId, "closed");
+  await writeAuditLog(c, {
+    action: "ebay.inquiry.close",
+    targetType: "ebay_inquiry",
+    targetId: inquiryId,
+    details: {},
+  });
+  return c.json({ ok: true });
+});
+
+// ── Escalated eBay cases (US-2929, Post-Order v2 case management) ───
+//
+// A case is a return or an inquiry the buyer escalated, and it is the only
+// post-sale event that costs a seller defect. eBay decides it — there is no
+// approve/decline — so the actions are: supply tracking, refund, appeal a
+// decision, or close one settled privately.
+
+// GET /cases — the seller's open cases. Local-first like the other three lists.
+flipdeskEbayRoutes.get("/cases", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 1), 200);
+  const cached = await loadCachedSummaries<CaseSummary>(ownerId, "case", { limit });
+  if (cached.fresh) return c.json({ cases: cached.items, source: "cache" });
+  try {
+    const live = await searchCases(ownerId, { limit });
+    const nowIso = new Date().toISOString();
+    await recordPostSaleCases(ownerId, live.map((x) => caseToCaseInput(x, nowIso)));
+    return c.json({ cases: live, source: "ebay" });
+  } catch (err) {
+    if (cached.items.length > 0) return c.json({ cases: cached.items, source: "cache_stale" });
+    return failSafe(c, 502, "Couldn't load eBay cases.", err, "ebay.cases.list");
+  }
+});
+
+// POST /cases/:caseId/shipment — body { carrier, tracking_number, shipped_date?, comments? }
+flipdeskEbayRoutes.post("/cases/:caseId/shipment", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const caseId = c.req.param("caseId");
+  let body: {
+    carrier?: unknown;
+    tracking_number?: unknown;
+    shipped_date?: unknown;
+    comments?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const carrier = typeof body.carrier === "string" ? body.carrier.trim() : "";
+  const trackingNumber = typeof body.tracking_number === "string"
+    ? body.tracking_number.trim()
+    : "";
+  if (!carrier || !trackingNumber) {
+    return c.json({ error: "carrier and tracking_number are both required." }, 400);
+  }
+  try {
+    await provideCaseShipmentInfo(ownerId, caseId, {
+      carrier,
+      trackingNumber,
+      shippedDate: typeof body.shipped_date === "string" ? body.shipped_date : undefined,
+      comments: typeof body.comments === "string" ? body.comments : undefined,
+    });
+  } catch (err) {
+    if (!isCaseAlreadySettled(err)) {
+      return failSafe(c, 502, "eBay rejected the shipment details.", err, "ebay.cases.shipment");
+    }
+  }
+  await updatePostSaleCaseState(ownerId, "case", caseId, { state: "SHIPMENT_PROVIDED" });
+  await writeAuditLog(c, {
+    action: "ebay.case.shipment",
+    targetType: "ebay_case",
+    targetId: caseId,
+    details: { carrier, tracking_number: trackingNumber },
+  });
+  return c.json({ ok: true });
+});
+
+// POST /cases/:caseId/refund — body { comments?, order_id? }
+flipdeskEbayRoutes.post("/cases/:caseId/refund", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const caseId = c.req.param("caseId");
+  let body: { comments?: unknown; order_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  try {
+    await issueCaseRefund(
+      ownerId,
+      caseId,
+      typeof body.comments === "string" ? body.comments : undefined,
+    );
+  } catch (err) {
+    if (!isCaseAlreadySettled(err)) {
+      return failSafe(c, 502, "eBay rejected the refund.", err, "ebay.cases.refund");
+    }
+  }
+  await applyOutcomeToSale(ownerId, body.order_id, "return_refunded");
+  await markPostSaleCaseClosed(ownerId, "case", caseId, "refunded");
+  await writeAuditLog(c, {
+    action: "ebay.case.refund",
+    targetType: "ebay_case",
+    targetId: caseId,
+    details: { order_id: body.order_id ?? null },
+  });
+  return c.json({ ok: true });
+});
+
+// POST /cases/:caseId/appeal — body { comments }
+//
+// eBay requires an argument; a bare appeal is rejected, so the 400 happens here
+// rather than as an opaque 502 after the round trip.
+flipdeskEbayRoutes.post("/cases/:caseId/appeal", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const caseId = c.req.param("caseId");
+  let body: { comments?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const comments = typeof body.comments === "string" ? body.comments.trim() : "";
+  if (!comments) {
+    return c.json({ error: "comments is required — eBay rejects an appeal with no argument." }, 400);
+  }
+  try {
+    await appealCase(ownerId, caseId, comments);
+  } catch (err) {
+    if (!isCaseAlreadySettled(err)) {
+      return failSafe(c, 502, "eBay rejected the appeal.", err, "ebay.cases.appeal");
+    }
+  }
+  await updatePostSaleCaseState(ownerId, "case", caseId, { state: "APPEALED" });
+  await writeAuditLog(c, {
+    action: "ebay.case.appeal",
+    targetType: "ebay_case",
+    targetId: caseId,
+    details: {},
+  });
+  return c.json({ ok: true });
+});
+
+// POST /cases/:caseId/close — body { comments? }
+flipdeskEbayRoutes.post("/cases/:caseId/close", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const caseId = c.req.param("caseId");
+  let body: { comments?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  try {
+    await closeCase(ownerId, caseId, typeof body.comments === "string" ? body.comments : undefined);
+  } catch (err) {
+    if (!isCaseAlreadySettled(err)) {
+      return failSafe(c, 502, "eBay rejected closing the case.", err, "ebay.cases.close");
+    }
+  }
+  await markPostSaleCaseClosed(ownerId, "case", caseId, "closed");
+  await writeAuditLog(c, {
+    action: "ebay.case.close",
+    targetType: "ebay_case",
+    targetId: caseId,
+    details: {},
+  });
+  return c.json({ ok: true });
+});
+
+// POST /returns/:returnId/received — US-2930.
+//
+// The action whose absence costs money quietly: without it eBay's clock keeps
+// running on an item already back in the seller's hands, and that clock ends in
+// an automatic refund.
+flipdeskEbayRoutes.post("/returns/:returnId/received", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const returnId = c.req.param("returnId");
+  let body: { comments?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  try {
+    await markReturnReceived(
+      ownerId,
+      returnId,
+      typeof body.comments === "string" ? body.comments : undefined,
+    );
+  } catch (err) {
+    if (!isAlreadyResolved(err)) {
+      return failSafe(c, 502, "eBay rejected marking the return received.", err, "ebay.returns.received");
+    }
+  }
+  // Reflect it now rather than at the next poll, so the page the seller acted
+  // from stops offering the action they just took.
+  await updatePostSaleCaseState(ownerId, "return", returnId, { state: "ITEM_RECEIVED" });
+  await writeAuditLog(c, {
+    action: "ebay.return.received",
+    targetType: "ebay_return",
+    targetId: returnId,
+    details: {},
+  });
+  return c.json({ ok: true });
+});
+
+// POST /returns/:returnId/message — US-2932. The return-scoped conversation.
+//
+// Not the member-message inbox. eBay reads THIS thread when it decides a case,
+// so a keep-it agreement reached in the other inbox is one eBay cannot see.
+flipdeskEbayRoutes.post("/returns/:returnId/message", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const returnId = c.req.param("returnId");
+  let body: { message?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const message = typeof body.message === "string" ? body.message.trim() : "";
+  if (!message) return c.json({ error: "message is required." }, 400);
+  try {
+    await sendReturnMessage(ownerId, returnId, message);
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the message.", err, "ebay.returns.message");
+  }
+  await writeAuditLog(c, {
+    action: "ebay.return.message",
+    targetType: "ebay_return",
+    targetId: returnId,
+    details: { length: message.length },
+  });
+  return c.json({ ok: true });
+});
+
+// GET /returns/:returnId/label — US-2931. The buyer's return shipment.
+//
+// `{ label: null }` is a real answer, not an error: it means the buyer has not
+// posted the item yet, which is exactly what a seller deciding whether to wait
+// needs to know. Only a failed READ is a 502.
+flipdeskEbayRoutes.get("/returns/:returnId/label", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const returnId = c.req.param("returnId");
+  try {
+    const label = await getReturnShipment(ownerId, returnId);
+    // Store it on the case so the list carries it on the next read and a page
+    // reload costs no second eBay call.
+    if (label) await mergePostSaleCaseRaw(ownerId, "return", returnId, { label });
+    return c.json({ label });
+  } catch (err) {
+    return failSafe(c, 502, "Couldn't read the return shipment.", err, "ebay.returns.label");
+  }
 });
 
 // US-2706 AC5 / US-2707 AC4: POST /evidence/preview — what the pack WOULD say,
@@ -5082,9 +5566,19 @@ flipdeskEbayRoutes.get("/cancellations", async (c) => {
   }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 1), 200);
+  const cached = await loadCachedSummaries<CancellationSummary>(ownerId, "cancellation", {
+    limit,
+  });
+  if (cached.fresh) return c.json({ cancellations: cached.items, source: "cache" });
   try {
-    return c.json({ cancellations: await searchCancellations(ownerId, { limit }) });
+    const live = await searchCancellations(ownerId, { limit });
+    const nowIso = new Date().toISOString();
+    await recordPostSaleCases(ownerId, live.map((x) => cancellationToCaseInput(x, nowIso)));
+    return c.json({ cancellations: live, source: "ebay" });
   } catch (err) {
+    if (cached.items.length > 0) {
+      return c.json({ cancellations: cached.items, source: "cache_stale" });
+    }
     return failSafe(c, 502, "Couldn't load eBay cancellations.", err, "ebay.cancellations.list");
   }
 });
@@ -5110,6 +5604,7 @@ flipdeskEbayRoutes.post("/cancellations/:cancelId/approve", async (c) => {
     }
   }
   await applyOutcomeToSale(ownerId, body.order_id, "cancel_approved");
+  await markPostSaleCaseClosed(ownerId, "cancellation", cancelId, "approved");
   await writeAuditLog(c, {
     action: "ebay.cancellation.approve",
     targetType: "ebay_cancellation",
@@ -5139,6 +5634,7 @@ flipdeskEbayRoutes.post("/cancellations/:cancelId/reject", async (c) => {
       return failSafe(c, 502, "eBay rejected the cancellation rejection.", err, "ebay.cancel.reject");
     }
   }
+  await markPostSaleCaseClosed(ownerId, "cancellation", cancelId, "rejected");
   await writeAuditLog(c, {
     action: "ebay.cancellation.reject",
     targetType: "ebay_cancellation",
@@ -5357,11 +5853,23 @@ flipdeskEbayRoutes.get("/payment-disputes", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const status = c.req.query("status")?.trim() || undefined;
   const limit = Math.min(Math.max(Number(c.req.query("limit")) || 50, 1), 200);
+  // A status filter is a different question from "all open disputes", and the
+  // cache stores one set. Only the unfiltered call is served from it.
+  const cached = status
+    ? { items: [] as PaymentDisputeSummary[], fresh: false }
+    : await loadCachedSummaries<PaymentDisputeSummary>(ownerId, "payment_dispute", { limit });
+  if (cached.fresh) return c.json({ disputes: cached.items, source: "cache" });
   try {
-    return c.json({
-      disputes: await searchPaymentDisputes(ownerId, { status, limit }),
-    });
+    const live = await searchPaymentDisputes(ownerId, { status, limit });
+    if (!status) {
+      const nowIso = new Date().toISOString();
+      await recordPostSaleCases(ownerId, live.map((d) => disputeToCaseInput(d, nowIso)));
+    }
+    return c.json({ disputes: live, source: "ebay" });
   } catch (err) {
+    if (cached.items.length > 0) {
+      return c.json({ disputes: cached.items, source: "cache_stale" });
+    }
     return failSafe(c, 502, "Couldn't load eBay payment disputes.", err, "ebay.disputes.list");
   }
 });
@@ -5423,6 +5931,7 @@ flipdeskEbayRoutes.post("/payment-disputes/:id/accept", async (c) => {
       .eq("platform_order_id", body.order_id);
     if (error) console.error("[ebay.disputes.accept] sale update:", error.message);
   }
+  await markPostSaleCaseClosed(ownerId, "payment_dispute", disputeId, "accepted");
   await writeAuditLog(c, {
     action: "ebay.dispute.accept",
     targetType: "ebay_payment_dispute",

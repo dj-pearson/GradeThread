@@ -15,6 +15,12 @@ export interface CaseItem {
   inventoryItemId: string;
   title: string | null;
   salePrice: number | null;
+  /**
+   * US-2932: what the seller paid for the garment. Needed to tell whether a
+   * keep-it partial refund is cheaper than taking the return back, and null
+   * when unknown — which is a refusal to suggest, not a zero.
+   */
+  acquiredPrice: number | null;
   thumbnailUrl: string | null;
   /** eBay's own item id, when the case carried one — used for the case link. */
   ebayItemId: string | null;
@@ -80,6 +86,7 @@ export function useCaseItems(keys: CaseKey[]) {
             inventoryItemId: s.inventory_item_id,
             title: null,
             salePrice: s.sale_price,
+            acquiredPrice: null,
             thumbnailUrl: null,
             ebayItemId: null,
           });
@@ -108,6 +115,7 @@ export function useCaseItems(keys: CaseKey[]) {
             inventoryItemId: l.inventory_item_id,
             title: null,
             salePrice: existing?.salePrice ?? null,
+            acquiredPrice: null,
             thumbnailUrl: null,
             ebayItemId: l.platform_listing_id,
           });
@@ -121,12 +129,17 @@ export function useCaseItems(keys: CaseKey[]) {
       const items = await chunked(ids, 50, async (chunk) => {
         const { data, error } = await supabase
           .from("inventory_items")
-          .select("id, title")
+          .select("id, title, acquired_price")
           .in("id", chunk);
         if (error) throw error;
-        return ((data ?? []) as unknown) as { id: string; title: string | null }[];
+        return ((data ?? []) as unknown) as {
+          id: string;
+          title: string | null;
+          acquired_price: number | null;
+        }[];
       });
       const titleById = new Map(items.map((i) => [i.id, i.title]));
+      const costById = new Map(items.map((i) => [i.id, i.acquired_price]));
 
       // 4. Cover photos. The lowest sort_order row per item is the cover, and
       // chunking is BY ITEM ID so an item's photos never span two chunks.
@@ -153,6 +166,7 @@ export function useCaseItems(keys: CaseKey[]) {
         byKey.set(key, {
           ...entry,
           title: titleById.get(entry.inventoryItemId) ?? null,
+          acquiredPrice: costById.get(entry.inventoryItemId) ?? null,
           thumbnailUrl: coverById.get(entry.inventoryItemId) ?? null,
         });
       }

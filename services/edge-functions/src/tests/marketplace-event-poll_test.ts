@@ -24,7 +24,7 @@ import type { MarketplacePollDeps } from "../lib/marketplace-event-poll.ts";
 // semantics, so re-polling identical data dedups.
 function makeDeps(over: Partial<MarketplacePollDeps> = {}) {
   const seen = new Set<string>();
-  const fired = { offer: 0, return: 0, dispute: 0, cancellation: 0 };
+  const fired = { offer: 0, return: 0, dispute: 0, cancellation: 0, inquiry: 0, case: 0 };
   const deps: MarketplacePollDeps = {
     fetchOffers: () =>
       Promise.resolve([
@@ -43,7 +43,16 @@ function makeDeps(over: Partial<MarketplacePollDeps> = {}) {
       ]),
     fetchReturns: () =>
       Promise.resolve([
-        { returnId: "r1", state: "RETURN_REQUESTED", orderId: "ord1", itemId: "i1", reason: "X", creationDate: null },
+        {
+          returnId: "r1",
+          state: "RETURN_REQUESTED",
+          orderId: "ord1",
+          itemId: "i1",
+          reason: "X",
+          creationDate: null,
+          respondBy: "2026-09-03T00:00:00.000Z",
+          buyerUsername: "b",
+        },
       ]),
     fetchDisputes: () =>
       Promise.resolve([
@@ -70,6 +79,39 @@ function makeDeps(over: Partial<MarketplacePollDeps> = {}) {
           reason: "BUYER_CANCEL_ORDER",
           requestorType: "BUYER",
           creationDate: null,
+        },
+      ]),
+    // US-2928: an open INR inquiry, so the default fixture exercises the source
+    // that used to be missing rather than only the four that existed.
+    fetchInquiries: () =>
+      Promise.resolve([
+        {
+          inquiryId: "q1",
+          state: "INQUIRY_OPEN",
+          orderId: "ord1",
+          itemId: "i1",
+          reason: "ITEM_NOT_RECEIVED",
+          buyerUsername: "b",
+          respondBy: "2026-09-01T00:00:00.000Z",
+          creationDate: null,
+        },
+      ]),
+    // US-2929: an open escalated case, so the defect-bearing source is in the
+    // default fixture too.
+    fetchCases: () =>
+      Promise.resolve([
+        {
+          caseId: "k1",
+          state: "CS_OPEN",
+          orderId: "ord1",
+          itemId: "i1",
+          reason: "ITEM_NOT_AS_DESCRIBED",
+          buyerUsername: "b",
+          respondBy: "2026-09-02T00:00:00.000Z",
+          creationDate: null,
+          escalatedFrom: "r1",
+          amountCents: 2500,
+          currency: "USD",
         },
       ]),
     claim: (userId, kind, externalId, status) => {
@@ -101,6 +143,14 @@ function makeDeps(over: Partial<MarketplacePollDeps> = {}) {
       fired.cancellation++;
       return Promise.resolve();
     },
+    notifyInquiry: () => {
+      fired.inquiry++;
+      return Promise.resolve();
+    },
+    notifyCase: () => {
+      fired.case++;
+      return Promise.resolve();
+    },
     ...over,
   };
   return { deps, fired, seen };
@@ -109,17 +159,17 @@ function makeDeps(over: Partial<MarketplacePollDeps> = {}) {
 Deno.test("first poll notifies once per source", async () => {
   const { deps, fired } = makeDeps();
   const r = await pollMarketplaceEventsForUser("u1", deps);
-  assertEquals(r, { offers: 1, returns: 1, disputes: 1, cancellations: 1, errors: [] });
-  assertEquals(fired, { offer: 1, return: 1, dispute: 1, cancellation: 1 });
+  assertEquals(r, { offers: 1, returns: 1, disputes: 1, cancellations: 1, inquiries: 1, cases: 1, reminders: 0, errors: [] });
+  assertEquals(fired, { offer: 1, return: 1, dispute: 1, cancellation: 1, inquiry: 1, case: 1 });
 });
 
 Deno.test("re-polling identical data fires NO new notifications (idempotent)", async () => {
   const { deps, fired } = makeDeps();
   await pollMarketplaceEventsForUser("u1", deps);
   const r2 = await pollMarketplaceEventsForUser("u1", deps);
-  assertEquals(r2, { offers: 0, returns: 0, disputes: 0, cancellations: 0, errors: [] });
+  assertEquals(r2, { offers: 0, returns: 0, disputes: 0, cancellations: 0, inquiries: 0, cases: 0, reminders: 0, errors: [] });
   // Still only one of each across BOTH polls.
-  assertEquals(fired, { offer: 1, return: 1, dispute: 1, cancellation: 1 });
+  assertEquals(fired, { offer: 1, return: 1, dispute: 1, cancellation: 1, inquiry: 1, case: 1 });
 });
 
 Deno.test("a CLOSED dispute is not notified", async () => {
@@ -153,7 +203,7 @@ Deno.test("one source throwing does not block the others", async () => {
   assertEquals(r.disputes, 1);
   assertEquals(r.returns, 0);
   assert(r.errors.some((e) => e.startsWith("returns:")));
-  assertEquals(fired, { offer: 1, return: 0, dispute: 1, cancellation: 1 });
+  assertEquals(fired, { offer: 1, return: 0, dispute: 1, cancellation: 1, inquiry: 1, case: 1 });
 });
 
 // ── US-2319 AC3: claim → work → RELEASE ON FAILURE ─────────────────────────
@@ -384,4 +434,63 @@ Deno.test("US-2560: an omitted cancellation fetcher is a no-op, not a crash", as
   const r = await pollMarketplaceEventsForUser("u1", deps);
   assertEquals(r.cancellations, 0);
   assertEquals(r.errors.filter((e) => e.startsWith("cancellations:")).length, 0);
+});
+
+// ── US-2927: the poll is also the writer ────────────────────────────
+
+Deno.test("the poll records every fetched case, and records AGAIN on a re-poll", async () => {
+  // The distinction that matters: notification is once-per-case (the claim
+  // dedupes it) but RECORDING is once-per-poll. If recording lived inside the
+  // notify loop it would sit behind the claim's `continue`, so a case would be
+  // stored on the tick it opened and never updated again — its state frozen at
+  // "requested" forever while eBay moved it on.
+  const recorded: Array<{ ownerId: string; types: string[] }> = [];
+  const { deps, fired } = makeDeps({
+    record: (ownerId, inputs) => {
+      recorded.push({ ownerId, types: inputs.map((i) => i.caseType) });
+      return Promise.resolve(inputs.length);
+    },
+  });
+
+  await pollMarketplaceEventsForUser("u1", deps);
+  assertEquals(recorded.length, 5, "each source records exactly once per poll");
+  assertEquals(recorded.map((r) => r.types.join(",")), [
+    "return",
+    "cancellation",
+    "inquiry",
+    "case",
+    "payment_dispute",
+  ]);
+  assert(recorded.every((r) => r.ownerId === "u1"));
+
+  await pollMarketplaceEventsForUser("u1", deps);
+  assertEquals(recorded.length, 10, "a second poll records again even though it notifies nothing");
+  assertEquals(fired, { offer: 1, return: 1, dispute: 1, cancellation: 1, inquiry: 1, case: 1 });
+});
+
+Deno.test("a SELLER-initiated cancellation is still recorded, only not notified", async () => {
+  // The notify path skips it (the seller does not need telling what they just
+  // did) but it is a real case with a real outcome, so the record must have it
+  // or the analytics undercount cancellations by every one the seller started.
+  const recorded: string[] = [];
+  const { deps, fired } = makeDeps({
+    fetchCancellations: () =>
+      Promise.resolve([
+        {
+          cancelId: "c-seller",
+          state: "CANCEL_REQUESTED",
+          orderId: "ord9",
+          reason: "OUT_OF_STOCK",
+          requestorType: "SELLER",
+          creationDate: null,
+        },
+      ]),
+    record: (_ownerId, inputs) => {
+      for (const i of inputs) recorded.push(`${i.caseType}:${i.externalId}`);
+      return Promise.resolve(inputs.length);
+    },
+  });
+  await pollMarketplaceEventsForUser("u1", deps);
+  assert(recorded.includes("cancellation:c-seller"));
+  assertEquals(fired.cancellation, 0);
 });

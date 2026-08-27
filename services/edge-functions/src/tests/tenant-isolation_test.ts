@@ -155,6 +155,11 @@ const KNOWN_UNSEEDED: Record<string, string> = {
   TEST_USER_A_EBAY_ORDER_ID: "needs a live eBay sandbox order — external dependency",
   TEST_USER_A_EBAY_RETURN_ID: "needs a live eBay sandbox RETURN — external dependency",
   TEST_USER_A_EBAY_DISPUTE_ID: "needs a live eBay sandbox payment DISPUTE — external dependency",
+  TEST_USER_A_EBAY_CANCEL_ID: "needs a live eBay sandbox CANCELLATION — external dependency",
+  TEST_USER_A_EBAY_INQUIRY_ID:
+    "needs a live eBay sandbox Item-Not-Received INQUIRY — external dependency (US-2928)",
+  TEST_USER_A_EBAY_CASE_ID:
+    "needs a live eBay sandbox escalated CASE — external dependency (US-2929)",
   TEST_USER_A_EBAY_SKU: "needs a published eBay inventory item — external dependency",
   TEST_USER_A_FULFILLMENT_POLICY_ID: "needs eBay business policies — external dependency",
   TEST_USER_A_PUSH_ENDPOINT: "needs a real Web Push subscription endpoint",
@@ -6732,5 +6737,196 @@ Deno.test({
     for (const leak of ["user_id", "userId", "inventory_items", "sku"]) {
       assert(!serialized.includes(leak), `size-bands response leaked ${leak}`);
     }
+  },
+});
+
+// ── US-2927: the post-sale lists now read a LOCAL table ─────────────
+//
+// Before this, GET /returns, /cancellations and /payment-disputes were scoped
+// by construction: they called eBay with the caller's own token, so there was
+// nothing to leak. That argument no longer holds. Each route now serves
+// marketplace_post_sale_cases through the service-role client, which bypasses
+// RLS, so the `.eq("user_id", ownerId)` inside loadCachedSummaries is the only
+// thing standing between tenant B and tenant A's returns.
+//
+// A leak here does NOT return 403. It returns 200 with someone else's cases in
+// the body, which is why these assert on the CONTENT rather than the status.
+// WRITTEN OUT RATHER THAN LOOPED, and that is the point. The structural guard
+// below reads the HEAD of each Deno.test block looking for a literal TEST_* id,
+// so a loop whose `ignore` reads `Deno.env.get(envVar)` hides its ids from the
+// guard entirely — the case then skips in CI while the suite reports green,
+// which is the exact failure the guard exists to catch. Three near-identical
+// blocks are cheaper than a guard that quietly stopped guarding.
+Deno.test({
+  name: "B's eBay return list never contains A's return",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_RETURN_ID"),
+  fn: () => assertListDoesNotLeak("returns", "TEST_USER_A_EBAY_RETURN_ID"),
+});
+
+Deno.test({
+  name: "B's eBay cancellation list never contains A's cancellation",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_CANCEL_ID"),
+  fn: () => assertListDoesNotLeak("cancellations", "TEST_USER_A_EBAY_CANCEL_ID"),
+});
+
+Deno.test({
+  name: "B's eBay payment-dispute list never contains A's dispute",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_DISPUTE_ID"),
+  fn: () => assertListDoesNotLeak("payment-disputes", "TEST_USER_A_EBAY_DISPUTE_ID"),
+});
+
+/** Shared body: fetch the list as B and assert A's id is nowhere in it. */
+async function assertListDoesNotLeak(path: string, envVar: string): Promise<void> {
+  const aId = Deno.env.get(envVar)!;
+  const res = await fetch(`${BASE}/api/flipdesk/ebay/${path}?limit=200`, {
+    headers: authHeaders(B_JWT!),
+  });
+  // 503 (eBay not configured) or a denial are both fine — the only failing
+  // outcome is a 200 whose body carries A's id.
+  if (res.status !== 200) {
+    await res.body?.cancel();
+    return;
+  }
+  const body = await res.text();
+  assert(
+    !body.includes(aId),
+    `GET /api/flipdesk/ebay/${path} leaked tenant A's id to tenant B`,
+  );
+}
+
+// ── US-2928: the inquiry routes ─────────────────────────────────────
+//
+// Same two shapes as the return routes. The LIST is a content assertion (a leak
+// is a 200 carrying another tenant's inquiry, not a 403); the three ACTIONS are
+// status assertions, because each takes an eBay-side id straight from the path
+// and must never act on an id belonging to someone else.
+Deno.test({
+  name: "B's eBay inquiry list never contains A's inquiry",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_INQUIRY_ID"),
+  fn: async () => {
+    const aId = Deno.env.get("TEST_USER_A_EBAY_INQUIRY_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/inquiries?limit=200`, {
+      headers: authHeaders(B_JWT!),
+    });
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      return;
+    }
+    const body = await res.text();
+    assert(!body.includes(aId), "GET /inquiries leaked tenant A's inquiry id to tenant B");
+  },
+});
+
+for (
+  const [action, payload] of [
+    ["shipment", { carrier: "USPS", tracking_number: "9400100000000000000000" }],
+    ["refund", {}],
+    ["close", {}],
+  ] as const
+) {
+  Deno.test({
+    name: `B cannot ${action} A's eBay inquiry`,
+    ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_INQUIRY_ID"),
+    fn: async () => {
+      const inquiryId = Deno.env.get("TEST_USER_A_EBAY_INQUIRY_ID")!;
+      const res = await fetch(
+        `${BASE}/api/flipdesk/ebay/inquiries/${encodeURIComponent(inquiryId)}/${action}`,
+        { method: "POST", headers: authHeaders(B_JWT!), body: JSON.stringify(payload) },
+      );
+      await res.body?.cancel();
+      assertDenied(res.status, `POST eBay inquiry ${action}`);
+    },
+  });
+}
+
+// ── US-2929: the case routes ────────────────────────────────────────
+Deno.test({
+  name: "B's eBay case list never contains A's case",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_CASE_ID"),
+  fn: async () => {
+    const aId = Deno.env.get("TEST_USER_A_EBAY_CASE_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/cases?limit=200`, {
+      headers: authHeaders(B_JWT!),
+    });
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      return;
+    }
+    const body = await res.text();
+    assert(!body.includes(aId), "GET /cases leaked tenant A's case id to tenant B");
+  },
+});
+
+for (
+  const [action, payload] of [
+    ["shipment", { carrier: "USPS", tracking_number: "9400100000000000000000" }],
+    ["refund", {}],
+    ["appeal", { comments: "The tracking shows delivered." }],
+    ["close", {}],
+  ] as const
+) {
+  Deno.test({
+    name: `B cannot ${action} A's eBay case`,
+    ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_CASE_ID"),
+    fn: async () => {
+      const caseId = Deno.env.get("TEST_USER_A_EBAY_CASE_ID")!;
+      const res = await fetch(
+        `${BASE}/api/flipdesk/ebay/cases/${encodeURIComponent(caseId)}/${action}`,
+        { method: "POST", headers: authHeaders(B_JWT!), body: JSON.stringify(payload) },
+      );
+      await res.body?.cancel();
+      assertDenied(res.status, `POST eBay case ${action}`);
+    },
+  });
+}
+
+// ── US-2930/US-2931/US-2932: the three new return actions ───────────
+//
+// Each takes an eBay return id straight from the path and acts on it. A missing
+// owner scope here would let B mark A's return received, read A's tracking, or
+// message A's buyer.
+Deno.test({
+  name: "B cannot mark A's eBay return received",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_RETURN_ID"),
+  fn: async () => {
+    const returnId = Deno.env.get("TEST_USER_A_EBAY_RETURN_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/returns/${encodeURIComponent(returnId)}/received`,
+      { method: "POST", headers: authHeaders(B_JWT!), body: "{}" },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST eBay return received");
+  },
+});
+
+Deno.test({
+  name: "B cannot read the shipment on A's eBay return",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_RETURN_ID"),
+  fn: async () => {
+    const returnId = Deno.env.get("TEST_USER_A_EBAY_RETURN_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/returns/${encodeURIComponent(returnId)}/label`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "GET eBay return label");
+  },
+});
+
+Deno.test({
+  name: "B cannot message the buyer on A's eBay return",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_RETURN_ID"),
+  fn: async () => {
+    const returnId = Deno.env.get("TEST_USER_A_EBAY_RETURN_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/returns/${encodeURIComponent(returnId)}/message`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ message: "Keep it and I will refund you." }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST eBay return message");
   },
 });

@@ -1,14 +1,23 @@
 import { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { daysUntil, splitByOpenState } from "@/pages/flipdesk/post-sale-state";
+import {
+  byDeadline,
+  canMarkReceived,
+  daysUntil,
+  deadlineBucket,
+  deadlineLabel,
+  splitByOpenState,
+} from "@/pages/flipdesk/post-sale-state";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import {
   AlertTriangle,
   Check,
   Loader2,
+  Gavel,
   PackageCheck,
   PackageX,
+  Truck,
   Paperclip,
   RotateCcw,
   ShieldAlert,
@@ -41,6 +50,7 @@ import { PlatformCoverageNote } from "@/components/flipdesk/platform-coverage-no
 import { CaseItemSummary } from "@/components/flipdesk/case-item-summary";
 import { ReturnEvidencePanel } from "@/components/flipdesk/return-evidence-panel";
 import {
+  type CaseItem,
   caseItemKey,
   ebayOrderUrl,
   ebayReturnUrl,
@@ -48,21 +58,34 @@ import {
 } from "@/hooks/use-case-items";
 import {
   useEbayCancellations,
+  useEbayCaseAction,
+  useEbayCases,
   useEbayConnection,
   useEbayDecideCancellation,
   useEbayAddDisputeEvidence,
   useEbayDecideReturn,
   useEbayPaymentDisputes,
+  useEbayInquiries,
+  useEbayInquiryAction,
   useEbayIssueOrderRefund,
+  useEbayMarkReturnReceived,
+  useEbayReadReturnShipment,
+  useEbaySendReturnMessage,
   useEbayOrderTotal,
   useEbayRefundReturn,
   useEbayResolveDispute,
   useEbayReturns,
   type EbayCancellation,
+  type EbayCase,
+  type EbayInquiry,
   type EbayPaymentDispute,
   type EbayReturn,
 } from "@/hooks/use-ebay";
 import { PageHelp } from "@/components/help/page-help";
+import {
+  centsToDisplay,
+  suggestKeepItRefund,
+} from "@/pages/flipdesk/keep-it-offer";
 
 // US-1043 + US-1049: web surface for post-sale issues — returns, cancellations,
 // and payment disputes — with the accept/decline/refund/contest actions.
@@ -84,8 +107,8 @@ export function FlipdeskPostSalePage() {
       <div className="mx-auto max-w-3xl space-y-3 py-12 text-center">
         <h1 className="text-xl font-semibold">Returns & Disputes</h1>
         <p className="text-sm text-muted-foreground">
-          Connect your eBay account to manage returns, cancellations, and payment
-          disputes.
+          Connect your eBay account. Then handle cases, returns and disputes
+          from here.
         </p>
         <Button asChild variant="outline">
           <a href="/dashboard/flipdesk/marketplaces">Go to Marketplaces</a>
@@ -98,7 +121,7 @@ export function FlipdeskPostSalePage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
         title="Returns & Disputes"
-        subtitle="Handle eBay returns, buyer cancellations, and payment disputes before their deadlines — responses are pushed straight to eBay."
+        subtitle="Every eBay case waiting on you, in the order it runs out. Your answer goes straight to eBay."
               actions={<PageHelp slug="returns-and-disputes" />}
       />
       {/* US-2541: same reasoning as the offers screen. An empty returns list
@@ -108,6 +131,8 @@ export function FlipdeskPostSalePage() {
         noun="Returns, cancellations and disputes"
       />
       <DisputesCard />
+      <CasesCard />
+      <InquiriesCard />
       <ReturnsCard />
       <CancellationsCard />
     </div>
@@ -152,7 +177,10 @@ function DisputesCard() {
     () => splitByOpenState(disputes),
     [disputes],
   );
-  const visible = showClosed ? closedDisputes : openDisputes;
+  const visible = useMemo(
+    () => byDeadline(showClosed ? closedDisputes : openDisputes, (d) => d.respondByDate),
+    [showClosed, closedDisputes, openDisputes],
+  );
   const [contestNote, setContestNote] = useState("");
   // US-2707: which dispute's grade-pack panel is open. One at a time, same as
   // returns — two open packs is two complaint boxes and a good way to send the
@@ -425,15 +453,21 @@ function ReturnsCard() {
     () => splitByOpenState(returns),
     [returns],
   );
-  const visible = showClosed ? closedReturns : openReturns;
+  const visible = useMemo(
+    () => byDeadline(showClosed ? closedReturns : openReturns, (r) => r.respondBy),
+    [showClosed, closedReturns, openReturns],
+  );
   // US-2521: what each case is actually about. Resolved for every return, not
   // just the visible ones, so toggling open/closed does not refetch.
   const { data: caseItems } = useCaseItems(
     returns.map((r) => ({ orderId: r.orderId, itemId: r.itemId })),
   );
   const decide = useEbayDecideReturn();
+  const markReceived = useEbayMarkReturnReceived();
+  const readShipment = useEbayReadReturnShipment();
   const refund = useEbayRefundReturn();
   const partialRefund = useEbayIssueOrderRefund();
+  const sendMessage = useEbaySendReturnMessage();
   const [busy, setBusy] = useState<string | null>(null);
   // US-2227: which return's partial-refund row is open, and what is typed in it.
   const [partialFor, setPartialFor] = useState<string | null>(null);
@@ -441,11 +475,72 @@ function ReturnsCard() {
   // packs is two complaint boxes and a good way to send the wrong one.
   const [evidenceFor, setEvidenceFor] = useState<string | null>(null);
   const [partialAmount, setPartialAmount] = useState("");
+  // US-2932: which return's buyer-message box is open, and what is in it.
+  const [messageFor, setMessageFor] = useState<string | null>(null);
+  const [messageText, setMessageText] = useState("");
   const partialOrderId = useMemo(
     () => returns.find((r) => r.returnId === partialFor)?.orderId ?? null,
     [returns, partialFor],
   );
   const { data: orderTotal } = useEbayOrderTotal(partialOrderId);
+
+  // US-2930. Confirmed, because telling eBay an item is back stops a clock and
+  // is a statement of fact the seller is on record for.
+  async function markReturnReceived(r: EbayReturn) {
+    const ok = await confirm({
+      title: "Mark this return received?",
+      description:
+        "This tells eBay the item is back with you. Only do it once you actually have it — eBay records it as your statement.",
+      confirmLabel: "Mark received",
+    });
+    if (!ok) return;
+    setBusy(`${r.returnId}:received`);
+    try {
+      await markReceived.mutateAsync({ returnId: r.returnId });
+      toast.success("eBay has been told the item arrived.");
+      await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
+    } catch (err) {
+      toastError(err, "Marking the return received failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // US-2931. One call, for the return the seller is deciding about.
+  async function checkShipment(r: EbayReturn) {
+    setBusy(`${r.returnId}:shipment`);
+    try {
+      const { label } = await readShipment.mutateAsync({ returnId: r.returnId });
+      toast.success(
+        label?.trackingNumber
+          ? `Tracking ${label.trackingNumber} on ${label.carrier ?? "the carrier"}.`
+          : "eBay has no shipment for this return yet.",
+      );
+      await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
+    } catch (err) {
+      toastError(err, "Couldn't read the return shipment.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // US-2932: the return-scoped thread. eBay reads THIS one when it decides a
+  // case, so a keep-it agreement made in the Offers inbox is invisible to it.
+  async function sendReturnNote(r: EbayReturn) {
+    const text = messageText.trim();
+    if (!text) return;
+    setBusy(`${r.returnId}:message`);
+    try {
+      await sendMessage.mutateAsync({ returnId: r.returnId, message: text });
+      toast.success("Message sent to the buyer on eBay.");
+      setMessageFor(null);
+      setMessageText("");
+    } catch (err) {
+      toastError(err, "The message did not send.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function decideReturn(r: EbayReturn, decision: "approve" | "decline") {
     if (decision === "approve") {
@@ -582,6 +677,7 @@ function ReturnsCard() {
                     {r.reason?.replace(/_/g, " ") ?? "Return request"}
                   </span>
                   {r.state && <Badge variant="outline">{r.state.replace(/_/g, " ")}</Badge>}
+                  <DeadlineBadge respondBy={r.respondBy} />
                 </div>
                 {/* US-2521: the garment, its sale price and the way through to
                     both the eBay case and the local item. Approving a refund
@@ -596,12 +692,63 @@ function ReturnsCard() {
                 <p className="text-xs text-muted-foreground">
                   Opened {fmtDate(r.creationDate)}
                 </p>
+                {/* US-2931: whether the buyer has actually posted it. `label`
+                    is undefined until someone looks; null once eBay has been
+                    asked and said no — three states, not two, because "we have
+                    not checked" and "they have not shipped" are different
+                    answers to the question the seller is asking. */}
+                {r.label !== undefined && (
+                  <p className="text-xs text-muted-foreground">
+                    {r.label?.trackingNumber
+                      ? `${r.label.carrier ?? "Carrier"} ${r.label.trackingNumber}${
+                          r.label.deliveredAt
+                            ? ` — delivered ${fmtDate(r.label.deliveredAt)}`
+                            : r.label.shippedAt
+                              ? ` — shipped ${fmtDate(r.label.shippedAt)}`
+                              : ""
+                        }`
+                      : "The buyer has not shipped it yet."}
+                  </p>
+                )}
               </div>
               {/* US-2227: no actions on a closed case. Offering Refund on a
                   case eBay has already resolved is an invitation to a
                   destructive no-op, and its confirm text promises otherwise. */}
               {!showClosed && (
-              <div className="flex shrink-0 gap-2">
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Button
+                  aria-label={`Check the return shipment for ${r.reason?.replace(/_/g, " ") ?? "this return"}`}
+                  size="sm"
+                  variant="outline"
+                  disabled={!!busy}
+                  onClick={() => checkShipment(r)}
+                >
+                  {busy === `${r.returnId}:shipment` ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Truck className="mr-1 h-4 w-4" />
+                  )}
+                  Check shipment
+                </Button>
+                {/* US-2930: only once the item is actually moving. Offering it
+                    on a return the buyer has not posted invites the seller to
+                    tell eBay a parcel arrived that was never sent. */}
+                {canMarkReceived(r.state, !!r.label?.trackingNumber) && (
+                  <Button
+                    aria-label={`Mark received: ${r.reason?.replace(/_/g, " ") ?? "this return"}`}
+                    size="sm"
+                    variant="outline"
+                    disabled={!!busy}
+                    onClick={() => markReturnReceived(r)}
+                  >
+                    {busy === `${r.returnId}:received` ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <PackageCheck className="mr-1 h-4 w-4" />
+                    )}
+                    Mark received
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
@@ -639,6 +786,21 @@ function ReturnsCard() {
                     <RotateCcw className="mr-1 h-4 w-4" />
                   )}
                   Refund
+                </Button>
+                {/* US-2932: message the buyer inside the RETURN. eBay reads
+                    this thread when it decides a case; the Offers inbox is a
+                    different conversation it cannot see. */}
+                <Button
+                  aria-label={`Message the buyer about ${r.reason?.replace(/_/g, " ") ?? "this return"}`}
+                  size="sm"
+                  variant="outline"
+                  disabled={!!busy}
+                  onClick={() => {
+                    setMessageText("");
+                    setMessageFor(messageFor === r.returnId ? null : r.returnId);
+                  }}
+                >
+                  Message…
                 </Button>
                 {/* US-2227: the keep-it discount. Separate from Refund because
                     it is a different eBay call with a different outcome — this
@@ -705,6 +867,42 @@ function ReturnsCard() {
                     ) : null}
                     Send
                   </Button>
+                  {/* US-2932: a suggestion, with the arithmetic behind it and a
+                      click to accept. Absent — not zeroed — when the item's cost
+                      is unknown, because a number with nothing behind it reads
+                      exactly like one that was computed. */}
+                  <KeepItHint
+                    item={caseItems?.get(
+                      caseItemKey({ orderId: r.orderId, itemId: r.itemId }) ?? "",
+                    )}
+                    onUse={(cents) => setPartialAmount((cents / 100).toFixed(2))}
+                  />
+                </div>
+              )}
+              {messageFor === r.returnId && (
+                <div className="mt-2 space-y-2 rounded-md border bg-muted/30 p-2">
+                  <Label htmlFor={`msg-${r.returnId}`} className="text-xs">
+                    Message the buyer on eBay
+                  </Label>
+                  <Textarea
+                    id={`msg-${r.returnId}`}
+                    rows={3}
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    placeholder="Keep it and I'll refund you $14 — that saves us both the postage."
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      disabled={!messageText.trim() || !!busy}
+                      onClick={() => sendReturnNote(r)}
+                    >
+                      {busy === `${r.returnId}:message` ? (
+                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                      ) : null}
+                      Send message
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -729,6 +927,9 @@ function CancellationsCard() {
     () => splitByOpenState(cancellations),
     [cancellations],
   );
+  // Cancellations carry no respondByDate on eBay's summary, so there is nothing
+  // to sort them by. Left in eBay's order rather than sorted by a field that
+  // does not exist.
   const visible = showClosed ? closedCancels : openCancels;
   // US-2521: a cancellation identified only by an order id is a refund button
   // with no subject.
@@ -848,5 +1049,546 @@ function CancellationsCard() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+// ── Item Not Received inquiries + escalated cases (US-2928 / US-2929) ─
+//
+// These two sit ABOVE returns on the page because they are the ones with the
+// shorter fuse. A return is a decision the seller controls; an inquiry becomes
+// a case if ignored, and a case is decided by eBay and counts as a defect.
+//
+// Both share a shape, so one shared row renderer serves them. What is NOT
+// shared is the copy: the whole reason a case is not "a return with a different
+// state" is that the seller has to know eBay decides it.
+
+/** Add-tracking dialog. The action that settles most INR inquiries and cases. */
+function TrackingDialog({
+  open,
+  onOpenChange,
+  onSubmit,
+  busy,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSubmit: (carrier: string, trackingNumber: string, comments: string) => void;
+  busy: boolean;
+}) {
+  const [carrier, setCarrier] = useState("");
+  const [tracking, setTracking] = useState("");
+  const [comments, setComments] = useState("");
+  const ready = carrier.trim().length > 0 && tracking.trim().length > 0;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Send tracking to eBay</DialogTitle>
+          <DialogDescription>
+            eBay accepts this as proof the parcel is on its way. It is what closes
+            most item-not-received cases without a refund.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="po-carrier">Carrier</Label>
+            <Input
+              id="po-carrier"
+              value={carrier}
+              onChange={(e) => setCarrier(e.target.value)}
+              placeholder="USPS"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="po-tracking">Tracking number</Label>
+            <Input
+              id="po-tracking"
+              value={tracking}
+              onChange={(e) => setTracking(e.target.value)}
+              placeholder="9400 1000 0000 0000 0000 00"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="po-comments">Note to the buyer (optional)</Label>
+            <Textarea
+              id="po-comments"
+              value={comments}
+              onChange={(e) => setComments(e.target.value)}
+              rows={3}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button
+            disabled={!ready || busy}
+            onClick={() => onSubmit(carrier.trim(), tracking.trim(), comments.trim())}
+          >
+            {busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+            Send tracking
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
+ * US-2933: the deadline badge every post-sale card uses.
+ *
+ * No date renders NO badge — never "Overdue". A case eBay gave no deadline for
+ * and a case the seller has already lost must not look the same, or they go
+ * hunting for work that is not there.
+ *
+ * The bucket is rendered as TEXT, not as colour alone.
+ */
+function DeadlineBadge({ respondBy }: { respondBy: string | null | undefined }) {
+  const bucket = deadlineBucket(respondBy);
+  const label = deadlineLabel(respondBy);
+  if (!bucket || !label) return null;
+  return (
+    <Badge variant={bucket === "overdue" || bucket === "imminent" ? "destructive" : "outline"}>
+      {label}
+    </Badge>
+  );
+}
+
+function InquiriesCard() {
+  const { data: inquiries = [], isLoading } = useEbayInquiries();
+  const act = useEbayInquiryAction();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [showClosed, setShowClosed] = useState(false);
+  const [trackingFor, setTrackingFor] = useState<EbayInquiry | null>(null);
+  const { open: openOnes, closed: closedOnes } = useMemo(
+    () => splitByOpenState(inquiries),
+    [inquiries],
+  );
+  // US-2933: soonest deadline first, undated last. The seller opens this page
+  // to find what runs out first, not what eBay happened to list first.
+  const visible = useMemo(
+    () => byDeadline(showClosed ? closedOnes : openOnes, (i) => i.respondBy),
+    [showClosed, closedOnes, openOnes],
+  );
+  const { data: caseItems } = useCaseItems(
+    inquiries.map((i) => ({ orderId: i.orderId, itemId: i.itemId })),
+  );
+
+  async function run(
+    inq: EbayInquiry,
+    action: "shipment" | "refund" | "close",
+    extra?: { carrier?: string; trackingNumber?: string; comments?: string },
+  ) {
+    if (action === "refund") {
+      const ok = await confirm({
+        title: "Refund the buyer?",
+        description:
+          "This refunds the order on eBay and settles the inquiry. It can't be undone.",
+        confirmLabel: "Refund",
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    setBusy(`${inq.inquiryId}:${action}`);
+    try {
+      await act.mutateAsync({
+        inquiryId: inq.inquiryId,
+        action,
+        orderId: inq.orderId ?? undefined,
+        ...extra,
+      });
+      toast.success(
+        action === "shipment"
+          ? "Tracking sent to eBay."
+          : action === "refund"
+            ? "Buyer refunded."
+            : "Inquiry closed.",
+      );
+      setTrackingFor(null);
+    } catch (err) {
+      toastError(err, "The inquiry action failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between gap-2 text-base">
+          <span className="flex items-center gap-2">
+            <Truck className="h-4 w-4" />
+            Item not received
+          </span>
+          {closedOnes.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs font-normal"
+              onClick={() => setShowClosed((v) => !v)}
+            >
+              {showClosed
+                ? `Show open (${openOnes.length})`
+                : `Show closed (${closedOnes.length})`}
+            </Button>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? (
+          <Skeleton className="h-16 w-full" />
+        ) : visible.length === 0 ? (
+          <EmptyRow
+            text={showClosed ? "No closed inquiries." : "No open item-not-received inquiries."}
+          />
+        ) : (
+          visible.map((inq) => (
+            <div
+              key={inq.inquiryId}
+              className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">
+                    {inq.reason?.replace(/_/g, " ") ?? "Item not received"}
+                  </span>
+                  <DeadlineBadge respondBy={inq.respondBy} />
+                </div>
+                {inq.orderId && (
+                  <CaseItemSummary
+                    item={caseItems?.get(caseItemKey({ orderId: inq.orderId, itemId: inq.itemId }) ?? "")}
+                    caseUrl={ebayOrderUrl(inq.orderId)}
+                    caseLabel={`Order ${inq.orderId} on eBay`}
+                  />
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Opened {fmtDate(inq.creationDate)}
+                  {inq.buyerUsername ? ` by ${inq.buyerUsername}` : ""}
+                </p>
+              </div>
+              {!showClosed && (
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button
+                    aria-label={`Add tracking for order ${inq.orderId ?? inq.inquiryId}`}
+                    size="sm"
+                    disabled={!!busy}
+                    onClick={() => setTrackingFor(inq)}
+                  >
+                    <Truck className="mr-1 h-4 w-4" />
+                    Add tracking
+                  </Button>
+                  <Button
+                    aria-label={`Close the inquiry on order ${inq.orderId ?? inq.inquiryId}`}
+                    size="sm"
+                    variant="outline"
+                    disabled={!!busy}
+                    onClick={() => run(inq, "close")}
+                  >
+                    {busy === `${inq.inquiryId}:close` ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Check className="mr-1 h-4 w-4" />
+                    )}
+                    Close
+                  </Button>
+                  <Button
+                    aria-label={`Refund the buyer on order ${inq.orderId ?? inq.inquiryId}`}
+                    size="sm"
+                    variant="destructive"
+                    disabled={!!busy}
+                    onClick={() => run(inq, "refund")}
+                  >
+                    {busy === `${inq.inquiryId}:refund` ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RotateCcw className="mr-1 h-4 w-4" />
+                    )}
+                    Refund
+                  </Button>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </CardContent>
+      <TrackingDialog
+        open={!!trackingFor}
+        onOpenChange={(v) => !v && setTrackingFor(null)}
+        busy={!!busy}
+        onSubmit={(carrier, trackingNumber, comments) => {
+          if (trackingFor) {
+            void run(trackingFor, "shipment", { carrier, trackingNumber, comments });
+          }
+        }}
+      />
+    </Card>
+  );
+}
+
+function CasesCard() {
+  const { data: cases = [], isLoading } = useEbayCases();
+  const act = useEbayCaseAction();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [showClosed, setShowClosed] = useState(false);
+  const [trackingFor, setTrackingFor] = useState<EbayCase | null>(null);
+  const [appealFor, setAppealFor] = useState<EbayCase | null>(null);
+  const [appealText, setAppealText] = useState("");
+  const { open: openOnes, closed: closedOnes } = useMemo(
+    () => splitByOpenState(cases),
+    [cases],
+  );
+  const visible = useMemo(
+    () => byDeadline(showClosed ? closedOnes : openOnes, (k) => k.respondBy),
+    [showClosed, closedOnes, openOnes],
+  );
+  const { data: caseItems } = useCaseItems(
+    cases.map((k) => ({ orderId: k.orderId, itemId: k.itemId })),
+  );
+
+  async function run(
+    kase: EbayCase,
+    action: "shipment" | "refund" | "appeal" | "close",
+    extra?: { carrier?: string; trackingNumber?: string; comments?: string },
+  ) {
+    if (action === "refund") {
+      const ok = await confirm({
+        title: "Refund the buyer and settle the case?",
+        description:
+          "This refunds the order on eBay and closes the case. It can't be undone.",
+        confirmLabel: "Refund",
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    setBusy(`${kase.caseId}:${action}`);
+    try {
+      await act.mutateAsync({
+        caseId: kase.caseId,
+        action,
+        orderId: kase.orderId ?? undefined,
+        ...extra,
+      });
+      toast.success(
+        action === "shipment"
+          ? "Tracking sent to eBay."
+          : action === "refund"
+            ? "Buyer refunded."
+            : action === "appeal"
+              ? "Appeal submitted."
+              : "Case closed.",
+      );
+      setTrackingFor(null);
+      setAppealFor(null);
+      setAppealText("");
+    } catch (err) {
+      toastError(err, "The case action failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center justify-between gap-2 text-base">
+          <span className="flex items-center gap-2">
+            <Gavel className="h-4 w-4" />
+            eBay cases
+          </span>
+          {closedOnes.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs font-normal"
+              onClick={() => setShowClosed((v) => !v)}
+            >
+              {showClosed
+                ? `Show open (${openOnes.length})`
+                : `Show closed (${closedOnes.length})`}
+            </Button>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* The distinction the seller has to have. A return is theirs to decide;
+            a case is eBay's, and a case decided against them is a defect. */}
+        <p className="text-xs text-muted-foreground">
+          A case is a return or inquiry the buyer escalated. eBay decides it, and a
+          case decided against you counts as a defect on your seller account.
+        </p>
+        {isLoading ? (
+          <Skeleton className="h-16 w-full" />
+        ) : visible.length === 0 ? (
+          <EmptyRow text={showClosed ? "No closed cases." : "No open eBay cases."} />
+        ) : (
+          visible.map((kase) => (
+            <div
+              key={kase.caseId}
+              className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">
+                    {kase.reason?.replace(/_/g, " ") ?? "eBay case"}
+                  </span>
+                  <DeadlineBadge respondBy={kase.respondBy} />
+                </div>
+                {kase.orderId && (
+                  <CaseItemSummary
+                    item={caseItems?.get(caseItemKey({ orderId: kase.orderId, itemId: kase.itemId }) ?? "")}
+                    caseUrl={ebayOrderUrl(kase.orderId)}
+                    caseLabel={`Order ${kase.orderId} on eBay`}
+                  />
+                )}
+                {/* US-2929: one thread, not two rows. A seller looking at a
+                    return and a case on the same order has no way to tell they
+                    are the same argument unless we say so. */}
+                {kase.escalatedFrom && (
+                  <p className="text-xs text-muted-foreground">
+                    Escalated from{" "}
+                    <a
+                      className="underline"
+                      href={ebayReturnUrl(kase.escalatedFrom)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {kase.escalatedFrom}
+                    </a>
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Opened {fmtDate(kase.creationDate)}
+                  {kase.buyerUsername ? ` by ${kase.buyerUsername}` : ""}
+                </p>
+              </div>
+              {!showClosed && (
+                <div className="flex shrink-0 flex-wrap gap-2">
+                  <Button
+                    aria-label={`Add tracking for case ${kase.caseId}`}
+                    size="sm"
+                    disabled={!!busy}
+                    onClick={() => setTrackingFor(kase)}
+                  >
+                    <Truck className="mr-1 h-4 w-4" />
+                    Add tracking
+                  </Button>
+                  <Button
+                    aria-label={`Appeal case ${kase.caseId}`}
+                    size="sm"
+                    variant="outline"
+                    disabled={!!busy}
+                    onClick={() => setAppealFor(kase)}
+                  >
+                    <Gavel className="mr-1 h-4 w-4" />
+                    Appeal
+                  </Button>
+                  <Button
+                    aria-label={`Refund the buyer on case ${kase.caseId}`}
+                    size="sm"
+                    variant="destructive"
+                    disabled={!!busy}
+                    onClick={() => run(kase, "refund")}
+                  >
+                    {busy === `${kase.caseId}:refund` ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RotateCcw className="mr-1 h-4 w-4" />
+                    )}
+                    Refund
+                  </Button>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </CardContent>
+      <TrackingDialog
+        open={!!trackingFor}
+        onOpenChange={(v) => !v && setTrackingFor(null)}
+        busy={!!busy}
+        onSubmit={(carrier, trackingNumber, comments) => {
+          if (trackingFor) {
+            void run(trackingFor, "shipment", { carrier, trackingNumber, comments });
+          }
+        }}
+      />
+      <Dialog open={!!appealFor} onOpenChange={(v) => !v && setAppealFor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Appeal this case</DialogTitle>
+            <DialogDescription>
+              eBay rejects an appeal with no argument, so say what it got wrong and
+              point at the evidence. The appeal window is short.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            aria-label="Your appeal argument"
+            value={appealText}
+            onChange={(e) => setAppealText(e.target.value)}
+            rows={5}
+            placeholder="Tracking shows delivered on 12 August, signed for."
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAppealFor(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!appealText.trim() || !!busy}
+              onClick={() => {
+                if (appealFor) void run(appealFor, "appeal", { comments: appealText.trim() });
+              }}
+            >
+              {busy?.endsWith(":appeal") ? (
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+              ) : null}
+              Submit appeal
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+
+/**
+ * US-2932: the keep-it suggestion, with its arithmetic on show.
+ *
+ * Renders NOTHING when the item's cost basis is unknown. That is the whole
+ * discipline of this component: a suggested refund with no cost behind it looks
+ * identical to one that was computed, and it sits next to a button that moves
+ * money. Silence is the honest output.
+ */
+function KeepItHint({
+  item,
+  onUse,
+}: {
+  item: CaseItem | undefined;
+  onUse: (cents: number) => void;
+}) {
+  const suggestion = suggestKeepItRefund({
+    salePriceCents: item?.salePrice != null ? Math.round(item.salePrice * 100) : null,
+    acquiredPriceCents: item?.acquiredPrice != null
+      ? Math.round(item.acquiredPrice * 100)
+      : null,
+  });
+  if (!suggestion) return null;
+  return (
+    <div className="basis-full text-xs text-muted-foreground">
+      <button
+        type="button"
+        className="underline underline-offset-2"
+        onClick={() => onUse(suggestion.suggestedCents)}
+        aria-label={`Use the suggested keep-it refund of ${centsToDisplay(suggestion.suggestedCents)}`}
+      >
+        Suggest {centsToDisplay(suggestion.suggestedCents)}
+      </button>{" "}
+      — taking this return back costs you about{" "}
+      {centsToDisplay(suggestion.ceilingCents)} once you add{" "}
+      {centsToDisplay(suggestion.returnShippingCents)} of return postage, so
+      anything under that is the cheaper outcome.
+    </div>
   );
 }
