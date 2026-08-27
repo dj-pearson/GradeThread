@@ -37,7 +37,22 @@ struct PhotoIntakeView: View {
     /// staging tray, but only after the "couldn't load N photos" alert is
     /// dismissed (presenting an alert + sheet in the same tick is unreliable).
     @State private var openTrayAfterAlert = false
-    @State private var slotForPreview: CaptureSlot?
+    /// US-2925: ONE full-screen cover slot. The slot preview and the AI-extract
+    /// step were two `.fullScreenCover` modifiers on this view; covers have the
+    /// same single-slot rule as sheets, and check-chained-sheets.py never looked
+    /// at them.
+    private enum IntakeCover: Identifiable {
+        case slotPreview(CaptureSlot)
+        case aiExtract(String)
+
+        var id: String {
+            switch self {
+            case .slotPreview(let slot): return "preview-\(slot)"
+            case .aiExtract(let itemId): return "extract-\(itemId)"
+            }
+        }
+    }
+    @State private var intakeCover: IntakeCover?
     @State private var showingExitConfirmation = false
     /// US-686: tag-photo quality pre-flight (nudge to retake a blurry/low-res
     /// tag before spending an AI action). `isCheckingTag` covers the brief OCR
@@ -80,10 +95,19 @@ struct PhotoIntakeView: View {
     @Environment(AuthStore.self) private var authStore
 
     // Library-import flow (US-174)
-    @State private var showingLibraryPicker = false
+    /// US-2925: ONE sheet slot. The library picker and the staging tray were
+    /// two chained `.sheet` modifiers competing for it, and the staging tray is
+    /// what the picker hands off to - so the losing frame landed exactly where
+    /// a multi-photo pick needs to be assigned.
+    private enum IntakeSheet: String, Identifiable {
+        case libraryPicker
+        case stagingTray
+        var id: String { rawValue }
+    }
+    @State private var intakeSheet: IntakeSheet?
     @State private var isLoadingLibraryPicks = false
     @State private var stagedPhotos: [PhotoCapture] = []
-    @State private var showingStagingTray = false
+
 
     /// US-651: VoiceOver focus is moved here when the camera is ready so the
     /// user lands on the primary action instead of hunting for it.
@@ -190,7 +214,7 @@ struct PhotoIntakeView: View {
                 captureError = nil
                 if openTrayAfterAlert {
                     openTrayAfterAlert = false
-                    if !stagedPhotos.isEmpty { showingStagingTray = true }
+                    if !stagedPhotos.isEmpty { intakeSheet = .stagingTray }
                 }
             }
         } message: {
@@ -231,105 +255,63 @@ struct PhotoIntakeView: View {
         } message: {
             Text("You have \(store.photos.count) photo\(store.photos.count == 1 ? "" : "s") that haven't been saved yet.")
         }
-        .fullScreenCover(item: $slotForPreview) { slot in
-            if let capture = store.photos[slot] {
-                PhotoPreview(
-                    slot: slot,
-                    capture: capture,
-                    onRetake: {
-                        store.clearPhoto(at: slot)
-                        store.setActiveSlot(slot)
-                    },
-                    onDelete: {
-                        store.clearPhoto(at: slot)
-                    }
-                )
-            }
+        // US-2925: ONE cover slot. See ``IntakeCover``.
+        // US-2925: mirror the AI-extract trigger into the single cover slot.
+        .onChange(of: draftItemId) { _, id in
+            if let id { intakeCover = .aiExtract(id) }
+            else if case .aiExtract = intakeCover { intakeCover = nil }
         }
-        .sheet(isPresented: $showingLibraryPicker) {
-            PhotoLibraryPicker(selectionLimit: Self.libraryPickLimit) { results in
-                Task { await ingestLibraryPicks(results) }
-            }
-            .ignoresSafeArea()
-        }
-        .fullScreenCover(
-            isPresented: Binding(
-                get: { draftItemId != nil },
-                set: { if !$0 { draftItemId = nil } }
-            )
-        ) {
-            if let itemId = draftItemId, let userId = currentUserId(), !userId.isEmpty {
-                AIExtractView(
-                    inventoryItemId: itemId,
-                    userId: userId,
-                    photos: capturedEntries(),
-                    onComplete: {
-                        // US-682: once the AI step finishes (Apply / Skip /
-                        // error), land the user ON the item they just created
-                        // (canvas) instead of bouncing back to the camera tab.
-                        // Reuses the proven deep-link route; a pull keeps the
-                        // local row fresh. From the canvas, the Add control
-                        // (every tab, US-684) starts the next item.
-                        store.reset()
-                        draftItemId = nil
-                        dismiss()
-                        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
-                        DeepLinkRouter.post(.inventoryItem(id: itemId))
-                    },
-                    onBackground: {
-                        // The extraction keeps running in AIExtractionManager;
-                        // drop the user on the inventory list where the new item
-                        // shows a "processing → review ready" pill. Opening it
-                        // later pops the same review.
-                        store.reset()
-                        draftItemId = nil
-                        dismiss()
-                        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
-                        DeepLinkRouter.post(.inventoryTab)
-                    },
-                    onRetryUploads: {
-                        // US-1212: re-enqueue every failed upload for this item so
-                        // the captured photos aren't lost; the uploads continue in
-                        // the background and land before the grade flow needs them.
-                        guard let service = uploadService else { return }
-                        let failed = uploadStore.tasks(inventoryItemId: itemId).filter {
-                            if case .failed = $0.phase { return true }
-                            return false
+        .fullScreenCover(item: $intakeCover) { cover in
+            switch cover {
+            case .slotPreview(let slot):
+                if let capture = store.photos[slot] {
+                    PhotoPreview(
+                        slot: slot,
+                        capture: capture,
+                        onRetake: {
+                            store.clearPhoto(at: slot)
+                            store.setActiveSlot(slot)
+                        },
+                        onDelete: {
+                            store.clearPhoto(at: slot)
                         }
-                        for task in failed { service.retry(task.id) }
+                    )
+                }
+            case .aiExtract(let itemId):
+                aiExtractCover(itemId: itemId)
+            }
+        }
+        .sheet(item: $intakeSheet) { sheet in
+            switch sheet {
+            case .libraryPicker:
+                PhotoLibraryPicker(selectionLimit: Self.libraryPickLimit) { results in
+                    Task { await ingestLibraryPicks(results) }
+                }
+                .ignoresSafeArea()
+            case .stagingTray:
+                PhotoStagingTray(
+                    staged: stagedPhotos,
+                    availableSlots: availableSlots(for:),
+                    autoAssignCapacity: store.autoAssignTargets(count: stagedPhotos.count).count,
+                    onAssignAll: assignAllStagedPhotos,
+                    onAssign: assign(stagedPhoto:to:),
+                    onDiscard: { photo in
+                        stagedPhotos.removeAll { $0.id == photo.id }
                     }
                 )
-            } else {
-                // US-1176: never build the AI step with an empty user id — that
-                // produces malformed storage/signed-URL paths and a silent
-                // failure. Surface a re-sign-in prompt instead.
-                ContentUnavailableView {
-                    Label("Sign in again", systemImage: "person.crop.circle.badge.exclamationmark")
-                } description: {
-                    Text("Your session expired. Sign in again to run AI extraction on these photos.")
-                } actions: {
-                    Button("OK") { draftItemId = nil }
-                        .buttonStyle(.borderedProminent)
+                .presentationDetents([.medium, .large])
+                // The tray's cleanup lives on the TRAY's content, not in a
+                // shared `onDismiss`: a swipe-dismiss never calls a modal's own
+                // callback, and a shared one would also fire for the picker and
+                // wipe the photos it had just staged.
+                .onDisappear {
+                    // A canceled tray drops everything that wasn't assigned -
+                    // the user can always re-pick.
+                    stagedPhotos.removeAll()
                 }
             }
         }
-        .sheet(isPresented: $showingStagingTray, onDismiss: {
-            // A canceled tray drops everything that wasn't assigned — the
-            // user can always re-pick.
-            stagedPhotos.removeAll()
-        }) {
-            PhotoStagingTray(
-                staged: stagedPhotos,
-                availableSlots: availableSlots(for:),
-                autoAssignCapacity: store.autoAssignTargets(count: stagedPhotos.count).count,
-                onAssignAll: assignAllStagedPhotos,
-                onAssign: assign(stagedPhoto:to:),
-                onDiscard: { photo in
-                    stagedPhotos.removeAll { $0.id == photo.id }
-                }
-            )
-            .presentationDetents([.medium, .large])
-        }
+
     }
 
     // MARK: - Layers
@@ -438,7 +420,7 @@ struct PhotoIntakeView: View {
                 // failureOverlay teases.
                 retryUpload(for: slot)
             } else if store.photos[slot] != nil {
-                slotForPreview = slot
+                intakeCover = .slotPreview(slot)
             } else {
                 store.setActiveSlot(slot)
             }
@@ -578,7 +560,7 @@ struct PhotoIntakeView: View {
             // up a second picker before the first one finishes processing.
             Button {
                 AppRouter.haptic()
-                showingLibraryPicker = true
+                intakeSheet = .libraryPicker
             } label: {
                 ZStack {
                     if isLoadingLibraryPicks {
@@ -644,7 +626,7 @@ struct PhotoIntakeView: View {
             // upload pipeline as captured shots via `ingestLibraryPicks`.
             Button {
                 AppRouter.haptic()
-                showingLibraryPicker = true
+                intakeSheet = .libraryPicker
             } label: {
                 HStack(spacing: 8) {
                     if isLoadingLibraryPicks {
@@ -1014,7 +996,7 @@ struct PhotoIntakeView: View {
             openTrayAfterAlert = true
             captureError = "Couldn't load \(dropped) of \(results.count) photos. They may still be downloading from iCloud. We added the \(staged.count) that loaded."
         } else {
-            showingStagingTray = true
+            intakeSheet = .stagingTray
         }
     }
 
@@ -1066,6 +1048,69 @@ struct PhotoIntakeView: View {
                 )
             }
         }
+    }
+
+    /// US-2925: the AI-extract step, lifted out of its own
+    /// `.fullScreenCover` so it can share ``IntakeCover``'s single slot.
+    /// `draftItemId` stays the source of truth - every existing read and
+    /// write of it is unchanged - and an `onChange` mirrors it into the
+    /// cover, so this is a presentation change and not a state change.
+    @ViewBuilder
+    private func aiExtractCover(itemId: String) -> some View {
+        if let userId = currentUserId(), !userId.isEmpty {
+                AIExtractView(
+                    inventoryItemId: itemId,
+                    userId: userId,
+                    photos: capturedEntries(),
+                    onComplete: {
+                        // US-682: once the AI step finishes (Apply / Skip /
+                        // error), land the user ON the item they just created
+                        // (canvas) instead of bouncing back to the camera tab.
+                        // Reuses the proven deep-link route; a pull keeps the
+                        // local row fresh. From the canvas, the Add control
+                        // (every tab, US-684) starts the next item.
+                        store.reset()
+                        draftItemId = nil
+                        dismiss()
+                        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+                        DeepLinkRouter.post(.inventoryItem(id: itemId))
+                    },
+                    onBackground: {
+                        // The extraction keeps running in AIExtractionManager;
+                        // drop the user on the inventory list where the new item
+                        // shows a "processing → review ready" pill. Opening it
+                        // later pops the same review.
+                        store.reset()
+                        draftItemId = nil
+                        dismiss()
+                        NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+                        DeepLinkRouter.post(.inventoryTab)
+                    },
+                    onRetryUploads: {
+                        // US-1212: re-enqueue every failed upload for this item so
+                        // the captured photos aren't lost; the uploads continue in
+                        // the background and land before the grade flow needs them.
+                        guard let service = uploadService else { return }
+                        let failed = uploadStore.tasks(inventoryItemId: itemId).filter {
+                            if case .failed = $0.phase { return true }
+                            return false
+                        }
+                        for task in failed { service.retry(task.id) }
+                    }
+                )
+            } else {
+                // US-1176: never build the AI step with an empty user id — that
+                // produces malformed storage/signed-URL paths and a silent
+                // failure. Surface a re-sign-in prompt instead.
+                ContentUnavailableView {
+                    Label("Sign in again", systemImage: "person.crop.circle.badge.exclamationmark")
+                } description: {
+                    Text("Your session expired. Sign in again to run AI extraction on these photos.")
+                } actions: {
+                    Button("OK") { draftItemId = nil }
+                        .buttonStyle(.borderedProminent)
+                }
+            }
     }
 }
 

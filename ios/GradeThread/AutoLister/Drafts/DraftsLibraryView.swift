@@ -14,11 +14,25 @@ struct DraftsLibraryView: View {
     @State private var search = ""
     @State private var editMode: EditMode = .inactive
     // US-745: the drafted item whose cross-marketplace Listing Kit is presented.
-    @State private var kitTarget: ListingKitTarget?
+    /// US-2925: ONE sheet slot. The Listing Kit and the paywall were two
+    /// chained `.sheet` modifiers, which is undefined in SwiftUI: they compete
+    /// for the view's single slot and the loser opens and closes in the same
+    /// frame. Reaching the paywall from this screen was the second one.
+    private enum DraftsSheet: Identifiable {
+        case listingKit(ListingKitTarget)
+        case paywall
+
+        var id: String {
+            switch self {
+            case .listingKit(let t): return "kit-\(t.id)"
+            case .paywall: return "paywall"
+            }
+        }
+    }
+    @State private var draftsSheet: DraftsSheet?
     // US-820: bulk price-entry alert (absolute set or +/- %) + paywall route.
     @State private var priceKind: BulkPriceKind?
     @State private var priceText = ""
-    @State private var showPaywall = false
     // US-1160: bulk publish pushes drafts live on eBay (irreversible) — confirm first.
     @State private var showPublishConfirm = false
     // US-1162: invalid bulk-price input message (system alert can't show inline).
@@ -47,14 +61,21 @@ struct DraftsLibraryView: View {
             }
             .refreshable { await store.load() }
             // US-745: present the cross-marketplace Listing Kit for a drafted item.
-            .sheet(item: $kitTarget) { target in
-                NavigationStack {
-                    ListingKitView(itemId: target.id, itemTitle: target.title)
-                        .toolbar {
-                            ToolbarItem(placement: .confirmationAction) {
-                                Button("Done") { kitTarget = nil }
+            .sheet(item: $draftsSheet) { sheet in
+                switch sheet {
+                case .paywall:
+                    if let userId = currentUserId {
+                        NavigationStack { PaywallView(userId: userId) }
+                    }
+                case .listingKit(let target):
+                    NavigationStack {
+                        ListingKitView(itemId: target.id, itemTitle: target.title)
+                            .toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("Done") { draftsSheet = nil }
+                                }
                             }
-                        }
+                    }
                 }
             }
             // US-964: published-vs-skipped summary, reusing the bulk-edit publish
@@ -91,7 +112,7 @@ struct DraftsLibraryView: View {
                 presenting: store.planLimitMessage
             ) { _ in
                 if currentUserId != nil {
-                    Button("Upgrade") { showPaywall = true }
+                    Button("Upgrade") { draftsSheet = .paywall }
                 }
                 Button("OK", role: .cancel) { store.planLimitMessage = nil }
             } message: { Text($0) }
@@ -123,12 +144,6 @@ struct DraftsLibraryView: View {
                 Button("OK", role: .cancel) { priceEntryError = nil }
             } message: {
                 Text(priceEntryError ?? "")
-            }
-            // US-820 / US-805: in-app paywall when the user opts to upgrade.
-            .sheet(isPresented: $showPaywall) {
-                if let userId = currentUserId {
-                    NavigationStack { PaywallView(userId: userId) }
-                }
             }
     }
 
@@ -394,10 +409,10 @@ struct DraftsLibraryView: View {
                     // the copy/paste Listing Kit (Poshmark/Mercari/Grailed/Depop).
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button {
-                            kitTarget = ListingKitTarget(
+                            draftsSheet = .listingKit(ListingKitTarget(
                                 id: draft.inventoryItemId,
                                 title: store.title(for: draft)
-                            )
+                            ))
                         } label: {
                             Label("Listing Kit", systemImage: "doc.on.doc")
                         }

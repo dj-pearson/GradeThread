@@ -9,8 +9,17 @@ import SwiftUI
 struct MoneyView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var expenseStore = ExpenseStore()
-    @State private var showingAddExpense = false
-    @State private var showingExport = false
+    /// US-2925: ONE sheet slot. These were two chained `.sheet(isPresented:)`
+    /// modifiers, which is undefined in SwiftUI - the modifiers compete for the
+    /// view's single slot and the loser opens and closes in the same frame. The
+    /// enum also states the mutual exclusion that was always true: exporting
+    /// financials and adding an expense are never both on screen.
+    private enum MoneySheet: String, Identifiable {
+        case export
+        case addExpense
+        var id: String { rawValue }
+    }
+    @State private var moneySheet: MoneySheet?
     // US-1498: surface a failed context-menu expense delete (was silently
     // discarded — a server rejection did nothing with no message).
     @State private var expenseActionError: String?
@@ -233,15 +242,18 @@ struct MoneyView: View {
             // US-664: date-ranged financial export.
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    showingExport = true
+                    moneySheet = .export
                 } label: {
                     Image(systemName: "square.and.arrow.up")
                         .accessibilityLabel("Export financials")
                 }
             }
         }
-        .sheet(isPresented: $showingExport) {
-            FinancialExportSheet()
+        .sheet(item: $moneySheet) { sheet in
+            switch sheet {
+            case .export: FinancialExportSheet()
+            case .addExpense: ExpenseFormSheet(store: expenseStore)
+            }
         }
         // US-1498: a failed context-menu expense delete now says so.
         .alert(
@@ -260,9 +272,6 @@ struct MoneyView: View {
         // separate ExpenseStore.refresh — the @Query reflects the cache.
         .refreshable {
             NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
-        }
-        .sheet(isPresented: $showingAddExpense) {
-            ExpenseFormSheet(store: expenseStore)
         }
         // US-967: rebuild the id→title map only when the items (or a title)
         // change, not on every `body` re-evaluation.
@@ -528,7 +537,7 @@ struct MoneyView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button {
-                    showingAddExpense = true
+                    moneySheet = .addExpense
                 } label: {
                     Label("Add", systemImage: "plus")
                         .font(.caption.weight(.semibold))

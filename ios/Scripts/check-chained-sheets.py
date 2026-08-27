@@ -29,10 +29,10 @@ WHAT COUNTS. Two `.sheet` modifiers in the SAME modifier chain: same
 indentation, with only other modifiers (`.foo`), closing braces, or the
 continuation lines of a multi-line modifier between them. Two sheets on
 genuinely different views — a row and its list, a parent and its child — are
-fine and are not flagged. `.fullScreenCover` is a different presentation kind
-and is left alone; one of each on a view works.
+fine and are not flagged. `.fullScreenCover` is checked THE SAME WAY, as its own
+kind: one sheet and one cover on a view is fine, two of either is not.
 
-TWO HOLES THIS GUARD HAD, and why they are written down rather than quietly
+THREE HOLES THIS GUARD HAD, and why they are written down rather than quietly
 patched. On 2026-08-27 the exact bug this script was written to prevent was
 reported again from production — "What's it worth?" and "Prospect an item"
 closing on submit, "Scout deals" doing nothing — while this script printed OK.
@@ -51,7 +51,11 @@ It had been green the whole time, over a shell view carrying three sheets.
    wrapper IS the fix this guard recommends, so the recommended shape must not
    also be the way to hide from it.
 
-Both holes share a property worth remembering: the guard did not fail, it
+3. `.fullScreenCover` WAS NEVER CHECKED AT ALL. The docstring said covers were
+   "left alone; one of each on a view works", which is true of one cover and
+   silent about two. The shell carried two and PhotoIntakeView carried two more.
+
+All three share a property worth remembering: the guard did not fail, it
 reported success over code it could not see. A scanner that cannot reach a
 construct reads exactly like a clean codebase.
 """
@@ -61,6 +65,12 @@ import re
 import sys
 
 SHEET = re.compile(r"\s*\.sheet\(")
+# US-2925: `.fullScreenCover` has the SAME single-slot rule. This guard's own
+# docstring used to say covers were "left alone; one of each on a view works" —
+# true of ONE cover, and silent about two. The shell carried two, and
+# PhotoIntakeView carried two more, entirely unexamined.
+COVER = re.compile(r"\s*\.fullScreenCover\(")
+KINDS = (("sheet", SHEET), ("fullScreenCover", COVER))
 ROOTS = ["GradeThread", "Shared", "ShareExtension", "GradeThreadWidget"]
 
 # `func name(...) -> some View` inside an `extension View`. See hole 2 below.
@@ -139,7 +149,7 @@ def sheet_wrappers(roots):
     return names
 
 
-def violations(path, wrappers=frozenset()):
+def violations(path, wrappers=frozenset(), kind=SHEET):
     lines = open(path, encoding="utf-8").read().split("\n")
     wrapper_re = (
         re.compile(r"\s*\.(?:" + "|".join(sorted(re.escape(w) for w in wrappers)) + r")\s*\(")
@@ -148,7 +158,7 @@ def violations(path, wrappers=frozenset()):
     )
 
     def is_sheet(line):
-        return bool(SHEET.match(line) or (wrapper_re and wrapper_re.match(line)))
+        return bool(kind.match(line) or (wrapper_re and wrapper_re.match(line)))
 
     sheets = [(i, indent_of(line)) for i, line in enumerate(lines) if is_sheet(line)]
 
@@ -197,21 +207,25 @@ def main():
                 if not name.endswith(".swift"):
                     continue
                 path = os.path.join(dirpath, name).replace("\\", "/")
-                for first, second, a, b in violations(path, wrappers):
-                    failures.append(
-                        f"{path}:{second}: shares a sheet slot with line {first}\n"
-                        f"    {a}\n"
-                        f"    {b}"
-                    )
+                for label, kind in KINDS:
+                    # The wrapper helpers hide a `.sheet`, so they count only
+                    # for the sheet pass.
+                    ws = wrappers if kind is SHEET else frozenset()
+                    for first, second, a, b in violations(path, ws, kind):
+                        failures.append(
+                            f"{path}:{second}: shares a {label} slot with line {first}\n"
+                            f"    {a}\n"
+                            f"    {b}"
+                        )
     if failures:
         print("Views carrying more than one .sheet modifier:\n")
         for f in failures:
             print(f)
             print()
-        print(f"{len(failures)} pair(s). Collapse each view's sheets into one "
-              f".sheet(item:) over an Identifiable enum.")
+        print(f"{len(failures)} pair(s). Collapse each view's presentations "
+              f"into ONE .sheet(item:) / .fullScreenCover(item:) over an enum.")
         return 1
-    print("check-chained-sheets: every view carries at most one .sheet modifier"
+    print("check-chained-sheets: every view carries at most one .sheet and one .fullScreenCover"
           + (f" (counting {len(wrappers)} view-extension wrapper(s))" if wrappers else ""))
     return 0
 

@@ -604,6 +604,16 @@ struct MainShell: View {
     @Environment(\.openURL) private var openURL
     @Environment(SyncStatusStore.self) private var syncStatus
     @State private var router = AppRouter()
+    /// US-2925: observed here so the hard-cap prompt can be bridged into the
+    /// shell's single sheet slot. The soft banner still renders inside
+    /// `planGatePresentation()`, which is an overlay and contends with nothing.
+    @State private var planGateNotifier = PlanGateNotifier.shared
+
+    /// The signed-in user, for the upgrade prompt. Nil while signed out.
+    private var signedInUserId: UUID? {
+        if case let .signedIn(user) = authStore.phase { return user.id }
+        return nil
+    }
     /// US-749: tab-independent orphan-listing count for the shell Reconcile
     /// banner. Refreshed on appear + foreground; the full list loads on tap.
     @State private var reconcileBadge = ReconcileBadgeStore()
@@ -614,8 +624,8 @@ struct MainShell: View {
     /// whichever request happened to be in flight, and neither is about the
     /// screen the user is looking at.
     @State private var workspaceNotice: WorkspaceNotice?
-    /// US-2671: the 2FA notice opens enrollment here rather than in a browser.
-    @State private var showingTwoFactorFromNotice = false
+    // US-2671: the 2FA notice opens enrollment in-app. US-2925 moved it into
+    // ShellSheet.twoFactor - it was the shell's SECOND sheet modifier.
 
     /// US-1157: per-scene state restoration for iPad multi-window. `@SceneStorage`
     /// is scoped to THIS scene (window) and survives teardown/relaunch, so two
@@ -634,7 +644,9 @@ struct MainShell: View {
     /// fullScreenCover at the shell level so the present survives a
     /// tab switch + lands the user on the same intake surface the Add
     /// sheet would.
-    @State private var sharedIntakeBatch: ShareInboxConsumer.DrainedBatch?
+    /// US-2925: the shell's single cover slot. Was two competing
+    /// `.fullScreenCover` modifiers; see ``ShellCover``.
+    @State private var shellCover: ShellCover?
     /// US-1181: when a shared batch fully fails to decode we used to consume it
     /// silently, so the user shared photos and got no signal. Drives an alert.
     @State private var shareImportError: String?
@@ -643,12 +655,35 @@ struct MainShell: View {
     /// sign-in when ``PlanSelectionState`` says this fresh account hasn't been
     /// offered yet; cleared (and marked offered) when the user picks a plan or
     /// continues on Free.
-    @State private var planStep: PlanStepPresentation?
 
     /// Identifiable wrapper so the plan step drives a single `.fullScreenCover(item:)`.
     private struct PlanStepPresentation: Identifiable {
         let userId: UUID
         var id: UUID { userId }
+    }
+
+    /// US-2925: the shell's ONE full-screen cover slot.
+    ///
+    /// `.fullScreenCover` has exactly the same single-slot rule as `.sheet`, and
+    /// the shell carried two of them — the shared-photo intake and the
+    /// post-signup plan step. `check-chained-sheets.py` never looked at covers,
+    /// so the pair sat there unflagged next to the three sheets it also could
+    /// not see.
+    ///
+    /// The mutual exclusion was already true and already worked around by hand:
+    /// `drainSharedInboxIfNeeded` gates itself on `planStep == nil` precisely
+    /// because both could not be up at once. This states it in the type instead
+    /// of in a guard clause that a future caller can forget.
+    private enum ShellCover: Identifiable {
+        case sharedIntake(ShareInboxConsumer.DrainedBatch)
+        case planStep(PlanStepPresentation)
+
+        var id: String {
+            switch self {
+            case .sharedIntake(let batch): return "intake-\(batch.id)"
+            case .planStep(let step): return "plan-\(step.id)"
+            }
+        }
     }
 
     var body: some View {
@@ -748,14 +783,11 @@ struct MainShell: View {
                 // Dismissing the alert and presenting in the same tick loses
                 // the sheet on iOS, so the flag is set and the alert's own
                 // dismissal drives the presentation.
-                Button("Set up two-factor") { showingTwoFactorFromNotice = true }
+                Button("Set up two-factor") { router.shellSheet = .twoFactor }
             }
             Button("OK", role: .cancel) {}
         } message: {
             Text(workspaceNotice?.message ?? "")
-        }
-        .sheet(isPresented: $showingTwoFactorFromNotice) {
-            TwoFactorSheet()
         }
         .onReceive(
             NotificationCenter.default.publisher(for: .applyDeepLink)
@@ -815,9 +847,11 @@ struct MainShell: View {
             // relaunched/teardown-recovered window lands where it left off.
             restorePersistedScene(router: router)
             // US-804/US-1410: offer the one-time post-signup plan step BEFORE
-            // draining shared photos — both use fullScreenCover(item:) and only
-            // one can present, so the drain is gated on planStep == nil (and
-            // resumes when the plan step is dismissed).
+            // draining shared photos. Both are ``ShellCover`` cases and the
+            // shell has one cover slot, so the drain is gated on
+            // `shellCover == nil` (US-2925 — it used to be gated on
+            // `planStep == nil`, which was the same rule enforced by hand
+            // against two separate modifiers).
             offerPlanSelectionIfNeeded()
             await drainSharedInboxIfNeeded()
             // US-749: load the orphan-listing count for the shell Reconcile banner.
@@ -860,32 +894,57 @@ struct MainShell: View {
                 NavigationStack { ReconciliationView() }
             case .support:
                 SupportTicketsView(initialTicketId: router.supportTicketId)
+            case .twoFactor:
+                TwoFactorSheet()
+            case .planGate(let gate):
+                UpgradePromptView(gate: gate, userId: signedInUserId)
             }
         }
-        .fullScreenCover(item: $sharedIntakeBatch) { drained in
-            NavigationStack {
-                PhotoIntakeView(initialPhotos: drained.slotPhotos)
-            }
-            .onDisappear {
-                ShareInboxConsumer.finish(drained)
-                // Drain the next pending batch (if any) so a multi-share
-                // session walks the user through each batch one at a time.
-                Task { await drainSharedInboxIfNeeded() }
+        // US-2925: ONE cover slot. See ``ShellCover``.
+        //
+        // US-804: the plan step is one-time and post-signup, presented over the
+        // shell so it gates entry visually; "Continue with Free" always
+        // dismisses. The shared intake walks a multi-share session through each
+        // batch one at a time.
+        .fullScreenCover(item: $shellCover) { cover in
+            switch cover {
+            case .sharedIntake(let drained):
+                NavigationStack {
+                    PhotoIntakeView(initialPhotos: drained.slotPhotos)
+                }
+                .onDisappear {
+                    ShareInboxConsumer.finish(drained)
+                    // Drain the next pending batch (if any).
+                    Task { await drainSharedInboxIfNeeded() }
+                }
+            case .planStep(let step):
+                OnboardingPlanStepView(userId: step.userId) {
+                    shellCover = nil
+                    // US-1410: resume the shared-photo drain that was gated
+                    // while the plan step was presented.
+                    Task { await drainSharedInboxIfNeeded() }
+                }
             }
         }
-        // US-804: one-time post-signup plan-selection step. Presented over the
-        // shell so it gates entry visually; "Continue with Free" always dismisses.
-        .fullScreenCover(item: $planStep) { step in
-            OnboardingPlanStepView(userId: step.userId) {
-                planStep = nil
-                // US-1410: resume the shared-photo drain that was gated while the
-                // plan step was presented.
-                Task { await drainSharedInboxIfNeeded() }
-            }
-        }
-        // US-805: shell-level upgrade prompt (402 hard cap) + soft warning banner
-        // (80% X-Plan-Warning), fed by EdgeAPI's centralized plan-gate interceptor.
+        // US-805: shell-level soft warning banner (80% X-Plan-Warning), fed by
+        // EdgeAPI's centralized plan-gate interceptor. The hard-cap prompt is
+        // ShellSheet.planGate, bridged below — see US-2925 in
+        // PlanGatePresentation.swift for why it is no longer its own sheet.
         .planGatePresentation()
+        .onChange(of: planGateNotifier.activePrompt) { _, gate in
+            // A hard cap outranks whatever else is up: the action the user just
+            // took did not happen, and telling them why matters more than the
+            // screen it replaced. Replacing rather than stacking is the whole
+            // point - the old code tried to stack and lost the slot instead.
+            if let gate { router.shellSheet = .planGate(gate) }
+        }
+        .onChange(of: router.shellSheet) { old, new in
+            // Closing the prompt has to clear the notifier too, or the next 402
+            // sets an unchanged value and onChange never fires again.
+            if case .planGate = old, new == nil {
+                planGateNotifier.activePrompt = nil
+            }
+        }
         // US-1181: tell the user when shared photos couldn't be read.
         // US-1273: resume draining only after the alert is dismissed, so each
         // queued empty batch surfaces its OWN alert instead of being silently
@@ -918,7 +977,7 @@ struct MainShell: View {
         // signed up — a different account on this device never inherits it.
         state.resolvePending(userId: user.id, email: user.email)
         if state.shouldOffer(userId: user.id) {
-            planStep = PlanStepPresentation(userId: user.id)
+            shellCover = .planStep(PlanStepPresentation(userId: user.id))
         }
     }
 
@@ -933,12 +992,12 @@ struct MainShell: View {
         // full-screen presentation per view — so don't drain while the plan step
         // is up, or the batch silently fails to present (stranding the shared
         // photos). The plan step's dismissal resumes the drain.
-        guard planStep == nil else { return }
+        guard shellCover == nil else { return }
         // Don't pop a new batch while one is presented OR while a previous
         // batch's error alert is still up: presenting/draining the next batch
         // would dismiss that alert and swallow the error (US-1273). The alert's
         // dismiss handler resumes draining once the user has seen it.
-        guard sharedIntakeBatch == nil, shareImportError == nil else { return }
+        guard shareImportError == nil else { return }
         guard let drained = await ShareInboxConsumer.popNext() else { return }
         // Empty drain (every photo failed to decode) — finish + tell the user
         // (US-1181: previously silent), then STOP. We resume on the next batch
@@ -950,7 +1009,7 @@ struct MainShell: View {
             return
         }
         Telemetry.event("share_extension_intake_opened")
-        sharedIntakeBatch = drained
+        shellCover = .sharedIntake(drained)
     }
 
     /// Translates a DeepLinkRoute into AppRouter mutations. Item-specific
@@ -1503,7 +1562,7 @@ final class AppRouter {
     var supportTicketId: String?
 
     /// The shell-level sheets, in the order the toolbar offers them.
-    enum ShellSheet: String, Identifiable {
+    enum ShellSheet: Identifiable, Equatable {
         /// US-678: global search.
         case globalSearch
         /// US-749: the Tools hub (Scout / Snap / AutoLister / Grades /
@@ -1514,8 +1573,27 @@ final class AppRouter {
         case reconciliation
         /// US-1136: the native support inbox.
         case support
+        /// US-2925: the two-factor setup prompt, opened from the security
+        /// notice banner. Folded in here because it was a SECOND `.sheet`
+        /// modifier on the shell, and a view has one sheet slot — see the
+        /// comment on the shell's `.sheet(item:)` for what that cost.
+        case twoFactor
+        /// US-2925: the hard-cap upgrade prompt. Lived in
+        /// `planGatePresentation()` as its own `.sheet`, which made it the
+        /// shell's THIRD sheet modifier and is what collapsed the Dashboard's
+        /// module sheets. Bridged in from ``PlanGateNotifier/activePrompt``.
+        case planGate(PlanGateError)
 
-        var id: String { rawValue }
+        var id: String {
+            switch self {
+            case .globalSearch: return "globalSearch"
+            case .toolsHub: return "toolsHub"
+            case .reconciliation: return "reconciliation"
+            case .support: return "support"
+            case .twoFactor: return "twoFactor"
+            case .planGate(let gate): return "planGate-\(gate.id)"
+            }
+        }
     }
 
     var homePath = NavigationPath()

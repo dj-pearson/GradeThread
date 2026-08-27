@@ -46,14 +46,25 @@ private struct PlanGatePresenter: ViewModifier {
                     .zIndex(1)
                 }
             }
-            .sheet(item: $notifier.activePrompt) { gate in
-                UpgradePromptView(gate: gate, userId: userId)
-            }
     }
 }
 
 extension View {
-    /// Attach the plan-gate upgrade prompt + soft banner to the signed-in shell.
+    /// Attach the plan-gate SOFT BANNER to the signed-in shell.
+    ///
+    /// US-2925: this used to also carry the hard-cap upgrade prompt as its own
+    /// `.sheet`, which made it the shell's THIRD sheet modifier — behind the
+    /// two-factor sheet and the shell-sheet enum. A view has one sheet slot, so
+    /// the three competed and the losers presented and tore down in the same
+    /// frame. That is what took "What's it worth?" and "Prospect an item" down
+    /// with it: both are presented as a sheet from the Dashboard, and a
+    /// contested slot on their ancestor collapsed the whole stack back to the
+    /// tab.
+    ///
+    /// The prompt now lives in `ContentView.ShellSheet.planGate`, in the shell's
+    /// single slot, bridged from ``PlanGateNotifier/activePrompt``. The banner
+    /// stays here because an `.overlay` is not a presentation and contends with
+    /// nothing.
     func planGatePresentation() -> some View {
         modifier(PlanGatePresenter())
     }
