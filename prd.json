@@ -2895,21 +2895,6 @@
       "priority": 40
     },
     {
-      "id": "US-2956",
-      "passes": false,
-      "title": "Description blocks: listings.description_blocks column + listing_snippets table",
-      "description": "As a reseller, I want my listing description stored as named blocks and my standing lines saved on my account, so that changing one fact updates one block instead of forcing a full AI rewrite.",
-      "acceptanceCriteria": [
-        "ONE new migration under supabase/migrations/ adds listings.description_blocks jsonb (nullable, no default) and creates public.listing_snippets (id uuid pk default gen_random_uuid(), user_id uuid not null references public.users(id) on delete cascade, name text not null, body text not null, sort_order integer not null default 0, created_at and updated_at timestamptz not null default now()).",
-        "listing_snippets has RLS enabled with own-row SELECT/INSERT/UPDATE/DELETE policies matching the shape in 00134_cross_listing_dispatch.sql:34, plus a set_updated_at trigger.",
-        "US-1108 triple: the SQL is idempotent (a second apply is a no-op), EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts is bumped in the SAME commit, and the migration ends with the self-record footer.",
-        "The migration writes no existing row: immediately after it applies, select count(*) from listings where description_blocks is not null returns 0.",
-        "src/types/database.ts gains description_blocks on the listings row type and a listing_snippets table type, and npx tsc -b passes.",
-        "npm run verify:db passes on a fresh local stack."
-      ],
-      "priority": 10
-    },
-    {
       "id": "US-2957",
       "passes": false,
       "title": "Description blocks: the pure renderer, legacy parser and fact scrubber",
