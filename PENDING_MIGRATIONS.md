@@ -1,5 +1,32 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00678_listing_description_blocks.sql (US-2956)
+
+**Risk: low.** One nullable column and one new table. Nothing existing is
+altered, nothing is backfilled, no function or view is replaced.
+
+**What it does.** Adds `listings.description_blocks jsonb` (nullable, no
+default) and creates `public.listing_snippets` (id, user_id, name, body,
+sort_order, timestamps) with one index, an `updated_at` trigger, RLS on, and
+four own-row policies. It references `public.users` and nothing else.
+
+**Why it exists.** The listing description is one opaque string, so a fact can
+sit in the AI prose, the measurements block and the facts block at once, and
+only the last two update. `description_blocks` becomes the ordered list the
+description is rendered from; `listing_description` stays as the render output
+because full-text search (00016), fuzzy search history (00248) and return
+attribution (00655) all read that column.
+
+**What breaks if the edge or the frontend deploys first.** Nothing, at this
+commit. No code reads either object yet — the renderer is US-2957 and the
+routes are US-2958. `description_blocks` being NULL is a designed state that
+means "legacy string, parse on open", so even after the reading code ships, an
+unapplied migration degrades to today's behaviour rather than an error.
+
+**Apply order.** Anywhere after 00677. Run
+`NOTIFY pgrst, 'reload schema';` afterwards — a new table and a new column both
+need it, or PostgREST will 404 the settings page in US-2961.
+
 ## ✅ APPLIED: 00677_marketplace_promotions.sql (US-2949)
 
 **Applied to prod. Confirmed by the owner on 2026-08-27 — NOT by reading the

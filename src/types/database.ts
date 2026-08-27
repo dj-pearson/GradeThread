@@ -1231,6 +1231,61 @@ export interface DemandTermDetail {
   lift?: number;
 }
 
+/**
+ * US-2956: which kind of description block a `DescriptionBlock` is.
+ *
+ * The kind decides who owns the content. `intro`/`features`/`condition` are
+ * written by the AI and edited by the seller; `attributes`/`measurements`/
+ * `grade`/`disclosure`/`credentials`/`facts` are DERIVED at render time and
+ * store no text, which is what makes them impossible to drift from the fields
+ * they show; `snippet` points at a `listing_snippets` row; `text` is one-off
+ * typing (and is what a legacy description parses into).
+ */
+export type DescriptionBlockKey =
+  | "intro"
+  | "features"
+  | "condition"
+  | "attributes"
+  | "measurements"
+  | "grade"
+  | "disclosure"
+  | "credentials"
+  | "facts"
+  | "snippet"
+  | "text";
+
+/** Who owns a block's content. Mirrors the table in the US-2956 design doc. */
+export type DescriptionBlockSource =
+  | "ai"
+  | "item"
+  | "grade"
+  | "seller"
+  | "system"
+  | "account"
+  | "user";
+
+/**
+ * One entry of `listings.description_blocks` (migration 00678).
+ *
+ * Array order is render order, with one exception the renderer enforces: the
+ * `facts` block is always emitted last, because US-2682 needs it at a fixed
+ * position for revise-in-place to replace it rather than accumulate a copy.
+ */
+export interface DescriptionBlock {
+  key: DescriptionBlockKey;
+  /** Off blocks keep their position so toggling back on restores the order. */
+  on: boolean;
+  src: DescriptionBlockSource;
+  /** Free-form content. Absent on derived blocks; on `snippet` it overrides the referenced body. */
+  text?: string | null;
+  /** `attributes` only: which item columns to show, in order. */
+  fields?: string[];
+  /** `measurements` only: the length unit to render (US-648). */
+  unit?: "in" | "cm";
+  /** `snippet` only: the `listing_snippets.id` this block renders. */
+  ref?: string | null;
+}
+
 export interface ListingRow {
   id: string;
   inventory_item_id: string;
@@ -1251,6 +1306,12 @@ export interface ListingRow {
   // FlipDesk extensions
   listing_title: string | null;
   listing_description: string | null;
+  // US-2956 (migration 00678): the ordered blocks `listing_description` is
+  // RENDERED FROM. NULL means this listing predates blocks, which is the signal
+  // to parse the legacy string on open. The rendered column survives because
+  // full-text search (00016), fuzzy search (00248) and return attribution
+  // (00655) all read it.
+  description_blocks: DescriptionBlock[] | null;
   // US-546: high-demand eBay search terms mined from live comps (migration
   // 00154). Fed into the title/description prompt and the US-1892 title meter's
   // pack-to-80 chips.
@@ -2223,6 +2284,35 @@ export interface FlipdeskSettingsRow {
   updated_at: string;
 }
 
+/**
+ * US-2956 (migration 00678): a seller's standing description line, saved once.
+ *
+ * A listing's `snippet` block stores only the id, so editing the body here
+ * changes what every listing referencing it renders, with no write to any
+ * listing row.
+ */
+export interface ListingSnippetRow {
+  id: string;
+  user_id: string;
+  /** Short label shown in the settings list and on the composer block row. */
+  name: string;
+  body: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListingSnippetInsert {
+  user_id: string;
+  name: string;
+  body: string;
+  sort_order?: number;
+}
+
+export type ListingSnippetUpdate = Partial<
+  Omit<ListingSnippetRow, "id" | "user_id" | "created_at" | "updated_at">
+>;
+
 export interface FlipdeskSettingsInsert {
   user_id: string;
   auto_end_cross_listings?: boolean;
@@ -2578,6 +2668,7 @@ export interface ListingInsert {
   notes?: string | null;
   listing_title?: string | null;
   listing_description?: string | null;
+  description_blocks?: DescriptionBlock[] | null;
   listing_status?: ListingStatus;
   watchers?: number;
   views?: number;
@@ -4091,6 +4182,11 @@ export interface Database {
         Row: FlipdeskSettingsRow;
         Insert: FlipdeskSettingsInsert;
         Update: FlipdeskSettingsUpdate;
+      };
+      listing_snippets: {
+        Row: ListingSnippetRow;
+        Insert: ListingSnippetInsert;
+        Update: ListingSnippetUpdate;
       };
       ai_enrichment_log: {
         Row: AiEnrichmentLogRow;
