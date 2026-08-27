@@ -68,10 +68,30 @@ export function getLightweightModel(): string {
  * NOT used by the grading pipeline, which pins getDefaultModel() explicitly —
  * the size pass feeds tagGroundTruthBlock and therefore the grading prompt, and
  * swapping a model under that is a grading change with no shadow compare and no
- * prompt-version suffix. src/tests/size-estimate-model_test.ts guards the pin.
+ * prompt-version suffix. src/tests/ai-model-tiering_test.ts guards the pin.
  */
 export function getSizeEstimateModel(): string {
   return Deno.env.get("SIZE_ESTIMATE_AI_MODEL")?.trim() || getLightweightModel();
+}
+
+/**
+ * Model for the AutoLister photo-QA pass (US-2924).
+ *
+ * Second most expensive user AI action on production: $11.33 over 209 calls,
+ * $0.0542 each against a $0.0477 blend. AutoLister spends one action per item
+ * AND one per cover photo, so a 20-item batch can spend 40 on QA alone.
+ *
+ * ⚠ THE SCORE IS A GATE, NOT JUST A DISPLAY. `isGreenDraft` in
+ * auto-publish-green.ts auto-publishes a draft to a live marketplace when the
+ * score is at or above AUTO_PUBLISH_QA_MIN (80), and that floor was calibrated
+ * against scores from the FULL model. The two error directions are not equally
+ * priced: scoring too LOW costs a seller a manual review, scoring too HIGH puts
+ * bad photos on eBay. Re-check the floor against real Haiku scores before
+ * trusting the auto-publish path at volume — the knob below is what makes that
+ * a one-line rollback rather than a deploy.
+ */
+export function getPhotoQaModel(): string {
+  return Deno.env.get("PHOTO_QA_AI_MODEL")?.trim() || getLightweightModel();
 }
 
 // US-853: image model for hero/social-card generation. Read from the shared

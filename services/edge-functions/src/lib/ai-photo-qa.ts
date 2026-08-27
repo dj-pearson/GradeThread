@@ -8,7 +8,7 @@
 // scoring/coercion is unit-testable without the API.
 
 import Anthropic from "@anthropic-ai/sdk";
-import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import { getAnthropicClient, getPhotoQaModel } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { withRetry } from "./retry.ts";
 
@@ -187,7 +187,12 @@ export async function assessPhotoQuality(
   }
   enterAiFeature("photo_qa"); // US-894 spend attribution
 
-  const model = getDefaultModel(); // vision-capable
+  // US-2924: the cheap model by default. The result is a listing-readiness
+  // score, not a grade - but it IS a gate: auto-publish-green.ts publishes a
+  // draft with no human look once the score reaches AUTO_PUBLISH_QA_MIN, and
+  // that floor was set against full-model scores. PHOTO_QA_AI_MODEL rolls this
+  // back without a deploy if the scores move.
+  const model = getPhotoQaModel(); // vision-capable
   const client = getAnthropicClient();
 
   const content: Anthropic.ContentBlockParam[] = [];

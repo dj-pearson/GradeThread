@@ -1679,7 +1679,7 @@ export async function processSubmission(submissionId: string) {
           //
           // Moving grading onto a cheaper model may well be right. It is a
           // decision that goes through the eval gate, not one that arrives as a
-          // side effect of a cost cut. src/tests/size-estimate-model_test.ts
+          // side effect of a cost cut. src/tests/ai-model-tiering_test.ts
           // fails if this line is removed.
           model: getDefaultModel(),
         }).catch((err) => {

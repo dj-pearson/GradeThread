@@ -1,4 +1,4 @@
-// US-2924: the size pass runs on the CHEAP model everywhere except grading.
+// US-2924: which AI features run on the CHEAP model, and which may not.
 //
 // WHY THIS IS SPLIT RATHER THAN SWITCHED WHOLESALE. Measured on production over
 // 30 days, size_estimate was the most expensive user AI action at $0.0886 a
@@ -31,9 +31,8 @@ Deno.env.set(
 );
 Deno.env.set("ANTHROPIC_API_KEY", Deno.env.get("ANTHROPIC_API_KEY") ?? "test-key");
 
-const { getSizeEstimateModel, getDefaultModel, getLightweightModel } = await import(
-  "../lib/ai-config.ts"
-);
+const { getSizeEstimateModel, getPhotoQaModel, getDefaultModel, getLightweightModel } =
+  await import("../lib/ai-config.ts");
 
 // ── 1. The default is the cheap model ───────────────────────────────────────
 
@@ -154,3 +153,81 @@ for (
     );
   });
 }
+
+// ── 4. Photo QA, the second-most-expensive action ───────────────────────────
+//
+// $11.33 over 209 calls on production. AutoLister spends one action per item AND
+// one per cover photo, so a 20-item batch can spend 40 here alone.
+//
+// Unlike the size pass this has ONE caller, so there is no pin to protect. What
+// there is instead is a gate: auto-publish-green.ts publishes a draft to a live
+// marketplace with no human look once the score reaches AUTO_PUBLISH_QA_MIN, and
+// that floor was calibrated against full-model scores. The last test pins the
+// two together so nobody edits one believing the other is unrelated.
+
+Deno.test("photo QA defaults to the lightweight model", () => {
+  const before = Deno.env.get("PHOTO_QA_AI_MODEL");
+  Deno.env.delete("PHOTO_QA_AI_MODEL");
+  try {
+    assertEquals(getPhotoQaModel(), getLightweightModel());
+    assert(getPhotoQaModel() !== getDefaultModel());
+  } finally {
+    if (before) Deno.env.set("PHOTO_QA_AI_MODEL", before);
+  }
+});
+
+Deno.test("photo QA can be rolled back to the full model without a deploy", () => {
+  const before = Deno.env.get("PHOTO_QA_AI_MODEL");
+  Deno.env.set("PHOTO_QA_AI_MODEL", "claude-sonnet-5");
+  try {
+    assertEquals(getPhotoQaModel(), "claude-sonnet-5");
+  } finally {
+    if (before) Deno.env.set("PHOTO_QA_AI_MODEL", before);
+    else Deno.env.delete("PHOTO_QA_AI_MODEL");
+  }
+});
+
+Deno.test("its two knobs are SEPARATE, so one rollback does not move the other", () => {
+  const bq = Deno.env.get("PHOTO_QA_AI_MODEL");
+  const bs = Deno.env.get("SIZE_ESTIMATE_AI_MODEL");
+  Deno.env.set("PHOTO_QA_AI_MODEL", "claude-sonnet-5");
+  Deno.env.delete("SIZE_ESTIMATE_AI_MODEL");
+  try {
+    assertEquals(getPhotoQaModel(), "claude-sonnet-5");
+    assertEquals(
+      getSizeEstimateModel(),
+      getLightweightModel(),
+      "rolling photo QA back must not drag the size pass with it - that is the " +
+        "whole reason these are two env vars and not one",
+    );
+  } finally {
+    if (bq) Deno.env.set("PHOTO_QA_AI_MODEL", bq);
+    else Deno.env.delete("PHOTO_QA_AI_MODEL");
+    if (bs) Deno.env.set("SIZE_ESTIMATE_AI_MODEL", bs);
+  }
+});
+
+Deno.test("the auto-publish floor is documented as calibrated on the OLD model", async () => {
+  const cfg = await Deno.readTextFile(new URL("../lib/ai-config.ts", import.meta.url));
+  const at = cfg.indexOf("export function getPhotoQaModel");
+  const doc = cfg.slice(Math.max(0, at - 1400), at);
+  assertStringIncludes(
+    doc,
+    "AUTO_PUBLISH_QA_MIN",
+    "getPhotoQaModel's comment must name the gate its score feeds. A score that " +
+      "auto-publishes to a live marketplace is not a display value, and the next " +
+      "person to change this model needs to see that from here.",
+  );
+});
+
+Deno.test("the auto-publish floor still exists to be re-checked", async () => {
+  const green = await Deno.readTextFile(
+    new URL("../lib/auto-publish-green.ts", import.meta.url),
+  );
+  assertStringIncludes(
+    green,
+    "AUTO_PUBLISH_QA_MIN",
+    "if this constant is renamed, the comment on getPhotoQaModel now points at " +
+      "nothing and the calibration warning quietly stops being findable",
+  );
+});
