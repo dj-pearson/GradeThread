@@ -384,31 +384,53 @@ const COARSE_VERTICALS = new Set([
   "accessories",
 ]);
 
+// ⚠ THE DEMOTION IS SCOPED TO THE FIELD, NOT TO THE WORD.
+//
+// It shipped testing the VALUE, which quietly broke the field it was written to
+// promote: eBay's own tree has leaves called literally "Tops", "Dresses" and
+// "Accessories", so an item categorised "… > Women's Clothing > Tops" had its
+// leaf skipped in the first pass and a stale `garment_category: "pants"` won.
+// The seller saw Waist, Inseam and Front Rise on a blouse.
+//
+// A leaf is not a guess — a person picked it and eBay validated it — which is
+// the entire reason it is ranked first. `garment_type` is the column that may
+// hold a derived vertical, and it is the only one this was ever about.
+interface Candidate {
+  value: string | null | undefined;
+  /** May this candidate be demoted for naming a vertical? */
+  coarseEligible: boolean;
+}
+
 const isCoarse = (s: string) => COARSE_VERTICALS.has(s.trim().toLowerCase());
 
 export function garmentDescriptorFor(item: GarmentDescriptorSource): string {
-  const candidates = [
-    item.ebay_leaf,
-    item.garment_category,
-    item.garment_type,
-    item.category,
-    item.item_category,
-    item.title,
+  const candidates: Candidate[] = [
+    // eBay's own leaf. Never demoted — see the note on COARSE_VERTICALS.
+    { value: item.ebay_leaf, coarseEligible: false },
+    { value: item.garment_category, coarseEligible: true },
+    { value: item.garment_type, coarseEligible: true },
+    { value: item.category, coarseEligible: true },
+    { value: item.item_category, coarseEligible: true },
+    // A title is free text a human wrote, not a derived vertical, and it is the
+    // last resort anyway.
+    { value: item.title, coarseEligible: false },
   ];
   // Two passes over the same list, so the order above still expresses
   // preference within each tier: everything specific first, verticals after.
   for (const c of candidates) {
-    const s = (c ?? "").trim();
-    if (s && !isCoarse(s) && measurementGroupFor(s) !== "generic") return s;
+    const s = (c.value ?? "").trim();
+    if (!s) continue;
+    if (c.coarseEligible && isCoarse(s)) continue;
+    if (measurementGroupFor(s) !== "generic") return s;
   }
   for (const c of candidates) {
-    const s = (c ?? "").trim();
+    const s = (c.value ?? "").trim();
     if (s && measurementGroupFor(s) !== "generic") return s;
   }
   // Nothing resolved: hand back the most specific string we were given so the
   // caller's own fallbacks (labels, prompts) still have something to show.
   for (const c of candidates) {
-    const s = (c ?? "").trim();
+    const s = (c.value ?? "").trim();
     if (s) return s;
   }
   return "";

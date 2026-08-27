@@ -1,5 +1,9 @@
 import type { ItemFullRow } from "@/types/database";
-import { measurementGroupForItem, type MeasurementGroup } from "./measurement-templates";
+import {
+  measurementGroupFor,
+  measurementGroupForItem,
+  type MeasurementGroup,
+} from "./measurement-templates";
 import { buildMeasurementLines, type LengthUnit } from "./measurements";
 
 // Per-group description templates. Placeholders are filled by interpolate().
@@ -273,8 +277,25 @@ export function templateGroupFor(
   item: ItemFullRow,
   garment?: string | null,
 ): MeasurementGroup {
+  // `garment` IS THE ANSWER when the caller has one, and it is used directly
+  // rather than fed back through garmentDescriptorFor.
+  //
+  // It arrives already resolved — the composer runs the full most-specific-first
+  // pass, including the eBay leaf, and hands the winner in. Passing it back as
+  // `garment_category` put it through the coarse demotion a second time, and a
+  // leaf named like a vertical ("Tops", "Dresses") lost to whatever the row
+  // still said. On an item whose title had not caught up, templateGroupFor(row,
+  // "Tops") returned `bottom`.
+  //
+  // A garment that resolves to `generic` is not an answer, so it falls through
+  // to the row — that is the case this signature was added for (US-2595), where
+  // `items_full.category` reads "clothing" and resolves to nothing.
+  const supplied = (garment ?? "").trim();
+  if (supplied) {
+    const group = measurementGroupFor(supplied);
+    if (group !== "generic") return group;
+  }
   return measurementGroupForItem({
-    garment_category: garment ?? null,
     category: item.category,
     title: item.item_title,
   });

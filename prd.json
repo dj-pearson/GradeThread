@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2955",
+  "nextId": "US-2956",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2880,6 +2880,19 @@
         "The guard has a self-check: it fails on a fixture containing a deliberate duplicate, so an extractor that stops finding routes cannot read as a clean codebase"
       ],
       "priority": 30
+    },
+    {
+      "id": "US-2955",
+      "passes": false,
+      "title": "iOS picks the measurement template without ever reading the eBay category leaf",
+      "description": "As a seller correcting an item's eBay category on iOS, I want the measurement fields to follow that category the way they do on the web, so that a top stops asking for an inseam.",
+      "acceptanceCriteria": [
+        "ios/GradeThread/Marketplaces/Publish/ListingDescriptionTemplate.swift garmentDescriptor() takes candidates [garmentCategory, garmentType, itemCategory, style, title] and has NO eBay-leaf candidate, so US-2673's highest-priority signal is absent on iOS entirely",
+        "Add the leaf as the first candidate, mirroring src/lib/measurement-templates.ts garmentDescriptorFor, including that the leaf is NEVER subject to the coarseVerticals demotion (the web bug fixed alongside this story: eBay leaves are literally named Tops, Dresses and Accessories)",
+        "A Swift test asserts a category whose leaf is Tops yields the top template even when garmentCategory still reads pants, and that garmentType coarse values are still demoted",
+        "The web/edge parity guard in src/test/measurement-template-parity.test.ts is extended to fail when the Swift candidate list and the TypeScript one disagree about order or about which entries are coarse-eligible"
+      ],
+      "priority": 40
     }
   ]
 }

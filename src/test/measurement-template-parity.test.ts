@@ -22,6 +22,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { GARMENT_CATEGORIES } from "../lib/constants";
+import { templateGroupFor } from "../lib/listing-templates";
 import {
   ebayCategoryLeaf,
   garmentDescriptorFor,
@@ -543,6 +544,76 @@ describe("US-2673: the eBay leaf leads the measurement template", () => {
       .toBe("outerwear");
     expect(groupFor("Clothing, Shoes & Accessories › Women › Women's Shoes › Athletic Shoes"))
       .toBe("shoes");
+  });
+
+  it("a leaf NAMED like a vertical still leads", () => {
+    // Reported on a live draft: an item categorised
+    // "… › Women's Clothing › Tops" was asking for Waist, Inseam and Front Rise.
+    //
+    // eBay's own tree has leaves called literally "Tops", "Dresses" and
+    // "Accessories". Those are real garment statements — a person picked one and
+    // eBay validated it — and they are NOT the derived `garment_type` values
+    // COARSE_VERTICALS exists to demote.
+    //
+    // isCoarse() tested the VALUE and not the FIELD it came from, so the leaf
+    // was skipped in the first pass and a stale `garment_category: "pants"` won.
+    // Every eBay category whose leaf collides with that six-word list was
+    // affected; the existing cases here (Jeans, Sweaters, Athletic Shoes) all
+    // happen to miss it.
+    const row = {
+      garment_category: "pants",
+      garment_type: "bottoms",
+      category: "clothing",
+      title: "Womens Blouse",
+    };
+    const groupFor = (path: string) =>
+      measurementGroupFor(
+        garmentDescriptorFor({ ...row, ebay_leaf: ebayCategoryLeaf(path) }),
+      );
+    expect(
+      groupFor("Clothing, Shoes & Accessories › Women › Women's Clothing › Tops"),
+    ).toBe("top");
+    expect(
+      groupFor("Clothing, Shoes & Accessories › Women › Women's Clothing › Dresses"),
+    ).toBe("dress");
+  });
+
+  it("the coarse demotion still applies to the column it was written for", () => {
+    // The other half. `garment_type` is filled by deriveGarmentType() from
+    // item_category, so on an unclassified item it reads "tops" whether the
+    // garment is a t-shirt or a pair of jeans — it must still lose to a real
+    // garment noun anywhere else on the row.
+    expect(
+      measurementGroupFor(
+        garmentDescriptorFor({
+          garment_type: "tops",
+          title: "Polo Ralph Lauren Women's Skinny Jeans Size 27",
+        }),
+      ),
+    ).toBe("bottom");
+    // And with nothing else to go on it still resolves rather than falling to
+    // generic.
+    expect(
+      measurementGroupFor(garmentDescriptorFor({ garment_type: "bottoms" })),
+    ).toBe("bottom");
+  });
+
+  it("a descriptor the caller already resolved is not demoted again", () => {
+    // The second site of the same bug. The composer resolves the descriptor
+    // (leaf first) and hands the winner to templateGroupFor, which used to pass
+    // it back in as `garment_category` — through the coarse demotion a second
+    // time. With the leaf "Tops" and a title the seller had not corrected,
+    // templateGroupFor returned `bottom`.
+    const row = {
+      category: "clothing",
+      item_title: "Vintage Wrangler Pants 32x34",
+    } as never;
+    expect(templateGroupFor(row, "Tops")).toBe("top");
+    expect(templateGroupFor(row, "Dresses")).toBe("dress");
+    // A garment that resolves to nothing is not an answer: fall through to the
+    // row, which is the case this signature exists for (US-2595).
+    expect(templateGroupFor(row, "clothing")).toBe("bottom");
+    expect(templateGroupFor(row, null)).toBe("bottom");
   });
 
   it("the LEAF only, never the whole path", () => {
