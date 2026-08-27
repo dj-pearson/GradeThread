@@ -172,6 +172,36 @@ export function moveBlock(
   return out;
 }
 
+/**
+ * Put a snippet block into the array, above the pinned rows.
+ *
+ * Above them because `credentials` and `facts` close the description and stay
+ * where they are; a new section dropped after `facts` would be moved back by
+ * the renderer anyway, and the row would appear to land somewhere it did not.
+ *
+ * The block stores ONLY the ref. That is the whole point of snippets: the body
+ * lives on the account, so editing it there changes every listing pointing at
+ * it, with no write to any listing row.
+ */
+export function addSnippetBlock(
+  blocks: DescriptionBlock[],
+  ref: string,
+): DescriptionBlock[] {
+  const block: DescriptionBlock = { key: "snippet", on: true, src: "account", ref };
+  const firstPinned = blocks.findIndex((b) => isPinned(b.key));
+  if (firstPinned < 0) return [...blocks, block];
+  return [...blocks.slice(0, firstPinned), block, ...blocks.slice(firstPinned)];
+}
+
+/** Drop the row at `index`. Only ever offered on rows the seller added. */
+export function removeBlockAt(
+  blocks: DescriptionBlock[],
+  index: number,
+): DescriptionBlock[] {
+  if (index < 0 || index >= blocks.length) return blocks;
+  return blocks.filter((_, i) => i !== index);
+}
+
 // ─── Whole-string writers ──────────────────────────────────────────
 
 /**
@@ -257,6 +287,14 @@ export interface BlockRowContext {
   gradeValue: number | null;
   /** listing_snippets id -> name, for the snippet row's heading. */
   snippetNames: Record<string, string>;
+  /**
+   * Whether `snippetNames` has actually been fetched.
+   *
+   * A ref missing from a list that has not loaded is NOT a deleted snippet, and
+   * saying so would put "deleted, renders nothing" under a perfectly good
+   * section for as long as the request takes.
+   */
+  snippetsLoaded?: boolean;
 }
 
 const UNIT_WORDS: Record<"in" | "cm", string> = {
@@ -282,11 +320,20 @@ export function describeBlock(
       return (block.text ?? "").trim() || "Empty";
 
     case "snippet": {
+      // The per-listing override wins, exactly as the renderer resolves it —
+      // which is why an override survives the snippet it overrides being
+      // renamed, edited or deleted.
       const own = (block.text ?? "").trim();
       if (own) return own;
       const ref = block.ref;
       if (!ref) return "Empty";
-      return ctx.snippetNames[ref] ?? "Saved snippet";
+      const name = ctx.snippetNames[ref];
+      if (name) return name;
+      // Deleting a snippet leaves the block in place and renders nothing, which
+      // is the safe outcome and an invisible one. The row is where it gets said.
+      return ctx.snippetsLoaded
+        ? "Deleted snippet, so this section shows nothing"
+        : "Saved snippet";
     }
 
     case "attributes": {

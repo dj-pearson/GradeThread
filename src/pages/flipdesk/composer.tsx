@@ -86,6 +86,8 @@ import { estimateListingProfit } from "@/lib/listing-profit";
 import { buildComposerAiInput } from "@/lib/composer-ai-input";
 import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
 import { useDescriptionBlocks } from "@/hooks/use-description-blocks";
+import { useListingSnippets } from "@/hooks/use-listing-snippets";
+import { snippetNames } from "@/lib/flipdesk-snippets";
 import {
   applyWholeText,
   DEFAULT_DESCRIPTION_BLOCKS,
@@ -1132,6 +1134,11 @@ export function FlipdeskComposerPage({
   // /api/flipdesk/description/* for every string it shows — including the
   // legacy conversion, which comes back rendered so the preview matches the
   // stored description byte for byte before the seller changes anything.
+  // US-2961: the seller's standing lines. Needed here for the NAMES — a snippet
+  // row labels itself from them, and a ref missing from a LOADED list is how a
+  // deleted snippet gets called out instead of silently rendering nothing.
+  const listingSnippets = useListingSnippets();
+
   const descriptionBlocks = useDescriptionBlocks({
     listingId: item?.listing_id ?? null,
     unit: measurementUnit,
@@ -1154,9 +1161,8 @@ export function FlipdeskComposerPage({
       ).length,
       unit: measurementUnit,
       gradeValue: item?.grade_value ?? null,
-      // US-2961 adds the account-level snippets and their names; until then a
-      // snippet row falls back to its own override text.
-      snippetNames: {},
+      snippetNames: snippetNames(listingSnippets.snippets),
+      snippetsLoaded: listingSnippets.loaded,
     }),
     [
       item?.brand,
@@ -1167,6 +1173,8 @@ export function FlipdeskComposerPage({
       ebayMapping?.material,
       measurements,
       measurementUnit,
+      listingSnippets.snippets,
+      listingSnippets.loaded,
     ],
   );
 
@@ -3464,6 +3472,10 @@ export function FlipdeskComposerPage({
             }
             converted={descriptionBlocks.converted}
             rowContext={blockRowContext}
+            snippetOptions={listingSnippets.snippets.map((s) => ({
+              id: s.id,
+              name: s.name,
+            }))}
             onRegenerate={(key) => void descriptionBlocks.regenerate(key)}
             regenerating={descriptionBlocks.regenerating}
             onGoToField={focusSection}

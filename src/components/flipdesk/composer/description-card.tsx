@@ -20,10 +20,13 @@ import {
   GripVertical,
   Loader2,
   MoveRight,
+  Plus,
   RotateCw,
   Sparkles,
+  Trash2,
   Wand2,
 } from "lucide-react";
+import { Link } from "react-router";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,6 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { textChanged } from "@/lib/listing-ai-diff";
 import { cn } from "@/lib/utils";
 import {
+  addSnippetBlock,
   anchorForBlock,
   BLOCK_LABELS,
   describeBlock,
@@ -41,6 +45,7 @@ import {
   isPinned,
   isRegenerable,
   moveBlock,
+  removeBlockAt,
   setBlockTextAt,
   SOURCE_LABELS,
   toggleBlockAt,
@@ -66,6 +71,9 @@ import type { RewriteAction } from "@/hooks/use-ai-extract";
 //
 // Design: docs/superpowers/specs/2026-08-27-modular-listing-descriptions-design.md
 
+/** US-2961's settings page. One literal, so the two links cannot drift. */
+const SNIPPETS_HREF = "/dashboard/flipdesk/settings/blocks";
+
 export interface DescriptionCardProps {
   blocks: DescriptionBlock[];
   onBlocksChange: (next: DescriptionBlock[]) => void;
@@ -84,6 +92,8 @@ export interface DescriptionCardProps {
   /** These rows came from parsing a legacy description; nothing is stored yet. */
   converted: boolean;
   rowContext: BlockRowContext;
+  /** The seller's saved snippets, for the "Add a snippet" menu (US-2961). */
+  snippetOptions: { id: string; name: string }[];
   onRegenerate: (key: DescriptionBlockKey) => void;
   regenerating: DescriptionBlockKey | null;
   /** Scroll to and focus the composer card a derived block reads from. */
@@ -112,6 +122,7 @@ export function DescriptionCard({
   unavailable,
   converted,
   rowContext,
+  snippetOptions,
   onRegenerate,
   regenerating,
   onGoToField,
@@ -164,6 +175,35 @@ export function DescriptionCard({
               <Wand2 className="mr-2 h-3 w-3" />
               Apply template
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" disabled={isEbayOrigin} title={ebayOwnedHint}>
+                  <Plus className="mr-2 h-3 w-3" />
+                  Add a snippet
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {snippetOptions.length === 0 ? (
+                  <DropdownMenuItem asChild>
+                    <Link to={SNIPPETS_HREF}>Write your first snippet</Link>
+                  </DropdownMenuItem>
+                ) : (
+                  <>
+                    {snippetOptions.map((s) => (
+                      <DropdownMenuItem
+                        key={s.id}
+                        onClick={() => onBlocksChange(addSnippetBlock(blocks, s.id))}
+                      >
+                        {s.name}
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuItem asChild>
+                      <Link to={SNIPPETS_HREF}>Manage snippets</Link>
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -246,6 +286,17 @@ export function DescriptionCard({
                       onBlocksChange(setBlockTextAt(blocks, index, text))
                     }
                     onRegenerate={() => onRegenerate(block.key)}
+                    onRemove={
+                      // Only the rows a seller ADDED can be removed. The nine
+                      // standard sections are switched off instead, so their
+                      // position survives and toggling back on restores it.
+                      block.key === "snippet" || block.key === "text"
+                        ? () => {
+                            setEditing(null);
+                            onBlocksChange(removeBlockAt(blocks, index));
+                          }
+                        : null
+                    }
                     onGoToField={onGoToField}
                   />
                 ))}
@@ -317,6 +368,7 @@ function BlockRow({
   onEditToggle,
   onTextChange,
   onRegenerate,
+  onRemove,
   onGoToField,
 }: {
   id: string;
@@ -330,6 +382,8 @@ function BlockRow({
   onEditToggle: () => void;
   onTextChange: (text: string) => void;
   onRegenerate: () => void;
+  /** Null on the nine standard sections, which are switched off, not removed. */
+  onRemove: (() => void) | null;
   onGoToField: (anchorId: string) => void;
 }) {
   const pinned = isPinned(block.key);
@@ -429,6 +483,18 @@ function BlockRow({
             onClick={() => onGoToField(anchor)}
           >
             <MoveRight className="h-3 w-3" />
+          </Button>
+        )}
+        {onRemove && (
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={disabled}
+            title={disabledHint}
+            aria-label={`Remove ${label}`}
+            onClick={onRemove}
+          >
+            <Trash2 className="h-3 w-3" />
           </Button>
         )}
       </div>

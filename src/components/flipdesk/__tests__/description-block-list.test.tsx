@@ -33,6 +33,7 @@ const base: React.ComponentProps<typeof DescriptionCard> = {
   unavailable: false,
   converted: false,
   rowContext,
+  snippetOptions: [{ id: "s1", name: "Shipping promise" }],
   onRegenerate: () => {},
   regenerating: null,
   onGoToField: () => {},
