@@ -29,10 +29,25 @@ const UPLOAD_PREFIXES = [
   "/api/flipdesk/autolister", // bulk photo batches
   "/api/content/images", // generated/edited content images
   "/api/grading/public/grade-check", // US-1687: anon grade-checker (one base64 image in JSON)
+  "/api/flipdesk/scout/prospect", // US-1107 prospecting: 1-2 base64 photos in JSON
+  "/api/flipdesk/scout/appraise", // scout appraise: one base64 photo in JSON
+  "/api/grading/public/authenticity-check", // US-2145: up to 4 base64 photos in JSON
+  "/api/buyer/authenticity", // US-1840: same body, buyer surface
+];
+
+// Upload paths whose route carries a path PARAMETER, so a prefix can't reach
+// them. Anchored and enumerated rather than matched by suffix: `/evidence` is
+// the eBay multipart image upload on three dispute surfaces, and nothing else
+// should inherit a 15 MB cap by accidentally ending in the same word.
+const UPLOAD_PATTERNS = [
+  // eBay evidence images (multipart `file` parts) on the case, return and
+  // payment-dispute surfaces.
+  /^\/api\/flipdesk\/ebay\/(cases|returns|payment-disputes)\/[^/]+\/evidence$/,
 ];
 
 function isUploadPath(path: string): boolean {
-  return UPLOAD_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
+  if (UPLOAD_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`))) return true;
+  return UPLOAD_PATTERNS.some((re) => re.test(path));
 }
 
 export function capForPath(path: string): number {
