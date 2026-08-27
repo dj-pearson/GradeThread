@@ -2895,25 +2895,6 @@
       "priority": 40
     },
     {
-      "id": "US-2959",
-      "passes": false,
-      "title": "Listing generation writes description blocks instead of one prose string",
-      "description": "As a reseller, I want the AI to write only the prose parts of my description, so that regenerating one sentence never rewrites the facts I already corrected.",
-      "acceptanceCriteria": [
-        "The create_ebay_listing tool schema gains description_intro, description_features and description_condition; description stays OPTIONAL and maps to intro when all three come back empty.",
-        "Both LISTING_GEN_SYSTEM_PROMPT and LISTING_GEN_SYSTEM_PROMPT_V2 instruct the model NOT to state brand, size, color, material, condition grade or any measurement as a labelled fact in those three fields.",
-        "Cost is unchanged: the generation test asserts exactly ONE Anthropic call per item returns all three fields.",
-        "ai-listing.ts builds a block array and calls renderAndPersistDescription; the applyMeasurementsBlock / disclosure concatenation / upsertListingFactsBlock chain at ai-listing.ts:2388-2478 is gone.",
-        "A freshly generated draft has non-null description_blocks and a listing_description equal to rendering them.",
-        "scrubRestatedFacts runs on all three AI fields before they are stored, and whatever it removed is logged.",
-        "For an item with measurements, each measurement value appears exactly ONCE in the rendered description outside the gradethread-facts block."
-      ],
-      "priority": 13,
-      "dependsOn": [
-        "US-2958"
-      ]
-    },
-    {
       "id": "US-2960",
       "passes": false,
       "title": "Composer: the description block list, with toggles, reorder and live preview",
