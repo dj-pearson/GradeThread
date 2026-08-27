@@ -70,6 +70,13 @@ export const ALLOWED_DEAD_MODULES = {
   "brand-seed.ts":
     "PENDING. The brand-KB seeding gate; see shipped-but-unwired.md for why it " +
     "could never have run as written.",
+  "description-blocks.ts":
+    "PENDING, one story deep. US-2957 built the pure renderer, legacy parser " +
+    "and fact scrubber; US-2958 adds renderAndPersistDescription and the four " +
+    "/api/flipdesk/description/ routes that call it. Deliberately split so the " +
+    "renderer could be unit-tested against real listings before anything wrote " +
+    "with it. REMOVE THIS ENTRY when US-2958 lands — if the epic stalls before " +
+    "then, this is a half-shipped feature, not a pending one.",
   // grading-reliability.ts came OFF this list on 2026-08-15 (US-2035): the
   // env-gated job that feeds it live re-grades now exists as
   // routes/jobs-grading-self-consistency.ts, so the module has a caller and the

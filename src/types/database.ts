@@ -1284,6 +1284,13 @@ export interface DescriptionBlock {
   unit?: "in" | "cm";
   /** `snippet` only: the `listing_snippets.id` this block renders. */
   ref?: string | null;
+  /**
+   * US-2957: the exact bytes that precede this block in the rendered output.
+   * Defaults to "\n\n". A legacy parse records what was really there, which is
+   * what lets convert-on-open reproduce a live description byte for byte
+   * instead of silently renormalising its whitespace.
+   */
+  sep?: string;
 }
 
 export interface ListingRow {

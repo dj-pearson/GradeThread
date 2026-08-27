@@ -33,6 +33,12 @@ Editing the measurements updates two of the three. The prose keeps advertising
 a 41.5 inch length next to a block that says 39.5. The only way to clear it is a
 full AI rewrite, which throws away every other edit the seller made.
 
+That block above is abbreviated and annotated for reading. The listing's real
+bytes are the round-trip fixture in
+`services/edge-functions/src/tests/description-blocks_test.ts` (`VERONICA_BEARD`),
+which is the canonical copy — including the single newline before the credential
+block and the three before the measurements block, both of which matter.
+
 Brand, size, color, material and condition have the same shape of problem. Any
 change to a field means either living with a contradiction or regenerating
 everything.
@@ -98,6 +104,15 @@ An ordered array. Order is render order.
 Fields on every block: `key` (the block type), `on` (boolean), `src` (who owns
 the content). Then per-type extras: `text` for anything free-form, `fields` for
 `attributes`, `unit` for `measurements`, `ref` for `snippet`.
+
+**Added during US-2957, and load-bearing: `sep`.** It holds the exact bytes that
+precede a block. A fresh render leaves it unset and gets the default `"\n\n"`; a
+legacy parse records what was really there. Without it, convert-on-open cannot
+be byte-exact, because live descriptions carry a single newline before the
+credential block and three before the measurements block. Normalising that would
+silently rewrite every listing a seller merely opened. Only the array's own first
+block keeps its `sep` at render time, so a block promoted to first by toggling
+the ones above it off starts clean instead of dragging newlines to the top.
 
 `null` in this column means the listing predates the feature. That is the signal
 to parse the legacy string on open.
@@ -205,6 +220,16 @@ case is exactly the current behaviour.
 
 The parse result is returned but not persisted. The seller's first save is what
 writes it.
+
+**Reconciliation, added during US-2957.** `parseLegacyDescription` takes an
+optional `RenderContext`. When given one it renders each derived block and
+compares the result against the bytes that block came from; any block that does
+not reproduce them is downgraded to a verbatim `text` block. Byte-exactness for
+a marker block otherwise depends on the stored data still matching what the
+description says, and on a listing whose measurements have since been corrected
+it does not. Reconciling turns "usually exact" into a guarantee: a listing
+converts to live, field-backed blocks only where doing so changes nothing, and
+shows the seller their original text everywhere else.
 
 ### `scrubRestatedFacts`
 
