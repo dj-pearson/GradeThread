@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2956",
+  "nextId": "US-2965",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2893,6 +2893,170 @@
         "The web/edge parity guard in src/test/measurement-template-parity.test.ts is extended to fail when the Swift candidate list and the TypeScript one disagree about order or about which entries are coarse-eligible"
       ],
       "priority": 40
+    },
+    {
+      "id": "US-2956",
+      "passes": false,
+      "title": "Description blocks: listings.description_blocks column + listing_snippets table",
+      "description": "As a reseller, I want my listing description stored as named blocks and my standing lines saved on my account, so that changing one fact updates one block instead of forcing a full AI rewrite.",
+      "acceptanceCriteria": [
+        "ONE new migration under supabase/migrations/ adds listings.description_blocks jsonb (nullable, no default) and creates public.listing_snippets (id uuid pk default gen_random_uuid(), user_id uuid not null references public.users(id) on delete cascade, name text not null, body text not null, sort_order integer not null default 0, created_at and updated_at timestamptz not null default now()).",
+        "listing_snippets has RLS enabled with own-row SELECT/INSERT/UPDATE/DELETE policies matching the shape in 00134_cross_listing_dispatch.sql:34, plus a set_updated_at trigger.",
+        "US-1108 triple: the SQL is idempotent (a second apply is a no-op), EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts is bumped in the SAME commit, and the migration ends with the self-record footer.",
+        "The migration writes no existing row: immediately after it applies, select count(*) from listings where description_blocks is not null returns 0.",
+        "src/types/database.ts gains description_blocks on the listings row type and a listing_snippets table type, and npx tsc -b passes.",
+        "npm run verify:db passes on a fresh local stack."
+      ],
+      "priority": 10
+    },
+    {
+      "id": "US-2957",
+      "passes": false,
+      "title": "Description blocks: the pure renderer, legacy parser and fact scrubber",
+      "description": "As a reseller, I want one renderer that turns my description blocks into the exact text eBay receives, so that the preview I see and the listing I publish can never disagree.",
+      "acceptanceCriteria": [
+        "New services/edge-functions/src/lib/description-blocks.ts exports renderDescription(blocks, ctx), parseLegacyDescription(description), defaultBlocks() and scrubRestatedFacts(text, ctx), and performs no I/O (it does not import lib/supabase.ts).",
+        "renderDescription walks blocks in array order, skips on:false, and always emits the facts block LAST regardless of its position in the array.",
+        "A block that renders empty contributes no heading and no blank line: an attributes block for an item with no brand, size, color or material renders the empty string.",
+        "Rendering is idempotent, and parsing a rendered string then re-rendering it returns that same string.",
+        "The four existing builders are reused rather than reimplemented: output still carries the gradethread-measurements, gradethread-disclosure, gradethread-seller-credentials and gradethread-facts markers wherever those blocks are on.",
+        "parseLegacyDescription on the 2026-08 Veronica Beard description quoted in docs/superpowers/specs/2026-08-27-modular-listing-descriptions-design.md returns blocks whose render equals the input byte for byte.",
+        "A description with no gradethread marker parses to a single text block; a description with an opening marker and no closing marker ALSO degrades to a single text block. Neither drops a character.",
+        "scrubRestatedFacts removes a whole line matching Brand:, Size:, Color:, Material:, Condition: or a Measurements heading from AI text, and leaves a prose sentence containing the word size untouched.",
+        "A snippet block whose ref matches no row renders empty and does not throw; a snippet block carrying its own text renders that text instead of the referenced body.",
+        "services/edge-functions/src/tests/description-blocks_test.ts covers every criterion above and deno test passes."
+      ],
+      "priority": 11,
+      "dependsOn": [
+        "US-2956"
+      ]
+    },
+    {
+      "id": "US-2958",
+      "passes": false,
+      "title": "Description blocks: edge routes and the single persist path",
+      "description": "As a reseller, I want the server to be the only thing that writes my description, so that the blocks and the published text are written together and cannot drift apart.",
+      "acceptanceCriteria": [
+        "New renderAndPersistDescription(listingId, ownerId) in the edge loads the item, grade report, seller credential and snippets, renders, and writes description_blocks and listing_description in a SINGLE .update() on listings.",
+        "Four routes exist under /api/flipdesk/description/: GET /:listingId/blocks, POST /preview, POST /:listingId/save, POST /:listingId/regenerate, registered in services/edge-functions/src/main.ts.",
+        "GET /:listingId/blocks on a listing whose description_blocks is null returns parseLegacyDescription(listing_description) and performs NO write (the row updated_at is unchanged).",
+        "US-268: all four routes scope the listing lookup on c.get(\"workspaceOwnerId\") ?? c.get(\"userId\"), and services/edge-functions/src/tests/tenant-isolation_test.ts gains one case per route proving another user listing id returns 404 with no data.",
+        "POST /preview requires a listing id for context and rejects a request that supplies a free-floating item payload instead.",
+        "After POST /:listingId/save, the stored listing_description equals renderDescription of the blocks just stored.",
+        "POST /:listingId/regenerate with block=features changes only that block text; every other block in the array is byte-identical afterwards.",
+        "Routes answer on functions.gradethread.com, not api.gradethread.com."
+      ],
+      "priority": 12,
+      "dependsOn": [
+        "US-2957"
+      ]
+    },
+    {
+      "id": "US-2959",
+      "passes": false,
+      "title": "Listing generation writes description blocks instead of one prose string",
+      "description": "As a reseller, I want the AI to write only the prose parts of my description, so that regenerating one sentence never rewrites the facts I already corrected.",
+      "acceptanceCriteria": [
+        "The create_ebay_listing tool schema gains description_intro, description_features and description_condition; description stays OPTIONAL and maps to intro when all three come back empty.",
+        "Both LISTING_GEN_SYSTEM_PROMPT and LISTING_GEN_SYSTEM_PROMPT_V2 instruct the model NOT to state brand, size, color, material, condition grade or any measurement as a labelled fact in those three fields.",
+        "Cost is unchanged: the generation test asserts exactly ONE Anthropic call per item returns all three fields.",
+        "ai-listing.ts builds a block array and calls renderAndPersistDescription; the applyMeasurementsBlock / disclosure concatenation / upsertListingFactsBlock chain at ai-listing.ts:2388-2478 is gone.",
+        "A freshly generated draft has non-null description_blocks and a listing_description equal to rendering them.",
+        "scrubRestatedFacts runs on all three AI fields before they are stored, and whatever it removed is logged.",
+        "For an item with measurements, each measurement value appears exactly ONCE in the rendered description outside the gradethread-facts block."
+      ],
+      "priority": 13,
+      "dependsOn": [
+        "US-2958"
+      ]
+    },
+    {
+      "id": "US-2960",
+      "passes": false,
+      "title": "Composer: the description block list, with toggles, reorder and live preview",
+      "description": "As a reseller, I want to see my description as a list of blocks I can switch off, reorder and edit one at a time, so that I can delete a redundant section without a full rewrite.",
+      "acceptanceCriteria": [
+        "src/components/flipdesk/composer/description-card.tsx renders one ROW per block (not a nested card) with a source label, an on/off switch and a drag handle, using the existing @dnd-kit/sortable dependency.",
+        "Toggling a block off dims the row, keeps its array position and drops it from the preview; toggling it back on restores it to the SAME position.",
+        "The facts and credentials rows have no drag handle and cannot be reordered.",
+        "AI and snippet rows open an in-place textarea on Edit (no modal, no route change); derived rows show a go-to-field control that focuses the matching input in the Item Details or Measurements card.",
+        "A collapsible preview panel calls POST /api/flipdesk/description/preview debounced at 400ms and shows a character count; an out-of-order response never overwrites a newer one.",
+        "Opening a listing whose description_blocks is null shows blocks from the legacy parse, and the preview equals the stored listing_description BYTE FOR BYTE before any edit.",
+        "saveDraft() calls POST /:listingId/save AFTER its item and listing field writes, so derived blocks read the values that just landed.",
+        "descriptionMentions (composer.tsx:272) and the stale-description reminder it feeds (composer.tsx:1596) are DELETED, and no test still references them.",
+        "npm run ui:check stays at zero findings for src/."
+      ],
+      "priority": 14,
+      "dependsOn": [
+        "US-2958"
+      ]
+    },
+    {
+      "id": "US-2961",
+      "passes": false,
+      "title": "Account-level listing snippets, with apply-to-open-drafts",
+      "description": "As a reseller, I want my standing lines saved once on my account, so that fixing my shipping line fixes it everywhere instead of one listing at a time.",
+      "acceptanceCriteria": [
+        "New route /dashboard/flipdesk/settings/blocks registered in src/routes/index.tsx lists snippets with name, body, reorder and delete, reading and writing listing_snippets through the browser Supabase client under RLS.",
+        "A snippet block on a listing stores only ref; editing the referenced snippet changes what that listing renders on its next render, with no write to the listing row.",
+        "Saving a snippet offers apply-to-open-drafts, and that action re-renders ONLY listings with listing_status = draft; a published listing listing_description is unchanged.",
+        "A per-listing text on a snippet block overrides the referenced body and survives an edit to that snippet.",
+        "Deleting a snippet leaves referencing blocks rendering nothing rather than erroring, and the composer row shows that block as unavailable.",
+        "The settings page is registered in src/lib/seo/public-routes.ts only if it is public; being behind ProtectedRoute, it is NOT added there and the SEO guard test still passes."
+      ],
+      "priority": 15,
+      "dependsOn": [
+        "US-2960"
+      ]
+    },
+    {
+      "id": "US-2962",
+      "passes": false,
+      "title": "Bulk edit: switch description blocks on or off across selected drafts",
+      "description": "As a reseller clearing a batch, I want to turn a description section off across every selected draft at once, so that fixing forty listings is one action.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/autolister-bulk-edit.tsx shows the block toggle set ONLY; no per-block text editing appears there.",
+        "Applying a toggle change updates description_blocks and re-renders listing_description for every selected draft, through POST /api/flipdesk/description/:listingId/save.",
+        "A selected draft with description_blocks null is converted by the legacy parse first, and its other blocks come through unchanged.",
+        "A selected listing that is not a draft is SKIPPED, and the result summary states how many were skipped."
+      ],
+      "priority": 16,
+      "dependsOn": [
+        "US-2960"
+      ]
+    },
+    {
+      "id": "US-2963",
+      "passes": false,
+      "title": "Credentials refresh re-renders from blocks instead of walking div depth",
+      "description": "As a verified seller, I want my credential badge refreshed by re-rendering the description, so that a malformed listing can no longer defeat the refresh.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/routes/jobs-credentials-refresh.ts calls renderAndPersistDescription for listings that HAVE description_blocks, instead of refreshSellerCredentialBlock.",
+        "A listing with description_blocks null still takes the existing refreshSellerCredentialBlock path, so nothing regresses before conversion.",
+        "findSellerCredentialBlock and its MAX_TAG_SCAN bail-out (seller-credentials.ts:173) are no longer on the write path for block-backed listings.",
+        "The existing cron tests still pass, plus a new case proving a block-backed listing gets the refreshed credential HTML while its other blocks stay byte-identical."
+      ],
+      "priority": 17,
+      "dependsOn": [
+        "US-2958"
+      ]
+    },
+    {
+      "id": "US-2964",
+      "passes": false,
+      "title": "iOS and Android: description block editor parity",
+      "description": "As a reseller listing from my phone, I want the same description block list as the web composer, so that a listing I edit on mobile keeps its structure.",
+      "acceptanceCriteria": [
+        "The iOS composer shows the block list with toggles, reorder and in-place edit, backed by the same four /api/flipdesk/description/ routes, and renders no description text locally.",
+        "The Android drafts surface under android/app/src/main/java/com/gradethread/app/autolister/ gets the same block list.",
+        "The description-rendering half of ios/GradeThread/Marketplaces/Publish/ListingDescriptionTemplate.swift (measurementsBlock, ensureGradeLine, ensureSellerCredentials, splitSellerCredentials) is DELETED; the measure-card value formatter stays.",
+        "A listing edited on iOS and then opened on web shows the same block array and the same preview string.",
+        "npm run verify:android passes and iOS CI passes."
+      ],
+      "priority": 40,
+      "dependsOn": [
+        "US-2960"
+      ]
     }
   ]
 }
