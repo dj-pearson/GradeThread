@@ -93,12 +93,71 @@ const files = [
   ...walk(join(R, "src"), /\.(ts|tsx)$/),
 ].filter((p) => !/__tests__|[\\/]tests?[\\/]|\.test\.|_test\./.test(p));
 
+// ── Comments are not queries ────────────────────────────────────────────────
+//
+// US-2954: this guard read comments. A note explaining a change quoted the code
+// it replaced — \`.neq("source", "buyer_arrival")\` — and the filter scan
+// attributed that column to whichever .from() came before it, on a table that
+// has no such column. The query itself was correct; the prose about it was the
+// finding. That is mode 7 of a source scan going wrong: the guard fires on the
+// documentation written about it, and the usual "fix" is to mangle a comment
+// until the regex stops seeing it, which leaves the guard broken and the next
+// note gets mangled too.
+//
+// LINE-PRESERVING on purpose. The filter scan below walks lines and resets its
+// current table on a blank line, so collapsing comments to nothing would join
+// two query blocks that the blank line between them was keeping apart — and
+// swap one mis-attribution for another.
+//
+// Block comments are stripped to their own newlines for the same reason.
+// Strings are NOT parsed: a // inside a string literal is rare in this codebase
+// and the failure it would cause is a MISSED check, not a false finding.
+function stripComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .split("\n")
+    .map((l) => l.replace(/\/\/.*$/, ""))
+    .join("\n");
+}
+
+// SELF-CHECK. A stripper that returns nothing turns every scan below into a
+// clean run, which is indistinguishable from a clean codebase — the exact way
+// this class of guard dies quietly.
+{
+  const probe = stripComments(
+    'const a = 1; // .eq("ghost_column", 1)\n.from("users").select("id")\n',
+  );
+  if (probe.includes("ghost_column")) {
+    throw new Error("[select-columns] stripComments is not removing line comments");
+  }
+  if (!probe.includes('.from("users")')) {
+    throw new Error("[select-columns] stripComments ate real code");
+  }
+  if (probe.split("\n").length !== 3) {
+    throw new Error("[select-columns] stripComments changed the line count");
+  }
+  // The regression this fix caused, pinned: a comment line inside a chain must
+  // not read as a blank and end the chain.
+  const chain = [
+    '.from("users")',
+    '  // a note about the next line',
+    '  .eq("ghost_column", 1)',
+  ].join("\n");
+  const strippedChain = stripComments(chain).split("\n");
+  if (!/^\s*$/.test(strippedChain[1])) {
+    throw new Error("[select-columns] expected a comment-only line to strip to whitespace");
+  }
+  if (chain.split("\n").some((l) => /^\s*$/.test(l))) {
+    throw new Error("[select-columns] the chain probe must contain no real blank line");
+  }
+}
+
 const FROM_SELECT = /\.from\(\s*["']([a-z0-9_]+)["']\s*\)\s*\n?\s*\.select\(\s*(["'])([^"']*)\2/g;
 
 const findings = [];
 let checked = 0;
 for (const f of files) {
-  const src = readFileSync(f, "utf8");
+  const src = stripComments(readFileSync(f, "utf8"));
   for (const m of src.matchAll(FROM_SELECT)) {
     const table = m[1].toLowerCase();
     const list = m[3];
@@ -135,14 +194,24 @@ const FILTER = /\.(eq|neq|gt|gte|lt|lte|like|ilike|in|contains|order)\(\s*["']([
 const FROM_LINE = /\.from\(\s*["']([a-z0-9_]+)["']\s*\)/;
 
 for (const f of files) {
-  const lines = readFileSync(f, "utf8").replace(/\r\n?/g, "\n").split("\n");
+  // TWO VIEWS OF THE SAME FILE, and the reason is a bug this fix introduced.
+  //
+  // `raw` answers "was this line blank in the source", which is what resets the
+  // current table between two query chains. `lines` answers "what column does
+  // this name", with comments removed.
+  //
+  // Reading the blank test off the STRIPPED text is what broke it: a comment-only
+  // line strips to whitespace, so every filter after a comment inside a chain
+  // lost its table and was skipped. A planted bad column went unreported.
+  const raw = readFileSync(f, "utf8").replace(/\r\n?/g, "\n").split("\n");
+  const lines = stripComments(raw.join("\n")).split("\n");
   let table = null;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (/^\s*$/.test(raw[i] ?? "")) { table = null; continue; }
     const fm = FROM_LINE.exec(line);
     if (fm) table = fm[1].toLowerCase();
     if (!table) continue;
-    if (/^\s*$/.test(line)) { table = null; continue; }
     const known = cols.get(table);
     if (!known || views.has(table) || matviews.has(table)) continue;
     for (const m of line.matchAll(FILTER)) {
@@ -168,7 +237,7 @@ for (const f of files) {
 const WRITE = /\.from\(\s*["']([a-z0-9_]+)["']\s*\)\s*\n?\s*\.(?:insert|update|upsert)\(\s*\{/g;
 
 for (const f of files) {
-  const src = readFileSync(f, "utf8");
+  const src = stripComments(readFileSync(f, "utf8"));
   for (const m of src.matchAll(WRITE)) {
     const table = m[1].toLowerCase();
     const known = cols.get(table);

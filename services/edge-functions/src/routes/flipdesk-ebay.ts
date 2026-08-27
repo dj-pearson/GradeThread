@@ -5459,7 +5459,7 @@ flipdeskEbayRoutes.get("/promotions/stack-check", async (c) => {
     const { data: rows } = await supabaseAdmin
       .from("listings")
       .select(
-        "id, listing_title, listing_price, best_offer_auto_accept_cents, shipping_cost, " +
+        "id, listing_title, listing_price, best_offer_auto_accept_cents, " +
           "inventory_items!inner(user_id, acquired_price)",
       )
       .eq("user_id", ownerId)
@@ -5473,7 +5473,6 @@ flipdeskEbayRoutes.get("/promotions/stack-check", async (c) => {
       listing_title: string | null;
       listing_price: number | null;
       best_offer_auto_accept_cents: number | null;
-      shipping_cost: number | null;
       inventory_items:
         | { acquired_price: number | null }
         | { acquired_price: number | null }[]
@@ -5487,9 +5486,11 @@ flipdeskEbayRoutes.get("/promotions/stack-check", async (c) => {
         costCents: typeof inv?.acquired_price === "number"
           ? Math.round(inv.acquired_price * 100)
           : null,
-        shippingCostCents: row.shipping_cost != null
-          ? Math.round(Number(row.shipping_cost) * 100)
-          : null,
+        // No per-listing postage exists: shipping_cost is on SALES (00008) and
+        // is recorded after the fact, while a live listing carries only a
+        // shipping POLICY id. Null UNDER-reports the stack, which is the safe
+        // direction for a warning - it can miss a breach, never invent one.
+        shippingCostCents: null,
         markdownPct,
         couponPct,
         autoAcceptCents: row.best_offer_auto_accept_cents,

@@ -72,7 +72,9 @@ export async function loadReturnAnalyticsInputs(
   const { data: gradingData } = await supabaseAdmin
     .from("flipdesk_grading_submissions")
     .select("inventory_item_id, submission_id, created_at")
-    .eq("user_id", ownerId)
+    // No owner column on this table (00008). Tenancy is proven by the PARENT:
+    // itemIds comes from an owner-scoped read above, so this .in() IS the
+    // tenant filter (US-268, ownership-via-parent).
     .in("inventory_item_id", itemIds)
     .not("submission_id", "is", null)
     .order("created_at", { ascending: false });

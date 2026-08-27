@@ -30,9 +30,12 @@ export async function loadActiveOfferRule(
 ): Promise<ActiveOfferRule | null> {
   const { data, error } = await supabaseAdmin
     .from("flipdesk_automation_rules")
-    .select("id, trigger_json, enabled, created_at")
+    // The column is is_active (00135), NOT enabled. Named wrongly this
+    // whole function 42703s and returns null, which reads as "no rule" — so
+    // the reconcile silently does nothing rather than failing loudly.
+    .select("id, trigger_json, is_active, created_at")
     .eq("user_id", ownerId)
-    .eq("enabled", true)
+    .eq("is_active", true)
     .order("created_at", { ascending: true })
     .limit(50);
   if (error) {
