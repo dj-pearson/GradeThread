@@ -46,7 +46,22 @@ export default defineConfig({
     // still fails inside a minute. Raising the ceiling is the fix here rather
     // than trimming the guards, because walking the whole tree IS the assertion
     // — a guard that samples proves nothing.
-    testTimeout: 30_000,
+    //
+    // RAISED 30s -> 90s on 2026-08-27, the same fix applied a second time as the
+    // tree kept growing. Measured on the Windows dev box, full 577-file parallel
+    // run with coverage:
+    //   friendly-error   "no customer surface hands toast.error…"   62.7s
+    //   repeated-labels  "a per-row button named only by its text"  62.5s
+    //   repeated-labels  "the visible-text baseline is not slack"    44.5s
+    // All three walk src/ in full, all three pass ALONE (58/58 and 10/10), and
+    // all three failed with "Test timed out in 30000ms" rather than an
+    // assertion. Reproduced with Docker and the local Supabase stack stopped,
+    // so it is the size of the walk on this disk, not contention.
+    //
+    // 90s and still not "off", for the reason above: a real hang has to fail.
+    // If a THIRD raise is ever needed, that is the signal the guards should
+    // share one cached tree walk instead of each doing their own.
+    testTimeout: 90_000,
     // US-519: coverage with a FAILING minimum threshold so coverage of the
     // tested modules can't silently erode. Thresholds sit a margin below the
     // current numbers so a genuine regression trips CI without flapping on a
