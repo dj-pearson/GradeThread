@@ -2895,28 +2895,6 @@
       "priority": 40
     },
     {
-      "id": "US-2957",
-      "passes": false,
-      "title": "Description blocks: the pure renderer, legacy parser and fact scrubber",
-      "description": "As a reseller, I want one renderer that turns my description blocks into the exact text eBay receives, so that the preview I see and the listing I publish can never disagree.",
-      "acceptanceCriteria": [
-        "New services/edge-functions/src/lib/description-blocks.ts exports renderDescription(blocks, ctx), parseLegacyDescription(description), defaultBlocks() and scrubRestatedFacts(text, ctx), and performs no I/O (it does not import lib/supabase.ts).",
-        "renderDescription walks blocks in array order, skips on:false, and always emits the facts block LAST regardless of its position in the array.",
-        "A block that renders empty contributes no heading and no blank line: an attributes block for an item with no brand, size, color or material renders the empty string.",
-        "Rendering is idempotent, and parsing a rendered string then re-rendering it returns that same string.",
-        "The four existing builders are reused rather than reimplemented: output still carries the gradethread-measurements, gradethread-disclosure, gradethread-seller-credentials and gradethread-facts markers wherever those blocks are on.",
-        "parseLegacyDescription on the 2026-08 Veronica Beard description quoted in docs/superpowers/specs/2026-08-27-modular-listing-descriptions-design.md returns blocks whose render equals the input byte for byte.",
-        "A description with no gradethread marker parses to a single text block; a description with an opening marker and no closing marker ALSO degrades to a single text block. Neither drops a character.",
-        "scrubRestatedFacts removes a whole line matching Brand:, Size:, Color:, Material:, Condition: or a Measurements heading from AI text, and leaves a prose sentence containing the word size untouched.",
-        "A snippet block whose ref matches no row renders empty and does not throw; a snippet block carrying its own text renders that text instead of the referenced body.",
-        "services/edge-functions/src/tests/description-blocks_test.ts covers every criterion above and deno test passes."
-      ],
-      "priority": 11,
-      "dependsOn": [
-        "US-2956"
-      ]
-    },
-    {
       "id": "US-2958",
       "passes": false,
       "title": "Description blocks: edge routes and the single persist path",
