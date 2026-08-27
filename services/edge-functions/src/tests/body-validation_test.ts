@@ -42,6 +42,20 @@ Deno.test("capForPath: photo-bearing JSON endpoints get the upload cap", () => {
   assertEquals(capForPath("/api/flipdesk/scout/appraise"), UPLOAD_MAX_BYTES);
   assertEquals(capForPath("/api/grading/public/authenticity-check"), UPLOAD_MAX_BYTES);
   assertEquals(capForPath("/api/buyer/authenticity"), UPLOAD_MAX_BYTES);
+  // Support screenshots: `data_url` entries at 2400px/q0.85, up to 3 per message.
+  assertEquals(capForPath("/api/support-tickets"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/support-tickets/abc/messages"), UPLOAD_MAX_BYTES);
+  // Reconcile's visual pass, which posts up to 40 inline photos.
+  assertEquals(capForPath("/api/flipdesk/ai/embed-photos"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/ai/classify-photos"), UPLOAD_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/ai/suggest-item-match"), UPLOAD_MAX_BYTES);
+});
+
+// The rest of the AI surface is JSON-only and must not inherit the photo cap
+// from its siblings: these are listed one path at a time for exactly that reason.
+Deno.test("capForPath: image-free AI endpoints stay on the JSON cap", () => {
+  assertEquals(capForPath("/api/flipdesk/ai/log/xyz"), JSON_MAX_BYTES);
+  assertEquals(capForPath("/api/flipdesk/ai"), JSON_MAX_BYTES);
 });
 
 // Sibling scout routes carry no image bytes and must stay on the JSON cap.

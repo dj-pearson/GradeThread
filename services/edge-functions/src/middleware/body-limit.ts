@@ -33,6 +33,10 @@ const UPLOAD_PREFIXES = [
   "/api/flipdesk/scout/appraise", // scout appraise: one base64 photo in JSON
   "/api/grading/public/authenticity-check", // US-2145: up to 4 base64 photos in JSON
   "/api/buyer/authenticity", // US-1840: same body, buyer surface
+  "/api/support-tickets", // US-2525: up to 3 base64 screenshots per message
+  "/api/flipdesk/ai/embed-photos", // reconcile visual pass: up to 40 base64 photos
+  "/api/flipdesk/ai/classify-photos", // same body shape
+  "/api/flipdesk/ai/suggest-item-match", // same body shape
 ];
 
 // Upload paths whose route carries a path PARAMETER, so a prefix can't reach
