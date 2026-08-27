@@ -42933,6 +42933,25 @@
         "US-2958"
       ],
       "notes": "Done 2026-08-27. Composer description card rewritten as a block list: src/lib/description-blocks.ts (labels, PINNED_KEYS, toggleBlockAt, moveBlock with pinned rows nailed to their index, applyWholeText), src/lib/description-preview.ts (createPreviewScheduler: 400ms debounce + sequence number so a stale response never overwrites a newer one), src/hooks/use-description-blocks.ts (the four /api/flipdesk/description routes, adopting the GET's preview verbatim so convert-on-open is byte-exact, plus a ready guard that refuses to save from placeholder rows), src/components/flipdesk/composer/description-card.tsx (rows with switch, source tag, drag handle, in-place textarea, redo, go-to-field; no handle on facts/credentials), and composer.tsx wiring: saveDraft calls POST /:listingId/save after the item and listing writes, focusSection focuses the target card's first input, the eBay preview reads the block render, and descriptionMentions + specDescMismatches + the amber stale-description notice are deleted. Verified: 4 new test files, 52 new cases (block ops, scheduler ordering, card markup, hook effects) plus a src/-wide guard that the deleted symbols have no live reference; npm run verify green on every web lane (eslint, tsc -b, production build, 7310 vitest, bundle budget, ui:check zero for src/). The four failing lanes are deno dependency fetches blocked by the container network policy and touch no file in this change."
+    },
+    {
+      "id": "US-2961",
+      "passes": true,
+      "title": "Account-level listing snippets, with apply-to-open-drafts",
+      "description": "As a reseller, I want my standing lines saved once on my account, so that fixing my shipping line fixes it everywhere instead of one listing at a time.",
+      "acceptanceCriteria": [
+        "New route /dashboard/flipdesk/settings/blocks registered in src/routes/index.tsx lists snippets with name, body, reorder and delete, reading and writing listing_snippets through the browser Supabase client under RLS.",
+        "A snippet block on a listing stores only ref; editing the referenced snippet changes what that listing renders on its next render, with no write to the listing row.",
+        "Saving a snippet offers apply-to-open-drafts, and that action re-renders ONLY listings with listing_status = draft; a published listing listing_description is unchanged.",
+        "A per-listing text on a snippet block overrides the referenced body and survives an edit to that snippet.",
+        "Deleting a snippet leaves referencing blocks rendering nothing rather than erroring, and the composer row shows that block as unavailable.",
+        "The settings page is registered in src/lib/seo/public-routes.ts only if it is public; being behind ProtectedRoute, it is NOT added there and the SEO guard test still passes."
+      ],
+      "priority": 15,
+      "dependsOn": [
+        "US-2960"
+      ],
+      "notes": "Done 2026-08-27. Settings page at /dashboard/flipdesk/settings/blocks (src/pages/flipdesk/description-snippets.tsx) with name, body, reorder and delete, reading and writing listing_snippets through the browser Supabase client under the RLS policies migration 00678 already carries; src/lib/flipdesk-snippets.ts (nameProblem, bodyProblem, nextSortOrder, reorderSnippets, sortSnippets, snippetNames, applySummary, the CRUD calls) and src/hooks/use-listing-snippets.ts. Apply-to-open-drafts is POST /api/flipdesk/description/snippets/:snippetId/apply, backed by applySnippetToDrafts in description-render.ts: it proves the snippet is the caller's before reading any listing, filters listing_status = 'draft' in the QUERY so no caller can widen it, skips a draft whose only reference carries a per-listing override, caps at 200 per pass and reports applied/skipped/truncated. Composer: addSnippetBlock/removeBlockAt, an Add-a-snippet menu and a Manage-snippets link in the description card, and describeBlock now says a deleted snippet renders nothing - but only once the snippet list has loaded. Route exempted in CONTEXTUAL_ROUTES (reached from the Description card) and deliberately NOT in PUBLIC_ROUTES, which a test asserts along with the whole /dashboard tree. Verified: 3 new web test files (40 cases) plus 6 new Deno assertions and 2 tenant-isolation cases keyed on a snippet id, with TEST_USER_A_SNIPPET_ID seeded and added to REQUIRED_RESOURCE_IDS so they cannot silently skip; npm run verify green on every web lane (eslint, tsc -b, production build, 7345 vitest, bundle budget, ui:check zero for src/). The four failing lanes are deno dependency fetches blocked by the container network policy; the new Deno source assertions were transliterated and run under node to prove they hold."
     }
   ]
 }

@@ -2914,24 +2914,6 @@
       ]
     },
     {
-      "id": "US-2961",
-      "passes": false,
-      "title": "Account-level listing snippets, with apply-to-open-drafts",
-      "description": "As a reseller, I want my standing lines saved once on my account, so that fixing my shipping line fixes it everywhere instead of one listing at a time.",
-      "acceptanceCriteria": [
-        "New route /dashboard/flipdesk/settings/blocks registered in src/routes/index.tsx lists snippets with name, body, reorder and delete, reading and writing listing_snippets through the browser Supabase client under RLS.",
-        "A snippet block on a listing stores only ref; editing the referenced snippet changes what that listing renders on its next render, with no write to the listing row.",
-        "Saving a snippet offers apply-to-open-drafts, and that action re-renders ONLY listings with listing_status = draft; a published listing listing_description is unchanged.",
-        "A per-listing text on a snippet block overrides the referenced body and survives an edit to that snippet.",
-        "Deleting a snippet leaves referencing blocks rendering nothing rather than erroring, and the composer row shows that block as unavailable.",
-        "The settings page is registered in src/lib/seo/public-routes.ts only if it is public; being behind ProtectedRoute, it is NOT added there and the SEO guard test still passes."
-      ],
-      "priority": 15,
-      "dependsOn": [
-        "US-2960"
-      ]
-    },
-    {
       "id": "US-2962",
       "passes": false,
       "title": "Bulk edit: switch description blocks on or off across selected drafts",
