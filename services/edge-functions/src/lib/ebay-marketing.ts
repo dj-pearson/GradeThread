@@ -1109,6 +1109,18 @@ export interface MarkdownSaleInput {
   name?: string;
   startDate?: string; // ISO; omitted → starts now (RUNNING)
   endDate?: string; // ISO; omitted → open-ended until ended
+  /**
+   * US-2950: more listings in the SAME sale.
+   *
+   * eBay's promotion already takes a list; this module only ever passed one
+   * because every caller was per-item. A scheduled aged-stock rule covers a set,
+   * and running it as one sale per item would leave a seller with forty
+   * overlapping promotions instead of one.
+   *
+   * `ebayListingId` stays first and stays required, so every existing caller is
+   * byte-identical: with this omitted the body is exactly what it was.
+   */
+  additionalListingIds?: string[];
 }
 
 interface MarkdownPromotionBody {
@@ -1141,7 +1153,10 @@ export function buildMarkdownPromotionBody(
     applyDiscountToAllInventory: false,
     inventoryCriterion: {
       inventoryCriterionType: "INVENTORY_BY_VALUE",
-      listingIds: [args.ebayListingId],
+      // The primary id first, then any extras, de-duplicated. Order is
+      // cosmetic to eBay but keeps the request stable across runs, which makes
+      // a diff between two attempts readable.
+      listingIds: [...new Set([args.ebayListingId, ...(args.additionalListingIds ?? [])])],
     },
     discountRules: [
       { discountBenefit: { percentageOffItem: pct.toFixed(1) }, ruleOrder: 1 },

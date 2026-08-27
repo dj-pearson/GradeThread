@@ -11,6 +11,7 @@ import {
   Upload,
   FileText,
   Loader2,
+  Megaphone,
   Truck,
   Star,
   XCircle,
@@ -82,6 +83,7 @@ import { ShipOrderDialog } from "@/components/flipdesk/ship-order-dialog";
 import { InventoryViewSwitcher } from "@/components/flipdesk/inventory-view-switcher";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
 import { BulkRepriceDialog } from "@/components/flipdesk/bulk-reprice-dialog";
+import { BulkPromoteDialog } from "@/components/flipdesk/bulk-promote-dialog";
 import { BulkEditDialog } from "@/components/flipdesk/bulk-edit-dialog";
 import { PrepareShipmentDialog } from "@/components/flipdesk/prepare-shipment-dialog";
 import { FilterBuilder } from "@/components/flipdesk/filter-builder";
@@ -323,6 +325,10 @@ export function FlipdeskListingsPage() {
   const [aiEnrichOpen, setAiEnrichOpen] = useState(false);
   // US-962: bulk match-to-comp reprice of the selected active listings.
   const [repriceOpen, setRepriceOpen] = useState(false);
+  // US-2948: bulk Promoted Listings, in the bulk bar rather than on a screen of
+  // its own — the selection a seller wants to promote is the one they have
+  // already made here.
+  const [promoteOpen, setPromoteOpen] = useState(false);
   // US-1292: bulk-edit shared fields (price/condition/policy) across selected
   // live listings via marketplace adapters.
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -1488,6 +1494,16 @@ export function FlipdeskListingsPage() {
                       Reprice to comp
                     </Button>
                   )}
+                  {ebayConnection && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setPromoteOpen(true)}
+                      disabled={busy}
+                    >
+                      <Megaphone className="mr-2 h-4 w-4" />
+                      Promote
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     onClick={() => setBulkEditOpen(true)}
@@ -1866,6 +1882,23 @@ export function FlipdeskListingsPage() {
           setSelected(new Set());
           void qc.invalidateQueries({ queryKey: ["items_full"] });
         }}
+      />
+
+      <BulkPromoteDialog
+        open={promoteOpen}
+        onOpenChange={setPromoteOpen}
+        listingIds={Array.from(selected)
+          .map((id) => items.find((i) => i.id === id)?.listing_id)
+          .filter((v): v is string => !!v)}
+        selectionValueCents={(() => {
+          // Null when ANY selected item has no price: a fee estimate that
+          // silently omits the items it could not price reads as complete.
+          const rows = Array.from(selected)
+            .map((id) => items.find((i) => i.id === id))
+            .filter((r): r is NonNullable<typeof r> => !!r);
+          if (rows.length === 0 || rows.some((r) => r.list_price == null)) return null;
+          return rows.reduce((sum, r) => sum + Math.round(Number(r.list_price) * 100), 0);
+        })()}
       />
 
       <BulkEditDialog

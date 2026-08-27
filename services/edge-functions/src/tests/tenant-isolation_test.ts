@@ -7001,3 +7001,59 @@ Deno.test({
     );
   },
 });
+
+// ── US-2948: bulk ad ops take listing ids from the REQUEST BODY ─────
+//
+// Every other new marketing route resolves the campaign from the seller's own
+// connection and takes no attacker-controlled id. This one accepts a list of
+// eBay listing ids and pushes ad rates against them, so a missing owner check
+// would let B start promoting — and paying for — A's listings.
+//
+// The route rejects a foreign id BY NAME rather than silently dropping it: a
+// silent drop reports a smaller success than the caller asked for and says
+// nothing about why.
+Deno.test({
+  name: "B cannot bulk-promote A's eBay listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    // The route takes LOCAL listing ids, which is the stronger boundary: the id
+    // resolves through a row we own, so A's id resolves to nothing for B.
+    const foreignId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/marketing/ads/bulk`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listing_ids: [foreignId], bid_percentage: 5 }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST eBay bulk ads");
+  },
+});
+
+// ── US-2953: the campaign create takes listing ids from the body ────
+//
+// The follower list is the one asset a mistake here destroys permanently, and
+// the create route accepts a set of listing ids to feature. A missing owner
+// check would let B build a campaign around A's stock.
+Deno.test({
+  name: "B cannot build a follower campaign from A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/marketing/email-campaigns`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        name: "Cross tenant",
+        subject: "Should never send",
+        listing_ids: [listingId],
+      }),
+    });
+    await res.body?.cancel();
+    // 409 = none of those listings resolved for this tenant, which is the
+    // correct answer and the one the route gives.
+    assert(
+      res.status !== 200,
+      "the campaign create accepted a listing belonging to another tenant",
+    );
+  },
+});

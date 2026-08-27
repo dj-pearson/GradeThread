@@ -123,6 +123,18 @@ export type AutomationTrigger =
   // US-2938: the return-shaped sibling. Same reasoning as offer_threshold — the
   // evaluation unit is a RETURN, not a listing, so triggerMatches() refuses it
   // and a per-return runner executes it inside the same hourly cron.
+  // US-2950: judged per SET, not per listing. A markdown sale is ONE
+  // percentage across many items, so the listing planner cannot express it
+  // either — same reason offer_threshold and return_threshold sit out here.
+  | {
+    type: "markdown_schedule";
+    min_days_listed: number;
+    markdown_pct: number;
+    margin_floor_pct: number;
+    /** Items graded below this are kept out. Null includes every grade. */
+    min_grade: number | null;
+    cooldown_days: number;
+  }
   | {
     type: "return_threshold";
     /** Auto-approve at or below this order total, in cents. Null = never. */
@@ -350,6 +362,28 @@ function normalizeTrigger(
         return { error: `Comp drift must be between 1 and ${MAX_COMP_DRIFT_PCT}%` };
       }
       return { type: "comp_price_moved", direction, pct, cooldown_days: cooldown };
+    }
+    case "markdown_schedule": {
+      const days = Math.max(1, Math.trunc(Number(t.min_days_listed) || 0));
+      const pct = Math.trunc(Number(t.markdown_pct) || 0);
+      if (!(pct > 0)) return { error: "Set a markdown percentage" };
+      const grade = t.min_grade == null || t.min_grade === ""
+        ? null
+        : Number(t.min_grade);
+      if (grade != null && (!Number.isFinite(grade) || grade < 1 || grade > 10)) {
+        return { error: "The minimum grade must be between 1 and 10" };
+      }
+      return {
+        type: "markdown_schedule",
+        min_days_listed: days,
+        markdown_pct: pct,
+        // Defaulted like the offer floor: every rule gets the safety net,
+        // even from a seller who never thinks about it.
+        margin_floor_pct: Math.max(0, Math.trunc(Number(t.margin_floor_pct) || 0)) ||
+          DEFAULT_OFFER_MARGIN_FLOOR_PCT,
+        min_grade: grade,
+        cooldown_days: cooldown,
+      };
     }
     case "return_threshold": {
       const approve = normalizeReturnThresholdCents(t.approve_at_or_below_cents);
@@ -720,6 +754,11 @@ export function triggerMatches(
     // to whatever exhaustiveness left behind, and the failure mode is a RETURN
     // answered by the price-drop engine.
     case "return_threshold":
+      return false;
+    // US-2950: same refusal. The listing planner acts on ONE listing; letting
+    // this reach it would drop each item’s price individually instead of
+    // running one sale across the set.
+    case "markdown_schedule":
       return false;
   }
 }

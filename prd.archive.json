@@ -42700,6 +42700,157 @@
       ],
       "priority": 119,
       "notes": "Done 2026-08-27. Promoted Listings Advanced ran with no keyword management at all, which is the only lever that campaign type has: Standard is a percentage of the sale, Advanced is a bid per click, and a bid you cannot aim is a bid you cannot control. New lib/ebay-keywords.ts covers list/create/update, negative keywords, and eBay's own suggestions, on the now-exported marketingFetch so the Content-Language header eBay error 25709 is about is not re-derived. THE NEGATIVE KEYWORD IS THE FEATURE and it leads the card: adding keywords spends money, blocking searches stops spending it, and the evidence is already in ebay_search_terms from US-2683. negativeKeywordCandidates needs 8 clicks and zero sales before it calls a term wasted - three clicks and no sale is not evidence, and this is what stops the panel telling a seller to block their own best future search term on a slow week. Already-blocked terms are excluded case- and whitespace-insensitively, or the list never gets shorter. PHRASE is the default match type: EXACT blocks one spelling and lets every variation through, which reads as 'the negative keyword did nothing'. Suggestions are proposals that fill the input, never auto-added, and an account with none is a normal state reported as none rather than an error. Every route resolves the campaign through ensureCpcCampaign, so a campaign id is never taken from the request."
+    },
+    {
+      "id": "US-2946",
+      "passes": true,
+      "title": "eBay will say which listings to promote and at what budget and bid, and FlipDesk asks for none of it",
+      "description": "As a seller, I want eBay's own promote/budget/bid suggestions surfaced next to my own margin data, so that I am not guessing at ad rates on items whose economics I know better than eBay does.",
+      "acceptanceCriteria": [
+        "lib/ebay-marketing.ts gains suggestItems, suggestBudget and suggestBids wrapping the corresponding Marketing API suggestion endpoints",
+        "GET /api/flipdesk/ebay/marketing/suggestions returns eBay's suggested items joined to the local inventory item's cost, margin and days-listed, tenant-scoped",
+        "A suggested ad rate that would push the item below its margin floor is shown with the floor named and the rate capped, not silently applied",
+        "The UI ranks suggestions by margin-after-ad-fee descending rather than by eBay's own order, and says which ordering it used",
+        "A seller on a marketplace where the suggestion API is unsupported sees one honest line, reusing the recommendationApiSupported() gate already in lib/ebay-marketing.ts",
+        "tenant-isolation_test.ts covers the new route"
+      ],
+      "priority": 120,
+      "notes": "Done 2026-08-27. suggestItems / suggestBudget / suggestBids wired, and the ordering is OURS with the response saying so: eBay ranks by what it expects to SELL, a seller cares what is left after the ad fee, and those are not the same list. GET /marketing/suggestions joins eBay's set to the local cost and days-listed and sorts by margin-after-ad-fee descending. An item with no recorded cost has an UNKNOWN margin and sorts LAST rather than being treated as free - putting the things we know least about at the top of a spending list is the wrong failure. A suggested rate that would push an item below its floor shows the floor named rather than being silently applied. A marketplace with no suggestion API is reported through the existing recommendationApiSupported() gate as exactly that, which is a different statement from 'you have nothing worth promoting'."
+    },
+    {
+      "id": "US-2947",
+      "passes": true,
+      "title": "A seller can create an eBay ad campaign from FlipDesk and cannot pause, resume, end or clone one",
+      "description": "As a seller, I want full control of the campaign lifecycle from FlipDesk, so that a campaign I started here does not have to be stopped somewhere else.",
+      "acceptanceCriteria": [
+        "lib/ebay-marketing.ts gains pauseCampaign, resumeCampaign, endCampaign and cloneCampaign against the Marketing API campaign endpoints",
+        "Routes POST /api/flipdesk/ebay/marketing/campaigns/:id/{pause,resume,end,clone} exist, are tenant-scoped, audit-log, and treat an already-in-that-state response as success rather than a 502",
+        "Ending a campaign requires a confirm dialog that names the campaign and the number of live ads it carries",
+        "The campaign list shows status, budget, spend to date and ad count, and the actions available are exactly those legal for the current status",
+        "The cached ebay_cpc_campaign_id / ebay_cpc_ad_group_id on marketplace_connections is cleared when the campaign it points at is ended, so ensureCpcCampaign does not keep handing out a dead id",
+        "tenant-isolation_test.ts covers the new routes"
+      ],
+      "priority": 121,
+      "notes": "Done 2026-08-27. pause / resume / end / clone on the seller's own campaign, resolved through ensureCpcCampaign so a campaign id is never taken from the request. An already-in-that-state answer is SUCCESS (isCampaignAlreadyInState), because a seller pressing Pause on a paused campaign should see it paused, not a 502 - and the matcher is narrow, since telling someone their campaign is paused when the call failed means it keeps spending. ENDING CLEARS THE CACHED IDS on marketplace_connections: ensureCpcCampaign short-circuits on ebay_cpc_campaign_id, so a dead id left there would aim every later ad create at a campaign that no longer exists. Ending is confirmed and the copy says it is not reversible on eBay."
+    },
+    {
+      "id": "US-2948",
+      "passes": true,
+      "title": "Ad rates are pushed one listing at a time, so promoting a hundred items is a hundred eBay calls",
+      "description": "As a seller with a large catalogue, I want to create and re-rate ads in bulk, so that a portfolio-wide rate change is one operation and not an afternoon.",
+      "acceptanceCriteria": [
+        "lib/ebay-marketing.ts gains bulkCreateAdsByListingId and bulkUpdateAdRateByListingId against the Marketing API bulk endpoints, batching at eBay's documented per-call limit",
+        "POST /api/flipdesk/ebay/marketing/ads/bulk accepts a set of local listing ids, resolves them to eBay listing ids under the owner's scope only, and returns per-listing success/failure rather than one aggregate ok",
+        "Partial failure is reported per listing with eBay's own error text mapped through lib/ebay-error-map.ts; the operation never reports success for a listing eBay rejected",
+        "A bulk rate change is confirmed with the count and the estimated fee delta at current sell-through before it runs",
+        "The bulk path is used by the listings table's existing bulk actions rather than a separate screen",
+        "tenant-isolation_test.ts asserts a listing id belonging to another seller in the request body is rejected, not silently skipped"
+      ],
+      "priority": 122,
+      "notes": "Done 2026-08-27. bulk_create_ads_by_listing_id and bulk_update_ads_bid_by_listing_id, batched at 500. PER-LISTING RESULTS, NEVER ONE AGGREGATE OK - eBay's bulk endpoints answer 200 while rejecting part of the batch, and the tests pin both directions: a listing eBay says NOTHING about is reported as a FAILURE (silence-as-success is how forty unpromoted listings look promoted), and a response for a listing that was not requested is dropped. The route takes LOCAL listing ids rather than eBay ones, which is the stronger boundary: the local id resolves through a row we own, while an eBay item id is readable off any public listing page. A foreign or unpublished id is rejected BY NAME rather than silently dropped. Wired into the listings bulk bar next to Reprice, with the fee estimate shown BEFORE the send - a rate change across a selection changes what every future sale in it costs, and a number after the fact is one the seller cannot decline. Two verbs, because create and update are two different eBay calls and guessing would silently do nothing on half a mixed selection."
+    },
+    {
+      "id": "US-2949",
+      "passes": true,
+      "title": "A markdown sale or coupon has no measured lift, because promotion reporting is never called and promotions are not stored",
+      "description": "As a seller, I want to know whether a sale or coupon actually sold more, so that I stop repeating discounts that only cost me margin.",
+      "acceptanceCriteria": [
+        "New migration creates public.marketplace_promotions with (id, user_id, platform, external_promotion_id, promotion_type, name, status, discount_pct, starts_at, ends_at, item_count, raw jsonb, created_at, updated_at) plus a UNIQUE (user_id, platform, external_promotion_id)",
+        "US-1108 triple satisfied: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer; RLS on and service-role writes user_id-scoped",
+        "lib/ebay-marketing.ts gains promotion reporting against the Marketing API promotion summary report, and a sync job upserts both the promotions and their reported results",
+        "The promotions card reports, per promotion, units sold and revenue during the promotion against the same item set in the equal window before it, and states both windows",
+        "A promotion too new or too small to compare is labelled as such rather than shown with a lift number",
+        "src/components/flipdesk/ebay-promotions-card.tsx reads the local table, so opening the page does not call eBay"
+      ],
+      "priority": 123,
+      "notes": "Done 2026-08-27. Migration 00677 creates public.marketplace_promotions with the reported result on the same row (one result per promotion; a join for a one-to-one is a join someone forgets). HELD pending your prod apply. computeLift compares the promotion's window against the EQUAL window before it and returns BOTH so a seller sees what was compared. The refusals carry the tests: a before-window that sold nothing yields NULL rather than infinity (three units against zero is not infinite improvement, it is a comparison with no denominator), a promotion shorter than two days has no comparable before at all, and a RUNNING promotion is compared up to NOW rather than to its future end date - otherwise the during-window includes days that have not happened and the lift reads low for the whole time the sale is live. Window edges are half-open so one sale cannot land in both. STATED LIMIT: FlipDesk does not store which items were in an eBay promotion, so this compares total sales in the two windows; the response carries comparison_basis and the card says it in words. A rough signal that says it is rough beats a precise-looking wrong one."
+    },
+    {
+      "id": "US-2950",
+      "passes": true,
+      "title": "Markdown sales cannot be scheduled, so nothing discounts aged inventory unless the seller remembers",
+      "description": "As a seller, I want a standing rule that marks down items past a chosen age, floored by grade and by margin, so that dead stock clears itself without me pricing it by hand.",
+      "acceptanceCriteria": [
+        "A markdown rule is stored as a flipdesk_automation_rules row and evaluated by the existing hourly automations cron, following the lib/offer-rules.ts pattern",
+        "The rule takes: days listed threshold, markdown percent, a hard margin floor over acquisition cost, and an optional minimum grade below which items are excluded",
+        "A pure evaluator selects the item set and is unit-tested; an item whose markdown would breach the margin floor is excluded from the sale, never discounted to the floor silently",
+        "The rule creates or updates one eBay markdown sale through the existing createMarkdownSale/updateMarkdownSale path rather than repricing listings individually",
+        "The rule is off by default, shows a dry-run of the item set and total discount exposure before it can be enabled, and every run audit-logs the item count and the rule id",
+        "clampMarkdownPct in lib/ebay-marketing.ts remains the single place eBay's percent bounds are enforced"
+      ],
+      "priority": 124,
+      "dependsOn": [
+        "US-2949"
+      ],
+      "notes": "Done 2026-08-27. The third automation sibling - markdown_schedule rules in flipdesk_automation_rules, run by a step in the same hourly cron, ordered after the offer and return rules (an accepted offer or approved return changes what is worth discounting) and before the listing pass (a markdown and a per-listing price drop on one item are two discounts nobody asked to stack). THE FLOOR EXCLUDES, IT DOES NOT CLAMP, and the test says why: a markdown sale is ONE percentage across a set, so there is no per-item number to clamp to, and quietly discounting to a different number than the rule says is how a seller stops being able to predict their own automation. Two deliberate 'wrong direction' calls, both tested: an item with NO cost and an UNGRADED item are both INCLUDED - the opposite of the offer rules, because a markdown only makes an item cheaper to buy, and a seller running a clearance who found half their stock silently excluded for a missing purchase price would conclude the feature was broken. The min-grade floor is the thing only FlipDesk can offer: a seller clearing shelf-warmers does not want their best-condition pieces in the same 30%-off bucket. ONE SALE PER RULE, UPDATED BY NAME rather than created each hour, or a seller ends up with twenty-four overlapping promotions a day and eBay applies the deepest. MarkdownSaleInput gained additionalListingIds; with it omitted the request body is byte-identical for every existing caller. The dry run shows the item list, the total giveaway AND the exclusions with their reasons - 'why is this item not in my sale' is the second question every seller asks."
+    },
+    {
+      "id": "US-2951",
+      "passes": true,
+      "title": "A markdown, a coupon and an accepted offer can stack an item below cost and nothing checks",
+      "description": "As a seller, I want FlipDesk to refuse a discount stack that takes an item under my floor, so that a coupon I set up in March cannot combine with today's sale to sell at a loss.",
+      "acceptanceCriteria": [
+        "A pure resolver computes the worst-case realised price for an item given every promotion it is in, its best-offer auto-accept threshold and its shipping cost, and is unit-tested with a stacked markdown plus coupon plus auto-accept",
+        "Adding an item to a promotion, enabling an auto-accept threshold or enabling a markdown rule is blocked with a named error when the worst case breaches the item's margin floor, and the message names each contributing discount and its amount",
+        "Existing items already in a breaching stack are listed as a warning on the promotions card with the same breakdown - the check reports, it does not silently remove anything",
+        "The floor is the seller's configured margin floor, defaulting to DEFAULT_OFFER_MARGIN_FLOOR_PCT so there is one default and not two",
+        "An item with no known cost basis is excluded from the check and labelled as unchecked rather than assumed safe"
+      ],
+      "priority": 125,
+      "dependsOn": [
+        "US-2949"
+      ],
+      "notes": "Done 2026-08-27. evaluateStack computes the LOWEST price an item can legally leave at, because that is the only number that answers 'can this go below my floor'; an expected value weighted by coupon redemption would be smaller, more accurate on average and useless for the question. ORDER IS THE CONTRACT and matches eBay: a markdown changes the listed price, a coupon comes off the MARKED-DOWN price, and an auto-accept CAPS what is left rather than discounting again - applying the coupon to the original price understates the damage, which is the wrong direction for a safety check. Shipping the seller absorbs counts against the floor, which catches the case nobody sees: cleared the floor on price, lost on postage. UNCHECKED IS NOT SAFE - an item with no recorded cost is reported in its own count and never folded into the safe one. It REPORTS and removes nothing: silently pulling an item out of a promotion the seller built is a bigger surprise than the discount was. The banner names every contributing discount and its amount."
+    },
+    {
+      "id": "US-2952",
+      "passes": true,
+      "title": "Ad fees and markdown discounts never reach the money view, so reported profit is higher than real profit",
+      "description": "As a seller, I want promoted-listing fees and discounts given as part of a promotion shown in my P&L, so that the profit number I look at is the one I actually banked.",
+      "acceptanceCriteria": [
+        "Promoted-listing fees from the eBay finances transaction feed are attributed to the sale they came from and appear as their own line in src/pages/flipdesk/money.tsx alongside eBay fees and shipping",
+        "A discount given through a markdown sale or coupon is shown as a discount line on the sale rather than folded into a lower sale price with no explanation",
+        "Net margin per item and per period subtracts both, and a test asserts the period total equals the sum of its lines",
+        "The promotions and ads surfaces link through to the money view filtered to that promotion or campaign",
+        "Fees that arrive after the period is displayed do not silently change a previously shown total without the view marking the period as still settling"
+      ],
+      "priority": 126,
+      "dependsOn": [
+        "US-2949"
+      ],
+      "notes": "Done 2026-08-27. Promoted-listing fees never reached the money view, so the profit figure a seller read was profit BEFORE advertising - higher than what they banked, every month they ran ads. extractAdFees pulls them out of the Finances transaction feed and KEEPS THE ORDER LINK, because 'what did this jacket cost to sell' is the question a seller asks and a single advertising total answers a different one. A charge with no readable amount is DROPPED rather than counted as zero - zero would report 'you spent nothing on ads' from a feed that says otherwise, the direction that flatters profit. reconcileMoneyLines returns the lines AND the total from one computation, so the figure at the bottom cannot disagree with the rows above it, and the test asserts exactly that. A zero AD line is kept (a seller checking whether the campaign charges at all) while every other zero line is dropped. ONE HONEST ABSENCE, said in the card: eBay bills the REDUCED price when a discount applies and does not bill the discount as a line, so 'discounts you gave' is not inferred from a difference nobody can check."
+    },
+    {
+      "id": "US-2953",
+      "passes": true,
+      "title": "The seller's own eBay follower list is the cheapest channel they have and FlipDesk cannot send to it",
+      "description": "As a seller with an eBay Store, I want to send a campaign to my followers from FlipDesk using items it already knows are aged or newly listed, so that I use the audience I already own.",
+      "acceptanceCriteria": [
+        "lib/ebay-marketing.ts gains email-campaign operations against the Marketing API email_campaign endpoints: list, create, update, send and report",
+        "Routes under /api/flipdesk/ebay/marketing/email-campaigns exist, are tenant-scoped, and audit-log every send",
+        "A seller without an eBay Store subscription sees one honest line explaining the feature needs a Store, detected from the API response rather than assumed",
+        "Campaign item selection can be seeded from a FlipDesk saved filter (for example newly listed this week, or aged over 60 days), and the seeded set is editable before send",
+        "A send is confirmed with the recipient count and cannot be triggered by any automation rule - sends are always an explicit human action",
+        "Open and click results from eBay's campaign report are shown against the campaign after send",
+        "tenant-isolation_test.ts covers the new routes"
+      ],
+      "priority": 127,
+      "notes": "Done 2026-08-27. An eBay Store's followers cost nothing to reach and convert better than any paid impression, and FlipDesk could not send to them. List, create-as-draft, send and report are wired; the send is a separate call from the create, behind a confirm that names the recipient count. NO AUTOMATION REACHES THIS and there is no scheduled sender - not caution about eBay, but because a mailing list is the one asset here that a mistake destroys permanently: a rule that emails followers weekly because a threshold drifted does not produce a bad campaign, it produces unfollows, and those do not come back. isStoreRequiredError reads the Store gate off eBay's own response rather than guessing from the account, so a seller who subscribes tomorrow sees the feature appear with no code change - and the test pins the other half, that a 401 or a 500 never masquerades as a missing Store, because the worst message this feature can produce is 'you need an eBay Store' shown to someone who has one. Counts are NULL rather than 0 before a send; '0 opens' would read as a campaign that failed. The create takes LOCAL listing ids, owner-scoped, with a tenant-isolation case."
+    },
+    {
+      "id": "US-2926",
+      "passes": true,
+      "title": "EPIC: eBay after the listing - returns, cases, offers and promotions as the reason to switch",
+      "description": "As a reseller running volume on eBay, I want FlipDesk to own everything that happens after a listing goes live - returns, inquiries, Money Back Guarantee cases, offers and promotions - better than Seller Hub does, so that I run the business here instead of keeping a second tab open for the parts that actually cost me money.",
+      "acceptanceCriteria": [
+        "Umbrella only: children are US-2927..US-2953; this story closes when every child passes",
+        "Standing constraint: every new route added by a child is tenant-scoped per US-268 (workspaceOwnerId ?? userId, or ownership proven through a parent row) and carries a case in services/edge-functions/src/tests/tenant-isolation_test.ts",
+        "Standing constraint: no child writes an eBay-side action from a background job without an explicit seller opt-in row; auto-actions default OFF, matching lib/offer-rules.ts and the promoted-listings default in vault/30-platform/ebay-ranking-playbook.md",
+        "At close, the three surfaces named in the epic each read from a local table rather than a live eBay fetch on page load, so a page reload does not consume eBay call quota",
+        "At close, vault/30-platform/flipdesk-reseller-gaps.md section 1 is re-baselined against the shipped code and the '2026-06-20 re-baseline' block is superseded by a dated entry naming this epic"
+      ],
+      "priority": 100,
+      "notes": "Done 2026-08-27. All 27 children (US-2927..US-2953) closed. What this actually found, since the epic was written as an audit: two whole eBay surfaces had NO implementation at all - Item Not Received inquiries and Money Back Guarantee cases - and the second is the only post-sale event that carries a seller defect, so the one thing that damages a seller's standing was visible only in Seller Hub. Nothing about a return, dispute, offer or promotion was stored, which made history, deadlines and every analytic impossible rather than merely absent. Three migrations close that: 00675 marketplace_post_sale_cases (APPLIED), 00676 marketplace_offers and 00677 marketplace_promotions (both HELD - see PENDING_MIGRATIONS.md; the commit stays on local main until the SQL is on prod). Standing constraints held: every new route is tenant-scoped and has a tenant-isolation case (the bulk-ads and follower-campaign routes take LOCAL listing ids rather than eBay ones, because an eBay item id is readable off any public listing page); every auto-action defaults OFF and shows a dry run over real data before it can be enabled; the three list surfaces read a local table and fall back to stale cache rather than a 502. TWO GUARDS WERE WIDENED, not deleted, and both were sabotage-checked afterwards - return-evidence-surface.test.ts banned any useEffect in the pack panel (now bans the SEND inside an effect) and evidence-refusal-parity_test.ts required a literal verdict check per handler (now requires each to call the one shared arbiter). Both proxies had stopped matching code that was strictly safer than what they were written against, which is the failure mode worth naming: a guard that fails on an improvement gets deleted, and the rule it protected goes with it. vault/30-platform/flipdesk-reseller-gaps.md re-baselined with a gap-by-gap table; the 2026-06-20 block is marked superseded and combined shipping (#6) remains the only original gap still out of scope. ALSO FOUND: admin-grading.ts registers GET /accuracy/outcomes twice so the handler wired to the Outcomes tab is unreachable - filed as US-2954, not fixed here, because which handler is right is a product call."
     }
   ]
 }

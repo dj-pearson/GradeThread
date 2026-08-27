@@ -45,6 +45,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { MarketplaceConnectionSummary } from "@/components/flipdesk/marketplace-connection-summary";
 import { EbayPromotionsCard } from "@/components/flipdesk/ebay-promotions-card";
 import { EbayKeywordsCard } from "@/components/flipdesk/ebay-keywords-card";
+import { EbayCampaignCard } from "@/components/flipdesk/ebay-campaign-card";
+import { PromotionPerformanceCard } from "@/components/flipdesk/promotion-performance-card";
+import { FollowerCampaignCard } from "@/components/flipdesk/follower-campaign-card";
 import { EbayProgramsCard } from "@/components/flipdesk/ebay-programs-card";
 import {
   Table,
@@ -1749,8 +1752,14 @@ export function FlipdeskMarketplacesPage() {
           {connection && <PromotedListingsSection />}
           {/* US-1448: surface the seller's eBay Promotions Manager offers. */}
           {connection && <EbayPromotionsCard />}
+          {/* US-2949/2951: whether the sale worked, and whether the discounts stack under cost. */}
+          {connection && <PromotionPerformanceCard />}
+          {/* US-2946/2947: what to promote, and the controls to stop it. */}
+          {connection && <EbayCampaignCard />}
           {/* US-2945: keywords are the only lever a cost-per-click campaign has. */}
           {connection && <EbayKeywordsCard />}
+          {/* US-2953: the audience the seller already owns and pays nothing to reach. */}
+          {connection && <FollowerCampaignCard />}
           {/* US-2157: eBay account-level program opt-in (out-of-stock control,
               business policy management). */}
           {connection && <EbayProgramsCard />}

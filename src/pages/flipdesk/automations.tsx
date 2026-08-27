@@ -114,6 +114,11 @@ function describeTrigger(t: AutomationTrigger): string {
       if (t.decline_below_pct != null) parts.push(`decline under ${t.decline_below_pct}%`);
       return `an offer arrives — ${parts.join(", ") || "no thresholds set"}`;
     }
+    case "markdown_schedule": {
+      const parts = [`${t.markdown_pct}% off anything listed ${t.min_days_listed}+ days`];
+      if (t.min_grade != null) parts.push(`grade ${t.min_grade} and under only`);
+      return parts.join(", ");
+    }
     case "return_threshold": {
       const parts: string[] = [];
       if (t.approve_at_or_below_cents != null) {
@@ -193,7 +198,7 @@ const EBAY_BACKED_ACTIONS = new Set<AutomationAction["type"]>([
 const TRIGGER_OPTIONS: Array<{
   value: AutomationTrigger["type"];
   label: string;
-  group: "Aging" | "Pipeline" | "Offers" | "Returns";
+  group: "Aging" | "Pipeline" | "Offers" | "Returns" | "Promotions";
   /** Shows the trailing "…days" input. */
   days: boolean;
 }> = [
@@ -208,6 +213,7 @@ const TRIGGER_OPTIONS: Array<{
   { value: "comp_price_moved", label: "Price drifted from comps…", group: "Pipeline", days: false },
   { value: "offer_threshold", label: "An offer arrives (auto answer)…", group: "Offers", days: false },
   { value: "return_threshold", label: "A return arrives (auto answer)…", group: "Returns", days: false },
+  { value: "markdown_schedule", label: "Mark down aged stock…", group: "Promotions", days: false },
 ];
 
 const ACTION_OPTIONS: Array<{
@@ -321,6 +327,29 @@ function RuleDialog({
     initial?.trigger_json.type === "return_threshold" &&
       initial.trigger_json.refund_without_return_at_or_below_cents != null
       ? String(initial.trigger_json.refund_without_return_at_or_below_cents / 100)
+      : "",
+  );
+  // US-2950. Blank grade means "every grade", including ungraded — the rule is
+  // a clearance, and excluding stock for a missing grade would empty it.
+  const [mdDays, setMdDays] = useState(
+    initial?.trigger_json.type === "markdown_schedule"
+      ? String(initial.trigger_json.min_days_listed)
+      : "45",
+  );
+  const [mdPct, setMdPct] = useState(
+    initial?.trigger_json.type === "markdown_schedule"
+      ? String(initial.trigger_json.markdown_pct)
+      : "20",
+  );
+  const [mdFloorPct, setMdFloorPct] = useState(
+    initial?.trigger_json.type === "markdown_schedule"
+      ? String(initial.trigger_json.margin_floor_pct)
+      : "10",
+  );
+  const [mdMinGrade, setMdMinGrade] = useState(
+    initial?.trigger_json.type === "markdown_schedule" &&
+      initial.trigger_json.min_grade != null
+      ? String(initial.trigger_json.min_grade)
       : "",
   );
   const [actionType, setActionType] = useState<AutomationAction["type"]>(
@@ -453,6 +482,17 @@ function RuleDialog({
           counter_at_pct: pct(counterAtPct),
           decline_below_pct: pct(declineBelowPct),
           margin_floor_pct: Math.max(0, Math.trunc(Number(offerMarginFloorPct) || 0)),
+          cooldown_days: cooldown,
+        };
+      }
+      case "markdown_schedule": {
+        const grade = mdMinGrade.trim() ? Number(mdMinGrade) : null;
+        return {
+          type: triggerType,
+          min_days_listed: Math.max(1, Math.trunc(Number(mdDays) || 45)),
+          markdown_pct: Math.max(1, Math.trunc(Number(mdPct) || 20)),
+          margin_floor_pct: Math.max(0, Math.trunc(Number(mdFloorPct) || 0)),
+          min_grade: grade != null && Number.isFinite(grade) ? grade : null,
           cooldown_days: cooldown,
         };
       }
@@ -752,6 +792,18 @@ function RuleDialog({
                 />
               </div>
             )}
+            {triggerType === "markdown_schedule" && (
+              <MarkdownRuleFields
+                mdDays={mdDays}
+                setMdDays={setMdDays}
+                mdPct={mdPct}
+                setMdPct={setMdPct}
+                mdFloorPct={mdFloorPct}
+                setMdFloorPct={setMdFloorPct}
+                mdMinGrade={mdMinGrade}
+                setMdMinGrade={setMdMinGrade}
+              />
+            )}
             {triggerType === "return_threshold" && (
               <ReturnRuleFields
                 approveAtDollars={approveAtDollars}
@@ -778,6 +830,13 @@ function RuleDialog({
                 Answers eBay Best Offers hourly. This rule's action below is
                 ignored — accepting or declining IS the action. You are told
                 every time it answers one.
+              </p>
+            )}
+            {triggerType === "markdown_schedule" && (
+              <p className="text-xs text-muted-foreground">
+                Runs hourly and keeps ONE eBay sale up to date rather than
+                creating a new one each time. This rule's action below is ignored
+                — the markdown IS the action.
               </p>
             )}
             {triggerType === "return_threshold" && (
@@ -1569,6 +1628,176 @@ function OfferRulePreview({
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── US-2950: the aged-stock markdown fields ─────────────────────────
+//
+// The preview is the same argument as the return rules': this rule discounts
+// stock without asking, so a seller who cannot see the item list and the total
+// giveaway before enabling it is trusting a number they typed against stock
+// they have not looked at.
+//
+// The EXCLUSIONS are shown too. "Why is this item not in my sale" is the second
+// question every seller asks, and it is invisible if only the hits are listed.
+
+interface MarkdownDryRunItem {
+  listing_id: string;
+  title: string | null;
+  days_listed: number | null;
+  grade: number | null;
+}
+
+interface MarkdownDryRunExcluded {
+  listing_id: string;
+  title: string | null;
+  detail: string;
+}
+
+interface MarkdownDryRun {
+  scanned: number;
+  included: MarkdownDryRunItem[];
+  excluded: MarkdownDryRunExcluded[];
+  exposure_cents: number;
+}
+
+function MarkdownRuleFields({
+  mdDays,
+  setMdDays,
+  mdPct,
+  setMdPct,
+  mdFloorPct,
+  setMdFloorPct,
+  mdMinGrade,
+  setMdMinGrade,
+}: {
+  mdDays: string;
+  setMdDays: (v: string) => void;
+  mdPct: string;
+  setMdPct: (v: string) => void;
+  mdFloorPct: string;
+  setMdFloorPct: (v: string) => void;
+  mdMinGrade: string;
+  setMdMinGrade: (v: string) => void;
+}) {
+  const [preview, setPreview] = useState<MarkdownDryRun | null>(null);
+  const [running, setRunning] = useState(false);
+
+  async function run() {
+    setRunning(true);
+    setPreview(null);
+    try {
+      const res = await edgeFetch("/api/flipdesk/ebay/promotions/markdown-dry-run", {
+        method: "POST",
+        body: JSON.stringify({
+          min_days_listed: Number(mdDays) || 45,
+          markdown_pct: Number(mdPct) || 20,
+          margin_floor_pct: Number(mdFloorPct) || 0,
+          min_grade: mdMinGrade.trim() ? Number(mdMinGrade) : null,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "The preview failed.");
+      setPreview(json as MarkdownDryRun);
+    } catch (err) {
+      toastError(err, "Couldn't run the preview.");
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+      <div className="flex flex-wrap items-center gap-1.5 text-sm">
+        Mark down anything listed
+        <Input
+          type="number"
+          min={1}
+          value={mdDays}
+          onChange={(e) => setMdDays(e.target.value)}
+          className="w-20"
+          aria-label="Minimum days listed before the markdown applies"
+        />
+        days or more, by
+        <Input
+          type="number"
+          min={1}
+          max={80}
+          value={mdPct}
+          onChange={(e) => setMdPct(e.target.value)}
+          className="w-20"
+          aria-label="Markdown percentage"
+        />
+        %
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5 text-sm">
+        Never below cost +
+        <Input
+          type="number"
+          min={0}
+          max={100}
+          value={mdFloorPct}
+          onChange={(e) => setMdFloorPct(e.target.value)}
+          className="w-20"
+          aria-label="Minimum margin over cost for a marked-down item"
+        />
+        % · keep grades above
+        <Input
+          type="number"
+          min={1}
+          max={10}
+          step="0.1"
+          placeholder="all"
+          value={mdMinGrade}
+          onChange={(e) => setMdMinGrade(e.target.value)}
+          className="w-20"
+          aria-label="Minimum grade to include in the markdown"
+        />
+        out
+      </div>
+      <p className="text-xs text-muted-foreground">
+        An item whose discount would break the cost floor is left OUT of the sale
+        rather than discounted less — a sale is one percentage across everything
+        in it. Items with no purchase price or no grade on record are included.
+      </p>
+      <Button type="button" size="sm" variant="outline" disabled={running} onClick={run}>
+        {running ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+        Show me what this would discount
+      </Button>
+      {preview && (
+        <div className="space-y-2 rounded-md border bg-background p-2">
+          <p className="text-sm">
+            {preview.included.length} of {preview.scanned} live listings, giving away up
+            to ${(preview.exposure_cents / 100).toFixed(2)} at today's prices.
+          </p>
+          {preview.included.length > 0 && (
+            <ul className="max-h-40 space-y-1 overflow-y-auto text-xs text-muted-foreground">
+              {preview.included.slice(0, 50).map((i) => (
+                <li key={i.listing_id}>
+                  {i.title || i.listing_id}
+                  {i.days_listed != null ? ` — listed ${i.days_listed}d` : ""}
+                  {i.grade != null ? ` — grade ${i.grade}` : ""}
+                </li>
+              ))}
+            </ul>
+          )}
+          {preview.excluded.length > 0 && (
+            <>
+              <p className="text-xs font-medium">
+                {preview.excluded.length} left out:
+              </p>
+              <ul className="max-h-32 space-y-1 overflow-y-auto text-xs text-muted-foreground">
+                {preview.excluded.slice(0, 30).map((e) => (
+                  <li key={e.listing_id}>
+                    {e.title || e.listing_id} — {e.detail}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
       )}

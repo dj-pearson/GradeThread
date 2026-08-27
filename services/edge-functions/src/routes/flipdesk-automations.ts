@@ -41,6 +41,13 @@ import {
   updatePostSaleCaseState,
 } from "../lib/post-sale-store.ts";
 import { writeSystemAuditLog } from "../lib/audit-log.ts";
+import { selectMarkdownItems } from "../lib/markdown-rules.ts";
+import { loadMarkdownCandidates } from "../lib/markdown-candidates.ts";
+import {
+  createMarkdownSale,
+  getItemPromotions,
+  updateMarkdownSale,
+} from "../lib/ebay-marketing.ts";
 import { recordOfferResponse, recordOffers } from "../lib/offer-store.ts";
 import {
   decideOffer,
@@ -1154,6 +1161,24 @@ async function runRulesForOwner(ownerId: string): Promise<AutomationRunResult> {
     );
   }
 
+  // US-2950: the markdown schedule, after the offer and return rules and before
+  // the listing pass. After those two because an accepted offer or an approved
+  // return changes which items are still worth discounting; before the price
+  // pass because a markdown sale and a per-listing price drop on the same item
+  // are two discounts nobody asked to stack.
+  try {
+    const markdownRun = await runMarkdownRulesForOwner(ownerId, rules);
+    result.applied += markdownRun.sales_updated;
+    result.errors += markdownRun.errors;
+  } catch (err) {
+    result.errors++;
+    console.error(
+      "[automations] markdown rules failed",
+      ownerId,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
   const listings = await loadOwnerListings(ownerId);
   result.listings_scanned = listings.length;
 
@@ -1865,4 +1890,161 @@ async function writeAutomationAudit(
       err instanceof Error ? err.message : String(err),
     );
   }
+}
+
+// ── US-2950: the markdown runner ────────────────────────────────────
+//
+// The third sibling of runOfferRulesForOwner and runReturnRulesForOwner. The
+// evaluation unit here is a SET rather than a listing: eBay applies one
+// percentage across every item in a markdown sale, which is why the listing
+// planner cannot express it and why this is not a price_drop_pct action.
+//
+// ── ONE SALE PER RULE, UPDATED — NOT A NEW SALE EVERY HOUR ──────────────────
+//
+// The cron runs hourly. Creating a sale each time would leave a seller with
+// twenty-four overlapping promotions a day, and eBay would apply the deepest.
+// So the runner finds the sale it created before by NAME and updates it, and
+// only creates when there is none.
+
+export interface MarkdownRunResult {
+  rules_run: number;
+  items_included: number;
+  sales_updated: number;
+  errors: number;
+}
+
+/** The name we give our own sales, so a later run can find and update them. */
+export function markdownSaleName(ruleId: string): string {
+  return `FlipDesk auto ${ruleId.slice(0, 8)}`;
+}
+
+export async function runMarkdownRulesForOwner(
+  ownerId: string,
+  rules: AutomationRuleRow[],
+): Promise<MarkdownRunResult> {
+  const result: MarkdownRunResult = {
+    rules_run: 0,
+    items_included: 0,
+    sales_updated: 0,
+    errors: 0,
+  };
+  const markdownRules = rules.filter((r) => r.trigger_json?.type === "markdown_schedule");
+  if (markdownRules.length === 0) return result;
+  if (!isEbayConfigured()) return result;
+
+  const candidates = await loadMarkdownCandidates(ownerId);
+  if (candidates.length === 0) return result;
+
+  // Read the seller's existing promotions ONCE, not per rule.
+  let existing: Awaited<ReturnType<typeof getItemPromotions>> = [];
+  try {
+    existing = await getItemPromotions(ownerId);
+  } catch (err) {
+    // A promotions read failure means we cannot tell a new sale from an update,
+    // and creating one blind is how a seller ends up with duplicates. Stop.
+    console.error(
+      "[automations:markdown] could not read existing promotions",
+      ownerId,
+      err instanceof Error ? err.message : String(err),
+    );
+    result.errors++;
+    return result;
+  }
+
+  for (const rule of markdownRules) {
+    const t = rule.trigger_json as Extract<
+      AutomationTrigger,
+      { type: "markdown_schedule" }
+    >;
+    result.rules_run++;
+    const selection = selectMarkdownItems({
+      minDaysListed: t.min_days_listed,
+      markdownPct: t.markdown_pct,
+      marginFloorPct: t.margin_floor_pct,
+      minGrade: t.min_grade,
+    }, candidates);
+    result.items_included += selection.included.length;
+    // An empty set is not an error and must not create an empty sale — eBay
+    // rejects one, and a seller with nothing old enough yet is the normal case
+    // for a rule that has just been switched on.
+    if (selection.included.length === 0) continue;
+
+    // eBay's promotion takes ITS OWN listing ids, not ours. Resolve the local
+    // ids the selector returned; a listing with no eBay id is not live and
+    // cannot be in a sale, so it drops out here rather than 400ing the batch.
+    const platformIds = await platformListingIdsFor(
+      ownerId,
+      selection.included.map((i) => i.listingId),
+    );
+    if (platformIds.length === 0) continue;
+
+    const name = markdownSaleName(rule.id);
+    const match = existing.find((p) => p.name === name);
+    try {
+      if (match) {
+        await updateMarkdownSale(ownerId, match.promotionId, {
+          name,
+          percentOff: t.markdown_pct,
+          ebayListingId: platformIds[0]!,
+          additionalListingIds: platformIds.slice(1),
+        });
+      } else {
+        await createMarkdownSale(ownerId, {
+          name,
+          percentOff: t.markdown_pct,
+          ebayListingId: platformIds[0]!,
+          additionalListingIds: platformIds.slice(1),
+        });
+      }
+      result.sales_updated++;
+      await writeSystemAuditLog({
+        action: "ebay.markdown.auto_schedule",
+        targetType: "flipdesk_automation_rule",
+        targetId: rule.id,
+        details: {
+          owner_user_id: ownerId,
+          items: selection.included.length,
+          excluded: selection.excluded.length,
+          markdown_pct: t.markdown_pct,
+          exposure_cents: selection.exposureCents,
+        },
+      });
+    } catch (err) {
+      result.errors++;
+      console.error(
+        "[automations:markdown] sale write failed",
+        ownerId,
+        rule.id,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return result;
+}
+
+/**
+ * Local listing ids to eBay listing ids, owner-scoped.
+ *
+ * A listing with no platform id is not live on eBay and cannot be in a sale, so
+ * it is dropped rather than sent — eBay 400s the whole batch on one bad id, and
+ * losing the entire sale to one unpublished draft is the wrong trade.
+ */
+async function platformListingIdsFor(
+  ownerId: string,
+  listingIds: string[],
+): Promise<string[]> {
+  if (listingIds.length === 0) return [];
+  const { data, error } = await supabaseAdmin
+    .from("listings")
+    .select("platform_listing_id")
+    .eq("user_id", ownerId)
+    .eq("platform", "ebay")
+    .in("id", listingIds);
+  if (error) {
+    console.error("[automations:markdown] listing id resolve failed:", error.message);
+    return [];
+  }
+  return ((data ?? []) as unknown as Array<{ platform_listing_id: string | null }>)
+    .map((r) => r.platform_listing_id)
+    .filter((id): id is string => !!id);
 }

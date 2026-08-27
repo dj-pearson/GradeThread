@@ -4,13 +4,13 @@ type: reference
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-08-27
 tags: [flipdesk, product, gaps]
 summary: Where the reseller workflow still falls short of what a working seller needs.
 ---
 # FlipDesk Reseller Feature Gap Triage (US-469)
 
-**Audit date:** 2026-06-03 · **Triaged:** 2026-06-12 · **Re-baselined:** 2026-06-20 (US-1132) · **Owner:** FlipDesk
+**Audit date:** 2026-06-03 · **Triaged:** 2026-06-12 · **Re-baselined:** 2026-06-20 (US-1132), 2026-08-27 (US-2926) · **Owner:** FlipDesk
 
 This document triages the reseller/store-management features that a power eBay
 seller might expect but that FlipDesk does **not** fully handle today. It exists
@@ -21,6 +21,29 @@ handled. Source-of-truth PRD: `FlipDesk_PRD_v1.docx`. (US-2094 archived the olde
 NOT a source of truth; its non-goals rule out the multi-tenant, multi-marketplace
 product that actually shipped.)
 
+> **2026-08-27 re-baseline (US-2926).** The 2026-06-20 note below is superseded.
+> It recorded that the post-sale surfaces had *shipped*; this pass measured what
+> they shipped *against eBay's actual API* and found whole surfaces missing.
+> Closed by US-2927..US-2953:
+>
+> | Was missing | Now |
+> |---|---|
+> | **Item Not Received inquiries** — no reader at all. The webhook arrived, triggered a poll with no inquiry source, and the seller was told nothing. | `lib/ebay-inquiries.ts` + four routes + a poll source. |
+> | **Money Back Guarantee cases** — zero implementation. The one post-sale event that costs a seller DEFECT was the one only visible in Seller Hub. | `lib/ebay-cases.ts` + five routes + evidence upload. |
+> | **Mark return received** — never called, so eBay's clock ran on an item already back with the seller and ended in an automatic refund. | `markReturnReceived` + a state-gated action. |
+> | **Return shipping / tracking** — no way to see whether the buyer had actually posted it. | Read off the return DETAIL, not the label endpoint, so a buyer-supplied label still counts. |
+> | **Nothing stored** — every return, dispute and offer was a live fetch, so no history, no deadline, no analytics. | `marketplace_post_sale_cases` (00675), `marketplace_offers` (00676), `marketplace_promotions` (00677). |
+> | **Auto-counter** — the offer engine could accept, decline or skip. Countering is where the money is. | `decideOffer` gained `counter`, ordered accept > counter > decline. |
+> | **CPC keywords** — Promoted Listings Advanced ran with no keyword management, which is its only lever. | `lib/ebay-keywords.ts`, with negative-keyword candidates from the seller's own reported search terms. |
+> | **Campaign lifecycle and bulk ads** — a seller could start a campaign here and had to finish it in Seller Hub. | pause/resume/end/clone + bulk create/update with per-listing results. |
+> | **Promotion lift** — nothing measured whether a sale sold more. | `computeLift`, comparing the promotion window to the equal window before it. |
+> | **Ad fees in the money view** — profit was reported BEFORE advertising. | `lib/ad-spend.ts`, attributed per order. |
+> | **Store follower email** — the cheapest channel a seller owns was unreachable. | `lib/ebay-email-campaigns.ts`; every send is a human action. |
+>
+> Item **#6 (combined shipping / order-level discounts)** in the table below is
+> still the only original gap that remains out of scope, and the rationale there
+> is unchanged.
+>
 > **2026-06-20 re-baseline (US-1132):** The original guiding principle — keep
 > post-sale negotiation/dispute surfaces in eBay Seller Hub for launch — has been
 > **superseded**. Best Offer responses, send-offer, the buyer-message inbox,

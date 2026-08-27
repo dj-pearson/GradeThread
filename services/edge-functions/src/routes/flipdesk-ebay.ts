@@ -33,7 +33,11 @@ import {
   searchInquiries,
 } from "../lib/ebay-inquiries.ts";
 import { caseToCaseInput, inquiryToCaseInput } from "../lib/post-sale-store.ts";
-import { dryRunOfferRule, normalizeThresholdPct } from "../lib/offer-rules.ts";
+import {
+  DEFAULT_OFFER_MARGIN_FLOOR_PCT,
+  dryRunOfferRule,
+  normalizeThresholdPct,
+} from "../lib/offer-rules.ts";
 import { summarizeOffers } from "../lib/offer-analytics.ts";
 import { loadActiveOfferRule } from "../lib/offer-rule-lookup.ts";
 import {
@@ -51,8 +55,33 @@ import {
   suggestKeywords,
   updateKeyword,
 } from "../lib/ebay-keywords.ts";
-import { ensureCpcCampaign } from "../lib/ebay-marketing.ts";
+import { ensureCpcCampaign, recommendationApiSupported } from "../lib/ebay-marketing.ts";
 import { loadSearchTerms } from "../lib/ebay-ad-reports.ts";
+import { computeLift, loadPromotions, recordPromotions } from "../lib/promotion-store.ts";
+import { describeStack, evaluateStack } from "../lib/discount-stack.ts";
+import { describeExclusion, selectMarkdownItems } from "../lib/markdown-rules.ts";
+import { extractAdFees, reconcileMoneyLines } from "../lib/ad-spend.ts";
+import {
+  createEmailCampaign,
+  emailCampaignReport,
+  isStoreRequiredError,
+  listEmailCampaigns,
+  sendEmailCampaign,
+} from "../lib/ebay-email-campaigns.ts";
+import { loadMarkdownCandidates } from "../lib/markdown-candidates.ts";
+import {
+  type BulkAdResult,
+  bulkCreateAdsByListingId,
+  bulkUpdateAdRateByListingId,
+  cloneCampaign,
+  endCampaign,
+  isCampaignAlreadyInState,
+  pauseCampaign,
+  resumeCampaign,
+  suggestBids,
+  suggestBudget,
+  suggestItems,
+} from "../lib/ebay-campaign-ops.ts";
 import {
   incomingOfferToInput,
   loadBuyerHistory,
@@ -4974,6 +5003,805 @@ flipdeskEbayRoutes.post("/negotiation/threshold-conflicts/reconcile", async (c) 
     return c.json({ ok: true, updated });
   } catch (err) {
     return failSafe(c, 500, "Couldn't reconcile the thresholds.", err, "ebay.offers.reconcile");
+  }
+});
+
+// ── Store follower campaigns (US-2953) ──────────────────────────────
+//
+// A seller with an eBay Store has an audience they already own and pay nothing
+// to reach, and FlipDesk could not send to it.
+//
+// A SEND IS ALWAYS A HUMAN ACTION. No automation rule reaches these routes and
+// there is no scheduled sender — a mailing list is the one asset here that a
+// mistake destroys permanently. A rule that emails followers weekly because a
+// threshold drifted does not produce a bad campaign, it produces unfollows.
+
+// GET /marketing/email-campaigns — the seller's campaigns and their results.
+flipdeskEbayRoutes.get("/marketing/email-campaigns", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    return c.json({ available: true, campaigns: await listEmailCampaigns(ownerId) });
+  } catch (err) {
+    if (isStoreRequiredError(err)) {
+      // Detected, not assumed. A seller who subscribes tomorrow sees the
+      // feature appear with no code change.
+      return c.json({
+        available: false,
+        detail: "Emailing your followers needs an eBay Store subscription.",
+        campaigns: [],
+      });
+    }
+    return failSafe(c, 502, "Couldn't load your eBay campaigns.", err, "ebay.email.list");
+  }
+});
+
+// POST /marketing/email-campaigns — create a DRAFT. Sending is separate.
+//
+// body { name, subject, listing_ids }  (LOCAL listing ids)
+flipdeskEbayRoutes.post("/marketing/email-campaigns", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { name?: unknown; subject?: unknown; listing_ids?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const subject = typeof body.subject === "string" ? body.subject.trim() : "";
+  if (!name || !subject) return c.json({ error: "name and subject are required." }, 400);
+  const requested = Array.isArray(body.listing_ids)
+    ? body.listing_ids.filter((x): x is string => typeof x === "string").slice(0, 200)
+    : [];
+  if (requested.length === 0) {
+    return c.json({ error: "Pick at least one listing to feature." }, 400);
+  }
+
+  try {
+    // LOCAL ids in, eBay ids out, owner-scoped — the same boundary the bulk ad
+    // route uses, and for the same reason: an eBay item id is readable off any
+    // public listing page.
+    const { data: owned } = await supabaseAdmin
+      .from("listings")
+      .select("id, platform_listing_id")
+      .eq("user_id", ownerId)
+      .eq("platform", "ebay")
+      .in("id", requested);
+    const platformIds = ((owned ?? []) as unknown as Array<{
+      id: string;
+      platform_listing_id: string | null;
+    }>)
+      .map((r) => r.platform_listing_id)
+      .filter((id): id is string => !!id);
+    if (platformIds.length === 0) {
+      return c.json({ error: "None of those listings are live on eBay." }, 409);
+    }
+
+    const campaignId = await createEmailCampaign(ownerId, {
+      name,
+      subject,
+      listingIds: platformIds,
+    });
+    await writeAuditLog(c, {
+      action: "ebay.email_campaign.create",
+      targetType: "ebay_email_campaign",
+      targetId: campaignId,
+      details: { name, listings: platformIds.length },
+    });
+    return c.json({ ok: true, campaign_id: campaignId, listings: platformIds.length });
+  } catch (err) {
+    if (isStoreRequiredError(err)) {
+      return c.json({ error: "Emailing your followers needs an eBay Store subscription." }, 409);
+    }
+    return failSafe(c, 502, "eBay rejected the campaign.", err, "ebay.email.create");
+  }
+});
+
+// POST /marketing/email-campaigns/:id/send — the explicit human action.
+flipdeskEbayRoutes.post("/marketing/email-campaigns/:id/send", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const campaignId = c.req.param("id");
+  try {
+    await sendEmailCampaign(ownerId, campaignId);
+    await writeAuditLog(c, {
+      action: "ebay.email_campaign.send",
+      targetType: "ebay_email_campaign",
+      targetId: campaignId,
+      details: {},
+    });
+    return c.json({ ok: true });
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the send.", err, "ebay.email.send");
+  }
+});
+
+// GET /marketing/email-campaigns/:id/report — opens and clicks, after the send.
+flipdeskEbayRoutes.get("/marketing/email-campaigns/:id/report", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    return c.json(await emailCampaignReport(ownerId, c.req.param("id")));
+  } catch (err) {
+    // A campaign that has not gone out yet has no report, which is a state and
+    // not a failure.
+    console.warn("[ebay.email.report]", err instanceof Error ? err.message : String(err));
+    return c.json({ opens: null, clicks: null, recipients: null });
+  }
+});
+
+// GET /finances/ad-spend — US-2952. What advertising actually cost.
+//
+// Promoted-listing fees never reached the money view, so the profit figure a
+// seller read was profit BEFORE advertising — higher than what they banked,
+// every month they ran ads.
+//
+// The ad fee is billed as its own eBay transaction carrying the order id, and
+// that link is kept: "this jacket cost $4.20 to sell" is the question a seller
+// asks, and a single advertising total answers a different one.
+//
+// The response also carries the reconciled LINES and their total, computed
+// together so the page cannot show a figure that disagrees with the rows above
+// it.
+flipdeskEbayRoutes.get("/finances/ad-spend", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const days = Math.min(Math.max(Number(c.req.query("days")) || 90, 1), 365);
+  const sinceIso = new Date(Date.now() - days * 86_400_000).toISOString();
+
+  try {
+    const warnings: string[] = [];
+    const transactions = await listRecentTransactions(ownerId, sinceIso, warnings);
+    const adFees = extractAdFees(
+      transactions.map((t) => ({
+        transactionId: t.transactionId,
+        transactionType: t.transactionType,
+        transactionDate: t.transactionDate,
+        orderId: t.orderId,
+        amount: t.amount,
+        // The Finances transaction shape carries the fee type under several
+        // names across versions; the reader keeps whichever it finds, and the
+        // matcher is loose on purpose — a type eBay adds tomorrow should land
+        // in advertising rather than disappearing from the seller's costs.
+        feeType: (t as unknown as { feeType?: string | null }).feeType ?? t.transactionType,
+        bookingEntry: t.bookingEntry,
+      })),
+    );
+
+    // The sales side of the same window, so the lines reconcile against
+    // something rather than floating on their own.
+    const { data: salesRows } = await supabaseAdmin
+      .from("sales")
+      .select("sale_price, platform_fees, platform_order_id, inventory_item_id")
+      .eq("user_id", ownerId)
+      .gte("sale_date", sinceIso)
+      .limit(5000);
+    const sales = ((salesRows ?? []) as unknown as Array<{
+      sale_price: number | null;
+      platform_fees: number | null;
+      platform_order_id: string | null;
+      inventory_item_id: string | null;
+    }>);
+    const revenueCents = sales.reduce(
+      (sum, r) => sum + (r.sale_price != null ? Math.round(Number(r.sale_price) * 100) : 0),
+      0,
+    );
+    const platformFeesCents = sales.reduce(
+      (sum, r) => sum + (r.platform_fees != null ? Math.round(Number(r.platform_fees) * 100) : 0),
+      0,
+    );
+
+    // Cost of goods, through the owner-verified parent.
+    const itemIds = [...new Set(sales.map((r) => r.inventory_item_id).filter(Boolean))] as string[];
+    let costOfGoodsCents = 0;
+    if (itemIds.length > 0) {
+      const { data: items } = await supabaseAdmin
+        .from("inventory_items")
+        .select("id, acquired_price")
+        .eq("user_id", ownerId)
+        .in("id", itemIds);
+      const costById = new Map(
+        ((items ?? []) as unknown as Array<{ id: string; acquired_price: number | null }>)
+          .map((i) => [i.id, i.acquired_price]),
+      );
+      for (const r of sales) {
+        const cost = r.inventory_item_id ? costById.get(r.inventory_item_id) : null;
+        if (typeof cost === "number") costOfGoodsCents += Math.round(cost * 100);
+      }
+    }
+
+    const adFeesCents = adFees.reduce((sum, f) => sum + f.cents, 0);
+    // Attributed per order, so a seller can ask what one sale cost to advertise.
+    const byOrder: Record<string, number> = {};
+    for (const f of adFees) {
+      if (!f.orderId) continue;
+      byOrder[f.orderId] = (byOrder[f.orderId] ?? 0) + f.cents;
+    }
+
+    return c.json({
+      days,
+      ad_fees_cents: adFeesCents,
+      ad_fees_by_order: byOrder,
+      unattributed_ad_fees_cents: adFees
+        .filter((f) => !f.orderId)
+        .reduce((sum, f) => sum + f.cents, 0),
+      // Promotion discounts are NOT in the transaction feed as a line — eBay
+      // bills the reduced price, not the discount. Reported as zero and said so
+      // in the UI rather than inferred from a difference nobody can check.
+      ...reconcileMoneyLines({
+        revenueCents,
+        platformFeesCents,
+        shippingCents: 0,
+        costOfGoodsCents,
+        adFeesCents,
+        promotionDiscountCents: 0,
+      }),
+      warnings,
+    });
+  } catch (err) {
+    return failSafe(c, 502, "Couldn't read your eBay ad spend.", err, "ebay.finances.ad_spend");
+  }
+});
+
+// POST /promotions/markdown-dry-run — US-2950. What the rule WOULD discount.
+//
+// The rule marks items down without asking, so a seller who cannot see the item
+// list and the total discount before enabling it is being asked to trust a
+// number they typed against stock they have not looked at.
+//
+// Reads only. No eBay call, no write, no rule created. The EXCLUSIONS are
+// returned with their reasons too — "why is this item not in my sale" is the
+// question a seller asks second, and it is invisible if only the hits are listed.
+//
+// body { min_days_listed, markdown_pct, margin_floor_pct?, min_grade? }
+flipdeskEbayRoutes.post("/promotions/markdown-dry-run", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: {
+    min_days_listed?: unknown;
+    markdown_pct?: unknown;
+    margin_floor_pct?: unknown;
+    min_grade?: unknown;
+  };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const markdownPct = Math.trunc(Number(body.markdown_pct) || 0);
+  if (!(markdownPct > 0)) return c.json({ error: "Set a markdown percentage." }, 400);
+  const cfg = {
+    minDaysListed: Math.max(1, Math.trunc(Number(body.min_days_listed) || 45)),
+    markdownPct,
+    marginFloorPct: Math.max(
+      0,
+      Math.trunc(Number(body.margin_floor_pct) || DEFAULT_OFFER_MARGIN_FLOOR_PCT),
+    ),
+  };
+  const minGradeRaw = body.min_grade;
+  const minGrade = minGradeRaw == null || minGradeRaw === "" ? null : Number(minGradeRaw);
+  if (minGrade != null && (!Number.isFinite(minGrade) || minGrade < 1 || minGrade > 10)) {
+    return c.json({ error: "The minimum grade must be between 1 and 10." }, 400);
+  }
+
+  try {
+    const candidates = await loadMarkdownCandidates(ownerId);
+    const selection = selectMarkdownItems(
+      {
+        minDaysListed: cfg.minDaysListed,
+        markdownPct: cfg.markdownPct,
+        marginFloorPct: cfg.marginFloorPct,
+        minGrade,
+      },
+      candidates,
+    );
+    return c.json({
+      scanned: candidates.length,
+      included: selection.included.map((i) => ({
+        listing_id: i.listingId,
+        title: i.title,
+        price_cents: i.priceCents,
+        days_listed: i.daysListed,
+        grade: i.grade,
+      })),
+      excluded: selection.excluded.map((e) => ({
+        listing_id: e.item.listingId,
+        title: e.item.title,
+        reason: e.reason,
+        detail: describeExclusion(e.reason),
+      })),
+      exposure_cents: selection.exposureCents,
+    });
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't run the preview.", err, "ebay.promotions.markdown_dry_run");
+  }
+});
+
+// GET /promotions/performance — US-2949. Did the sale actually sell more?
+//
+// "This sale made $840" is not a finding; the items would have sold something
+// without it. What is reported is units and revenue DURING the promotion
+// against the same window BEFORE it, and BOTH windows are returned so a seller
+// can see what was compared rather than trust a lift figure with no denominator.
+//
+// A promotion too new or too short to have a comparable window reports no lift
+// at all rather than a number driven entirely by which afternoon it ran.
+//
+// Local tables only — no eBay call on page load.
+flipdeskEbayRoutes.get("/promotions/performance", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    const promotions = await loadPromotions(ownerId, 50);
+    if (promotions.length === 0) return c.json({ promotions: [] });
+
+    // One sales read covering every promotion window, rather than one per
+    // promotion. The oldest window start bounds it.
+    const earliest = promotions
+      .map((p) => (p.startsAt ? Date.parse(p.startsAt) : Number.NaN))
+      .filter((t) => Number.isFinite(t))
+      .reduce((a, b) => Math.min(a, b), Number.POSITIVE_INFINITY);
+    const sinceMs = Number.isFinite(earliest)
+      ? earliest - 90 * 86_400_000
+      : Date.now() - 180 * 86_400_000;
+    const { data: salesRows } = await supabaseAdmin
+      .from("sales")
+      .select("sale_date, sale_price")
+      .eq("user_id", ownerId)
+      .gte("sale_date", new Date(sinceMs).toISOString())
+      .limit(5000);
+    const sales = ((salesRows ?? []) as unknown as Array<{
+      sale_date: string | null;
+      sale_price: number | null;
+    }>)
+      .filter((r) => r.sale_date && r.sale_price != null)
+      .map((r) => ({
+        soldAt: r.sale_date!,
+        priceCents: Math.round(Number(r.sale_price) * 100),
+      }));
+
+    return c.json({
+      promotions: promotions.map((promo) => ({
+        id: promo.id,
+        external_promotion_id: promo.externalPromotionId,
+        name: promo.name,
+        promotion_type: promo.promotionType,
+        status: promo.status,
+        discount_pct: promo.discountPct,
+        starts_at: promo.startsAt,
+        ends_at: promo.endsAt,
+        item_count: promo.itemCount,
+        reported_units: promo.reportedUnits,
+        reported_revenue_cents: promo.reportedRevenueCents,
+        // NOT the seller's whole catalogue: this compares total sales in the
+        // two windows, which is the honest available comparison when we do not
+        // store which items were in the promotion. Said in the response so the
+        // UI can say it too.
+        comparison_basis: "all_sales_in_window",
+        lift: computeLift(promo.startsAt, promo.endsAt, sales),
+      })),
+    });
+  } catch (err) {
+    return failSafe(
+      c,
+      500,
+      "Couldn't work out how your promotions did.",
+      err,
+      "ebay.promotions.performance",
+    );
+  }
+});
+
+// POST /promotions/sync — US-2949. Pull the seller's promotions into the record.
+flipdeskEbayRoutes.post("/promotions/sync", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    const promos = await getItemPromotions(ownerId);
+    const stored = await recordPromotions(
+      ownerId,
+      promos.map((p) => ({
+        externalPromotionId: p.promotionId,
+        promotionType: p.promotionType ?? null,
+        name: p.name ?? null,
+        status: p.promotionStatus ?? null,
+        startsAt: p.startDate ?? null,
+        endsAt: p.endDate ?? null,
+        raw: p,
+      })),
+    );
+    return c.json({ ok: true, stored });
+  } catch (err) {
+    return failSafe(c, 502, "Couldn't read your eBay promotions.", err, "ebay.promotions.sync");
+  }
+});
+
+// GET /promotions/stack-check — US-2951. What an item leaves at once every
+// discount stacks.
+//
+// A markdown sale, a coupon and an accepted offer can all apply to one garment
+// and nothing added them up. This REPORTS; it removes nothing. Silently pulling
+// an item out of a promotion the seller built is a bigger surprise than the
+// discount was.
+//
+// An item with no recorded cost is reported as UNCHECKED, not as safe.
+flipdeskEbayRoutes.get("/promotions/stack-check", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const marginFloorPct = Math.min(
+    Math.max(Number(c.req.query("margin_floor_pct")) || DEFAULT_OFFER_MARGIN_FLOOR_PCT, 0),
+    100,
+  );
+  try {
+    // The active markdown percentage, if the seller is running one. eBay's
+    // promotion object carries it; a seller in no sale simply has none.
+    const promotions = await loadPromotions(ownerId, 50);
+    const running = promotions.filter((p) => (p.status ?? "").toUpperCase() === "RUNNING");
+    const markdownPct = running
+      .filter((p) => (p.promotionType ?? "").toUpperCase().includes("MARKDOWN"))
+      .map((p) => p.discountPct ?? 0)
+      .reduce((a, b) => Math.max(a, b), 0) || null;
+    const couponPct = running
+      .filter((p) => (p.promotionType ?? "").toUpperCase().includes("COUPON"))
+      .map((p) => p.discountPct ?? 0)
+      .reduce((a, b) => Math.max(a, b), 0) || null;
+
+    const { data: rows } = await supabaseAdmin
+      .from("listings")
+      .select(
+        "id, listing_title, listing_price, best_offer_auto_accept_cents, shipping_cost, " +
+          "inventory_items!inner(user_id, acquired_price)",
+      )
+      .eq("user_id", ownerId)
+      .eq("platform", "ebay")
+      .eq("listing_status", "active")
+      .eq("inventory_items.user_id", ownerId)
+      .limit(1000);
+
+    const results = ((rows ?? []) as unknown as Array<{
+      id: string;
+      listing_title: string | null;
+      listing_price: number | null;
+      best_offer_auto_accept_cents: number | null;
+      shipping_cost: number | null;
+      inventory_items:
+        | { acquired_price: number | null }
+        | { acquired_price: number | null }[]
+        | null;
+    }>).map((row) => {
+      const inv = Array.isArray(row.inventory_items)
+        ? row.inventory_items[0]
+        : row.inventory_items;
+      const verdict = evaluateStack({
+        priceCents: row.listing_price != null ? Math.round(Number(row.listing_price) * 100) : null,
+        costCents: typeof inv?.acquired_price === "number"
+          ? Math.round(inv.acquired_price * 100)
+          : null,
+        shippingCostCents: row.shipping_cost != null
+          ? Math.round(Number(row.shipping_cost) * 100)
+          : null,
+        markdownPct,
+        couponPct,
+        autoAcceptCents: row.best_offer_auto_accept_cents,
+        marginFloorPct,
+      });
+      return {
+        listing_id: row.id,
+        title: row.listing_title,
+        worst_case_cents: verdict.worstCaseCents,
+        floor_cents: verdict.floorCents,
+        breaches: verdict.breaches,
+        unchecked: verdict.unchecked,
+        detail: describeStack(verdict),
+      };
+    });
+
+    return c.json({
+      margin_floor_pct: marginFloorPct,
+      markdown_pct: markdownPct,
+      coupon_pct: couponPct,
+      breaching: results.filter((r) => r.breaches),
+      // Reported separately and never folded into "safe": an item we could not
+      // check is not an item we checked and cleared.
+      unchecked: results.filter((r) => r.unchecked).length,
+      checked: results.filter((r) => !r.unchecked).length,
+    });
+  } catch (err) {
+    return failSafe(
+      c,
+      500,
+      "Couldn't check your discounts.",
+      err,
+      "ebay.promotions.stack_check",
+    );
+  }
+});
+
+// ── Campaign suggestions, lifecycle and bulk ads (US-2946/47/48) ────
+//
+// FlipDesk could create a campaign and set one ad rate at a time. It could not
+// ask eBay what to promote, could not stop what it had started, and could not
+// change a hundred rates without a hundred calls — so a seller who started a
+// campaign here had to finish it in Seller Hub.
+//
+// The campaign id is always resolved from the seller's own connection through
+// ensureCpcCampaign; it is never taken from the request (US-268).
+
+// GET /marketing/suggestions — eBay's view, joined to ours.
+//
+// Ranked by MARGIN AFTER THE AD FEE, not by eBay's own order, and the response
+// says which ordering it used. eBay ranks by what it expects to sell; a seller
+// cares what is left afterwards, and those are not the same list.
+flipdeskEbayRoutes.get("/marketing/suggestions", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  if (!recommendationApiSupported(getMarketplaceId())) {
+    // Honest and specific: this marketplace has no suggestion API, which is not
+    // the same as "you have nothing worth promoting".
+    return c.json({
+      supported: false,
+      detail: "eBay does not offer promotion suggestions on this marketplace.",
+      items: [],
+    });
+  }
+  try {
+    const { campaignId, adGroupId } = await ensureCpcCampaign(ownerId);
+    const [items, budget, bids] = await Promise.all([
+      suggestItems(ownerId, campaignId),
+      suggestBudget(ownerId, campaignId).catch(() => ({
+        dailyBudgetCents: null,
+        currency: null,
+      })),
+      suggestBids(ownerId, campaignId, adGroupId).catch(() => []),
+    ]);
+    if (items.length === 0) {
+      return c.json({ supported: true, ordering: "margin_after_ad_fee", items: [], budget, bids });
+    }
+
+    // The local economics. Scoped through the owner-verified parent item, the
+    // loadListingOwned pattern.
+    const listingIds = items.map((i) => i.listingId);
+    const { data: rows } = await supabaseAdmin
+      .from("listings")
+      .select(
+        "platform_listing_id, listing_title, listing_price, listed_at, " +
+          "inventory_items!inner(user_id, acquired_price)",
+      )
+      .eq("platform", "ebay")
+      .in("platform_listing_id", listingIds)
+      .eq("inventory_items.user_id", ownerId);
+    const localById = new Map(
+      ((rows ?? []) as unknown as Array<{
+        platform_listing_id: string | null;
+        listing_title: string | null;
+        listing_price: number | null;
+        listed_at: string | null;
+        inventory_items:
+          | { acquired_price: number | null }
+          | { acquired_price: number | null }[]
+          | null;
+      }>).filter((r) => r.platform_listing_id).map((r) => [r.platform_listing_id!, r]),
+    );
+
+    const nowMs = Date.now();
+    const enriched = items.map((it) => {
+      const local = localById.get(it.listingId);
+      const inv = Array.isArray(local?.inventory_items)
+        ? local?.inventory_items[0]
+        : local?.inventory_items;
+      const priceCents = local?.listing_price != null
+        ? Math.round(Number(local.listing_price) * 100)
+        : null;
+      const costCents = typeof inv?.acquired_price === "number"
+        ? Math.round(inv.acquired_price * 100)
+        : null;
+      const rate = it.suggestedBidPercentage;
+      const adFeeCents = priceCents != null && rate != null
+        ? Math.round(priceCents * (rate / 100))
+        : null;
+      // Null, not zero, when the cost is unknown — an item with no cost basis
+      // has an unknown margin, and ranking it as if it were free puts the
+      // things we know least about at the top of a spending list.
+      const marginAfterAdFeeCents = priceCents != null && costCents != null && adFeeCents != null
+        ? priceCents - costCents - adFeeCents
+        : null;
+      const listedAt = local?.listed_at ? Date.parse(local.listed_at) : Number.NaN;
+      return {
+        listing_id: it.listingId,
+        title: local?.listing_title ?? null,
+        suggested_bid_percentage: rate,
+        price_cents: priceCents,
+        cost_cents: costCents,
+        ad_fee_cents: adFeeCents,
+        margin_after_ad_fee_cents: marginAfterAdFeeCents,
+        days_listed: Number.isFinite(listedAt)
+          ? Math.floor((nowMs - listedAt) / 86_400_000)
+          : null,
+      };
+    }).sort((a, b) => {
+      const am = a.margin_after_ad_fee_cents;
+      const bm = b.margin_after_ad_fee_cents;
+      if (am == null && bm == null) return 0;
+      if (am == null) return 1;
+      if (bm == null) return -1;
+      return bm - am;
+    });
+
+    return c.json({ supported: true, ordering: "margin_after_ad_fee", items: enriched, budget, bids });
+  } catch (err) {
+    return failSafe(
+      c,
+      502,
+      "Couldn't load eBay's promotion suggestions.",
+      err,
+      "ebay.marketing.suggestions",
+    );
+  }
+});
+
+// POST /marketing/campaign/:action — pause | resume | end | clone.
+//
+// An already-in-that-state answer is success: a seller pressing Pause on a
+// paused campaign should see it paused, not a 502.
+flipdeskEbayRoutes.post("/marketing/campaign/:action", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const action = c.req.param("action");
+  if (action !== "pause" && action !== "resume" && action !== "end" && action !== "clone") {
+    return c.json({ error: "action must be pause, resume, end or clone." }, 400);
+  }
+  let body: { name?: unknown } = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  try {
+    const { campaignId } = await ensureCpcCampaign(ownerId);
+    let clonedId: string | null = null;
+    try {
+      if (action === "pause") await pauseCampaign(ownerId, campaignId);
+      else if (action === "resume") await resumeCampaign(ownerId, campaignId);
+      else if (action === "end") await endCampaign(ownerId, campaignId);
+      else {
+        clonedId = await cloneCampaign(
+          ownerId,
+          campaignId,
+          typeof body.name === "string" && body.name.trim()
+            ? body.name.trim()
+            : `FlipDesk ${new Date().toISOString().slice(0, 10)}`,
+        );
+      }
+    } catch (err) {
+      if (!isCampaignAlreadyInState(err)) throw err;
+    }
+
+    // ENDING CLEARS THE CACHED IDS. ensureCpcCampaign short-circuits on
+    // marketplace_connections.ebay_cpc_campaign_id, so leaving a dead id there
+    // means every later ad create is aimed at a campaign that no longer exists.
+    if (action === "end") {
+      const { error } = await supabaseAdmin
+        .from("marketplace_connections")
+        .update({ ebay_cpc_campaign_id: null, ebay_cpc_ad_group_id: null })
+        .eq("user_id", ownerId)
+        .eq("marketplace", "ebay");
+      if (error) console.error("[ebay.marketing.campaign.end] cache clear:", error.message);
+    }
+
+    await writeAuditLog(c, {
+      action: `ebay.marketing.campaign.${action}`,
+      targetType: "ebay_ad_campaign",
+      targetId: campaignId,
+      details: { cloned_campaign_id: clonedId },
+    });
+    return c.json({ ok: true, campaign_id: campaignId, cloned_campaign_id: clonedId });
+  } catch (err) {
+    return failSafe(
+      c,
+      502,
+      "eBay rejected the campaign change.",
+      err,
+      `ebay.marketing.campaign.${action}`,
+    );
+  }
+});
+
+// POST /marketing/ads/bulk — body { listing_ids, bid_percentage, mode? }
+//
+// PER-LISTING RESULTS, never one aggregate ok. eBay's bulk endpoints return 200
+// while rejecting half the batch, and reporting that as success is how a seller
+// comes to believe a hundred items are promoted when forty are not.
+flipdeskEbayRoutes.post("/marketing/ads/bulk", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { listing_ids?: unknown; bid_percentage?: unknown; mode?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const requested = Array.isArray(body.listing_ids)
+    ? body.listing_ids.filter((x): x is string => typeof x === "string")
+    : [];
+  if (requested.length === 0) {
+    return c.json({ error: "listing_ids must be a non-empty array." }, 400);
+  }
+  const bid = Number(body.bid_percentage);
+  if (!Number.isFinite(bid) || bid <= 0 || bid > 100) {
+    return c.json({ error: "bid_percentage must be between 0 and 100." }, 400);
+  }
+  const mode = body.mode === "update" ? "update" : "create";
+
+  try {
+    // TENANT SCOPE, and the reason the body carries LOCAL listing ids rather
+    // than eBay ones: the local id resolves through a row we own, so an id
+    // belonging to another seller resolves to NOTHING. Taking eBay's own item
+    // id here would mean trusting an identifier the caller could have read off
+    // any public listing page.
+    //
+    // A foreign or unpublished id is REJECTED BY NAME rather than silently
+    // dropped — a silent drop reports a smaller success than the caller asked
+    // for and says nothing about why.
+    const { data: owned } = await supabaseAdmin
+      .from("listings")
+      .select("id, platform_listing_id")
+      .eq("user_id", ownerId)
+      .eq("platform", "ebay")
+      .in("id", requested);
+    const platformById = new Map(
+      ((owned ?? []) as unknown as Array<{ id: string; platform_listing_id: string | null }>)
+        .filter((r) => r.platform_listing_id)
+        .map((r) => [r.id, r.platform_listing_id!]),
+    );
+    const unresolved = requested.filter((id) => !platformById.has(id));
+    if (unresolved.length > 0) {
+      return c.json(
+        {
+          error: "Some listings can't be promoted.",
+          detail:
+            `${unresolved.length} of them either aren't yours or aren't live on eBay yet.`,
+        },
+        unresolved.length === requested.length ? 403 : 409,
+      );
+    }
+    const platformIds = requested.map((id) => platformById.get(id)!);
+
+    const { campaignId } = await ensureCpcCampaign(ownerId);
+    const results: BulkAdResult[] = mode === "update"
+      ? await bulkUpdateAdRateByListingId(ownerId, campaignId, platformIds, bid)
+      : await bulkCreateAdsByListingId(ownerId, campaignId, platformIds, bid);
+    const failed = results.filter((r) => !r.ok);
+    await writeAuditLog(c, {
+      action: `ebay.marketing.ads.bulk_${mode}`,
+      targetType: "ebay_ad_campaign",
+      targetId: campaignId,
+      details: { requested: requested.length, failed: failed.length, bid_percentage: bid },
+    });
+    return c.json({
+      ok: failed.length === 0,
+      campaign_id: campaignId,
+      succeeded: results.length - failed.length,
+      failed: failed.length,
+      results,
+    });
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the bulk change.", err, "ebay.marketing.ads.bulk");
   }
 });
 

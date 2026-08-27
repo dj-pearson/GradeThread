@@ -11,7 +11,7 @@ code_refs:
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-08-23
+reviewed: 2026-08-27
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
@@ -37,6 +37,14 @@ summary: A grade reaches a marketplace listing as text and a structured specific
 > That is the returns and payment-dispute API. It is a private channel between
 > the seller, the buyer and eBay's case handler, opened only once a case exists.
 > No listing photo is written, no aspect is added, no link goes on a listing.
+>
+> **Re-reviewed 2026-08-27 (US-2935).** The evidence pack now reaches a THIRD
+> eBay surface — an escalated Money Back Guarantee case, via `uploadCaseFile`
+> / `submitCaseFiles` in `services/edge-functions/src/lib/ebay-cases.ts`. Same
+> host, same private channel, same answer: `apiHost()/post-order/v2`, opened
+> only once a case exists, no listing photo written and no aspect added. The
+> rule below is unchanged; only the count of case types it does not apply to
+> has gone from two to three.
 >
 > The distinction to keep, because the next reader will hit this and wonder: the
 > ban is on grading marks appearing where a BUYER BROWSES — the hero image, the

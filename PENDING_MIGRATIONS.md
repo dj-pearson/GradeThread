@@ -1,5 +1,38 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🔒 HELD: 00677_marketplace_promotions.sql (US-2949)
+
+**NOT YET APPLIED. Apply AFTER 00676.**
+
+**What it does.** Creates `public.marketplace_promotions` — one row per
+marketplace promotion (markdown sale, coupon, volume discount) plus the result
+eBay reports for it. One index, an `updated_at` trigger, RLS on with a single
+own-rows SELECT policy. New table only; nothing existing is altered. It
+references `public.users` and nothing else.
+
+**Why it exists.** Promotions were created through FlipDesk and never looked at
+again: the card re-fetched them from eBay on every open, and nothing measured
+whether a sale sold more. `reported_units` / `reported_revenue_cents` stay NULL
+until a report exists, which is the normal state for a promotion that has not
+run yet.
+
+**What breaks if the edge deploys first.** Nothing user-visible, and nothing
+silent. `loadPromotions` and `recordPromotions` each log a PostgREST error and
+return empty/0. Concretely:
+
+- "Did your sales sell more?" shows its empty state and the Refresh button
+  reports 0 stored.
+- The stack check still runs — it reads `listings`, which is unaffected — but
+  finds no active markdown or coupon percentage, so it checks the auto-accept
+  and shipping only. That UNDER-reports; it does not report a false breach.
+- The hourly markdown rule finds no existing promotion by name and would create
+  one per run. **That is the one real risk, and it is why this must be applied
+  before a markdown_schedule rule is enabled** — no rule of that type can exist
+  yet, since the trigger ships in this same commit.
+
+**Apply order.** 00676 then 00677, then `NOTIFY pgrst, 'reload schema';` (two
+new tables), then redeploy the edge, then OK the push.
+
 ## 🔒 HELD: 00676_marketplace_offers.sql (US-2939)
 
 **NOT YET APPLIED. This commit stays on local main until you have run the SQL.**

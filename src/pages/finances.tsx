@@ -1,5 +1,6 @@
 import { useState, lazy, Suspense } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { AdSpendCard } from "@/components/flipdesk/ad-spend-card";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchFinancesDashboard } from "@/lib/finances-dashboard";
 import {
@@ -180,6 +181,10 @@ export function FinancesPage() {
         />
       ) : (
         <>
+      {/* US-2952: eBay's own costs, including the advertising this page used to
+          leave out entirely — so the profit above was profit BEFORE ads. */}
+      <AdSpendCard />
+
       {/* Summary cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>

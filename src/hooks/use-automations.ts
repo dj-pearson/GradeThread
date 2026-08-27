@@ -36,6 +36,15 @@ export type AutomationTrigger =
   }
   // US-2938: judged per RETURN, same reasoning as offer_threshold. The action is
   // implied by the limits, so a rule of this type ignores its action_json.
+  // US-2950: judged per SET. Same reasoning as the two below.
+  | {
+    type: "markdown_schedule";
+    min_days_listed: number;
+    markdown_pct: number;
+    margin_floor_pct: number;
+    min_grade: number | null;
+    cooldown_days: number;
+  }
   | {
     type: "return_threshold";
     approve_at_or_below_cents: number | null;
