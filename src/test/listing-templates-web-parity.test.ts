@@ -219,7 +219,10 @@ describe("it is reachable (US-2877 AC2)", () => {
     // And it wires every field the picker can hand back -- a patch key with no
     // setter behind it is a field that silently does nothing.
     for (const setter of [
-      "setDescription(patch.description)",
+      // US-2960: the description is an array of blocks now, so the whole-string
+      // patch is folded into the intro block rather than set on a textarea.
+      // Same requirement, one indirection later: the key still has to land.
+      "applyDescriptionText(patch.description)",
       "setEbayCondition(patch.ebayCondition)",
       "setConditionDesc(patch.conditionDescription)",
       "setLivePickedCategoryId(patch.categoryId)",

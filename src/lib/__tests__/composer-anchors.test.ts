@@ -152,10 +152,14 @@ describe("the publish rail: actions reachable, config still with the form (US-22
   it("keeps the blocker notices with the button they explain", () => {
     // Each notice must render in the rail (after the actions), not back down the
     // page where the seller can't see it while looking at a disabled button.
-    for (const notice of [
-      "missingRequired.length > 0",
-      "specDescMismatches.length > 0",
-    ]) {
+    //
+    // US-2960 removed the second entry, `specDescMismatches`. It warned that a
+    // changed item specific had left the description stale — a real drift while
+    // the description was one opaque string that restated the same facts. The
+    // attributes BLOCK derives those values from the very columns the specific
+    // writes, so the two cannot disagree any more and the notice would have
+    // fired on nothing.
+    for (const notice of ["missingRequired.length > 0"]) {
       const at = src.indexOf(notice);
       expect(at, notice).toBeGreaterThan(railRender);
       expect(at, notice).toBeLessThan(preview);
