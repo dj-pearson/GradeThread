@@ -8,12 +8,33 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-08-25
+reviewed: 2026-08-27
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
 
 # The listings table — column inventory and read policy
+
+> **Re-reviewed 2026-08-27.** Drift flagged `src/types/database.ts` a fourth
+> time, and this time a `listings` column really did move: migration 00678
+> (US-2956) adds **`description_blocks jsonb`**, nullable, no default. It is the
+> ordered list of named blocks that `listing_description` is now RENDERED FROM,
+> and it belongs in the *other* bucket.
+>
+> Two things about it change how this note's read policy applies:
+>
+> - **`listing_description` is not going away, and is no longer authored.** It
+>   stays because full-text search (00016), fuzzy search history (00248) and
+>   return attribution (00655) all read it. It is derived state now: one edge
+>   function, `renderAndPersistDescription`, writes both columns in a single
+>   update. Anything that writes `listing_description` on its own is a bug.
+> - **NULL is a designed state, not missing data.** It means the listing
+>   predates blocks, and it is the signal to parse the legacy string on open.
+>   Do not backfill it and do not treat it as an integrity gap in an audit.
+>
+> The column is wide and read rarely — only the composer and the renderer want
+> it — so the projection rule in the read policy below applies to it with more
+> force than to most: never pull it into a list query.
 
 > **Re-reviewed 2026-08-25.** Drift flagged `src/types/database.ts` a third
 > time, and a third time nothing about `listings` moved: US-2851 added scout

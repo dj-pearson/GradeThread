@@ -45,25 +45,31 @@ ALTER TABLE public.listing_snippets ENABLE ROW LEVEL SECURITY;
 -- The frontend reads/writes the caller's own rows directly from the settings
 -- page; the edge service reads them via the service-role client when it renders
 -- a description that carries a snippet block.
+--
+-- `(select auth.uid())`, not bare `auth.uid()` (US-1927). The two are
+-- semantically identical because auth.uid() is STABLE, but the bare form is
+-- re-evaluated PER ROW while the subselect hoists to a single InitPlan. Copying
+-- the policy shape from an older migration such as 00134 reintroduces the bare
+-- form; rls-guard_test.ts is what catches it.
 DROP POLICY IF EXISTS "Users can view own listing snippets" ON public.listing_snippets;
 CREATE POLICY "Users can view own listing snippets"
   ON public.listing_snippets FOR SELECT
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 DROP POLICY IF EXISTS "Users can insert own listing snippets" ON public.listing_snippets;
 CREATE POLICY "Users can insert own listing snippets"
   ON public.listing_snippets FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
+  WITH CHECK ((select auth.uid()) = user_id);
 
 DROP POLICY IF EXISTS "Users can update own listing snippets" ON public.listing_snippets;
 CREATE POLICY "Users can update own listing snippets"
   ON public.listing_snippets FOR UPDATE
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 DROP POLICY IF EXISTS "Users can delete own listing snippets" ON public.listing_snippets;
 CREATE POLICY "Users can delete own listing snippets"
   ON public.listing_snippets FOR DELETE
-  USING (auth.uid() = user_id);
+  USING ((select auth.uid()) = user_id);
 
 -- US-1108: record this version here so the edge service boot guard (US-778)
 -- stays in sync regardless of apply method.
