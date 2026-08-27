@@ -51,6 +51,29 @@ export function getLightweightModel(): string {
   return Deno.env.get("LIGHTWEIGHT_AI_MODEL")?.trim() || DEFAULTS.lightweightModel;
 }
 
+/**
+ * Model for the size-estimate vision pass (US-2924).
+ *
+ * Its own knob rather than a bare getLightweightModel() call, because the size
+ * pass is the one feature that earned a model decision on measured evidence:
+ * over 30 days on production it was the most expensive user AI action at
+ * $0.0886 a call, roughly twice the blended rate, and at the Business plan's
+ * 2,000 actions it is the single reason that plan does not cover its own
+ * allowance. Haiku 4.5 takes input from $3/MTok to $1 and output from $15 to $5.
+ *
+ * Separate from LIGHTWEIGHT_AI_MODEL so an operator can roll THIS back after a
+ * bad week of sizing without also moving every other lightweight caller, and so
+ * the reason above stays attached to the thing it justified.
+ *
+ * NOT used by the grading pipeline, which pins getDefaultModel() explicitly —
+ * the size pass feeds tagGroundTruthBlock and therefore the grading prompt, and
+ * swapping a model under that is a grading change with no shadow compare and no
+ * prompt-version suffix. src/tests/size-estimate-model_test.ts guards the pin.
+ */
+export function getSizeEstimateModel(): string {
+  return Deno.env.get("SIZE_ESTIMATE_AI_MODEL")?.trim() || getLightweightModel();
+}
+
 // US-853: image model for hero/social-card generation. Read from the shared
 // config (DEFAULT_IMAGE_MODEL Coolify var) so it flips centrally; falls back to
 // gpt-image-1. Never hardcode the model at the call site.

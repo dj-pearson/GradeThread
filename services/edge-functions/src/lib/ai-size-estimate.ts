@@ -12,7 +12,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { tagImageSource } from "./ai-tag-ocr.ts";
-import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
+import { getAnthropicClient, getSizeEstimateModel } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { withRetry } from "./retry.ts";
 import {
@@ -140,13 +140,28 @@ export async function estimateSize(input: {
    * wrong chart in the admin UI changed nothing about size estimation.
    */
   charts?: SizingChart[];
+  /**
+   * Override the vision model (US-2924).
+   *
+   * Omitted, this runs on getSizeEstimateModel() — Haiku 4.5 by default, chosen
+   * because the size pass was the most expensive user AI action measured on
+   * production. AutoLister and the FlipDesk route both take that default: a
+   * wrong size there is a wrong listing field, which the seller sees and edits.
+   *
+   * The GRADING PIPELINE passes getDefaultModel() explicitly, and must keep
+   * doing so. Its result reaches tagGroundTruthBlock and therefore the grading
+   * prompt as trusted ground truth, so changing the model underneath it moves
+   * grades with no shadow compare, no golden-set eval and no prompt_version
+   * suffix to attribute the era afterwards.
+   */
+  model?: string;
 }): Promise<SizeEstimate> {
   if (input.photos.length === 0) {
     throw new Error("estimateSize requires at least one photo");
   }
   enterAiFeature("size_estimate"); // US-894 spend attribution
 
-  const model = getDefaultModel(); // vision-capable
+  const model = input.model?.trim() || getSizeEstimateModel(); // vision-capable
   const client = getAnthropicClient();
 
   const ordered = prioritizeMeasurementPhotos(input.photos);

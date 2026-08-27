@@ -33,7 +33,7 @@ import {
   fetchPeerDistribution,
   type PeerNormConfig,
 } from "./peer-norm.ts";
-import { reconcileNeedsReview } from "./ai-config.ts";
+import { getDefaultModel, reconcileNeedsReview } from "./ai-config.ts";
 import {
   assessMacroDensity,
   type DeliveredImage,
@@ -1666,6 +1666,22 @@ export async function processSubmission(submissionId: string) {
           // US-2214: DB-first charts; [] falls back to the in-code seed inside
           // estimateSize, exactly as before.
           charts: brandPack?.sizingCharts ?? [],
+          // US-2924: PINNED, and it must stay pinned.
+          //
+          // estimateSize now defaults to the cheap model, which is right for
+          // AutoLister and the FlipDesk route — a wrong size there is a listing
+          // field the seller sees and edits. Here it is not a field. This result
+          // reaches tagGroundTruthBlock below and goes into the GRADING PROMPT as
+          // trusted ground truth, so changing the model that produces it moves
+          // grades: no shadow compare, no golden-set eval, and no prompt_version
+          // suffix to attribute the era to afterwards. That is precisely the
+          // silent change the prompt-version lifecycle exists to prevent.
+          //
+          // Moving grading onto a cheaper model may well be right. It is a
+          // decision that goes through the eval gate, not one that arrives as a
+          // side effect of a cost cut. src/tests/size-estimate-model_test.ts
+          // fails if this line is removed.
+          model: getDefaultModel(),
         }).catch((err) => {
           console.error(
             `[Pipeline] size estimate failed for submission ${submissionId}:`,
