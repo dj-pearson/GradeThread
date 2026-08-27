@@ -9,6 +9,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import {
   buildSellerCredentialBlock,
   DEFAULT_SITE,
+  type SellerCredential,
   type SellerCredentialBlock,
   type SellerCredentialStats,
 } from "./seller-credentials.ts";
@@ -46,15 +47,18 @@ interface VerifiedRow {
 }
 
 /**
- * Impure: load the rendered credential block for a seller, or null when they are
- * NOT eligible (profile not public, no handle claimed, or the per-seller embed
- * opt-in is off). Best-effort — any error returns null so a listing build never
- * fails on the trust block. Tenant-safe: scoped to the passed owner id.
+ * Impure: load the seller's credential DATA, or null when they are NOT eligible
+ * (profile not public, no handle claimed, or the per-seller embed opt-in is
+ * off). Best-effort — any error returns null so a listing build never fails on
+ * the trust block. Tenant-safe: scoped to the passed owner id.
+ *
+ * Split out of loadSellerCredentialBlock for US-2958: the description renderer
+ * needs the unrendered credential, because rendering it is the one thing the
+ * block renderer must own. Two callers, one query.
  */
-export async function loadSellerCredentialBlock(
+export async function loadSellerCredential(
   ownerId: string,
-  siteUrl: string = DEFAULT_SITE,
-): Promise<SellerCredentialBlock | null> {
+): Promise<SellerCredential | null> {
   try {
     const { data } = await supabaseAdmin
       .from("users")
@@ -69,16 +73,25 @@ export async function loadSellerCredentialBlock(
     if (!row.verified_embed_in_listings) return null;
 
     const stats = await loadSellerGradeStats(ownerId);
-    return buildSellerCredentialBlock(
-      {
-        handle: row.verified_handle,
-        display_name: row.verified_display_name,
-        stats,
-      },
-      siteUrl,
-    );
+    return {
+      handle: row.verified_handle,
+      display_name: row.verified_display_name,
+      stats,
+    };
   } catch (err) {
-    console.error("[seller-credentials] loadSellerCredentialBlock failed:", err);
+    console.error("[seller-credentials] loadSellerCredential failed:", err);
     return null;
   }
+}
+
+/**
+ * Impure: load the RENDERED credential block for a seller, or null when they are
+ * not eligible. Thin wrapper over loadSellerCredential.
+ */
+export async function loadSellerCredentialBlock(
+  ownerId: string,
+  siteUrl: string = DEFAULT_SITE,
+): Promise<SellerCredentialBlock | null> {
+  const cred = await loadSellerCredential(ownerId);
+  return cred ? buildSellerCredentialBlock(cred, siteUrl) : null;
 }

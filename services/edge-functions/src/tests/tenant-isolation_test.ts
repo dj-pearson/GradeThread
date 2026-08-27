@@ -7057,3 +7057,87 @@ Deno.test({
     );
   },
 });
+
+// ── US-2958: the description-block routes ───────────────────────────
+//
+// All four take a listing id, and three of them WRITE. The renderer reads the
+// item, the grade report and the seller's snippets to build the text, so a
+// missing owner check would not merely edit another tenant's listing — it would
+// render their garment's measurements and grade into a description and hand it
+// back in the response body. Every case below asserts on the STATUS rather than
+// the body for the same reason: a 200 here is already a leak.
+Deno.test({
+  name: "B cannot read the description blocks of A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/description/${listingId}/blocks`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "GET description blocks");
+  },
+});
+
+Deno.test({
+  name: "B cannot preview a description against A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    // Preview is read-only, which is exactly why it is worth a case: a
+    // read-only route that renders another tenant's item into the response is
+    // the quietest possible leak.
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/description/preview`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        listing_id: listingId,
+        blocks: [{ key: "measurements", on: true, src: "item" }],
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST description preview");
+  },
+});
+
+Deno.test({
+  name: "B cannot save description blocks onto A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/description/${listingId}/save`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({
+          blocks: [{ key: "text", on: true, src: "user", text: "Owned by B." }],
+        }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST description save");
+  },
+});
+
+Deno.test({
+  name: "B cannot regenerate a description block on A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    // Denial must come from the OWNER check, before the model call. A route
+    // that rewrote first and refused to save afterwards would still bill A's
+    // workspace for B's request.
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/description/${listingId}/regenerate`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ block: "features" }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST description regenerate");
+  },
+});

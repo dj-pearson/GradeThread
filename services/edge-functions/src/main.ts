@@ -54,6 +54,7 @@ import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { flipdeskScoutRoutes } from "./routes/flipdesk-scout.ts";
 import { flipdeskRadarRoutes } from "./routes/flipdesk-radar.ts";
 import { flipdeskMeasureRoutes } from "./routes/flipdesk-measure.ts";
+import { flipdeskDescriptionRoutes } from "./routes/flipdesk-description.ts";
 import { flipdeskSizeBandsRoutes } from "./routes/flipdesk-size-bands.ts";
 import { flipdeskForecastRoutes } from "./routes/flipdesk-forecast.ts";
 import { flipdeskEquityRoutes } from "./routes/flipdesk-equity.ts";
@@ -533,6 +534,7 @@ app.use("/api/flipdesk/scout/*", authMiddleware);
 // scout — it is the same surface, one layer up.
 app.use("/api/flipdesk/radar/*", authMiddleware);
 app.use("/api/flipdesk/measure/*", authMiddleware);
+app.use("/api/flipdesk/description/*", authMiddleware);
 // US-2917: the expected-size band table. Authed like every other read on the
 // composer, but it reads ONLY the global brand_size_charts reference table, so
 // it needs no workspace context — there is no tenant row to scope. The path is
@@ -585,6 +587,7 @@ app.use("/api/flipdesk/autolister/*", accessGateMiddleware);
 app.use("/api/flipdesk/ai/*", accessGateMiddleware);
 app.use("/api/flipdesk/scout/*", accessGateMiddleware);
 app.use("/api/flipdesk/measure/*", accessGateMiddleware);
+app.use("/api/flipdesk/description/*", accessGateMiddleware);
 
 // US-585: authenticated access-status check for the SPA. Public capture
 // (POST /api/waitlist) is unauthenticated + rate-limited below.
@@ -691,6 +694,7 @@ app.use("/api/flipdesk/ai/*", workspaceMiddleware);
 app.use("/api/flipdesk/scout/*", workspaceMiddleware);
 app.use("/api/flipdesk/radar/*", workspaceMiddleware);
 app.use("/api/flipdesk/measure/*", workspaceMiddleware);
+app.use("/api/flipdesk/description/*", workspaceMiddleware);
 app.use("/api/flipdesk/product/*", workspaceMiddleware);
 app.use("/api/passport/garments/*", workspaceMiddleware);
 app.use("/api/flipdesk/templates/*", workspaceMiddleware);
@@ -991,6 +995,16 @@ app.use(
 // US-1572: calibration is CPU-bound image decode + CV (no model call) — cap
 // enough for a capture-review loop without letting one client hog the worker.
 app.use("/api/flipdesk/measure/*", rateLimiter(15, 60_000, "flipdesk-measure"));
+// US-2958: two buckets, because the two costs are nothing alike. Preview is a
+// render fired on a 400ms debounce as the seller types, so it needs headroom;
+// regenerate is a model call and gets the tight one. The regenerate rule is
+// registered FIRST because Hono runs middleware in registration order and the
+// broader pattern would otherwise be the only one that counted.
+app.use(
+  "/api/flipdesk/description/*/regenerate",
+  rateLimiter(10, 60_000, "flipdesk-description-regen", undefined, { methods: ["POST"] }),
+);
+app.use("/api/flipdesk/description/*", rateLimiter(120, 60_000, "flipdesk-description"));
 // US-2917: a cached reference read, hit once per distinct brand+garment while a
 // seller works a batch. Roomy enough for a 40-item AutoLister review that spans
 // a dozen brands, and the response is client-cacheable for half an hour.
@@ -1337,6 +1351,9 @@ app.route("/api/flipdesk/demand", flipdeskDemandRoutes);
 app.route("/api/flipdesk/photo-profiles", flipdeskPhotoProfilesRoutes);
 app.route("/api/flipdesk/images", flipdeskImageRoutes);
 app.route("/api/flipdesk/listings", flipdeskListingsRoutes);
+// US-2958: description blocks. Renders and persists in one place, so the
+// blocks and the published string cannot drift apart.
+app.route("/api/flipdesk/description", flipdeskDescriptionRoutes);
 app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
 app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
 // US-2518: durable CSV inventory import. The browser posts the mapped rows and

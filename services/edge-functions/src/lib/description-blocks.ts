@@ -289,6 +289,34 @@ export function defaultBlocks(): DescriptionBlock[] {
   ];
 }
 
+/**
+ * Replace the text of exactly ONE block, appending it when absent.
+ *
+ * Every other entry comes back BY REFERENCE, which is the property the redo
+ * button depends on: rewriting one sentence must not touch a measurement the
+ * seller corrected or a snippet they overrode. Only the first block with that
+ * key is replaced, so a description carrying two intros keeps the second.
+ *
+ * Appending rather than no-oping matters for older drafts and for a seller who
+ * deleted the section and then asked for it back; without it, "redo" on a
+ * missing block would report success and change nothing.
+ */
+export function replaceBlockText(
+  blocks: DescriptionBlock[],
+  key: DescriptionBlockKey,
+  text: string,
+  src: DescriptionBlockSource = "ai",
+): DescriptionBlock[] {
+  let replaced = false;
+  const next = blocks.map((b) => {
+    if (b.key !== key || replaced) return b;
+    replaced = true;
+    return { ...b, text };
+  });
+  if (!replaced) next.push({ key, on: true, src, text });
+  return next;
+}
+
 // ─── Reading a legacy description back ─────────────────────────────
 
 interface Region {
