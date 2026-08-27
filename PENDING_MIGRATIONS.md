@@ -1,8 +1,22 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🔒 HELD: 00677_marketplace_promotions.sql (US-2949)
+## ✅ APPLIED: 00677_marketplace_promotions.sql (US-2949)
 
-**NOT YET APPLIED. Apply AFTER 00676.**
+**Applied to prod. Confirmed by the owner on 2026-08-27 — NOT by reading the
+database.** That distinction is the whole point of the 00674 entry further
+down: a marker maintained by hand is not evidence, and this one has gone stale
+in both directions before. There is no service-role credential on the dev box,
+so the read could not be run here. Settle it in one command when you next have
+the env:
+
+```
+deno run --allow-net --allow-env \
+  services/edge-functions/scripts/check-prod-migration.ts 00676 00677
+```
+
+It is read-only, and it checks the self-record footer rather than the schema —
+so a row means every statement in the file ran, not just the ones that created
+a column PostgREST would show.
 
 **What it does.** Creates `public.marketplace_promotions` — one row per
 marketplace promotion (markdown sale, coupon, volume discount) plus the result
@@ -30,12 +44,28 @@ return empty/0. Concretely:
   before a markdown_schedule rule is enabled** — no rule of that type can exist
   yet, since the trigger ships in this same commit.
 
-**Apply order.** 00676 then 00677, then `NOTIFY pgrst, 'reload schema';` (two
-new tables), then redeploy the edge, then OK the push.
+**Apply order (done).** 00676 then 00677, then `NOTIFY pgrst, 'reload schema';`
+for the two new tables. If "Did your sales sell more?" stays empty after the
+edge redeploys and Refresh reports 0 stored, that reload is the first thing to
+check.
 
-## 🔒 HELD: 00676_marketplace_offers.sql (US-2939)
+## ✅ APPLIED: 00676_marketplace_offers.sql (US-2939)
 
-**NOT YET APPLIED. This commit stays on local main until you have run the SQL.**
+**Applied to prod. Confirmed by the owner on 2026-08-27 — NOT by reading the
+database.** That distinction is the whole point of the 00674 entry further
+down: a marker maintained by hand is not evidence, and this one has gone stale
+in both directions before. There is no service-role credential on the dev box,
+so the read could not be run here. Settle it in one command when you next have
+the env:
+
+```
+deno run --allow-net --allow-env \
+  services/edge-functions/scripts/check-prod-migration.ts 00676 00677
+```
+
+It is read-only, and it checks the self-record footer rather than the schema —
+so a row means every statement in the file ran, not just the ones that created
+a column PostgREST would show.
 
 **What it does.** Creates `public.marketplace_offers` — one row per marketplace
 offer in either direction (`received` from a buyer, `counter_sent` by the
@@ -63,8 +93,9 @@ which is unaffected). Concretely:
   because there is no send history to read.
 - The offer-rule dry run reports 0 offers considered, and says so in words.
 
-**Apply order.** After 00675. Run the SQL, then `NOTIFY pgrst, 'reload schema';`
-(a new table), then redeploy the edge, then OK the push.
+**Apply order (done).** 00675, then this. `NOTIFY pgrst, 'reload schema';` is
+required for a new table — if the Offers page shows no buyer history and no
+margin after the edge redeploys, that reload is the first thing to check.
 
 ## ✅ APPLIED: 00675_marketplace_post_sale_cases.sql (US-2927)
 
