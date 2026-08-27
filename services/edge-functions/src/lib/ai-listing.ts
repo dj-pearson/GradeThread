@@ -84,7 +84,6 @@ import {
   specsFromEbayAspectSpecs,
 } from "./aspect-reconcile.ts";
 import {
-  applyMeasurementsBlock,
   buildPlainMeasurementsText,
   hasCalibratedMeasurements,
   resolveMeasurementAspects,
@@ -100,7 +99,10 @@ import {
   type DisclosureInput,
   type PerImageAnalysisLike,
 } from "./disclosure.ts";
-import { loadSellerCredentialBlock } from "./seller-credentials-job.ts";
+import {
+  loadSellerCredential,
+  loadSellerCredentialBlock,
+} from "./seller-credentials-job.ts";
 import {
   getMarketplaceSpec,
   type MarketplacePlatform,
@@ -125,13 +127,21 @@ import {
 } from "./brand-normalize.ts";
 // US-2682: the machine-readable facts block. Emitted last and exactly once, so
 // a revise replaces it rather than stacking a second copy.
+// disclosedFlawsToFacts and measurementsToFacts left with the facts block
+// (US-2959): renderDescription builds the facts from the RenderContext now, so
+// the generation path no longer assembles them itself.
 import {
-  disclosedFlawsToFacts,
   factorScoresToFacts,
   type FactsGradeFactor,
-  measurementsToFacts,
-  upsertListingFactsBlock,
 } from "./listing-facts-block.ts";
+// US-2959: the one renderer. The generation path builds blocks and renders
+// them; it no longer concatenates a description of its own.
+import {
+  defaultBlocks,
+  renderDescription,
+  type RenderContext,
+  scrubRestatedFacts,
+} from "./description-blocks.ts";
 
 // US-542: where a draft's suggested price came from. Only the sold-backed
 // sources (private_sales, ebay_sold) justify price_is_estimated=false.
@@ -197,6 +207,17 @@ export interface GeneratedListing {
   // the same tool call (zero extra cost). Empty when the model didn't supply a
   // distinct variant. The primary `title` is variant "A".
   title_variant: string;
+  // US-2959: the description as its three PROSE parts. Facts live in their own
+  // blocks (lib/description-blocks.ts) and are never repeated here.
+  description_intro: string;
+  description_features: string;
+  description_condition: string;
+  /**
+   * The whole-description fallback, kept for one release so an active DB prompt
+   * version written against the old contract still works. Empty once the model
+   * fills the three fields above; when it is the only thing returned, it maps
+   * to the intro.
+   */
   description: string;
   // A short query (e.g. "men's denim jeans") resolved to a real eBay leaf
   // category via the Taxonomy API in US-312 — the model does NOT invent ids.
@@ -418,12 +439,25 @@ Hard rules:
   Maternity) is almost always required by eBay and is usually evident from the
   garment's cut, styling, and labeling — set it whenever the photos support a
   confident read rather than omitting it.
-- description: a clean opening line, then attribute bullets, then the condition
-  statement, then measurements if provided. Buyer-friendly, follows eBay best
-  practices. NEVER mention, describe, or disclaim a thrift/retail price tag,
-  price sticker, or any original/sticker price visible in a photo — a price
-  shown in a photo is NOT a listing fact; ignore it entirely and never add "for
+- THE DESCRIPTION IS THREE SEPARATE PROSE FIELDS, and none of them lists facts.
+  Brand, size, color, material, the condition grade and every measurement are
+  rendered SEPARATELY from the item's own data. Repeating one here creates a
+  duplicate the seller cannot fix: they correct the measurement, the block
+  updates, and your sentence goes on advertising the old number. So NEVER write
+  "Brand: X", "Size: 8", "Measurements (laid flat): ..." or any labelled fact,
+  in any of the three. Describe the garment; do not list it.
+  - description_intro: one or two sentences. The garment and the single thing
+    that makes it worth buying. No greeting, no sales pitch, no emoji.
+  - description_features: construction and styling the photos actually show —
+    closure, pockets, trim, cuffs, lining, hardware, drape, pattern.
+  - description_condition: an honest condition narrative, consistent with the
+    ebay_condition tier. Say plainly what is worn or flawed.
+  NEVER mention, describe, or disclaim a thrift/retail price tag, price
+  sticker, or any original/sticker price visible in a photo — a price shown in
+  a photo is NOT a listing fact; ignore it entirely and never add "for
   reference only" notes about it.
+- description: DEPRECATED. Leave it empty. It exists only so an older prompt
+  version keeps working, and anything you put here is treated as the intro.
 - suggested_price_cents: a reasonable starting price in US cents based on the
   item, brand, and condition. The system may refine this from comparable sales.
 - confidence: your overall confidence (0..1) that this listing is accurate.
@@ -493,18 +527,32 @@ Hard rules:
   Maternity) is almost always required by eBay and is usually evident from the
   garment's cut, styling, and labeling — set it whenever the photos support a
   confident read rather than omitting it.
-- description: write FACTUAL, SCANNABLE prose — a clean opening line, then
-  attribute bullets, then the condition statement (consistent with the condition
-  tier above), then the measurements block if provided. eBay now AI-SUMMARIZES
-  descriptions for buyers, so plain accurate sentences and clear structured
-  facts summarize well; a keyword list or repeated phrases do not — never dump a
-  block of comma-separated keywords. NEVER mention, describe, or disclaim a
-  thrift/retail price tag, price sticker, or any original/sticker price visible
-  in a photo — a price shown in a photo is NOT a listing fact; ignore it
-  entirely and never add "for reference only" notes about it.
-- MEASUREMENTS: when measurements are supplied, PRESERVE them as a clearly
-  labeled block in the description (flat measurements in inches) — buyers rely on
-  them and they must survive verbatim.
+- THE DESCRIPTION IS THREE SEPARATE PROSE FIELDS, and none of them lists facts.
+  Brand, size, color, material, the condition grade and every measurement are
+  rendered SEPARATELY from the item's own data. Repeating one here creates a
+  duplicate the seller cannot fix: they correct the measurement, the block
+  updates, and your sentence goes on advertising the old number. So NEVER write
+  "Brand: X", "Size: 8", "Measurements (laid flat): ..." or any labelled fact,
+  in any of the three. Describe the garment; do not list it.
+  - description_intro: one or two sentences. The garment and the single thing
+    that makes it worth buying. No greeting, no sales pitch, no emoji.
+  - description_features: construction and styling the photos actually show —
+    closure, pockets, trim, cuffs, lining, hardware, drape, pattern.
+  - description_condition: an honest condition narrative, consistent with the
+    ebay_condition tier. Say plainly what is worn or flawed.
+  Write FACTUAL, SCANNABLE prose. eBay now AI-SUMMARIZES descriptions for
+  buyers, so plain accurate sentences summarize well; a keyword list or repeated
+  phrases do not — never dump a block of comma-separated keywords. NEVER
+  mention, describe, or disclaim a thrift/retail price tag, price sticker, or
+  any original/sticker price visible in a photo — a price shown in a photo is
+  NOT a listing fact; ignore it entirely and never add "for reference only"
+  notes about it.
+- description: DEPRECATED. Leave it empty. It exists only so an older prompt
+  version keeps working, and anything you put here is treated as the intro.
+- MEASUREMENTS: do NOT write them into any description field. Supplied
+  measurements are rendered verbatim into their own block, which is what makes
+  them survive a later correction — writing them in prose as well is the one
+  thing that breaks that.
 - suggested_price_cents: a reasonable starting price in US cents based on the
   item, brand, and condition. The system may refine this from comparable sales.
 - confidence: your overall confidence (0..1) that this listing is accurate.
@@ -537,9 +585,33 @@ export const LISTING_GEN_TOOL: Anthropic.Tool = {
         description:
           "Optional second <=80-char title (a distinct keyword ordering/lead term) for A/B sell-through comparison. Empty if none.",
       },
+      // US-2959: the description arrives as THREE prose fields, not one blob.
+      // Everything factual — brand, size, colour, material, measurements, the
+      // grade — is rendered from its own block by lib/description-blocks.ts, so
+      // a model restating it here creates a duplicate that only the block half
+      // can ever update. That is the whole defect this epic exists to remove.
+      description_intro: {
+        type: "string",
+        description:
+          "One or two sentences opening the listing: the garment and what makes it worth buying. No labelled facts.",
+      },
+      description_features: {
+        type: "string",
+        description:
+          "Construction and styling the photos show: closure, pockets, trim, cuffs, lining, hardware, drape, pattern. No labelled facts.",
+      },
+      description_condition: {
+        type: "string",
+        description:
+          "Honest condition narrative. Say plainly what is worn or flawed. Never upgrade the condition.",
+      },
+      // Kept for ONE release as a fallback, so an active DB prompt version
+      // written against the old contract still produces a working listing. It
+      // maps to the intro when the three fields all come back empty.
       description: {
         type: "string",
-        description: "Buyer-facing structured description",
+        description:
+          "DEPRECATED, use description_intro/features/condition. Whole-description fallback.",
       },
       suggested_category_query: {
         type: "string",
@@ -594,7 +666,12 @@ export const LISTING_GEN_TOOL: Anthropic.Tool = {
     },
     required: [
       "title",
-      "description",
+      // description_intro rather than description (US-2959). Required so a
+      // generation always has an opening line; features and condition are
+      // optional because a plain item legitimately has little to say about
+      // either, and an empty block renders to nothing rather than a heading
+      // over blank space.
+      "description_intro",
       "suggested_category_query",
       "ebay_condition",
       "condition_description",
@@ -923,9 +1000,19 @@ async function callListingModel(
   // so dropping whole trailing words keeps the terms that actually rank.
   const title =
     typeof raw.title === "string" ? trimTitleToLimit(raw.title, EBAY_TITLE_MAX) : "";
-  const description =
+  const legacyDescription =
     typeof raw.description === "string" ? raw.description.trim() : "";
-  if (!title || !description) {
+  const introField =
+    typeof raw.description_intro === "string" ? raw.description_intro.trim() : "";
+  const features =
+    typeof raw.description_features === "string" ? raw.description_features.trim() : "";
+  const conditionProse =
+    typeof raw.description_condition === "string" ? raw.description_condition.trim() : "";
+  // US-2959: the fallback. A DB-overridden prompt still written against the old
+  // contract returns `description` alone, and mapping it to the intro keeps
+  // that generation working rather than producing an empty listing.
+  const intro = introField || legacyDescription;
+  if (!title || !intro) {
     throw new Error("AI returned an incomplete listing (missing title/description)");
   }
 
@@ -951,7 +1038,10 @@ async function callListingModel(
   const listing: GeneratedListing = {
     title,
     title_variant: titleVariant,
-    description,
+    description_intro: intro,
+    description_features: features,
+    description_condition: conditionProse,
+    description: legacyDescription,
     suggested_category_query:
       typeof raw.suggested_category_query === "string"
         ? raw.suggested_category_query.trim()
@@ -2375,26 +2465,27 @@ export async function generateListing(
     ? ((firstPhotoRow as { id: string }).id)
     : null;
 
-  // 7b. Auto-Disclosure: if the item is graded, append a documented, AI-verified
-  // "Condition & Flaws" block to the listing body (where HTML renders) and seed
-  // the plain disclosure into the condition field. This is the dispute-defense
-  // artifact — buyers see exactly what the grader found.
-  // US-827: append a clean, buyer-expected flat-lay measurements block to the
-  // description (idempotent — a regeneration strips the prior block first, never
-  // duplicating). Edge renders inches (the stored unit); the composer re-applies
-  // it in the seller's preferred unit (US-648) on edit.
-  let listingDescription = applyMeasurementsBlock(
-    listing.description,
-    measurements,
-    "in",
-    { calibrated: calibratedMeasurements },
-  );
+  // 7b. The description, as BLOCKS (US-2959).
+  //
+  // This used to be four string concatenations in a row: the measurements block
+  // appended to the model's prose, then the disclosure, then the credential,
+  // then the facts block. Every fact the model had ALSO written into its prose
+  // stayed there forever, because a string has no seam a later edit can find.
+  //
+  // Now the model writes three prose fields and everything factual is a derived
+  // block, rendered by the one renderer the composer and the routes also use.
+  // The string is still written — full-text search (00016) and return
+  // attribution (00655) read that column — but it is the OUTPUT of the blocks
+  // now rather than the thing being assembled, and both land in one upsert.
   let conditionDescription = listing.condition_description;
 
   // US-2682: the facts a summariser and an agent buyer need, collected as the
   // description is assembled and emitted once at the end.
   let factsGrade: number | null = null;
   let factsFactors: FactsGradeFactor[] = [];
+  // Kept as INPUT, not rendered here: the disclosure block renders itself from
+  // this at render time, so the generation path holds no second copy of it.
+  let disclosureInput: DisclosureInput | null = null;
   if (gradeReportId) {
     // US-1124: guarantee the passport exists BEFORE we read garment_id — closes
     // the race/failure window where the grading pipeline's seed didn't persist
@@ -2429,7 +2520,7 @@ export async function generateListing(
         passportSlug =
           (garment as { public_passport_slug: string } | null)?.public_passport_slug ?? null;
       }
-      const disclosure = buildDisclosure({
+      disclosureInput = {
         overall_score: Number(r.overall_score ?? 0),
         grade_tier: String(r.grade_tier ?? ""),
         defects_found: Array.isArray(r.defects_found)
@@ -2445,10 +2536,9 @@ export async function generateListing(
         passport_slug: passportSlug,
         legacy_defects_summary:
           (r.detailed_notes as Record<string, string> | null)?.defects_summary ?? null,
-      });
-      listingDescription = `${listingDescription}\n<!--gradethread-disclosure-->${disclosure.html}`;
+      };
       if (!conditionDescription || !conditionDescription.trim()) {
-        conditionDescription = disclosure.plain.slice(0, 990);
+        conditionDescription = buildDisclosure(disclosureInput).plain.slice(0, 990);
       }
     }
   }
@@ -2458,25 +2548,58 @@ export async function generateListing(
   // seller from a plain marketplace seller. Independent of THIS item's grade;
   // gated server-side on the seller being publicly verified + opted in
   // (returns null otherwise). HTML, since the eBay description renders it.
-  const sellerCredential = await loadSellerCredentialBlock(ownerId);
-  if (sellerCredential) {
-    listingDescription =
-      `${listingDescription}\n<!--gradethread-seller-credentials-->${sellerCredential.html}`;
-  }
+  const sellerCredential = await loadSellerCredential(ownerId);
 
-  // US-2682: the machine-readable facts block, LAST and exactly once.
+  // US-2959: assemble the blocks and render once.
   //
-  // Last because it is a reference a buyer consults rather than an opening they
-  // read past, and exactly once because upsertListingFactsBlock replaces any
-  // block already present — which is also what makes a revise pick it up on a
-  // listing that already exists rather than accumulating a second copy.
-  listingDescription = upsertListingFactsBlock(listingDescription, {
-    grade: factsGrade,
-    factors: factsFactors,
-    measurements: measurementsToFacts(measurements),
-    fibreContent: typeof item.material === "string" ? item.material : null,
-    flaws: disclosedFlawsToFacts(listing.condition_description),
+  // The facts block is still last and still exactly once — renderDescription
+  // pins it there regardless of array position, which is the same guarantee
+  // upsertListingFactsBlock used to give by replacing itself, minus the string
+  // surgery.
+  const descriptionCtx: RenderContext = {
+    item: {
+      brand: typeof item.brand === "string" ? item.brand : null,
+      size: typeof item.size === "string" ? item.size : null,
+      color: typeof item.color === "string" ? item.color : null,
+      material: typeof item.material === "string" ? item.material : null,
+      style: typeof item.style === "string" ? item.style : null,
+      measurements,
+    },
+    grade: factsGrade === null && factsFactors.length === 0 && !disclosureInput
+      ? null
+      : { overall_score: factsGrade, factors: factsFactors, disclosure: disclosureInput },
+    credential: sellerCredential,
+    // A freshly generated draft references no account snippet yet — the seller
+    // adds those in the composer (US-2961), so there is nothing to resolve.
+    snippets: {},
+    unit: "in",
+    calibrated: calibratedMeasurements,
+    conditionDescription: listing.condition_description,
+  };
+
+  // The model's three prose fields, scrubbed. scrubRestatedFacts is the
+  // backstop for the prompt: anything it strips is a labelled fact the model
+  // was told not to write and a derived block already carries, so leaving it
+  // would recreate the stale duplicate this epic removes. Logged, because if
+  // this is doing the work then the prompt is not.
+  const aiText: Record<string, string> = {
+    intro: listing.description_intro,
+    features: listing.description_features,
+    condition: listing.description_condition,
+  };
+  const descriptionBlocks = defaultBlocks().map((block) => {
+    const raw = aiText[block.key];
+    if (raw === undefined) return block;
+    const cleaned = scrubRestatedFacts(raw, descriptionCtx);
+    if (cleaned !== raw.trim()) {
+      console.warn(
+        `[AI Listing] scrubbed restated facts from description_${block.key} (item ${itemId})`,
+      );
+    }
+    return { ...block, text: cleaned };
   });
+
+  const listingDescription = renderDescription(descriptionBlocks, descriptionCtx);
 
   // US-541: route low-confidence drafts to review.
   // US-828: also flag the draft when reconciliation left aspects unmatched —
@@ -2504,7 +2627,10 @@ export async function generateListing(
   // 8. Upsert the eBay draft listing for this item (tenant-safe: item owned).
   const draftFields = {
     listing_title: listing.title,
+    // US-2959: the blocks and the string they render to, in the SAME upsert.
+    // Writing one without the other is the drift this epic exists to remove.
     listing_description: listingDescription,
+    description_blocks: descriptionBlocks,
     listing_status: "draft" as const,
     // A draft is never live on a marketplace. The listings column defaults
     // is_active=true, so without this every generated draft was born "active" —
