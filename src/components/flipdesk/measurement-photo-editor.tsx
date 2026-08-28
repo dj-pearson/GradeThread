@@ -114,6 +114,35 @@ interface MeasurePass {
   ranAt?: string;
 }
 
+// US-2890 AC5: the outcome the server records when it turned a photo upright
+// on its own. Mirror of UPRIGHT_PASS_KEY in
+// services/edge-functions/src/lib/measure-upright-pass.ts.
+const UPRIGHT_PASS_KEY = "measurements._upright";
+
+interface UprightPass {
+  rotated?: Array<{ photoId: string; turns: number; message: string }>;
+  ranAt?: string;
+}
+
+/**
+ * Tell the seller their photo was moved, and how to move it back.
+ *
+ * Written as a note rather than a toast on purpose: the rotation happened
+ * server-side during intake, possibly minutes before anyone opened this panel,
+ * and a toast fired on mount would be announcing old news at whoever happened
+ * to look. The note sits with the picture it is about.
+ *
+ * Null means say nothing, which is the answer for every photo the pass left
+ * alone - and it leaves almost all of them alone.
+ */
+export function uprightPassNote(pass: UprightPass | null): string | null {
+  const n = pass?.rotated?.length ?? 0;
+  if (n === 0) return null;
+  const subject = n === 1 ? "A photo was" : `${n} photos were`;
+  return `${subject} turned upright automatically, using the MeasureCard as the ` +
+    "reference. Revert to original in the photo editor puts it back.";
+}
+
 /**
  * Say what the last pass did, in words a seller can act on. Returning null
  * means "nothing worth saying" — a pass that worked needs no explanation, and
@@ -215,6 +244,10 @@ export function MeasurementPhotoEditor({
   // explains itself instead of looking broken.
   const passNote = measurePassNote(
     (aiSources?.[MEASURE_PASS_KEY] as MeasurePass | undefined) ?? null,
+  );
+  // US-2890 AC5.
+  const uprightNote = uprightPassNote(
+    (aiSources?.[UPRIGHT_PASS_KEY] as UprightPass | undefined) ?? null,
   );
 
   const [lines, setLines] = useState<EditorLine[]>([]);
@@ -328,6 +361,9 @@ export function MeasurementPhotoEditor({
         </div>
         {passNote && (
           <p className="text-xs text-muted-foreground">{passNote}</p>
+        )}
+        {uprightNote && (
+          <p className="text-xs text-muted-foreground">{uprightNote}</p>
         )}
       </div>
     );
@@ -983,6 +1019,8 @@ export function MeasurementPhotoEditor({
       </div>
 
       {passNote && <p className="text-xs text-muted-foreground">{passNote}</p>}
+
+      {uprightNote && <p className="text-xs text-muted-foreground">{uprightNote}</p>}
 
       {!calib && (
         <p className="text-xs text-muted-foreground">

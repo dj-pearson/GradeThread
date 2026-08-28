@@ -1,5 +1,35 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00682_auto_upright_setting.sql (US-2890)
+
+**Risk: very low.** One INSERT of one row into `public.system_settings`, with
+`on conflict (key) do nothing`. No table, column, function, view, policy or
+index is touched. Re-running it is a no-op, verified locally.
+
+**What it does.** Registers `measure.auto_upright_enabled` in the settings
+registry (00207 + 00208), seeded **false**, category `flipdesk`, value_type
+`bool`.
+
+**Why it exists at all, given the code does not need it.** `getSetting()`
+returns its fallback for an absent key and the fallback here is `false`, so the
+feature is already off with or without this row. What the row buys is the
+switch appearing in the admin settings editor, which is the difference between
+a flag an operator can find and one they have to be told about.
+
+**What breaks if the edge or the frontend deploys first.** Nothing. The feature
+reads the key through `getSetting()` and an absent key is `false`, which is
+also the seeded value — so the behaviour before and after applying this is
+identical until a human turns it on. This is the rare migration whose apply
+order genuinely does not matter.
+
+**Watch the value_type.** `system_settings_value_type_check` allows exactly
+`number | bool | string | json`. The first draft of this file said
+`'boolean'` and was rejected at insert; that is caught here only because the
+migration was applied to the local stack rather than reasoned about.
+
+**Apply order.** Anywhere after 00681. Run `NOTIFY pgrst, 'reload schema';`
+afterwards out of habit, though strictly nothing about the schema changed.
+
 ## ⏳ PENDING: 00678_listing_description_blocks.sql (US-2956)
 
 **Risk: low.** One nullable column and one new table. Nothing existing is

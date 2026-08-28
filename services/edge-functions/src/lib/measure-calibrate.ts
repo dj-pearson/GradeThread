@@ -30,6 +30,22 @@ export interface StoredCalibration {
     string,
     { e1: [number, number]; e2: [number, number]; inches: number; label: string }
   >;
+  /**
+   * US-2890 (additive): clockwise quarter turns that would put the CARD upright
+   * in this frame, read off the homography at the moment it was computed.
+   *
+   * Recorded rather than derived on demand for one reason: the homography is
+   * rewritten every time the photo is rotated, so after a turn it correctly
+   * reports 0, and the fact that the photo ARRIVED sideways is gone. Anything
+   * that wants to know what intake saw - a toast, an undo, a report on how
+   * often sellers shoot sideways - needs it written down at the point of
+   * measurement.
+   *
+   * 0 means upright, and also means "the reading could not be trusted": a
+   * homography that will not invert reads as no turn, because declining to act
+   * is the correct failure for a pass that rewrites a seller's photo.
+   */
+  uprightTurns?: 0 | 1 | 2 | 3;
 }
 
 // Photos larger than this are downscaled before detection (speed) and the

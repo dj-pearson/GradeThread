@@ -33,6 +33,8 @@ import {
   type StoredCalibration,
 } from "./measure-calibrate.ts";
 import { MIN_MARKER_SIDE_PX } from "./measure-detect.ts";
+import { cardUprightQuarter } from "./measure-quarter-turn.ts";
+import { autoUprightItemPhotos, UPRIGHT_PASS_KEY } from "./measure-upright-pass.ts";
 import {
   extractMeasurements,
   mergeMeasurementsFillOnly,
@@ -276,6 +278,11 @@ async function findCardPhoto(
       homography: rescaled.homography,
       quality: rescaled.quality,
       computedAt: new Date().toISOString(),
+      // US-2890 AC1. Read from the RESCALED homography, which is the one in the
+      // stored image's own pixel space - the detection homography is in the
+      // downscaled space, and while a quarter turn is invariant to a uniform
+      // scale, taking it from the wrong matrix would be right by luck.
+      uprightTurns: cardUprightQuarter(rescaled.homography),
     };
     // Retag + cache. The retag is what makes this one-and-done: the composer's
     // editor, the overlay render and the publish path all filter on
@@ -317,6 +324,23 @@ export async function autofillMeasurementsFromCard(
   item: MeasureItemRow,
 ): Promise<MeasureAutofillResult> {
   const result = await runAutofill(itemId, ownerId, item);
+
+  // US-2890: rotate AFTER measuring, never before.
+  //
+  // runAutofill measured against the pixels and the homography it had in hand,
+  // both pre-rotation and both correct together. Turning the photo first would
+  // mean either re-detecting the card or carrying the calibration and then
+  // measuring through the carried one - more work, and a second place for the
+  // two to disagree. Measure with what you have, then move the picture.
+  //
+  // Fails softly like every other step of this pass: a rotation that could not
+  // happen is not a reason to lose measurements that already did.
+  let upright: Awaited<ReturnType<typeof autoUprightItemPhotos>> | null = null;
+  try {
+    upright = await autoUprightItemPhotos(itemId, ownerId);
+  } catch (err) {
+    console.error("[measure-autofill] upright pass failed:", err);
+  }
   // US-2607: record WHAT HAPPENED, always. Every step of this pass fails
   // softly by design — a bad card photo must never block a listing — and the
   // sum of those soft failures was a feature that produced no measurements and
@@ -337,6 +361,17 @@ export async function autofillMeasurementsFromCard(
             written: result.written,
             ranAt: new Date().toISOString(),
           },
+          // US-2890 AC5. Written only when a photo actually moved: an empty
+          // key on every pass would be noise, and the composer decides whether
+          // to say anything by whether this exists at all.
+          ...(upright && upright.rotated.length > 0
+            ? {
+              [UPRIGHT_PASS_KEY]: {
+                rotated: upright.rotated,
+                ranAt: new Date().toISOString(),
+              },
+            }
+            : {}),
         },
       } as never)
       .eq("id", itemId)
