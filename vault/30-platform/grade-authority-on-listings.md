@@ -11,7 +11,7 @@ code_refs:
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-08-27
+reviewed: 2026-08-28
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
@@ -65,9 +65,20 @@ treatment because it would look better.
 
 ## The three channels a grade actually uses
 
-1. **Description text.** The client's `gradeBlock` (`src/lib/listing-templates.ts`)
-   writes the grade line; the server appends the cert number in
+1. **Description text.** The `grade` description block writes the grade line and
+   the `disclosure` block writes the defect statement — both emitted by the edge
+   renderer (`lib/description-blocks.ts`) on every save, from
+   `listings.description_blocks`. The server still appends the cert number in
    `applyGradeListingPromotion` (`flipdesk-ebay.ts`).
+
+   **US-2965 (2026-08-28) removed the client's second copy.** `gradeBlock` and
+   `ensureGradeLine` used to write the same line into the composer's description
+   string, and `{{grade}}` was in every entry of `DESCRIPTION_TEMPLATES`. That
+   was correct while the description WAS one string; once the grade became its
+   own block it printed the grade twice, and only the block half followed a
+   later regrade. Both are gone from `src/lib/listing-templates.ts`, and
+   `src/test/listing-template-coverage.test.ts` now asserts the inverse — no
+   template may restate a fact a block owns.
 2. **A structured item specific.** `applyGradeListingPromotion` adds
    `"Condition Grade" → "GradeThread X.X"` to the aspect map — keys and format
    from `lib/gt-grade-standard.ts`. It is added **after** aspect sanitisation, so
@@ -90,13 +101,15 @@ variation listing whose grade text quietly stopped being re-asserted, with
 `stripCertLinks` skipped along with it, would put an off-eBay link back on a
 live listing on the next revise.
 
-The split between 1 and 2 is not arbitrary: the client writes the grade line
-because the item row has the grade, and the **server** appends the cert number
-because the unique number lives on the grade report, which the client does not
-have. `ensureGradeLine` re-adds the line idempotently, keyed on the phrase
-"Condition Grade" — an AI rewrite, especially "regenerate", writes a fresh
-description that drops it, and the seller's preview would then show no grade on
-an item publish is about to re-assert one for.
+The split between 1 and 2 is not arbitrary: the grade line comes out of the
+render because the item row has the grade, and the **server** appends the cert
+number because the unique number lives on the grade report. An AI rewrite,
+especially "regenerate", writes a fresh description that carries no grade line —
+which used to matter, because the draft string was the only copy and the
+seller's preview would show no grade on an item publish was about to re-assert
+one for. It no longer does: the `grade` block is re-emitted by the next render
+whatever the rewrite said, so a rewrite that drops the line costs nothing and
+nothing client-side re-adds it.
 
 `applyGradeListingPromotion` runs for **every** graded item with no opt-in
 toggle — it is zero-risk text, so a per-listing switch would only create a way to

@@ -2911,19 +2911,6 @@
         "US-2960"
       ],
       "notes": "HELD 2026-08-28, not started: needs a machine with Xcode and the Android SDK. This container cannot compile either client (Swift is macOS-only; dl.google.com is blocked by the network policy, so the Android SDK cannot be installed and npm run verify:android cannot run), and AC5 requires that lane to pass. Everything it depends on is done and on the branch: US-2960 (composer block list), US-2961 (snippets + apply-to-drafts), US-2962 (bulk toggles), US-2963 (credentials cron re-renders). IMPLEMENTATION PLAN, so the session on a capable machine is short. (1) iOS service: new ios/GradeThread/Marketplaces/Publish/DescriptionBlocksService.swift wrapping the four routes already live at /api/flipdesk/description/ - GET :id/blocks (returns blocks + preview + converted, adopt the preview VERBATIM, never re-request it, that is what makes convert-on-open byte-exact), POST /preview (debounce 400ms, sequence number so a stale response cannot overwrite a newer one - see src/lib/description-preview.ts for the contract), POST :id/save, POST :id/regenerate. Mirror the block shape from src/types/database.ts DescriptionBlock (key/on/src/text/fields/unit/ref/sep) - sep is load-bearing, do not drop it. (2) iOS view: a block list inside ItemCanvasView with per-row toggle, drag reorder, in-place TextEditor for intro/features/condition/snippet/text, and go-to-field for the derived rows; facts and credentials pinned (no drag handle) for the US-2682 reason. Render NOTHING locally - the preview string always comes from the server. (3) iOS deletion (AC3): remove measurementsBlock, ensureGradeLine, ensureSellerCredentials and splitSellerCredentials from ListingDescriptionTemplate.swift (444 lines; the measure-card value formatter STAYS), fix the three call sites - ListingRewriteService.swift:125, ItemCanvasView.swift:2382 and :2408-2411 - and drop the eight now-dead cases in ios/GradeThreadTests/ListingDescriptionTemplateTests.swift. The web equivalent of those call sites is applyWholeText in src/lib/description-blocks.ts, which strips the markers and folds the string into the intro block; copy that behaviour rather than inventing one. (4) Android: the same list under android/app/src/main/java/com/gradethread/app/autolister/ (DraftsLibraryScreen.kt and DraftsService.kt are the surfaces to extend). (5) AC4 check: edit a listing on iOS, open it on web, confirm the same block array and the same preview string - both clients read the same GET, so a difference means one of them rendered locally. Estimated ~1300 lines across the two clients."
-    },
-    {
-      "id": "US-2965",
-      "passes": false,
-      "title": "Apply template writes the measurements and the grade into the intro block",
-      "description": "As a seller who presses Apply template in the web composer, I want the template to leave the measurements and the grade to their own sections, so that my listing does not print each of them twice.",
-      "acceptanceCriteria": [
-        "interpolateDescription no longer fills {{measurements}} or {{grade}}, and DESCRIPTION_TEMPLATES drop those placeholders and their heading lines (the iOS ListingDescriptionTemplate did exactly this in US-2964).",
-        "Pressing Apply template on a graded item with measurements produces a preview that contains the measurement table exactly once and the grade line exactly once.",
-        "The same holds for the saved-template picker and for an AI rewrite accepted through AiFillPanel, which take the same applyDescriptionText path.",
-        "src/lib/__tests__/listing-templates.test.ts covers it, and the existing template tests that assert on the measurement or grade text are updated rather than deleted where the assertion still means something."
-      ],
-      "priority": 40
     }
   ]
 }

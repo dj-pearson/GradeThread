@@ -4,9 +4,17 @@ import {
   measurementGroupForItem,
   type MeasurementGroup,
 } from "./measurement-templates";
-import { buildMeasurementLines, type LengthUnit } from "./measurements";
 
 // Per-group description templates. Placeholders are filled by interpolate().
+//
+// US-2965: no `{{measurements}}` and no `{{grade}}`. Both are their own
+// description blocks now (migration 00678), rendered by the edge service on
+// every save, and a template that restated them printed each fact twice — once
+// in the intro block this string becomes, once in the block that owns it. Only
+// one of the two copies followed the seller's next edit, which is the exact
+// failure the block epic exists to remove. The Swift mirror dropped them in
+// US-2964, and src/test/listing-template-native-parity.test.ts pins the two
+// together.
 export const DESCRIPTION_TEMPLATES: Record<MeasurementGroup, string> = {
   top: `{{brand}} {{title}}
 
@@ -16,10 +24,6 @@ Material: {{material}}
 
 Condition: {{condition}}
 
-Measurements (garment laid flat):
-{{measurements}}
-
-{{grade}}
 Smoke-free home. Ships fast. Questions welcome.`,
   bottom: `{{brand}} {{title}}
 
@@ -29,10 +33,6 @@ Material: {{material}}
 
 Condition: {{condition}}
 
-Measurements (laid flat):
-{{measurements}}
-
-{{grade}}
 Smoke-free home. Ships fast. Questions welcome.`,
   dress: `{{brand}} {{title}}
 
@@ -42,10 +42,6 @@ Material: {{material}}
 
 Condition: {{condition}}
 
-Measurements (laid flat):
-{{measurements}}
-
-{{grade}}
 Smoke-free home. Ships fast. Questions welcome.`,
   outerwear: `{{brand}} {{title}}
 
@@ -55,10 +51,6 @@ Material: {{material}}
 
 Condition: {{condition}}
 
-Measurements (laid flat):
-{{measurements}}
-
-{{grade}}
 Smoke-free home. Ships fast. Questions welcome.`,
   // US-2464. The one template that says "two pieces" out loud. A suit buyer's
   // first question is whether the jacket and trousers are the same suit, so the
@@ -73,10 +65,6 @@ Condition: {{condition}}
 
 Sold as a two-piece set — jacket and trousers together.
 
-Measurements (each piece laid flat):
-{{measurements}}
-
-{{grade}}
 Smoke-free home. Ships fast. Questions welcome.`,
   shoes: `{{brand}} {{title}}
 
@@ -85,18 +73,11 @@ Color: {{color}}
 
 Condition: {{condition}}
 
-{{measurements}}
-
-{{grade}}
 Smoke-free home. Ships fast. Questions welcome.`,
   watch: `{{brand}} {{title}}
 
 Condition: {{condition}}
 
-Specs:
-{{measurements}}
-
-{{grade}}
 Ships insured. Questions welcome.`,
   headwear: `{{brand}} {{title}}
 
@@ -106,10 +87,6 @@ Material: {{material}}
 
 Condition: {{condition}}
 
-Measurements:
-{{measurements}}
-
-{{grade}}
 Smoke-free home. Ships fast. Questions welcome.`,
   accessory: `{{brand}} {{title}}
 
@@ -118,10 +95,6 @@ Material: {{material}}
 
 Condition: {{condition}}
 
-Measurements:
-{{measurements}}
-
-{{grade}}
 Smoke-free home. Ships fast. Questions welcome.`,
   bag: `{{brand}} {{title}}
 
@@ -130,10 +103,6 @@ Material: {{material}}
 
 Condition: {{condition}}
 
-Measurements:
-{{measurements}}
-
-{{grade}}
 Comes from a smoke-free home. Ships boxed. Questions welcome.`,
   generic: `{{brand}} {{title}}
 
@@ -143,48 +112,24 @@ Material: {{material}}
 
 Condition: {{condition}}
 
-{{measurements}}
-
-{{grade}}
 Smoke-free home. Ships fast. Questions welcome.`,
 };
 
-function measurementsBlock(
-  measurements: Record<string, number | string> | null,
-  unit: LengthUnit,
-): string {
-  // US-827: render via the shared formatter so values carry units and honor the
-  // seller's in/cm preference (US-648), consistent with the edge draft build.
-  const lines = buildMeasurementLines(measurements, unit);
-  if (lines.length === 0) return "(measurements available on request)";
-  return lines.map((l) => `  ${l.replace(/^- /, "")}`).join("\n");
-}
-
-function gradeBlock(item: ItemFullRow): string {
-  if (item.grade_value == null) return "";
-  // Plain text, NO URL — eBay bans off-eBay links in listings. The PSA-style
-  // certificate NUMBER ("Cert #GT-…") is appended server-side at publish
-  // (flipdesk-ebay.ts applyGradeListingPromotion), because the unique number
-  // lives on the grade report, not on the item row available here. Buyers verify
-  // the number on GradeThread's /verify page, which we never link from eBay.
-  return `Graded by GradeThread — Condition Grade ${item.grade_value.toFixed(1)}`;
-}
-
-// Idempotently ensure the grade line is present in a description. Mirrors the
-// server's appendCertNumber idempotency (flipdesk-ebay.ts applyGradeListingPromotion,
-// which keys on the "Condition Grade" phrase) so the composer draft stays truthful:
-// an AI rewrite — especially "regenerate" — writes a fresh description that drops
-// the "Graded by GradeThread — Condition Grade X" line, and the seller's preview
-// would then show no grade even though publish re-asserts it. Re-append the block
-// as a trailing paragraph when it's missing. No-op when the item has no grade or a
-// grade line is already present (the server appends the cert # to it at publish).
-export function ensureGradeLine(description: string, item: ItemFullRow): string {
-  const block = gradeBlock(item);
-  if (!block) return description; // no grade on this item
-  if (/Condition Grade/i.test(description)) return description; // already present
-  const trimmed = description.replace(/\s+$/, "");
-  return trimmed.length > 0 ? `${trimmed}\n\n${block}` : block;
-}
+// US-2965 removed three writers from this file: `measurementsBlock`,
+// `gradeBlock` and `ensureGradeLine`.
+//
+// Each of them wrote a fact that is now its own description block — the
+// measurement table, the grade line, the defect disclosure — and the edge
+// renderer emits all three on every save. Keeping a client-side copy printed
+// each fact twice, and only the block half followed the seller's next edit,
+// which is the failure the block split exists to remove. The server still
+// appends the cert number to the rendered grade line at publish
+// (`applyGradeListingPromotion`), unchanged.
+//
+// `buildMeasurementLines` (src/lib/measurements.ts) is untouched and is still
+// the one formatter both sides share, so nothing about the LINE FORMAT moved.
+// See vault/30-platform/grade-authority-on-listings.md for what a grade may
+// become on a listing.
 
 // The GradeThread "Verified Seller" credentials block is appended to a listing
 // description server-side (edge ai-listing.ts) behind this HTML comment marker,
@@ -206,24 +151,19 @@ export function splitSellerCredentials(
   };
 }
 
-// Idempotently preserve the seller-credentials block across an AI rewrite.
-// A rewrite (esp. "regenerate") writes a fresh description that drops — or
-// half-mangles — the appended GradeThread block; strip any marker the model
-// echoed out of the new copy, then re-append the ORIGINAL block verbatim so the
-// draft/preview keeps showing the seller's verified-grade card. No-op when the
-// original had no block. Mirrors `ensureGradeLine`.
-export function ensureSellerCredentials(next: string, original: string): string {
-  const { credentials } = splitSellerCredentials(original);
-  const cleaned = splitSellerCredentials(next).body;
-  if (!credentials) return cleaned;
-  const trimmed = cleaned.replace(/\s+$/, "");
-  return trimmed.length > 0 ? `${trimmed}\n${credentials}` : credentials;
-}
+// US-2965 removed `ensureSellerCredentials` for the same reason as the three
+// above: the badge is the `credentials` block, so re-appending the pre-rewrite
+// copy printed it twice. `splitSellerCredentials` stays — the eBay view-item
+// preview READS it to draw the card apart from the body, which is not a second
+// writer.
 
+// US-2965: no `unit` parameter, because nothing here renders a measurement any
+// more. An unknown placeholder still resolves to the empty string, which is what
+// a template saved before the split — one still carrying `{{measurements}}` —
+// now renders to; the measurements block prints it instead, exactly once.
 export function interpolateDescription(
   template: string,
   item: ItemFullRow,
-  unit: LengthUnit = "in",
 ): string {
   const vars: Record<string, string> = {
     brand: item.brand ?? "",
@@ -234,8 +174,6 @@ export function interpolateDescription(
     condition:
       item.notes?.trim() ||
       (item.grade_label ? item.grade_label : "Pre-owned, good condition"),
-    measurements: measurementsBlock(item.measurements, unit),
-    grade: gradeBlock(item),
   };
   return template
     .replace(/\{\{(\w+)\}\}/g, (_m, key: string) => vars[key] ?? "")

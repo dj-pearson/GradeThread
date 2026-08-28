@@ -54,10 +54,7 @@ import {
 import { useMeasurementPrefs } from "@/stores/measurement-prefs";
 import {
   DESCRIPTION_TEMPLATES,
-  ensureGradeLine,
-  ensureSellerCredentials,
   interpolateDescription,
-  splitSellerCredentials,
   templateGroupFor,
   titleKeywords,
 } from "@/lib/listing-templates";
@@ -91,6 +88,7 @@ import { snippetNames } from "@/lib/flipdesk-snippets";
 import {
   applyWholeText,
   DEFAULT_DESCRIPTION_BLOCKS,
+  stripRenderedBlocks,
   type BlockRowContext,
 } from "@/lib/description-blocks";
 import type { DescriptionBlock } from "@/types/database";
@@ -1202,13 +1200,13 @@ export function FlipdeskComposerPage({
   const resolvedDescription = descriptionBlocks.preview
     ? descriptionBlocks.preview
     : item
-      ? interpolateDescription(description, item, measurementUnit)
+      ? interpolateDescription(description, item)
       : description;
 
   function applyTemplate() {
     if (!item) return;
     applyDescriptionText(
-      interpolateDescription(DESCRIPTION_TEMPLATES[group], item, measurementUnit),
+      interpolateDescription(DESCRIPTION_TEMPLATES[group], item),
     );
     toast.info(`Applied the ${group} template.`);
   }
@@ -1236,9 +1234,12 @@ export function FlipdeskComposerPage({
         // away from the same listings the warning named.
         conflicting_titles: conflictingTitles,
         title,
-        // Hide the appended GradeThread credentials block from the model so it
-        // isn't rewritten into prose — it's re-appended verbatim on accept.
-        description: splitSellerCredentials(description).body,
+        // US-2965: hide EVERY rendered block from the model, not just the
+        // credentials card — the measurement table, the disclosure and the
+        // machine-readable facts are derived text it has no business
+        // rewriting, and prose is the only part a rewrite is about. Same call
+        // the iOS rewrite makes (ListingRewriteService).
+        description: stripRenderedBlocks(description),
       });
       setAiCopyResult(res);
       setAiCopyPanelOpen(true);
@@ -1277,19 +1278,20 @@ export function FlipdeskComposerPage({
     for (const f of accepted) {
       if (f.field === "title") setTitle(f.value.slice(0, TITLE_MAX));
       else if (f.field === "description") {
-        // A fresh description (from "regenerate", or from listing-copy, which
-        // never sees the old one at all) drops the
-        // "Graded by GradeThread — Condition Grade X" line AND the appended
-        // GradeThread Verified Seller block. Re-insert both idempotently so the
-        // draft/preview keeps showing the grade (the server re-asserts it at
-        // publish via applyGradeListingPromotion) and the seller-credentials card
-        // (carried over from the pre-rewrite description). No-ops when absent.
-        const withGrade = item ? ensureGradeLine(f.value, item) : f.value;
-        // US-2960: the string goes to BOTH — `description` for the eBay preview
-        // between saves, and the intro block, which is what actually publishes.
-        // applyWholeText strips the credential and grade markers back out, so
-        // the blocks that own those sections still print them exactly once.
-        applyDescriptionText(ensureSellerCredentials(withGrade, description));
+        // US-2965: the rewrite's text goes in as-is.
+        //
+        // This used to re-assert the "Condition Grade" line and the appended
+        // Verified Seller block, because a fresh description dropped both and
+        // the draft was the only copy. It is not any more: the grade, the
+        // disclosure and the credentials are their own blocks, rendered on
+        // every save, so re-adding them here put a second copy of each into the
+        // `intro` block — visible to the buyer, and stale the moment the seller
+        // edited the field behind it. A rewrite that drops them now costs
+        // nothing.
+        //
+        // US-2960: the string still goes to BOTH — `description` for the eBay
+        // preview between saves, and the intro block, which is what publishes.
+        applyDescriptionText(f.value);
       }
     }
     if (accepted.length > 0) {
