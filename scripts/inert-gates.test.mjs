@@ -17,7 +17,13 @@
 // with gitleaks and fail on one without, teaching nobody anything.
 
 import { describe, expect, it } from "vitest";
-import { inertLocalGates, LOCAL_GATES, onPath } from "./lib/inert-gates.mjs";
+import {
+  inertLocalGates,
+  inertRepoGates,
+  isShallowClone,
+  LOCAL_GATES,
+  onPath,
+} from "./lib/inert-gates.mjs";
 
 const has = (...installed) => (tool) => installed.includes(tool);
 
@@ -52,5 +58,44 @@ describe("US-2655: verify reports local gates whose tool is missing", () => {
     // one that certainly does not.
     expect(onPath("node")).toBe(true);
     expect(onPath("a-tool-that-does-not-exist-anywhere")).toBe(false);
+  });
+});
+
+// US-2965: the second way a gate goes inert — the CLONE, not a missing tool.
+//
+// The vault drift check compares a note's `reviewed` date against the commits
+// that touched its `code_refs`, which needs per-file git history. A shallow
+// clone has none, so vault-lint prints one warning and checks nothing while the
+// lane around it reports a green tick. That is not hypothetical: a whole session
+// of `npm run verify` passed the vault lane in a shallow clone while four
+// contract notes drifted, and the red only appeared in CI, which uses
+// fetch-depth 0.
+describe("US-2965: verify reports a gate made inert by the clone", () => {
+  it("names the consequence, not just the clone depth", () => {
+    const [line] = inertRepoGates(() => true);
+    // "shallow clone" is a fact about a checkout. "vault: lint passes without
+    // comparing any note" is what makes someone act on it.
+    expect(line).toMatch(/^shallow clone/);
+    expect(line).toMatch(/vault: lint/);
+    expect(line).toMatch(/without comparing/);
+  });
+
+  it("tells you how to fix it", () => {
+    expect(inertRepoGates(() => true)[0]).toMatch(/git fetch --unshallow/);
+  });
+
+  it("says nothing on a full clone", () => {
+    expect(inertRepoGates(() => false)).toEqual([]);
+  });
+
+  it("guard-the-guard: the real check answers a definite boolean", () => {
+    // Every case above injects, so a broken isShallowClone would go unnoticed.
+    expect(typeof isShallowClone()).toBe("boolean");
+    expect(isShallowClone(() => "true")).toBe(true);
+    // git prints "false" on a full clone, and an empty string when the command
+    // fails outright — neither of which may be read as shallow, or a machine
+    // without git would grow a permanent warning it cannot act on.
+    expect(isShallowClone(() => "false")).toBe(false);
+    expect(isShallowClone(() => "")).toBe(false);
   });
 });

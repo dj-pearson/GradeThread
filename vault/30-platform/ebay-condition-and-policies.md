@@ -8,19 +8,29 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/publish-preflight.ts
-reviewed: 2026-08-23
+reviewed: 2026-08-28
 tags: [ebay, publishing, conditions, gotcha]
 summary: Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
 ---
 
 # eBay condition mapping and the policy endpoint
 
+> **Re-reviewed 2026-08-28.** Drift flagged `ai-listing.ts` for `a7551b251`
+> (US-2959, generation writes description blocks instead of one prose string).
+> That change rewrote the DESCRIPTION half of the file and left the condition
+> map alone. Both claims re-verified against the code, not against the last
+> review: `getItemConditionPolicies` still calls
+> `/sell/metadata/v1/marketplace/…/get_item_condition_policies`
+> (`ebay-client.ts:1732`), and `EBAY_CONDITION_VALUES` still carries NEW_OTHER
+> and NEW_WITH_DEFECTS for the grade-9 NWOT tier so apparel never sees LIKE_NEW.
+> The line range moved: that list is `ai-listing.ts:175-198` now, not 165-178.
+
 > **Re-reviewed 2026-08-23.** Drift flagged `ebay-client.ts` for `57fb8a64e`
 > (the outgoing-offer email fix). Unrelated to conditions. Re-verified both
 > claims this note exists for: `getItemConditionPolicies` still calls
 > `/sell/metadata/v1/marketplace/...` (`ebay-client.ts:1646`) rather than
 > Taxonomy, and the apparel LIKE_NEW rejection is still what
-> `EBAY_CONDITION_VALUES` documents at `ai-listing.ts:165-178`, with
+> `EBAY_CONDITION_VALUES` documents at `ai-listing.ts:175-198`, with
 > NEW_OTHER and NEW_WITH_DEFECTS carrying the grade-9 NWOT tier instead.
 
 > **Re-reviewed 2026-08-17.** Drift flagged `ebay-client.ts` for `b25e7650`

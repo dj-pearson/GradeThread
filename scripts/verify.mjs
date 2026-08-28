@@ -31,7 +31,7 @@
 // own self-hosted process.
 
 import { spawnSync } from "node:child_process";
-import { inertLocalGates } from "./lib/inert-gates.mjs";
+import { inertLocalGates, inertRepoGates } from "./lib/inert-gates.mjs";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -670,6 +670,10 @@ const failed = results.filter((r) => !r.ok);
 // to be the thing that catches it FIRST, and one that is quietly absent is
 // worth a line in the summary rather than three lines inside a commit.
 degraded.push(...inertLocalGates());
+// US-2965: a gate can be inert because of the CLONE, not a missing tool. The
+// vault drift check reads per-file git history and silently checks nothing
+// without it, which is how four drifting contract notes reached main green.
+degraded.push(...inertRepoGates());
 
 process.stdout.write("\n\x1b[1m──────── verify summary ────────\x1b[0m\n");
 for (const r of results) {

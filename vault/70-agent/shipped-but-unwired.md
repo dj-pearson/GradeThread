@@ -15,7 +15,7 @@ code_refs:
   - scripts/audit-unwired-exports.mjs
   - scripts/check-unwired-modules.mjs
   - scripts/check-web-unwired.mjs
-reviewed: 2026-08-25
+reviewed: 2026-08-28
 tags: [quality, testing, dead-code, gotcha]
 summary: Modules that pass their tests while nothing calls them; one was a real unenforced guarantee now half-wired, one was ruled uncalled-by-design and that ruling turned out to be wrong, one was a policy retirement that got deleted once a live switch started promising it, one was assumed correct because being unwired hid a broken table, and one was a UI component whose absence left a lockout switch armed — telling the shapes apart is the point.
 ---
@@ -62,12 +62,12 @@ ever appears without calling the eval. `grading_eval_cases` also has no
 authenticity rows yet (US-2131 — expert-dependent, cannot be generated), so the
 boot warning reports ungated for every version until real labeled cases exist.
 
-## Three modules have since graduated, which is the thesis holding
+## Four modules have since graduated, which is the thesis holding
 
 The allowlist in `scripts/check-unwired-modules.mjs` holds six entries:
 `drip-trigger.ts`, `rubric.ts`, `brand-seed.ts`, `content-ai-email.ts`,
-`seller-digest.ts` and `condition-curve-measured.ts`. Three names left it between 2026-08-15 and 2026-08-20, and
-each left the same way — the codebase changed around a verdict that had been
+`seller-digest.ts` and `condition-curve-measured.ts`. Four names have left it,
+and each left the same way — the codebase changed around a verdict that had been
 correct when written:
 
 - **`grading-reliability.ts`** (2026-08-15, US-2035). The env-gated job that
@@ -81,6 +81,13 @@ correct when written:
   said to remove it when a route imports it. `routes/flipdesk-sync.ts` imports
   `planObservations` and `planSaleEffects`, and **the gate had been failing since
   that route landed** — the allowlist doing exactly what it is for.
+- **`description-blocks.ts`** (2026-08-27, US-2957 then US-2958). On and off the
+  list the SAME DAY, which is the shortest a PENDING entry has ever lived and the
+  cleanest demonstration of what it is for: US-2957 shipped a pure renderer with
+  nothing calling it, the entry named US-2958 as its removal trigger, and
+  `routes/flipdesk-description.ts` then imported `renderDescription`,
+  `parseLegacyDescription`, `replaceBlockText` and `scrubRestatedFacts`. An entry
+  written with its own exit condition is one nobody has to relitigate.
 
 **The sixth, `condition-curve-measured.ts`, is the same shape one story later**
 (2026-08-25). US-2847 shipped the WRITING half of measured condition curves —

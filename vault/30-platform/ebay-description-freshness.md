@@ -8,12 +8,22 @@ code_refs:
   - services/edge-functions/src/lib/seller-credentials.ts
   - services/edge-functions/src/routes/jobs-credentials-refresh.ts
   - services/edge-functions/src/lib/ai-listing.ts
-reviewed: 2026-08-21
+reviewed: 2026-08-28
 tags: [ebay, publishing, listings, gotcha]
 summary: An eBay description is frozen text — eBay bans active content and off-eBay links — so anything time-varying in it goes stale until a scheduled revise re-renders it.
 ---
 
 # eBay descriptions cannot self-update — refresh by revise
+
+> **Re-reviewed 2026-08-28 (US-2959, US-2963).** The freshness RULE is
+> unchanged and always will be — it is eBay policy, not our code. What changed
+> is the mechanism underneath it, twice, and both changes rewrite the four rules
+> below. A description is now RENDERED from `listings.description_blocks`
+> (US-2956..US-2960), generation builds those blocks rather than concatenating a
+> string (US-2959, `ai-listing.ts`), and the refresh cron re-renders a
+> block-backed listing instead of operating on its markup (US-2963). The section
+> "Two mechanisms, one rule" below is the current state; the four rules that
+> follow it now describe the LEGACY path only.
 
 > **Re-reviewed 2026-08-17.** Drift flagged `seller-credentials.ts` for
 > `b324cb03`, a certificate rendering fix that happened to touch the same
@@ -36,8 +46,9 @@ the renderer.
 
 ## What this already bit
 
-The verified-seller credential block (`buildSellerCredentialBlock`, embedded by
-`ai-listing.ts` behind the `<!--gradethread-seller-credentials-->` marker)
+The verified-seller credential block (`buildSellerCredentialBlock`, emitted
+behind the `<!--gradethread-seller-credentials-->` marker — by the block
+renderer since US-2959, by string concatenation in `ai-listing.ts` before it)
 carries the seller's **running** totals: "N items independently graded ·
 X / 10 average condition grade". Two of one seller's live listings read
 "13 items" and "19 items" at the same moment — both correct on their publish
@@ -47,11 +58,52 @@ date, both advertising the same seller.
 
 eBay permits revising a description **at any time, free, on an active listing —
 even one with sales or bids.** So freshness is a cron, not a renderer feature:
-`/api/jobs/credentials-refresh` (daily) re-renders the block and PUTs it onto
-the live offer.
+`/api/jobs/credentials-refresh` (daily) refreshes the block and PUTs the result
+onto the live offer.
 
-Four rules that path must keep, each of which is a way to break a seller's
-listing rather than a nicety:
+## Two mechanisms, one rule (US-2963, 2026-08-28)
+
+The cron branches on whether the listing carries `description_blocks`.
+
+**Block-backed listings re-render.** The description is derived state, so the
+refresh is `renderListingDescription` followed by `renderAndPersistDescription`
+— both columns in one update — and the freshly rendered string is what gets
+PUT. No markup is read, which is the whole point: `findSellerCredentialBlock`
+walks `<div>` depth and gives up on an unclosed element or after `MAX_TAG_SCAN`
+tags, returning null. The loop reads null as "this listing has no block" and
+skips it, every run, with no error and no log line. **One malformed description
+defeated the refresh permanently and silently.** A render cannot be defeated
+that way.
+
+Three things the block path keeps, and they are the interesting part:
+
+- **Never inject, still.** A stored description with no
+  `<!--gradethread-seller-credentials-->` marker is skipped, exactly as before.
+  The presence test is a plain `includes`, not the div walk.
+- **Freshness is a substring, not a render.** The renderer emits the credential
+  html verbatim after its marker, so `dbDesc.includes(html)` decides the
+  question before any query. That is what keeps a steady-state run at zero extra
+  cost across 200 sellers and 500 listings each — the same budget the compare
+  rule below buys for the legacy path.
+- **A render that would REMOVE the block is refused** and logged as
+  `credentials_refresh.render_would_drop_block`. It means the two credential
+  loaders disagree about a seller, or the block was switched off while the
+  stored string still shows one. Silently stripping a buyer-facing trust badge
+  is not a refresh.
+
+One consequence worth knowing before it surprises someone: a block-backed
+revise pushes the **whole** re-render, not a surgical swap, so a section whose
+underlying field changed since publish updates too. That is the design's
+accepted exception (see the epic's Risks section) — the description is derived
+state, and the cron is the one background job allowed to re-derive a live one.
+
+**Listings with `description_blocks` null take the legacy path below**,
+unchanged, until a save converts them.
+
+## The legacy path: four rules
+
+These describe the pre-block mechanism, which still runs on every unconverted
+listing. Each is a way to break a seller's listing rather than a nicety:
 
 - **Replace the block, not the tail.** The grade/cert line
   (`applyGradeListingPromotion`) is appended AFTER the block, so

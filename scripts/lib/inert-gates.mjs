@@ -49,3 +49,43 @@ export function inertLocalGates(lookup = onPath) {
     ([tool, what]) => `${tool} not installed — ${what}`,
   );
 }
+
+// ─── Repo-state gates (US-2965) ─────────────────────────────────────
+//
+// A gate can also go inert because of how the CLONE is set up rather than what
+// is installed, and the vault drift check is the case that proved it. It needs
+// per-file git history to compare a note's `reviewed` date against the commits
+// that touched its `code_refs`. In a SHALLOW clone that history does not exist,
+// so `vault-lint.mjs` prints one warning line and checks nothing — while the
+// verify lane it sits in reports a green tick.
+//
+// That is not hypothetical. Every `npm run verify` in a shallow clone passed the
+// vault lane for a whole session while four contract notes were drifting, and
+// the failure only appeared in CI, which clones with fetch-depth 0. Same shape
+// as the gitleaks case above: a guard that is green because it is not looking.
+//
+// Reported, not failed, for the same reason — CI is unshallow and does check.
+// The fix on a local box is `git fetch --unshallow`.
+
+/** True when this working copy is a shallow clone. */
+export function isShallowClone(run = gitShallow) {
+  return run() === "true";
+}
+
+function gitShallow() {
+  const out = spawnSync("git", ["rev-parse", "--is-shallow-repository"], {
+    encoding: "utf8",
+  });
+  return (out.stdout ?? "").trim();
+}
+
+/** One line per repo-state gate that is currently inert. */
+export function inertRepoGates(shallow = isShallowClone) {
+  return shallow()
+    ? [
+      "shallow clone — the vault drift check cannot read per-file history, so " +
+      "`vault: lint` passes without comparing any note's `reviewed` date " +
+      "(run `git fetch --unshallow`)",
+    ]
+    : [];
+}

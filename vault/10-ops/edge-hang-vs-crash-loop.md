@@ -11,12 +11,20 @@ code_refs:
   - scripts/ops/edge-watchdog.sh
   - scripts/ops/host-schedules.json
   - services/edge-functions/src/routes/jobs-watchdog-heartbeat.ts
-reviewed: 2026-08-25
+reviewed: 2026-08-28
 tags: [edge, incident, outage, ops]
 summary: Two edge failure modes with opposite signatures — a dying process that restarts itself, and a live process that never will. Telling them apart is the whole job; the hang recurred 2026-08-09 and ran far longer than the watchdog is meant to allow.
 ---
 
 # Edge hang versus edge crash-loop
+
+> [!note] Re-reviewed 2026-08-28. Drift flagged `main.ts` for `f58bc8cdd`
+> (US-2961) and `79b70ad40` (US-2958), both of which registered middleware and a
+> router for the description-block endpoints. Neither touches the boot sequence
+> this runbook depends on. Re-verified against the code rather than the last
+> review: the global `unhandledrejection` and `error` handlers still install at
+> `main.ts:2030` and `:2041`, ahead of `Deno.serve` at `:2122`, which is the
+> ordering the crash-loop section below turns on.
 
 The edge service fails in two ways that look similar from the browser and behave
 in **opposite** ways on the host. Diagnose which one you have before doing
