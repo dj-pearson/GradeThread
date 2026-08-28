@@ -35,7 +35,18 @@ export type RewardEventType =
   // Shared with the trust track — these ALSO carry XP (a paid grade / confirmed
   // arrival is both a trust signal and a rewardable action).
   | "verified_purchase"
-  | "grade_confirmed";
+  | "grade_confirmed"
+  // US-2969: the FlipDesk pipeline stages. Small on purpose — see the catalog.
+  // These are DERIVED from durable item state by rewards-pipeline.ts rather than
+  // emitted by the routes that move an item, because 252 lines across the
+  // flipdesk-*.ts routes write `status` and no hook set would stay complete.
+  | "item_cataloged"
+  | "item_measured"
+  | "item_photographed"
+  | "item_comped"
+  | "item_drafted"
+  | "item_listed"
+  | "item_sold";
 
 /**
  * Per-event XP, weighted by BUSINESS / MOAT contribution rather than raw effort
@@ -58,6 +69,23 @@ export const REWARD_XP_CATALOG: Record<RewardEventType, number> = {
   // manufacture (it takes ten real buyers confirming real arrivals), so it
   // scores above every act a seller can perform alone.
   integrity_tier_up: 60,
+
+  // ── US-2969: the pipeline stages ──────────────────────────────────────────
+  // These relax the moat-over-effort rule above, deliberately. The rule was
+  // right about weighting and wrong about the floor: a catalog that scores
+  // NOTHING for the work a seller does every day leaves them at level 0 after
+  // months, which is what this whole change exists to fix.
+  //
+  // So effort earns, but barely. A full pipeline pass without a grade is 21 XP;
+  // the same item graded is 46. Grading stays worth more than doubling the
+  // busywork, which is the property that had to survive.
+  item_cataloged: 2,
+  item_measured: 2,
+  item_photographed: 3,
+  item_comped: 3,
+  item_drafted: 3,
+  item_listed: 8, // a REAL published listing (platform_listing_id), never a draft
+  item_sold: 15, // a REAL sale row with a price
 };
 
 /**

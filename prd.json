@@ -2962,21 +2962,6 @@
       ]
     },
     {
-      "id": "US-2969",
-      "passes": false,
-      "title": "Pipeline XP: add the seven pipeline reward event types and their catalog values",
-      "description": "As a reseller, I want the everyday FlipDesk actions to exist as rewardable event types, so that the reward engine has something to score when I work.",
-      "acceptanceCriteria": [
-        "Migration 00679_pipeline_reward_events.sql drops and re-adds reputation_events_event_type_check with the seven new values item_cataloged, item_measured, item_photographed, item_comped, item_drafted, item_listed, item_sold, preserving every value already in the constraint as of 00555.",
-        "The same migration adds inventory_items.comped_at timestamptz and user_reward_state.last_pipeline_sweep_at timestamptz, both with ADD COLUMN IF NOT EXISTS.",
-        "US-1108 triple: the migration is idempotent and re-runnable, EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts is bumped to 00679 in the same commit, and the migration carries the self-record footer.",
-        "RewardEventType in services/edge-functions/src/lib/rewards-engine.ts gains the seven members, and REWARD_XP_CATALOG gains item_cataloged 2, item_measured 2, item_photographed 3, item_comped 3, item_drafted 3, item_listed 8, item_sold 15.",
-        "None of the seven are added to GRADING_SPEND_EVENTS or VARIABLE_XP_EVENTS, so xpForEvent returns the catalog value with no paid gate and no metadata read. A unit test asserts xpForEvent(\"item_listed\") === 8 with no opts.",
-        "Existing rewards-engine tests pass unchanged, proving no existing catalog value moved."
-      ],
-      "priority": 3
-    },
-    {
       "id": "US-2970",
       "passes": false,
       "title": "Pipeline XP: derive which stages an item provably reached, as a pure function",

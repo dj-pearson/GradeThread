@@ -181,3 +181,82 @@ Deno.test("no usable referer earns nothing (safe default)", () => {
   assert(!isOffPlatformEmbedReferer("not a url"));
   assert(!isOffPlatformEmbedReferer("/cert/abc")); // relative — unparseable
 });
+
+// ── US-2969: the pipeline stages ──────────────────────────────────
+// The catalog IS the reward policy, so the numbers are asserted rather than
+// merely written down. A future edit that quietly repaces progression fails
+// here instead of in a seller's dashboard six weeks later.
+
+const PIPELINE_XP: Array<[string, number]> = [
+  ["item_cataloged", 2],
+  ["item_measured", 2],
+  ["item_photographed", 3],
+  ["item_comped", 3],
+  ["item_drafted", 3],
+  ["item_listed", 8],
+  ["item_sold", 15],
+];
+
+Deno.test("pipeline stages carry their catalog values", () => {
+  for (const [eventType, xp] of PIPELINE_XP) {
+    assertEquals(
+      (REWARD_XP_CATALOG as Record<string, number>)[eventType],
+      xp,
+      `${eventType} moved`,
+    );
+  }
+});
+
+Deno.test("pipeline stages are not paid-gated", () => {
+  // Unlike coverage_completed / grade_confirmed / verified_purchase, a pipeline
+  // stage consumes no AI spend, so it scores with no `paid` flag at all.
+  for (const [eventType, xp] of PIPELINE_XP) {
+    assertEquals(xpForEvent(eventType as never), xp);
+    assertEquals(xpForEvent(eventType as never, { paid: false }), xp);
+  }
+});
+
+Deno.test("pipeline stages are not variable-XP: a stray award is ignored", () => {
+  // Only quest_completed / share_milestone read an award off the event. A
+  // pipeline mark carrying one must still score the catalog value.
+  assertEquals(xpForEvent("item_listed" as never, { xpAward: 200 }), 8);
+});
+
+Deno.test("an unverified pipeline mark earns nothing", () => {
+  assertEquals(xpForEvent("item_sold" as never, { verified: false }), 0);
+});
+
+Deno.test("item economics: grading more than doubles a listed item", () => {
+  const stages = (keys: string[]) =>
+    keys.reduce((sum, k) => sum + xpForEvent(k as never), 0);
+
+  const listedUngraded = stages([
+    "item_cataloged",
+    "item_measured",
+    "item_photographed",
+    "item_comped",
+    "item_drafted",
+    "item_listed",
+  ]);
+  assertEquals(listedUngraded, 21);
+
+  const listedGraded = listedUngraded +
+    xpForEvent("coverage_completed", { paid: true });
+  assertEquals(listedGraded, 46);
+  assert(listedGraded > listedUngraded * 2, "grading must beat doubling busywork");
+
+  assertEquals(listedGraded + xpForEvent("item_sold" as never), 61);
+});
+
+Deno.test("pacing: ten items a week reaches Picker in the advertised time", () => {
+  // Picker is level 3 (rewards-levels.ts), which is 900 XP on the existing curve.
+  const perWeekUngraded = 21 * 10;
+  const perWeekGraded = 46 * 10;
+  const weeksTo = (perWeek: number) => {
+    for (let w = 1; w <= 52; w++) if (levelForXp(perWeek * w) >= 3) return w;
+    return Infinity;
+  };
+  assertEquals(levelForXp(perWeekUngraded), 1, "level 1 in the first week");
+  assertEquals(weeksTo(perWeekUngraded), 5, "Picker in about five weeks ungraded");
+  assertEquals(weeksTo(perWeekGraded), 2, "Picker in about two weeks graded");
+});
