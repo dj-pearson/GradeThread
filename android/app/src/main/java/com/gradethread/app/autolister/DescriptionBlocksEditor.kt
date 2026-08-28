@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -140,8 +141,9 @@ fun DescriptionBlocksEditor(
 
         TextButton(onClick = { previewOpen = !previewOpen }) {
             Text(
-                stringResource(
-                    R.string.blocks_preview_toggle,
+                pluralStringResource(
+                    R.plurals.blocks_preview_toggle,
+                    state.preview.length,
                     state.preview.length,
                 ),
             )

@@ -451,7 +451,12 @@
     <string name="blocks_converted">This draft was written before sections existed. What you see is your current description split up, and nothing changes until you save.</string>
     <string name="blocks_loading">Loading sections…</string>
     <string name="blocks_add_snippet">Add a saved snippet</string>
-    <string name="blocks_preview_toggle">Preview what the marketplace receives (%1$d characters)</string>
+    <!-- A plural, not a string: lint's PluralsCandidate fires on "%d" followed
+         by a word, and it is right to — "1 characters" is the bug it catches. -->
+    <plurals name="blocks_preview_toggle">
+        <item quantity="one">Preview what the marketplace receives (%1$d character)</item>
+        <item quantity="other">Preview what the marketplace receives (%1$d characters)</item>
+    </plurals>
     <string name="blocks_preview_empty">Save this draft once and the rendered description shows up here.</string>
     <string name="blocks_preview_updating">Updating the preview…</string>
     <string name="blocks_move_up">Up</string>

@@ -401,7 +401,15 @@
     <string name="blocks_converted">Este borrador se escribió antes de que existieran las secciones. Lo que ves es tu descripción actual dividida, y nada cambia hasta que guardes.</string>
     <string name="blocks_loading">Cargando las secciones…</string>
     <string name="blocks_add_snippet">Añadir un fragmento guardado</string>
-    <string name="blocks_preview_toggle">Vista previa de lo que recibe el marketplace (%1$d caracteres)</string>
+    <!-- Spanish carries a "many" category in CLDR (a million and up), and it
+         takes "de" before the noun. Lint's MissingQuantity is an ERROR without
+         it; the 42 older Spanish plurals that omit it are in lint-baseline.xml,
+         and a new one must not join them. -->
+    <plurals name="blocks_preview_toggle">
+        <item quantity="one">Vista previa de lo que recibe el marketplace (%1$d carácter)</item>
+        <item quantity="many">Vista previa de lo que recibe el marketplace (%1$d de caracteres)</item>
+        <item quantity="other">Vista previa de lo que recibe el marketplace (%1$d caracteres)</item>
+    </plurals>
     <string name="blocks_preview_empty">Guarda este borrador una vez y aquí aparecerá la descripción generada.</string>
     <string name="blocks_preview_updating">Actualizando la vista previa…</string>
     <string name="blocks_move_up">Subir</string>
