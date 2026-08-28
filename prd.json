@@ -2914,22 +2914,6 @@
       ]
     },
     {
-      "id": "US-2963",
-      "passes": false,
-      "title": "Credentials refresh re-renders from blocks instead of walking div depth",
-      "description": "As a verified seller, I want my credential badge refreshed by re-rendering the description, so that a malformed listing can no longer defeat the refresh.",
-      "acceptanceCriteria": [
-        "services/edge-functions/src/routes/jobs-credentials-refresh.ts calls renderAndPersistDescription for listings that HAVE description_blocks, instead of refreshSellerCredentialBlock.",
-        "A listing with description_blocks null still takes the existing refreshSellerCredentialBlock path, so nothing regresses before conversion.",
-        "findSellerCredentialBlock and its MAX_TAG_SCAN bail-out (seller-credentials.ts:173) are no longer on the write path for block-backed listings.",
-        "The existing cron tests still pass, plus a new case proving a block-backed listing gets the refreshed credential HTML while its other blocks stay byte-identical."
-      ],
-      "priority": 17,
-      "dependsOn": [
-        "US-2958"
-      ]
-    },
-    {
       "id": "US-2964",
       "passes": false,
       "title": "iOS and Android: description block editor parity",
