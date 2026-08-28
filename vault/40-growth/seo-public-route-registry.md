@@ -9,12 +9,18 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-08-25
+reviewed: 2026-08-28
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
 
 # SEO — the public route registry
+
+> **Re-reviewed 2026-08-28.** Drift flagged `src/routes/index.tsx` for
+> `f58bc8cdd` (US-2961), which adds `/dashboard/flipdesk/settings/blocks`. That
+> is a PRIVATE dashboard route behind `<ProtectedRoute>`, so none of the seven
+> wiring points below apply to it — this note is about indexable pages, and a
+> route that never reaches a crawler is not one. Nothing here changed.
 
 `PUBLIC_ROUTES` in `src/lib/seo/public-routes.ts` is the registry of indexable
 routes. `dist/seo-manifest.json` is emitted from it by a Vite plugin, and
