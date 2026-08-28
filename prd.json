@@ -2914,22 +2914,6 @@
       ]
     },
     {
-      "id": "US-2962",
-      "passes": false,
-      "title": "Bulk edit: switch description blocks on or off across selected drafts",
-      "description": "As a reseller clearing a batch, I want to turn a description section off across every selected draft at once, so that fixing forty listings is one action.",
-      "acceptanceCriteria": [
-        "src/pages/flipdesk/autolister-bulk-edit.tsx shows the block toggle set ONLY; no per-block text editing appears there.",
-        "Applying a toggle change updates description_blocks and re-renders listing_description for every selected draft, through POST /api/flipdesk/description/:listingId/save.",
-        "A selected draft with description_blocks null is converted by the legacy parse first, and its other blocks come through unchanged.",
-        "A selected listing that is not a draft is SKIPPED, and the result summary states how many were skipped."
-      ],
-      "priority": 16,
-      "dependsOn": [
-        "US-2960"
-      ]
-    },
-    {
       "id": "US-2963",
       "passes": false,
       "title": "Credentials refresh re-renders from blocks instead of walking div depth",

@@ -42952,6 +42952,23 @@
         "US-2960"
       ],
       "notes": "Done 2026-08-27. Settings page at /dashboard/flipdesk/settings/blocks (src/pages/flipdesk/description-snippets.tsx) with name, body, reorder and delete, reading and writing listing_snippets through the browser Supabase client under the RLS policies migration 00678 already carries; src/lib/flipdesk-snippets.ts (nameProblem, bodyProblem, nextSortOrder, reorderSnippets, sortSnippets, snippetNames, applySummary, the CRUD calls) and src/hooks/use-listing-snippets.ts. Apply-to-open-drafts is POST /api/flipdesk/description/snippets/:snippetId/apply, backed by applySnippetToDrafts in description-render.ts: it proves the snippet is the caller's before reading any listing, filters listing_status = 'draft' in the QUERY so no caller can widen it, skips a draft whose only reference carries a per-listing override, caps at 200 per pass and reports applied/skipped/truncated. Composer: addSnippetBlock/removeBlockAt, an Add-a-snippet menu and a Manage-snippets link in the description card, and describeBlock now says a deleted snippet renders nothing - but only once the snippet list has loaded. Route exempted in CONTEXTUAL_ROUTES (reached from the Description card) and deliberately NOT in PUBLIC_ROUTES, which a test asserts along with the whole /dashboard tree. Verified: 3 new web test files (40 cases) plus 6 new Deno assertions and 2 tenant-isolation cases keyed on a snippet id, with TEST_USER_A_SNIPPET_ID seeded and added to REQUIRED_RESOURCE_IDS so they cannot silently skip; npm run verify green on every web lane (eslint, tsc -b, production build, 7345 vitest, bundle budget, ui:check zero for src/). The four failing lanes are deno dependency fetches blocked by the container network policy; the new Deno source assertions were transliterated and run under node to prove they hold."
+    },
+    {
+      "id": "US-2962",
+      "passes": true,
+      "title": "Bulk edit: switch description blocks on or off across selected drafts",
+      "description": "As a reseller clearing a batch, I want to turn a description section off across every selected draft at once, so that fixing forty listings is one action.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/autolister-bulk-edit.tsx shows the block toggle set ONLY; no per-block text editing appears there.",
+        "Applying a toggle change updates description_blocks and re-renders listing_description for every selected draft, through POST /api/flipdesk/description/:listingId/save.",
+        "A selected draft with description_blocks null is converted by the legacy parse first, and its other blocks come through unchanged.",
+        "A selected listing that is not a draft is SKIPPED, and the result summary states how many were skipped."
+      ],
+      "priority": 16,
+      "dependsOn": [
+        "US-2960"
+      ],
+      "notes": "Done 2026-08-28. Bulk description-section toggles in the AutoLister grid: src/lib/description-block-bulk.ts (BULK_TOGGLE_KEYS, three-state BlockToggleSet, applyToggleSet which writes only 'on' and returns the SAME array when nothing changes, applyBlockToggles, bulkBlockSummary) and src/pages/flipdesk/autolister/description-blocks-bulk.tsx (the popover panel, Leave/Show/Hide per section, aria-labelled per section). autolister-bulk-edit.tsx gains six lines and no block logic, because it sits on the shrink-only ceiling in autolister-split.test.ts. Toggles only: no textarea, no per-block text, asserted negatively. Each draft goes GET /api/flipdesk/description/:id/blocks then POST /:id/save, so a null description_blocks is converted by the legacy parse first and its own blocks come back by reference; a run that would change nothing skips the save. listing_status is re-read at apply time and only drafts are touched, so a listing published in another tab since the grid loaded is skipped and counted, as is one RLS does not return; the summary states applied, already-set, skipped and failed. snippet, text and disclosure are excluded from the set by design (per-listing content, and the defect disclosure). Verified: 23 new cases across src/lib/description-block-bulk.test.ts and src/pages/flipdesk/autolister/__tests__/description-blocks-bulk.test.tsx; npm run verify green on every web lane (eslint, tsc -b, production build, 7466 vitest, bundle budget, ui:check zero for src/, the AutoLister line ceiling, control-labels, repeated-labels). The four failing lanes are deno dependency fetches blocked by the container network policy and touch no file in this change."
     }
   ]
 }
