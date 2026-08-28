@@ -289,7 +289,27 @@ android {
         // "A newer version exists" is a real thing to know and a terrible thing
         // to fail a build on -- it turns red the day an unrelated library ships.
         // `./gradlew dependencyUpdates` reports it on purpose instead.
-        disable += setOf("GradleDependency", "AndroidGradlePluginVersion", "NewerVersionAvailable")
+        //
+        // OldTargetApi is the same check wearing a platform's clothes, and it
+        // joined the list on 2026-08-28 for two reasons. It fires because
+        // targetSdk is not the HIGHEST api level lint can see -- and 36 is not
+        // an oversight, it is the value US-2891 chose deliberately against
+        // Play's 31 August floor, with the three API 36 behaviour changes
+        // checked one by one (see the compileSdk note above). Chasing a preview
+        // level to silence a nag would undo that reasoning.
+        //
+        // Worse, it is not even a stable gate: lint compares against the
+        // platforms INSTALLED on the machine, so it passes on a laptop with
+        // only SDK 36 and fails on a CI runner that ships the next one. A check
+        // whose verdict depends on which SDK packages happen to be unpacked is
+        // the local-green / CI-red shape that costs the most to diagnose.
+        // Raising targetSdk stays a story with testing behind it.
+        disable += setOf(
+            "GradleDependency",
+            "AndroidGradlePluginVersion",
+            "NewerVersionAvailable",
+            "OldTargetApi",
+        )
         // Never shippable, whatever the baseline holds.
         fatal += setOf("StopShip")
     }
