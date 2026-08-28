@@ -102,6 +102,13 @@ jobs:
       # US-2368: a stringResource call whose argument count disagrees with the
       # resource compiles fine and throws when the screen is drawn — in whichever
       # language the mismatched placeholder lives in.
+      - name: No unlocalized copy outside Compose
+        # The other half of the bare-strings problem: copy written in a plain
+        # Kotlin object and handed to a Compose sink as a String, so the literal
+        # is never at the sink the other guard watches. Ratchets against
+        # scripts/unlocalized-copy-baseline.json, which can only shrink.
+        run: python3 scripts/no-unlocalized-copy.py
+
       - name: String format arity
         run: python3 scripts/check-string-formats.py
 

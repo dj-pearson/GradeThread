@@ -1760,4 +1760,17 @@
     <string name="consumergrade_see_grade">Ver la calificación</string>
     <string name="consumergrade_failed_title">Eso no se completó</string>
     <string name="consumergrade_not_charged">No se te ha cobrado.</string>
+
+    <!-- Nombres y descripciones de los canales de notificacion. Android los
+         muestra en Ajustes > Aplicaciones > GradeThread > Notificaciones. -->
+    <string name="push_channel_money_title">Pagos</string>
+    <string name="push_channel_money_desc">Cuando se registra un pago y cuando llega el dinero.</string>
+    <string name="push_channel_selling_title">Ventas, ofertas y mensajes</string>
+    <string name="push_channel_selling_desc">Alguien compro, hizo una oferta o pregunto.</string>
+    <string name="push_channel_grading_title">Calificacion</string>
+    <string name="push_channel_grading_desc">Cuando termina una calificacion o necesita tu revision.</string>
+    <string name="push_channel_urgent_title">Problemas de conexion</string>
+    <string name="push_channel_urgent_desc">Tu conexion con eBay necesita atencion.</string>
+    <string name="push_channel_updates_title">Todo lo demas</string>
+    <string name="push_channel_updates_desc">Anuncios finalizados, stock estancado, respuestas de soporte.</string>
 </resources>

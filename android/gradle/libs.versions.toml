@@ -23,6 +23,29 @@ coil = "2.7.0"
 okhttp = "4.12.0"
 supabase = "3.1.4"
 ktor = "3.1.2"
+# DEPRECATED UPSTREAM, and pinned here deliberately rather than by neglect.
+#
+# androidx.security:security-crypto never reached a stable 1.1.0 and Google has
+# since deprecated it with no replacement library planned. It is the store for
+# the Supabase refresh token, so this is the most load-bearing alpha dependency
+# in the app and the fact belongs where the version is, not in a ticket.
+#
+# NOT BUMPED, and not migrated off, on purpose:
+#
+#  - alpha07 is the last published build and carries no fix this app needs. A
+#    version bump on a dependency holding credentials is a change to make with a
+#    release-candidate device in hand, not on the way past.
+#  - the replacement is hand-written Keystore AES-GCM over DataStore. That is
+#    fifty lines of cryptography whose failure mode is either "everyone is
+#    signed out" or, much worse, "the token is stored weakly and nothing looks
+#    different". It is a story with a device behind it.
+#
+# What DID change is the failure mode. EncryptedSharedPreferences.create raises
+# on an unreadable keyset - a restored backup, a Keystore entry invalidated by a
+# lock-screen change, an interrupted write - and it is called from inside
+# Application.onCreate, so an uncaught throw was a permanent crash on launch.
+# EncryptedSessionManager now carries the same recovery ladder DatabaseProvider
+# does. The deprecation is a cost to plan for; that crash was a bug.
 securityCrypto = "1.1.0-alpha06"
 sentry = "7.22.0"
 posthog = "3.11.2"

@@ -592,6 +592,11 @@ if (on("android")) {
     // translated, a format-arity mismatch that throws in one language only.
     run("android: no ungated logging", `${py} scripts/no-ungated-log.py`, a);
     run("android: no bare strings", `${py} scripts/no-bare-strings.py`, a);
+    // The other half of the same problem. no-bare-strings finds a literal AT a
+    // rendering sink; this finds the copy that was written three files away in
+    // a plain Kotlin object and handed to the sink as a String, which is the
+    // shape 570 of them are in.
+    run("android: no new unlocalized copy", `${py} scripts/no-unlocalized-copy.py`, a);
     run("android: string format arity", `${py} scripts/check-string-formats.py`, a);
     // US-2502: a Room version whose schema JSON was never committed cannot be
     // migration-tested, ever. Catch it while the file can still be produced.
