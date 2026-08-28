@@ -1773,4 +1773,11 @@
     <string name="push_channel_urgent_desc">Tu conexion con eBay necesita atencion.</string>
     <string name="push_channel_updates_title">Todo lo demas</string>
     <string name="push_channel_updates_desc">Anuncios finalizados, stock estancado, respuestas de soporte.</string>
+    <!-- Botones de accion de las notificaciones, dibujados por el sistema. -->
+    <string name="push_action_accept">Aceptar</string>
+    <string name="push_action_counter">Contraofertar</string>
+    <string name="push_action_counter_hint">Tu contraoferta</string>
+    <string name="push_action_shipped">Marcar como enviado</string>
+    <string name="push_action_shipped_hint">Numero de seguimiento (opcional)</string>
+    <string name="push_action_reconnect">Reconectar</string>
 </resources>

@@ -21,17 +21,24 @@
   ELSE, which is not encrypted at all.
 -->
 <data-extraction-rules>
+    <!--
+      `root` is the app's data directory, and file/database/sharedpref all live
+      under it, so excluding root covers every one of them. `external` is the
+      app's external-storage directory.
+
+      The `device_*` domains, which name the direct-boot-aware tree, are
+      deliberately NOT listed. Nothing in this app writes there: there is no
+      `createDeviceProtectedStorageContext` call and no `directBootAware`
+      component, so that tree is empty and an exclude for it would be a rule
+      covering nothing. Listing a domain that buys nothing is not free - it is
+      one more line to be wrong about in a file whose mistakes are silent.
+    -->
     <cloud-backup>
-        <!-- `root` is the app's data directory, which file/database/sharedpref
-             all live under; excluding it covers them. `device_*` are the
-             direct-boot-aware equivalents, which are a separate tree. -->
         <exclude domain="root" />
         <exclude domain="external" />
-        <exclude domain="device_root" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="root" />
         <exclude domain="external" />
-        <exclude domain="device_root" />
     </device-transfer>
 </data-extraction-rules>

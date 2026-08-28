@@ -165,17 +165,29 @@ enum class PushChannel(
  */
 enum class PushAction(
     val id: String,
-    val title: String,
-    /** Placeholder for a typed reply, or null for a plain tap. */
-    val inputPlaceholder: String?,
+    /**
+     * The button's caption, as a resource. Same reason as PushChannel's: this
+     * text is drawn by the system in the notification shade, where none of the
+     * app's own UI code can reach it, so an English literal here stayed English
+     * on a Spanish phone.
+     */
+    @StringRes val titleRes: Int,
+    /**
+     * Placeholder for a typed reply, or null for a plain tap.
+     *
+     * Nullability is load-bearing beyond the caption: [takesInput] reads it,
+     * and that decides FLAG_MUTABLE on the PendingIntent. A reply button built
+     * immutable silently drops what the seller typed.
+     */
+    @StringRes val inputPlaceholderRes: Int? = null,
 ) {
-    ACCEPT_OFFER("offer.accept", "Accept", null),
-    COUNTER_OFFER("offer.counter"),
-    MARK_SHIPPED("order.mark_shipped"),
-    RECONNECT_EBAY("ebay.reconnect", "Reconnect", null),
+    ACCEPT_OFFER("offer.accept", R.string.push_action_accept),
+    COUNTER_OFFER("offer.counter", R.string.push_action_counter, R.string.push_action_counter_hint),
+    MARK_SHIPPED("order.mark_shipped", R.string.push_action_shipped, R.string.push_action_shipped_hint),
+    RECONNECT_EBAY("ebay.reconnect", R.string.push_action_reconnect),
     ;
 
-    val takesInput: Boolean get() = inputPlaceholder != null
+    val takesInput: Boolean get() = inputPlaceholderRes != null
 
     /**
      * Whether tapping must open the app rather than run in the background.
