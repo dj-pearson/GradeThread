@@ -51,6 +51,12 @@ jobs:
     name: App launches and migrations run (emulator)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # Required, not optional: `release` needs this job, so without the key this
+    # gate can never go green and no release can ever ship. The placeholder is
+    # enough - these tests exercise launch and migrations, never the network -
+    # and it keeps real credentials out of an emulator job.
+    env:
+      SUPABASE_ANON_KEY: ci-placeholder-anon-key
     defaults:
       run:
         working-directory: android

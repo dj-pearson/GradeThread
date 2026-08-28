@@ -385,6 +385,15 @@ jobs:
     continue-on-error: true
     timeout-minutes: 45
     needs: build-and-test
+    # The SAME placeholder build-and-test uses, and the reason this job has
+    # never passed. AppConfig.validateAtStartup throws on a blank
+    # SUPABASE_ANON_KEY by design (US-1301), so without it MainActivity cannot
+    # start and AppLaunchTest dies in Hilt injection with the app behaving
+    # exactly as intended. build-and-test has carried this env since it was
+    # written; this job never did, and being continue-on-error meant nobody
+    # ever read the red X to find out why.
+    env:
+      SUPABASE_ANON_KEY: ci-placeholder-anon-key
     defaults:
       run:
         working-directory: android
