@@ -141,8 +141,18 @@ Deno.test("AC3: the three fields come from ONE tool call, so cost is unchanged",
 // ─── AC4: the concatenation chain is gone ──────────────────────────
 
 Deno.test("AC4: generation builds blocks and no longer concatenates a description", () => {
-  assertStringIncludes(aiListingSrc, "const listingDescription = renderDescription(descriptionBlocks, descriptionCtx);");
   assertStringIncludes(aiListingSrc, "const descriptionBlocks = defaultBlocks().map(");
+  // US-2967 put a second array between the AI blocks and the render, so this
+  // pins the INVARIANT rather than the name: exactly one renderDescription
+  // call, and whatever array it renders is the array the upsert stores. That is
+  // what "the description is derived from its blocks" means, and unlike a
+  // hardcoded identifier it survives the next rename.
+  const renders = aiListingSrc.match(/renderDescription\((\w+), descriptionCtx\)/g) ?? [];
+  assertEquals(renders.length, 1, "generation must render the description exactly once");
+  const rendered = /const listingDescription = renderDescription\((\w+), descriptionCtx\);/
+    .exec(aiListingSrc);
+  assert(rendered, "listingDescription is not rendered from a block array");
+  assertStringIncludes(aiListingSrc, `description_blocks: ${rendered[1]},`);
 });
 
 Deno.test("AC4: the old assembly calls are gone from the generation path", () => {
@@ -166,7 +176,12 @@ Deno.test("AC5: the draft upsert writes description_blocks beside the string", (
   assert(at > 0, "draftFields not found");
   const fields = aiListingSrc.slice(at, at + 900);
   assertStringIncludes(fields, "listing_description: listingDescription,");
-  assertStringIncludes(fields, "description_blocks: descriptionBlocks,");
+  // The NAME of the array moved in US-2967 (the template footer is spliced in
+  // before the render); that both columns leave in one upsert did not.
+  assert(
+    /description_blocks: \w+,/.test(fields),
+    "the upsert does not write description_blocks beside the string",
+  );
 });
 
 // ─── AC6: the scrubber runs on all three, and says so ──────────────
