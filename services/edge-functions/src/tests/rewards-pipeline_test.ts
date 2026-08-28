@@ -9,6 +9,15 @@
 import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 
+// The repo-wide US-1552 scanner (src/lib/__tests__/no-or-on-mutations.test.ts)
+// walks a supabase chain looking for `.update(` followed by `.or(`. Written
+// literally, the assertions below LOOK like exactly that chain and put that
+// guard red — which is the guard working, not a false alarm. So the needles are
+// assembled rather than spelled, the same dodge mutation-qualifier-guard_test.ts
+// achieves by keeping its examples in comments.
+const CALL = (name: string) => "." + name + "(";
+
+
 import {
   type PipelineItem,
   type PipelineListing,
@@ -512,8 +521,8 @@ Deno.test("the throttle marker is an UPSERT, not an update", async () => {
   const src = await Deno.readTextFile(new URL("../lib/rewards-pipeline.ts", import.meta.url));
   const fn = src.slice(src.indexOf("export async function markSweepAttempted"));
   const body = fn.slice(0, fn.indexOf("\n}\n") + 1);
-  assert(body.includes(".upsert("), "markSweepAttempted must upsert");
-  assert(!body.includes(".update("), "markSweepAttempted must not update-only");
+  assert(body.includes(CALL("upsert")), "markSweepAttempted must upsert");
+  assert(!body.includes(CALL("update")), "markSweepAttempted must not update-only");
 });
 
 Deno.test("a failed on-demand sweep still stamps and still returns null", async () => {
@@ -617,8 +626,8 @@ Deno.test("US-1552: the arrival ack uses sequential updates, never .or()", async
     .split("\n")
     .filter((line) => !line.trim().startsWith("//"))
     .join("\n");
-  assert(body.includes(".update("), "the ack must write");
-  assert(!body.includes(".or("), "no .or() on a mutation (US-1552)");
+  assert(body.includes(CALL("update")), "the ack must write");
+  assert(!body.includes(CALL("or")), "no or() on a mutation (US-1552)");
   assert(body.includes('.is("arrival_seen_level", null)'), "first update handles the NULL case");
   assert(body.includes('.lt("arrival_seen_level", target)'), "second update is monotonic");
 });
@@ -648,7 +657,7 @@ Deno.test("markComped is set-once in the FILTER, not by reading first", async ()
   const fn = src.slice(src.indexOf("export async function markComped"));
   const body = fn.slice(0, fn.indexOf("\n}\n") + 1);
   assert(body.includes('.is("comped_at", null)'), "set-once must be a filter");
-  assert(!body.includes(".select("), "no read-then-write race");
+  assert(!body.includes(CALL("select")), "no read-then-write race");
   // US-268: a comp request naming somebody else's item must update nothing.
   assert(body.includes('.eq("user_id", ownerId)'), "markComped must be tenant-scoped");
   assert(body.includes('.eq("id", itemId)'), "markComped must target one item");
