@@ -43,6 +43,12 @@ AI_ROUTES = [
     "/api/flipdesk/ai/analytics-narrative",
     "/api/grade/snap",            # Snap-to-Value
     "/api/flipdesk/scout",        # the ScoutAI scan, and /scout/prospect beneath it
+    # US-2964. Three of the four description-block routes are plain reads and
+    # writes; the fourth, /:listingId/regenerate, runs a model before it answers.
+    # The prefix is listed rather than the one route because the id sits in the
+    # middle of the path, so there is no literal to match on - a file that talks
+    # to any of them is one that can reach the regenerate call.
+    "/api/flipdesk/description",
 ]
 
 # The sessions that wait long enough for one.

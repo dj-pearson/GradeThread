@@ -377,7 +377,6 @@ enum AIItemFieldWriter {
             .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return false }
 
-        let unit = AppPreferences.measurementUnit
         let facts = ListingDescriptionTemplate.Facts(
             brand: row.brand ?? "",
             title: row.title ?? "",
@@ -396,7 +395,7 @@ enum AIItemFieldWriter {
                 title: row.title
             )
         )
-        let description = ListingDescriptionTemplate.build(facts: facts, unit: unit)
+        let description = ListingDescriptionTemplate.build(facts: facts)
         guard !description.isEmpty else { return false }
 
         try await SupabaseShared.client

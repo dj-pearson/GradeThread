@@ -1,3 +1,4 @@
+import GradeThreadCore
 import PhotosUI
 import SwiftData
 import SwiftUI
@@ -50,7 +51,11 @@ struct ItemCanvasView: View {
     /// the discard guard; keying it on the item fields alone would let a
     /// back-swipe silently drop a category + ten aspects the seller just filled.
     private var pageIsDirty: Bool {
+        // US-2964: a block edit touches none of the item draft, so without the
+        // third term a seller who switched a section off and pressed Back lost
+        // it with no warning.
         state?.isDirty == true || specificsModel?.isDirty == true
+            || descriptionBlocks.dirty
     }
     /// US-967: parsed `measurements_json`, memoized so the Measurements section
     /// reads a cached value instead of re-decoding JSON on every `body` pass.
@@ -75,6 +80,9 @@ struct ItemCanvasView: View {
     /// `.sheet(item:)` — a view has a single sheet slot, and three chained
     /// `.sheet(isPresented:)` modifiers compete for it (see ``ToolModule``).
     @State private var sheet: CanvasSheet?
+    /// US-2964: the listing's description blocks. The renderer is edge-only, so
+    /// this holds the array and every string it shows came off the server.
+    @State private var descriptionBlocks = DescriptionBlocksStore()
 
     /// Duplicate-SKU merge resolution (web parity). A function rather than an
     /// inline case body so the `let sku` binding stays in ordinary Swift rather
@@ -212,6 +220,20 @@ struct ItemCanvasView: View {
     private var gtLiveListing: LocalListing? {
         guard let l = activeEbayListing else { return nil }
         return isEbayOriginated(l) ? nil : l
+    }
+
+    /// US-2964: the listing whose description blocks the section edits — the
+    /// draft the seller is preparing, else the live one they are revising.
+    /// `itemListings` is sorted newest-first, so `first` is the current draft.
+    private var descriptionListing: LocalListing? {
+        itemListings.first { $0.listingStatus == "draft" } ?? activeEbayListing
+    }
+
+    /// eBay owns an imported mirror's copy, so its blocks are read-only here for
+    /// the same reason `listingsSection` says "edit on eBay".
+    private var descriptionBlocksLocked: Bool {
+        guard let listing = descriptionListing else { return false }
+        return isEbayOriginated(listing)
     }
 
     /// True when the item's edited target price differs from what's published on
@@ -523,7 +545,11 @@ struct ItemCanvasView: View {
                         .font(.subheadline.weight(.semibold))
                 }
             }
-            .disabled(!(state?.isDirty ?? false) || !(state?.isSavable ?? false) || state?.savePhase == .saving)
+            .disabled(
+                !(state?.isDirty == true || descriptionBlocks.dirty)
+                    || !(state?.isSavable ?? false)
+                    || state?.savePhase == .saving
+            )
         }
         // US-650: item-level actions overflow menu.
         ToolbarItem(placement: .topBarTrailing) {
@@ -611,6 +637,10 @@ struct ItemCanvasView: View {
             measurePhotoRow(state: state)
                 .id(ItemPrepChecklist.Step.measurements)
             identitySection(state: state)
+                // US-2964: where the `attributes` block's "go to the fields"
+                // control lands. The other two derived rows reuse the prep
+                // checklist's existing anchors.
+                .id(DescriptionFieldAnchor.attributes)
             CertifiedGradeSection(
                 item: item,
                 // US-746: a graded, still-publishable item can jump straight to
@@ -630,6 +660,14 @@ struct ItemCanvasView: View {
             compSetSection(state: state)
             notesSection(state: state)
             descriptionSection(state: state)
+            DescriptionBlocksSection(
+                store: descriptionBlocks,
+                rowContext: descriptionRowContext(state: state),
+                onGoToField: { anchor in
+                    withAnimation { scrollToDescriptionField(anchor, proxy: proxy) }
+                },
+                locked: descriptionBlocksLocked
+            )
             storageSection(state: state)
             statusSection(state: state)
             if !itemListings.isEmpty {
@@ -672,6 +710,18 @@ struct ItemCanvasView: View {
         // (measurements from AI extract, required photos from upload sync, …).
         // Forward-only and best-effort — never blocks; `save()` reconciles too.
         .task(id: prepAdvanceSignature) { await autoAdvanceStatusIfNeeded() }
+        // US-2964: load the listing's description blocks, and re-run when the
+        // canvas resolves a different listing (a publish, a relist) or the
+        // seller's unit preference changes — the measurements block renders in
+        // whichever one is current.
+        .task(id: descriptionBlocksSignature) {
+            await descriptionBlocks.configure(
+                listingId: descriptionListing?.id,
+                unit: AppPreferences.measurementUnit
+            )
+        }
+        .task { await descriptionBlocks.loadSnippets() }
+        .onDisappear { descriptionBlocks.cancelPreview() }
         .sheet(item: $sheet) { presented in
             switch presented {
             case .publish:
@@ -2376,21 +2426,80 @@ struct ItemCanvasView: View {
 
     private func applyDescriptionTemplate(state: ItemCanvasState) {
         let facts = descriptionFacts(state: state)
-        // The server-appended "Verified Seller" block survives the replacement:
-        // it is HTML the template knows nothing about, and losing it silently
-        // downgrades the listing the seller is about to publish.
-        state.draft.itemDescription = ListingDescriptionTemplate.ensureSellerCredentials(
-            ListingDescriptionTemplate.build(facts: facts),
-            original: state.draft.itemDescription
-        )
+        // US-2964: the template is ONE string standing for the whole prose part,
+        // and blocks are the source of truth now — so it lands in the intro
+        // block as well as the item's own description column, or the next save
+        // would render it away. `applyWholeText` strips the rendered markers
+        // back out, so the blocks that own the measurements, the disclosure and
+        // the credentials still print those sections exactly once instead of the
+        // template restating them.
+        applyDescriptionText(ListingDescriptionTemplate.build(facts: facts), state: state)
         HapticFeedback.success()
         actionToast = "Applied the \(ListingDescriptionTemplate.group(for: facts).rawValue) template."
     }
 
+    /// Fold a whole-description string into BOTH the item's description column
+    /// and the block array. The column is what the publish dialog and the eBay
+    /// preview read between saves; the blocks are what actually publish.
+    private func applyDescriptionText(_ text: String, state: ItemCanvasState) {
+        state.draft.itemDescription = text
+        descriptionBlocks.applyWholeText(text)
+    }
+
+    /// The facts a row summary reads, off the LIVE draft rather than the
+    /// persisted row — a brand the seller just typed is in the attributes row a
+    /// second later.
+    private func descriptionRowContext(
+        state: ItemCanvasState
+    ) -> DescriptionBlocks.RowContext {
+        descriptionBlocks.rowContext(
+            attributes: [
+                "brand": state.draft.brand,
+                "size": state.draft.size,
+                "color": state.draft.color,
+                "material": state.draft.material,
+                "style": state.draft.style,
+            ],
+            measurementCount: state.draft.measurements.values.filter { $0 > 0 }.count,
+            gradeValue: item.gradeValue
+        )
+    }
+
+    /// Re-runs the block load when the listing under the canvas changes, or when
+    /// the seller flips inches/centimetres in Settings.
+    private var descriptionBlocksSignature: String {
+        (descriptionListing?.id ?? "none")
+            + "|" + AppPreferences.measurementUnit.rawValue
+    }
+
+    /// The canvas anchor the `attributes` block sends the seller to. The other
+    /// two derived rows reuse the prep checklist's own ids.
+    private enum DescriptionFieldAnchor: Hashable {
+        case attributes
+    }
+
+    private func scrollToDescriptionField(
+        _ anchor: DescriptionBlocks.FieldAnchor,
+        proxy: ScrollViewProxy
+    ) {
+        switch anchor {
+        case .attributes:
+            proxy.scrollTo(DescriptionFieldAnchor.attributes, anchor: .top)
+        case .measurements:
+            proxy.scrollTo(ItemPrepChecklist.Step.measurements, anchor: .top)
+        case .grade:
+            proxy.scrollTo(ItemPrepChecklist.Step.grade, anchor: .top)
+        }
+    }
+
     /// One AI rewrite pass over the description. The result is applied straight
-    /// to the draft (the seller still has to Save), with the grade line and the
-    /// credentials block re-asserted - a regenerate writes fresh copy that drops
-    /// both, and publish would then re-add a grade the preview never showed.
+    /// to the draft (the seller still has to Save).
+    ///
+    /// US-2964: it no longer re-asserts the grade line or the credentials block
+    /// locally. Both are their own blocks now, rendered by the server on every
+    /// save, so re-adding them here would print each of them twice — and a
+    /// rewrite that dropped them costs nothing, because the seller never had the
+    /// only copy.
     private func runDescriptionRewrite(
         _ action: ListingRewriteAction,
         state: ItemCanvasState
@@ -2405,12 +2514,7 @@ struct ItemCanvasView: View {
                 title: state.draft.title,
                 description: state.draft.itemDescription
             )
-            let withGrade = ListingDescriptionTemplate.ensureGradeLine(
-                result.value, gradeValue: item.gradeValue
-            )
-            state.draft.itemDescription = ListingDescriptionTemplate.ensureSellerCredentials(
-                withGrade, original: state.draft.itemDescription
-            )
+            applyDescriptionText(result.value, state: state)
             HapticFeedback.success()
             actionToast = "AI rewrote the description. Save to keep it."
         } catch {
@@ -2634,7 +2738,11 @@ struct ItemCanvasView: View {
     private func save(dismissAfter: Bool = true) async -> Bool {
         guard let state else { return false }
         guard state.isSavable else { return false }
-        guard state.isDirty else { return true }
+        // US-2964: `descriptionBlocks.dirty` is the second half of "is there
+        // anything to save". The block array lives outside the item draft, so
+        // `state.isDirty` alone returned early on a section-only edit and the
+        // save silently did nothing.
+        guard state.isDirty || descriptionBlocks.dirty else { return true }
         guard state.canTransition(to: state.draft.status) else {
             HapticFeedback.error()
             state.failSaving("Can't move a \(state.original.status) item back to \(state.draft.status).")
@@ -2784,6 +2892,14 @@ struct ItemCanvasView: View {
             if let specificsModel, specificsModel.isDirty, specificsModel.canSave {
                 _ = await specificsModel.save()
             }
+            // US-2964: the description goes LAST, after the item row has landed.
+            // Every derived block reads that row, so rendering first would print
+            // the brand, the size and the measurements the seller just replaced.
+            // The route writes `description_blocks` AND `listing_description` in
+            // one update, which is why the revise below then sends no
+            // description of its own — see the argument.
+            let renderedDescription = await descriptionBlocks.save()
+
             // Push to the live GradeThread listing. A failed eBay push never
             // blocks the local save — surface the reason and keep the user here.
             var syncFailed = false
@@ -2805,7 +2921,12 @@ struct ItemCanvasView: View {
                 let outcome = await EbayPublishService().revise(
                     listingId: plan.listingId,
                     title: plan.title,
-                    description: plan.description,
+                    // US-2964: nil once the blocks have rendered. `nil` makes
+                    // the server read `listing_description`, which the block
+                    // save above just rewrote — sending the item's own column
+                    // instead would push prose the renderer never saw and undo
+                    // the sections on the live listing.
+                    description: renderedDescription == nil ? plan.description : nil,
                     price: plan.price,
                     syncPhotos: true,
                     resyncFields: plan.resync

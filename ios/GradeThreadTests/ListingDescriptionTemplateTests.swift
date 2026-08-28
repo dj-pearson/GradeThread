@@ -3,6 +3,13 @@ import XCTest
 
 /// US-2818 — the Swift mirror of `src/lib/listing-templates.ts`. Pure data plus
 /// interpolation, so the whole contract is testable without a network or a model.
+///
+/// US-2964 removed the description-rendering half (the measurement table, the
+/// grade line and the seller-credentials block), so the eight cases that covered
+/// `measurementsBlock`, `gradeBlock`, `ensureGradeLine`, `splitSellerCredentials`
+/// and `ensureSellerCredentials` went with it. Those sections are their own
+/// description blocks now and are rendered by the edge service; the block list's
+/// own behaviour is covered in `GradeThreadCoreTests/DescriptionBlocksTests`.
 final class ListingDescriptionTemplateTests: XCTestCase {
 
     // MARK: - Group selection
@@ -60,7 +67,7 @@ final class ListingDescriptionTemplateTests: XCTestCase {
         XCTAssertEqual(GarmentGroup.from(descriptor), .generic)
     }
 
-    // MARK: - Measurements
+    // MARK: - Measurement values
 
     /// A folded-flat measurement publishes BOTH numbers: the worn one a buyer
     /// shops by and the flat one they can reproduce with their own tape.
@@ -93,13 +100,6 @@ final class ListingDescriptionTemplateTests: XCTestCase {
         XCTAssertEqual(watch, ["Case diameter: 40 mm"])
     }
 
-    func test_measurementsBlock_saysSoWhenThereAreNone() {
-        XCTAssertEqual(
-            ListingDescriptionTemplate.measurementsBlock([:], unit: .inches),
-            "(measurements available on request)"
-        )
-    }
-
     /// A stored zero is an unset field, not a measurement of nothing.
     func test_measurementLines_dropNonPositiveValues() {
         XCTAssertTrue(
@@ -108,74 +108,9 @@ final class ListingDescriptionTemplateTests: XCTestCase {
         )
     }
 
-    // MARK: - Grade line
-
-    func test_gradeBlock_carriesOneDecimal_andNoURL() {
-        let block = ListingDescriptionTemplate.gradeBlock(gradeValue: 8.5)
-        XCTAssertEqual(block, "Graded by GradeThread - Condition Grade 8.5")
-        // eBay bans off-eBay links in listings.
-        XCTAssertFalse(block.contains("http"))
-    }
-
-    func test_gradeBlock_isEmptyForAnUngradedItem() {
-        XCTAssertEqual(ListingDescriptionTemplate.gradeBlock(gradeValue: nil), "")
-    }
-
-    /// Idempotent: an AI regenerate drops the line, so it is re-appended — but
-    /// a description that still carries one is left alone rather than gaining a
-    /// second.
-    func test_ensureGradeLine_appendsOnceAndOnlyWhenMissing() {
-        let appended = ListingDescriptionTemplate.ensureGradeLine(
-            "Great tee.", gradeValue: 9
-        )
-        XCTAssertEqual(appended, "Great tee.\n\nGraded by GradeThread - Condition Grade 9.0")
-
-        let twice = ListingDescriptionTemplate.ensureGradeLine(appended, gradeValue: 9)
-        XCTAssertEqual(twice, appended)
-    }
-
-    func test_ensureGradeLine_isANoOpForAnUngradedItem() {
-        XCTAssertEqual(
-            ListingDescriptionTemplate.ensureGradeLine("Great tee.", gradeValue: nil),
-            "Great tee."
-        )
-    }
-
-    // MARK: - Seller credentials block
-
-    func test_splitSellerCredentials_separatesBodyFromTheAppendedBlock() {
-        let marker = ListingDescriptionTemplate.sellerCredentialsMarker
-        let full = "Body copy.\n\n" + marker + "<div>Verified</div>"
-        let split = ListingDescriptionTemplate.splitSellerCredentials(full)
-        XCTAssertEqual(split.body, "Body copy.")
-        XCTAssertEqual(split.credentials, marker + "<div>Verified</div>")
-    }
-
-    /// A rewrite writes fresh copy that drops the block — and sometimes echoes a
-    /// mangled marker back. The ORIGINAL block is what gets re-appended.
-    func test_ensureSellerCredentials_reAppendsTheOriginalBlock() {
-        let marker = ListingDescriptionTemplate.sellerCredentialsMarker
-        let original = "Old copy.\n" + marker + "<div>Verified</div>"
-        let rewritten = "New copy."
-
-        let out = ListingDescriptionTemplate.ensureSellerCredentials(
-            rewritten, original: original
-        )
-        XCTAssertEqual(out, "New copy.\n" + marker + "<div>Verified</div>")
-    }
-
-    func test_ensureSellerCredentials_isANoOpWhenTheOriginalHadNone() {
-        XCTAssertEqual(
-            ListingDescriptionTemplate.ensureSellerCredentials(
-                "New copy.", original: "Old copy."
-            ),
-            "New copy."
-        )
-    }
-
     // MARK: - Build
 
-    func test_build_topTemplate_carriesEveryAttributeAndTheGradeLine() {
+    func test_build_topTemplate_carriesEveryAttribute() {
         let facts = ListingDescriptionTemplate.Facts(
             brand: "Patagonia",
             title: "Better Sweater",
@@ -188,17 +123,34 @@ final class ListingDescriptionTemplateTests: XCTestCase {
             measurements: ["chest": 21, "length": 27],
             garmentDescriptor: "sweater"
         )
-        let out = ListingDescriptionTemplate.build(facts: facts, unit: .inches)
+        let out = ListingDescriptionTemplate.build(facts: facts)
 
         XCTAssertTrue(out.hasPrefix("Patagonia Better Sweater"))
         XCTAssertTrue(out.contains("Size: M"))
         XCTAssertTrue(out.contains("Color: Navy"))
         XCTAssertTrue(out.contains("Material: Fleece"))
         XCTAssertTrue(out.contains("Condition: Light pilling at the cuffs."))
-        XCTAssertTrue(out.contains("Measurements (garment laid flat):"))
-        XCTAssertTrue(out.contains("Chest (pit to pit): 42 in (21 in flat)"))
-        XCTAssertTrue(out.contains("Graded by GradeThread - Condition Grade 8.5"))
         XCTAssertTrue(out.hasSuffix("Smoke-free home. Ships fast. Questions welcome."))
+    }
+
+    /// US-2964: the measurement table and the grade line are their own blocks,
+    /// rendered by the edge service on every save. A template that restated them
+    /// would publish each fact twice — and only one of the two copies would
+    /// follow the seller's next edit.
+    func test_build_leavesTheMeasurementsAndTheGradeToTheirOwnBlocks() {
+        let facts = ListingDescriptionTemplate.Facts(
+            brand: "Patagonia",
+            title: "Better Sweater",
+            gradeValue: 8.5,
+            measurements: ["chest": 21],
+            garmentDescriptor: "sweater"
+        )
+        let out = ListingDescriptionTemplate.build(facts: facts)
+
+        XCTAssertFalse(out.contains("Chest"))
+        XCTAssertFalse(out.contains("Measurements"))
+        XCTAssertFalse(out.contains("Condition Grade"))
+        XCTAssertFalse(out.contains("{{"))
     }
 
     /// The seller's own note outranks the grade tier, and the tier outranks the
@@ -208,20 +160,20 @@ final class ListingDescriptionTemplateTests: XCTestCase {
             gradeLabel: "Excellent", garmentDescriptor: "tee"
         )
         XCTAssertTrue(
-            ListingDescriptionTemplate.build(facts: facts, unit: .inches)
+            ListingDescriptionTemplate.build(facts: facts)
                 .contains("Condition: Excellent")
         )
 
         facts.conditionNotes = "Small stain on the hem."
         XCTAssertTrue(
-            ListingDescriptionTemplate.build(facts: facts, unit: .inches)
+            ListingDescriptionTemplate.build(facts: facts)
                 .contains("Condition: Small stain on the hem.")
         )
 
         facts.conditionNotes = ""
         facts.gradeLabel = ""
         XCTAssertTrue(
-            ListingDescriptionTemplate.build(facts: facts, unit: .inches)
+            ListingDescriptionTemplate.build(facts: facts)
                 .contains("Condition: Pre-owned, good condition")
         )
     }
@@ -230,9 +182,8 @@ final class ListingDescriptionTemplateTests: XCTestCase {
     /// suit buyer's first question is whether the jacket and trousers match.
     func test_build_suitTemplate_saysSoldAsASet() {
         let facts = ListingDescriptionTemplate.Facts(garmentDescriptor: "two piece suit")
-        let out = ListingDescriptionTemplate.build(facts: facts, unit: .inches)
+        let out = ListingDescriptionTemplate.build(facts: facts)
         XCTAssertTrue(out.contains("Sold as a two-piece set"))
-        XCTAssertTrue(out.contains("Measurements (each piece laid flat):"))
     }
 
     /// A watch has no size, colour or material lines at all, so the group choice
@@ -244,10 +195,9 @@ final class ListingDescriptionTemplateTests: XCTestCase {
             measurements: ["case_diameter": 42],
             garmentDescriptor: "watch"
         )
-        let out = ListingDescriptionTemplate.build(facts: facts, unit: .inches)
+        let out = ListingDescriptionTemplate.build(facts: facts)
         XCTAssertFalse(out.contains("Size:"))
         XCTAssertFalse(out.contains("Material:"))
-        XCTAssertTrue(out.contains("Specs:"))
         XCTAssertTrue(out.contains("Ships insured. Questions welcome."))
     }
 
@@ -257,7 +207,7 @@ final class ListingDescriptionTemplateTests: XCTestCase {
         let facts = ListingDescriptionTemplate.Facts(
             brand: "Nike", title: "Tee", garmentDescriptor: "tee"
         )
-        let out = ListingDescriptionTemplate.build(facts: facts, unit: .inches)
+        let out = ListingDescriptionTemplate.build(facts: facts)
         XCTAssertTrue(out.contains("Size: \u{2014}"))
         XCTAssertFalse(out.contains("\n\n\n"))
         XCTAssertFalse(out.contains("Condition Grade"))

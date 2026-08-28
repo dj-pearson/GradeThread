@@ -141,17 +141,16 @@ object MeasurementCatalog {
      * parity guard that demanded the web's five groups would be demanding
      * information this caller does not have.
      */
-    fun suggestedKeys(category: String?): List<String> =
-        when (category?.lowercase()) {
-            "shoes", "footwear" -> listOf("size_us", "insole")
-            "watches", "watch" -> listOf("case_diameter", "lug_width", "band_length")
-            "bags" -> listOf("width", "height", "depth", "strap_drop", "handle_drop")
-            "accessories" -> listOf("length", "width", "hole_span")
-            "headwear" -> listOf("circumference", "crown_height", "brim_length")
-            "other" -> listOf("length", "width")
-            // Clothing and anything uncategorized.
-            else -> listOf("chest", "length", "shoulder", "sleeve", "waist", "inseam", "rise", "hip")
-        }
+    fun suggestedKeys(category: String?): List<String> = when (category?.lowercase()) {
+        "shoes", "footwear" -> listOf("size_us", "insole")
+        "watches", "watch" -> listOf("case_diameter", "lug_width", "band_length")
+        "bags" -> listOf("width", "height", "depth", "strap_drop", "handle_drop")
+        "accessories" -> listOf("length", "width", "hole_span")
+        "headwear" -> listOf("circumference", "crown_height", "brim_length")
+        "other" -> listOf("length", "width")
+        // Clothing and anything uncategorized.
+        else -> listOf("chest", "length", "shoulder", "sleeve", "waist", "inseam", "rise", "hip")
+    }
 
     /** Canonical keys in catalog order first, then extras alphabetically. */
     fun ordered(keys: Collection<String>): List<String> {
@@ -170,12 +169,11 @@ object MeasurementCatalog {
      * "."-formatted display that re-parsed as a GROUPING separator — so 18.5
      * became 185. Grouping is disabled here for exactly that reason.
      */
-    private fun formatter(locale: Locale): NumberFormat =
-        NumberFormat.getNumberInstance(locale).apply {
-            isGroupingUsed = false
-            maximumFractionDigits = 2
-            minimumFractionDigits = 0
-        }
+    private fun formatter(locale: Locale): NumberFormat = NumberFormat.getNumberInstance(locale).apply {
+        isGroupingUsed = false
+        maximumFractionDigits = 2
+        minimumFractionDigits = 0
+    }
 
     /** Display a stored value; empty for unset or non-positive. */
     fun editableString(value: Double?, locale: Locale = Locale.getDefault()): String {
@@ -194,7 +192,10 @@ object MeasurementCatalog {
 
     // ── jsonb round trip ─────────────────────────────────────────────────
 
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     /**
      * Decode the stored `measurements` document.
@@ -391,8 +392,7 @@ object SizeCheck {
         }
     }
 
-    private fun isNumeric(text: String): Boolean =
-        text.isNotEmpty() && text.toDoubleOrNull() != null
+    private fun isNumeric(text: String): Boolean = text.isNotEmpty() && text.toDoubleOrNull() != null
 
     /** `x*[sml]`: xs, s, m, l, xl, xxl, xxxl. */
     private fun isAlphaSize(text: String): Boolean {
@@ -401,11 +401,18 @@ object SizeCheck {
         return text.dropLast(1).all { it == 'x' }
     }
 
+    /** "2x" is the shortest multi-size tag, "3xl" the longest. */
+    private const val MULTI_MIN_LENGTH = 2
+    private const val MULTI_MAX_LENGTH = 3
+
+    /** Nobody tags a garment 6xl; past this it is not a size, it is a typo. */
+    private const val MULTI_MAX_COUNT = 5
+
     private fun multiAlias(text: String): String? {
-        if (text.length < 2 || text.length > 3) return null
+        if (text.length < MULTI_MIN_LENGTH || text.length > MULTI_MAX_LENGTH) return null
         val count = text[0].digitToIntOrNull() ?: return null
-        if (count < 1 || count > 5 || text[1] != 'x') return null
-        val tail = if (text.length == 3) text[2] else 'l'
+        if (count < 1 || count > MULTI_MAX_COUNT || text[1] != 'x') return null
+        val tail = if (text.length == MULTI_MAX_LENGTH) text[2] else 'l'
         if (tail !in "sl") return null
         return "x".repeat(count) + tail
     }
@@ -479,9 +486,10 @@ object SizeCheck {
             largestBand != null && value > largestBand[1] ->
                 KeyVerdict(key, largest.index + 1 - rowIndex, "larger than ${largest.size}", expected)
             // In a gap between two bands: take the closer edge.
-            else -> withBand
-                .minByOrNull { edgeDistance(it.bands[key], value) }
-                ?.let { KeyVerdict(key, abs(it.index - rowIndex), it.size, expected) }
+            else ->
+                withBand
+                    .minByOrNull { edgeDistance(it.bands[key], value) }
+                    ?.let { KeyVerdict(key, abs(it.index - rowIndex), it.size, expected) }
         }
     }
 
@@ -492,12 +500,7 @@ object SizeCheck {
      * disagreement wins, so the note names the measurement actually driving it
      * rather than the first one that happened to have a band.
      */
-    fun check(
-        rows: List<BandRow>,
-        rowIndex: Int?,
-        measurements: Map<String, Double>,
-        tier: String,
-    ): Verdict {
+    fun check(rows: List<BandRow>, rowIndex: Int?, measurements: Map<String, Double>, tier: String): Verdict {
         if (rowIndex == null || rows.isEmpty() || tier == "none") return Verdict.UNKNOWN
         if (rows.none { it.index == rowIndex }) return Verdict.UNKNOWN
 
@@ -507,8 +510,11 @@ object SizeCheck {
         // than on the web for the same garment.
         var worst: KeyVerdict? = null
         for (key in bandKeys) {
-            val value = measurementFor(measurements, key) ?: continue
-            val verdict = judge(rows, rowIndex, key, value) ?: continue
+            // One `continue`, not two: a key with no measurement and a key with
+            // no verdict are the same outcome here, and detekt counts the jumps.
+            val verdict = measurementFor(measurements, key)
+                ?.let { judge(rows, rowIndex, key, it) }
+                ?: continue
             if (verdict.stepsOff > (worst?.stepsOff ?: -1)) worst = verdict
         }
         val found = worst ?: return Verdict.UNKNOWN

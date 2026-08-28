@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 
 /// US-2818 - the inline AI rewrite the web composer has had since US-552, which
 /// iOS never got. The only AI copy iOS could produce was the publish dialog's
@@ -114,15 +115,16 @@ final class ListingRewriteService: ListingRewriting {
         if let workspaceOwner = WorkspaceScope.activeOwnerId {
             request.setValue(workspaceOwner, forHTTPHeaderField: "X-Workspace-Owner")
         }
-        // The GradeThread credentials block is appended server-side and is HTML
-        // the model has no business rewriting, so it never goes over the wire -
-        // web parity (composer.tsx runRewrite hides it the same way).
+        // US-2964: every rendered block - the credentials card, the measurement
+        // table, the disclosure, the machine-readable facts - is HTML or derived
+        // text the model has no business rewriting, so none of it goes over the
+        // wire. `stripRenderedBlocks` leaves the prose, which is the only part a
+        // rewrite is about. Web parity (composer.tsx runRewrite).
         let body = Request(
             itemId: itemId,
             action: action.rawValue,
             title: title,
-            description: ListingDescriptionTemplate
-                .splitSellerCredentials(description).body
+            description: DescriptionBlocks.stripRenderedBlocks(description)
         )
         request.httpBody = try JSONEncoder().encode(body)
 

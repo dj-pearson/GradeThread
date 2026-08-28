@@ -444,6 +444,23 @@
     <string name="drafts_empty">No drafts yet. Generate them from items in your inventory, and they land here for review before anything is published.</string>
     <string name="drafts_selected_of">%1$d of %2$d selected</string>
     <string name="drafts_clear_all">Clear all</string>
+
+    <!-- US-2964: the description block list. -->
+    <string name="blocks_heading">Description sections</string>
+    <string name="blocks_unavailable">Sections could not be loaded for this draft, so nothing here will save. Reopen it; if it keeps happening the description is unchanged and safe.</string>
+    <string name="blocks_converted">This draft was written before sections existed. What you see is your current description split up, and nothing changes until you save.</string>
+    <string name="blocks_loading">Loading sections…</string>
+    <string name="blocks_add_snippet">Add a saved snippet</string>
+    <string name="blocks_preview_toggle">Preview what the marketplace receives (%1$d characters)</string>
+    <string name="blocks_preview_empty">Save this draft once and the rendered description shows up here.</string>
+    <string name="blocks_preview_updating">Updating the preview…</string>
+    <string name="blocks_move_up">Up</string>
+    <string name="blocks_move_down">Down</string>
+    <string name="blocks_edit">Edit</string>
+    <string name="blocks_done">Done</string>
+    <string name="blocks_rewrite">Rewrite</string>
+    <string name="blocks_rewriting">Rewriting…</string>
+    <string name="blocks_remove">Remove</string>
     <string name="drafts_select_all">Select all</string>
     <string name="drafts_edit_together">Edit %1$d together</string>
     <string name="drafts_retry_failed">Retry the %1$d that failed</string>

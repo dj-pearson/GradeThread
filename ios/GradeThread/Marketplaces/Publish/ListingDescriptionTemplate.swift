@@ -5,9 +5,22 @@ import Foundation
 /// The buyer-facing description iOS wrote came from one place: the AI's
 /// free-form `/listing-copy` answer in the publish dialog. The web composer has
 /// had a structured, per-garment template since US-827 - an opening line, the
-/// attributes, an honest condition statement, the flat measurements with their
-/// worn equivalents, and the grade line - and that structure is most of why the
-/// web copy reads better. None of it needs a network call or a model.
+/// attributes and an honest condition statement - and that structure is most of
+/// why the web copy reads better. None of it needs a network call or a model.
+///
+/// US-2964 TOOK THE RENDERING OUT. The measurement table, the grade line and the
+/// "Verified Seller" block used to be interpolated here, and each of them is now
+/// its OWN description block rendered by the edge service on every save. Two
+/// copies of a fact is how a seller ends up fixing a measurement and still
+/// publishing the old number, so the local half was deleted rather than kept in
+/// sync: `measurementsBlock`, `gradeBlock`, `ensureGradeLine`,
+/// `splitSellerCredentials` and `ensureSellerCredentials` are gone, and the
+/// template a caller builds is folded into the `intro` block by
+/// `DescriptionBlocks.applyWholeText`.
+///
+/// What is left is the prose skeleton, plus the measurement VALUE formatter -
+/// the in/cm/US/mm rules, which are unit conversion rather than description
+/// rendering and are the tested mirror of the web's.
 ///
 /// Keep the templates in lockstep with the web copies; they are pure data.
 enum ListingDescriptionTemplate {
@@ -27,6 +40,11 @@ enum ListingDescriptionTemplate {
         /// e.g. "Excellent" off the grade report, used when there is no note.
         var gradeLabel: String
         /// `inventory_items.grade_value`, 1.0-10.0. nil when ungraded.
+        ///
+        /// Still here because the condition line falls back through it, and
+        /// because a caller building facts should not have to know which of them
+        /// the template happens to print today. The GRADE LINE itself is the
+        /// `grade` block's job now.
         var gradeValue: Double?
         /// Canonical measurement keys, holding the stored FLAT values.
         var measurements: [String: Double]
@@ -63,9 +81,12 @@ enum ListingDescriptionTemplate {
     /// Per-group description templates, mirroring the web `DESCRIPTION_TEMPLATES`
     /// and keyed by ``GarmentGroup`` instead of the web `MeasurementGroup` (the
     /// same taxonomy under a different name).
+    ///
+    /// No `{{measurements}}` and no `{{grade}}`: both are their own blocks, and a
+    /// template that restated them would print each fact twice.
     static func template(for group: GarmentGroup) -> String {
         switch group {
-        case .top:
+        case .top, .bottom, .dress, .outerwear:
             return """
             {{brand}} {{title}}
 
@@ -75,26 +96,6 @@ enum ListingDescriptionTemplate {
 
             Condition: {{condition}}
 
-            Measurements (garment laid flat):
-            {{measurements}}
-
-            {{grade}}
-            Smoke-free home. Ships fast. Questions welcome.
-            """
-        case .bottom, .dress, .outerwear:
-            return """
-            {{brand}} {{title}}
-
-            Size: {{size}}
-            Color: {{color}}
-            Material: {{material}}
-
-            Condition: {{condition}}
-
-            Measurements (laid flat):
-            {{measurements}}
-
-            {{grade}}
             Smoke-free home. Ships fast. Questions welcome.
             """
         case .suit:
@@ -112,10 +113,6 @@ enum ListingDescriptionTemplate {
 
             Sold as a two-piece set — jacket and trousers together.
 
-            Measurements (each piece laid flat):
-            {{measurements}}
-
-            {{grade}}
             Smoke-free home. Ships fast. Questions welcome.
             """
         case .shoes:
@@ -127,9 +124,6 @@ enum ListingDescriptionTemplate {
 
             Condition: {{condition}}
 
-            {{measurements}}
-
-            {{grade}}
             Smoke-free home. Ships fast. Questions welcome.
             """
         case .watch:
@@ -138,10 +132,6 @@ enum ListingDescriptionTemplate {
 
             Condition: {{condition}}
 
-            Specs:
-            {{measurements}}
-
-            {{grade}}
             Ships insured. Questions welcome.
             """
         case .headwear:
@@ -154,10 +144,6 @@ enum ListingDescriptionTemplate {
 
             Condition: {{condition}}
 
-            Measurements:
-            {{measurements}}
-
-            {{grade}}
             Smoke-free home. Ships fast. Questions welcome.
             """
         case .accessory:
@@ -169,10 +155,6 @@ enum ListingDescriptionTemplate {
 
             Condition: {{condition}}
 
-            Measurements:
-            {{measurements}}
-
-            {{grade}}
             Smoke-free home. Ships fast. Questions welcome.
             """
         case .bag:
@@ -184,10 +166,6 @@ enum ListingDescriptionTemplate {
 
             Condition: {{condition}}
 
-            Measurements:
-            {{measurements}}
-
-            {{grade}}
             Comes from a smoke-free home. Ships boxed. Questions welcome.
             """
         case .generic:
@@ -200,15 +178,12 @@ enum ListingDescriptionTemplate {
 
             Condition: {{condition}}
 
-            {{measurements}}
-
-            {{grade}}
             Smoke-free home. Ships fast. Questions welcome.
             """
         }
     }
 
-    // MARK: - Measurements
+    // MARK: - Measurement values
 
     /// Keys stored FOLDED FLAT, so the worn number a buyer shops by is twice the
     /// stored one. Mirrors the web `CIRCUMFERENCE_KEYS`.
@@ -227,6 +202,9 @@ enum ListingDescriptionTemplate {
 
     /// One formatted value, honoring the seller's in/cm preference. Shoe sizes
     /// are US numeric and watch dimensions are millimetres, so neither converts.
+    ///
+    /// This is the piece US-2964 deliberately kept: it is unit conversion, not
+    /// description rendering, and it is the tested mirror of the web's rules.
     static func formatValue(
         key: String,
         value: Double,
@@ -250,6 +228,10 @@ enum ListingDescriptionTemplate {
     /// a buyer shops by AND the flat number they can reproduce with their own
     /// tape, because publishing only one of the two makes a listing argue with
     /// itself.
+    ///
+    /// The edge renderer owns the measurement BLOCK; this is the same line rule
+    /// expressed once in Swift so the formatting contract stays covered by a
+    /// test that runs without a server.
     static func measurementLines(
         _ measurements: [String: Double],
         unit: MeasurementUnit
@@ -262,75 +244,6 @@ enum ListingDescriptionTemplate {
             let worn = formatValue(key: key, value: value * 2, unit: unit)
             return label + ": " + worn + " (" + flat + " flat)"
         }
-    }
-
-    /// The indented block the `{{measurements}}` placeholder becomes.
-    static func measurementsBlock(
-        _ measurements: [String: Double],
-        unit: MeasurementUnit
-    ) -> String {
-        let lines = measurementLines(measurements, unit: unit)
-        if lines.isEmpty { return "(measurements available on request)" }
-        return lines.map { "  " + $0 }.joined(separator: "\n")
-    }
-
-    // MARK: - Grade line
-
-    /// Plain text, NO URL - eBay bans off-eBay links in listings. The PSA-style
-    /// certificate NUMBER is appended server-side at publish
-    /// (flipdesk-ebay.ts applyGradeListingPromotion), because the unique number
-    /// lives on the grade report rather than on the item row.
-    static func gradeBlock(gradeValue: Double?) -> String {
-        guard let gradeValue else { return "" }
-        return String(
-            format: "Graded by GradeThread - Condition Grade %.1f", gradeValue
-        )
-    }
-
-    /// Idempotently ensure the grade line is present. An AI rewrite - especially
-    /// "regenerate" - writes a fresh description that drops the grade line, and
-    /// the seller's preview would then show no grade even though publish
-    /// re-asserts it. Keys on the "Condition Grade" phrase, the same anchor the
-    /// server's `appendCertNumber` uses.
-    static func ensureGradeLine(_ description: String, gradeValue: Double?) -> String {
-        let block = gradeBlock(gradeValue: gradeValue)
-        guard !block.isEmpty else { return description }
-        guard description.range(of: "Condition Grade", options: .caseInsensitive) == nil
-        else { return description }
-        let trimmed = trimTrailingWhitespace(description)
-        return trimmed.isEmpty ? block : trimmed + "\n\n" + block
-    }
-
-    // MARK: - Seller credentials block
-
-    /// The GradeThread "Verified Seller" block is appended server-side (edge
-    /// `ai-listing.ts`) behind this HTML comment marker. Keep the literal in
-    /// lockstep with the edge injection and the web `SELLER_CREDENTIALS_MARKER`.
-    static let sellerCredentialsMarker = "<!--gradethread-seller-credentials-->"
-
-    /// Split a description into its plain body and the trailing credentials
-    /// block. Everything from the marker on is the block - it is always last.
-    static func splitSellerCredentials(
-        _ description: String
-    ) -> (body: String, credentials: String) {
-        guard let range = description.range(of: sellerCredentialsMarker) else {
-            return (description, "")
-        }
-        return (
-            trimTrailingWhitespace(String(description[..<range.lowerBound])),
-            String(description[range.lowerBound...])
-        )
-    }
-
-    /// Idempotently preserve the credentials block across an AI rewrite: strip
-    /// any marker the model echoed into the new copy, then re-append the
-    /// ORIGINAL block verbatim. No-op when the original had none.
-    static func ensureSellerCredentials(_ next: String, original: String) -> String {
-        let credentials = splitSellerCredentials(original).credentials
-        let cleaned = splitSellerCredentials(next).body
-        guard !credentials.isEmpty else { return cleaned }
-        let trimmed = trimTrailingWhitespace(cleaned)
-        return trimmed.isEmpty ? credentials : trimmed + "\n" + credentials
     }
 
     // MARK: - Build
@@ -381,11 +294,7 @@ enum ListingDescriptionTemplate {
     /// em-dash placeholder because `items_full` exposes neither column, and iOS
     /// reads the item row directly - so it fills the real values and falls back
     /// to the placeholder only when the field is genuinely blank.
-    static func interpolate(
-        template: String,
-        facts: Facts,
-        unit: MeasurementUnit = AppPreferences.measurementUnit
-    ) -> String {
+    static func interpolate(template: String, facts: Facts) -> String {
         let condition: String = {
             let notes = facts.conditionNotes.trimmingCharacters(in: .whitespacesAndNewlines)
             if !notes.isEmpty { return notes }
@@ -400,8 +309,6 @@ enum ListingDescriptionTemplate {
             "color": placeholder(facts.color),
             "material": placeholder(facts.material),
             "condition": condition,
-            "measurements": measurementsBlock(facts.measurements, unit: unit),
-            "grade": gradeBlock(gradeValue: facts.gradeValue),
         ]
 
         var out = template
@@ -416,13 +323,8 @@ enum ListingDescriptionTemplate {
     }
 
     /// Pick the group's template and fill it. The one call a caller needs.
-    static func build(
-        facts: Facts,
-        unit: MeasurementUnit = AppPreferences.measurementUnit
-    ) -> String {
-        interpolate(
-            template: template(for: group(for: facts)), facts: facts, unit: unit
-        )
+    static func build(facts: Facts) -> String {
+        interpolate(template: template(for: group(for: facts)), facts: facts)
     }
 
     // MARK: - Helpers
@@ -432,13 +334,5 @@ enum ListingDescriptionTemplate {
     private static func placeholder(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "\u{2014}" : trimmed
-    }
-
-    private static func trimTrailingWhitespace(_ value: String) -> String {
-        var out = value
-        while let last = out.last, last.isWhitespace || last.isNewline {
-            out.removeLast()
-        }
-        return out
     }
 }

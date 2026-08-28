@@ -48,10 +48,7 @@ import java.time.ZoneId
  * US-1359: generated drafts — review them, edit them, or change many at once.
  */
 @Composable
-fun DraftsLibraryScreen(
-    onClose: () -> Unit = {},
-    viewModel: AutolisterViewModel = hiltViewModel(),
-) {
+fun DraftsLibraryScreen(onClose: () -> Unit = {}, viewModel: AutolisterViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     var editing by remember { mutableStateOf<DraftListing?>(null) }
     var bulkOpen by remember { mutableStateOf(false) }
@@ -65,7 +62,9 @@ fun DraftsLibraryScreen(
     ) {
         Text(stringResource(R.string.drafts_draft_listings), style = MaterialTheme.typography.titleLarge)
 
-        state.errorMessage?.let { InfoCard(stringResource(R.string.drafts_that_didn_t_work), it, tone = InfoTone.Error) }
+        state.errorMessage?.let {
+            InfoCard(stringResource(R.string.drafts_that_didn_t_work), it, tone = InfoTone.Error)
+        }
         state.banner?.let { InfoCard(stringResource(R.string.drafts_done), it, tone = InfoTone.Success) }
 
         state.batch?.let { batch -> BatchPanel(batch, state, viewModel) }
@@ -128,7 +127,9 @@ fun DraftsLibraryScreen(
             ) { bulkOpen = true }
         }
 
-        BrandSecondaryButton(text = stringResource(R.string.drafts_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.drafts_back), modifier = Modifier.fillMaxWidth()) {
+            onClose()
+        }
     }
 
     editing?.let { draft ->
@@ -136,8 +137,12 @@ fun DraftsLibraryScreen(
             draft = draft,
             busy = state.busy,
             onDismiss = { editing = null },
-            onSave = { title, description, price ->
-                viewModel.saveDraft(draft, title, description, price)
+            // US-2964: the description is NOT passed. It is rendered from the
+            // blocks by the edge service, which writes `listing_description`
+            // itself, so sending a string here would overwrite the render with
+            // whatever the row was showing before the edit.
+            onSave = { title, price ->
+                viewModel.saveDraft(draft, title, null, price)
                 editing = null
             },
         )
@@ -178,11 +183,7 @@ fun DraftsLibraryScreen(
 }
 
 @Composable
-private fun BatchPanel(
-    batch: AutolisterBatch,
-    state: AutolisterViewModel.State,
-    viewModel: AutolisterViewModel,
-) {
+private fun BatchPanel(batch: AutolisterBatch, state: AutolisterViewModel.State, viewModel: AutolisterViewModel) {
     Column(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
@@ -293,7 +294,9 @@ private fun DraftCard(
                 )
             }
             if (draft.scheduledPublishAt != null) {
-                TextButton(onClick = onClearSchedule, enabled = !busy) { Text(stringResource(R.string.drafts_unschedule)) }
+                TextButton(onClick = onClearSchedule, enabled = !busy) {
+                    Text(stringResource(R.string.drafts_unschedule))
+                }
             }
             TextButton(onClick = onOtherPlatforms, enabled = !busy) {
                 Text(stringResource(R.string.drafts_other_platforms))
@@ -360,34 +363,49 @@ private fun PlatformFieldsDialog(fields: PlatformFieldsResponse, onDismiss: () -
     )
 }
 
+/**
+ * US-2964: the draft editor, with the description as its block list.
+ *
+ * The description used to be one plain text box here. It is the block array now,
+ * and the string it renders to is produced by the edge service - so this dialog
+ * shows sections and a server-rendered preview, and never assembles a
+ * description of its own.
+ *
+ * The two saves are separate on purpose. Title and price are plain column
+ * updates the drafts service writes directly; the blocks go through
+ * `/api/flipdesk/description/:id/save`, which renders and writes
+ * `listing_description` in the same statement.
+ */
 @Composable
 private fun DraftEditorDialog(
     draft: DraftListing,
     busy: Boolean,
     onDismiss: () -> Unit,
-    onSave: (String, String, String) -> Unit,
+    onSave: (String, String) -> Unit,
+    blocksViewModel: DescriptionBlocksViewModel = hiltViewModel(),
 ) {
     var title by remember(draft.id) { mutableStateOf(draft.listingTitle.orEmpty()) }
-    var description by remember(draft.id) { mutableStateOf(draft.listingDescription.orEmpty()) }
     var price by remember(draft.id) {
         mutableStateOf(draft.listingPrice?.let { String.format(java.util.Locale.US, "%.2f", it) }.orEmpty())
+    }
+    val blocks by blocksViewModel.state.collectAsState()
+
+    LaunchedEffect(draft.id) {
+        blocksViewModel.open(listingId = draft.id, inventoryItemId = draft.inventoryItemId)
     }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.drafts_edit_draft)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
                     label = { Text(stringResource(R.string.drafts_title)) },
-                )
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text(stringResource(R.string.drafts_description)) },
-                    minLines = 3,
                 )
                 OutlinedTextField(
                     value = price,
@@ -399,12 +417,31 @@ private fun DraftEditorDialog(
                         keyboardType = KeyboardType.Decimal,
                     ),
                 )
+                DescriptionBlocksEditor(
+                    state = blocks,
+                    rowContext = blocksViewModel.rowContext(),
+                    onToggle = blocksViewModel::toggle,
+                    onSetText = blocksViewModel::setText,
+                    onMove = blocksViewModel::move,
+                    onRemove = blocksViewModel::remove,
+                    onAddSnippet = blocksViewModel::addSnippet,
+                    onRegenerate = blocksViewModel::regenerate,
+                )
             }
         },
         confirmButton = {
             TextButton(
-                enabled = !busy,
-                onClick = { onSave(title, description, price) },
+                enabled = !busy && !blocks.saving,
+                onClick = {
+                    onSave(title, price)
+                    // Issued after the column write for the same reason the web
+                    // composer renders last: the description is derived from
+                    // rows, so it is the thing that has to see the final ones.
+                    // Nothing a derived block reads lives on the listing row, so
+                    // the two are independent here - but keeping the order makes
+                    // that a decision rather than an accident.
+                    blocksViewModel.save()
+                },
             ) { Text(stringResource(R.string.drafts_save)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.drafts_cancel)) } },
