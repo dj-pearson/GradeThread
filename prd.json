@@ -2962,24 +2962,6 @@
       ]
     },
     {
-      "id": "US-2970",
-      "passes": false,
-      "title": "Pipeline XP: derive which stages an item provably reached, as a pure function",
-      "description": "As a reseller, I want my XP derived from what my items actually show, so that no stage is missed because a route forgot to fire an event.",
-      "acceptanceCriteria": [
-        "New services/edge-functions/src/lib/rewards-pipeline.ts exports pipelineMarksForItem(item, photos, listings, sale, repricing) returning an array of {stage, occurredAt} with no database access, so it unit-tests as a pure function.",
-        "Stage proofs match the spec exactly: item_cataloged needs brand or garment_type non-null (occurredAt = item created_at); item_measured needs measurements non-null and non-empty (updated_at); item_photographed needs at least one item_photos row (earliest photo created_at); item_comped needs a repricing_suggestions row or comped_at set (that timestamp); item_drafted needs any listings row (listing created_at); item_listed needs a listings row with platform_listing_id non-null (listed_at, falling back to created_at); item_sold needs a sales row with a price or sold_at non-null (sold_at).",
-        "inventory_items.status is never used on its own as proof of any stage. A test with an item at status=returned and no listings row asserts item_listed is NOT returned.",
-        "A listings row whose platform_listing_id is null yields item_drafted but not item_listed. A test asserts both.",
-        "An item with no repricing_suggestions row and no comped_at yields no item_comped mark but still yields every other stage it qualifies for.",
-        "Unit tests in services/edge-functions/src/tests/ cover each of the seven stages present and absent, and run with no fixture env and no database."
-      ],
-      "priority": 4,
-      "dependsOn": [
-        "US-2969"
-      ]
-    },
-    {
       "id": "US-2971",
       "passes": false,
       "title": "Pipeline XP: the sweep that grants missing marks, idempotently and tenant-scoped",
