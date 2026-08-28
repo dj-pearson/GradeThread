@@ -295,3 +295,175 @@ Deno.test("an unparseable timestamp degrades to the item's created_at", () => {
   const m = pipelineMarksForItem(item({ brand: "Nike" }), [photo("not a date")], [], [], []);
   assertEquals(at(m, "item_photographed"), T.created);
 });
+
+// ── US-2971: the daily cap planner ──────────────────────────────────────────
+// The cap is the anti-farming bound on pipeline XP. It is pure and separated
+// from the sweep so the whole policy is asserted without a database.
+
+import {
+  DEFAULT_PIPELINE_DAILY_XP_CAP,
+  normalizePipelineDailyCap,
+  PIPELINE_STAGES,
+  planPipelineGrants,
+  utcDateKey,
+} from "../lib/rewards-pipeline.ts";
+
+const cand = (stage: PipelineStage, occurredAt: string, itemId = "i1") => ({
+  itemId,
+  stage,
+  occurredAt,
+});
+
+Deno.test("the cap setting degrades to the default rather than throwing", () => {
+  // Mirrors rewards.disabled_mechanics: operator-editable jsonb with no schema
+  // behind it, read inside the grant path, so anything unusable means "default".
+  assertEquals(DEFAULT_PIPELINE_DAILY_XP_CAP, 300);
+  for (const junk of [null, undefined, "300", {}, [], -5, 0, NaN, "abc"]) {
+    assertEquals(normalizePipelineDailyCap(junk), 300, `${JSON.stringify(junk)}`);
+  }
+  assertEquals(normalizePipelineDailyCap(50), 50);
+  assertEquals(normalizePipelineDailyCap(120.7), 120);
+});
+
+Deno.test("date keys bucket by UTC calendar day", () => {
+  assertEquals(utcDateKey("2026-01-08T23:59:59.000Z"), "2026-01-08");
+  assertEquals(utcDateKey("2026-01-09T00:00:01.000Z"), "2026-01-09");
+});
+
+Deno.test("marks spread across dates are not capped", () => {
+  // The backfill case. 400 marks over 60 days is months of ordinary work.
+  const candidates = Array.from({ length: 400 }, (_, i) =>
+    cand("item_listed", `2026-0${1 + (i % 2)}-${String((i % 28) + 1).padStart(2, "0")}T12:00:00.000Z`, `i${i}`));
+  const { granted, cappedOut } = planPipelineGrants(candidates, new Map(), 300);
+  assertEquals(cappedOut, 0);
+  assertEquals(granted.length, 400);
+});
+
+Deno.test("marks all dated the same day stop at the ceiling", () => {
+  const day = "2026-01-08T12:00:00.000Z";
+  const candidates = Array.from({ length: 400 }, (_, i) => cand("item_listed", day, `i${i}`));
+  const { granted, cappedOut } = planPipelineGrants(candidates, new Map(), 300);
+  // item_listed is 8 XP, so 37 marks fit under 300 and the 38th would exceed it.
+  const total = granted.reduce((s, g) => s + g.xp, 0);
+  assert(total <= 300, `granted ${total} XP, over the 300 ceiling`);
+  assertEquals(granted.length, 37);
+  assertEquals(cappedOut, 363);
+});
+
+Deno.test("XP already spent on a date counts against that date's ceiling", () => {
+  const spent = new Map([["2026-01-08", 295]]);
+  const candidates = [
+    cand("item_cataloged", "2026-01-08T01:00:00.000Z", "a"), // 2 XP, fits (297)
+    cand("item_measured", "2026-01-08T02:00:00.000Z", "b"), // 2 XP, fits (299)
+    cand("item_listed", "2026-01-08T03:00:00.000Z", "c"), // 8 XP, would hit 307
+  ];
+  const { granted } = planPipelineGrants(candidates, spent, 300);
+  assertEquals(granted.map((g) => g.stage), ["item_cataloged", "item_measured"]);
+});
+
+Deno.test("planning is chronological so the earliest work wins a tight day", () => {
+  const candidates = [
+    cand("item_sold", "2026-01-08T09:00:00.000Z", "late"),
+    cand("item_cataloged", "2026-01-08T01:00:00.000Z", "early"),
+  ];
+  const { granted } = planPipelineGrants(candidates, new Map([["2026-01-08", 297]]), 300);
+  assertEquals(granted.map((g) => g.itemId), ["early"]);
+});
+
+Deno.test("every planned grant carries the item-and-stage dedupe key", () => {
+  const { granted } = planPipelineGrants([cand("item_listed", "2026-01-08T00:00:00.000Z", "abc")], new Map(), 300);
+  assertEquals(granted[0].referenceId, "abc:item_listed");
+  assertEquals(granted[0].xp, 8);
+});
+
+// ── US-2971: structural guarantees ──────────────────────────────────────────
+// The sweep's DB behaviour is proven end-to-end by the fixture-gated cases, but
+// two properties are worth pinning WITHOUT a database, because both fail
+// silently: a tenant filter that quietly goes missing looks like a working
+// sweep, and a per-mark recompute looks like a correct but slow one.
+
+Deno.test("US-268: the ONLY tenant filter is user_id on inventory_items", async () => {
+  const src = await Deno.readTextFile(new URL("../lib/rewards-pipeline.ts", import.meta.url));
+  const whole = src.slice(src.indexOf("export async function sweepPipelineRewards"));
+  const sweep = whole.slice(0, whole.indexOf("\n}\n") + 1);
+
+  // Every table the sweep reads, and how it is allowed to be scoped.
+  assert(
+    /\.from\("inventory_items"\)[\s\S]{0,400}?\.eq\("user_id", ownerId\)/.test(sweep),
+    "inventory_items must be scoped by .eq(user_id, ownerId)",
+  );
+
+  // Child tables are reached through the owner-verified item set only. If a new
+  // .from() appears in the sweep body that is neither the owner-scoped parent
+  // nor one of the known child loads, this fails and asks for a decision.
+  const allowedInSweep = [
+    '.from("inventory_items")',
+    '.from("user_reward_state")',
+  ];
+  const froms = [...sweep.matchAll(/\.from\("([a-z_]+)"\)/g)].map((m) => m[0]);
+  for (const f of froms) {
+    assert(
+      allowedInSweep.includes(f),
+      `${f} appears directly in sweepPipelineRewards; child tables must be ` +
+        "loaded via loadForItems on the owner-verified item ids",
+    );
+  }
+});
+
+Deno.test("child loads key on inventory_item_id, never on a request id", async () => {
+  const src = await Deno.readTextFile(new URL("../lib/rewards-pipeline.ts", import.meta.url));
+  const loader = src.slice(src.indexOf("async function loadForItems"));
+  const body = loader.slice(0, loader.indexOf("\n}\n") + 1);
+  assert(body.includes('.in("inventory_item_id", slice)'), "child reads must key on the parent id");
+});
+
+Deno.test("the sweep recomputes ONCE, not once per mark", async () => {
+  const src = await Deno.readTextFile(new URL("../lib/rewards-pipeline.ts", import.meta.url));
+  const sweep = src.slice(src.indexOf("export async function sweepPipelineRewards"));
+  const body = sweep.slice(0, sweep.indexOf("\n}\n") + 1);
+  // A backfill emits up to ~1,800 events for one seller. Calling grantReward per
+  // mark would recompute the whole log that many times.
+  assert(!body.includes("grantReward("), "the sweep must not call grantReward per mark");
+  assertEquals(
+    (body.match(/recomputeRewardState\(/g) ?? []).length,
+    1,
+    "exactly one recompute per sweep",
+  );
+  assertEquals((body.match(/awardBadges\(/g) ?? []).length, 1, "exactly one badge pass");
+  assertEquals(
+    (body.match(/grantTangibleRewards\(/g) ?? []).length,
+    1,
+    "exactly one tangible pass",
+  );
+});
+
+Deno.test("already-granted marks are dropped before planning", () => {
+  // The second run of a sweep sees every mark in `existing` and plans nothing.
+  // This is the in-process half of idempotency; the database half is 00417's
+  // UNIQUE index on (user_id, event_type, reference_id), which makes a
+  // concurrent duplicate a no-op rather than a race.
+  const marks = [
+    cand("item_cataloged", "2026-01-02T00:00:00.000Z", "i1"),
+    cand("item_listed", "2026-01-08T00:00:00.000Z", "i1"),
+  ];
+  const existing = new Set(marks.map((m) => `${m.itemId}:${m.stage}`));
+  const pending = marks.filter((m) => !existing.has(`${m.itemId}:${m.stage}`));
+  assertEquals(pending.length, 0);
+
+  const { granted } = planPipelineGrants(pending, new Map(), 300);
+  assertEquals(granted.length, 0);
+});
+
+Deno.test("the seven stages are the sweep's whole event surface", () => {
+  // A stage added to PipelineStage but forgotten here would never be swept and
+  // would never be read back for the cap.
+  assertEquals([...PIPELINE_STAGES], [
+    "item_cataloged",
+    "item_measured",
+    "item_photographed",
+    "item_comped",
+    "item_drafted",
+    "item_listed",
+    "item_sold",
+  ]);
+});

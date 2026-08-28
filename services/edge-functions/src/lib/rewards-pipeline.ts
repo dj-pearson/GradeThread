@@ -228,3 +228,348 @@ export function pipelineMarksForItem(
 export function pipelineReferenceId(itemId: string, stage: PipelineStage): string {
   return `${itemId}:${stage}`;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// US-2971: the sweep.
+//
+// WHY THE SWEEP DOES NOT CALL grantReward PER MARK.
+//
+// grantReward is the right primitive for a single act: it emits one event, then
+// recomputes the user's whole reward state, re-awards badges and re-evaluates
+// tangible milestones. That tail is fine once. A backfill for a seller with 300
+// items produces up to 1,800 marks, and 1,800 full recomputes of the same log is
+// not a slow sweep, it is a sweep that never finishes.
+//
+// So the sweep does what grantReward does, in bulk and in the same order: check
+// the kill-switch ONCE, emit the events, recompute ONCE, award badges ONCE,
+// evaluate tangible rewards ONCE against the state that resulted. The semantics
+// are identical; only the number of recomputes changes.
+//
+// Idempotency is not this code being careful. reputation_events carries a UNIQUE
+// index on (user_id, event_type, reference_id) from 00417, and the emit upserts
+// with ignoreDuplicates, so a re-run is a no-op at the database level.
+// ─────────────────────────────────────────────────────────────────────────────
+
+import { emitReputationEvent } from "./buyer-trust-score.ts";
+import { awardBadges } from "./rewards-badges.ts";
+import { disabledMechanics } from "./rewards-mechanic-switch.ts";
+import {
+  readRewardState,
+  recomputeRewardState,
+  REWARD_XP_CATALOG,
+  type RewardEventType,
+} from "./rewards-engine.ts";
+import { grantTangibleRewards } from "./rewards-tangible.ts";
+import { getSetting } from "./system-settings.ts";
+import { supabaseAdmin } from "./supabase.ts";
+import { logEvent } from "./observability.ts";
+
+/** The seven stages, in pipeline order. Also the event-type filter for reads. */
+export const PIPELINE_STAGES: readonly PipelineStage[] = [
+  "item_cataloged",
+  "item_measured",
+  "item_photographed",
+  "item_comped",
+  "item_drafted",
+  "item_listed",
+  "item_sold",
+];
+
+// ── the daily cap ────────────────────────────────────────────────────────────
+
+export const PIPELINE_DAILY_XP_CAP_KEY = "rewards.pipeline_daily_xp_cap";
+export const DEFAULT_PIPELINE_DAILY_XP_CAP = 300;
+
+/**
+ * Coerce the operator-editable setting into a usable ceiling.
+ *
+ * Same shape and same reasoning as normalizeDisabledMechanics: this is jsonb
+ * with no schema behind it, read inside the grant path, so a string, an object
+ * or a typo has to degrade to the default rather than throw. Fractions floor;
+ * zero and negatives are not a ceiling of zero (that would silently switch the
+ * whole mechanic off) but a misconfiguration, so they take the default too.
+ */
+export function normalizePipelineDailyCap(raw: unknown): number {
+  const n = typeof raw === "number" ? raw : NaN;
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_PIPELINE_DAILY_XP_CAP;
+  return Math.floor(n);
+}
+
+async function pipelineDailyCap(): Promise<number> {
+  const raw = await getSetting<unknown>(
+    PIPELINE_DAILY_XP_CAP_KEY,
+    DEFAULT_PIPELINE_DAILY_XP_CAP,
+  );
+  return normalizePipelineDailyCap(raw);
+}
+
+/**
+ * The calendar day a mark counts against, in UTC.
+ *
+ * The cap is applied per OCCURRED_AT date rather than per wall-clock day, and
+ * that one choice is what makes the backfill work without a special case: a
+ * seller's months of history spread across months of dates and barely touch the
+ * ceiling, while 500 items imported and dated today hit it immediately.
+ */
+export function utcDateKey(iso: string): string {
+  return iso.slice(0, 10);
+}
+
+export interface PipelineCandidate {
+  itemId: string;
+  stage: PipelineStage;
+  occurredAt: string;
+}
+
+export interface PlannedGrant extends PipelineCandidate {
+  xp: number;
+  referenceId: string;
+}
+
+/**
+ * Decide which candidate marks fit under the per-date ceiling. Pure.
+ *
+ * Candidates are planned oldest-first so that on a day at its limit the seller's
+ * EARLIEST work is what earns. Planning in query order would mean an old
+ * backfilled day was filled by whichever rows the database happened to return.
+ */
+export function planPipelineGrants(
+  candidates: PipelineCandidate[],
+  spentByDate: Map<string, number>,
+  cap: number,
+): { granted: PlannedGrant[]; cappedOut: number } {
+  const spent = new Map(spentByDate);
+  const granted: PlannedGrant[] = [];
+  let cappedOut = 0;
+
+  const ordered = [...candidates].sort((a, b) => a.occurredAt.localeCompare(b.occurredAt));
+  for (const c of ordered) {
+    const xp = REWARD_XP_CATALOG[c.stage as RewardEventType] ?? 0;
+    const key = utcDateKey(c.occurredAt);
+    const already = spent.get(key) ?? 0;
+    if (already + xp > cap) {
+      cappedOut++;
+      continue;
+    }
+    spent.set(key, already + xp);
+    granted.push({ ...c, xp, referenceId: pipelineReferenceId(c.itemId, c.stage) });
+  }
+  return { granted, cappedOut };
+}
+
+// ── the sweep ────────────────────────────────────────────────────────────────
+
+export interface PipelineSweepSummary {
+  marksGranted: number;
+  xpAdded: number;
+  levelBefore: number;
+  levelAfter: number;
+  /** Marks that existed but did not fit under their date's ceiling. */
+  cappedOut: number;
+}
+
+const PAGE = 500;
+
+/** Load every row of a child table for these parent items, paged. */
+async function loadForItems<T>(
+  table: string,
+  columns: string,
+  itemIds: string[],
+): Promise<Map<string, T[]>> {
+  const byItem = new Map<string, T[]>();
+  for (let i = 0; i < itemIds.length; i += PAGE) {
+    const slice = itemIds.slice(i, i + PAGE);
+    const { data, error } = await supabaseAdmin
+      .from(table)
+      .select("inventory_item_id, " + columns)
+      .in("inventory_item_id", slice);
+    if (error) throw new Error("sweep: " + table + " read failed: " + error.message);
+    // The table name is a variable here, so supabase-js cannot infer a row type
+    // and widens `data` to its error shape. The cast goes through `unknown`
+    // deliberately; the columns are named two lines up in the same call.
+    const rows = (data ?? []) as unknown as Array<{ inventory_item_id: string }>;
+    for (const row of rows) {
+      const list = byItem.get(row.inventory_item_id) ?? [];
+      list.push(row as unknown as T);
+      byItem.set(row.inventory_item_id, list);
+    }
+  }
+  return byItem;
+}
+
+/**
+ * Grant every pipeline stage this owner's items reached but never earned.
+ *
+ * US-268: `ownerId` is resolved by the CALLER as `workspaceOwnerId ?? userId`.
+ * Items are read with an explicit `.eq("user_id", ownerId)`; every child table
+ * is then read by `inventory_item_id` restricted to that already-owner-verified
+ * set, never by an id taken from a request. The service-role client bypasses
+ * RLS, so this scoping is the only thing standing between two tenants.
+ */
+export async function sweepPipelineRewards(ownerId: string): Promise<PipelineSweepSummary> {
+  const before = await readRewardState(ownerId);
+  const empty: PipelineSweepSummary = {
+    marksGranted: 0,
+    xpAdded: 0,
+    levelBefore: before?.level ?? 0,
+    levelAfter: before?.level ?? 0,
+    cappedOut: 0,
+  };
+
+  // The kill-switch, checked ONCE for the whole sweep rather than per mark. A
+  // disabled mechanic is a no-op and never an error, exactly as in grantReward.
+  const disabled = await disabledMechanics();
+  const enabled = PIPELINE_STAGES.filter((s) => !disabled.has(s));
+  if (enabled.length === 0) {
+    logEvent("info", "reward.pipeline_sweep_all_disabled", {});
+    await touchSweepTimestamp(ownerId);
+    return empty;
+  }
+
+  // 1. The owner's items. This is the ONLY place a tenant filter is applied,
+  //    and everything below hangs off the ids it returns.
+  const items: PipelineItem[] = [];
+  for (let from = 0;; from += PAGE) {
+    const { data, error } = await supabaseAdmin
+      .from("inventory_items")
+      .select("id, brand, garment_type, measurements, comped_at, created_at, updated_at")
+      .eq("user_id", ownerId)
+      .order("created_at", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error("sweep: inventory_items read failed: " + error.message);
+    const page = (data ?? []) as unknown as PipelineItem[];
+    items.push(...page);
+    if (page.length < PAGE) break;
+  }
+  if (items.length === 0) {
+    await touchSweepTimestamp(ownerId);
+    return empty;
+  }
+
+  const itemIds = items.map((i) => i.id);
+  const photos = await loadForItems<PipelinePhoto>("item_photos", "created_at", itemIds);
+  const listings = await loadForItems<PipelineListing>(
+    "listings",
+    "platform_listing_id, listed_at, created_at",
+    itemIds,
+  );
+  const sales = await loadForItems<PipelineSale>(
+    "sales",
+    "sale_price, sold_at, sale_date",
+    itemIds,
+  );
+  const repricing = await loadForItems<PipelineRepricing>(
+    "repricing_suggestions",
+    "created_at",
+    itemIds,
+  );
+
+  // 2. What this owner has already earned, so the plan neither double-grants nor
+  //    ignores XP that already counts against a date's ceiling.
+  const { granted: existing, spentByDate } = await loadExistingPipelineXp(ownerId);
+
+  // 3. Derive, drop what is already granted or disabled, and plan under the cap.
+  const candidates: PipelineCandidate[] = [];
+  for (const item of items) {
+    const marks = pipelineMarksForItem(
+      item,
+      photos.get(item.id) ?? [],
+      listings.get(item.id) ?? [],
+      sales.get(item.id) ?? [],
+      repricing.get(item.id) ?? [],
+    );
+    for (const mark of marks) {
+      if (!enabled.includes(mark.stage)) continue;
+      if (existing.has(pipelineReferenceId(item.id, mark.stage))) continue;
+      candidates.push({ itemId: item.id, stage: mark.stage, occurredAt: mark.occurredAt });
+    }
+  }
+  if (candidates.length === 0) {
+    await touchSweepTimestamp(ownerId);
+    return empty;
+  }
+
+  const cap = await pipelineDailyCap();
+  const { granted, cappedOut } = planPipelineGrants(candidates, spentByDate, cap);
+  if (granted.length === 0) {
+    await touchSweepTimestamp(ownerId);
+    return { ...empty, cappedOut };
+  }
+
+  // 4. Emit. The unique index makes a concurrent sweep's duplicate a no-op.
+  for (const g of granted) {
+    await emitReputationEvent(ownerId, {
+      eventType: g.stage,
+      verified: true,
+      referenceId: g.referenceId,
+      metadata: { paid: false, item_id: g.itemId },
+      source: "rewards-pipeline",
+      occurredAt: g.occurredAt,
+    });
+  }
+
+  // 5. The grantReward tail, once for the whole sweep.
+  const state = await recomputeRewardState(ownerId);
+  try {
+    await awardBadges(ownerId);
+  } catch (err) {
+    console.error(
+      "[rewards-pipeline] badge award failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  if (state) await grantTangibleRewards(ownerId, state.xpTotal);
+  await touchSweepTimestamp(ownerId);
+
+  return {
+    marksGranted: granted.length,
+    xpAdded: granted.reduce((sum, g) => sum + g.xp, 0),
+    levelBefore: before?.level ?? 0,
+    levelAfter: state?.level ?? before?.level ?? 0,
+    cappedOut,
+  };
+}
+
+/** Reference ids already granted, plus pipeline XP already spent per date. */
+async function loadExistingPipelineXp(
+  ownerId: string,
+): Promise<{ granted: Set<string>; spentByDate: Map<string, number> }> {
+  const granted = new Set<string>();
+  const spentByDate = new Map<string, number>();
+  for (let from = 0;; from += PAGE) {
+    const { data, error } = await supabaseAdmin
+      .from("reputation_events")
+      .select("event_type, reference_id, occurred_at")
+      .eq("user_id", ownerId)
+      .in("event_type", PIPELINE_STAGES as unknown as string[])
+      .order("occurred_at", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error("sweep: reputation_events read failed: " + error.message);
+    const page = (data ?? []) as Array<
+      { event_type: string; reference_id: string; occurred_at: string }
+    >;
+    for (const row of page) {
+      granted.add(row.reference_id);
+      const key = utcDateKey(row.occurred_at);
+      const xp = REWARD_XP_CATALOG[row.event_type as RewardEventType] ?? 0;
+      spentByDate.set(key, (spentByDate.get(key) ?? 0) + xp);
+    }
+    if (page.length < PAGE) break;
+  }
+  return { granted, spentByDate };
+}
+
+/**
+ * Stamp the throttle marker. Written on every sweep ATTEMPT, including one that
+ * grants nothing, so a seller with no new marks cannot re-sweep on every page
+ * load. Best-effort: a failure here must never fail the sweep that just worked.
+ */
+async function touchSweepTimestamp(ownerId: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("user_reward_state")
+    .update({ last_pipeline_sweep_at: new Date().toISOString() })
+    .eq("user_id", ownerId);
+  if (error) {
+    console.error("[rewards-pipeline] sweep timestamp failed:", error.message);
+  }
+}
