@@ -646,7 +646,7 @@ app, and the third is the one worth remembering:
 
 | Change | Applies here? | What was done |
 |---|---|---|
-| **Edge-to-edge is mandatory** — `windowOptOutEdgeToEdgeEnforcement` is dead | Already compliant | `MainActivity.onCreate` has called `enableEdgeToEdge()` since US-1313, and the opt-out attribute appears nowhere in the manifest. Nothing to do. The white-frame problem on a dark-mode cold start is a *theme* bug, not this one — US-2899. |
+| **Edge-to-edge is mandatory** — `windowOptOutEdgeToEdgeEnforcement` is dead | Applies, and it was NOT already compliant | `MainActivity.onCreate` has called `enableEdgeToEdge()` since US-1313 and the opt-out attribute appears nowhere in the manifest, which is what an earlier version of this row read as "nothing to do". Running it proved otherwise (§6.6): most screens are safe because they sit inside `AppShell`'s Scaffold, but the two `MainActivity` composes DIRECTLY had nothing applying the system-bar insets, and `AuthScreen`'s headline drew over the status-bar clock. Both now call `Modifier.safeDrawingPadding()`, and `android/scripts/check-root-insets.mjs` fails the build if a third root screen arrives without them. The white-frame problem on a dark-mode cold start is a *theme* bug, not this one — US-2899. |
 | **Predictive back on by default** — `onBackPressed()` is no longer called and `KEYCODE_BACK` is not dispatched | Applies, and was safe | The app had no legacy back handling to break: zero `onBackPressed` overrides, zero `KEYCODE_BACK` reads and zero `BackHandler` calls across 688 Kotlin files. Back is entirely Navigation-Compose's, which androidx.activity already bridges. `android:enableOnBackInvokedCallback="true"` is now set **explicitly**, so a phone on 33-35 and a phone on 36 behave the same way rather than splitting on the platform default. The in-app predictive transitions are still US-2911. |
 | **Orientation, resizability and aspect-ratio restrictions ignored at ≥600dp** | Applies, and is a product problem | The manifest declares no `screenOrientation`, no `resizableActivity` and no aspect-ratio bounds, so there is nothing to opt out of and nothing breaks. What it means is that on any tablet, foldable or ChromeOS window the app now fills whatever the user gives it — and today that renders as one stretched column with a navigation rail beside it (§2's tablet-screenshot note). API 36 makes that layout unavoidable rather than a thing a tablet user opts into, and the per-activity opt-out property is explicitly temporary and gone at API 37. **This is the argument for US-2905 (two-pane list-detail), and it is now a deadline rather than a preference.** |
 
@@ -656,6 +656,51 @@ API), `MediaStore.getVersion` fingerprint lockdown (never read), granular
 health permissions (no `BODY_SENSORS`), local-network restrictions (opt-in, and
 no local network access), and the photo-picker pre-selection change (the picker
 is `PickVisualMedia`, which is unaffected).
+
+### 6.6 The API 36 walkthrough — what running it actually found
+
+Walked on **2026-08-28** on an API 36 emulator (`system-images;android-36;google_apis;x86_64`,
+Pixel 6 profile, 1080x2400 at 420dpi, gesture navigation). That configuration
+reports a 128px status-bar inset and a 63px navigation-bar inset, and those two
+numbers are what the pass/fail below is measured against: every surface was
+dumped with `uiautomator` and each text node compared to the two bands, rather
+than judged by eye off a screenshot.
+
+**One real defect, on the first screen anyone sees.** `AuthScreen` drew its
+"Sign in" headline straight over the status-bar clock. `MainActivity` composes
+it directly, so no Scaffold above it was applying the insets, and API 36 removed
+the enforcement opt-out that hid this at 35. `LockScreen` has the same shape and
+got the same fix; it centres its content, so it was not visibly broken today,
+but a display cutout or a taller status bar would clip the icon.
+
+| Surface | Result |
+|---|---|
+| Sign in | **was broken** — headline over the status bar; fixed |
+| Home | clear |
+| Inventory | clear |
+| Add (method sheet) | clear |
+| Money | clear |
+| Marketplaces | clear |
+| Settings | clear |
+| Capture | clear |
+| Details form, keyboard open | clear |
+| Publish | **not walked** — needs an item on a signed-in account |
+
+Every "clear" row is clear for one reason: `AppShell` uses a Material3
+`Scaffold`, and Scaffold consumes the system-bar insets by default. Worth saying
+plainly, because it means the app is safe by inheritance rather than by intent,
+and a screen that ever escapes the Scaffold escapes the protection with it.
+`android/scripts/check-root-insets.mjs` exists for that case: it fails when a
+screen `MainActivity` composes directly applies no insets, and it also fails
+when anything new appears in the `setContent` block unclassified, which is the
+half that keeps it useful after today.
+
+**Publish was not reached.** It needs an item, an item needs a signed-in account,
+and email confirmation is on, so a throwaway signup could not complete on this
+host. It is the one surface here still taken on trust.
+
+Also seen, and not an inset problem: the bottom bar wraps "Marketplaces" onto two
+lines, leaving a lone "s" beneath the label on every screen.
 
 ---
 

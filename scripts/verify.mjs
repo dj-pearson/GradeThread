@@ -606,6 +606,11 @@ if (on("android")) {
     // catches is the checker having quietly stopped detecting anything, which
     // is otherwise indistinguishable from a correctly configured build.
     run("android: release-config checker still detects", "node scripts/check-release-config.mjs --self-test", a);
+    // US-2891: mandatory edge-to-edge at API 36. The screens MainActivity
+    // composes directly have no Scaffold above them to apply the system-bar
+    // insets, and the failure is visual only - it compiles, lints and tests
+    // green while the sign-in headline draws over the status-bar clock.
+    run("android: root screens consume window insets", "node scripts/check-root-insets.mjs --self-test && node scripts/check-root-insets.mjs", a);
 
     run("android: format (spotless/ktlint)", `${gw} :app:spotlessCheck`, a);
     run("android: static analysis (detekt)", `${gw} :app:detekt`, a);

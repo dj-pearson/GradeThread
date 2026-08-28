@@ -132,6 +132,17 @@ jobs:
       - name: Release-config checker still detects
         run: node scripts/check-release-config.mjs --self-test
 
+      # US-2891: API 36 makes edge-to-edge mandatory. Screens MainActivity
+      # composes DIRECTLY have no Scaffold above them applying the system-bar
+      # insets, and getting it wrong is invisible to every other lane: it
+      # compiles, lints clean and passes the unit suite while the sign-in
+      # headline draws over the status-bar clock. Self-test first, so a check
+      # that has stopped detecting anything does not read as a clean tree.
+      - name: Root screens consume window insets
+        run: |
+          node scripts/check-root-insets.mjs --self-test
+          node scripts/check-root-insets.mjs
+
       # ------------------------------------------------------- static analysis
       # US-2502. Cheapest-first: a formatting failure should not cost the eight
       # minutes assembleRelease takes to surface.

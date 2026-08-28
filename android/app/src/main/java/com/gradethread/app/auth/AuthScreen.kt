@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
@@ -50,6 +51,15 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
     Column(
         Modifier
             .fillMaxSize()
+            // US-2891: API 36 makes edge-to-edge mandatory - the opt-out that
+            // still existed at 35 is gone - and MainActivity composes this
+            // screen directly, with no Scaffold above it to apply the
+            // system-bar insets. Without this the headline drew over the
+            // status-bar clock. safeDrawing rather than systemBars so a display
+            // cutout is covered by the same rule, and it sits OUTSIDE the
+            // scroll so the viewport itself is inset - inside, the first line
+            // would still start under the bar and merely be scrollable clear.
+            .safeDrawingPadding()
             .verticalScroll(rememberScrollState())
             .padding(Spacing.lg),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
