@@ -276,6 +276,41 @@ export function applyWholeText(
   return out;
 }
 
+/**
+ * Add a standing paragraph to the end of what a human wrote.
+ *
+ * US-2967. The saved-template picker used to go through `applyWholeText`, and
+ * that was the wrong half of this file: a saved template's
+ * `description_template` is a FOOTER — the migration that added it says so, and
+ * the AutoLister overlay appended it for that reason — but `applyWholeText`
+ * treats its argument as the entire prose, so applying a template dropped the
+ * seller's terms into `intro` and blanked `features` and `condition`. The AI
+ * copy they were reviewing vanished, and the boilerplate took its place.
+ *
+ * Position: in front of the first pinned row. `facts` is force-moved last by
+ * the renderer and `credentials` is expected beside it, so a plain push would
+ * wedge the seller's terms between the two.
+ *
+ * `src: "user"` — they applied it, and from here on it is an ordinary editable
+ * text row with no memory of the template it came from.
+ */
+export function appendTextBlock(
+  blocks: DescriptionBlock[],
+  text: string,
+): DescriptionBlock[] {
+  const body = text.trim();
+  if (!body) return blocks;
+  const at = blocks.findIndex((b) => isPinned(b.key));
+  const out = blocks.slice();
+  out.splice(at === -1 ? out.length : at, 0, {
+    key: "text",
+    on: true,
+    src: "user",
+    text: body,
+  });
+  return out;
+}
+
 // ─── Row summaries ─────────────────────────────────────────────────
 
 export interface BlockRowContext {

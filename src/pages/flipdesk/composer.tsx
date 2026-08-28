@@ -86,6 +86,7 @@ import { useDescriptionBlocks } from "@/hooks/use-description-blocks";
 import { useListingSnippets } from "@/hooks/use-listing-snippets";
 import { snippetNames } from "@/lib/flipdesk-snippets";
 import {
+  appendTextBlock,
   applyWholeText,
   DEFAULT_DESCRIPTION_BLOCKS,
   stripRenderedBlocks,
@@ -1179,16 +1180,36 @@ export function FlipdeskComposerPage({
   /**
    * Fold a whole-description string into the blocks.
    *
-   * The garment template, the saved-template picker and the AI rewrite each hand
-   * back ONE string for the whole prose part. Blocks are the source of truth, so
-   * a string that only reached `description` would be rendered away by the next
-   * save. `description` is still set, because the eBay preview card and the AI
-   * input read it between saves.
+   * The garment template and the AI rewrite each hand back ONE string for the
+   * whole prose part. Blocks are the source of truth, so a string that only
+   * reached `description` would be rendered away by the next save.
+   * `description` is still set, because the eBay preview card and the AI input
+   * read it between saves.
+   *
+   * US-2967 took the saved-template picker OUT of this path — see
+   * `appendTemplateFooter` below.
    */
   function applyDescriptionText(next: string) {
     setDescription(next);
     descriptionBlocks.setBlocks(
       applyWholeText(descriptionBlocks.blocks, next),
+    );
+  }
+
+  /**
+   * Add a saved template's boilerplate as its own block.
+   *
+   * US-2967. This used to call `applyDescriptionText`, which treats its
+   * argument as the WHOLE prose: the terms landed in `intro` and `features` and
+   * `condition` were blanked, so applying a template deleted the AI copy the
+   * seller was in the middle of reviewing. A saved template's
+   * `description_template` is a footer — that is what the column is for and how
+   * the AutoLister overlay has always used it — so it gets appended, and the
+   * three prose blocks are left exactly as they were.
+   */
+  function appendTemplateFooter(footer: string) {
+    descriptionBlocks.setBlocks(
+      appendTextBlock(descriptionBlocks.blocks, footer),
     );
   }
 
@@ -3432,8 +3453,9 @@ export function FlipdeskComposerPage({
               returnPolicyId: returnPolicyId ?? "",
             }}
             onApply={(patch, specifics, template) => {
+              // US-2967: appended as its own block, NOT folded over the prose.
               if (patch.description !== undefined) {
-                applyDescriptionText(patch.description);
+                appendTemplateFooter(patch.description);
               }
               if (patch.ebayCondition !== undefined) setEbayCondition(patch.ebayCondition);
               if (patch.conditionDescription !== undefined) {

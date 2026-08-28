@@ -190,24 +190,39 @@ export interface TemplateFieldChange {
  * `wouldOverwrite` flag is here so a caller can SAY that a field was left
  * alone rather than silently skipping it, which is how "the template did
  * nothing" gets reported as a bug.
+ *
+ * The description is the one exception, and has been since US-2967: it APPENDS
+ * as its own block instead of replacing a value, so there is nothing for it to
+ * wipe and no reason to skip it.
  */
 export function templateChanges(
   t: ListingTemplate,
   current: Readonly<Record<string, string>>,
 ): TemplateFieldChange[] {
   const out: TemplateFieldChange[] = [];
-  const add = (field: string, label: string, value: string | null) => {
+  const add = (
+    field: string,
+    label: string,
+    value: string | null,
+    appends = false,
+  ) => {
     if (!value) return;
     out.push({
       field,
       label,
       value,
-      wouldOverwrite: (current[field] ?? "").trim().length > 0,
+      // An appending field can never overwrite, so it is never skipped. Before
+      // US-2967 the description was treated like the rest, which meant the one
+      // field a seller most wants from a preset was dropped on every listing
+      // that already had a description — i.e. every generated draft.
+      wouldOverwrite: appends
+        ? false
+        : (current[field] ?? "").trim().length > 0,
     });
   };
   add("ebayCondition", "Condition", t.ebay_condition);
   add("conditionDescription", "Condition note", t.condition_description);
-  add("description", "Description", t.description_template);
+  add("description", "Description footer", t.description_template, true);
   add("categoryId", "eBay category", t.ebay_category_id);
   add("shippingPolicyId", "Shipping policy", t.shipping_policy_id);
   add("paymentPolicyId", "Payment policy", t.payment_policy_id);

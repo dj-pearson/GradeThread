@@ -6,7 +6,15 @@ import {
   type ListingTemplateRow,
   normalizeTemplateInput,
   TEMPLATE_NAME_MAX,
+  templateTextBlock,
+  withTemplateBlock,
 } from "../lib/listing-template.ts";
+import {
+  defaultBlocks,
+  type DescriptionBlock,
+  type RenderContext,
+  renderDescription,
+} from "../lib/description-blocks.ts";
 
 // ── normalizeTemplateInput ──────────────────────────────────────────
 
@@ -71,20 +79,15 @@ function row(overrides: Partial<ListingTemplateRow> = {}): ListingTemplateRow {
   };
 }
 
-Deno.test("overlay appends boilerplate after the AI description", () => {
+// US-2967: the boilerplate is a BLOCK now, so the patch never carries a
+// description. It used to be appended onto `listing_description`, which the
+// block renderer then overwrote on the seller's very next save.
+Deno.test("overlay never writes a description, however much boilerplate", () => {
   const patch = buildTemplateListingPatch(
     row({ description_template: "Ships in 1 business day." }),
-    "Great wool coat.",
   );
-  assertEquals(patch.listing_description, "Great wool coat.\n\nShips in 1 business day.");
-});
-
-Deno.test("overlay uses boilerplate alone when there's no AI description", () => {
-  const patch = buildTemplateListingPatch(
-    row({ description_template: "Terms apply." }),
-    null,
-  );
-  assertEquals(patch.listing_description, "Terms apply.");
+  assertEquals(patch.listing_description, undefined);
+  assertEquals(Object.keys(patch).length, 0);
 });
 
 Deno.test("overlay sets condition/category/specifics/policies only when present", () => {
@@ -98,7 +101,6 @@ Deno.test("overlay sets condition/category/specifics/policies only when present"
       shipping_policy_id: "sp1",
       payment_policy_id: "pp1",
     }),
-    "desc",
   );
   assertEquals(patch.ebay_condition, "USED_GOOD");
   assertEquals(patch.ebay_condition_description, "minor wear");
@@ -116,11 +118,77 @@ Deno.test("overlay sets condition/category/specifics/policies only when present"
 });
 
 Deno.test("overlay of an empty template is a no-op patch", () => {
-  const patch = buildTemplateListingPatch(row(), "desc");
+  const patch = buildTemplateListingPatch(row());
   assertEquals(Object.keys(patch).length, 0);
 });
 
 Deno.test("overlay ignores an empty item_specifics map", () => {
-  const patch = buildTemplateListingPatch(row({ item_specifics: {} }), "desc");
+  const patch = buildTemplateListingPatch(row({ item_specifics: {} }));
   assertEquals(patch.item_specifics_override, undefined);
+});
+
+// ── US-2967: boilerplate as a description block ─────────────────────
+
+Deno.test("a template with no boilerplate produces no block", () => {
+  assertEquals(templateTextBlock(row()), null);
+  assertEquals(templateTextBlock(row({ description_template: "   " })), null);
+});
+
+Deno.test("boilerplate becomes an editable seller-owned text block", () => {
+  const block = templateTextBlock(row({ description_template: "  Terms apply.  " }));
+  assertEquals(block, { key: "text", on: true, src: "seller", text: "Terms apply." });
+});
+
+Deno.test("the block goes in front of credentials and facts, not after them", () => {
+  const out = withTemplateBlock(
+    defaultBlocks(),
+    row({ description_template: "Terms apply." }),
+  );
+  const keys = out.map((b) => b.key);
+  assert(keys.indexOf("text") < keys.indexOf("credentials"));
+  assert(keys.indexOf("text") < keys.indexOf("facts"));
+  // Everything else keeps the order it had.
+  assertEquals(
+    keys.filter((k) => k !== "text"),
+    defaultBlocks().map((b) => b.key),
+  );
+});
+
+Deno.test("withTemplateBlock appends when the list has no trailing rows", () => {
+  const bare: DescriptionBlock[] = [{ key: "intro", on: true, src: "ai", text: "Hi." }];
+  const out = withTemplateBlock(bare, row({ description_template: "Terms." }));
+  assertEquals(out.map((b) => b.key), ["intro", "text"]);
+});
+
+// The regression this story exists for. The old overlay put the boilerplate in
+// the rendered string only, so the composer's first save -- which re-renders
+// from the stored blocks -- dropped it.
+Deno.test("boilerplate survives a re-render from the stored blocks", () => {
+  const ctx: RenderContext = {
+    item: {
+      brand: "Filson",
+      size: "L",
+      color: "Forest",
+      material: "Virgin wool",
+    },
+    grade: null,
+    credential: null,
+    snippets: {},
+    unit: "in",
+  };
+  const blocks = withTemplateBlock(
+    defaultBlocks().map((b) =>
+      b.key === "intro" ? { ...b, text: "Heavy wool cruiser jacket." } : b
+    ),
+    row({ description_template: "Ships in 1 business day." }),
+  );
+
+  const firstPass = renderDescription(blocks, ctx);
+  assert(firstPass.includes("Ships in 1 business day."));
+
+  // Exactly what the composer does on save: render the SAME stored blocks
+  // again. Nothing re-reads the template.
+  const secondPass = renderDescription(blocks, ctx);
+  assert(secondPass.includes("Ships in 1 business day."));
+  assertEquals(firstPass, secondPass);
 });

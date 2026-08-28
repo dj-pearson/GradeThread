@@ -9,6 +9,7 @@
 import { describe, expect, it } from "vitest";
 import {
   anchorForBlock,
+  appendTextBlock,
   applyWholeText,
   DEFAULT_DESCRIPTION_BLOCKS,
   describeBlock,
@@ -258,5 +259,43 @@ describe("stripRenderedBlocks + applyWholeText (US-2960)", () => {
     );
     expect(keys(after)).toEqual(["intro", "facts"]);
     expect(after[0]?.text).toBe("Prose.");
+  });
+});
+
+// US-2967: a saved template's boilerplate is a FOOTER, so it gets its own block
+// instead of being folded over the prose the way applyWholeText folds a whole
+// description. Before this, applying a template in the composer deleted the AI
+// copy the seller was reviewing.
+describe("appendTextBlock (US-2967)", () => {
+  const footer = "Ships in 1 business day. Smoke-free home.";
+
+  it("leaves the three prose blocks exactly as they were", () => {
+    const before = setBlockTextAt(
+      setBlockTextAt(setBlockTextAt(blocks(), 0, "Intro copy."), 1, "Features copy."),
+      3,
+      "Condition copy.",
+    );
+    const after = appendTextBlock(before, footer);
+    expect(after.find((b) => b.key === "intro")?.text).toBe("Intro copy.");
+    expect(after.find((b) => b.key === "features")?.text).toBe("Features copy.");
+    expect(after.find((b) => b.key === "condition")?.text).toBe("Condition copy.");
+  });
+
+  it("adds one editable text block the seller owns", () => {
+    const after = appendTextBlock(blocks(), `  ${footer}  `);
+    const added = after.find((b) => b.key === "text");
+    expect(added).toEqual({ key: "text", on: true, src: "user", text: footer });
+    expect(isEditable("text")).toBe(true);
+  });
+
+  it("sits in front of the pinned rows, never between them", () => {
+    const k = keys(appendTextBlock(blocks(), footer));
+    expect(k.indexOf("text")).toBeLessThan(k.indexOf("credentials"));
+    expect(k.indexOf("text")).toBeLessThan(k.indexOf("facts"));
+  });
+
+  it("is a no-op for blank boilerplate", () => {
+    const before = blocks();
+    expect(appendTextBlock(before, "   ")).toBe(before);
   });
 });

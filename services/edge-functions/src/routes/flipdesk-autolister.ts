@@ -379,18 +379,17 @@ async function processBatch(
   // template just means no overlay; generation proceeds unchanged.
   const template = await loadBatchTemplate(batchId);
 
-  /** Overlay the template onto a freshly-generated listing draft. */
+  /**
+   * Overlay the template's NON-description fields onto a generated draft.
+   *
+   * US-2967: the description used to be part of this patch, appended onto the
+   * rendered string after a read of the row. It is a block now, handed to
+   * `generateListing` so it lands in the same upsert as everything else it
+   * renders from — which is why this no longer reads the listing first.
+   */
   async function applyTemplate(listingId: string): Promise<void> {
     if (!template) return;
-    const { data: current } = await supabaseAdmin
-      .from("listings")
-      .select("listing_description")
-      .eq("id", listingId)
-      .maybeSingle();
-    const patch = buildTemplateListingPatch(
-      template,
-      (current as { listing_description?: string | null } | null)?.listing_description ?? null,
-    );
+    const patch = buildTemplateListingPatch(template);
     if (Object.keys(patch).length === 0) return;
     await supabaseAdmin.from("listings").update(patch).eq("id", listingId);
   }
@@ -478,7 +477,13 @@ async function processBatch(
 
     try {
       const result = await withTimeout(
-        generateListing(job.inventory_item_id, ownerId, { batchId, useComps }),
+        generateListing(job.inventory_item_id, ownerId, {
+          batchId,
+          useComps,
+          // US-2967: the boilerplate has to be present when the blocks are
+          // first written, not bolted onto the rendered string afterwards.
+          templateBoilerplate: template?.description_template ?? null,
+        }),
         GENERATION_TIMEOUT_MS,
         "Listing generation",
       );

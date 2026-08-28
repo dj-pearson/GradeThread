@@ -62,6 +62,7 @@ import { corroborateStyleName } from "./visual-style-names.ts";
 import { resolveBrandKnowledgePack } from "./brand-knowledge.ts";
 import { recordStyleCodeObservations } from "./style-code-observations.ts";
 import { recordExtractionProvenance } from "./identification-provenance.ts";
+import { withTemplateBlock } from "./listing-template.ts";
 import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { ensurePassportForGradeReport } from "./passport-write.ts";
@@ -1729,6 +1730,12 @@ export interface GenerateListingOptions {
   batchId?: string | null;
   // When false, skip the comp lookup (e.g. very large batches). Defaults true.
   useComps?: boolean;
+  // US-2967: the batch's listing template, so its boilerplate becomes one of
+  // the blocks written by the upsert below. It arrives here rather than being
+  // patched on afterwards because a second write would leave the row holding a
+  // `listing_description` its `description_blocks` do not produce — briefly on
+  // the happy path, permanently if the patch fails.
+  templateBoilerplate?: string | null;
 }
 
 export interface GenerateListingResult {
@@ -2599,7 +2606,17 @@ export async function generateListing(
     return { ...block, text: cleaned };
   });
 
-  const listingDescription = renderDescription(descriptionBlocks, descriptionCtx);
+  // US-2967: the seller's saved template adds its boilerplate as a block, in
+  // front of the credentials/facts rows. Before this it was appended to the
+  // rendered string by a follow-up UPDATE, which the composer's first save
+  // then overwrote from these very blocks.
+  const withTemplate = opts.templateBoilerplate?.trim()
+    ? withTemplateBlock(descriptionBlocks, {
+      description_template: opts.templateBoilerplate,
+    })
+    : descriptionBlocks;
+
+  const listingDescription = renderDescription(withTemplate, descriptionCtx);
 
   // US-541: route low-confidence drafts to review.
   // US-828: also flag the draft when reconciliation left aspects unmatched —
@@ -2630,7 +2647,7 @@ export async function generateListing(
     // US-2959: the blocks and the string they render to, in the SAME upsert.
     // Writing one without the other is the drift this epic exists to remove.
     listing_description: listingDescription,
-    description_blocks: descriptionBlocks,
+    description_blocks: withTemplate,
     listing_status: "draft" as const,
     // A draft is never live on a marketplace. The listings column defaults
     // is_active=true, so without this every generated draft was born "active" —

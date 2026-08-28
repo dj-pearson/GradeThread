@@ -219,10 +219,12 @@ describe("it is reachable (US-2877 AC2)", () => {
     // And it wires every field the picker can hand back -- a patch key with no
     // setter behind it is a field that silently does nothing.
     for (const setter of [
-      // US-2960: the description is an array of blocks now, so the whole-string
-      // patch is folded into the intro block rather than set on a textarea.
-      // Same requirement, one indirection later: the key still has to land.
-      "applyDescriptionText(patch.description)",
+      // US-2960: the description is an array of blocks now, so the patch lands
+      // on a block rather than a textarea. US-2967: and on its OWN block --
+      // appendTemplateFooter, not applyDescriptionText, which would fold the
+      // template's terms over the AI prose and blank features and condition.
+      // Same requirement, two indirections later: the key still has to land.
+      "appendTemplateFooter(patch.description)",
       "setEbayCondition(patch.ebayCondition)",
       "setConditionDesc(patch.conditionDescription)",
       "setLivePickedCategoryId(patch.categoryId)",
@@ -285,7 +287,11 @@ describe("both clients offer the same set, applied the same way (US-2877 AC3, AC
     const changes = templateChanges(t, { description: "Already written.", ebayCondition: "" });
     const desc = changes.find((c) => c.field === "description")!;
     const cond = changes.find((c) => c.field === "ebayCondition")!;
-    expect(desc.wouldOverwrite).toBe(true);
+    // US-2967: the description APPENDS as its own block, so it has nothing to
+    // overwrite and is never skipped. This used to expect true, which meant the
+    // field sellers most want from a preset was dropped on every listing that
+    // already had a description -- that is, on every generated draft.
+    expect(desc.wouldOverwrite).toBe(false);
     expect(cond.wouldOverwrite).toBe(false);
   });
 

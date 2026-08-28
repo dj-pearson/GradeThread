@@ -4,6 +4,18 @@
 // unit-tested directly (src/tests/listing-template_test.ts).
 
 import { normalizeAspectMap } from "./aspect-reconcile.ts";
+import type { DescriptionBlock, DescriptionBlockKey } from "./description-blocks.ts";
+
+/**
+ * The trailing rows the boilerplate must not jump.
+ *
+ * Named here rather than imported: the edge's `description-blocks.ts` has no
+ * pinned-key export, because pinning is a rule about the composer's drag
+ * handles and this is the only server-side code that needs to know the order.
+ * The two reasons are still the composer's — `renderDescription` force-moves
+ * `facts` last, and the credentials-refresh cron expects its block beside it.
+ */
+const TRAILING_KEYS: readonly DescriptionBlockKey[] = ["credentials", "facts"];
 
 export const TEMPLATE_NAME_MAX = 80;
 
@@ -102,23 +114,66 @@ export interface ListingTemplateRow {
 }
 
 /**
+ * The template's boilerplate as a description block, or null when it has none.
+ *
+ * US-2967. This used to be appended straight onto `listings.listing_description`,
+ * and that made it disposable: since the block epic (migration 00678) that
+ * column is the RENDER OUTPUT, and `blocksForListing` returns
+ * `description_blocks` whenever the row has any. So the boilerplate lived in a
+ * string nothing derived it from, and the seller's first save in the composer
+ * wrote it away — silently, on the listing they had just finished checking.
+ *
+ * `src: "seller"` because they wrote it. It is an ordinary editable `text`
+ * block from then on: they can retype it, switch it off or drag it, and the
+ * template stops having an opinion the moment it has been applied.
+ */
+export function templateTextBlock(
+  template: Pick<ListingTemplateRow, "description_template">,
+): DescriptionBlock | null {
+  const boiler = template.description_template?.trim();
+  if (!boiler) return null;
+  return { key: "text", on: true, src: "seller", text: boiler };
+}
+
+/**
+ * Insert the template's boilerplate into a block list, after the prose and in
+ * front of the pinned rows.
+ *
+ * Position matters in one direction only: a plain append would drop the
+ * seller's terms BETWEEN the credentials block and the item facts. Splicing in
+ * front of the first TRAILING_KEYS row is, for a freshly generated draft,
+ * exactly "at the end of what a human wrote".
+ */
+export function withTemplateBlock(
+  blocks: DescriptionBlock[],
+  template: Pick<ListingTemplateRow, "description_template">,
+): DescriptionBlock[] {
+  const block = templateTextBlock(template);
+  if (!block) return blocks;
+  const at = blocks.findIndex((b) => TRAILING_KEYS.includes(b.key));
+  const out = blocks.slice();
+  out.splice(at === -1 ? out.length : at, 0, block);
+  return out;
+}
+
+/**
  * Build the `listings` patch that applies a template to an AutoLister-generated
- * draft. The AI-written description leads; the template's boilerplate is
- * APPENDED (never clobbered). Condition / category / specifics / policies are
- * set only when the template provides them, so a sparse template leaves the AI
- * result intact. Returns an empty object when the template adds nothing.
+ * draft. Condition / category / specifics / policies are set only when the
+ * template provides them, so a sparse template leaves the AI result intact.
+ * Returns an empty object when the template adds nothing.
+ *
+ * US-2967: the description is NOT in here any more. It is a block, and blocks
+ * are written by generation in the same upsert as the string they render to —
+ * see `withTemplateBlock` above and `descriptionBlocks` in `generateListing`.
+ * Patching the rendered column from out here would put the row back in the
+ * state the block epic exists to prevent: a description not derived from its
+ * blocks.
  */
 export function buildTemplateListingPatch(
   template: ListingTemplateRow,
-  currentDescription: string | null | undefined,
 ): Record<string, unknown> {
   const patch: Record<string, unknown> = {};
 
-  const boiler = template.description_template?.trim();
-  if (boiler) {
-    const base = (currentDescription ?? "").trimEnd();
-    patch.listing_description = base.length > 0 ? `${base}\n\n${boiler}` : boiler;
-  }
   if (template.ebay_condition) patch.ebay_condition = template.ebay_condition;
   if (template.condition_description) {
     patch.ebay_condition_description = template.condition_description;
