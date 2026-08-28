@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Android 11-and-below half of data_extraction_rules.xml.
+
+  `android:dataExtractionRules` is read only on Android 12 and higher. Lint
+  says so as an ERROR when minSdk is below 31, and it is right to: a manifest
+  carrying only the modern attribute has NO rule at all on API 26-30, which is
+  a real share of this app's floor. The two attributes are a pair, and the
+  older one takes this file's format.
+
+  Belt and braces rather than load-bearing: `android:allowBackup="false"` sits
+  beside them and already disables backup outright below 12. This file is what
+  makes the intent explicit at every API level instead of resting on one
+  attribute nobody re-reads, and it is what the seller's unsynced captures,
+  sales and payouts are worth.
+
+  `path="."` is the domain's own directory, so excluding `root` covers the
+  file, database and sharedpref subtrees under it. Unlike the modern format,
+  `path` is REQUIRED here.
+-->
+<full-backup-content>
+    <exclude domain="root" path="." />
+    <exclude domain="external" path="." />
+</full-backup-content>

@@ -133,12 +133,21 @@ def scan():
             path = os.path.join(dirpath, filename)
             with open(path, encoding="utf-8") as fh:
                 src = fh.read()
+            stripped = strip_comments(src)
             # Compose files belong to no-bare-strings.py. Two guards reporting
             # the same line teaches people to ignore both.
-            if "@Composable" in src:
+            #
+            # Tested against the STRIPPED source, and that is not fussiness. On
+            # a raw-text test, any file mentioning the annotation in a comment
+            # opts itself out of this guard -- which is an opt-out available to
+            # anyone, silently, by writing prose. It happened within an hour of
+            # this script being written: a KDoc sentence explaining why a push
+            # enum holds resource ids named the annotation, and the file left
+            # the scan.
+            if "@Composable" in stripped:
                 continue
             rel = os.path.relpath(path, SOURCE).replace(os.sep, "/")
-            for line in strip_comments(src).split("\n"):
+            for line in stripped.split("\n"):
                 if MACHINE_LINE.search(line):
                     continue
                 for match in LITERAL.finditer(line):
@@ -176,6 +185,14 @@ def self_test():
     # The comment stripper must not eat a URL's slashes.
     if '"https://x/y"' not in strip_comments('val a = "https://x/y" // note'):
         print("no-unlocalized-copy: SELF-TEST FAILED: strip_comments ate a literal", file=sys.stderr)
+        return False
+    # ...and it MUST eat the annotation name out of a comment, or any file can
+    # leave this scan by mentioning @Composable in prose.
+    if "@Composable" in strip_comments("/** why no @Composable reaches it */\nval a = 1"):
+        print(
+            "no-unlocalized-copy: SELF-TEST FAILED: a comment can opt a file out of the scan",
+            file=sys.stderr,
+        )
         return False
     return True
 

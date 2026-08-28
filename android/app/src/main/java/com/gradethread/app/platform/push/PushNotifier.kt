@@ -166,10 +166,10 @@ object PushNotifier {
                 if (action.takesInput) PendingIntent.FLAG_MUTABLE else PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val builder = NotificationCompat.Action.Builder(0, action.title, pending)
-        action.inputPlaceholder?.let { placeholder ->
+        val builder = NotificationCompat.Action.Builder(0, context.getString(action.titleRes), pending)
+        action.inputPlaceholderRes?.let { placeholder ->
             builder.addRemoteInput(
-                RemoteInput.Builder(INPUT_KEY).setLabel(placeholder).build(),
+                RemoteInput.Builder(INPUT_KEY).setLabel(context.getString(placeholder)).build(),
             )
         }
         return builder.build()

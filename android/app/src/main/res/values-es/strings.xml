@@ -1761,16 +1761,23 @@
     <string name="consumergrade_failed_title">Eso no se completó</string>
     <string name="consumergrade_not_charged">No se te ha cobrado.</string>
 
-    <!-- Nombres y descripciones de los canales de notificacion. Android los
+    <!-- Nombres y descripciones de los canales de notificación. Android los
          muestra en Ajustes > Aplicaciones > GradeThread > Notificaciones. -->
     <string name="push_channel_money_title">Pagos</string>
     <string name="push_channel_money_desc">Cuando se registra un pago y cuando llega el dinero.</string>
     <string name="push_channel_selling_title">Ventas, ofertas y mensajes</string>
-    <string name="push_channel_selling_desc">Alguien compro, hizo una oferta o pregunto.</string>
-    <string name="push_channel_grading_title">Calificacion</string>
-    <string name="push_channel_grading_desc">Cuando termina una calificacion o necesita tu revision.</string>
-    <string name="push_channel_urgent_title">Problemas de conexion</string>
-    <string name="push_channel_urgent_desc">Tu conexion con eBay necesita atencion.</string>
-    <string name="push_channel_updates_title">Todo lo demas</string>
+    <string name="push_channel_selling_desc">Alguien compró, hizo una oferta o preguntó.</string>
+    <string name="push_channel_grading_title">Calificación</string>
+    <string name="push_channel_grading_desc">Cuando termina una calificación o necesita tu revisión.</string>
+    <string name="push_channel_urgent_title">Problemas de conexión</string>
+    <string name="push_channel_urgent_desc">Tu conexión con eBay necesita atención.</string>
+    <string name="push_channel_updates_title">Todo lo demás</string>
     <string name="push_channel_updates_desc">Anuncios finalizados, stock estancado, respuestas de soporte.</string>
+    <!-- Botones de acción de las notificaciones, dibujados por el sistema. -->
+    <string name="push_action_accept">Aceptar</string>
+    <string name="push_action_counter">Contraofertar</string>
+    <string name="push_action_counter_hint">Tu contraoferta</string>
+    <string name="push_action_shipped">Marcar como enviado</string>
+    <string name="push_action_shipped_hint">Número de seguimiento (opcional)</string>
+    <string name="push_action_reconnect">Reconectar</string>
 </resources>

@@ -1926,4 +1926,11 @@
     <string name="push_channel_urgent_desc">Your eBay connection needs attention.</string>
     <string name="push_channel_updates_title">Everything else</string>
     <string name="push_channel_updates_desc">Ended listings, aging stock, support replies.</string>
+    <!-- Notification action buttons. The system draws these in the shade. -->
+    <string name="push_action_accept">Accept</string>
+    <string name="push_action_counter">Counter</string>
+    <string name="push_action_counter_hint">Your counter price</string>
+    <string name="push_action_shipped">Mark shipped</string>
+    <string name="push_action_shipped_hint">Tracking number (optional)</string>
+    <string name="push_action_reconnect">Reconnect</string>
 </resources>
