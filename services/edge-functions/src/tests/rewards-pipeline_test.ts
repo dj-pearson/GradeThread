@@ -574,3 +574,65 @@ Deno.test("a failing seller is stamped so they cannot wedge the queue", async ()
     "a seller whose sweep throws must still be stamped",
   );
 });
+
+// ── US-2973: the arrival moment ─────────────────────────────────────────────
+
+import { ARRIVAL_MIN_LEVEL, arrivalIsDue } from "../lib/rewards-pipeline.ts";
+
+Deno.test("a seller who has never acknowledged an arrival, at level 2+, is due one", () => {
+  assert(arrivalIsDue(null, 2));
+  assert(arrivalIsDue(undefined, 7));
+  assertEquals(ARRIVAL_MIN_LEVEL, 2);
+});
+
+Deno.test("a one-level climb is an ordinary level-up, not an arrival", () => {
+  // Levels 0 and 1 are reachable in a day of normal work. The arrival moment is
+  // for the multi-level jump a backfill produces; a normal climb gets the
+  // existing client-side celebration.
+  assert(!arrivalIsDue(null, 0));
+  assert(!arrivalIsDue(null, 1));
+});
+
+Deno.test("an acknowledged arrival never fires again, at any level", () => {
+  // Including level 0, which is what a baselined row from migration 00681 holds
+  // for a seller who has no XP but has already used the app.
+  for (const seen of [0, 1, 2, 7, 20]) {
+    for (const level of [0, 2, 7, 20, 99]) {
+      assert(!arrivalIsDue(seen, level), `seen=${seen} level=${level} must not re-fire`);
+    }
+  }
+});
+
+Deno.test("US-1552: the arrival ack uses sequential updates, never .or()", async () => {
+  // The self-hosted prod PostgREST rejects a logical operator on a mutation
+  // (42703 on the update-CTE alias) while the local stack accepts it, so an
+  // .or() here would pass every test on this machine and fail only in prod.
+  const src = await Deno.readTextFile(new URL("../lib/rewards-pipeline.ts", import.meta.url));
+  const fn = src.slice(src.indexOf("export async function acknowledgeArrival"));
+  const withComments = fn.slice(0, fn.indexOf("\n}\n") + 1);
+  // Strip comment lines: the function's own comment explains why .or() is
+  // banned, and scanning raw text would match that explanation rather than a
+  // real call.
+  const body = withComments
+    .split("\n")
+    .filter((line) => !line.trim().startsWith("//"))
+    .join("\n");
+  assert(body.includes(".update("), "the ack must write");
+  assert(!body.includes(".or("), "no .or() on a mutation (US-1552)");
+  assert(body.includes('.is("arrival_seen_level", null)'), "first update handles the NULL case");
+  assert(body.includes('.lt("arrival_seen_level", target)'), "second update is monotonic");
+});
+
+Deno.test("the arrival is decided server-side, not from a localStorage diff", async () => {
+  // The whole reason this exists: detectCelebrations returns [] when the prior
+  // snapshot is null, that snapshot is localStorage, and a seller who has never
+  // opened the rewards page is exactly who the backfill is for. If the state
+  // route stops returning `arrival`, those sellers silently get nothing.
+  const src = await Deno.readTextFile(new URL("../routes/rewards.ts", import.meta.url));
+  assert(src.includes("loadArrival(userId, progress.level"), "state must load the arrival");
+  assert(src.includes("arrival,"), "state must return the arrival in its payload");
+  assert(
+    src.includes('rewardsRoutes.post("/arrival/ack"'),
+    "there must be an ack endpoint, or the moment repeats forever",
+  );
+});

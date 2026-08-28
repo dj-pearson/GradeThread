@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ArrivalMoment } from "@/components/rewards/arrival-moment";
 import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -133,7 +134,8 @@ export function RewardsPage() {
     );
   }
 
-  const { level, season, perks, recaps, badges, milestones, integrity, loyalty } = rewards;
+  const { level, season, perks, recaps, badges, milestones, integrity, loyalty, arrival } =
+    rewards;
   const TierIcon = ICONS[level.tier.icon] ?? Trophy;
   const remaining = daysLeft(season.ends_at);
 
@@ -143,7 +145,13 @@ export function RewardsPage() {
           dashboard widget because both surfaces already hold this exact read —
           neither mount costs a request, and whichever the seller opens first is
           where the moment lands. */}
-      <RewardCelebrations />
+      {/* US-2973: the backfill's one moment, above the celebration runner. When
+          an arrival is pending the runner is suppressed — the seller should get
+          one clear "your work counted", not that plus a stack of badge toasts
+          for badges the same backfill just awarded. */}
+      {arrival
+        ? <ArrivalMoment arrival={arrival} tierName={level.tier.name} />
+        : <RewardCelebrations />}
 
       <PageHeader
         title="Rewards"

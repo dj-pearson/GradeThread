@@ -206,12 +206,27 @@ export interface RewardsState {
   season: RewardSeason;
   recaps: SeasonRecap[];
   perks: { unlocked: CosmeticPerk[]; locked: CosmeticPerk[] };
+  /**
+   * US-2973: the one-time "your work counted" moment, decided by the SERVER.
+   *
+   * It cannot come from the client-side celebration diff. That diff returns
+   * nothing when the previous snapshot is null, the snapshot lives in
+   * localStorage, and a seller who has never opened this page is exactly who
+   * the pipeline-XP backfill is for. Null when none is due.
+   */
+  arrival: RewardArrival | null;
   badges: RewardBadgeShelf;
   milestones: MilestoneProgress;
   integrity: IntegrityStanding;
   /** Null on an edge that predates US-1914, or when the tenure read failed. */
   loyalty: LoyaltyStanding | null;
   season_timezone: string;
+}
+
+/** US-2973: the server-decided arrival moment. */
+export interface RewardArrival {
+  level: number;
+  badgeCount: number;
 }
 
 export function useRewards() {
@@ -229,6 +244,9 @@ export function useRewards() {
       const state = json as RewardsState;
       return {
         ...state,
+        // US-2973: an edge that predates it sends no arrival block. Null, never
+        // a fabricated one — a celebration nobody earned is worse than none.
+        arrival: state.arrival ?? null,
         badges: state.badges ?? EMPTY_BADGES,
         milestones: state.milestones ?? EMPTY_MILESTONES,
         // US-1912: an edge that predates it sends no integrity block. Default to

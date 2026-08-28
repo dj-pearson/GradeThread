@@ -11,7 +11,7 @@
 -- the state they are already in; the sweep is what puts real numbers in them.
 --
 -- Idempotent by ON CONFLICT, and re-runnable: a second run inserts nothing.
--- Ongoing coverage does not depend on re-running this. touchSweepTimestamp
+-- Ongoing coverage does not depend on re-running this. markSweepAttempted
 -- upserts, so any seller who appears later gets a row the first time they are
 -- swept on demand.
 INSERT INTO public.user_reward_state (user_id)

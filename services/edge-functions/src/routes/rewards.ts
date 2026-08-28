@@ -16,7 +16,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { readRewardState } from "../lib/rewards-engine.ts";
-import { sweepOnDemand } from "../lib/rewards-pipeline.ts";
+import { acknowledgeArrival, loadArrival, sweepOnDemand } from "../lib/rewards-pipeline.ts";
 import { loadSellerIntegrityStanding } from "../lib/buyer-grade-confirmation.ts";
 import {
   isShareTargetType,
@@ -112,7 +112,15 @@ rewardsRoutes.get("/state", async (c) => {
       loadLoyaltyStanding(userId, nowMs),
     ]);
 
+    // US-2973: the one-time arrival moment, decided SERVER-side. The
+    // client-side celebration diff cannot carry this: it returns nothing when
+    // the previous snapshot is null, that snapshot lives in localStorage, and a
+    // seller who has never opened this page is precisely who the backfill is
+    // for. Best-effort — a missing celebration must not cost them the screen.
+    const arrival = await loadArrival(userId, progress.level, badges?.earned?.length ?? 0);
+
     return c.json({
+      arrival,
       badges,
       milestones,
       integrity,
@@ -205,6 +213,19 @@ rewardsRoutes.get("/state", async (c) => {
 // A caller may only record a share of a find THEY own (US-268: ownership is
 // resolved server-side from the certificate, never taken from the body), which
 // also stops an attacker poisoning another seller's self-click set.
+// POST /api/rewards/arrival/ack — the seller dismissed their arrival moment.
+//
+// Server-side rather than localStorage so the one-time celebration does not
+// re-fire on their next device. Monotonic: acknowledgeArrival only ever moves
+// the level up, so a stale click from a second tab cannot re-arm it.
+rewardsRoutes.post("/arrival/ack", async (c) => {
+  const userId = c.get("userId");
+  const state = await readRewardState(userId);
+  const progress = levelProgress(state?.xpPeak ?? 0, state?.xpTotal ?? 0);
+  await acknowledgeArrival(userId, progress.level);
+  return c.json({ ok: true, acknowledged_level: progress.level });
+});
+
 rewardsRoutes.post("/share", async (c) => {
   const userId = c.get("userId");
   const body = (await c.req.json().catch(() => null)) as

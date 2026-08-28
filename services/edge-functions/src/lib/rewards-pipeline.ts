@@ -636,3 +636,115 @@ export async function sweepOnDemand(
     return null;
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// US-2973: the arrival moment.
+//
+// The design for this story assumed a backfill would fire a level-up
+// notification per level crossed, and that the job was to SUPPRESS fourteen of
+// them. Reading the code first says otherwise, in two ways that matter:
+//
+//   1. There are NO server-side level-up notifications or emails. Celebrations
+//      are computed entirely client-side by src/lib/reward-celebrations.ts,
+//      which diffs two snapshots and emits ONE `level:<n>` event however many
+//      levels were crossed. Nothing to suppress.
+//   2. detectCelebrations returns [] when the previous snapshot is null, and
+//      that snapshot lives in localStorage. A seller who has never opened the
+//      rewards page therefore gets NOTHING for their backfill — and "has never
+//      opened the rewards page" describes almost exactly the population this
+//      whole feature exists for.
+//
+// So the real risk was never noise. It was silence. The arrival moment has to be
+// driven by the SERVER, from state that survives a fresh browser, which is what
+// user_reward_state.arrival_seen_level is for.
+//
+// It fires once, at level >= 2, for a seller who has never acknowledged one.
+// Migration 00681 baselines everyone who already earned through the normal UI,
+// so nobody is congratulated for a level they have been looking at for weeks.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A level jump has to be at least this big to be an arrival rather than a level-up. */
+export const ARRIVAL_MIN_LEVEL = 2;
+
+export interface ArrivalState {
+  /** The level to celebrate. */
+  level: number;
+  /** Badges the seller holds, shown together rather than as N separate cards. */
+  badgeCount: number;
+}
+
+/**
+ * Should this seller see the one-time arrival moment? Pure.
+ *
+ * `seenLevel` is `user_reward_state.arrival_seen_level`: NULL means never shown.
+ * A seller who has acknowledged any arrival never sees another — subsequent
+ * level-ups are ordinary celebrations, handled by the client-side diff.
+ */
+export function arrivalIsDue(seenLevel: number | null | undefined, level: number): boolean {
+  if (seenLevel !== null && seenLevel !== undefined) return false;
+  return level >= ARRIVAL_MIN_LEVEL;
+}
+
+/** The arrival payload for the rewards screen, or null when none is due. */
+export async function loadArrival(
+  userId: string,
+  level: number,
+  badgeCount: number,
+): Promise<ArrivalState | null> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("user_reward_state")
+      .select("arrival_seen_level")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const seen = (data as { arrival_seen_level: number | null } | null)?.arrival_seen_level ??
+      null;
+    if (!arrivalIsDue(seen, level)) return null;
+    return { level, badgeCount };
+  } catch (err) {
+    // Best-effort, like everything else riding the rewards read: a missing
+    // celebration is a disappointment, a broken rewards screen is a bug.
+    console.error(
+      "[rewards-pipeline] arrival read failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
+/**
+ * Record that the seller has seen their arrival. Idempotent and monotonic: it
+ * only ever moves the acknowledged level UP, so a stale request from a second
+ * tab cannot re-arm the moment.
+ */
+export async function acknowledgeArrival(userId: string, level: number): Promise<void> {
+  const target = Math.max(0, Math.floor(level));
+
+  // ⚠ Two sequential conditional updates, NOT one `.or(...)`. US-1552: the
+  // self-hosted prod PostgREST rejects logical operators on a mutation with a
+  // 42703 naming the update-CTE alias, while the newer local-stack PostgREST
+  // accepts them — so an `.or()` here passes every test on this machine and
+  // fails only in production.
+  const first = await supabaseAdmin
+    .from("user_reward_state")
+    .update({ arrival_seen_level: target })
+    .eq("user_id", userId)
+    .is("arrival_seen_level", null)
+    .select("user_id");
+  if (first.error) {
+    console.error("[rewards-pipeline] arrival ack failed:", first.error.message);
+    return;
+  }
+  if ((first.data ?? []).length > 0) return; // the NULL case, which is the usual one
+
+  // Already acknowledged something: only ever move the level UP, so a stale
+  // request from a second tab cannot re-arm the moment.
+  const second = await supabaseAdmin
+    .from("user_reward_state")
+    .update({ arrival_seen_level: target })
+    .eq("user_id", userId)
+    .lt("arrival_seen_level", target);
+  if (second.error) {
+    console.error("[rewards-pipeline] arrival ack failed:", second.error.message);
+  }
+}
