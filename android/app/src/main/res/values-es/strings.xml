@@ -375,7 +375,6 @@
     <string name="drafts_delete">Eliminar</string>
     <string name="drafts_edit_draft">Editar borrador</string>
     <string name="drafts_title">Título</string>
-    <string name="drafts_description">Descripción</string>
     <string name="drafts_price">Precio</string>
     <string name="drafts_save">Guardar</string>
     <string name="drafts_cancel">Cancelar</string>
@@ -394,6 +393,25 @@
     <string name="drafts_empty">Todavía no hay borradores. Genéralos desde los artículos de tu inventario y aparecerán aquí para revisarlos antes de publicar nada.</string>
     <string name="drafts_selected_of">%1$d de %2$d seleccionados</string>
     <string name="drafts_clear_all">Quitar todo</string>
+
+    <!-- US-2964: la lista de secciones de la descripción. -->
+    <string name="blocks_heading">Secciones de la descripción</string>
+    <string name="blocks_include">Incluir %1$s</string>
+    <string name="blocks_unavailable">No se pudieron cargar las secciones de este borrador, así que nada de lo que hay aquí se guardará. Vuelve a abrirlo; si sigue pasando, la descripción no ha cambiado y está a salvo.</string>
+    <string name="blocks_converted">Este borrador se escribió antes de que existieran las secciones. Lo que ves es tu descripción actual dividida, y nada cambia hasta que guardes.</string>
+    <string name="blocks_loading">Cargando las secciones…</string>
+    <string name="blocks_add_snippet">Añadir un fragmento guardado</string>
+    <string name="blocks_preview_toggle">Vista previa de lo que recibe el marketplace (%1$d caracteres)</string>
+    <string name="blocks_preview_empty">Guarda este borrador una vez y aquí aparecerá la descripción generada.</string>
+    <string name="blocks_preview_updating">Actualizando la vista previa…</string>
+    <string name="blocks_move_up">Subir</string>
+    <string name="blocks_move_down">Bajar</string>
+    <string name="blocks_edit">Editar</string>
+    <string name="blocks_done">Listo</string>
+    <string name="blocks_rewrite">Reescribir</string>
+    <string name="blocks_rewriting">Reescribiendo…</string>
+    <string name="blocks_remove">Quitar</string>
+
     <string name="drafts_select_all">Seleccionar todo</string>
     <string name="drafts_edit_together">Editar %1$d juntos</string>
     <string name="drafts_retry_failed">Reintentar los %1$d que fallaron</string>

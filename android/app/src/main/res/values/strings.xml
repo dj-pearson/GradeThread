@@ -425,7 +425,6 @@
     <string name="drafts_delete">Delete</string>
     <string name="drafts_edit_draft">Edit draft</string>
     <string name="drafts_title">Title</string>
-    <string name="drafts_description">Description</string>
     <string name="drafts_price">Price</string>
     <string name="drafts_save">Save</string>
     <string name="drafts_cancel">Cancel</string>
@@ -447,6 +446,7 @@
 
     <!-- US-2964: the description block list. -->
     <string name="blocks_heading">Description sections</string>
+    <string name="blocks_include">Include %1$s</string>
     <string name="blocks_unavailable">Sections could not be loaded for this draft, so nothing here will save. Reopen it; if it keeps happening the description is unchanged and safe.</string>
     <string name="blocks_converted">This draft was written before sections existed. What you see is your current description split up, and nothing changes until you save.</string>
     <string name="blocks_loading">Loading sections…</string>

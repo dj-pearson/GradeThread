@@ -193,6 +193,8 @@ private fun BlockRow(
 ) {
     val label = DescriptionBlocks.label(block.key)
     val pinned = DescriptionBlocks.isPinned(block.key)
+    // Read outside the semantics lambda, which is not a composable scope.
+    val includeDescription = stringResource(R.string.blocks_include, label)
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.xxs),
@@ -206,7 +208,7 @@ private fun BlockRow(
                 checked = block.on,
                 onCheckedChange = { onToggle() },
                 modifier = Modifier.semantics {
-                    contentDescription = "Include $label"
+                    contentDescription = includeDescription
                 },
             )
             Column(modifier = Modifier.weight(1f)) {
