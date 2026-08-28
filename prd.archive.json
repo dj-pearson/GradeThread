@@ -43006,6 +43006,19 @@
         "US-2958"
       ],
       "notes": "Done 2026-08-28. jobs-credentials-refresh.ts takes a block-backed branch: a listing with description_blocks is refreshed by renderListingDescription + renderAndPersistDescription instead of refreshSellerCredentialBlock, so findSellerCredentialBlock and its MAX_TAG_SCAN bail-out are off the listing write path; a listing with null blocks takes the existing path unchanged. Three guards: the never-inject rule survives as a plain SELLER_CREDENTIALS_MARKER presence test (result.no_block++ appears on both paths, asserted); freshness is dbDesc.includes(html) BEFORE any render, so a steady-state run still costs zero extra queries per listing; and a render whose output would not contain the fresh credential html is refused and logged as credentials_refresh.render_would_drop_block rather than silently stripping a trust badge. refreshItemDescription extracted so both paths keep inventory_items.description current. description-render.ts split into renderListingDescription (read half, no write) and renderAndPersistDescription (the single .update), and gained stampUnit: measurement blocks with no unit are stamped at the write path, because renderBlock reads block.unit ?? ctx.unit and a cron has no seller preference to pass - a centimetre seller's live listing would otherwise have come back in inches. Verified: new services/edge-functions/src/tests/credentials-refresh-blocks_test.ts, 11 cases including the byte-identical proof (everything before the credential marker unchanged across a stats change) and the malformed unclosed-div block the walk cannot handle; run locally against a stand-in for @std/assert, the only import this container's network blocks, 11 passed. description-blocks_test.ts still 25/25 against the refactored renderer, and the US-2958 source assertions were re-checked under node. npm run verify green on every web lane; the four failing lanes are deno dependency fetches blocked by the container network policy."
+    },
+    {
+      "id": "US-2965",
+      "passes": true,
+      "title": "Verify says so when the vault drift check is inert in a shallow clone",
+      "description": "As a developer, I want the verify summary to name a gate that is running and checking nothing, so that a green lane locally does not become a red lane in CI.",
+      "acceptanceCriteria": [
+        "scripts/lib/inert-gates.mjs exports inertRepoGates, which reports the shallow-clone case, and scripts/verify.mjs pushes it into the same degraded list as the missing-tool gates.",
+        "The line names the CONSEQUENCE (vault: lint passes without comparing any note's reviewed date) and the fix (git fetch --unshallow), not just the clone depth.",
+        "A full clone reports nothing, and a git failure that returns an empty string is NOT read as shallow."
+      ],
+      "priority": 30,
+      "notes": "Done 2026-08-28. scripts/lib/inert-gates.mjs gained inertRepoGates + isShallowClone, and scripts/verify.mjs pushes them into the same degraded list as the missing-tool gates, so the summary prints a 'local gate inert' line when the clone is shallow. Found the hard way: vault-lint's drift check needs per-file git history, a shallow clone has none, so it prints one warning and checks nothing while the lane reports a green tick - every local verify passed the vault lane for a whole session while four contract notes drifted, and the red only appeared in CI (fetch-depth 0). Same shape as US-2655's gitleaks case. The line names the consequence and the fix rather than the clone depth, and an empty string from a failed git call is not read as shallow, so a machine without git does not grow a permanent warning it cannot act on. Verified: 9 cases in scripts/inert-gates.test.mjs, and the whole verify suite green on an unshallowed clone including vault: lint at 0 errors."
     }
   ]
 }
