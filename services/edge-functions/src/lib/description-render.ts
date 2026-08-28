@@ -226,6 +226,62 @@ export interface PersistResult {
 }
 
 /**
+ * Stamp the effective unit onto every measurement block that lacks one.
+ *
+ * US-2963. `renderBlock` reads `block.unit ?? ctx.unit`, so a block with no unit
+ * renders in WHATEVER unit the caller happened to pass. That was harmless while
+ * the only caller was a browser carrying the seller's own preference, and stops
+ * being harmless the moment a background job re-renders: the credentials cron
+ * has no seller preference to pass, so a listing a centimetre seller published
+ * would come back in inches, and the numbers a buyer is reading would change
+ * because a badge needed refreshing.
+ *
+ * Stamping at the single write path makes every stored description
+ * self-describing: any later render reproduces it regardless of who asked.
+ * Blocks that already carry a unit are left alone, so an explicit choice wins.
+ */
+function stampUnit(blocks: DescriptionBlock[], unit: LengthUnit): DescriptionBlock[] {
+  let changed = false;
+  const out = blocks.map((b) => {
+    if (b.key !== "measurements" || b.unit) return b;
+    changed = true;
+    return { ...b, unit };
+  });
+  return changed ? out : blocks;
+}
+
+export interface RenderedListing {
+  listing: OwnedListing;
+  blocks: DescriptionBlock[];
+  description: string;
+}
+
+/**
+ * Render a listing's description WITHOUT writing anything.
+ *
+ * The read half of `renderAndPersistDescription`, split out for US-2963: the
+ * credentials cron has to see what a re-render would produce, decide whether to
+ * push it to eBay, and only then persist. A job that wrote first would leave the
+ * database ahead of the live listing whenever the push failed.
+ *
+ * Returns null when the listing is not owned by `ownerId`.
+ */
+export async function renderListingDescription(
+  listingId: string,
+  ownerId: string,
+  blocks?: DescriptionBlock[],
+  unit: LengthUnit = "in",
+): Promise<RenderedListing | null> {
+  const listing = await loadOwnedListing(listingId, ownerId);
+  if (!listing) return null;
+
+  const ctx = await buildRenderContext(listing, ownerId, unit);
+  const next = stampUnit(blocks ?? blocksForListing(listing, ctx), unit);
+  const description = renderDescription(next, ctx);
+  return { listing, blocks: next, description };
+}
+
+/**
  * Render `blocks` for a listing and write BOTH columns in one update.
  *
  * One statement, deliberately. Two updates would leave a window where
@@ -243,12 +299,9 @@ export async function renderAndPersistDescription(
   blocks?: DescriptionBlock[],
   unit: LengthUnit = "in",
 ): Promise<PersistResult | null> {
-  const listing = await loadOwnedListing(listingId, ownerId);
-  if (!listing) return null;
-
-  const ctx = await buildRenderContext(listing, ownerId, unit);
-  const next = blocks ?? blocksForListing(listing, ctx);
-  const description = renderDescription(next, ctx);
+  const rendered = await renderListingDescription(listingId, ownerId, blocks, unit);
+  if (!rendered) return null;
+  const { listing, blocks: next, description } = rendered;
 
   const { error } = await supabaseAdmin
     .from("listings")

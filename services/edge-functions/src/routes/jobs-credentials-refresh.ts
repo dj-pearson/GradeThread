@@ -38,7 +38,15 @@ import { logEvent } from "../lib/observability.ts";
 import { getSetting } from "../lib/system-settings.ts";
 import { getOffer, isEbayConfigured, updateOfferFields } from "../lib/ebay-client.ts";
 import { loadSellerCredentialBlock } from "../lib/seller-credentials-job.ts";
-import { refreshSellerCredentialBlock } from "../lib/seller-credentials.ts";
+import {
+  refreshSellerCredentialBlock,
+  SELLER_CREDENTIALS_MARKER,
+} from "../lib/seller-credentials.ts";
+import {
+  renderAndPersistDescription,
+  renderListingDescription,
+} from "../lib/description-render.ts";
+import type { DescriptionBlock } from "../lib/description-blocks.ts";
 
 /** Lease: one GET + one PUT per dirty listing, bounded by MAX_REVISIONS. */
 const LEASE_SECONDS = 600;
@@ -56,7 +64,7 @@ const MAX_REVISIONS = 100;
 const SELLER_ERROR_LIMIT = 3;
 
 const LISTING_COLUMNS = "id, inventory_item_id, platform_offer_id, listing_description, " +
-  "listing_origin, marketplace_connection_id, " +
+  "description_blocks, listing_origin, marketplace_connection_id, " +
   "inventory_items!inner(user_id, grade_value, description)";
 
 interface CandidateRow {
@@ -64,6 +72,8 @@ interface CandidateRow {
   inventory_item_id: string;
   platform_offer_id: string | null;
   listing_description: string | null;
+  /** US-2963: non-null means this listing is block-backed and re-renders. */
+  description_blocks: DescriptionBlock[] | null;
   listing_origin: string | null;
   marketplace_connection_id: string | null;
   inventory_items: {
@@ -84,9 +94,38 @@ export interface CredentialsRefreshResult {
   no_block: number;
   /** DB copy refreshed without an eBay write (live copy had no block). */
   db_only: number;
+  /** US-2963: refreshed by re-rendering blocks rather than walking div depth. */
+  rendered: number;
   errors: number;
   /** True when the run hit the revision cap — the rest wait for the next run. */
   capped: boolean;
+}
+
+/**
+ * Refresh the credential block on the ITEM's own draft description.
+ *
+ * `inventory_items.description` is a plain string — it has no blocks and never
+ * will — and it is the fallback source resyncGradeToLiveListing reads, so a
+ * stale block here resurfaces through that path however carefully the listing
+ * was re-rendered. The div walk is the only tool that fits a column with no
+ * blocks behind it, and US-2963's rule is about the LISTING write path.
+ *
+ * DB only, no eBay call.
+ */
+async function refreshItemDescription(
+  row: CandidateRow,
+  sellerId: string,
+  html: string,
+): Promise<void> {
+  const itemDesc = row.inventory_items.description;
+  if (!itemDesc) return;
+  const itemNext = refreshSellerCredentialBlock(itemDesc, html);
+  if (itemNext === null || itemNext === itemDesc) return;
+  await supabaseAdmin
+    .from("inventory_items")
+    .update({ description: itemNext })
+    .eq("id", row.inventory_item_id)
+    .eq("user_id", sellerId);
 }
 
 /**
@@ -139,6 +178,108 @@ async function refreshSeller(
     result.listings_scanned++;
 
     const dbDesc = row.listing_description ?? "";
+    const connId = row.marketplace_connection_id ?? undefined;
+    const blocks = row.description_blocks;
+
+    // ── US-2963: the block-backed path ──────────────────────────────
+    //
+    // A listing that carries `description_blocks` has a description that is
+    // DERIVED, so refreshing the badge is a re-render rather than surgery on
+    // markup. That matters because the surgery could fail: the div walk in
+    // findSellerCredentialBlock gives up on an unclosed element or after
+    // MAX_TAG_SCAN tags, and its only safe answer is null — which this loop
+    // counts as "no block" and skips forever. A malformed description used to
+    // defeat the refresh permanently and silently. It cannot now.
+    if (blocks?.length) {
+      // Freshness, decided by a substring rather than a render. The renderer
+      // emits the credential html verbatim after its marker, so a description
+      // already containing `html` is already current — and a steady-state run
+      // therefore still costs zero extra queries per listing, which is what
+      // keeps this cron affordable over 200 sellers.
+      if (!dbDesc.includes(SELLER_CREDENTIALS_MARKER)) {
+        // Same rule as the legacy path: a refresh NEVER injects a block into a
+        // description that never carried one.
+        result.no_block++;
+        continue;
+      }
+      if (dbDesc.includes(html)) {
+        result.up_to_date++;
+        continue;
+      }
+
+      const fresh = await renderListingDescription(
+        row.id,
+        sellerId,
+        blocks,
+      );
+      if (!fresh) {
+        result.errors++;
+        continue;
+      }
+      // A render that would REMOVE the block is refused outright. It means the
+      // two credential loaders disagree about this seller, or the credentials
+      // block was switched off while the stored string still shows one — either
+      // way, silently stripping a buyer-facing trust badge is not a refresh.
+      if (!fresh.description.includes(html)) {
+        logEvent("warn", "credentials_refresh.render_would_drop_block", {
+          seller: sellerId,
+          listing: row.id,
+        });
+        result.errors++;
+        continue;
+      }
+
+      try {
+        const offer = await getOffer(sellerId, offerId, connId);
+        const liveDesc = typeof offer.listingDescription === "string"
+          ? offer.listingDescription
+          : "";
+        if (liveDesc !== fresh.description) {
+          await updateOfferFields(
+            sellerId,
+            offerId,
+            { listingDescription: fresh.description },
+            connId,
+          );
+          result.revised++;
+          budget--;
+        } else {
+          result.db_only++;
+        }
+        sellerErrors = 0;
+      } catch (err) {
+        logEvent("warn", "credentials_refresh.ebay_push_failed", {
+          seller: sellerId,
+          listing: row.id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        result.errors++;
+        if (++sellerErrors >= SELLER_ERROR_LIMIT) {
+          logEvent("warn", "credentials_refresh.seller_abandoned", {
+            seller: sellerId,
+            consecutive_errors: sellerErrors,
+          });
+          return budget;
+        }
+        continue;
+      }
+
+      // Both columns, one update, from the same blocks that produced what was
+      // just pushed — so the composer, the next revise and the next run all
+      // agree, and `listing_description` never claims a shape
+      // `description_blocks` did not produce.
+      const saved = await renderAndPersistDescription(
+        row.id,
+        sellerId,
+        fresh.blocks,
+      );
+      if (!saved) result.errors++;
+      else result.rendered++;
+      await refreshItemDescription(row, sellerId, html);
+      continue;
+    }
+
+    // ── The legacy path, for listings not yet converted ─────────────
     const dbNext = refreshSellerCredentialBlock(dbDesc, html);
     if (dbNext === null) {
       result.no_block++;
@@ -152,7 +293,6 @@ async function refreshSeller(
     // The live offer is the truth about what buyers see, and the DB copy can
     // have drifted (an eBay-side edit, a failed earlier revise). Swap the block
     // inside the LIVE description so a revise changes the block and nothing else.
-    const connId = row.marketplace_connection_id ?? undefined;
     let liveNext: string | null = null;
     try {
       const offer = await getOffer(sellerId, offerId, connId);
@@ -201,20 +341,7 @@ async function refreshSeller(
       .eq("id", row.id)
       .eq("user_id", sellerId);
 
-    // The item's own draft description carries the same block and is the
-    // fallback source for resyncGradeToLiveListing — refresh it too so a stale
-    // block can't resurface through that path. DB-only, no eBay call.
-    const itemDesc = row.inventory_items.description;
-    if (itemDesc) {
-      const itemNext = refreshSellerCredentialBlock(itemDesc, html);
-      if (itemNext !== null && itemNext !== itemDesc) {
-        await supabaseAdmin
-          .from("inventory_items")
-          .update({ description: itemNext })
-          .eq("id", row.inventory_item_id)
-          .eq("user_id", sellerId);
-      }
-    }
+    await refreshItemDescription(row, sellerId, html);
   }
 
   return budget;
@@ -255,6 +382,7 @@ export async function handleCredentialsRefreshCron(c: Context): Promise<Response
       up_to_date: 0,
       no_block: 0,
       db_only: 0,
+      rendered: 0,
       errors: 0,
       capped: false,
     };
