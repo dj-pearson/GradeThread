@@ -784,6 +784,13 @@ export function buildUserPrompt(
   return parts.join("\n\n");
 }
 
+import { decodeToRgba, formatFromMediaType } from "./image-decode.ts";
+import {
+  describeMeasurement,
+  measureNeutral,
+  vetoColorClaim,
+} from "./photo-neutral-color.ts";
+import type { NeutralReading } from "./photo-neutral-color.ts";
 // Anthropic's per-image limit is ~5 MB of source bytes; stay under it (base64
 // inflates ~33%, but the API measures the decoded bytes). Oversized photos are
 // skipped rather than risking a hard API rejection.
@@ -861,12 +868,45 @@ export function photoSlotLabel(photo: ExtractPhoto): string {
   return label ? ` (${photo.type}: ${label})` : ` (${photo.type})`;
 }
 
+/**
+ * Photo slots that actually show the garment's colour. A `tag` close-up is a
+ * white care label and a `detail` shot is usually a zip or a seam, so measuring
+ * either would report the colour of something that isn't the garment.
+ * Ordered: the first type present in the set is the one measured.
+ */
+const COLOUR_MEASURABLE_TYPES = ["front", "flatlay", "on_model"] as const;
+
+/** Content blocks, unchanged. Delegates to the measuring variant and drops the
+ *  measurement, so the three callers that don't want a colour keep their shape. */
 export async function buildPhotoContent(
   photos: ExtractPhoto[],
   // Injectable so tests can stub the network without reaching the SSRF guard /
   // real DNS. Defaults to the SSRF-safe fetcher in production.
   fetcher: typeof safeFetch = safeFetch,
 ): Promise<Anthropic.ContentBlockParam[]> {
+  const { content } = await buildPhotoContentWithColor(photos, fetcher);
+  return content;
+}
+
+/**
+ * The same photo fetch, plus a colour measurement taken off the SAME bytes
+ * (US-2975).
+ *
+ * The measurement rides along here rather than in its own pass because this
+ * function already downloads every photo. A separate pass would double the
+ * fetch for a feature whose entire selling point is that it costs nothing.
+ *
+ * Exactly ONE photo is decoded, not all of them: decoding is the expensive part
+ * (a multi-megapixel JPEG is tens of milliseconds of blocking CPU on a single-
+ * threaded runtime) and the front shot answers the colour question on its own.
+ */
+export async function buildPhotoContentWithColor(
+  photos: ExtractPhoto[],
+  fetcher: typeof safeFetch = safeFetch,
+): Promise<{
+  content: Anthropic.ContentBlockParam[];
+  colorReading: NeutralReading | null;
+}> {
   const fetched = await Promise.all(
     photos.map(async (photo, i) => {
       try {
@@ -894,7 +934,18 @@ export async function buildPhotoContent(
           console.warn(`[flipdesk-ai] image ${i} not a supported image — skipping`);
           return null;
         }
-        return { photo, mediaType, data: bytesToBase64(bytes) };
+        // Keep the raw bytes ONLY for a photo that could be measured. Holding
+        // every photo's bytes alongside its base64 copy would double the peak
+        // memory of a ten-photo item for no benefit.
+        const measurable = COLOUR_MEASURABLE_TYPES.includes(
+          (photo.type ?? "") as typeof COLOUR_MEASURABLE_TYPES[number],
+        );
+        return {
+          photo,
+          mediaType,
+          data: bytesToBase64(bytes),
+          bytes: measurable ? bytes : null,
+        };
       } catch (err) {
         if (err instanceof SsrfError) {
           console.warn(`[flipdesk-ai] image ${i} rejected by SSRF guard: ${err.message} — skipping`);
@@ -920,7 +971,58 @@ export async function buildPhotoContent(
       source: { type: "base64", media_type: entry.mediaType, data: entry.data },
     });
   });
-  return content;
+
+  // Measure the best available garment shot, in slot-priority order rather than
+  // upload order — a seller who uploaded the flatlay first still gets the front.
+  let colorReading: NeutralReading | null = null;
+  const candidates = fetched.filter((e) => e && e.bytes) as {
+    photo: ExtractPhoto;
+    mediaType: AnthropicImageMediaType;
+    bytes: Uint8Array;
+  }[];
+  for (const type of COLOUR_MEASURABLE_TYPES) {
+    const pick = candidates.find((c) => c.photo.type === type);
+    if (!pick) continue;
+    const format = formatFromMediaType(pick.mediaType);
+    if (!format) break;
+    const decoded = await decodeToRgba(pick.bytes, format);
+    if (decoded) {
+      colorReading = measureNeutral(decoded.rgba, decoded.width, decoded.height);
+    }
+    break; // one photo only, decoded or not — a retry buys nothing
+  }
+
+  return { content, colorReading };
+}
+
+/**
+ * Drop a colour the pixels say cannot be true (US-2975).
+ *
+ * Strips BOTH the field suggestion and the canonical attribute. Leaving the
+ * attribute behind would push the rejected colour to eBay as an item specific
+ * while the seller's own colour field looked empty — the worst of both.
+ *
+ * On a veto the colour is removed, not replaced. The measurement deliberately
+ * does not name colours (see photo-neutral-color.ts), and a blank the seller
+ * fills in beats a confident wrong colour, which is what causes returns.
+ */
+export function applyColorVeto(
+  suggestions: Record<string, FieldSuggestion>,
+  attributes: Record<string, AttributeSuggestion>,
+  reading: NeutralReading | null,
+): { vetoed: boolean; reason: string | null } {
+  const claim = suggestions.color?.value ?? null;
+  const verdict = vetoColorClaim(claim, reading);
+  if (!verdict.vetoed) return { vetoed: false, reason: null };
+
+  delete suggestions.color;
+  for (const key of Object.keys(attributes)) {
+    if (/^colou?r$/i.test(key)) delete attributes[key];
+  }
+  console.warn(
+    `[flipdesk-ai] colour veto: model said ${JSON.stringify(claim)} — ${verdict.reason}`,
+  );
+  return { vetoed: true, reason: verdict.reason ?? null };
 }
 
 /** Pick a garment category/type hint from already-known fields to scope the
@@ -972,7 +1074,14 @@ export async function extractItemFields(
 
   // Fetch + inline the images (skips any unreachable one rather than failing the
   // whole call); each block is captioned with its slot (tag/front/…).
-  const content: Anthropic.ContentBlockParam[] = await buildPhotoContent(photos);
+  const { content, colorReading } = await buildPhotoContentWithColor(photos);
+  // US-2975: state the measured lightness/saturation BEFORE the model answers.
+  // This is the layer that carries the close calls — a model told "lightness 44
+  // of 100, near-neutral" does not go on to call charcoal trousers black. The
+  // veto after the call only catches what is outright impossible.
+  if (colorReading) {
+    content.push({ type: "text", text: describeMeasurement(colorReading) });
+  }
   if (packBlock) content.push({ type: "text", text: packBlock });
 
   // US-2768: the visual pass is handed in as a PROMISE, started by the caller
@@ -1064,6 +1173,8 @@ export async function extractItemFields(
       }`,
     );
   }
+
+  applyColorVeto(decoded.suggestions, decoded.attributes, colorReading);
 
   return {
     ...decoded,

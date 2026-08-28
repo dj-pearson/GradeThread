@@ -12,12 +12,12 @@
 // stored: downscale to 9x8, grayscale via Rec.601 luma, emit one bit per
 // horizontal-neighbor comparison (left > right), MSB-first, as 16 hex chars.
 //
-// Decoding: JPEG/PNG via imagescript (already a dependency); WebP via @jsquash
-// (lazy-loaded so the JPEG/PNG path never pays for its wasm). Any decode/hash
+// Decoding is shared with the colour measurement in image-decode.ts (US-2975);
+// it used to live here, which was the only copy. Any decode/hash
 // failure returns null — exactly like the browser's "" fallback — so hashing
 // can never block an upload; reuse detection simply skips that image.
 
-import { Image } from "imagescript";
+import { decodeToRgba } from "./image-decode.ts";
 import type { ImageFormat } from "./upload-validation.ts";
 
 const W = 9;
@@ -75,38 +75,6 @@ export function dHashFromRgba(
     }
   }
   return BigInt("0b" + bits).toString(16).padStart(16, "0");
-}
-
-// Decode supported formats to a row-major RGBA buffer. Returns null when the
-// format isn't decodable here (HEIC) or the decoder throws on corrupt bytes.
-async function decodeToRgba(
-  bytes: Uint8Array,
-  format: ImageFormat,
-): Promise<{ rgba: Uint8Array | Uint8ClampedArray; width: number; height: number } | null> {
-  try {
-    if (format === "jpeg" || format === "png") {
-      const img = await Image.decode(bytes);
-      // imagescript Image.bitmap is a row-major RGBA Uint8ClampedArray.
-      return { rgba: img.bitmap, width: img.width, height: img.height };
-    }
-    if (format === "webp") {
-      const { decode } = await import("@jsquash/webp");
-      const data = await decode(
-        bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
-      );
-      // jsquash returns 8-bit RGBA at runtime; the DOM ImageData type now widens
-      // `.data` to include Float16Array (HDR), so coerce to the 8-bit view.
-      const rgba = data.data as unknown as Uint8ClampedArray;
-      return { rgba, width: data.width, height: data.height };
-    }
-    return null;
-  } catch (err) {
-    console.error(
-      "[perceptual-hash] decode failed:",
-      err instanceof Error ? err.message : String(err),
-    );
-    return null;
-  }
 }
 
 /**
