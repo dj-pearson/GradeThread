@@ -15,6 +15,7 @@ import {
   applyBlockToggles,
   bulkBlockSummary,
   BULK_TOGGLE_KEYS,
+  BULK_TOGGLE_WARNINGS,
   hasChanges,
 } from "@/lib/description-block-bulk";
 import type { DescriptionBlock } from "@/types/database";
@@ -80,10 +81,30 @@ describe("applyToggleSet (US-2962)", () => {
     expect(applyToggleSet(before, { intro: "on", grade: "off" })).toBe(before);
   });
 
-  it("does not offer per-listing content or the defect disclosure", () => {
+  it("does not offer per-listing content", () => {
+    // `snippet` and `text` hold one listing's own words. A blanket switch over
+    // "whatever is in this slot" is not one decision.
     expect(BULK_TOGGLE_KEYS).not.toContain("snippet");
     expect(BULK_TOGGLE_KEYS).not.toContain("text");
-    expect(BULK_TOGGLE_KEYS).not.toContain("disclosure");
+  });
+
+  it("DOES offer the grade disclosure, and warns about it", () => {
+    // The highest-consequence switch on the panel: hiding it drops the defect
+    // statement a buyer reads. Offered because a seller describing the same
+    // flaws in their own prose has no other way to clear it forty times, and
+    // warned about because it should not happen by muscle memory.
+    expect(BULK_TOGGLE_KEYS).toContain("disclosure");
+    expect(BULK_TOGGLE_WARNINGS.disclosure).toContain("defect statement");
+    // And it is the only one carrying a warning, so the warning still reads as
+    // one rather than as decoration on every row.
+    expect(Object.keys(BULK_TOGGLE_WARNINGS)).toEqual(["disclosure"]);
+  });
+
+  it("hiding the disclosure is still opt-in, not a default", () => {
+    const before = blocks().concat({ key: "disclosure", on: true, src: "grade" });
+    const last = before.length - 1;
+    expect(applyToggleSet(before, { measurements: "off" })[last]!.on).toBe(true);
+    expect(applyToggleSet(before, { disclosure: "off" })[last]!.on).toBe(false);
   });
 
   it("hasChanges ignores a set that is all `keep`", () => {

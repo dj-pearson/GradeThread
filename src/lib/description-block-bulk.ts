@@ -27,13 +27,17 @@ export type BlockToggleSet = Partial<Record<DescriptionBlockKey, BlockToggle>>;
 /**
  * The sections the bulk grid offers, in render order.
  *
- * Three of the eleven block types are deliberately absent:
+ * Two of the eleven block types are absent: `snippet` and `text` hold
+ * per-listing content, and a blanket switch over "whatever text happens to be
+ * in this slot" is not one decision.
  *
- *   * `snippet` and `text` hold per-listing content, and a blanket switch over
- *     "whatever text happens to be in this slot" is not one decision.
- *   * `disclosure` is the defect disclosure built from the grade report.
- *     Removing it is a change a seller should make one listing at a time with
- *     the preview in front of them, not forty at once from a toolbar.
+ * `disclosure` IS here, and it is the one to think about before changing this
+ * list. It is the defect statement built from the grade report, so hiding it
+ * across a batch is the highest-consequence thing this toolbar can do — which
+ * is an argument for making it deliberate, not for making it impossible. It
+ * defaults to `keep` like everything else, it is the only entry the panel warns
+ * about, and a seller who wants their defects stated in their own prose instead
+ * has no other way to clear it forty times.
  */
 export const BULK_TOGGLE_KEYS: readonly DescriptionBlockKey[] = [
   "intro",
@@ -42,9 +46,22 @@ export const BULK_TOGGLE_KEYS: readonly DescriptionBlockKey[] = [
   "condition",
   "measurements",
   "grade",
+  "disclosure",
   "credentials",
   "facts",
 ];
+
+/**
+ * Sections whose row carries a warning.
+ *
+ * Hiding the grade disclosure removes the defect statement a buyer reads before
+ * bidding. That is a legitimate choice — the seller may be describing the same
+ * flaws in their own words — and it is not one to make by muscle memory across
+ * forty listings.
+ */
+export const BULK_TOGGLE_WARNINGS: Partial<Record<DescriptionBlockKey, string>> = {
+  disclosure: "Hiding this drops the defect statement from the grade report.",
+};
 
 export const BULK_TOGGLE_LABELS: Record<string, string> = BLOCK_LABELS;
 

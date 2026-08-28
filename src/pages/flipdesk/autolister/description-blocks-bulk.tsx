@@ -13,6 +13,7 @@ import {
   bulkBlockSummary,
   BULK_TOGGLE_KEYS,
   BULK_TOGGLE_LABELS,
+  BULK_TOGGLE_WARNINGS,
   hasChanges,
   type BlockToggle,
   type BlockToggleSet,
@@ -86,8 +87,18 @@ export function DescriptionBlocksBulk({
           <div className="divide-y divide-border">
             {BULK_TOGGLE_KEYS.map((key) => (
               <div key={key} className="flex items-center justify-between gap-2 py-2">
-                <span className="text-sm">{BULK_TOGGLE_LABELS[key]}</span>
-                <div className="flex gap-1">
+                <span className="min-w-0 text-sm">
+                  {BULK_TOGGLE_LABELS[key]}
+                  {BULK_TOGGLE_WARNINGS[key] && toggles[key] === "off" && (
+                    // Shown only once Hide is actually chosen: a standing
+                    // caution on a row nobody touched is noise, and noise is
+                    // how a real warning stops being read.
+                    <span className="block text-xs text-destructive">
+                      {BULK_TOGGLE_WARNINGS[key]}
+                    </span>
+                  )}
+                </span>
+                <div className="flex shrink-0 gap-1">
                   {OPTIONS.map((o) => (
                     <Button
                       key={o.value}

@@ -10,7 +10,11 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DescriptionBlocksBulk } from "@/pages/flipdesk/autolister/description-blocks-bulk";
-import { BULK_TOGGLE_KEYS, BULK_TOGGLE_LABELS } from "@/lib/description-block-bulk";
+import {
+  BULK_TOGGLE_KEYS,
+  BULK_TOGGLE_LABELS,
+  BULK_TOGGLE_WARNINGS,
+} from "@/lib/description-block-bulk";
 
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 const PANEL = "src/pages/flipdesk/autolister/description-blocks-bulk.tsx";
@@ -62,6 +66,13 @@ describe("the bulk surface offers toggles only (AC1)", () => {
   it("names each option button after the section it belongs to", () => {
     // Eight sections means eight buttons reading "Hide". US-2450's rule.
     expect(panel).toContain("aria-label={`${o.label} ${BULK_TOGGLE_LABELS[key]}`}");
+  });
+
+  it("warns about the disclosure only once Hide is chosen", () => {
+    // A standing caution on a row nobody touched is noise, and noise is how a
+    // real warning stops being read.
+    expect(panel).toContain('BULK_TOGGLE_WARNINGS[key] && toggles[key] === "off"');
+    expect(BULK_TOGGLE_WARNINGS.disclosure).toBeTruthy();
   });
 
   it("says how many listings it will touch, and that drafts are the limit", () => {
