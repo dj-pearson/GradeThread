@@ -23,9 +23,7 @@ import com.gradethread.app.platform.deeplink.DeepLinkRoute
  * copy like it, and it should write copy for what it renders rather than
  * inherit a description written for nothing.
  */
-enum class PushCategory(
-    val id: String,
-) {
+enum class PushCategory(val id: String) {
     SALE_CREATED("sale.created"),
     PAYOUT_CLEARED("payout.cleared"),
     PAYOUT_POSTED("payout.posted"),
