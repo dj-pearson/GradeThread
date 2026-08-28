@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2966",
+  "nextId": "US-2975",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2911,6 +2911,161 @@
         "US-2960"
       ],
       "notes": "HELD 2026-08-28, not started: needs a machine with Xcode and the Android SDK. This container cannot compile either client (Swift is macOS-only; dl.google.com is blocked by the network policy, so the Android SDK cannot be installed and npm run verify:android cannot run), and AC5 requires that lane to pass. Everything it depends on is done and on the branch: US-2960 (composer block list), US-2961 (snippets + apply-to-drafts), US-2962 (bulk toggles), US-2963 (credentials cron re-renders). IMPLEMENTATION PLAN, so the session on a capable machine is short. (1) iOS service: new ios/GradeThread/Marketplaces/Publish/DescriptionBlocksService.swift wrapping the four routes already live at /api/flipdesk/description/ - GET :id/blocks (returns blocks + preview + converted, adopt the preview VERBATIM, never re-request it, that is what makes convert-on-open byte-exact), POST /preview (debounce 400ms, sequence number so a stale response cannot overwrite a newer one - see src/lib/description-preview.ts for the contract), POST :id/save, POST :id/regenerate. Mirror the block shape from src/types/database.ts DescriptionBlock (key/on/src/text/fields/unit/ref/sep) - sep is load-bearing, do not drop it. (2) iOS view: a block list inside ItemCanvasView with per-row toggle, drag reorder, in-place TextEditor for intro/features/condition/snippet/text, and go-to-field for the derived rows; facts and credentials pinned (no drag handle) for the US-2682 reason. Render NOTHING locally - the preview string always comes from the server. (3) iOS deletion (AC3): remove measurementsBlock, ensureGradeLine, ensureSellerCredentials and splitSellerCredentials from ListingDescriptionTemplate.swift (444 lines; the measure-card value formatter STAYS), fix the three call sites - ListingRewriteService.swift:125, ItemCanvasView.swift:2382 and :2408-2411 - and drop the eight now-dead cases in ios/GradeThreadTests/ListingDescriptionTemplateTests.swift. The web equivalent of those call sites is applyWholeText in src/lib/description-blocks.ts, which strips the markers and folds the string into the intro block; copy that behaviour rather than inventing one. (4) Android: the same list under android/app/src/main/java/com/gradethread/app/autolister/ (DraftsLibraryScreen.kt and DraftsService.kt are the surfaces to extend). (5) AC4 check: edit a listing on iOS, open it on web, confirm the same block array and the same preview string - both clients read the same GET, so a difference means one of them rendered locally. Estimated ~1300 lines across the two clients."
+    },
+    {
+      "id": "US-2966",
+      "passes": false,
+      "title": "New sellers open Description snippets to a blank box, with no way to start from anything",
+      "description": "As a new FlipDesk seller, I want a set of ready-made description snippets I can add in one click, so that my first listing carries my standing lines without me writing them from an empty editor.",
+      "acceptanceCriteria": [
+        "src/lib/starter-snippets.ts exports a frozen STARTER_SNIPPETS array of at least 8 entries, each { id, name, body }; a vitest asserts every name passes nameProblem() from src/lib/flipdesk-snippets.ts against an empty existing list, and every body passes bodyProblem().",
+        "No starter body contains a {{placeholder}} of any kind (snippets are never interpolated) and none matches /measurements?|\\bgrade\\b/i — measurements and grade are their own description blocks per US-2965, and a snippet restating them prints the fact twice. A vitest asserts both.",
+        "src/pages/flipdesk/description-snippets.tsx: the EmptyState offers a second action labelled 'Browse samples', and when the seller already has snippets a 'Browse samples' button sits beside 'New snippet' in the PageHeader actions.",
+        "A shared <SamplePicker> dialog component renders one checkbox row per sample with the full body visible, and its confirm button reads 'Add N snippets' where N is the checked count. Confirming inserts N rows through the existing createSnippet() in src/lib/flipdesk-snippets.ts — no new edge route, no new table, no migration.",
+        "A sample whose name already exists on the account is inserted as '<name> (copy)', and a second collision as '<name> (copy 2)'. A vitest on the naming helper asserts the result differs from every existing name and still passes nameProblem().",
+        "Inserted rows get sequential sort_order values continuing from nextSortOrder(), so a bulk add does not collapse every new snippet onto the same position.",
+        "npm run verify:web passes (eslint, tsc -b, vitest, build) and npm run ui:check stays at zero findings for src/."
+      ]
+    },
+    {
+      "id": "US-2967",
+      "passes": false,
+      "title": "A saved template's boilerplate is deleted by the first save, because it is not a description block",
+      "description": "As a seller who saved standard terms on a listing template, I want that text to survive editing the listing, so that the footer I set up once is still on the listing a buyer reads.",
+      "acceptanceCriteria": [
+        "AutoLister: services/edge-functions/src/routes/flipdesk-autolister.ts:390 currently appends description_template to listings.listing_description only. Since blocksForListing() (services/edge-functions/src/lib/description-render.ts:215) returns description_blocks whenever they exist, that text is dropped on the seller's next save. After this story the boilerplate is written as a { key: 'text', on: true, src: 'seller' } block.",
+        "The template's text block is part of the initial description_blocks written by the generation upsert in services/edge-functions/src/lib/ai-listing.ts (near line 2633) — NOT a second read-then-update after generation. This preserves the epic's rule that the row never holds a listing_description that is not derived from its blocks.",
+        "The text block is appended after the AI prose and before the pinned credentials/facts blocks (PINNED_KEYS, src/lib/description-blocks.ts), so a template footer cannot displace the item facts block that US-2682 needs last.",
+        "Regression case in services/edge-functions/src/tests/listing-template_test.ts: generate a draft with a template, render its blocks, save, re-render, and assert the boilerplate is still in the output both times.",
+        "Web composer: the SavedTemplatePicker onApply path in src/pages/flipdesk/composer.tsx (~line 3434) no longer routes description_template through applyDescriptionText/applyWholeText, which writes it into the intro block and blanks features and condition. It appends a text block instead; a vitest asserts the intro, features and condition block texts are unchanged after applying a template.",
+        "buildTemplateListingPatch() no longer returns a listing_description key. Its existing tests are updated rather than deleted, and any caller relying on the old append is updated in the same commit.",
+        "No migration. npm run verify:web and npm run verify:edge both pass."
+      ]
+    },
+    {
+      "id": "US-2968",
+      "passes": false,
+      "title": "Listing templates has no starter presets, so the seller most helped by one has to invent it",
+      "description": "As a new FlipDesk seller, I want a few ready-made listing templates I can add and then edit, so that I can see what a good preset looks like instead of guessing at an empty form.",
+      "acceptanceCriteria": [
+        "src/lib/starter-templates.ts exports a frozen STARTER_TEMPLATES array of at least 4 entries — Everyday basics, Vintage and thrifted, Designer / luxury, Kids and baby — each carrying ONLY name, description_template, ebay_condition and condition_description.",
+        "A vitest asserts no starter entry sets item_specifics or return_policy_id / shipping_policy_id / payment_policy_id: those are account-specific eBay ids and would be wrong for every seller who installed them.",
+        "A vitest asserts every starter ebay_condition is a value in EBAY_CONDITION_OPTIONS (src/lib/constants.ts:378), and every name passes nameProblem() from src/lib/flipdesk-templates.ts.",
+        "No starter description_template contains a {{measurements}} or {{grade}} placeholder, for the US-2965 reason: both are their own blocks and a template restating them prints the fact twice.",
+        "src/pages/flipdesk/templates.tsx reuses the <SamplePicker> dialog built in US-2966 — the EmptyState gains a 'Browse samples' action and the PageHeader gains a 'Browse samples' button beside 'New template'. Picks are created through the existing createTemplate() in src/lib/flipdesk-templates.ts against POST /api/flipdesk/templates; no new route.",
+        "Collision naming reuses the same helper as US-2966, and no starter sets is_default — a seller who installs four presets must still choose their own default.",
+        "npm run verify:web passes and npm run ui:check stays at zero findings for src/."
+      ],
+      "dependsOn": [
+        "US-2966",
+        "US-2967"
+      ]
+    },
+    {
+      "id": "US-2969",
+      "passes": false,
+      "title": "Pipeline XP: add the seven pipeline reward event types and their catalog values",
+      "description": "As a reseller, I want the everyday FlipDesk actions to exist as rewardable event types, so that the reward engine has something to score when I work.",
+      "acceptanceCriteria": [
+        "Migration 00679_pipeline_reward_events.sql drops and re-adds reputation_events_event_type_check with the seven new values item_cataloged, item_measured, item_photographed, item_comped, item_drafted, item_listed, item_sold, preserving every value already in the constraint as of 00555.",
+        "The same migration adds inventory_items.comped_at timestamptz and user_reward_state.last_pipeline_sweep_at timestamptz, both with ADD COLUMN IF NOT EXISTS.",
+        "US-1108 triple: the migration is idempotent and re-runnable, EXPECTED_SCHEMA_VERSION in services/edge-functions/src/lib/schema-version.ts is bumped to 00679 in the same commit, and the migration carries the self-record footer.",
+        "RewardEventType in services/edge-functions/src/lib/rewards-engine.ts gains the seven members, and REWARD_XP_CATALOG gains item_cataloged 2, item_measured 2, item_photographed 3, item_comped 3, item_drafted 3, item_listed 8, item_sold 15.",
+        "None of the seven are added to GRADING_SPEND_EVENTS or VARIABLE_XP_EVENTS, so xpForEvent returns the catalog value with no paid gate and no metadata read. A unit test asserts xpForEvent(\"item_listed\") === 8 with no opts.",
+        "Existing rewards-engine tests pass unchanged, proving no existing catalog value moved."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-2970",
+      "passes": false,
+      "title": "Pipeline XP: derive which stages an item provably reached, as a pure function",
+      "description": "As a reseller, I want my XP derived from what my items actually show, so that no stage is missed because a route forgot to fire an event.",
+      "acceptanceCriteria": [
+        "New services/edge-functions/src/lib/rewards-pipeline.ts exports pipelineMarksForItem(item, photos, listings, sale, repricing) returning an array of {stage, occurredAt} with no database access, so it unit-tests as a pure function.",
+        "Stage proofs match the spec exactly: item_cataloged needs brand or garment_type non-null (occurredAt = item created_at); item_measured needs measurements non-null and non-empty (updated_at); item_photographed needs at least one item_photos row (earliest photo created_at); item_comped needs a repricing_suggestions row or comped_at set (that timestamp); item_drafted needs any listings row (listing created_at); item_listed needs a listings row with platform_listing_id non-null (listed_at, falling back to created_at); item_sold needs a sales row with a price or sold_at non-null (sold_at).",
+        "inventory_items.status is never used on its own as proof of any stage. A test with an item at status=returned and no listings row asserts item_listed is NOT returned.",
+        "A listings row whose platform_listing_id is null yields item_drafted but not item_listed. A test asserts both.",
+        "An item with no repricing_suggestions row and no comped_at yields no item_comped mark but still yields every other stage it qualifies for.",
+        "Unit tests in services/edge-functions/src/tests/ cover each of the seven stages present and absent, and run with no fixture env and no database."
+      ],
+      "priority": 4,
+      "dependsOn": [
+        "US-2969"
+      ]
+    },
+    {
+      "id": "US-2971",
+      "passes": false,
+      "title": "Pipeline XP: the sweep that grants missing marks, idempotently and tenant-scoped",
+      "description": "As a reseller, I want a sweep that grants XP for every stage my items reached but never earned, so that months of past work land in my level instead of counting for nothing.",
+      "acceptanceCriteria": [
+        "sweepPipelineRewards(userId) in rewards-pipeline.ts loads the users items, item_photos, listings, sales and repricing_suggestions, calls pipelineMarksForItem per item, and grants each missing mark via grantReward with referenceId set to the item id joined to the stage name and occurredAt set to the derived timestamp.",
+        "US-268 tenant scoping: the inventory_items query is scoped with .eq(\"user_id\", userId); child rows are loaded by inventory_item_id restricted to that already-scoped item set, never from a request-supplied id. A case is added to services/edge-functions/src/tests/tenant-isolation_test.ts proving a sweep for user A grants zero events derived from user B items.",
+        "Idempotency: running sweepPipelineRewards twice over the same fixture grants each (item, stage) exactly once. A test asserts the reputation_events row count is identical after the second run.",
+        "Daily cap: pipeline XP is capped per occurred_at calendar date, read from system_settings key rewards.pipeline_daily_xp_cap defaulting to 300. An absent or unparseable setting degrades to 300 rather than throwing, matching the rewards.disabled_mechanics fail-open pattern.",
+        "The cap applies only to the seven pipeline events. A test with coverage_completed and grade_confirmed on a day already at the pipeline ceiling asserts both still award full XP.",
+        "A test asserts 400 backfilled marks spread across 60 distinct occurred_at dates are not capped, while 400 marks all dated the same day stop at 300 XP for that date.",
+        "sweepPipelineRewards returns a summary of marksGranted, xpAdded, levelBefore and levelAfter."
+      ],
+      "priority": 5,
+      "dependsOn": [
+        "US-2970"
+      ]
+    },
+    {
+      "id": "US-2972",
+      "passes": false,
+      "title": "Pipeline XP: run the sweep nightly and on page load, throttled",
+      "description": "As a reseller, I want my XP to update while I work rather than only overnight, so that finishing an item feels like it counted.",
+      "acceptanceCriteria": [
+        "New services/edge-functions/src/routes/jobs-rewards-sweep.ts runs sweepPipelineRewards for every user with at least one inventory_items row, gated by the same job-secret header pattern the other jobs-*.ts routes use, and is registered in src/main.ts.",
+        "The job writes a cron_runs row on every execution so a silent no-op is visible, matching the existing jobs-*.ts convention.",
+        "services/edge-functions/src/routes/rewards.ts runs an on-demand sweep for the calling user before returning reward state, skipped when user_reward_state.last_pipeline_sweep_at is under five minutes old.",
+        "The throttle timestamp is written on every sweep attempt, including one that grants nothing, so a user with no new marks cannot re-sweep on every page load.",
+        "A test asserts two rewards.ts requests inside five minutes trigger exactly one sweep.",
+        "A sweep failure never fails the rewards response: the route logs and returns the last known state, matching the no-op-not-an-error rule grantReward already follows for disabled mechanics.",
+        "The FlipDesk pipeline page hits the same throttled endpoint on load so working in FlipDesk updates XP without visiting the Rewards page."
+      ],
+      "priority": 6,
+      "dependsOn": [
+        "US-2971"
+      ]
+    },
+    {
+      "id": "US-2973",
+      "passes": false,
+      "title": "Pipeline XP: one arrival celebration for the backfill, not fifteen level-up popups",
+      "description": "As a reseller whose backfill jumps me several levels at once, I want a single arrival moment showing where I actually landed, so that the payoff lands instead of drowning in notifications.",
+      "acceptanceCriteria": [
+        "grantReward in rewards-engine.ts accepts an optional quiet flag. When set, XP is granted and awardBadges still runs, but per-level celebration notifications and emails are suppressed.",
+        "sweepPipelineRewards sets quiet when a single run crosses more than one level, and leaves it unset for an ordinary one-level run so normal level-ups still celebrate.",
+        "src/pages/rewards.tsx shows a one-time arrival state after a quiet sweep: the level reached, the tier name from tierForLevel, and every badge awarded during that sweep, in a single celebration.",
+        "The arrival state is dismissed once and does not return on the next visit. Its seen-state persists server-side on user_reward_state, not in localStorage, so it does not re-fire on another device.",
+        "The celebration respects the existing tiered-celebration rule: confetti fires for the arrival moment, and the frequency cap for bulk users is not bypassed.",
+        "npm run ui:check stays at zero findings for src/ after the arrival state is added."
+      ],
+      "priority": 7,
+      "dependsOn": [
+        "US-2971"
+      ]
+    },
+    {
+      "id": "US-2974",
+      "passes": false,
+      "title": "Pipeline XP: record comps forward and stop double-celebrating with North Star",
+      "description": "As a reseller, I want comps to leave a durable mark and one celebration per milestone, so that the comp stage earns from here forward and I do not get two emails for the same achievement.",
+      "acceptanceCriteria": [
+        "Every route that runs comps for an inventory item sets inventory_items.comped_at, so item_comped accrues going forward even when no repricing_suggestions row is written. Comp routes are found by grepping for the eBay Browse comp calls under services/edge-functions/src/routes/flipdesk-*.ts rather than assumed.",
+        "comped_at is only ever set forward: an existing non-null comped_at is not overwritten by a later comp run, so the earliest comp is the one that scores.",
+        "jobs-north-star.ts keeps ownership of the items-listed milestone emails. A pipeline XP level-up does not send its own email when a North Star milestone email was sent to the same user on the same day.",
+        "A test asserts a user crossing both a North Star lifetime milestone and an XP level on the same day receives exactly one celebration email.",
+        "The spec note that comps predating this story cannot be backfilled is reflected in the code as a comment on pipelineMarksForItem, so nobody later mistakes the gap for a bug."
+      ],
+      "priority": 8,
+      "dependsOn": [
+        "US-2969"
+      ]
     }
   ]
 }
