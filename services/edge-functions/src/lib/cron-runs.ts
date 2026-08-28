@@ -216,6 +216,9 @@ export const CRON_REGISTRY: CronDef[] = [
   // arms. Daily, mid-afternoon UTC — one pass a day is well inside the engine's
   // own per-user frequency cap, so a busier schedule would only re-derive the
   // same refusals.
+  // US-2972: pipeline-XP sweep. Queue is user_reward_state.last_pipeline_sweep_at
+  // ascending nulls-first, 200 sellers per run, so successive runs cover everyone.
+  { name: "rewards-sweep", label: "Pipeline XP sweep", schedule: "30 6 * * *", category: "growth", endpoint: "/api/jobs/rewards-sweep", recorded: true, healthy: "200 with {ok:true, queued, swept, marksGranted, xpAdded, leveledUp, failed}; marksGranted settles near 0 once the backfill has drained" },
   { name: "reward-nudges", label: "Reward re-engagement nudges", schedule: "0 15 * * *", category: "growth", endpoint: "/api/jobs/reward-nudges", recorded: true, healthy: "200 with {ok:true, evaluated, sent, holdout, skipped, scanned, converted}; sent can be 0 — most evaluated users are frequency-capped or have no true candidate" },
   // US-1863: Thrift Radar — recompute venue x window x brand aggregates from the
   // de-identified scan events, publish only what clears the k-anonymity floor,

@@ -35,7 +35,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 20-domain — grading, measurement, contracts
 
-63 notes — see [[moc-domain]].
+64 notes — see [[moc-domain]].
 
 ## 30-platform — marketplace integration
 

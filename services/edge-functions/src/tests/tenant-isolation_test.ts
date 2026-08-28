@@ -7180,3 +7180,70 @@ Deno.test({
     assertDenied(res.status, "POST snippet apply (unknown id)");
   },
 });
+
+// ── US-2971/US-2972: the pipeline XP sweep ──────────────────────────────────
+
+//
+// The sweep runs implicitly on GET /api/rewards/state and derives XP from the
+// caller's inventory. It takes NO id from the request — the surface a normal
+// tenant test attacks does not exist here — so what has to be pinned instead is
+// that the id it uses cannot be influenced from outside, and that the read stays
+// personal. A regression in either would silently credit one seller with
+// another's months of listing work.
+
+/** Any id the caller does not own. The point is that it is IGNORED, not denied. */
+const SPOOF_ID = WS_OWNER ?? "00000000-0000-4000-8000-000000000000";
+
+Deno.test({
+  name: "rewards state ignores a user_id supplied by the caller",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const plain = await fetch(`${BASE}/api/rewards/state`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const mine = await plain.json();
+
+    // Same call, but asking for A's numbers three different ways.
+    for (const qs of [
+      `?user_id=${SPOOF_ID}`,
+      `?userId=${SPOOF_ID}`,
+      `?owner=${SPOOF_ID}`,
+    ]) {
+      const res = await fetch(`${BASE}/api/rewards/state${qs}`, {
+        headers: authHeaders(B_JWT!),
+      });
+      assertEquals(res.status, 200, `GET /api/rewards/state${qs}`);
+      const spoofed = await res.json();
+      assertEquals(
+        spoofed?.progress?.xpTotal,
+        mine?.progress?.xpTotal,
+        `GET /api/rewards/state${qs} returned different XP than the caller's own`,
+      );
+    }
+  },
+});
+
+Deno.test({
+  name: "rewards state stays personal under a workspace-owner header",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    // XP is a personal standing, not a workspace resource: a member acting
+    // inside the owner's tenant must still see their OWN level, and the sweep
+    // must credit their own items rather than the owner's inventory.
+    const own = await fetch(`${BASE}/api/rewards/state`, {
+      headers: authHeaders(B_JWT!),
+    });
+    const ownBody = await own.json();
+
+    const asMember = await fetch(`${BASE}/api/rewards/state`, {
+      headers: { ...authHeaders(B_JWT!), "X-Workspace-Owner": WS_OWNER! },
+    });
+    assertEquals(asMember.status, 200, "GET /api/rewards/state with workspace header");
+    const memberBody = await asMember.json();
+    assertEquals(
+      memberBody?.progress?.xpTotal,
+      ownBody?.progress?.xpTotal,
+      "the workspace header must not switch whose XP is returned",
+    );
+  },
+});

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRewards } from "@/hooks/use-rewards";
 import {
   DndContext,
   type DragEndEvent,
@@ -147,6 +148,12 @@ function csvCell(v: unknown): string {
 export function FlipdeskPipelinePage() {
   const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
+  // US-2972: this read is the trigger, not the data. GET /api/rewards/state runs
+  // the pipeline-XP sweep for the caller (throttled server-side to one sweep per
+  // five minutes), so a seller working the board earns their stages here rather
+  // than having to open the Rewards screen. The response is ignored on purpose;
+  // it also warms the cache the Rewards screen reads next.
+  useRewards();
   const [searchParams, setSearchParams] = useSearchParams();
   const wipLimits = useFlipdeskSettings((s) => s.wipLimits);
   // US-958: search lives in the URL (`?q=`) so it carries across view-mode

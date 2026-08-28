@@ -6,6 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/rewards-engine.ts
+  - services/edge-functions/src/lib/rewards-pipeline.ts
   - services/edge-functions/src/lib/buyer-trust-score.ts
   - services/edge-functions/src/lib/rewards-badges.ts
   - services/edge-functions/src/lib/rewards-tangible.ts
@@ -26,9 +27,9 @@ code_refs:
   - services/edge-functions/src/lib/buyer-grade-confirmation.ts
   - src/lib/buyer-rewards-summary.ts
   - src/lib/reward-celebrations.ts
-reviewed: 2026-08-09
+reviewed: 2026-08-28
 tags: [rewards, gamification, buyer, seller, contract]
-summary: There is ONE reward log for both the seller XP track and the buyer Trust Score; every award goes through grantReward with a dedupe key, and an event that consumes AI grading spend earns nothing unless the action was paid.
+summary: There is ONE reward log for both the seller XP track and the buyer Trust Score; every award carries a dedupe key, and an event that consumes AI grading spend earns nothing unless the action was paid. grantReward is the primitive for a single act; the pipeline sweep is the one bulk writer and reproduces its sequence deliberately.
 ---
 
 # The reward ledger
@@ -86,6 +87,7 @@ as the thing that should only ever pay once:
 | `verified_share` | `<target>:<id>:<source>` | badge target |
 | `share_milestone` | `share:<type>:<id>:<rung>` | rung, per shared find |
 | `grade_confirmed` | `<purchaseId>` | purchase |
+| the seven `item_*` stages | `<itemId>:<stage>` | item, per stage |
 
 Because the key absorbs replays, **there is nothing to mash**: clicking your own
 badge link a thousand times pays exactly what clicking it once does. Reach for a
@@ -99,13 +101,41 @@ failed still repairs itself.
 
 ## What may award XP
 
-### The catalog is weighted by moat, not by effort
+### The catalog is weighted by moat, with a floor under effort
 
 `REWARD_XP_CATALOG` ranks by **business contribution**, so the acts that compound
 GradeThread's advantages score highest: a badge embedded off-platform (authority
 spread) over a marketplace connected (stickiness) over a filled aspect set
 (listing quality). Adding an entry is a policy change, not a config tweak —
 the table is meant to be legible on its own.
+
+US-2969 added a floor beneath that ranking, and it is a real amendment rather
+than an exception. The rule was right about *weighting* and wrong about the
+*bottom*: a catalog that scored nothing at all for the FlipDesk pipeline left a
+seller who had listed for months at level 0, which is the outcome the whole
+reward system exists to avoid. So the seven `item_*` stages earn, and earn
+little — a full pipeline pass without a grade is 21 XP against 46 for the same
+item graded. Grading is still worth more than doubling the busywork, which is
+the property the moat rule was protecting.
+
+### The sweep is the one bulk writer
+
+Pipeline XP is **derived from durable item state**, not emitted at a source.
+There is no choke point for `inventory_items.status` — 252 lines across the
+`flipdesk-*.ts` routes write it — and a hand-assembled hook set would be
+incomplete on the day it shipped, with a missing hook indistinguishable from a
+seller who did not do the work. See [[pipeline-xp-sweep]] for the derivation.
+
+`sweepPipelineRewards` therefore does NOT call `grantReward` per mark. A backfill
+for a 300-item seller is up to 1,800 marks, and `grantReward` recomputes the
+whole log on every call. The sweep reproduces the same sequence in bulk instead:
+kill-switch checked once, events emitted, `recomputeRewardState` once,
+`awardBadges` once, `grantTangibleRewards` once. Semantics identical, recompute
+count 1 instead of 1,800.
+
+This is the only sanctioned bypass. Anything else that wants to award XP calls
+`grantReward`, because a second bulk writer would be a second place for the
+kill-switch and the paid gate to drift.
 
 ### AI-spend events are paid-gated
 
@@ -114,6 +144,13 @@ the table is meant to be legible on its own.
 self-limiting: a free or junk submission that abstains or fails has its charge
 reversed and earns nothing, so there is no way to farm XP by burning our own AI
 budget. A new event type that costs us model spend belongs in that set.
+
+The seven pipeline stages are deliberately NOT in it: they consume no model
+spend, so a paid gate there would only mean "you may not earn for work you did".
+Their bound is a different one — a per-`occurred_at`-date XP ceiling
+(`rewards.pipeline_daily_xp_cap`, default 300), which is what stops a bulk CSV
+import minting a level while leaving a real backfill spread across months
+untouched.
 
 ### Variable-XP types are bounded three times
 

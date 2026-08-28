@@ -400,14 +400,21 @@ async function loadForItems<T>(
 /**
  * Grant every pipeline stage this owner's items reached but never earned.
  *
- * US-268: `ownerId` is resolved by the CALLER as `workspaceOwnerId ?? userId`.
- * Items are read with an explicit `.eq("user_id", ownerId)`; every child table
- * is then read by `inventory_item_id` restricted to that already-owner-verified
+ * US-268: items are read with an explicit `.eq("user_id", userId)`; every child
+ * table is then read by `inventory_item_id` restricted to that already-verified
  * set, never by an id taken from a request. The service-role client bypasses
  * RLS, so this scoping is the only thing standing between two tenants.
+ *
+ * ⚠ `userId`, NOT `workspaceOwnerId ?? userId`. XP is a PERSONAL standing,
+ * not a workspace resource — the same call routes/rewards.ts makes, and for the
+ * same reason: a level belongs to the human who earned it, not to whichever
+ * tenant they are currently acting inside. Passing a workspace owner's id here
+ * would credit the owner for a member's session, and passing a member's id
+ * would credit them with the owner's inventory. The id that owns the items is
+ * the id that earns the XP.
  */
-export async function sweepPipelineRewards(ownerId: string): Promise<PipelineSweepSummary> {
-  const before = await readRewardState(ownerId);
+export async function sweepPipelineRewards(userId: string): Promise<PipelineSweepSummary> {
+  const before = await readRewardState(userId);
   const empty: PipelineSweepSummary = {
     marksGranted: 0,
     xpAdded: 0,
@@ -422,7 +429,7 @@ export async function sweepPipelineRewards(ownerId: string): Promise<PipelineSwe
   const enabled = PIPELINE_STAGES.filter((s) => !disabled.has(s));
   if (enabled.length === 0) {
     logEvent("info", "reward.pipeline_sweep_all_disabled", {});
-    await touchSweepTimestamp(ownerId);
+    await markSweepAttempted(userId);
     return empty;
   }
 
@@ -433,7 +440,7 @@ export async function sweepPipelineRewards(ownerId: string): Promise<PipelineSwe
     const { data, error } = await supabaseAdmin
       .from("inventory_items")
       .select("id, brand, garment_type, measurements, comped_at, created_at, updated_at")
-      .eq("user_id", ownerId)
+      .eq("user_id", userId)
       .order("created_at", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw new Error("sweep: inventory_items read failed: " + error.message);
@@ -442,7 +449,7 @@ export async function sweepPipelineRewards(ownerId: string): Promise<PipelineSwe
     if (page.length < PAGE) break;
   }
   if (items.length === 0) {
-    await touchSweepTimestamp(ownerId);
+    await markSweepAttempted(userId);
     return empty;
   }
 
@@ -466,7 +473,7 @@ export async function sweepPipelineRewards(ownerId: string): Promise<PipelineSwe
 
   // 2. What this owner has already earned, so the plan neither double-grants nor
   //    ignores XP that already counts against a date's ceiling.
-  const { granted: existing, spentByDate } = await loadExistingPipelineXp(ownerId);
+  const { granted: existing, spentByDate } = await loadExistingPipelineXp(userId);
 
   // 3. Derive, drop what is already granted or disabled, and plan under the cap.
   const candidates: PipelineCandidate[] = [];
@@ -485,20 +492,20 @@ export async function sweepPipelineRewards(ownerId: string): Promise<PipelineSwe
     }
   }
   if (candidates.length === 0) {
-    await touchSweepTimestamp(ownerId);
+    await markSweepAttempted(userId);
     return empty;
   }
 
   const cap = await pipelineDailyCap();
   const { granted, cappedOut } = planPipelineGrants(candidates, spentByDate, cap);
   if (granted.length === 0) {
-    await touchSweepTimestamp(ownerId);
+    await markSweepAttempted(userId);
     return { ...empty, cappedOut };
   }
 
   // 4. Emit. The unique index makes a concurrent sweep's duplicate a no-op.
   for (const g of granted) {
-    await emitReputationEvent(ownerId, {
+    await emitReputationEvent(userId, {
       eventType: g.stage,
       verified: true,
       referenceId: g.referenceId,
@@ -509,17 +516,17 @@ export async function sweepPipelineRewards(ownerId: string): Promise<PipelineSwe
   }
 
   // 5. The grantReward tail, once for the whole sweep.
-  const state = await recomputeRewardState(ownerId);
+  const state = await recomputeRewardState(userId);
   try {
-    await awardBadges(ownerId);
+    await awardBadges(userId);
   } catch (err) {
     console.error(
       "[rewards-pipeline] badge award failed:",
       err instanceof Error ? err.message : String(err),
     );
   }
-  if (state) await grantTangibleRewards(ownerId, state.xpTotal);
-  await touchSweepTimestamp(ownerId);
+  if (state) await grantTangibleRewards(userId, state.xpTotal);
+  await markSweepAttempted(userId);
 
   return {
     marksGranted: granted.length,
@@ -532,7 +539,7 @@ export async function sweepPipelineRewards(ownerId: string): Promise<PipelineSwe
 
 /** Reference ids already granted, plus pipeline XP already spent per date. */
 async function loadExistingPipelineXp(
-  ownerId: string,
+  userId: string,
 ): Promise<{ granted: Set<string>; spentByDate: Map<string, number> }> {
   const granted = new Set<string>();
   const spentByDate = new Map<string, number>();
@@ -540,7 +547,7 @@ async function loadExistingPipelineXp(
     const { data, error } = await supabaseAdmin
       .from("reputation_events")
       .select("event_type, reference_id, occurred_at")
-      .eq("user_id", ownerId)
+      .eq("user_id", userId)
       .in("event_type", PIPELINE_STAGES as unknown as string[])
       .order("occurred_at", { ascending: true })
       .range(from, from + PAGE - 1);
@@ -564,12 +571,68 @@ async function loadExistingPipelineXp(
  * grants nothing, so a seller with no new marks cannot re-sweep on every page
  * load. Best-effort: a failure here must never fail the sweep that just worked.
  */
-async function touchSweepTimestamp(ownerId: string): Promise<void> {
+export async function markSweepAttempted(userId: string): Promise<void> {
+  // UPSERT, not update. A seller with items but no rewardable act yet has no
+  // user_reward_state row, and an update would silently match nothing — which
+  // would leave them permanently at the head of the nightly queue, swept over
+  // and over while everyone behind them waited.
   const { error } = await supabaseAdmin
     .from("user_reward_state")
-    .update({ last_pipeline_sweep_at: new Date().toISOString() })
-    .eq("user_id", ownerId);
+    .upsert(
+      { user_id: userId, last_pipeline_sweep_at: new Date().toISOString() } as never,
+      { onConflict: "user_id" },
+    );
   if (error) {
     console.error("[rewards-pipeline] sweep timestamp failed:", error.message);
+  }
+}
+
+/**
+ * How long an on-demand sweep is suppressed after the last attempt.
+ *
+ * Short enough that finishing an item and glancing at the rewards card feels
+ * live; long enough that a seller clicking between FlipDesk tabs does not run a
+ * full derivation on every navigation.
+ */
+export const SWEEP_THROTTLE_MS = 5 * 60_000;
+
+/** Is this seller due an on-demand sweep, given when one was last ATTEMPTED? */
+export function sweepIsDue(lastAttemptIso: string | null | undefined, nowMs: number): boolean {
+  const last = parseable(lastAttemptIso ?? null);
+  if (!last) return true;
+  return nowMs - Date.parse(last) >= SWEEP_THROTTLE_MS;
+}
+
+/**
+ * Run a sweep for this seller unless one ran inside the throttle window.
+ *
+ * Best-effort by contract. This rides on the back of the rewards screen load,
+ * and a sweep problem must never take that screen down — the same reasoning
+ * that makes a disabled mechanic a no-op rather than an error in grantReward.
+ * Returns the summary when a sweep ran, or null when it was throttled or failed.
+ */
+export async function sweepOnDemand(
+  userId: string,
+  nowMs: number = Date.now(),
+): Promise<PipelineSweepSummary | null> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("user_reward_state")
+      .select("last_pipeline_sweep_at")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const last = (data as { last_pipeline_sweep_at: string | null } | null)
+      ?.last_pipeline_sweep_at ?? null;
+    if (!sweepIsDue(last, nowMs)) return null;
+    return await sweepPipelineRewards(userId);
+  } catch (err) {
+    console.error(
+      "[rewards-pipeline] on-demand sweep failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    // Stamp the attempt anyway: a seller whose sweep throws must not re-throw it
+    // on every single page load.
+    await markSweepAttempted(userId);
+    return null;
   }
 }

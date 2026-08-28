@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/lib/crypto-aes.ts
   - services/edge-functions/src/lib/token-refresh-race.ts
   - services/edge-functions/src/lib/rewards-engine.ts
-reviewed: 2026-08-17
+reviewed: 2026-08-28
 tags: [marketplaces, oauth, contract, security]
 summary: Every marketplace connector shares one kill-switch, PKCE, token-encryption and refresh shape; new connectors copy it rather than inventing one.
 ---

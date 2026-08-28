@@ -3,6 +3,10 @@
 // The whole point of deriving marks from durable state instead of hooking the
 // 252 lines that write inventory_items.status is that the derivation can be
 // pinned down exactly. These tests are that pin.
+// US-2379: FIRST import. The graph reaches lib/supabase.ts (via rewards-engine),
+// which throws at import time without credentials, so this file cannot even load
+// without it.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 
 import {
@@ -389,8 +393,8 @@ Deno.test("US-268: the ONLY tenant filter is user_id on inventory_items", async 
 
   // Every table the sweep reads, and how it is allowed to be scoped.
   assert(
-    /\.from\("inventory_items"\)[\s\S]{0,400}?\.eq\("user_id", ownerId\)/.test(sweep),
-    "inventory_items must be scoped by .eq(user_id, ownerId)",
+    /\.from\("inventory_items"\)[\s\S]{0,400}?\.eq\("user_id", userId\)/.test(sweep),
+    "inventory_items must be scoped by .eq(user_id, userId)",
   );
 
   // Child tables are reached through the owner-verified item set only. If a new
@@ -466,4 +470,107 @@ Deno.test("the seven stages are the sweep's whole event surface", () => {
     "item_listed",
     "item_sold",
   ]);
+});
+
+// ── US-2972: the on-demand throttle and the nightly queue ───────────────────
+
+import { SWEEP_THROTTLE_MS, sweepIsDue } from "../lib/rewards-pipeline.ts";
+
+Deno.test("a seller never swept is due immediately", () => {
+  assert(sweepIsDue(null, Date.parse("2026-08-28T12:00:00.000Z")));
+  assert(sweepIsDue(undefined, Date.parse("2026-08-28T12:00:00.000Z")));
+});
+
+Deno.test("two rewards loads inside five minutes trigger exactly ONE sweep", () => {
+  // The AC, stated as the pure predicate the route calls. First load: no
+  // timestamp, due. The sweep stamps. Second load 60s later: not due.
+  const first = Date.parse("2026-08-28T12:00:00.000Z");
+  assert(sweepIsDue(null, first), "first load must sweep");
+
+  const stamped = new Date(first).toISOString();
+  let sweeps = 1;
+  for (const offsetMs of [1_000, 60_000, 120_000, SWEEP_THROTTLE_MS - 1]) {
+    if (sweepIsDue(stamped, first + offsetMs)) sweeps++;
+  }
+  assertEquals(sweeps, 1, "no further sweep inside the window");
+
+  assert(sweepIsDue(stamped, first + SWEEP_THROTTLE_MS), "due again at the boundary");
+});
+
+Deno.test("the throttle window is five minutes", () => {
+  assertEquals(SWEEP_THROTTLE_MS, 5 * 60_000);
+});
+
+Deno.test("an unparseable stored timestamp means due, not never", () => {
+  // A junk timestamp must not permanently disable a seller's on-demand sweep.
+  assert(sweepIsDue("not a date", Date.parse("2026-08-28T12:00:00.000Z")));
+});
+
+Deno.test("the throttle marker is an UPSERT, not an update", async () => {
+  // An update matches nothing for a seller with items but no reward-state row,
+  // which would leave them at the head of the nightly queue forever.
+  const src = await Deno.readTextFile(new URL("../lib/rewards-pipeline.ts", import.meta.url));
+  const fn = src.slice(src.indexOf("export async function markSweepAttempted"));
+  const body = fn.slice(0, fn.indexOf("\n}\n") + 1);
+  assert(body.includes(".upsert("), "markSweepAttempted must upsert");
+  assert(!body.includes(".update("), "markSweepAttempted must not update-only");
+});
+
+Deno.test("a failed on-demand sweep still stamps and still returns null", async () => {
+  // The rewards screen must render even when the sweep throws. Both halves
+  // matter: swallowing without stamping would retry the throw on every load.
+  const src = await Deno.readTextFile(new URL("../lib/rewards-pipeline.ts", import.meta.url));
+  const fn = src.slice(src.indexOf("export async function sweepOnDemand"));
+  const body = fn.slice(0, fn.indexOf("\n}\n") + 1);
+  assert(body.includes("catch"), "sweepOnDemand must catch");
+  assert(body.includes("markSweepAttempted(userId)"), "a failed sweep must still stamp");
+  assert(body.includes("return null"), "a failed sweep returns null");
+});
+
+Deno.test("the rewards screen never fails on a sweep problem", async () => {
+  const src = await Deno.readTextFile(new URL("../routes/rewards.ts", import.meta.url));
+  assert(src.includes("await sweepOnDemand(userId, nowMs)"), "state load must sweep on demand");
+  // Scoped to the authenticated caller, never to a workspace owner: XP is a
+  // personal standing (the reason rewards.ts uses c.get("userId") throughout).
+  assert(!src.includes("sweepOnDemand(workspaceOwnerId"), "sweep must use the caller id");
+});
+
+Deno.test("the nightly job is registered, recorded, and job-secret gated", async () => {
+  const job = await Deno.readTextFile(new URL("../routes/jobs-rewards-sweep.ts", import.meta.url));
+  assert(job.includes("requireJobSecret(c)"), "cron must be job-secret gated");
+  assert(job.includes('acquireJobLock("rewards-pipeline-sweep"'), "cron must take a lock");
+
+  const main = await Deno.readTextFile(new URL("../main.ts", import.meta.url));
+  assert(
+    main.includes('app.post("/api/jobs/rewards-sweep"'),
+    "the cron must be mounted under /api/jobs so the cron_runs middleware records it",
+  );
+
+  const registry = await Deno.readTextFile(new URL("../lib/cron-runs.ts", import.meta.url));
+  assert(registry.includes('name: "rewards-sweep"'), "the cron must be in CRON_REGISTRY");
+  assert(
+    /name: "rewards-sweep"[^}]*recorded: true/.test(registry),
+    "the cron must be recorded:true so a silent no-op is visible in cron_runs",
+  );
+});
+
+Deno.test("the nightly queue is oldest-swept-first, nulls first", async () => {
+  // Coverage is a property of this ordering. Sorting any other way (by activity,
+  // by created_at) lets a seller at the back starve indefinitely.
+  const job = await Deno.readTextFile(new URL("../routes/jobs-rewards-sweep.ts", import.meta.url));
+  const fn = job.slice(job.indexOf("export async function dueForSweep"));
+  const body = fn.slice(0, fn.indexOf("\n}\n") + 1);
+  assert(
+    body.includes('.order("last_pipeline_sweep_at", { ascending: true, nullsFirst: true })'),
+    "the queue must be ordered oldest-swept-first with nulls first",
+  );
+});
+
+Deno.test("a failing seller is stamped so they cannot wedge the queue", async () => {
+  const job = await Deno.readTextFile(new URL("../routes/jobs-rewards-sweep.ts", import.meta.url));
+  const caught = job.slice(job.indexOf("} catch (err) {"));
+  assert(
+    caught.includes("markSweepAttempted(userId)"),
+    "a seller whose sweep throws must still be stamped",
+  );
 });
