@@ -37,6 +37,9 @@ struct DraftsLibraryView: View {
     @State private var showPublishConfirm = false
     // US-1162: invalid bulk-price input message (system alert can't show inline).
     @State private var priceEntryError: String?
+    /// The batch a row's leading swipe asked to bulk-edit. A swipe action can't
+    /// hold a NavigationLink, so it sets this and the destination below pushes.
+    @State private var swipedBatchId: String?
     private let currency = CurrencyFormatter()
 
     /// Which bulk price prompt is showing (drives one shared `.alert`).
@@ -60,6 +63,11 @@ struct DraftsLibraryView: View {
                 await templateStore.load()
             }
             .refreshable { await store.load() }
+            // The row's leading swipe still reaches the batch editor it used to
+            // BE. See the note on the row's NavigationLink.
+            .navigationDestination(item: $swipedBatchId) { batchId in
+                DraftsBulkEditView(batchId: batchId.isEmpty ? nil : batchId)
+            }
             // US-745: present the cross-marketplace Listing Kit for a drafted item.
             .sheet(item: $draftsSheet) { sheet in
                 switch sheet {
@@ -394,16 +402,43 @@ struct DraftsLibraryView: View {
 
             Section {
                 ForEach(store.filtered(matching: search)) { draft in
-                    // US-681: a row tap opens the bulk-edit (review + publish)
-                    // scoped to this draft's batch, instead of being a dead row.
+                    // A row tap opens THE ROW'S OWN ITEM.
+                    //
+                    // US-681 pushed `DraftsBulkEditView(batchId:)` here, and its
+                    // comment said that was "instead of being a dead row":
+                    // true at the time, and the wrong destination once AutoLister
+                    // started landing twenty drafts in a batch. Tapping one
+                    // listing opened a grid of every listing beside it, where the
+                    // one the seller pointed at is just another row. Worse, that
+                    // grid edits title, price, condition and category only, so a
+                    // tap aimed at photos, measurements, specifics or the
+                    // description arrived somewhere that cannot edit any of them.
+                    //
+                    // The batch editor is not lost: the toolbar opens it across
+                    // every draft, and this row's leading swipe opens it scoped
+                    // to this batch, which is the US-681 destination exactly.
                     NavigationLink {
-                        DraftsBulkEditView(batchId: draft.batchId)
+                        DraftItemDestination(
+                            inventoryItemId: draft.inventoryItemId,
+                            batchId: draft.batchId,
+                            title: store.title(for: draft)
+                        )
                     } label: {
                         DraftLibraryRow(
                             title: store.title(for: draft),
                             draft: draft,
                             currency: currency
                         )
+                    }
+                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                        Button {
+                            // Empty string means "this draft has no batch", which
+                            // the destination maps back to nil (all drafts).
+                            swipedBatchId = draft.batchId ?? ""
+                        } label: {
+                            Label("Bulk edit batch", systemImage: "square.grid.2x2")
+                        }
+                        .tint(Color.brandNavy)
                     }
                     // US-745: cross-list this item to the no-API marketplaces via
                     // the copy/paste Listing Kit (Poshmark/Mercari/Grailed/Depop).
@@ -435,6 +470,67 @@ struct DraftsLibraryView: View {
 private struct ListingKitTarget: Identifiable {
     let id: String   // inventory item id
     let title: String
+}
+
+/// Resolves a draft row's `inventory_item_id` to the cached `LocalInventoryItem`
+/// the item canvas needs, and shows the canvas.
+///
+/// ``ItemCanvasView`` takes the SwiftData model, not an id, because it builds
+/// four `@Query` filters off it in `init`. A drafts row only carries the id, so
+/// something has to bridge the two, and that bridge has to answer the case
+/// where the row is not cached yet.
+///
+/// It IS reachable. AutoLister creates items server-side and posts no
+/// `.inventoryPullRequested`, so a seller who walks straight from a finished
+/// AutoLister run into Drafts can be looking at a draft whose item has not
+/// arrived in the local store. Rather than a dead push, this asks for a pull and
+/// waits: `@Query` is live, so the canvas appears by itself the moment the merge
+/// lands. The batch editor stays reachable in the meantime, because it reads the
+/// drafts from the server and does not need the cache at all.
+private struct DraftItemDestination: View {
+    let inventoryItemId: String
+    let batchId: String?
+    let title: String
+
+    @Query private var rows: [LocalInventoryItem]
+    /// Ask for the pull once per appearance, not once per re-render.
+    @State private var requestedPull = false
+
+    init(inventoryItemId: String, batchId: String?, title: String) {
+        self.inventoryItemId = inventoryItemId
+        self.batchId = batchId
+        self.title = title
+        // Same shape as ``ItemCanvasView``'s own `itemRows` query: filter at
+        // @Query time on the captured id so SwiftData re-runs it as the store
+        // updates, which is what makes the sync-and-wait above work.
+        let id = inventoryItemId
+        _rows = Query(filter: #Predicate<LocalInventoryItem> { $0.id == id })
+    }
+
+    var body: some View {
+        if let item = rows.first {
+            ItemCanvasView(item: item)
+        } else {
+            ContentUnavailableView {
+                Label("Still syncing this item", systemImage: "arrow.triangle.2.circlepath")
+            } description: {
+                Text("\(title) was just created and hasn't reached this device yet. This page opens on its own when it arrives.")
+            } actions: {
+                NavigationLink {
+                    DraftsBulkEditView(batchId: batchId)
+                } label: {
+                    Text("Edit the batch instead")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.brandNavy)
+            }
+            .task {
+                guard !requestedPull else { return }
+                requestedPull = true
+                NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+            }
+        }
+    }
 }
 
 private struct DraftLibraryRow: View {
