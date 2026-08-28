@@ -636,3 +636,101 @@ Deno.test("the arrival is decided server-side, not from a localStorage diff", as
     "there must be an ack endpoint, or the moment repeats forever",
   );
 });
+
+// ── US-2974: recording comps forward ────────────────────────────────────────
+
+Deno.test("markComped is set-once in the FILTER, not by reading first", async () => {
+  // The earliest comp is the one item_comped scores, so a later run must not
+  // walk the date forward. Doing that as `.is(comped_at, null)` rather than
+  // read-then-write also makes two concurrent comp requests for the same item
+  // safe without a transaction.
+  const src = await Deno.readTextFile(new URL("../lib/rewards-pipeline.ts", import.meta.url));
+  const fn = src.slice(src.indexOf("export async function markComped"));
+  const body = fn.slice(0, fn.indexOf("\n}\n") + 1);
+  assert(body.includes('.is("comped_at", null)'), "set-once must be a filter");
+  assert(!body.includes(".select("), "no read-then-write race");
+  // US-268: a comp request naming somebody else's item must update nothing.
+  assert(body.includes('.eq("user_id", ownerId)'), "markComped must be tenant-scoped");
+  assert(body.includes('.eq("id", itemId)'), "markComped must target one item");
+});
+
+Deno.test("the comps route stamps only AFTER a successful search", async () => {
+  const src = await Deno.readTextFile(new URL("../routes/flipdesk-ebay.ts", import.meta.url));
+  const route = src.slice(src.indexOf('flipdeskEbayRoutes.get("/comps"'));
+  const body = route.slice(0, route.indexOf("\n});\n") + 1);
+  assert(body.includes('c.req.query("item_id")'), "the route must accept item_id");
+  assert(body.includes("markComped(ownerId, compItemId)"), "the route must stamp");
+  // A failed lookup is not a comp: the stamp has to sit after searchCompsWithLadder.
+  assert(
+    body.indexOf("searchCompsWithLadder") < body.indexOf("markComped("),
+    "the stamp must follow the search, not precede it",
+  );
+  // Items are workspace resources (unlike XP), so this one resolves the owner.
+  assert(
+    body.includes('c.get("workspaceOwnerId") ?? c.get("userId")'),
+    "item writes scope to the workspace owner",
+  );
+});
+
+Deno.test("item_id is optional: a loose comp lookup still works", async () => {
+  // The endpoint takes brand/size/category and is used for lookups with no item
+  // behind them. Requiring an id would break those callers.
+  const src = await Deno.readTextFile(new URL("../routes/flipdesk-ebay.ts", import.meta.url));
+  const route = src.slice(src.indexOf('flipdeskEbayRoutes.get("/comps"'));
+  const body = route.slice(0, route.indexOf("\n});\n") + 1);
+  assert(body.includes("if (compItemId)"), "the stamp must be conditional");
+  assert(
+    !/return c\.json\(\{ error: "item_id is required"/.test(body),
+    "item_id must not be required",
+  );
+});
+
+Deno.test("the permanent comps gap is documented where someone would look", async () => {
+  // Comps predating 00679 cannot be backfilled. Without this note in the file
+  // that derives the stage, the gap reads as a bug and somebody goes hunting.
+  const src = await Deno.readTextFile(new URL("../lib/rewards-pipeline.ts", import.meta.url));
+  const header = src.slice(0, src.indexOf("export type PipelineStage"));
+  assert(header.includes("predate migration 00679"), "the header must name the gap");
+  assert(header.includes("listing_id is NOT NULL"), "and why it exists");
+  assert(header.includes("not a bug"), "and that it is not a bug to chase");
+});
+
+// ── US-2974 AC3/AC4: there is no XP level-up email to de-duplicate ──────────
+//
+// The story asked that a pipeline-XP level-up not send its own email when a
+// North Star milestone email went out the same day. It cannot: the reward system
+// sends NO email on a level-up, and never has. Celebrations are client-side
+// (src/lib/reward-celebrations.ts) and the only reward-owned email path is the
+// re-engagement nudge, which is triggered by INACTIVITY, not by earning.
+//
+// Rather than write a de-dup against nothing, this pins the finding. If someone
+// later adds a level-up email, this test fails and forces them to answer the
+// double-celebration question the story was really asking.
+
+Deno.test("AC3: no reward module sends email on a level-up", async () => {
+  const suspects = [
+    "rewards-engine.ts",
+    "rewards-pipeline.ts",
+    "rewards-badges.ts",
+    "rewards-levels.ts",
+    "rewards-tangible.ts",
+    "rewards-seasons.ts",
+  ];
+  for (const name of suspects) {
+    const src = await Deno.readTextFile(new URL(`../lib/${name}`, import.meta.url));
+    for (const sender of ["sendEmail(", "sendTransactional(", "queueEmail("]) {
+      assert(
+        !src.includes(sender),
+        `${name} now calls ${sender} — if that is a level-up email, it must be ` +
+          "de-duplicated against the North Star milestone email (US-2974 AC3/AC4)",
+      );
+    }
+  }
+});
+
+Deno.test("AC3: the North Star milestone email stays the one owner", async () => {
+  // Its UNIQUE(user_id, milestone) log is what makes a milestone email fire
+  // exactly once, and that ownership is the half of AC3 that IS real.
+  const src = await Deno.readTextFile(new URL("../routes/jobs-north-star.ts", import.meta.url));
+  assert(src.includes("north_star_milestone_log"), "the milestone log is the dedupe");
+});

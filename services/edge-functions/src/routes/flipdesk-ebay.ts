@@ -507,6 +507,7 @@ import {
   DEFAULT_MIN_COMP_RESULTS,
   searchCompsWithLadder,
 } from "../lib/comps-ladder.ts";
+import { markComped } from "../lib/rewards-pipeline.ts";
 import {
   deriveListingOrigin,
   ebayOriginWriteLock,
@@ -11293,6 +11294,12 @@ flipdeskEbayRoutes.get("/comps", async (c) => {
   // US-2245: the tag's style code, when the item has one. Adds a rung ABOVE
   // exact; absent, the ladder behaves exactly as it did before.
   const styleCode = c.req.query("style_code")?.trim() || undefined;
+  // US-2974: which item these comps are FOR, when the caller knows. Optional,
+  // because this endpoint is otherwise item-agnostic (it takes brand/size/
+  // category, not an id) and is also used for loose lookups. When present it is
+  // what lets the comp stage earn XP: repricing_suggestions only exists once an
+  // item has a listing, so a comp run during drafting left no mark at all.
+  const compItemId = c.req.query("item_id")?.trim() || undefined;
   const limitRaw = c.req.query("limit");
   const limit = limitRaw ? Number(limitRaw) : undefined;
 
@@ -11313,6 +11320,13 @@ flipdeskEbayRoutes.get("/comps", async (c) => {
       },
       { minResults },
     );
+    // Stamp AFTER a successful search: a failed lookup is not a comp. Set-once
+    // and tenant-scoped inside markComped, and best-effort — a rewards
+    // bookkeeping problem must not cost the seller the comps they asked for.
+    if (compItemId) {
+      const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+      if (ownerId) await markComped(ownerId, compItemId);
+    }
     return c.json(result);
   } catch (err) {
     console.error("[flipdesk-ebay] comps search failed:", err);

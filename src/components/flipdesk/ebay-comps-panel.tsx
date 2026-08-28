@@ -73,6 +73,8 @@ export function EbayCompsPanel({
   const qc = useQueryClient();
   const query = useEbayComps({
     categoryId,
+    // US-2974: lets the server stamp comped_at so this comp earns pipeline XP.
+    itemId,
     q: q || undefined,
     brand: brand || undefined,
     size: size || undefined,

@@ -748,3 +748,43 @@ export async function acknowledgeArrival(userId: string, level: number): Promise
     console.error("[rewards-pipeline] arrival ack failed:", second.error.message);
   }
 }
+
+/**
+ * US-2974: record that comps were run for this item, ONCE.
+ *
+ * The comp stage is the one pipeline stage with no reliable durable mark of its
+ * own: repricing_suggestions.listing_id is NOT NULL, so a comp run before the
+ * item had a listing wrote no row at all. This column closes that gap going
+ * forward. Comps that predate migration 00679 stay unrecoverable — see the
+ * header of this file.
+ *
+ * SET-ONCE, enforced by the `.is(comped_at, null)` filter rather than by reading
+ * first: the earliest comp is the one item_comped scores, and a later comp run
+ * must not walk that date forward. Doing it in the filter also makes two
+ * concurrent comp requests for the same item safe without a transaction.
+ *
+ * US-268: scoped by ownerId, so a comp request naming somebody else's item id
+ * updates nothing rather than stamping their row.
+ *
+ * Best-effort by contract — it rides on the back of a comps lookup the seller
+ * actually asked for, and a rewards bookkeeping failure must not cost them
+ * their comps.
+ */
+export async function markComped(ownerId: string, itemId: string): Promise<void> {
+  try {
+    const { error } = await supabaseAdmin
+      .from("inventory_items")
+      .update({ comped_at: new Date().toISOString() })
+      .eq("id", itemId)
+      .eq("user_id", ownerId)
+      .is("comped_at", null);
+    if (error) {
+      console.error("[rewards-pipeline] markComped failed:", error.message);
+    }
+  } catch (err) {
+    console.error(
+      "[rewards-pipeline] markComped threw:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}

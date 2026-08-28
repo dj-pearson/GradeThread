@@ -913,6 +913,13 @@ export interface EbayCompsArgs {
    */
   styleCode?: string;
   limit?: number;
+  /**
+   * US-2974: the item these comps are for, when the caller knows it. The server
+   * uses it to stamp inventory_items.comped_at, which is what lets the comp
+   * stage earn pipeline XP — repricing_suggestions only exists once an item has
+   * a listing, so comping during drafting otherwise left no trace.
+   */
+  itemId?: string;
 }
 
 export function useEbayComps(args: EbayCompsArgs) {
@@ -925,6 +932,7 @@ export function useEbayComps(args: EbayCompsArgs) {
       args.size ?? null,
       args.conditionId ?? null,
       args.styleCode ?? null,
+      args.itemId ?? null,
     ],
     enabled: !!args.categoryId,
     staleTime: 30 * 60_000,
@@ -936,6 +944,7 @@ export function useEbayComps(args: EbayCompsArgs) {
       if (args.conditionId) params.set("condition_id", args.conditionId);
       if (args.styleCode) params.set("style_code", args.styleCode);
       if (args.limit) params.set("limit", String(args.limit));
+      if (args.itemId) params.set("item_id", args.itemId);
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/comps?${params.toString()}`,
         { headers: await ebayHeaders() }
