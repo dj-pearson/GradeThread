@@ -262,6 +262,15 @@ async function main(): Promise<void> {
   });
   out.TEST_USER_A_LISTING_ID = listingId;
 
+  // US-2961: a standing line on A's account. The apply-to-drafts route is keyed
+  // on the SNIPPET id rather than on a listing, so proving the listing cases
+  // hold says nothing about this one — it needs an id of A's to be refused.
+  out.TEST_USER_A_SNIPPET_ID = await insert("listing_snippets", {
+    user_id: aId,
+    name: "Tenant-A-fixture-snippet",
+    body: "Ships within one business day.",
+  });
+
   // US-2697: a POSHMARK listing WITH a listing_url, so the sold-sync isolation
   // case can hand B a sold row carrying A's URL and prove it never confirms.
   // The eBay fixture above cannot serve: /api/flipdesk/sync only accepts the

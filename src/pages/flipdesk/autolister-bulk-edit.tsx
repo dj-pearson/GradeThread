@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { BatchNav } from "./autolister/batch-nav";
+import { DescriptionBlocksBulk } from "./autolister/description-blocks-bulk";
 import {
   CategorySearchControl,
   DescriptionCell,
@@ -1563,6 +1564,13 @@ export function FlipdeskAutolisterBulkEditPage() {
             AI fill specifics
           </Button>
         </div>
+
+        <DescriptionBlocksBulk
+          targetIds={[...targetIds]}
+          onApplied={() => {
+            void qc.invalidateQueries({ queryKey: ["autolister_batch_drafts", batchId] });
+          }}
+        />
 
         <div className="flex items-end gap-1.5">
           <Button

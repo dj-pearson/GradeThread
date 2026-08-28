@@ -10,6 +10,8 @@
 //     -> persist blocks and the string they render to, in one update.
 //   POST /api/flipdesk/description/:listingId/regenerate
 //     -> rewrite ONE ai block. The rest of the array comes back byte-identical.
+//   POST /api/flipdesk/description/snippets/:snippetId/apply
+//     -> re-render the DRAFT listings that reference an edited snippet.
 //
 // Tenant safety (CLAUDE.md US-268): every handler resolves
 // `workspaceOwnerId ?? userId` and reaches the listing only through
@@ -29,6 +31,7 @@ import {
   scrubRestatedFacts,
 } from "../lib/description-blocks.ts";
 import {
+  applySnippetToDrafts,
   blocksForListing,
   buildRenderContext,
   loadOwnedListing,
@@ -221,4 +224,28 @@ flipdeskDescriptionRoutes.post("/:listingId/regenerate", async (c) => {
   if (!result) return c.json({ error: "Listing not found" }, 404);
 
   return c.json({ blocks: result.blocks, description: result.description });
+});
+
+// ─── POST /snippets/:snippetId/apply ───────────────────────────────
+
+// US-2961. Editing a standing line on the settings page changes what every
+// listing referencing it RENDERS, but rendering only happens on a save — so a
+// draft the seller is not about to open keeps the old bytes in
+// `listing_description`, which is the column publish, search and the buyer
+// preview all read. This is the button that closes that gap.
+//
+// It touches drafts and nothing else. A published listing is live copy on eBay,
+// and rewriting it from a settings dialog would be an outward-facing change the
+// seller never asked for; `applySnippetToDrafts` filters on listing_status in
+// the query rather than trusting anything in this request.
+flipdeskDescriptionRoutes.post("/snippets/:snippetId/apply", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const snippetId = c.req.param("snippetId");
+
+  const result = await applySnippetToDrafts(snippetId, ownerId);
+  // Null is "not your snippet" AND "no such snippet", deliberately the same
+  // answer: telling them apart would confirm another tenant's row exists.
+  if (!result) return c.json({ error: "Snippet not found" }, 404);
+
+  return c.json(result);
 });

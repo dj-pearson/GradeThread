@@ -139,6 +139,9 @@ const REQUIRED_RESOURCE_IDS = [
   // member) actually covered rather than nominally covered.
   "TEST_VIEWER_JWT",
   "TEST_WORKSPACE_OWNER_ID",
+  // US-2961: the apply-to-drafts route is keyed on a snippet id, so without
+  // this the only case covering a bulk rewrite of listings would skip.
+  "TEST_USER_A_SNIPPET_ID",
 ];
 
 /**
@@ -7139,5 +7142,41 @@ Deno.test({
     );
     await res.body?.cancel();
     assertDenied(res.status, "POST description regenerate");
+  },
+});
+
+// ── US-2961: apply a snippet edit to the drafts referencing it ──────
+//
+// This one is keyed on a SNIPPET id, not a listing id, and it rewrites rows in
+// bulk. Two things have to hold: a foreign snippet id must be refused, and the
+// refusal must not report a count — a route that answered `{applied: 0}` for
+// somebody else's snippet would confirm the snippet exists and, worse, a
+// non-zero count would say how many drafts that tenant has open.
+Deno.test({
+  name: "B cannot apply A's snippet to any drafts",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SNIPPET_ID"),
+  fn: async () => {
+    const snippetId = Deno.env.get("TEST_USER_A_SNIPPET_ID")!;
+    const res = await fetch(
+      `${BASE}/api/flipdesk/description/snippets/${snippetId}/apply`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST snippet apply");
+  },
+});
+
+Deno.test({
+  name: "an unknown snippet id is refused the same way a foreign one is",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    // Same 404 for "not yours" and "not there". If the two ever diverge, the
+    // route becomes an oracle for whether a guessed id belongs to somebody.
+    const res = await fetch(
+      `${BASE}/api/flipdesk/description/snippets/00000000-0000-4000-8000-000000000000/apply`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST snippet apply (unknown id)");
   },
 });

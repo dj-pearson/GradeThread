@@ -1004,6 +1004,15 @@ app.use(
   "/api/flipdesk/description/*/regenerate",
   rateLimiter(10, 60_000, "flipdesk-description-regen", undefined, { methods: ["POST"] }),
 );
+// US-2961: apply-to-drafts re-renders up to two hundred listings per call, each
+// with its own grade-report read and row write. It is a deliberate button on a
+// settings dialog, not something a seller presses in a loop, so it gets the
+// tight bucket too — and registered before the broad one for the same
+// registration-order reason.
+app.use(
+  "/api/flipdesk/description/snippets/*/apply",
+  rateLimiter(10, 60_000, "flipdesk-snippet-apply", undefined, { methods: ["POST"] }),
+);
 app.use("/api/flipdesk/description/*", rateLimiter(120, 60_000, "flipdesk-description"));
 // US-2917: a cached reference read, hit once per distinct brand+garment while a
 // seller works a batch. Roomy enough for a 40-item AutoLister review that spans

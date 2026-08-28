@@ -120,7 +120,10 @@ Deno.test("AC3: blocksForListing converts a legacy string without persisting", (
 
 Deno.test("AC4: every handler scopes on workspaceOwnerId ?? userId", () => {
   const handlers = routeSrc.split(/flipdeskDescriptionRoutes\.(?:get|post)\(/).slice(1);
-  assertEquals(handlers.length, 4, "expected exactly four handlers");
+  // Four from US-2958, plus the snippet apply route US-2961 added. The count is
+  // asserted so a handler added without the owner resolution below cannot slip
+  // in as an untested fifth.
+  assertEquals(handlers.length, 5, "expected exactly five handlers");
   for (const h of handlers) {
     assertStringIncludes(h, 'c.get("workspaceOwnerId") ?? c.get("userId")');
   }
@@ -254,4 +257,68 @@ Deno.test("parseBlocks drops a bogus unit rather than rejecting the block", () =
   const out = parseBlocks([{ key: "measurements", on: true, src: "item", unit: "furlongs" }]);
   assert(out);
   assertEquals(out[0].unit, undefined);
+});
+
+// ─── US-2961: apply a snippet edit to the drafts referencing it ─────
+
+Deno.test("US-2961: the apply route is declared and owner-scoped", () => {
+  assertStringIncludes(routeSrc, '.post("/snippets/:snippetId/apply"');
+  const start = routeSrc.indexOf('.post("/snippets/:snippetId/apply"');
+  const handler = routeSrc.slice(start);
+  assertStringIncludes(handler, 'c.get("workspaceOwnerId") ?? c.get("userId")');
+  assertStringIncludes(handler, "applySnippetToDrafts(snippetId, ownerId)");
+});
+
+Deno.test("US-2961: a foreign or unknown snippet gets the same 404", () => {
+  // Two different answers would make the route an oracle: a caller could learn
+  // that a guessed id belongs to somebody by the shape of the refusal.
+  const start = routeSrc.indexOf('.post("/snippets/:snippetId/apply"');
+  const handler = routeSrc.slice(start);
+  assertStringIncludes(handler, "Snippet not found");
+  assertEquals((handler.match(/c\.json\(\{ error/g) ?? []).length, 1);
+});
+
+Deno.test("US-2961: the snippet is ownership-checked before anything is rewritten", () => {
+  const start = renderSrc.indexOf("export async function applySnippetToDrafts");
+  const body = renderSrc.slice(start);
+  const ownerCheck = body.indexOf('.eq("user_id", ownerId)');
+  const listingRead = body.indexOf('.from("listings")');
+  assert(ownerCheck > 0, "the snippet load must scope on user_id");
+  assert(
+    ownerCheck < listingRead,
+    "the snippet has to be proven the caller's BEFORE any listing is read — " +
+      "otherwise a foreign id decides which rows get rewritten",
+  );
+});
+
+Deno.test("US-2961: apply touches drafts and only drafts", () => {
+  // The safety property of the whole feature. A published listing's description
+  // is live copy on eBay; rewriting it from a settings dialog would be an
+  // outward-facing change nobody asked for. The filter is on the QUERY, so no
+  // caller can widen it.
+  const start = renderSrc.indexOf("export async function applySnippetToDrafts");
+  const body = renderSrc.slice(start);
+  assertStringIncludes(body, '.eq("listing_status", "draft")');
+  assert(
+    !/listing_status["\s,)]*[^d]/.test(body.replace('.eq("listing_status", "draft")', "")),
+    "listing_status must appear exactly once, as the draft filter",
+  );
+});
+
+Deno.test("US-2961: a jsonb containment filter is NOT used to find the references", () => {
+  // `cs.` on an array of objects behaves differently across the PostgREST
+  // versions this project runs — the local stack is newer than self-hosted
+  // prod — and a containment filter that silently matched nothing would make
+  // apply report success having rewritten nothing. The match happens in code.
+  const start = renderSrc.indexOf("export async function applySnippetToDrafts");
+  const body = renderSrc.slice(start);
+  assert(!body.includes(".contains("), "no jsonb containment filter here");
+  assertStringIncludes(body, 'b.key === "snippet" && b.ref === snippetId');
+});
+
+Deno.test("US-2961: a listing referenced only through an override is skipped", () => {
+  const start = renderSrc.indexOf("export async function applySnippetToDrafts");
+  const body = renderSrc.slice(start);
+  assertStringIncludes(body, "refs.every((b) => (b.text ?? \"\").trim().length > 0)");
+  assertStringIncludes(body, "skipped++");
 });

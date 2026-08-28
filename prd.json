@@ -2895,77 +2895,6 @@
       "priority": 40
     },
     {
-      "id": "US-2960",
-      "passes": false,
-      "title": "Composer: the description block list, with toggles, reorder and live preview",
-      "description": "As a reseller, I want to see my description as a list of blocks I can switch off, reorder and edit one at a time, so that I can delete a redundant section without a full rewrite.",
-      "acceptanceCriteria": [
-        "src/components/flipdesk/composer/description-card.tsx renders one ROW per block (not a nested card) with a source label, an on/off switch and a drag handle, using the existing @dnd-kit/sortable dependency.",
-        "Toggling a block off dims the row, keeps its array position and drops it from the preview; toggling it back on restores it to the SAME position.",
-        "The facts and credentials rows have no drag handle and cannot be reordered.",
-        "AI and snippet rows open an in-place textarea on Edit (no modal, no route change); derived rows show a go-to-field control that focuses the matching input in the Item Details or Measurements card.",
-        "A collapsible preview panel calls POST /api/flipdesk/description/preview debounced at 400ms and shows a character count; an out-of-order response never overwrites a newer one.",
-        "Opening a listing whose description_blocks is null shows blocks from the legacy parse, and the preview equals the stored listing_description BYTE FOR BYTE before any edit.",
-        "saveDraft() calls POST /:listingId/save AFTER its item and listing field writes, so derived blocks read the values that just landed.",
-        "descriptionMentions (composer.tsx:272) and the stale-description reminder it feeds (composer.tsx:1596) are DELETED, and no test still references them.",
-        "npm run ui:check stays at zero findings for src/."
-      ],
-      "priority": 14,
-      "dependsOn": [
-        "US-2958"
-      ]
-    },
-    {
-      "id": "US-2961",
-      "passes": false,
-      "title": "Account-level listing snippets, with apply-to-open-drafts",
-      "description": "As a reseller, I want my standing lines saved once on my account, so that fixing my shipping line fixes it everywhere instead of one listing at a time.",
-      "acceptanceCriteria": [
-        "New route /dashboard/flipdesk/settings/blocks registered in src/routes/index.tsx lists snippets with name, body, reorder and delete, reading and writing listing_snippets through the browser Supabase client under RLS.",
-        "A snippet block on a listing stores only ref; editing the referenced snippet changes what that listing renders on its next render, with no write to the listing row.",
-        "Saving a snippet offers apply-to-open-drafts, and that action re-renders ONLY listings with listing_status = draft; a published listing listing_description is unchanged.",
-        "A per-listing text on a snippet block overrides the referenced body and survives an edit to that snippet.",
-        "Deleting a snippet leaves referencing blocks rendering nothing rather than erroring, and the composer row shows that block as unavailable.",
-        "The settings page is registered in src/lib/seo/public-routes.ts only if it is public; being behind ProtectedRoute, it is NOT added there and the SEO guard test still passes."
-      ],
-      "priority": 15,
-      "dependsOn": [
-        "US-2960"
-      ]
-    },
-    {
-      "id": "US-2962",
-      "passes": false,
-      "title": "Bulk edit: switch description blocks on or off across selected drafts",
-      "description": "As a reseller clearing a batch, I want to turn a description section off across every selected draft at once, so that fixing forty listings is one action.",
-      "acceptanceCriteria": [
-        "src/pages/flipdesk/autolister-bulk-edit.tsx shows the block toggle set ONLY; no per-block text editing appears there.",
-        "Applying a toggle change updates description_blocks and re-renders listing_description for every selected draft, through POST /api/flipdesk/description/:listingId/save.",
-        "A selected draft with description_blocks null is converted by the legacy parse first, and its other blocks come through unchanged.",
-        "A selected listing that is not a draft is SKIPPED, and the result summary states how many were skipped."
-      ],
-      "priority": 16,
-      "dependsOn": [
-        "US-2960"
-      ]
-    },
-    {
-      "id": "US-2963",
-      "passes": false,
-      "title": "Credentials refresh re-renders from blocks instead of walking div depth",
-      "description": "As a verified seller, I want my credential badge refreshed by re-rendering the description, so that a malformed listing can no longer defeat the refresh.",
-      "acceptanceCriteria": [
-        "services/edge-functions/src/routes/jobs-credentials-refresh.ts calls renderAndPersistDescription for listings that HAVE description_blocks, instead of refreshSellerCredentialBlock.",
-        "A listing with description_blocks null still takes the existing refreshSellerCredentialBlock path, so nothing regresses before conversion.",
-        "findSellerCredentialBlock and its MAX_TAG_SCAN bail-out (seller-credentials.ts:173) are no longer on the write path for block-backed listings.",
-        "The existing cron tests still pass, plus a new case proving a block-backed listing gets the refreshed credential HTML while its other blocks stay byte-identical."
-      ],
-      "priority": 17,
-      "dependsOn": [
-        "US-2958"
-      ]
-    },
-    {
       "id": "US-2964",
       "passes": false,
       "title": "iOS and Android: description block editor parity",
@@ -2980,7 +2909,8 @@
       "priority": 40,
       "dependsOn": [
         "US-2960"
-      ]
+      ],
+      "notes": "HELD 2026-08-28, not started: needs a machine with Xcode and the Android SDK. This container cannot compile either client (Swift is macOS-only; dl.google.com is blocked by the network policy, so the Android SDK cannot be installed and npm run verify:android cannot run), and AC5 requires that lane to pass. Everything it depends on is done and on the branch: US-2960 (composer block list), US-2961 (snippets + apply-to-drafts), US-2962 (bulk toggles), US-2963 (credentials cron re-renders). IMPLEMENTATION PLAN, so the session on a capable machine is short. (1) iOS service: new ios/GradeThread/Marketplaces/Publish/DescriptionBlocksService.swift wrapping the four routes already live at /api/flipdesk/description/ - GET :id/blocks (returns blocks + preview + converted, adopt the preview VERBATIM, never re-request it, that is what makes convert-on-open byte-exact), POST /preview (debounce 400ms, sequence number so a stale response cannot overwrite a newer one - see src/lib/description-preview.ts for the contract), POST :id/save, POST :id/regenerate. Mirror the block shape from src/types/database.ts DescriptionBlock (key/on/src/text/fields/unit/ref/sep) - sep is load-bearing, do not drop it. (2) iOS view: a block list inside ItemCanvasView with per-row toggle, drag reorder, in-place TextEditor for intro/features/condition/snippet/text, and go-to-field for the derived rows; facts and credentials pinned (no drag handle) for the US-2682 reason. Render NOTHING locally - the preview string always comes from the server. (3) iOS deletion (AC3): remove measurementsBlock, ensureGradeLine, ensureSellerCredentials and splitSellerCredentials from ListingDescriptionTemplate.swift (444 lines; the measure-card value formatter STAYS), fix the three call sites - ListingRewriteService.swift:125, ItemCanvasView.swift:2382 and :2408-2411 - and drop the eight now-dead cases in ios/GradeThreadTests/ListingDescriptionTemplateTests.swift. The web equivalent of those call sites is applyWholeText in src/lib/description-blocks.ts, which strips the markers and folds the string into the intro block; copy that behaviour rather than inventing one. (4) Android: the same list under android/app/src/main/java/com/gradethread/app/autolister/ (DraftsLibraryScreen.kt and DraftsService.kt are the surfaces to extend). (5) AC4 check: edit a listing on iOS, open it on web, confirm the same block array and the same preview string - both clients read the same GET, so a difference means one of them rendered locally. Estimated ~1300 lines across the two clients."
     }
   ]
 }

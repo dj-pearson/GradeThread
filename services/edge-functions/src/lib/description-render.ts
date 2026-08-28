@@ -226,6 +226,62 @@ export interface PersistResult {
 }
 
 /**
+ * Stamp the effective unit onto every measurement block that lacks one.
+ *
+ * US-2963. `renderBlock` reads `block.unit ?? ctx.unit`, so a block with no unit
+ * renders in WHATEVER unit the caller happened to pass. That was harmless while
+ * the only caller was a browser carrying the seller's own preference, and stops
+ * being harmless the moment a background job re-renders: the credentials cron
+ * has no seller preference to pass, so a listing a centimetre seller published
+ * would come back in inches, and the numbers a buyer is reading would change
+ * because a badge needed refreshing.
+ *
+ * Stamping at the single write path makes every stored description
+ * self-describing: any later render reproduces it regardless of who asked.
+ * Blocks that already carry a unit are left alone, so an explicit choice wins.
+ */
+function stampUnit(blocks: DescriptionBlock[], unit: LengthUnit): DescriptionBlock[] {
+  let changed = false;
+  const out = blocks.map((b) => {
+    if (b.key !== "measurements" || b.unit) return b;
+    changed = true;
+    return { ...b, unit };
+  });
+  return changed ? out : blocks;
+}
+
+export interface RenderedListing {
+  listing: OwnedListing;
+  blocks: DescriptionBlock[];
+  description: string;
+}
+
+/**
+ * Render a listing's description WITHOUT writing anything.
+ *
+ * The read half of `renderAndPersistDescription`, split out for US-2963: the
+ * credentials cron has to see what a re-render would produce, decide whether to
+ * push it to eBay, and only then persist. A job that wrote first would leave the
+ * database ahead of the live listing whenever the push failed.
+ *
+ * Returns null when the listing is not owned by `ownerId`.
+ */
+export async function renderListingDescription(
+  listingId: string,
+  ownerId: string,
+  blocks?: DescriptionBlock[],
+  unit: LengthUnit = "in",
+): Promise<RenderedListing | null> {
+  const listing = await loadOwnedListing(listingId, ownerId);
+  if (!listing) return null;
+
+  const ctx = await buildRenderContext(listing, ownerId, unit);
+  const next = stampUnit(blocks ?? blocksForListing(listing, ctx), unit);
+  const description = renderDescription(next, ctx);
+  return { listing, blocks: next, description };
+}
+
+/**
  * Render `blocks` for a listing and write BOTH columns in one update.
  *
  * One statement, deliberately. Two updates would leave a window where
@@ -243,12 +299,9 @@ export async function renderAndPersistDescription(
   blocks?: DescriptionBlock[],
   unit: LengthUnit = "in",
 ): Promise<PersistResult | null> {
-  const listing = await loadOwnedListing(listingId, ownerId);
-  if (!listing) return null;
-
-  const ctx = await buildRenderContext(listing, ownerId, unit);
-  const next = blocks ?? blocksForListing(listing, ctx);
-  const description = renderDescription(next, ctx);
+  const rendered = await renderListingDescription(listingId, ownerId, blocks, unit);
+  if (!rendered) return null;
+  const { listing, blocks: next, description } = rendered;
 
   const { error } = await supabaseAdmin
     .from("listings")
@@ -264,4 +317,109 @@ export async function renderAndPersistDescription(
   if (error) return null;
 
   return { blocks: next, description };
+}
+
+// ─── US-2961: apply a snippet edit to the drafts that reference it ──
+
+/**
+ * The most drafts one "apply" pass will re-render.
+ *
+ * A cap rather than a page loop, because each listing here is a full render
+ * with its own grade-report read, and a seller with two thousand drafts asking
+ * for all of them inside one request would hold a connection open long past any
+ * reasonable timeout. The response reports what was left, so the caller can say
+ * so instead of quietly doing half the job.
+ */
+export const SNIPPET_APPLY_LIMIT = 200;
+
+export interface SnippetApplyResult {
+  /** Drafts re-rendered. */
+  applied: number;
+  /** Drafts that reference the snippet but only through an override. */
+  skipped: number;
+  /** True when more drafts matched than the cap allows in one pass. */
+  truncated: boolean;
+}
+
+/**
+ * Re-render every DRAFT listing whose blocks reference `snippetId`.
+ *
+ * DRAFTS ONLY, and that is the whole safety property. A published listing's
+ * description is what a buyer is reading right now and what eBay holds; changing
+ * it from a settings page — without the seller opening the listing, seeing the
+ * preview and pushing a revise — would edit live copy as a side effect of
+ * renaming a shipping line. So `listing_status = 'draft'` is a filter on the
+ * query, not a check the caller can pass in.
+ *
+ * A block that carries its OWN text is an override, and a listing whose only
+ * reference to this snippet is overridden renders identically either way. Those
+ * are skipped rather than re-rendered: touching a listing to produce the same
+ * bytes is pure risk, and the count is reported so nothing looks lost.
+ *
+ * Returns null when the snippet is not this owner's, which the caller turns into
+ * a 404 — the same answer as a snippet that does not exist.
+ */
+export async function applySnippetToDrafts(
+  snippetId: string,
+  ownerId: string,
+): Promise<SnippetApplyResult | null> {
+  // Rule 1 of US-268 on the snippet itself. Without this an id from the URL
+  // would decide which rows get rewritten, and a foreign id would report a
+  // count that tells the caller how many drafts another tenant has.
+  const { data: snippet } = await supabaseAdmin
+    .from("listing_snippets")
+    .select("id")
+    .eq("id", snippetId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (!snippet) return null;
+
+  // Ownership via the parent item, the same `!inner` join every other read in
+  // this module uses. `description_blocks` comes back so the reference check
+  // happens here rather than as a jsonb containment filter: `cs.` on a jsonb
+  // array of objects behaves differently across the PostgREST versions this
+  // project runs (the local stack is newer than self-hosted prod), and a
+  // containment filter that silently matches nothing would make "apply" report
+  // success having done nothing at all.
+  const { data, error } = await supabaseAdmin
+    .from("listings")
+    .select("id, description_blocks, inventory_items!inner(user_id)")
+    .eq("inventory_items.user_id", ownerId)
+    .eq("listing_status", "draft")
+    .not("description_blocks", "is", null)
+    .limit(SNIPPET_APPLY_LIMIT + 1);
+  if (error) return { applied: 0, skipped: 0, truncated: false };
+
+  const rows = (data ?? []) as unknown as {
+    id: string;
+    description_blocks: DescriptionBlock[] | null;
+  }[];
+
+  let skipped = 0;
+  const targets: string[] = [];
+  for (const row of rows) {
+    const blocks = row.description_blocks ?? [];
+    const refs = blocks.filter((b) => b.key === "snippet" && b.ref === snippetId);
+    if (refs.length === 0) continue;
+    if (refs.every((b) => (b.text ?? "").trim().length > 0)) {
+      skipped++;
+      continue;
+    }
+    targets.push(row.id);
+  }
+
+  const truncated = targets.length > SNIPPET_APPLY_LIMIT;
+  const batch = targets.slice(0, SNIPPET_APPLY_LIMIT);
+
+  let applied = 0;
+  for (const id of batch) {
+    // Sequential, not Promise.all. Each render reads a grade report and writes a
+    // row; two hundred of those at once is a connection-pool incident on the
+    // self-hosted stack, and the seller is waiting on a settings dialog, not a
+    // batch job.
+    const result = await renderAndPersistDescription(id, ownerId);
+    if (result) applied++;
+  }
+
+  return { applied, skipped, truncated };
 }

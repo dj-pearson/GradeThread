@@ -463,6 +463,12 @@ export type SurfaceId = (typeof SURFACES)[number]["id"];
 export const CONTEXTUAL_ROUTES: readonly { path: string; why: string }[] = [
   { path: "/dashboard/*", why: "The catch-all. Renders the 404, not a surface." },
   {
+    path: "/dashboard/flipdesk/settings/blocks",
+    why:
+      "US-2961 description snippets, reached from the Description card in the " +
+      "item editor, which is where a seller is standing when they want one.",
+  },
+  {
     path: "/dashboard/example",
     why: "The grade-report example page, linked from marketing copy rather than nav.",
   },

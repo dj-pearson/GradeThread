@@ -12,7 +12,6 @@ import {
   Sparkles,
   Store,
   BadgeCheck,
-  AlertTriangle,
   CalendarClock,
   PackageX,
 } from "lucide-react";
@@ -86,12 +85,20 @@ import { errorMessage, isoToLocalInput, localInputToIso } from "@/lib/utils";
 import { estimateListingProfit } from "@/lib/listing-profit";
 import { buildComposerAiInput } from "@/lib/composer-ai-input";
 import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
+import { useDescriptionBlocks } from "@/hooks/use-description-blocks";
+import { useListingSnippets } from "@/hooks/use-listing-snippets";
+import { snippetNames } from "@/lib/flipdesk-snippets";
+import {
+  applyWholeText,
+  DEFAULT_DESCRIPTION_BLOCKS,
+  type BlockRowContext,
+} from "@/lib/description-blocks";
+import type { DescriptionBlock } from "@/types/database";
 import {
   inferDepartment,
   mapEbayCondition,
   projectColumnAspectsForSpec,
   reverseProjectAspectColumns,
-  syncedItemFieldFor,
   type AspectWriteBack,
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
@@ -228,53 +235,6 @@ const DEFAULT_LISTING_FORMAT_VALUE: ListingFormatValue = {
   auctionDuration: "DAYS_7",
   variations: null,
 };
-
-// Shared item specifics whose value the buyer expects to also see reflected in
-// the free-text description. Item specifics and the description are edited on
-// independent tracks (changing one never rewrites the other), so a changed
-// specific can silently disagree with a stale description — the pre-push
-// reminder below catches exactly that. Keep to fields a buyer reads in prose;
-// e.g. "US Shoe Size" maps to `size`, "Colour" to `color`, via syncedItemFieldFor.
-const SHARED_DESC_FIELDS = ["brand", "size", "color", "material"] as const;
-type SharedDescField = (typeof SHARED_DESC_FIELDS)[number];
-const SHARED_FIELD_LABELS: Record<SharedDescField, string> = {
-  brand: "Brand",
-  size: "Size",
-  color: "Color",
-  material: "Material",
-};
-
-// Collapse an eBay aspect map down to the {brand,size,color,material} values it
-// carries (first non-empty value per field), resolving category-specific aspect
-// names via the shared registry. Used to diff the saved specifics against the
-// live-edited ones without depending on category-specific aspect naming.
-function sharedValuesFromAspects(
-  aspects: Record<string, string[]> | null | undefined,
-  category: string | null,
-): Partial<Record<SharedDescField, string>> {
-  const out: Partial<Record<SharedDescField, string>> = {};
-  if (!aspects) return out;
-  for (const [name, vals] of Object.entries(aspects)) {
-    const field = syncedItemFieldFor(name, category);
-    if (!field || !(SHARED_DESC_FIELDS as readonly string[]).includes(field)) {
-      continue;
-    }
-    const key = field as SharedDescField;
-    if (out[key]) continue;
-    const v = (vals ?? []).map((x) => x.trim()).find((x) => x.length > 0);
-    if (v) out[key] = v;
-  }
-  return out;
-}
-
-// Whole-word, case-insensitive presence check — so a Size of "M" matches "size M"
-// but not "Medium"/"maroon", and "Nike" matches only as its own word.
-function descriptionMentions(description: string, value: string): boolean {
-  const v = value.trim();
-  if (!v) return true;
-  const esc = v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`\\b${esc}\\b`, "i").test(description);
-}
 
 // One editor, every status. This page is the single item/listing editor behind
 // /dashboard/flipdesk/items/:id — the old split (composer for drafts, ItemCanvas
@@ -1114,9 +1074,6 @@ export function FlipdeskComposerPage({
   const group = item ? templateGroupFor(item, measurementGarment) : "generic";
   const primaryPhoto =
     photos.find((p) => p.id === primaryPhotoId) ?? photos[0] ?? null;
-  const resolvedDescription = item
-    ? interpolateDescription(description, item, measurementUnit)
-    : description;
 
   // US-2255: EVERY filled item specific, not a fixed six. The preview used to
   // render a hardcoded Brand/Style/Size/Category/Condition/Grade table, so a
@@ -1172,9 +1129,85 @@ export function FlipdeskComposerPage({
   // per-field diff chips + revert-to-AI. Null for manually-created drafts.
   const aiSnapshot = listing?.ai_generated_snapshot ?? null;
 
+  // US-2960: the description as an ordered list of named blocks. The renderer
+  // is edge-only, so this holds the ARRAY and asks
+  // /api/flipdesk/description/* for every string it shows — including the
+  // legacy conversion, which comes back rendered so the preview matches the
+  // stored description byte for byte before the seller changes anything.
+  // US-2961: the seller's standing lines. Needed here for the NAMES — a snippet
+  // row labels itself from them, and a ref missing from a LOADED list is how a
+  // deleted snippet gets called out instead of silently rendering nothing.
+  const listingSnippets = useListingSnippets();
+
+  const descriptionBlocks = useDescriptionBlocks({
+    listingId: item?.listing_id ?? null,
+    unit: measurementUnit,
+    seed: DEFAULT_DESCRIPTION_BLOCKS as DescriptionBlock[],
+  });
+
+  // What each row says about itself. Derived rows name the field they read
+  // rather than previewing it — the preview panel is where the bytes live.
+  const blockRowContext: BlockRowContext = useMemo(
+    () => ({
+      attributes: {
+        brand: item?.brand,
+        size: item?.size,
+        color: ebayMapping?.color,
+        material: ebayMapping?.material,
+        style: item?.style,
+      },
+      measurementCount: Object.values(measurements).filter(
+        (v) => String(v ?? "").trim() !== "",
+      ).length,
+      unit: measurementUnit,
+      gradeValue: item?.grade_value ?? null,
+      snippetNames: snippetNames(listingSnippets.snippets),
+      snippetsLoaded: listingSnippets.loaded,
+    }),
+    [
+      item?.brand,
+      item?.size,
+      item?.style,
+      item?.grade_value,
+      ebayMapping?.color,
+      ebayMapping?.material,
+      measurements,
+      measurementUnit,
+      listingSnippets.snippets,
+      listingSnippets.loaded,
+    ],
+  );
+
+  /**
+   * Fold a whole-description string into the blocks.
+   *
+   * The garment template, the saved-template picker and the AI rewrite each hand
+   * back ONE string for the whole prose part. Blocks are the source of truth, so
+   * a string that only reached `description` would be rendered away by the next
+   * save. `description` is still set, because the eBay preview card and the AI
+   * input read it between saves.
+   */
+  function applyDescriptionText(next: string) {
+    setDescription(next);
+    descriptionBlocks.setBlocks(
+      applyWholeText(descriptionBlocks.blocks, next),
+    );
+  }
+
+  // US-2960: the block preview IS the string eBay receives, so it wins whenever
+  // the edge renderer has produced one — otherwise the buyer preview above would
+  // show one description while the block list below showed another.
+  // `description` stays the fallback for a listing with no row yet, where there
+  // is no context to render against.
+  const resolvedDescription = descriptionBlocks.preview
+    ? descriptionBlocks.preview
+    : item
+      ? interpolateDescription(description, item, measurementUnit)
+      : description;
+
   function applyTemplate() {
     if (!item) return;
-    setDescription(
+    applyDescriptionText(
       interpolateDescription(DESCRIPTION_TEMPLATES[group], item, measurementUnit),
     );
     toast.info(`Applied the ${group} template.`);
@@ -1252,7 +1285,11 @@ export function FlipdeskComposerPage({
         // publish via applyGradeListingPromotion) and the seller-credentials card
         // (carried over from the pre-rewrite description). No-ops when absent.
         const withGrade = item ? ensureGradeLine(f.value, item) : f.value;
-        setDescription(ensureSellerCredentials(withGrade, description));
+        // US-2960: the string goes to BOTH — `description` for the eBay preview
+        // between saves, and the intro block, which is what actually publishes.
+        // applyWholeText strips the credential and grade markers back out, so
+        // the blocks that own those sections still print them exactly once.
+        applyDescriptionText(ensureSellerCredentials(withGrade, description));
       }
     }
     if (accepted.length > 0) {
@@ -1587,31 +1624,6 @@ export function FlipdeskComposerPage({
       if (pendingPrice) void persistPriceRef.current(pendingPrice);
     };
   }, []);
-
-  // Pre-push reminder: item specifics and the description are independent, so a
-  // specific the seller CHANGED this session can leave the description stale. Flag
-  // only changed shared fields (Brand/Size/Color/Material) whose new value the
-  // description doesn't mention — pushing then would need a needless revise/relist.
-  // Baseline = last-saved specifics; current = the live picker edits (or baseline
-  // when untouched). Recomputes live, so editing the description clears it.
-  const specDescMismatches = useMemo<
-    { field: SharedDescField; value: string }[]
-  >(() => {
-    const currentAspects = livePickedAspects ?? savedAspects;
-    if (!currentAspects) return [];
-    const base = sharedValuesFromAspects(savedAspects, resolvedCategoryId);
-    const cur = sharedValuesFromAspects(currentAspects, resolvedCategoryId);
-    const out: { field: SharedDescField; value: string }[] = [];
-    for (const field of SHARED_DESC_FIELDS) {
-      const val = cur[field];
-      if (!val) continue;
-      const changed =
-        (base[field] ?? "").trim().toLowerCase() !== val.trim().toLowerCase();
-      if (!changed) continue;
-      if (!descriptionMentions(description, val)) out.push({ field, value: val });
-    }
-    return out;
-  }, [livePickedAspects, savedAspects, resolvedCategoryId, description]);
 
   // Resolve the eBay-owned fields from the live picker state, falling back to the
   // saved listing override and the inventory mirror — shared by the draft save
@@ -2038,6 +2050,16 @@ export function FlipdeskComposerPage({
         listingId = (created as { id: string }).id;
       }
 
+      // US-2960: the description goes LAST, after the item and the listing have
+      // both landed. Every derived block reads those rows, so a save that
+      // rendered first would print the brand, the size and the measurements the
+      // seller just replaced. The route re-renders and writes
+      // description_blocks + listing_description in one update, which is why
+      // `payload` above still carries the string: it is what the row holds if
+      // this call fails, and it is overwritten byte for byte when it succeeds.
+      const rendered = await descriptionBlocks.save(listingId);
+      if (rendered !== null) setDescription(rendered);
+
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       // The row we actually wrote, which on a post-merge retry is not
       // necessarily the one this render knew about.
@@ -2353,6 +2375,29 @@ export function FlipdeskComposerPage({
   function scrollToSection(id: string) {
     const el = document.getElementById(id);
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // US-2960: a derived block's "go to field" control. The block itself has
+  // nothing to edit — the fix is the field it reads — so this scrolls that card
+  // into view AND puts the cursor in its first real input. Scrolling alone
+  // leaves the seller looking at the right card with no idea which box moved
+  // the number they came to change.
+  function focusSection(id: string) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    const self =
+      el instanceof HTMLInputElement ||
+      el instanceof HTMLSelectElement ||
+      el instanceof HTMLTextAreaElement
+        ? el
+        : null;
+    const target =
+      self ??
+      el.querySelector<HTMLElement>(
+        "input:not([type='hidden']):not([disabled]), select:not([disabled]), textarea:not([disabled])",
+      );
+    target?.focus({ preventScroll: true });
   }
 
   // The pinned CTA either takes the seller to the section that is blocking, or
@@ -3385,7 +3430,9 @@ export function FlipdeskComposerPage({
               returnPolicyId: returnPolicyId ?? "",
             }}
             onApply={(patch, specifics, template) => {
-              if (patch.description !== undefined) setDescription(patch.description);
+              if (patch.description !== undefined) {
+                applyDescriptionText(patch.description);
+              }
               if (patch.ebayCondition !== undefined) setEbayCondition(patch.ebayCondition);
               if (patch.conditionDescription !== undefined) {
                 setConditionDesc(patch.conditionDescription);
@@ -3412,8 +3459,26 @@ export function FlipdeskComposerPage({
           />
 
           <DescriptionCard
-            description={description}
-            setDescription={setDescription}
+            blocks={descriptionBlocks.blocks}
+            onBlocksChange={descriptionBlocks.setBlocks}
+            preview={descriptionBlocks.preview}
+            previewPending={descriptionBlocks.previewPending}
+            previewAvailable={!!item.listing_id && descriptionBlocks.ready}
+            blocksLoading={descriptionBlocks.loading}
+            unavailable={
+              !!item.listing_id &&
+              !descriptionBlocks.ready &&
+              !descriptionBlocks.loading
+            }
+            converted={descriptionBlocks.converted}
+            rowContext={blockRowContext}
+            snippetOptions={listingSnippets.snippets.map((s) => ({
+              id: s.id,
+              name: s.name,
+            }))}
+            onRegenerate={(key) => void descriptionBlocks.regenerate(key)}
+            regenerating={descriptionBlocks.regenerating}
+            onGoToField={focusSection}
             group={group}
             applyTemplate={applyTemplate}
             photoCount={photos.length}
@@ -3421,6 +3486,7 @@ export function FlipdeskComposerPage({
             rewriteAction={rewriteAction}
             runRewrite={(a) => void runRewrite(a)}
             aiSnapshot={aiSnapshot}
+            onRevertToAi={applyDescriptionText}
             isEbayOrigin={isEbayOrigin}
             ebayOwnedHint={ebayOwnedHint}
           />
@@ -3544,30 +3610,6 @@ export function FlipdeskComposerPage({
             </div>
           )}
 
-          {/* Pre-push reminder: item specifics and the description are edited on
-              separate tracks, so a specific changed this session can leave the
-              description stale. Non-blocking — publish/revise stays enabled; this
-              just heads off a needless eBay revise/relist. Clears live as the seller
-              updates the description. */}
-          {specDescMismatches.length > 0 && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <div>
-                <p className="font-medium">
-                  Item specifics changed — the description may be out of date.
-                </p>
-                <p className="mt-0.5 text-amber-800 dark:text-amber-300/90">
-                  You changed{" "}
-                  {specDescMismatches
-                    .map((m) => `${SHARED_FIELD_LABELS[m.field]} (${m.value})`)
-                    .join(", ")}
-                  , but the description doesn&apos;t mention{" "}
-                  {specDescMismatches.length === 1 ? "it" : "them"}. Update the
-                  description before pushing to eBay to avoid a needless revise.
-                </p>
-              </div>
-            </div>
-          )}
           <Card className="overflow-hidden">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
