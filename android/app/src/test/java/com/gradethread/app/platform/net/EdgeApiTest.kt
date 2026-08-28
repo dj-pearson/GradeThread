@@ -308,4 +308,35 @@ class EdgeApiTest {
         cache.put("big", "b".repeat(200), 1000)
         assertNull(cache.get("big"))
     }
+
+    /**
+     * The entry cap's evictions have to be SUBTRACTED from the byte total.
+     *
+     * The test above never caught this because its values are one character
+     * long: the drift was one byte per eviction against a 100-byte cap, so it
+     * would have taken a hundred puts to show. With values large enough to
+     * matter, a cache that has evicted many entries used to believe it was
+     * full of bytes it no longer held, and then dropped everything on every
+     * write - a cache that reports healthy and never returns a hit.
+     *
+     * Written against BEHAVIOUR rather than the private counter: after all
+     * this churn the cache must still serve the entries it just stored.
+     */
+    @Test
+    fun ttlCache_keepsServingAfterManyEntryCapEvictions() {
+        val cache = TtlCache(maxEntries = 4, maxBytes = 1_000)
+        val value = "x".repeat(100)
+        // 50 puts against a 4-entry cap = 46 evictions = 4,600 leaked bytes
+        // under the old accounting, against a 1,000-byte cap.
+        repeat(50) { cache.put("k$it", value, ttlMillis = 60_000) }
+
+        // The cap is 4 entries and 400 bytes fits in 1,000, so the last four
+        // written are all still there.
+        assertEquals(value, cache.get("k49"))
+        assertEquals(value, cache.get("k48"))
+        assertEquals(value, cache.get("k47"))
+        assertEquals(value, cache.get("k46"))
+        // And the one before them fell out to the ENTRY cap, as it should.
+        assertNull(cache.get("k45"))
+    }
 }

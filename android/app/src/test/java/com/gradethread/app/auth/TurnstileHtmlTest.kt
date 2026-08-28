@@ -42,4 +42,36 @@ class TurnstileHtmlTest {
         // the web app's site key.
         assertEquals("https://gradethread.com", TurnstileHtml.BASE_URL)
     }
+
+    // ── Navigation allowlist ─────────────────────────────────────────────────
+
+    @Test
+    fun navigation_allowsTheDocumentOriginAndCloudflare() {
+        assertTrue(TurnstileHtml.isAllowedNavigation("https://gradethread.com/app/auth-callback"))
+        assertTrue(
+            TurnstileHtml.isAllowedNavigation(
+                "https://challenges.cloudflare.com/turnstile/v0/api.js",
+            ),
+        )
+        // Subdomains of an allowed host, which Cloudflare does use.
+        assertTrue(TurnstileHtml.isAllowedNavigation("https://cdn.challenges.cloudflare.com/x"))
+    }
+
+    @Test
+    fun navigation_refusesEverythingElse() {
+        assertFalse(TurnstileHtml.isAllowedNavigation("https://example.invalid/"))
+        // The prefix trap: a different site that starts with an allowed one.
+        assertFalse(TurnstileHtml.isAllowedNavigation("https://gradethread.com.example.invalid/"))
+        // A suffix without the dot boundary is a different host too.
+        assertFalse(TurnstileHtml.isAllowedNavigation("https://notgradethread.com/"))
+        // https only - the whole point of the WebView is an authenticated origin.
+        assertFalse(TurnstileHtml.isAllowedNavigation("http://gradethread.com/"))
+        // The schemes that reach the app's own sandbox.
+        assertFalse(TurnstileHtml.isAllowedNavigation("file:///data/data/com.gradethread.app/x"))
+        assertFalse(TurnstileHtml.isAllowedNavigation("content://com.gradethread.app.fileprovider/x"))
+        assertFalse(TurnstileHtml.isAllowedNavigation("javascript:alert(1)"))
+        // Unparseable is refused rather than allowed.
+        assertFalse(TurnstileHtml.isAllowedNavigation("not a url at all"))
+        assertFalse(TurnstileHtml.isAllowedNavigation(""))
+    }
 }

@@ -59,11 +59,32 @@ object AppLock {
 
     private val promptInFlight = AtomicBoolean(false)
 
-    /** Load the persisted mode once at startup (small read, like Telemetry). */
+    /**
+     * Load the persisted mode once at startup (small read, like Telemetry).
+     *
+     * The read stays BLOCKING on purpose: this runs from
+     * `Application.onCreate`, and a mode resolved asynchronously would leave a
+     * window in which the first frame draws unlocked on a phone whose owner
+     * asked for a lock. That is the one thing this feature exists to prevent,
+     * and it is worth a few milliseconds of a file read.
+     *
+     * What it must NOT do is throw. DataStore raises `CorruptionException` for
+     * a truncated preferences file, and an uncaught throw out of `onCreate` is
+     * a crash on every launch that only a reinstall clears - the same class of
+     * failure `DatabaseProvider` carries a whole recovery ladder for.
+     *
+     * A failed read falls back to OFF, which is the value a fresh install
+     * carries. That IS fail-open for a security control, and it is the lesser
+     * evil: a corrupt store has genuinely lost the setting, and the
+     * alternative - locking with a mode nobody can satisfy - strands the owner
+     * behind a prompt that can never succeed.
+     */
     fun initialize(context: Context) {
-        mode = runBlocking {
-            Mode.fromStorage(context.appLockDataStore.data.first()[MODE_KEY])
-        }
+        mode = runCatching {
+            runBlocking {
+                Mode.fromStorage(context.appLockDataStore.data.first()[MODE_KEY])
+            }
+        }.getOrDefault(Mode.OFF)
         // A cold launch with the lock enabled starts locked.
         if (mode != Mode.OFF) lockedFlow.value = true
     }
