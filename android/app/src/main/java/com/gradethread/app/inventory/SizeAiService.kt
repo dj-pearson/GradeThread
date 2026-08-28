@@ -63,7 +63,7 @@ class SizeAiService @Inject constructor(
         return try {
             json.decodeFromString(SizeEstimate.serializer(), raw)
         } catch (t: Throwable) {
-            throw EdgeApiError.Decoding(t.message ?: "unparseable size response")
+            throw EdgeApiError.Decoding(t.message ?: "unparseable size response", t)
         }
     }
 

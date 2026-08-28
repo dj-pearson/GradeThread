@@ -1,5 +1,7 @@
 package com.gradethread.app.platform.push
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
 import com.gradethread.app.platform.deeplink.DeepLinkRoute
 
 /**
@@ -9,30 +11,32 @@ import com.gradethread.app.platform.deeplink.DeepLinkRoute
  * silently stops routing every already-sent notification of that kind, so they
  * are never touched for tidiness.
  */
+/*
+ * `label` and `help` used to sit here, holding an English name and an English
+ * sentence for every category. Nothing read either one: the strings that
+ * actually reach a person are PushChannel's, which is what Android shows in
+ * system settings, and those are resources now. Twenty-one untranslatable
+ * strings, in a file whose header is about the ids being a wire contract, which
+ * is why nobody looked at the columns beside them.
+ *
+ * Deleted rather than localized. A per-category preferences screen would want
+ * copy like it, and it should write copy for what it renders rather than
+ * inherit a description written for nothing.
+ */
 enum class PushCategory(
     val id: String,
-    val label: String,
-    val help: String,
 ) {
-    SALE_CREATED("sale.created", "New eBay sales", "When eBay reports a sold listing."),
-    PAYOUT_CLEARED("payout.cleared", "Payouts cleared", "When funds reach your bank."),
-    PAYOUT_POSTED("payout.posted", "Payouts posted", "When eBay posts a payout, before it clears."),
-    TOKEN_EXPIRING(
-        "token.expiring",
-        "eBay token expiring",
-        "Your eBay connection expires in under a week. Reconnect to keep syncing.",
-    ),
-    ITEM_REVIEW_NEEDED(
-        "item.review_needed",
-        "Items need review",
-        "When a grade lands below the confidence threshold.",
-    ),
-    GRADE_READY("grade.ready", "Certified grades ready", "When an item's grade finishes."),
-    OFFER_RECEIVED("offer.received", "Best offers", "When a buyer sends an offer you can answer."),
-    MESSAGE_RECEIVED("message.received", "Buyer messages", "When a buyer messages you."),
-    LISTING_ENDED("listing.ended", "Listing ended", "When a listing ends unsold, so you can relist."),
-    AGING_DIGEST("aging.digest", "Aging stock", "A periodic summary of stock sitting too long."),
-    SUPPORT_REPLY("support.reply", "Support replies", "When our support team replies to a ticket."),
+    SALE_CREATED("sale.created"),
+    PAYOUT_CLEARED("payout.cleared"),
+    PAYOUT_POSTED("payout.posted"),
+    TOKEN_EXPIRING("token.expiring"),
+    ITEM_REVIEW_NEEDED("item.review_needed"),
+    GRADE_READY("grade.ready"),
+    OFFER_RECEIVED("offer.received"),
+    MESSAGE_RECEIVED("message.received"),
+    LISTING_ENDED("listing.ended"),
+    AGING_DIGEST("aging.digest"),
+    SUPPORT_REPLY("support.reply"),
     ;
 
     /**
@@ -94,26 +98,59 @@ const val IMPORTANCE_HIGH = 4
  */
 enum class PushChannel(
     val id: String,
-    val title: String,
-    val description: String,
+    /**
+     * Resource ids, not strings, and this is the one place in the app where
+     * that is not merely tidier. These two are what Android prints in Settings
+     * > Apps > GradeThread > Notifications - a screen the app does not draw and
+     * cannot put a `stringResource` inside. Held as English they were the only
+     * part of the product that stayed English no matter what the phone's
+     * language was, on a screen the seller reaches by going looking for it.
+     */
+    @StringRes val titleRes: Int,
+    @StringRes val descriptionRes: Int,
     /** `NotificationManager.IMPORTANCE_*`. */
     val importance: Int,
 ) {
     /** Money in. The reason most people turn push on at all. */
-    MONEY("money", "Payouts", "When money posts and when it lands.", IMPORTANCE_HIGH),
+    MONEY(
+        "money",
+        R.string.push_channel_money_title,
+        R.string.push_channel_money_desc,
+        IMPORTANCE_HIGH,
+    ),
 
-    SELLING("selling", "Sales, offers and messages", "Someone bought, offered, or asked.", IMPORTANCE_HIGH),
+    SELLING(
+        "selling",
+        R.string.push_channel_selling_title,
+        R.string.push_channel_selling_desc,
+        IMPORTANCE_HIGH,
+    ),
 
-    GRADING("grading", "Grading", "When a grade finishes or needs your eye.", IMPORTANCE_DEFAULT),
+    GRADING(
+        "grading",
+        R.string.push_channel_grading_title,
+        R.string.push_channel_grading_desc,
+        IMPORTANCE_DEFAULT,
+    ),
 
     /**
      * Time-critical. HIGH importance and set to bypass Do Not Disturb, because
      * an expired eBay token silently stops orders syncing and the window to fix
      * it is measured in days.
      */
-    URGENT("urgent", "Connection problems", "Your eBay connection needs attention.", IMPORTANCE_HIGH),
+    URGENT(
+        "urgent",
+        R.string.push_channel_urgent_title,
+        R.string.push_channel_urgent_desc,
+        IMPORTANCE_HIGH,
+    ),
 
-    UPDATES("updates", "Everything else", "Ended listings, aging stock, support replies.", IMPORTANCE_LOW),
+    UPDATES(
+        "updates",
+        R.string.push_channel_updates_title,
+        R.string.push_channel_updates_desc,
+        IMPORTANCE_LOW,
+    ),
     ;
 
     /** Only the urgent channel asks to cut through Do Not Disturb. */
@@ -133,8 +170,8 @@ enum class PushAction(
     val inputPlaceholder: String?,
 ) {
     ACCEPT_OFFER("offer.accept", "Accept", null),
-    COUNTER_OFFER("offer.counter", "Counter", "Your counter price"),
-    MARK_SHIPPED("order.mark_shipped", "Mark shipped", "Tracking number (optional)"),
+    COUNTER_OFFER("offer.counter"),
+    MARK_SHIPPED("order.mark_shipped"),
     RECONNECT_EBAY("ebay.reconnect", "Reconnect", null),
     ;
 

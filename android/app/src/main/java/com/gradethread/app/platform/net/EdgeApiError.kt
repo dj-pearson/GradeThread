@@ -9,7 +9,7 @@ import kotlinx.serialization.json.Json
  * Mirrors iOS EdgeAPIError case-for-case (incl. the US-794/1182/1510/1421
  * discriminator mappings).
  */
-sealed class EdgeApiError : Exception() {
+sealed class EdgeApiError(cause: Throwable? = null) : Exception(null, cause) {
 
     object Unauthorized : EdgeApiError()
 
@@ -81,7 +81,27 @@ sealed class EdgeApiError : Exception() {
      */
     data class BadRequest(val detail: String?, val body: String? = null) : EdgeApiError()
     data class ServerError(val detail: String?) : EdgeApiError()
-    data class Decoding(val reason: String) : EdgeApiError()
+    /**
+     * The server answered and the body would not parse.
+     *
+     * NOT a data class, and [source] is deliberately not a property: it is the
+     * kotlinx.serialization exception that actually explains the failure, and
+     * it belongs in the CAUSE CHAIN, not in equality. Every site that raises
+     * this used to drop it, so a decode failure reached Sentry as
+     * "Unexpected response from server: Field 'x' is required" with no frame
+     * naming the serializer, the field path or the offset - detekt filed all
+     * eight as SwallowedException and it was right.
+     *
+     * Equality stays [reason]-only, which is what it was as a data class and
+     * what `GradeRequestMachine` and the mutation queue read.
+     */
+    class Decoding(val reason: String, source: Throwable? = null) : EdgeApiError(source) {
+        override fun equals(other: Any?): Boolean = other is Decoding && other.reason == reason
+
+        override fun hashCode(): Int = reason.hashCode()
+
+        override fun toString(): String = "Decoding(reason=$reason)"
+    }
     data class Network(val reason: String) : EdgeApiError()
 
     /** 403 `workspace_access_revoked` — drop the stale scope, recover under

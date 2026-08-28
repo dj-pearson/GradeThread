@@ -36,18 +36,37 @@ object PushNotifier {
      * system settings before their first notification should still see what the
      * app can send and be able to tune it in advance.
      */
+    /**
+     * Register the channels, and keep their names in the reader's language.
+     *
+     * The importance and the DND bypass are applied ONLY on first creation.
+     * That was already the rule, and it is the right one: the system ignores an
+     * importance change after creation, and a seller who turned Payouts down to
+     * silent should not have the app turn it back up.
+     *
+     * The name and the description are re-applied EVERY time, which is new and
+     * is what makes the resources above worth anything. Android stores a
+     * channel's name as the literal text it was given, so a channel created
+     * while the phone was in English keeps its English name forever - through a
+     * system language change, and through the app's own per-app language
+     * setting. Re-passing them is the documented way to update a channel, and
+     * it is the narrow one: name, description and group are the only fields a
+     * second `createNotificationChannel` can change, and none of them is
+     * something the seller can have tuned.
+     */
     fun createChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         PushChannel.entries.forEach { channel ->
             val existing = manager.getNotificationChannel(channel.id)
-            // Never recreate an existing channel: the system ignores importance
-            // changes after creation anyway, and re-registering would undo any
-            // tuning the seller has done to it.
-            if (existing != null) return@forEach
+            val importance = existing?.importance ?: channel.importance
             manager.createNotificationChannel(
-                NotificationChannel(channel.id, channel.title, channel.importance).apply {
-                    description = channel.description
-                    setBypassDnd(channel.bypassDnd)
+                NotificationChannel(
+                    channel.id,
+                    context.getString(channel.titleRes),
+                    importance,
+                ).apply {
+                    description = context.getString(channel.descriptionRes)
+                    if (existing == null) setBypassDnd(channel.bypassDnd)
                 },
             )
         }

@@ -269,7 +269,7 @@ class EdgeApi(
     inline fun <reified T> decode(raw: String): T = try {
         json.decodeFromString<T>(raw)
     } catch (e: Exception) {
-        throw EdgeApiError.Decoding(e.message ?: "decode failed")
+        throw EdgeApiError.Decoding(e.message ?: "decode failed", e)
     }
 
     // ── Core send loop ───────────────────────────────────────────────────────
@@ -422,10 +422,36 @@ class TtlCache(
 ) {
     private data class Entry(val value: String, val expiresAt: Long)
 
-    private val entries = object : LinkedHashMap<String, Entry>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>): Boolean = size > maxEntries
-    }
+    /**
+     * Declared BEFORE [entries], because [entries]'s `removeEldestEntry` reads
+     * it and Kotlin initializes properties in source order. The other way round
+     * compiles and then subtracts into a field that has not been zeroed yet.
+     */
     private var totalBytes = 0
+
+    private val entries = object : LinkedHashMap<String, Entry>(16, 0.75f, true) {
+        /**
+         * The eviction the ENTRY cap performs, accounted for.
+         *
+         * This used to be a bare `size > maxEntries`, and LinkedHashMap then
+         * dropped the eldest entry without anyone subtracting its bytes, so
+         * [totalBytes] over-counted by the full size of every entry the count
+         * cap ever evicted, and only ever grew. Once the drift passed
+         * [maxBytes] the loop in [put] evicted the WHOLE cache on every write
+         * and could never get back under the cap, because the excess was
+         * bookkeeping rather than data. The cache silently stopped caching.
+         *
+         * Reproduced directly at 4 entries / 1,000 bytes: fifty 100-byte puts
+         * left the cache holding 300 real bytes while reporting 1,000. The
+         * production caps are 64 entries and 4 MB, so the same leak needs a
+         * few thousand evictions to disable the cache rather than fifty.
+         */
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Entry>): Boolean {
+            if (size <= maxEntries) return false
+            totalBytes -= eldest.value.value.length
+            return true
+        }
+    }
 
     @Synchronized
     fun get(key: String): String? {
@@ -466,15 +492,15 @@ class TtlCache(
  * cleartext via the app-wide network security config.
  */
 object EdgeNetwork {
-    fun sharedClient(): OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .callTimeout(60, TimeUnit.SECONDS)
-        .build()
+    fun sharedClient(): OkHttpClient = SharedHttp.variant {
+        connectTimeout(10, TimeUnit.SECONDS)
+        readTimeout(20, TimeUnit.SECONDS)
+        callTimeout(60, TimeUnit.SECONDS)
+    }
 
-    fun aiClient(): OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .callTimeout(180, TimeUnit.SECONDS)
-        .build()
+    fun aiClient(): OkHttpClient = SharedHttp.variant {
+        connectTimeout(10, TimeUnit.SECONDS)
+        readTimeout(120, TimeUnit.SECONDS)
+        callTimeout(180, TimeUnit.SECONDS)
+    }
 }

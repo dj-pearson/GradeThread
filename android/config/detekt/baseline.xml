@@ -403,14 +403,6 @@
     <ID>ReturnCount:InventoryFilter.kt$InventoryFilter$fun matches( item: InventoryItemEntity, criteria: InventoryFilterCriteria, photoItemIds: Set&lt;String&gt;?, nowMillis: Long, ): Boolean</ID>
     <ID>ReturnCount:UploadWorker.kt$UploadWorker$override suspend fun doWork(): Result</ID>
     <ID>ReturnCount:VerifiedScreen.kt$VerifiedViewModel$fun saveProfile()</ID>
-    <ID>SwallowedException:CompsService.kt$CompsService$t: Throwable</ID>
-    <ID>SwallowedException:DisputeService.kt$DisputeService$t: Throwable</ID>
-    <ID>SwallowedException:EdgeApi.kt$EdgeApi$e: Exception</ID>
-    <ID>SwallowedException:GradingService.kt$GradingService$t: Throwable</ID>
-    <ID>SwallowedException:ListingCopyService.kt$ListingCopyService$t: Throwable</ID>
-    <ID>SwallowedException:MeasureService.kt$MeasureService$t: Throwable</ID>
-    <ID>SwallowedException:NegotiationDraftService.kt$NegotiationDraftService$t: Throwable</ID>
-    <ID>SwallowedException:SizeAiService.kt$SizeAiService$t: Throwable</ID>
     <ID>TooGenericExceptionThrown:AiExtractFlowTest.kt$AiExtractFlowTest$throw RuntimeException("502")</ID>
     <ID>TooGenericExceptionThrown:AiExtractFlowTest.kt$AiExtractFlowTest$throw RuntimeException("boom")</ID>
     <ID>TooManyFunctions:Daos.kt$ItemDao</ID>

@@ -7,6 +7,7 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.gradethread.app.platform.net.SharedHttp
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.sync.MutationKind
 import com.gradethread.app.sync.OfflineMutationQueue
@@ -160,12 +161,12 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         const val MAX_ATTEMPTS = 5
 
         /** No auto-retry interceptors: ONE PUT per attempt (the iOS rule). */
-        internal val http: OkHttpClient = OkHttpClient.Builder()
-            .retryOnConnectionFailure(false)
-            .connectTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(120, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .build()
+        internal val http: OkHttpClient = SharedHttp.variant {
+            retryOnConnectionFailure(false)
+            connectTimeout(20, TimeUnit.SECONDS)
+            writeTimeout(120, TimeUnit.SECONDS)
+            readTimeout(60, TimeUnit.SECONDS)
+        }
 
         internal fun uploadPayload(
             photoId: String,

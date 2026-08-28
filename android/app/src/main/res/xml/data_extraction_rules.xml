@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What Android may copy off this device, on Android 12 and higher.
+
+  `android:allowBackup="false"` in the manifest disables Google Drive backup on
+  every version, and on 12+ that is ALL it disables: device-to-device transfer
+  keeps running unless a rule says otherwise. That is not a theoretical gap for
+  this app. The Room store holds inventory, sales, payouts and captures that
+  have not synced yet, in plain SQLite, and `gradethread.workspace` holds which
+  tenant the seller was last acting as.
+
+  So: nothing leaves, by either route. The local store is a MIRROR - the same
+  reasoning DatabaseProvider destroys and rebuilds it on - and the server refills
+  it on the first sync after sign-in. Carrying a stale copy onto a new phone
+  buys nothing and moves a seller's books somewhere they did not decide to put
+  them.
+
+  The session itself was never transferable: it lives in
+  EncryptedSharedPreferences under a Keystore key that cannot leave the device,
+  so the bytes would arrive undecryptable. These rules are about everything
+  ELSE, which is not encrypted at all.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- `root` is the app's data directory, which file/database/sharedpref
+             all live under; excluding it covers them. `device_*` are the
+             direct-boot-aware equivalents, which are a separate tree. -->
+        <exclude domain="root" />
+        <exclude domain="external" />
+        <exclude domain="device_root" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="external" />
+        <exclude domain="device_root" />
+    </device-transfer>
+</data-extraction-rules>

@@ -45,6 +45,32 @@ class ProviderSignInWiringTest {
         )
     }
 
+    /**
+     * The launch has to go through the repository's `run` wrapper.
+     *
+     * `AuthViewModel.signInWithProvider` calls this from a bare
+     * `viewModelScope.launch` and its own comment promises that failures
+     * "surface through the same lastError collector as email sign-in". Called
+     * outside `run` they cannot: the throw reaches the coroutine's uncaught
+     * handler and takes the process down instead. Two real throws sit behind
+     * that call - `CustomTabsIntent.launchUrl` raises
+     * ActivityNotFoundException on a phone with no browser, and `launch`'s own
+     * `require(isAvailable(provider))` raises IllegalArgumentException.
+     *
+     * A source assertion, like the rest of this class, and with the same
+     * limits: it proves the call is wrapped, not that the wrapper catches.
+     * Proving the catch needs a fake SupabaseClient and an Android Context,
+     * neither of which this JVM lane has.
+     */
+    @Test
+    fun theLaunchGoesThroughTheErrorWrapper() {
+        assertTrue(
+            "startOAuth calls launch outside run { } - a browserless phone crashes the app",
+            source("auth/AuthRepository.kt")
+                .contains("run { OAuthSignIn.launch(context, client, provider) }"),
+        )
+    }
+
     @Test
     fun theButtonsAreFilteredByIsAvailable() {
         // isAvailable's own doc says "whether the provider's entry point should

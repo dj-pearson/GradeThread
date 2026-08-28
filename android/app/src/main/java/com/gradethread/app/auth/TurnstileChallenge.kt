@@ -3,6 +3,7 @@ package com.gradethread.app.auth
 import android.annotation.SuppressLint
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -64,7 +65,33 @@ fun TurnstileChallenge(
                 settings.javaScriptEnabled = true
                 // The challenge page needs no storage; keep the surface minimal.
                 settings.domStorageEnabled = false
-                webViewClient = WebViewClient()
+                // Both default to TRUE below API 30, and minSdk is 26 - so on
+                // Android 8, 9 and 10 this WebView could follow a file:// or
+                // content:// URL into the app's own sandbox. Nothing in the
+                // Turnstile document wants either scheme; turning them off
+                // costs nothing and closes the reachable half of the risk that
+                // comes with running someone else's script.
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.setGeolocationEnabled(false)
+                webViewClient = object : WebViewClient() {
+                    /**
+                     * The default WebViewClient follows ANY navigation, and
+                     * this WebView carries a @JavascriptInterface. A page that
+                     * navigated somewhere else would still be able to call
+                     * `postToken`, which is how a forged token reaches sign-in.
+                     *
+                     * So: the document itself (loaded from BASE_URL) and
+                     * Cloudflare's challenge origin, nothing else. Anything
+                     * further goes nowhere rather than to the system browser -
+                     * a captcha widget has no legitimate reason to send the
+                     * seller anywhere mid-challenge.
+                     */
+                    override fun shouldOverrideUrlLoading(
+                        view: WebView,
+                        request: WebResourceRequest,
+                    ): Boolean = !TurnstileHtml.isAllowedNavigation(request.url.toString())
+                }
                 addJavascriptInterface(
                     object {
                         @JavascriptInterface

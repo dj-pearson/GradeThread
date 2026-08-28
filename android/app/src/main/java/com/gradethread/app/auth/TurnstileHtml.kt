@@ -17,6 +17,40 @@ object TurnstileHtml {
     /** The name the JS side reaches the native bridge under. */
     const val BRIDGE_NAME = "GradeThreadTurnstile"
 
+    /**
+     * The only hosts this WebView is allowed to navigate to: the document's own
+     * origin and the one Cloudflare serves the challenge from.
+     *
+     * Matched on the PARSED host, never on a prefix of the string. A prefix
+     * test passes `https://gradethread.com.example.invalid/`, which is a
+     * different site that happens to start the same way - the exact mistake
+     * that makes an allowlist read as if it were doing something.
+     */
+    private val ALLOWED_HOSTS = setOf("gradethread.com", "challenges.cloudflare.com")
+
+    /**
+     * May the WebView follow [url]?
+     *
+     * https only, and only to [ALLOWED_HOSTS] or a subdomain of one. Anything
+     * unparseable is refused: a URL we cannot read the host of is not a URL we
+     * can vouch for.
+     *
+     * Pure, so it is tested without a WebView - which is the point, since the
+     * WebView half of this cannot be tested on the JVM at all.
+     */
+    fun isAllowedNavigation(url: String): Boolean {
+        // `scheme` is a platform type and IS null for a bare path, so the
+        // null-safe call matters. `it.scheme.equals(...)` raises NPE on "",
+        // and it raises it inside takeIf, which the runCatching does not cover
+        // - so the guard against an unparseable URL would itself throw.
+        val host = runCatching { java.net.URI(url) }.getOrNull()
+            ?.takeIf { it.scheme?.equals("https", ignoreCase = true) == true }
+            ?.host
+            ?.lowercase()
+            ?: return false
+        return ALLOWED_HOSTS.any { host == it || host.endsWith(".$it") }
+    }
+
     fun escapeAttr(value: String): String = value
         .replace("&", "&amp;")
         .replace("\"", "&quot;")

@@ -111,7 +111,17 @@ class AuthRepository @Inject constructor(
      * flow.
      */
     suspend fun startOAuth(context: android.content.Context, provider: OAuthSignIn.Provider) {
-        OAuthSignIn.launch(context, client, provider)
+        // Through [run], like every other action here, and NOT a bare call.
+        //
+        // [AuthViewModel.signInWithProvider] says failures surface through the
+        // lastError collector, and without this they could not: it calls this
+        // from a bare `viewModelScope.launch`, so anything thrown here reached
+        // the coroutine's uncaught handler and took the process down. The
+        // throw is not hypothetical - `CustomTabsIntent.launchUrl` calls
+        // `startActivity`, which raises ActivityNotFoundException on a device
+        // with no browser, and `require(isAvailable(provider))` raises
+        // IllegalArgumentException for a disabled provider.
+        run { OAuthSignIn.launch(context, client, provider) }
     }
 
     suspend fun signIn(email: String, password: String, captchaToken: String? = null) {

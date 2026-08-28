@@ -1912,4 +1912,18 @@
     <string name="consumergrade_see_grade">See the grade</string>
     <string name="consumergrade_failed_title">That did not go through</string>
     <string name="consumergrade_not_charged">You have not been charged.</string>
+
+    <!-- Notification channel names and descriptions. Android prints these in
+         Settings > Apps > GradeThread > Notifications, a screen this app does
+         not draw, so they can only be localized as resources. -->
+    <string name="push_channel_money_title">Payouts</string>
+    <string name="push_channel_money_desc">When money posts and when it lands.</string>
+    <string name="push_channel_selling_title">Sales, offers and messages</string>
+    <string name="push_channel_selling_desc">Someone bought, offered, or asked.</string>
+    <string name="push_channel_grading_title">Grading</string>
+    <string name="push_channel_grading_desc">When a grade finishes or needs your eye.</string>
+    <string name="push_channel_urgent_title">Connection problems</string>
+    <string name="push_channel_urgent_desc">Your eBay connection needs attention.</string>
+    <string name="push_channel_updates_title">Everything else</string>
+    <string name="push_channel_updates_desc">Ended listings, aging stock, support replies.</string>
 </resources>

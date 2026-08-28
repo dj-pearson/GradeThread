@@ -118,7 +118,7 @@ class ListingCopyService @Inject constructor(
         try {
             json.decodeFromString(serializer, raw)
         } catch (t: Throwable) {
-            throw EdgeApiError.Decoding(t.message ?: "unreadable AI response")
+            throw EdgeApiError.Decoding(t.message ?: "unreadable AI response", t)
         }
 
     companion object {
