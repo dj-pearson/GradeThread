@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { ArrowDown, ArrowUp, ChevronLeft, Plus, StickyNote, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronLeft,
+  Plus,
+  Sparkles,
+  StickyNote,
+  Trash2,
+} from "lucide-react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/ui/page-header";
@@ -20,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { SamplePicker } from "@/components/flipdesk/sample-picker";
 import { toastError } from "@/lib/toast-error";
 import { useListingSnippets } from "@/hooks/use-listing-snippets";
 import {
@@ -32,6 +41,8 @@ import {
   SNIPPET_BODY_MAX,
   SNIPPET_NAME_MAX,
 } from "@/lib/flipdesk-snippets";
+import { STARTER_SNIPPETS } from "@/lib/starter-snippets";
+import type { StarterPreset } from "@/lib/starter-presets";
 import type { ListingSnippetRow } from "@/types/database";
 
 // US-2961: the standing lines a seller writes once.
@@ -72,6 +83,8 @@ export function FlipdeskDescriptionSnippetsPage() {
   const confirm = useConfirm();
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [samplesOpen, setSamplesOpen] = useState(false);
+  const [addingSamples, setAddingSamples] = useState(false);
 
   const rows = snippets.snippets;
   const nameIssue = editor
@@ -119,6 +132,40 @@ export function FlipdeskDescriptionSnippetsPage() {
     }
   }
 
+  // US-2966: turn the ticked samples into the seller's own rows.
+  //
+  // Sequential on purpose. `Promise.all` would be one round trip instead of
+  // several and would also hand every insert the same `nextSortOrder(rows)`,
+  // landing the whole batch on one position and leaving the list to break the
+  // tie by name.
+  async function addSamples(picks: Array<{ sample: StarterPreset; name: string }>) {
+    setAddingSamples(true);
+    let added = 0;
+    let order = nextSortOrder(rows);
+    try {
+      for (const { sample, name } of picks) {
+        await snippets.create({ name, body: sample.body, sort_order: order });
+        order += 1;
+        added += 1;
+      }
+      setSamplesOpen(false);
+      toast.success(
+        `Added ${added} snippet${added === 1 ? "" : "s"}. Edit any of them to make it yours.`,
+      );
+    } catch (err) {
+      // A half-finished batch is a real outcome, so say how far it got rather
+      // than reporting a failure that also wrote four rows.
+      toastError(
+        err,
+        added > 0
+          ? `Added ${added}, then stopped. The rest were not saved.`
+          : "Those samples were not added.",
+      );
+    } finally {
+      setAddingSamples(false);
+    }
+  }
+
   async function move(from: number, to: number) {
     if (to < 0 || to >= rows.length) return;
     try {
@@ -153,10 +200,16 @@ export function FlipdeskDescriptionSnippetsPage() {
         subtitle="The standing lines you put in every description. Written once here, referenced from any listing, fixed in one place."
         icon={StickyNote}
         actions={
-          <Button onClick={() => setEditor(blankEditor(null))}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            New snippet
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setSamplesOpen(true)}>
+              <Sparkles className="mr-1.5 h-4 w-4" />
+              Browse samples
+            </Button>
+            <Button onClick={() => setEditor(blankEditor(null))}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              New snippet
+            </Button>
+          </div>
         }
       />
 
@@ -193,6 +246,11 @@ export function FlipdeskDescriptionSnippetsPage() {
             label: "Write your first snippet",
             icon: Plus,
             onClick: () => setEditor(blankEditor(null)),
+          }}
+          secondaryAction={{
+            label: "Browse samples",
+            icon: Sparkles,
+            onClick: () => setSamplesOpen(true),
           }}
         />
       ) : (
@@ -331,6 +389,19 @@ export function FlipdeskDescriptionSnippetsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SamplePicker
+        open={samplesOpen}
+        onOpenChange={(o) => !o && !addingSamples && setSamplesOpen(false)}
+        title="Start from a sample"
+        description="Nine lines resellers actually repeat. Add the ones that fit and edit them until they sound like you."
+        samples={STARTER_SNIPPETS}
+        taken={rows.map((s) => s.name)}
+        nameMax={SNIPPET_NAME_MAX}
+        noun="snippet"
+        adding={addingSamples}
+        onAdd={(picks) => void addSamples(picks)}
+      />
     </div>
   );
 }
