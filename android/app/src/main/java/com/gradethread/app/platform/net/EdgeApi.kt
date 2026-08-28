@@ -269,7 +269,7 @@ class EdgeApi(
     inline fun <reified T> decode(raw: String): T = try {
         json.decodeFromString<T>(raw)
     } catch (e: Exception) {
-        throw EdgeApiError.Decoding(e.message ?: "decode failed")
+        throw EdgeApiError.Decoding(e.message ?: "decode failed", e)
     }
 
     // ── Core send loop ───────────────────────────────────────────────────────
@@ -492,15 +492,15 @@ class TtlCache(
  * cleartext via the app-wide network security config.
  */
 object EdgeNetwork {
-    fun sharedClient(): OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .callTimeout(60, TimeUnit.SECONDS)
-        .build()
+    fun sharedClient(): OkHttpClient = SharedHttp.variant {
+        connectTimeout(10, TimeUnit.SECONDS)
+        readTimeout(20, TimeUnit.SECONDS)
+        callTimeout(60, TimeUnit.SECONDS)
+    }
 
-    fun aiClient(): OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .callTimeout(180, TimeUnit.SECONDS)
-        .build()
+    fun aiClient(): OkHttpClient = SharedHttp.variant {
+        connectTimeout(10, TimeUnit.SECONDS)
+        readTimeout(120, TimeUnit.SECONDS)
+        callTimeout(180, TimeUnit.SECONDS)
+    }
 }

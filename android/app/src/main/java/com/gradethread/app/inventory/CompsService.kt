@@ -93,7 +93,7 @@ class CompsService @Inject constructor(
         try {
             json.decodeFromString(serializer, raw)
         } catch (t: Throwable) {
-            throw EdgeApiError.Decoding(t.message ?: "unparseable comps response")
+            throw EdgeApiError.Decoding(t.message ?: "unparseable comps response", t)
         }
 
     private fun message(error: Throwable): String =

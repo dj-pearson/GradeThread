@@ -201,6 +201,20 @@ android {
             signingConfig = signingConfigs.getByName("release")
                 .takeIf { it.storeFile != null }
             isMinifyEnabled = true
+            // Resource shrinking, which R8 does NOT do on its own.
+            //
+            // isMinifyEnabled strips unreachable CODE; the drawables, strings
+            // and layouts that only that code referenced stay in the APK until
+            // this is on too. Safe here because the one thing that defeats it
+            // is reflective resource lookup, and there are zero
+            // `getIdentifier` calls in the app - every resource reference goes
+            // through the generated R class, which the shrinker can follow.
+            //
+            // Safe mode (the default) is deliberately left on: it keeps
+            // anything it is unsure about rather than guessing. If a future
+            // change does need a resource kept by name, that is a
+            // res/raw/keep.xml entry, never a flip of this flag.
+            isShrinkResources = true
             buildConfigField("boolean", "LOGGING_ENABLED", "false")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

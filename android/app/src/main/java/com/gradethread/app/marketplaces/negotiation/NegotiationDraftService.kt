@@ -90,7 +90,7 @@ class NegotiationDraftService @Inject constructor(
     } catch (error: EdgeApiError) {
         throw error
     } catch (t: Throwable) {
-        throw EdgeApiError.Decoding(t.message ?: "unreadable negotiation draft")
+        throw EdgeApiError.Decoding(t.message ?: "unreadable negotiation draft", t)
     }
 
     companion object {

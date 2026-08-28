@@ -61,7 +61,7 @@ class DisputeService @Inject constructor(
         return try {
             gradingJson.decodeFromString(DisputeResponse.serializer(), raw)
         } catch (t: Throwable) {
-            throw EdgeApiError.Decoding(t.message ?: "unparseable dispute response")
+            throw EdgeApiError.Decoding(t.message ?: "unparseable dispute response", t)
         }
     }
 

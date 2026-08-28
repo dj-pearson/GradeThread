@@ -89,6 +89,6 @@ class GradingService @Inject constructor(
     ): T = try {
         gradingJson.decodeFromString(serializer, raw)
     } catch (t: Throwable) {
-        throw EdgeApiError.Decoding(t.message ?: "unparseable grading response")
+        throw EdgeApiError.Decoding(t.message ?: "unparseable grading response", t)
     }
 }

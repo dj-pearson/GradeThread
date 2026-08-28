@@ -1,5 +1,6 @@
 package com.gradethread.app.upload
 
+import com.gradethread.app.platform.net.SharedHttp
 import com.gradethread.app.platform.supabase.StorageUrls
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
@@ -207,17 +208,24 @@ class PhotoSignedUrlProvider(
         }
 
         /**
-         * A dedicated client with NO disk cache and NO cookies, so the bearer
-         * token and the signed URL never land in a shared/persisted store.
-         * Bounded read timeout so a stalled mint fails fast instead of holding
-         * a private thumbnail on the skeleton for the default 60s.
+         * NO disk cache and NO cookies, so the bearer token and the signed URL
+         * never land in a shared or persisted store. Bounded read timeout so a
+         * stalled mint fails fast instead of holding a private thumbnail on the
+         * skeleton for the default 60s.
+         *
+         * It shares [SharedHttp.base]'s connection pool and dispatcher, and the
+         * two lines below are what keeps that safe: `SharedHttp` sets neither a
+         * cache nor a cookie jar today, and restating both here means a change
+         * there cannot quietly give this client a store to leak into. What is
+         * shared is TCP connections and threads, neither of which carries a
+         * credential.
          */
-        fun ephemeralClient(): OkHttpClient = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .callTimeout(30, TimeUnit.SECONDS)
-            .cache(null)
-            .cookieJar(okhttp3.CookieJar.NO_COOKIES)
-            .build()
+        fun ephemeralClient(): OkHttpClient = SharedHttp.variant {
+            connectTimeout(10, TimeUnit.SECONDS)
+            readTimeout(20, TimeUnit.SECONDS)
+            callTimeout(30, TimeUnit.SECONDS)
+            cache(null)
+            cookieJar(okhttp3.CookieJar.NO_COOKIES)
+        }
     }
 }

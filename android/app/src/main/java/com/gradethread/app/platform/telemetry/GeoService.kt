@@ -1,11 +1,11 @@
 package com.gradethread.app.platform.telemetry
 
+import com.gradethread.app.platform.net.SharedHttp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
@@ -55,10 +55,10 @@ object GeoService {
     private val json = Json { ignoreUnknownKeys = true }
 
     private val client by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            .readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
-            .build()
+        SharedHttp.variant {
+            connectTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            readTimeout(TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        }
     }
 
     @Volatile
