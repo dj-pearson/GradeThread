@@ -114,6 +114,22 @@ jobs:
             | tee money-fixture.env
           cat money-fixture.env >> "$GITHUB_ENV"
 
+      # US-2971: the pipeline-XP sweep fixture. Its own user and its own item,
+      # because the sweep GRANTS XP for every stage of every item its user owns
+      # and sharing a row with the money suites — one of which drives a balance
+      # to zero, another of which asserts on a delta measured at test start —
+      # would make those order-dependent on a suite that touches neither.
+      #
+      # Same pipefail reasoning as the step above.
+      - name: Seed pipeline-XP sweep fixture
+        working-directory: services/edge-functions
+        shell: bash
+        run: |
+          set -euo pipefail
+          deno run --allow-net --allow-env scripts/seed-rewards-sweep-fixture.ts \
+            | tee sweep-fixture.env
+          cat sweep-fixture.env >> "$GITHUB_ENV"
+
       # Only passport-claim needs a running edge service (it POSTs
       # /api/passport/claim); the other four talk to PostgREST directly.
       # EDGE_ENV=test keeps boot-time env validation permissive.
@@ -175,6 +191,27 @@ jobs:
           OAUTH_STORE_TESTS: "1"
         run: |
           deno test --allow-net --allow-env --allow-read             src/tests/oauth-store_test.ts             src/tests/oauth-endpoints_test.ts
+
+      # US-2971 AC3: sweep, count reputation_events, sweep again, assert the
+      # count is identical. The planner dropping already-granted marks is
+      # covered in-process and 00417's UNIQUE uq_reputation_event_ref makes a
+      # duplicate emit a no-op, but neither is the claim a backfill re-run
+      # actually makes, and that claim needs rows.
+      #
+      # A SEPARATE STEP because it needs TEST_SWEEP_USER_ID, which only the
+      # sweep seed emits. Appending it to the money list would have left it
+      # skipping green inside a step whose whole point is that a missing
+      # fixture fails loudly.
+      - name: Run pipeline-XP sweep idempotency suite (required)
+        working-directory: services/edge-functions
+        env:
+          TEST_SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
+          TEST_SWEEP_USER_ID: ${{ env.TEST_SWEEP_USER_ID }}
+          INTEGRATION_TESTS_REQUIRED: "1"
+        run: |
+          deno test --allow-net --allow-env --allow-read \
+            src/tests/rewards-pipeline-idempotency_test.ts
 
       - name: Stop edge service
         if: always()
