@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Plus, Star, Trash2, Pencil, X } from "lucide-react";
+import { FileText, Plus, Sparkles, Star, Trash2, Pencil, X } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { SamplePicker } from "@/components/flipdesk/sample-picker";
 import { toastError } from "@/lib/toast-error";
 import { EBAY_CONDITION_OPTIONS } from "@/lib/constants";
 import {
@@ -42,6 +43,7 @@ import {
   templateSummary,
   updateTemplate,
 } from "@/lib/flipdesk-templates";
+import { STARTER_TEMPLATES } from "@/lib/starter-templates";
 
 // US-2877. The web half of listing templates.
 //
@@ -125,6 +127,7 @@ export function TemplatesPage() {
   const queryClient = useQueryClient();
   const confirm = useConfirm();
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const [samplesOpen, setSamplesOpen] = useState(false);
 
   const templatesQuery = useQuery({
     queryKey: TEMPLATES_QUERY_KEY,
@@ -153,6 +156,52 @@ export function TemplatesPage() {
         // The one failure a seller can act on themselves: two templates cannot
         // share a name (a partial unique index, not a validation rule we chose).
         nextStep: "If the name is already taken, pick a different one.",
+      }),
+  });
+
+  // US-2968: add the ticked starter templates as the seller's own rows.
+  //
+  // Sequential, and for the same reason as the snippets picker: `createTemplate`
+  // needs a distinct `sort_order` per row, and a Promise.all would hand all four
+  // the same one. A partial batch is a real outcome -- the count is reported, so
+  // "added 2 of 4" does not read as a total failure that nonetheless wrote two
+  // rows.
+  const addSamples = useMutation({
+    mutationFn: async (
+      picks: Array<{ sample: { id: string }; name: string }>,
+    ) => {
+      let order = templates.reduce((max, t) => Math.max(max, t.sort_order), -1) + 1;
+      let added = 0;
+      for (const { sample, name } of picks) {
+        const starter = STARTER_TEMPLATES.find((t) => t.id === sample.id);
+        if (!starter) continue;
+        await createTemplate({
+          name,
+          description_template: starter.body,
+          ebay_condition: starter.ebayCondition,
+          condition_description: starter.conditionDescription,
+          // No item specifics and no policy ids: those are the seller's own
+          // eBay account values, and no starter can guess them. Nor is_default
+          // -- picking a favourite stays their call.
+          item_specifics: {},
+          is_default: false,
+          sort_order: order,
+        });
+        order += 1;
+        added += 1;
+      }
+      return added;
+    },
+    onSuccess: (added) => {
+      void queryClient.invalidateQueries({ queryKey: TEMPLATES_QUERY_KEY });
+      setSamplesOpen(false);
+      toast.success(
+        `Added ${added} template${added === 1 ? "" : "s"}. Edit any of them to make it yours.`,
+      );
+    },
+    onError: (err) =>
+      toastError(err, "Those samples were not added.", {
+        nextStep: "Check the list — some of them may have saved before it stopped.",
       }),
   });
 
@@ -186,10 +235,16 @@ export function TemplatesPage() {
         subtitle="The parts you type on every listing, saved once. Your usual wording, a default condition, your eBay policies."
         icon={FileText}
         actions={
-          <Button onClick={() => setEditor(blankEditor(null))}>
-            <Plus className="mr-1.5 h-4 w-4" />
-            New template
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setSamplesOpen(true)}>
+              <Sparkles className="mr-1.5 h-4 w-4" />
+              Browse samples
+            </Button>
+            <Button onClick={() => setEditor(blankEditor(null))}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              New template
+            </Button>
+          </div>
         }
       />
 
@@ -216,6 +271,11 @@ export function TemplatesPage() {
             label: "Make your first template",
             icon: Plus,
             onClick: () => setEditor(blankEditor(null)),
+          }}
+          secondaryAction={{
+            label: "Browse samples",
+            icon: Sparkles,
+            onClick: () => setSamplesOpen(true),
           }}
         />
       ) : (
@@ -490,6 +550,19 @@ export function TemplatesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <SamplePicker
+        open={samplesOpen}
+        onOpenChange={(o) => !o && !addSamples.isPending && setSamplesOpen(false)}
+        title="Start from a sample"
+        description="Four presets built the way resellers actually sort their inventory. Add the ones that fit, then edit them until the wording is yours."
+        samples={STARTER_TEMPLATES}
+        taken={templates.map((t) => t.name)}
+        nameMax={TEMPLATE_NAME_MAX}
+        noun="template"
+        adding={addSamples.isPending}
+        onAdd={(picks) => addSamples.mutate(picks)}
+      />
     </div>
   );
 }
