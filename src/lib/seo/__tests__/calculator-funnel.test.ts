@@ -7,17 +7,23 @@ import {
 import { FLIPDESK_LANDINGS } from "../flipdesk-landing";
 import { ANALYTICS_EVENTS } from "@/lib/analytics-events";
 
-// US-9010. The calculator-to-FlipDesk funnel is four events and eight
-// handoffs, and every one of them is a string that can go stale silently: a
-// renamed landing slug leaves a dead link, a missing handoff throws at render
-// on a page a crawler already indexed.
+// US-9010. The calculator-to-FlipDesk funnel is four events and one handoff per
+// tool, and every one of them is a string that can go stale silently: a renamed
+// landing slug leaves a dead link, a missing handoff throws at render on a page
+// a crawler already indexed.
+//
+// US-9021: this used to assert a hard-coded eight and failed the moment a ninth
+// tool shipped, which is a test failing on the thing it was meant to permit.
+// The invariant was never the count. It is that NOTHING sits in the registry
+// unrouted: a `planned` entry left behind after its story shipped is invisible
+// (calculatorRoutes filters it out), so the page silently never exists.
 
 describe("every live calculator hands off somewhere real", () => {
   const live = liveCalculators();
 
-  it("has all eight calculators live", () => {
-    expect(live).toHaveLength(8);
-    expect(CALCULATORS).toHaveLength(8);
+  it("leaves nothing in the registry that never ships", () => {
+    expect(live.length).toBe(CALCULATORS.length);
+    expect(live.length).toBeGreaterThanOrEqual(8);
   });
 
   it("gives every live calculator a handoff", () => {

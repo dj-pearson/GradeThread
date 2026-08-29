@@ -1,0 +1,652 @@
+path,cluster,keyword,avg_monthly,competition,comp_index,bid_low,bid_high,yoy
+1-damage-care,pilling,"how to remove pilling from clothes",5000,High,93,0.10,1.35,0%
+1-damage-care,shoe-yellowing,"how to whiten yellowed shoe soles",50,High,70,0.23,1.09,900%
+6-buyer,condition-terms,"what does nwot mean",5000,Low,0,,,0%
+4-value,pricing,"how to price used clothes for resale",50,Low,7,0.80,9.05,0%
+5-marketplace-howto,ebay-sold,"how to check ebay sold listings",500,Low,0,,,900%
+8-vintage-auth,single-stitch,"single stitch t shirt",500,High,100,0.13,1.21,0%
+5-marketplace-howto,photos,"how to take photos of clothes to sell",50,Low,22,0.37,3.06,0%
+3-tools,inventory,"reseller inventory spreadsheet",500,High,100,2.24,21.71,0%
+7-positioning,comparison,"poshmark vs mercari vs depop",50,Low,8,,,0%
+1-damage-care,pilling,"how to get rid of pilling on clothes",5000,High,83,0.09,1.44,0%
+1-damage-care,pilling,"how to remove fuzz from clothes",500,High,98,0.24,1.44,0%
+1-damage-care,pilling,"how to get rid of fuzz balls on clothes",500,High,75,0.07,1.30,0%
+1-damage-care,pilling,"how to get rid of lint balls on clothes",5000,High,89,0.08,1.41,0%
+1-damage-care,pilling,"how to fix pilling on clothes",500,Medium,64,0.07,1.38,0%
+1-damage-care,pilling,"how to stop pilling on clothes",500,Low,32,0.30,1.62,0%
+1-damage-care,pilling,"how to remove bobbles from clothes",5000,High,93,0.10,1.35,0%
+1-damage-care,pilling,"how to get rid of fuzz on clothes",500,High,98,0.24,1.44,0%
+1-damage-care,pilling,"how to remove lint balls from clothes",5000,High,89,0.08,1.41,0%
+1-damage-care,pilling,"how to keep clothes from pilling",500,Medium,53,0.35,1.73,0%
+1-damage-care,pilling,"how to remove pilling from clothes at home",500,High,89,0.26,1.32,0%
+1-damage-care,pilling,"how to get rid of pills on clothes",5000,High,83,0.09,1.44,0%
+8-vintage-auth,single-stitch,"single stitch shirt",5000,High,98,0.08,0.39,0%
+1-damage-care,pilling,"how to remove pills from sweaters",500,High,84,0.09,0.41,0%
+1-damage-care,pilling,"how to get rid of bobbles on clothes",50,Low,1,,,0%
+1-damage-care,pilling,"how to remove pilling on clothes",5000,High,93,0.10,1.35,0%
+1-damage-care,pilling,"how to avoid pilling on clothes",500,Low,28,0.84,1.65,0%
+1-damage-care,pilling,"how to remove fuzz balls from clothes",5000,High,89,0.08,1.41,0%
+5-marketplace-howto,photos,"how to take pictures of clothes to sell",500,Low,20,0.47,4.12,0%
+1-damage-care,pilling,"how to depill a sweater",500,Medium,58,0.08,0.43,0%
+1-damage-care,pilling,"how to depill clothes",50,High,73,0.12,1.29,0%
+5-marketplace-howto,selling,"how can i sell clothes",5000,Medium,54,1.36,6.12,0%
+1-damage-care,pilling,"how to remove balls from clothes",50,High,96,0.24,1.29,0%
+1-damage-care,pilling,"how to de pill clothes",50,High,85,0.16,1.26,0%
+3-tools,inventory,"reseller spreadsheet template free",50,Medium,39,3.14,14.05,0%
+1-damage-care,pilling,"how to get rid of balls on clothes",50,Low,5,,,0%
+1-damage-care,pilling,"how to get rid of fabric pills",500,Medium,62,0.09,1.51,0%
+1-damage-care,pilling,"how to de pill a sweater",50,Low,17,,,0%
+1-damage-care,pilling,"how to get rid of pilling on sweaters",500,High,83,0.08,0.37,900%
+1-damage-care,pilling,"how to remove pills from fabric",5000,High,93,0.10,1.35,0%
+1-damage-care,pilling,"how to remove fuzz from sweater",500,Medium,51,0.07,0.50,0%
+5-marketplace-howto,ebay-sold,"how to check sold items on ebay",5000,Low,0,0.32,2.06,0%
+5-marketplace-howto,photos,"how to photograph clothing for resale",50,Low,30,0.17,1.46,0%
+1-damage-care,pilling,"how to prevent fuzz balls on clothes",50,Medium,40,1.13,1.84,0%
+1-damage-care,pilling,"how to remove pilling from wool sweater",50,High,100,0.06,0.44,0%
+3-tools,inventory,"best reseller spreadsheet",50,High,82,1.64,5.23,0%
+1-damage-care,pilling,"how to fix fabric pilling",500,Medium,34,0.17,1.44,0%
+1-damage-care,pilling,"how to de bobble clothes",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove lint from sweater",500,High,77,0.03,1.36,-90%
+1-damage-care,pilling,"how to remove lint balls from couch",50,High,100,0.24,0.53,0%
+1-damage-care,pilling,"how to defuzz a sweater",500,High,91,0.05,0.29,0%
+1-damage-care,pilling,"how do you get rid of fuzz balls on clothes",50,High,73,0.30,1.45,0%
+1-damage-care,pilling,"how to get rid of sweater pills",500,High,84,0.09,0.41,0%
+1-damage-care,pilling,"how to remove cotton balls from clothes",50,High,68,0.16,1.53,0%
+1-damage-care,pilling,"how to keep fabric from pilling",50,Medium,55,0.04,1.42,0%
+1-damage-care,pilling,"how to remove lint balls",500,Low,30,0.07,1.41,0%
+1-damage-care,pilling,"how to shave pills off fabric",50,High,88,0.10,1.28,0%
+5-marketplace-howto,photos,"how to photograph clothes to sell",500,Low,16,0.38,2.06,0%
+3-tools,inventory,"reseller inventory spreadsheet free",50,High,67,2.44,9.34,0%
+1-damage-care,pilling,"how to remove little balls from clothing",50,High,85,0.19,1.29,0%
+1-damage-care,pilling,"how to remove balls from sweaters",500,High,84,0.09,0.41,0%
+8-vintage-auth,single-stitch,"single stitch t shirt wholesale",50,High,100,,,0%
+7-positioning,comparison,"mercari vs depop",500,Low,16,4.89,25.43,900%
+8-vintage-auth,single-stitch,"single stitch blank tees",50,High,100,1.01,4.86,0%
+1-damage-care,pilling,"how to get rid of little balls on clothes",50,Medium,35,0.24,1.45,0%
+1-damage-care,pilling,"how do you remove pilling from sweaters",500,High,84,0.09,0.41,0%
+1-damage-care,pilling,"how to get rid of cotton balls on clothes",50,High,68,0.16,1.53,0%
+1-damage-care,pilling,"how to prevent pills on clothes",50,High,71,,,0%
+8-vintage-auth,single-stitch,"single stitch vintage tee",500,High,100,0.07,0.43,0%
+1-damage-care,pilling,"how to get rid of the fuzz balls on clothes",500,High,71,0.27,1.57,0%
+5-marketplace-howto,photos,"how to take pictures to sell clothes",50,Low,27,0.45,4.79,0%
+3-tools,inventory,"free reseller spreadsheet",50,Medium,40,3.11,18.51,0%
+3-tools,inventory,"reseller tracking spreadsheet",50,High,100,5.46,40.10,0%
+1-damage-care,pilling,"how to get rid of pilling on leggings",500,Low,22,0.09,1.35,0%
+1-damage-care,pilling,"how to remove fabric balls from clothes",50,High,100,0.25,1.44,0%
+5-marketplace-howto,photos,"how to take pictures to sell clothes online",50,Medium,43,0.84,7.90,0%
+1-damage-care,pilling,"how to take off fuzz from clothes",500,Medium,35,0.27,1.36,0%
+3-tools,inventory,"free reseller inventory spreadsheet",50,Low,32,2.89,12.42,900%
+1-damage-care,pilling,"how to remove fuzz balls from sweaters",500,High,73,0.08,0.52,0%
+1-damage-care,pilling,"how to get rid of clothes pilling",50,High,75,0.05,1.65,0%
+1-damage-care,pilling,"how do you get rid of pilling on clothes",5000,High,83,0.09,1.44,0%
+1-damage-care,pilling,"how to get rid of lint balls",500,Low,30,0.07,1.41,0%
+3-tools,inventory,"inventory spreadsheet for resellers",50,High,100,,,0%
+1-damage-care,pilling,"how to get rid of the little balls on clothes",50,Medium,57,0.18,1.62,0%
+1-damage-care,pilling,"how do i remove pilling from fabric",50,High,90,0.20,1.41,0%
+1-damage-care,pilling,"how do you remove pilling from clothing",5000,High,93,0.10,1.35,0%
+1-damage-care,pilling,"how to deal with pilling on clothes",50,Medium,63,0.20,1.42,0%
+3-tools,inventory,"reseller spreadsheet free",50,Low,33,2.12,8.65,0%
+1-damage-care,pilling,"how to get rid of sweater fuzz",500,Medium,51,0.07,0.50,0%
+1-damage-care,pilling,"how to fix pilled fabric",500,Medium,34,0.17,1.44,0%
+1-damage-care,pilling,"how to get rid of fabric balls",50,High,80,0.26,1.41,0%
+1-damage-care,pilling,"how to take pilling off clothes",50,High,95,,,0%
+1-damage-care,pilling,"how to take lint balls off clothes",50,Medium,40,,,0%
+5-marketplace-howto,photos,"how to take pictures of clothes to sell online",500,Low,29,0.55,3.50,900%
+5-marketplace-howto,photos,"how to take pics of clothes to sell",50,Low,27,0.45,4.79,0%
+1-damage-care,pilling,"how to get rid of little fuzz balls on clothes",50,Medium,48,0.06,1.38,0%
+1-damage-care,pilling,"how to defuzz clothes",50,High,93,,,0%
+3-tools,inventory,"resell spreadsheet",500,High,100,2.57,9.32,0%
+8-vintage-auth,single-stitch,"single stitch tee",500,High,99,0.07,0.45,0%
+1-damage-care,pilling,"how to fix sweater pilling",500,Low,28,0.04,0.30,0%
+1-damage-care,pilling,"how to stop lint balls on clothes",50,Medium,37,,,0%
+1-damage-care,pilling,"how to remove fabric balls from couch",50,High,89,,,0%
+1-damage-care,pilling,"how to remove pilling from sweatshirt",500,High,84,0.09,0.41,0%
+1-damage-care,pilling,"how do you remove lint balls from clothing",5000,High,89,0.08,1.41,0%
+1-damage-care,pilling,"how do you get rid of bobbles on clothes",50,Medium,57,,,0%
+9-unclassified,other,"how to remove piles from clothes",50,High,93,,,0%
+1-damage-care,pilling,"how to get rid of pills on sweaters",500,High,84,0.09,0.41,0%
+3-tools,inventory,"free reseller spreadsheet template",50,Low,13,,,0%
+3-tools,inventory,"downloadable reseller inventory spreadsheet",50,High,100,,,0%
+1-damage-care,pilling,"how to stop pilling on sweaters",500,Medium,40,0.08,1.45,0%
+1-damage-care,pilling,"how to remove pilling from leggings",50,Low,22,0.11,0.45,0%
+1-damage-care,pilling,"how to remove lint pills from clothes",50,High,69,0.07,1.35,0%
+1-damage-care,pilling,"how to stop fuzz balls on clothes",50,Medium,50,0.34,1.71,0%
+1-damage-care,pilling,"how to take pills off clothes",50,Unknown,,,,-100%
+8-vintage-auth,single-stitch,"blank single stitch t shirts",50,High,100,1.20,3.42,0%
+1-damage-care,pilling,"bobbling on clothes how to remove",5000,High,93,0.10,1.35,0%
+8-vintage-auth,single-stitch,"carhartt single stitch shirt",0,Unknown,,,,0%
+9-unclassified,other,"depop mercari or poshmark",50,Medium,48,,,0%
+9-unclassified,other,"depop poshmark mercari",50,Low,5,,,0%
+7-positioning,comparison,"depop vs mercari",500,Low,16,4.89,25.43,900%
+7-positioning,comparison,"depop vs mercari fees",50,Low,1,,,0%
+7-positioning,comparison,"depop vs poshmark vs mercari",500,Medium,34,5.09,25.57,900%
+5-marketplace-howto,ebay-sold,"ebay how to check sold items",50,Low,0,,,0%
+3-tools,inventory,"ebay reseller spreadsheet",50,High,84,,,0%
+5-marketplace-howto,ebay-sold,"how do i check sold items on ebay",50,Low,0,,,0%
+1-damage-care,pilling,"how do i get rid of pilling",50,Medium,35,,,0%
+1-damage-care,pilling,"how do i get rid of pilling on my sweater",50,High,100,,,new
+1-damage-care,pilling,"how do i remove bobbles from clothing",50,Low,1,,,0%
+1-damage-care,pilling,"how do i remove fuzz balls from sweaters",500,High,73,0.08,0.52,0%
+1-damage-care,pilling,"how do i remove pills from clothing",50,Unknown,,,,0%
+5-marketplace-howto,selling,"how do i sell wholesale on poshmark",50,Unknown,,,,-100%
+5-marketplace-howto,ebay-sold,"how do you check sold items on ebay",50,Low,0,,,0%
+1-damage-care,pilling,"how do you de pill a sweater",50,Unknown,,,,0%
+1-damage-care,pilling,"how do you defuzz a sweater",500,High,91,0.05,0.29,0%
+1-damage-care,pilling,"how do you depill a sweater",500,Medium,58,0.08,0.43,0%
+1-damage-care,pilling,"how do you fix pilling",50,High,100,,,0%
+1-damage-care,pilling,"how do you get pilling off a sweater",50,High,71,,,0%
+1-damage-care,pilling,"how do you get pills off a sweater",500,High,99,0.09,0.41,0%
+1-damage-care,pilling,"how do you get rid of lint balls on clothing",500,High,75,0.07,1.30,0%
+1-damage-care,pilling,"how do you get rid of little balls on clothes",50,Unknown,,,,0%
+1-damage-care,pilling,"how do you get rid of pilling on a sweater",50,Medium,36,,,0%
+1-damage-care,pilling,"how do you get rid of pilling on sweaters",500,High,83,0.08,0.37,900%
+1-damage-care,pilling,"how do you get rid of pills on clothing",5000,High,83,0.09,1.44,0%
+1-damage-care,pilling,"how do you remove bobbles from clothes",5000,High,93,0.10,1.35,0%
+1-damage-care,pilling,"how do you remove fuzz balls from sweaters",50,High,73,0.03,0.41,-90%
+1-damage-care,pilling,"how do you remove fuzz from sweaters",50,Unknown,,,,0%
+1-damage-care,pilling,"how do you remove lint balls from a sweater",500,High,73,0.08,0.52,0%
+1-damage-care,pilling,"how do you remove lint balls from your clothes",50,Unknown,,,,-100%
+1-damage-care,pilling,"how do you remove pilling from a sweater",50,Unknown,,,,-100%
+1-damage-care,pilling,"how do you remove pilling from fabric",50,Unknown,,,,-100%
+1-damage-care,pilling,"how do you remove pills from fabric",50,Unknown,,,,-100%
+1-damage-care,pilling,"how do you remove pills from sweaters",500,High,84,0.09,0.41,0%
+4-value,pricing,"how much does thredup cost",50,Low,0,,,0%
+1-damage-care,pilling,"how to avoid fuzz balls on clothes",50,Medium,43,,,0%
+1-damage-care,pilling,"how to avoid lint balls",50,Low,0,,,0%
+1-damage-care,pilling,"how to avoid lint balls on clothes",50,Low,26,1.15,1.53,0%
+1-damage-care,pilling,"how to avoid pilling on sweaters",50,Low,27,,,0%
+5-marketplace-howto,ebay-sold,"how to check for sold items on ebay",50,Low,0,,,0%
+5-marketplace-howto,ebay-sold,"how to check recently sold items on ebay",500,Low,0,,,0%
+5-marketplace-howto,ebay-sold,"how to check sold ebay listings",50,Low,0,,,0%
+5-marketplace-howto,ebay-sold,"how to check sold listings on ebay",500,Low,0,,,900%
+1-damage-care,shoe-yellowing,"how to clean a yellow shoe sole",50,Medium,50,,,0%
+1-damage-care,pilling,"how to clean fuzz off sweaters",50,Unknown,,,,0%
+1-damage-care,pilling,"how to clean lint balls from sweaters",50,Medium,57,,,0%
+1-damage-care,care,"how to clean sweater balls",50,Unknown,,,,0%
+1-damage-care,pilling,"how to clean sweater pilling",50,Low,0,,,0%
+1-damage-care,shoe-yellowing,"how to clean yellow af1 soles",50,Low,11,,,0%
+1-damage-care,shoe-yellowing,"how to clean yellow shoe soles",50,High,84,,,-90%
+1-damage-care,shoe-yellowing,"how to clean yellow sneaker soles",50,High,83,,,0%
+1-damage-care,shoe-yellowing,"how to clean yellow soles",50,Low,31,,,0%
+1-damage-care,shoe-yellowing,"how to clean yellow soles at home",50,Low,0,,,0%
+1-damage-care,shoe-yellowing,"how to clean yellow soles of shoes",50,High,84,,,-90%
+1-damage-care,shoe-yellowing,"how to clean yellow soles on jordans",50,Medium,33,,,0%
+1-damage-care,shoe-yellowing,"how to clean yellow soles on sneakers",50,High,92,0.19,0.56,0%
+1-damage-care,shoe-yellowing,"how to clean yellow soles with baking soda",50,Low,0,,,0%
+1-damage-care,shoe-yellowing,"how to clean yellowing white soles",50,Low,0,,,0%
+1-damage-care,pilling,"how to de bobble a coat",0,Unknown,,,,0%
+1-damage-care,pilling,"how to de bobble a sweater",0,Unknown,,,,0%
+1-damage-care,pilling,"how to de bobble a wool coat",0,Unknown,,,,--
+1-damage-care,pilling,"how to de bobble fabric",0,Unknown,,,,--
+1-damage-care,pilling,"how to de fuzz a sweater",50,High,100,,,0%
+1-damage-care,pilling,"how to de lint a sweater",50,Low,26,,,0%
+1-damage-care,pilling,"how to de pill a cashmere sweater",50,Medium,57,,,0%
+1-damage-care,pilling,"how to de pill a coat",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to de pill a hoodie",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to de pill a shirt",50,Low,21,,,0%
+1-damage-care,pilling,"how to de pill a sweater with a razor",50,Unknown,,,,0%
+1-damage-care,pilling,"how to de pill a sweatshirt",50,High,100,,,0%
+1-damage-care,pilling,"how to de pill a wool coat",50,Unknown,,,,0%
+1-damage-care,pilling,"how to de pill a wool sweater",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to de pill cashmere sweater",50,High,100,,,0%
+1-damage-care,pilling,"how to de pill fabric",50,High,100,,,0%
+1-damage-care,pilling,"how to de pill fleece",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to de pill leggings",50,Unknown,,,,0%
+1-damage-care,pilling,"how to de pill sweater",50,Low,26,,,0%
+1-damage-care,pilling,"how to de pill sweatpants",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to de pill wool sweaters",50,Unknown,,,,0%
+1-damage-care,pilling,"how to deal with pilling sweater",50,High,96,,,0%
+1-damage-care,pilling,"how to deal with sweater pilling",50,Low,0,,,0%
+1-damage-care,pilling,"how to defuzz a cashmere sweater",50,High,100,,,new
+1-damage-care,pilling,"how to defuzz a knit sweater",50,Unknown,,,,0%
+1-damage-care,pilling,"how to defuzz a new sweater",50,Unknown,,,,0%
+1-damage-care,pilling,"how to defuzz a shirt",50,High,100,,,new
+1-damage-care,pilling,"how to defuzz a sweatshirt",50,High,68,0.22,0.75,new
+1-damage-care,pilling,"how to defuzz a wool sweater",50,Unknown,,,,0%
+1-damage-care,pilling,"how to defuzz cashmere sweater",50,High,100,,,0%
+1-damage-care,pilling,"how to defuzz fleece",50,Low,0,,,new
+1-damage-care,pilling,"how to depill a cashmere sweater",50,High,87,0.06,0.47,0%
+1-damage-care,pilling,"how to depill a wool sweater",50,Low,29,,,0%
+1-damage-care,pilling,"how to depill cashmere sweater",50,Medium,64,,,0%
+5-marketplace-howto,ebay-sold,"how to find recently sold on ebay",500,Low,0,,,0%
+1-damage-care,pilling,"how to fix a pilled sweater",500,Medium,66,0.05,0.26,0%
+1-damage-care,pilling,"how to fix a pilling sweater",500,Medium,66,0.05,0.26,0%
+1-damage-care,pilling,"how to fix a sweater that is pilling",50,Medium,33,,,0%
+1-damage-care,pilling,"how to fix a sweater that pills",50,Low,0,,,new
+1-damage-care,pilling,"how to fix bobbles on clothes",50,Unknown,,,,0%
+1-damage-care,pilling,"how to fix clothes pilling",50,Medium,38,0.21,1.88,0%
+1-damage-care,pilling,"how to fix clothes that are pilling",50,High,71,0.08,1.41,0%
+1-damage-care,pilling,"how to fix fleece pilling",50,Medium,43,,,0%
+1-damage-care,pilling,"how to fix pilled clothes",50,Medium,45,0.06,1.37,0%
+1-damage-care,pilling,"how to fix pilled leggings",50,Low,0,,,0%
+1-damage-care,pilling,"how to fix pilled sweater",500,Low,28,0.04,0.30,0%
+1-damage-care,pilling,"how to fix pilling clothes",50,Medium,60,0.07,1.49,0%
+1-damage-care,pilling,"how to fix pilling fabric",500,Medium,34,0.17,1.44,0%
+1-damage-care,pilling,"how to fix pilling leggings",50,Low,0,,,0%
+1-damage-care,pilling,"how to fix pilling on a sweater",500,Low,28,0.04,0.30,0%
+1-damage-care,pilling,"how to fix pilling on leggings",50,Low,8,,,0%
+1-damage-care,pilling,"how to fix pilling on pants",50,Medium,58,0.09,1.23,0%
+1-damage-care,pilling,"how to fix pilling on shirt",50,Medium,45,0.16,1.49,0%
+1-damage-care,pilling,"how to fix pilling on sweater",500,Medium,38,0.06,0.42,0%
+1-damage-care,pilling,"how to fix pilling on sweatshirt",50,Low,29,,,0%
+1-damage-care,pilling,"how to fix pilling shirt",50,Low,26,,,0%
+1-damage-care,pilling,"how to fix pilling sweater",500,Low,28,0.04,0.30,0%
+1-damage-care,pilling,"how to fix pilling sweatshirt",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to fix pilling wool sweater",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to fix shirt pilling",50,Medium,39,0.05,1.35,-90%
+1-damage-care,pilling,"how to fix sweater fuzz",50,Medium,37,,,0%
+1-damage-care,pilling,"how to get lint balls off of clothing",50,Medium,60,0.17,1.44,0%
+1-damage-care,pilling,"how to get lint balls off sweatpants",50,High,78,,,0%
+1-damage-care,pilling,"how to get pilling off a sweatshirt",50,High,74,,,new
+1-damage-care,pilling,"how to get pilling off fabric",50,Medium,60,,,0%
+9-unclassified,other,"how to get rid of balls of fabric on clothes",50,High,82,,,0%
+1-damage-care,pilling,"how to get rid of balls on fabric",50,High,80,0.26,1.41,0%
+1-damage-care,pilling,"how to get rid of balls on leggings",50,Low,29,,,0%
+1-damage-care,pilling,"how to get rid of balls on sweaters",500,High,84,0.09,0.41,0%
+1-damage-care,pilling,"how to get rid of balls on wool sweater",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to get rid of bobbles on coat",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of bobbles on fabric",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to get rid of bobbles on hoodie",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of bobbles on joggers",50,Low,0,,,new
+1-damage-care,pilling,"how to get rid of bobbles on leggings",50,Low,0,,,new
+1-damage-care,pilling,"how to get rid of bobbles on sofa",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of bobbles on tracksuit bottoms",0,Unknown,,,,--
+1-damage-care,pilling,"how to get rid of bobbles on trousers",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to get rid of bobbles on wool coat",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of bobbles on your clothes",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of bobbly bits on clothes",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of cashmere pilling",50,Medium,38,,,0%
+1-damage-care,pilling,"how to get rid of clothes bobbles",50,Medium,57,,,0%
+1-damage-care,pilling,"how to get rid of clothes lint balls",50,Low,7,,,0%
+1-damage-care,pilling,"how to get rid of clothing pills",50,Medium,46,,,0%
+1-damage-care,pilling,"how to get rid of cotton balls on sweater",50,High,100,,,0%
+1-damage-care,pilling,"how to get rid of fabric balls on clothes",50,Low,25,,,0%
+1-damage-care,pilling,"how to get rid of fabric balls on couch",50,High,98,,,0%
+1-damage-care,pilling,"how to get rid of fabric balls on leggings",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of fabric fuzz",50,Low,21,,,0%
+1-damage-care,pilling,"how to get rid of fluff balls on clothes",50,Medium,36,,,0%
+1-damage-care,pilling,"how to get rid of fluff from clothes",5000,Medium,52,0.24,1.49,0%
+1-damage-care,pilling,"how to get rid of fluff on sweaters",50,Medium,43,,,0%
+1-damage-care,pilling,"how to get rid of fur balls on sweaters",50,High,86,,,0%
+1-damage-care,pilling,"how to get rid of fuzz balls on hoodies",50,Low,0,,,0%
+1-damage-care,pilling,"how to get rid of fuzz balls on leggings",50,Low,0,,,new
+1-damage-care,pilling,"how to get rid of fuzz balls on pants",50,Low,29,,,0%
+1-damage-care,pilling,"how to get rid of fuzz balls on sweater",500,High,73,0.08,0.52,0%
+1-damage-care,pilling,"how to get rid of fuzz balls on sweatpants",50,High,92,0.35,1.26,0%
+1-damage-care,pilling,"how to get rid of fuzz balls on sweatshirts",50,High,100,,,new
+1-damage-care,pilling,"how to get rid of fuzz from sweaters",50,Low,24,,,0%
+1-damage-care,pilling,"how to get rid of fuzz on a sweater",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of fuzz on black clothes",50,Low,0,,,0%
+1-damage-care,pilling,"how to get rid of fuzz on hoodie",50,Low,14,,,0%
+1-damage-care,pilling,"how to get rid of fuzz on leggings",50,Low,0,,,0%
+1-damage-care,pilling,"how to get rid of fuzz on pants",50,Low,29,,,0%
+1-damage-care,pilling,"how to get rid of fuzz on shirts",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to get rid of fuzz on sweatpants",50,High,71,,,0%
+1-damage-care,pilling,"how to get rid of fuzz on sweatshirts",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to get rid of fuzz on wool sweater",50,High,100,,,0%
+1-damage-care,pilling,"how to get rid of fuzzies on a sweater",50,High,100,,,0%
+1-damage-care,pilling,"how to get rid of fuzzies on hoodies",50,Low,14,,,new
+1-damage-care,pilling,"how to get rid of fuzzies on leggings",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to get rid of fuzzies on pants",50,High,100,,,0%
+1-damage-care,pilling,"how to get rid of fuzzies on sweatpants",50,High,71,,,0%
+1-damage-care,pilling,"how to get rid of fuzzies on sweatshirts",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of legging pilling",50,Low,16,,,0%
+1-damage-care,pilling,"how to get rid of lint balls on blankets",50,Low,0,,,0%
+1-damage-care,pilling,"how to get rid of lint balls on hoodie",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to get rid of lint balls on leggings",50,High,100,,,0%
+1-damage-care,pilling,"how to get rid of lint balls on pants",50,Medium,34,,,0%
+1-damage-care,pilling,"how to get rid of lint balls on sheets",50,Medium,33,,,0%
+1-damage-care,pilling,"how to get rid of lint balls on sweater",50,High,100,,,0%
+1-damage-care,pilling,"how to get rid of lint balls on sweatpants",50,Low,19,,,0%
+1-damage-care,pilling,"how to get rid of lint from sweaters",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of lint on a sweater",50,Medium,36,,,0%
+1-damage-care,pilling,"how to get rid of lint on lululemon pants",0,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of lint on new sweater",50,Medium,36,,,0%
+1-damage-care,pilling,"how to get rid of lint on sweater",500,High,77,0.03,1.36,-90%
+1-damage-care,pilling,"how to get rid of lint pills",50,High,86,,,0%
+1-damage-care,pilling,"how to get rid of little balls on sweater",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to get rid of little fabric balls on clothes",50,High,100,0.10,1.49,0%
+1-damage-care,pilling,"how to get rid of little lint balls on clothes",50,High,96,,,0%
+9-unclassified,other,"how to get rid of nubbies on sweaters",50,Unknown,,,,-100%
+9-unclassified,other,"how to get rid of nubs on sweaters",50,Unknown,,,,0%
+9-unclassified,other,"how to get rid of piles on sweaters",50,Medium,64,,,new
+1-damage-care,pilling,"how to get rid of pilled clothing",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of pilling on a shirt",50,Medium,63,0.05,1.36,0%
+1-damage-care,pilling,"how to get rid of pilling on align leggings",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of pilling on cashmere sweaters",50,High,100,,,0%
+1-damage-care,pilling,"how to get rid of pilling on coat",50,Low,0,,,new
+1-damage-care,pilling,"how to get rid of pilling on dress",50,High,69,,,0%
+1-damage-care,pilling,"how to get rid of pilling on fabric",50,High,77,0.24,0.92,0%
+1-damage-care,pilling,"how to get rid of pilling on fabric couch",50,Medium,57,,,0%
+1-damage-care,pilling,"how to get rid of pilling on fleece",50,Low,0,,,0%
+1-damage-care,pilling,"how to get rid of pilling on hoodie",50,Medium,60,0.14,1.73,0%
+1-damage-care,pilling,"how to get rid of pilling on jackets",50,Low,14,,,0%
+1-damage-care,pilling,"how to get rid of pilling on knitwear",50,Low,7,,,0%
+1-damage-care,pilling,"how to get rid of pilling on lulu leggings",50,Low,5,,,0%
+1-damage-care,pilling,"how to get rid of pilling on lululemon pants",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to get rid of pilling on pants",50,Low,29,0.22,1.44,0%
+1-damage-care,pilling,"how to get rid of pilling on shirt",50,Medium,63,0.05,1.36,0%
+1-damage-care,pilling,"how to get rid of pilling on sweatpants",50,Medium,64,0.10,1.29,0%
+1-damage-care,pilling,"how to get rid of pilling on sweatshirt",500,High,83,0.08,0.37,900%
+1-damage-care,pilling,"how to get rid of pilling on t shirts",50,Low,14,,,0%
+1-damage-care,pilling,"how to get rid of pilling on wool coat",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to get rid of pilling on wool sweater",50,High,71,,,0%
+1-damage-care,pilling,"how to get rid of pilling on yoga pants",50,High,71,,,0%
+1-damage-care,pilling,"how to get rid of pills on a sweater",500,High,84,0.09,0.41,0%
+1-damage-care,pilling,"how to get rid of pills on cashmere sweater",50,High,100,,,0%
+1-damage-care,pilling,"how to get rid of pills on fabric",50,High,90,0.20,1.41,0%
+1-damage-care,pilling,"how to get rid of pills on leggings",500,Low,22,0.09,1.35,0%
+1-damage-care,pilling,"how to get rid of pills on lululemon leggings",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of pills on pants",50,Medium,36,,,0%
+1-damage-care,pilling,"how to get rid of pills on sweatpants",50,Medium,57,,,0%
+1-damage-care,pilling,"how to get rid of pills on sweatshirt",50,High,76,0.04,1.27,0%
+9-unclassified,other,"how to get rid of pulls in fabric",50,Low,0,,,0%
+1-damage-care,pilling,"how to get rid of shirt fuzzies",50,High,100,,,0%
+1-damage-care,pilling,"how to get rid of shirt pills",50,Low,0,,,new
+1-damage-care,pilling,"how to get rid of small lint balls on clothes",50,Medium,38,,,0%
+1-damage-care,pilling,"how to get rid of sweater fuzzies",50,High,100,,,0%
+1-damage-care,pilling,"how to get rid of sweater lint",500,High,77,0.03,1.36,-90%
+1-damage-care,pilling,"how to get rid of sweater pilling",500,High,83,0.08,0.37,900%
+1-damage-care,pilling,"how to get rid of sweatshirt pilling",50,High,79,,,0%
+1-damage-care,pilling,"how to get rid of the bobbly bits on clothes",50,Unknown,,,,0%
+1-damage-care,pilling,"how to get rid of the fuzz on a sweater",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to get rid of those little balls on clothes",50,Medium,57,0.07,1.72,0%
+1-damage-care,pilling,"how to get rid of thread balls on clothes",50,Low,0,,,0%
+1-damage-care,pilling,"how to get rid of tiny balls on clothes",50,High,100,,,0%
+1-damage-care,pilling,"how to get rid of white balls on clothes",50,Low,0,,,new
+1-damage-care,pilling,"how to get rid of wool balls on sweaters",50,Low,6,,,0%
+1-damage-care,pilling,"how to get rid of wool bobbles",50,Low,0,,,new
+1-damage-care,pilling,"how to get rid of wool fuzz",50,High,100,,,0%
+1-damage-care,pilling,"how to get rid of wool pilling",50,Low,21,,,0%
+1-damage-care,pilling,"how to get rid of wool sweater pilling",50,Unknown,,,,-100%
+1-damage-care,shoe-yellowing,"how to get yellow soles white",50,Unknown,,,,-100%
+1-damage-care,shoe-yellowing,"how to get yellow soles white again",50,High,86,,,0%
+1-damage-care,pilling,"how to keep a sweater from pilling",500,Low,20,0.03,1.34,0%
+1-damage-care,pilling,"how to keep fuzz balls off clothes",50,High,100,,,0%
+1-damage-care,pilling,"how to keep lint balls off clothes",50,High,68,,,0%
+1-damage-care,shoe-yellowing,"how to make yellow rubber shoes white again",50,Unknown,,,,-100%
+1-damage-care,shoe-yellowing,"how to make yellow shoe soles white again",50,Medium,49,,,0%
+1-damage-care,shoe-yellowing,"how to make yellow sole white again",50,Unknown,,,,0%
+1-damage-care,shoe-yellowing,"how to make yellow soles white",50,Medium,36,,,0%
+1-damage-care,shoe-yellowing,"how to make yellow soles white again",50,Medium,63,,,0%
+1-damage-care,shoe-yellowing,"how to make your yellow soles white again",50,High,100,,,0%
+5-marketplace-howto,photos,"how to photograph clothes for ebay",50,Low,8,,,0%
+5-marketplace-howto,photos,"how to photograph clothes to sell online",50,Low,33,0.22,1.92,0%
+1-damage-care,pilling,"how to pill a sweater",50,High,79,,,0%
+1-damage-care,pilling,"how to prevent bobbles on clothes",500,Low,28,0.42,1.72,0%
+1-damage-care,pilling,"how to prevent fuzz balls on sweaters",50,High,100,,,new
+1-damage-care,pilling,"how to prevent fuzzies on sweaters",50,Medium,43,,,new
+1-damage-care,pilling,"how to prevent lint balls on blankets",50,High,86,,,0%
+1-damage-care,pilling,"how to prevent lint balls on sweaters",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to prevent lint balls on sweatpants",50,Low,10,,,0%
+1-damage-care,pilling,"how to prevent pilling in clothes",50,Low,21,,,0%
+1-damage-care,pilling,"how to prevent sweater pilling",500,Low,20,0.03,1.34,0%
+4-value,pricing,"how to price clothes for resale",50,Low,8,0.04,2.62,0%
+1-damage-care,pilling,"how to reduce pilling on clothing",50,Unknown,,,,0%
+1-damage-care,pilling,"how to reduce pilling on sweaters",500,Low,20,0.03,1.34,0%
+1-damage-care,pilling,"how to remove balls from cashmere sweater",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove balls from fabric",50,High,100,0.27,1.27,0%
+1-damage-care,pilling,"how to remove balls from fabric couch",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove balls from wool sweater",50,Low,6,,,0%
+1-damage-care,pilling,"how to remove balls off sweaters",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove balls on sweaters",500,High,84,0.09,0.41,0%
+1-damage-care,pilling,"how to remove blanket fuzz from clothes",50,High,92,,,0%
+1-damage-care,pilling,"how to remove bobbles",50,Low,0,,,0%
+1-damage-care,pilling,"how to remove bobbles from coat",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove bobbles from fabric",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove bobbles from hoodie",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove bobbles from joggers",0,Unknown,,,,0%
+1-damage-care,pilling,"how to remove bobbles from knitwear",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove bobbles from tracksuit bottoms",0,Unknown,,,,0%
+1-damage-care,pilling,"how to remove bobbles from trousers",0,Unknown,,,,0%
+1-damage-care,pilling,"how to remove bobbles from wool clothes",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove bobbles from wool coat",50,Low,21,,,0%
+1-damage-care,pilling,"how to remove bobbles off clothes",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove bobbling from cotton clothes",0,Unknown,,,,0%
+1-damage-care,pilling,"how to remove bobbling from sweater",500,High,84,0.09,0.41,0%
+1-damage-care,pilling,"how to remove bobbly bits from clothes",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove cashmere pilling",50,High,100,,,0%
+1-damage-care,pilling,"how to remove cashmere pills",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove cloth balls from clothes",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove clothes bobbles",50,Low,1,,,0%
+1-damage-care,pilling,"how to remove clothes pilling",50,Low,0,,,0%
+1-damage-care,pilling,"how to remove clothing fuzz",50,Low,0,,,0%
+1-damage-care,pilling,"how to remove clothing pills",50,Low,0,,,0%
+1-damage-care,pilling,"how to remove cotton balls from sweater",50,High,100,,,0%
+1-damage-care,pilling,"how to remove fabric balls",50,High,100,0.27,1.27,0%
+1-damage-care,pilling,"how to remove fabric balls from sweater",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove fabric fuzz",50,High,89,0.15,1.26,0%
+1-damage-care,pilling,"how to remove fabric pilling from clothes",50,High,88,0.28,1.26,0%
+1-damage-care,pilling,"how to remove fluff from clothing",5000,Medium,52,0.24,1.49,0%
+1-damage-care,pilling,"how to remove fluff from coat",50,Low,2,,,0%
+1-damage-care,pilling,"how to remove fluff from hoodie",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove fluff from jacket",50,Low,0,,,0%
+1-damage-care,pilling,"how to remove fluff from knitwear",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove fluff from new hoodie",50,Low,1,,,0%
+1-damage-care,pilling,"how to remove fluff from sweater",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove fluff from trousers",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove fluff from wool sweater",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove fur balls from sweaters",50,High,100,,,0%
+1-damage-care,pilling,"how to remove fuzz balls",500,Low,30,0.07,1.41,0%
+1-damage-care,pilling,"how to remove fuzz balls from blankets",50,High,93,,,0%
+1-damage-care,pilling,"how to remove fuzz balls from cashmere sweater",50,High,100,,,0%
+1-damage-care,pilling,"how to remove fuzz balls from fabric",50,High,92,0.05,1.27,0%
+1-damage-care,pilling,"how to remove fuzz balls from fleece",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove fuzz balls from hoodie",50,Low,0,,,0%
+1-damage-care,pilling,"how to remove fuzz balls from leggings",50,Low,0,,,new
+1-damage-care,pilling,"how to remove fuzz balls from shirt",50,Low,29,,,new
+1-damage-care,pilling,"how to remove fuzz balls from sweatpants",50,High,86,,,0%
+1-damage-care,pilling,"how to remove fuzz balls from sweatshirts",500,High,73,0.08,0.52,0%
+1-damage-care,pilling,"how to remove fuzz balls from wool coat",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove fuzz balls from wool sweater",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove fuzz balls off sweaters",50,High,100,,,0%
+1-damage-care,pilling,"how to remove fuzz balls on clothes",500,High,71,0.27,1.57,0%
+1-damage-care,pilling,"how to remove fuzz balls on sweaters",500,High,73,0.08,0.52,0%
+1-damage-care,pilling,"how to remove fuzz from black clothes",500,Low,10,,,0%
+1-damage-care,pilling,"how to remove fuzz from clothes in dryer",50,Medium,50,,,0%
+1-damage-care,pilling,"how to remove fuzz from coat",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove fuzz from fabric",50,High,91,0.26,1.40,0%
+1-damage-care,pilling,"how to remove fuzz from fleece jacket",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove fuzz from hoodies",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove fuzz from jacket",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove fuzz from knit sweaters",50,High,84,,,0%
+1-damage-care,pilling,"how to remove fuzz from pants",50,Low,6,,,0%
+1-damage-care,pilling,"how to remove fuzz from sheets",50,High,100,,,0%
+1-damage-care,pilling,"how to remove fuzz from shirt",50,High,82,,,0%
+1-damage-care,pilling,"how to remove fuzz from sweatpants",50,High,86,,,0%
+1-damage-care,pilling,"how to remove fuzz from sweatshirts",50,High,86,,,0%
+1-damage-care,pilling,"how to remove fuzz from wool coat",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove fuzz from wool sweater",50,High,93,,,0%
+1-damage-care,pilling,"how to remove fuzz from woolen clothes",0,Unknown,,,,0%
+1-damage-care,pilling,"how to remove fuzz off sweaters",50,Low,0,,,0%
+1-damage-care,pilling,"how to remove fuzz on sweaters",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove fuzzy sweater pillings",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove hoodie fuzz",50,Low,14,,,0%
+1-damage-care,pilling,"how to remove knit balls from sweaters",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove lint balls from a sweater",500,High,73,0.08,0.52,0%
+1-damage-care,pilling,"how to remove lint balls from black clothes",50,Low,0,,,new
+1-damage-care,pilling,"how to remove lint balls from blanket",50,High,94,,,0%
+1-damage-care,pilling,"how to remove lint balls from clothes without roller",50,High,67,,,0%
+1-damage-care,pilling,"how to remove lint balls from cotton clothes",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove lint balls from fabric",50,Medium,64,,,0%
+1-damage-care,pilling,"how to remove lint balls from fleece",50,High,100,,,new
+1-damage-care,pilling,"how to remove lint balls from hoodie",50,High,100,,,0%
+1-damage-care,pilling,"how to remove lint balls from jacket",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove lint balls from leggings",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove lint balls from pants",50,Medium,48,,,0%
+1-damage-care,pilling,"how to remove lint balls from polyester",50,Medium,46,,,0%
+1-damage-care,pilling,"how to remove lint balls from shirt",50,Low,17,,,new
+1-damage-care,pilling,"how to remove lint balls from sofa",50,High,100,0.24,0.53,0%
+1-damage-care,pilling,"how to remove lint balls from sweater",500,High,73,0.08,0.52,0%
+1-damage-care,pilling,"how to remove lint balls from sweatpants",50,Low,4,,,0%
+1-damage-care,pilling,"how to remove lint balls from sweatshirt",50,High,100,,,0%
+1-damage-care,pilling,"how to remove lint balls from wool coat",50,High,100,,,new
+1-damage-care,pilling,"how to remove lint balls from woolen clothes",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove lint balls off sweaters",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove lint balls on clothes",5000,High,89,0.08,1.41,0%
+1-damage-care,pilling,"how to remove lint from cashmere sweater",50,High,100,,,0%
+1-damage-care,pilling,"how to remove lint from fabric sofa",50,Medium,60,,,0%
+1-damage-care,pilling,"how to remove lint from fleece jacket",50,High,100,,,0%
+1-damage-care,pilling,"how to remove lint from knit sweater",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove lint from sweaters at home",50,Medium,54,,,0%
+1-damage-care,pilling,"how to remove lint from wool sweater",50,High,67,,,0%
+1-damage-care,pilling,"how to remove lint fuzz from clothes",50,Medium,57,,,0%
+1-damage-care,pilling,"how to remove lint on sweater",500,High,77,0.03,1.36,-90%
+1-damage-care,pilling,"how to remove lint pills",50,Medium,51,,,0%
+1-damage-care,pilling,"how to remove lint with razor",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove little balls from sweaters",50,Low,7,,,0%
+1-damage-care,pilling,"how to remove little lint balls from sweaters",50,High,79,,,0%
+9-unclassified,other,"how to remove nubs from sweaters",50,High,100,,,0%
+9-unclassified,other,"how to remove pekas on clothing",50,Low,0,,,new
+9-unclassified,other,"how to remove pile from clothes",50,High,100,,,0%
+9-unclassified,other,"how to remove pile from sweaters",50,High,79,,,0%
+1-damage-care,pilling,"how to remove pilled fabric",50,Medium,63,,,0%
+1-damage-care,pilling,"how to remove pilling from bathing suit",50,Low,8,,,0%
+1-damage-care,pilling,"how to remove pilling from cashmere sweater",50,High,100,0.08,0.65,0%
+1-damage-care,pilling,"how to remove pilling from clothes reddit",50,Low,0,,,0%
+1-damage-care,pilling,"how to remove pilling from coat",50,Medium,43,,,0%
+1-damage-care,pilling,"how to remove pilling from fleece",50,Medium,57,,,0%
+1-damage-care,pilling,"how to remove pilling from fleece jacket",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove pilling from hoodies",50,High,71,,,0%
+1-damage-care,pilling,"how to remove pilling from jacket",50,Medium,43,,,0%
+1-damage-care,pilling,"how to remove pilling from knit sweaters",50,Medium,33,,,0%
+1-damage-care,pilling,"how to remove pilling from knitwear",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove pilling from lululemon leggings",50,Low,29,,,0%
+1-damage-care,pilling,"how to remove pilling from pants",50,High,85,0.29,1.82,0%
+1-damage-care,pilling,"how to remove pilling from patagonia better sweater",50,Low,2,,,0%
+1-damage-care,pilling,"how to remove pilling from polyester",50,Medium,43,,,0%
+1-damage-care,pilling,"how to remove pilling from polyester fabric",50,High,71,,,0%
+1-damage-care,pilling,"how to remove pilling from satin",50,Medium,57,,,0%
+1-damage-care,pilling,"how to remove pilling from shirt",50,Medium,61,0.07,1.26,0%
+1-damage-care,pilling,"how to remove pilling from silk",50,Medium,50,,,0%
+1-damage-care,pilling,"how to remove pilling from sweatpants",50,High,100,0.09,1.01,0%
+1-damage-care,pilling,"how to remove pilling from swimsuit",50,Low,3,,,0%
+1-damage-care,pilling,"how to remove pilling from t shirt",50,Medium,53,0.13,1.42,0%
+1-damage-care,pilling,"how to remove pilling from wool",50,High,99,0.31,1.01,0%
+1-damage-care,pilling,"how to remove pilling from wool coat",50,Low,21,,,0%
+1-damage-care,pilling,"how to remove pilling from woolen clothes",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove pilling from yoga pants",50,Low,0,,,new
+1-damage-care,pilling,"how to remove pilling on a sweater",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove pilling on cashmere sweaters",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove pilling on leggings",50,Low,0,,,0%
+1-damage-care,pilling,"how to remove pilling on lululemon leggings",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove pilling on sweaters",500,High,84,0.09,0.41,0%
+1-damage-care,pilling,"how to remove pilling on wool sweater",50,High,71,,,0%
+1-damage-care,pilling,"how to remove pilling with a razor",50,Medium,43,,,0%
+1-damage-care,pilling,"how to remove pills from a sweater",500,High,84,0.09,0.41,0%
+1-damage-care,pilling,"how to remove pills from leggings",50,Low,0,,,0%
+1-damage-care,pilling,"how to remove pills from shirt",50,Medium,38,,,0%
+1-damage-care,pilling,"how to remove pills from sweaters with razor",50,Medium,62,,,0%
+1-damage-care,pilling,"how to remove pills from sweatshirt",500,High,84,0.09,0.41,0%
+1-damage-care,pilling,"how to remove pills from wool coat",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove pills from wool sweater",50,High,100,0.06,0.44,0%
+1-damage-care,pilling,"how to remove pills off sweaters",50,Low,14,,,new
+1-damage-care,pilling,"how to remove pills on clothes",5000,High,93,0.10,1.35,0%
+1-damage-care,pilling,"how to remove pills on sweaters",500,High,84,0.09,0.41,0%
+1-damage-care,pilling,"how to remove small balls from sweater",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove small cotton balls from clothes",50,High,67,,,0%
+1-damage-care,pilling,"how to remove sweater fuzz from clothes",50,Low,0,,,0%
+1-damage-care,pilling,"how to remove sweater pills at home",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove sweatshirt pilling",50,Medium,43,,,0%
+1-damage-care,pilling,"how to remove the balls on sweaters",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove the fuzz from a sweater",500,Medium,51,0.07,0.50,0%
+1-damage-care,pilling,"how to remove thread balls from clothes",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove tiny lint balls",50,Low,0,,,0%
+1-damage-care,pilling,"how to remove wool balls from sweater",50,Low,6,,,0%
+1-damage-care,pilling,"how to remove wool bobbles from clothes",50,Unknown,,,,0%
+1-damage-care,pilling,"how to remove wool bobbles from sweater",50,High,100,0.06,0.44,0%
+1-damage-care,pilling,"how to remove wool fuzz",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to remove wool sweater pills",50,High,100,0.06,0.44,0%
+1-damage-care,shoe-yellowing,"how to remove yellow oxidation from shoes",50,Medium,44,,,0%
+1-damage-care,pilling,"how to shave a sweater without a sweater shaver",50,Medium,48,,,0%
+1-damage-care,pilling,"how to shave bobbles off clothes",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to shave fuzz off a sweater",50,High,94,,,0%
+1-damage-care,pilling,"how to shave lint off sweater",50,Low,0,,,0%
+1-damage-care,pilling,"how to shave pills off a sweater",50,High,71,,,0%
+1-damage-care,pilling,"how to shave sweater lint",50,Unknown,,,,0%
+1-damage-care,pilling,"how to stop bobbles on clothes",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to stop fluff balls on clothes",0,Unknown,,,,0%
+1-damage-care,pilling,"how to stop leggings from pilling",50,Low,1,,,0%
+1-damage-care,pilling,"how to stop sweaters from fuzzing",50,Unknown,,,,0%
+5-marketplace-howto,photos,"how to take a picture of clothes to sell",50,Low,12,,,0%
+1-damage-care,pilling,"how to take bobbles off clothes",50,Unknown,,,,0%
+1-damage-care,pilling,"how to take fuzz balls off sweaters",50,High,100,,,0%
+1-damage-care,pilling,"how to take fuzz off sweaters",50,High,83,,,0%
+1-damage-care,pilling,"how to take fuzzies off a sweater",50,High,100,,,0%
+5-marketplace-howto,photos,"how to take good photos of clothes to sell",50,Low,14,0.05,5.42,0%
+5-marketplace-howto,photos,"how to take good photos to sell clothes",50,Low,27,0.36,2.13,0%
+5-marketplace-howto,photos,"how to take good pics of clothes to sell",50,Low,21,0.35,2.42,0%
+5-marketplace-howto,photos,"how to take good pictures for selling clothes",50,Low,14,,,0%
+5-marketplace-howto,photos,"how to take good pictures of clothes for poshmark",50,Unknown,,,,-100%
+5-marketplace-howto,photos,"how to take good pictures of clothes for sale",50,Low,26,0.17,3.77,0%
+5-marketplace-howto,photos,"how to take good pictures to sell clothes",50,Low,7,,,0%
+1-damage-care,pilling,"how to take lint balls off of clothes",50,Medium,40,,,0%
+1-damage-care,pilling,"how to take lint balls off sweaters",50,High,100,,,0%
+1-damage-care,pilling,"how to take off lint balls",50,Unknown,,,,0%
+1-damage-care,pilling,"how to take off lint balls from clothes",50,High,81,0.09,1.41,0%
+1-damage-care,pilling,"how to take off pilling from clothes",50,High,90,,,0%
+1-damage-care,pilling,"how to take out lint balls from clothes",50,Low,21,,,0%
+5-marketplace-howto,photos,"how to take photo of clothes to sell",50,Low,22,0.37,3.06,0%
+5-marketplace-howto,photos,"how to take photos for selling clothes",50,Low,0,,,0%
+5-marketplace-howto,photos,"how to take photos of clothes to sell online",500,Low,29,0.55,3.50,900%
+5-marketplace-howto,photos,"how to take photos to sell clothes",50,Medium,39,0.55,1.59,0%
+5-marketplace-howto,photos,"how to take pictures for selling clothes",50,Low,8,,,0%
+5-marketplace-howto,photos,"how to take pictures of clothes for ebay",50,Low,13,,,0%
+5-marketplace-howto,photos,"how to take pictures of clothes for poshmark",50,Low,10,,,0%
+5-marketplace-howto,photos,"how to take pictures of clothes to sell on ebay",50,Medium,57,,,0%
+5-marketplace-howto,photos,"how to take pictures of clothes to sell on poshmark",50,Low,0,,,0%
+5-marketplace-howto,photos,"how to take pictures of clothes to sell with iphone",50,Medium,45,0.38,3.09,0%
+5-marketplace-howto,photos,"how to take pictures of clothes to sell without mannequin",50,Low,26,1.20,7.98,0%
+5-marketplace-howto,photos,"how to take pictures of dresses to sell",50,Low,2,,,0%
+5-marketplace-howto,photos,"how to take pictures of shirts to sell",50,Low,9,,,0%
+5-marketplace-howto,photos,"how to take pictures of used clothes to sell",50,Low,0,,,0%
+1-damage-care,pilling,"how to take pills off a sweater",50,High,86,,,0%
+1-damage-care,pilling,"how to take pills off sweaters",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to treat pilling on sweaters",50,Medium,43,,,0%
+1-damage-care,shoe-yellowing,"how to turn yellow shoe soles white again",50,High,69,,,0%
+1-damage-care,shoe-yellowing,"how to turn yellow soles white again",50,Medium,37,,,0%
+1-damage-care,pilling,"how to use a lint shaver",50,Low,0,,,0%
+1-damage-care,pilling,"how to use a razor to remove pilling",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to use a sweater comb",500,Low,7,,,0%
+1-damage-care,pilling,"how to use fabric shaver",500,Low,5,,,-90%
+1-damage-care,pilling,"how to use fluff shaver",50,Unknown,,,,-100%
+1-damage-care,pilling,"how to use sweater shaver",50,Low,0,,,0%
+1-damage-care,pilling,"how to wash sweaters without lint balls",50,Low,7,,,0%
+1-damage-care,shoe-yellowing,"how to whiten icy soles",50,Low,0,,,0%
+1-damage-care,shoe-yellowing,"how to whiten yellow rubber on shoes",50,High,78,,,0%
+1-damage-care,shoe-yellowing,"how to whiten yellow rubber on sneakers",50,High,71,,,new
+1-damage-care,shoe-yellowing,"how to whiten yellow rubber soles",50,Medium,57,,,0%
+1-damage-care,shoe-yellowing,"how to whiten yellow sneaker soles",50,High,87,,,0%
+1-damage-care,shoe-yellowing,"how to whiten yellow sole",50,Low,32,,,0%
+1-damage-care,shoe-yellowing,"how to whiten yellow soles of shoes",50,Unknown,,,,-100%
+1-damage-care,shoe-yellowing,"how to whiten yellow soles on shoes",50,High,70,0.23,1.09,900%
+1-damage-care,shoe-yellowing,"how to whiten yellow soles on shoes home remedy",50,Unknown,,,,-100%
+1-damage-care,shoe-yellowing,"how to whiten yellow soles on shoes with baking soda",50,Unknown,,,,0%
+1-damage-care,shoe-yellowing,"how to whiten yellowed rubber on shoes",50,High,78,,,0%
+1-damage-care,shoe-yellowing,"how to whiten yellowed sneaker soles",50,High,87,,,0%
+5-marketplace-howto,photos,"instagram how to take picture of clothes to sell",50,Low,0,,,0%
+9-unclassified,other,"is depop or mercari better",50,Low,14,12.22,47.59,0%
+9-unclassified,other,"is mercari or depop better",50,Low,5,,,0%
+7-positioning,comparison,"mercari vs poshmark vs depop",50,Low,23,,,0%
+1-damage-care,pilling,"pills on cashmere sweater how to remove",50,Unknown,,,,-100%
+3-tools,inventory,"poshmark reseller spreadsheet",50,High,93,,,0%
+7-positioning,comparison,"poshmark vs depop vs mercari",50,Low,5,,,0%
+8-vintage-auth,single-stitch,"single stitch blank shirts",50,High,100,,,0%
+8-vintage-auth,single-stitch,"single stitch shirt example",50,Medium,53,,,0%
+8-vintage-auth,single-stitch,"single stitch shirt vintage",50,High,92,,,0%
+8-vintage-auth,single-stitch,"single stitch t",50,High,100,,,0%
+8-vintage-auth,single-stitch,"single stitch t shirt example",50,High,87,,,0%
+8-vintage-auth,single-stitch,"single stitch t shirt vintage",500,High,89,0.04,1.00,900%
+8-vintage-auth,single-stitch,"single stitch tee shirt",50,High,100,,,0%
+8-vintage-auth,single-stitch,"single stitch vintage shirt",50,High,87,,,0%
+8-vintage-auth,single-stitch,"single stitch vintage t shirt",50,High,93,0.01,0.09,0%
+8-vintage-auth,single-stitch,"t shirt single stitch",50,Medium,45,,,0%
+8-vintage-auth,single-stitch,"vintage carhartt single stitch shirt",50,Unknown,,,,0%
+8-vintage-auth,single-stitch,"vintage single stitch",50,High,78,0.29,1.77,0%
+8-vintage-auth,single-stitch,"vintage single stitch shirt",500,High,92,0.04,0.33,0%
+8-vintage-auth,single-stitch,"vintage single stitch shirt example",50,High,100,,,0%
+8-vintage-auth,single-stitch,"vintage single stitch t shirt",500,High,89,0.05,0.34,0%
+8-vintage-auth,single-stitch,"vintage single stitch tee",50,High,97,,,0%
+8-vintage-auth,single-stitch,"vintage t shirt single stitch",50,High,100,,,0%
+9-unclassified,other,"which is better mercari or depop",50,Low,2,,,0%
+4-value,pricing,"vintage t shirt value",0,Unknown,,,,--

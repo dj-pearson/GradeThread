@@ -1,0 +1,143 @@
+# Keyword pull 2026-08-28: what it changes, and what it does not
+
+Second Keyword Planner pull, 651 keywords, run 2026-08-28 against the
+Aug 2025 - Jul 2026 window. Raw file `keyword/Keyword_Stats.csv` (UTF-16,
+tab-separated, as Planner exports it). Normalised into the same shape as the
+first pull at `docs/seo/keyword-pull-2026-08-28-results.csv`.
+
+**It overlaps the 2026-08-18 pull by exactly one keyword.** The two are
+complementary, not a re-run. The first pull sized stain removal, repair, fee
+calculators and shipping. This one sizes pilling, vintage tee dating, eBay sold
+comps, reseller spreadsheets and listing photography.
+
+Paired with the Search Console export of the same date
+(`keyword/gradethread.com-Performance-on-Search-2026-08-28/`, 94-day window,
+14,128 impressions, 103 clicks).
+
+---
+
+## 1. The finding that outranks the keyword file
+
+Before any of the new clusters are worth arguing about, the per-family Search
+Console numbers settle a question the site has been avoiding. Per month, over
+the 94-day window:
+
+| family | URLs | impr/mo | clicks/mo | CTR | weighted position |
+|---|---|---|---|---|---|
+| /blog | 122 | 2,095 | 12.3 | 0.59% | 11.7 |
+| /compare | 16 | 633 | 3.5 | 0.56% | 10.8 |
+| /care | 46 | 494 | **0.6** | 0.13% | 42.4 |
+| /grading | 87 | 492 | 1.6 | 0.33% | 8.6 |
+| **/tools** | **10** | **364** | **12.6** | **3.46%** | 20.6 |
+| /reselling | 12 | 179 | 0.3 | 0.18% | 42.5 |
+| /value | 15 | 88 | 0.6 | 0.74% | 6.5 |
+| /condition-index | 29 | 59 | **0** | 0.00% | 8.1 |
+
+Ten tool URLs earn as many clicks as a hundred and twenty-two blog posts.
+Their CTR is six times the site average.
+
+Meanwhile 162 URLs across /care, /grading and /condition-index produced
+**seven clicks in three months**. /grading is the sharpest version of it: 87
+URLs at an average position of 8.6, which is a good position, converting at
+0.33%. The pages rank. Nobody clicks them.
+
+The reason is visible in the query data. `vguc meaning` earns 355 impressions
+at position 8.9 and zero clicks. `what does nwot mean` is the same shape.
+Definition queries get answered above the results now, and a 321-word page
+whose promise is the definition has nothing left to offer. That is not a
+ranking failure and no amount of new glossary pages fixes it.
+
+**So the format is the strategy, not the topic.** Tools convert. Definitions do
+not. Anything this keyword file justifies building should be built as a tool or
+a workflow page, and only as an article when there is genuinely no tool in it.
+
+## 2. The clusters in the new pull
+
+Ordered by monthly volume, with the verdict.
+
+| cluster | kw | vol/mo | competition | existing coverage | verdict |
+|---|---|---|---|---|---|
+| pilling / lint / fuzz / bobbles | 447 | **152,400** | mostly High | `/care/pilling` at **position 72** | Deepen. Do not expand. |
+| single stitch tee dating | 25 | 8,850 | High | **none** | Build. Best on-brand gap. |
+| how to check sold items on eBay | 14 | 7,250 | **Low** | none | Build as a tool. |
+| how can I sell clothes | 4 | 5,050 | Medium | `/reselling/how-to-sell-used-clothes-online` | Leave. |
+| what does NWOT mean | 1 | 5,000 | **Low** | `/grading/nwot`, 342 words | Reframe, do not expand. |
+| photographing clothes to sell | 28 | 3,450 | **Low** | none | Build. Feeds FlipDesk. |
+| yellowed shoe soles | 36 | 1,750 | mixed | none | **Skip.** Off-entity. |
+| Mercari / Depop / Poshmark vs | 7 | 1,700 | Low | `/compare/*` (16 pages) | Already served. |
+| reseller inventory spreadsheet | 13 | 1,600 | High, **$21.71 top bid** | none | Build. Highest commercial intent in the file. |
+| pricing used clothes | 4 | 150 | Low | `/whats-it-worth` | Leave. |
+
+### Pilling is 92% of the file's volume and it is a trap in its current form
+
+152,400 searches a month is the largest single cluster either pull has
+surfaced. `/care/pilling` already exists, targets the head term in its title,
+and sits at **position 72 on 203 impressions with zero clicks**. It is 665
+words with no images.
+
+The head terms are High competition and the SERP wants a long illustrated
+how-to with product recommendations. A 665-word page is not losing on domain
+authority, it is losing on being a third of the size of everything above it.
+US-9011 already established the repair space is held by small craft blogs
+rather than major publishers, so the space is reachable. The page has simply
+never been given enough to rank with.
+
+**Building the other 400 pilling long-tails before the head page can hold
+page two would be building 400 more position-70 URLs.** The care family is
+already the worst-performing family on the site at position 42.4 across 46
+URLs. Volume this large is a reason to make one page real, not a reason to
+make forty thin ones.
+
+The US-9016 threshold for /care is 10,000 impressions/mo by 2027-02-18. It is
+at 494. That needs a twentyfold increase from 46 URLs, and the honest read is
+that it arrives from three pages that actually rank or it does not arrive.
+
+### Single stitch is the cleanest gap in the file
+
+8,850/mo across 25 keywords, and the site has **zero pages** on it. Single
+stitch is how resellers date a vintage tee to pre-1994, which makes it an
+authentication question, and `/tools/authenticity-check` is the best page on
+the site by a distance: 37 clicks, 337 impressions, **10.98% CTR**. The
+audience and the format are both already proven here.
+
+### eBay sold comps is the best volume-to-difficulty ratio
+
+7,250/mo at **Low** competition, and the product already does it. FlipDesk has
+the eBay Browse comps integration wired. This is the one cluster in the file
+where the search intent, the low competition, the format that converts on this
+site, and a working feature all point at the same page.
+
+### The spreadsheet cluster is small and worth more than its volume
+
+1,600/mo is nothing next to pilling. But the top-of-page bid is **$21.71**,
+which is the highest in either pull, and the searcher is a reseller looking for
+the thing FlipDesk replaces. A free download that runs out of room is the
+oldest funnel there is and it is honest here, because spreadsheets genuinely do
+run out of room. `/blog/when-should-resellers-stop-using-spreadsheets-inventory`
+already exists and gets nothing, because it argues the point instead of handing
+over the file.
+
+### Skip the shoe soles
+
+1,750/mo, and it is sneaker restoration. Nothing in it grades a garment.
+US-9015 exists precisely to stop the care cluster diluting the reseller entity,
+and this is what that guard was written for.
+
+## 3. What this does not change
+
+The CTR pass, US-9017, is still the cheapest work in the file and still has two
+open operator items: the prod `--apply` for the seven blog rows, and the
+2026-10-17 Search Console read. Nothing in this pull outranks finishing that.
+
+Keep the size honest. Closing the whole CTR gap is worth roughly 66 clicks over
+six months. Everything proposed here is a bet on the next two quarters, not a
+fix for this month.
+
+## 4. Stories filed
+
+- **US-9019** Deepen /care/pilling to a page that can hold the head term
+- **US-9020** Single stitch dating tool and guide
+- **US-9021** eBay sold comps lookup at /tools/
+- **US-9022** Reseller inventory spreadsheet as a download
+- **US-9023** Photographing clothes to sell, as a workflow page
+- **US-9024** [GATE] Re-read /care against its threshold before any pilling expansion

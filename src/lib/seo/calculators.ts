@@ -377,7 +377,7 @@ export const CALCULATORS: readonly Calculator[] = [
     handoff: {
       surface: "comps",
       heading: "The comp you typed in was the hard part",
-      body: "Everything on this page rests on one number you had to go and find, for one item. FlipDesk pulls eBay sold comparables per item and keeps them condition-aware, so you are pricing an Excellent piece against real Excellent sales rather than against an average of mint and worn.",
+      body: "Everything on this page rests on one number you had to go and find, for one item. FlipDesk pulls comparable eBay listings per item and keeps them condition-aware, so you are pricing an Excellent piece against comparable Excellent ones rather than against an average of mint and worn. It also says whether the number is an asking price or one of your own realised sales, which is the part that decides how much to trust it.",
       cta: "See how FlipDesk prices by condition",
     },
     secondaryKeywords: [
@@ -457,6 +457,106 @@ export const CALCULATORS: readonly Calculator[] = [
       },
     ],
   },
+  {
+    slug: "ebay-sold-listings",
+    status: "live",
+    story: "US-9021",
+    audience: "seller",
+    title: "How to Check Sold Items on eBay",
+    description:
+      "Check what an item really sold for on eBay: the sold-listings filter, the three searches worth running, and the two things a sold price does not tell you.",
+    h1: "How to check sold items on eBay",
+    cardBlurb: "Builds the sold-listing searches worth running, and says what a sold price hides.",
+    primaryKeyword: "how to check sold items on ebay",
+    handoff: {
+      surface: "comps",
+      heading: "Three searches per item adds up",
+      body: "Running the ladder by hand is fine for one garment and tedious for forty. FlipDesk builds the same searches per item and keeps the results attached to it, so the comp set is still there when you come back to reprice.",
+      cta: "See how FlipDesk handles comps",
+    },
+    secondaryKeywords: [
+      "how to check ebay sold listings",
+      "how to check recently sold items on ebay",
+      "how to find recently sold on ebay",
+      "ebay sold listings search",
+    ],
+    intro:
+      "Active listings tell you what sellers hope for. Sold listings tell you what someone paid, which is the only number worth pricing against, and eBay gives them away free behind a filter most people never find. Two catches, and both were measured on a real search rather than assumed. A sold search on eBay reaches back about 90 days and no further. And a large share of sold clothing results are marked Best offer accepted, which means the price shown is what the seller was asking, not what the buyer paid, so the true median sits somewhere below what you are reading.",
+    faqs: [
+      {
+        q: "How do I check sold items on eBay?",
+        a: "Search for the item, then scroll the left-hand filter column to Show only and tick Sold items. On the phone app it is under Filter, then Sold items. The faster route is the URL: adding LH_Sold=1&LH_Complete=1 to any eBay search does the same thing in one step, which is what the search builder above does for you. Sold results already arrive sorted by Ended Recently, so the top of the list is the most current.",
+      },
+      {
+        q: "How far back do eBay sold listings go?",
+        a: "About 90 days. Past that the listings drop off the search entirely, which is why a comp set for a seasonal item taken in August is not the same comp set you would have taken in February. If an item barely sells, three months may return too few results to price from, and the honest response is to widen the search rather than price off two data points.",
+      },
+      {
+        q: "Why does eBay show Best offer accepted instead of a price?",
+        a: "Because the buyer and seller agreed a price privately and eBay does not publish it. The number displayed is the asking price the listing carried, so the real sale was somewhere below it. On a live search of sold Patagonia fleeces on 2026-08-28, most of the results carried that label. Treat those as a ceiling, not a sale, and lean on the Buy It Now and auction results for your median.",
+      },
+      {
+        q: "Are sold listings the same as what an item is worth?",
+        a: "No, and the gap catches sellers out twice. An auction that closed at $29 with five bids and a Buy It Now that closed at $65 are both real sales of the same garment in different sale formats, and averaging them describes neither. Condition is the other half: a sold search cannot see whether the item that made $65 was mint or pilled, and condition is the largest single lever on resale price.",
+      },
+      {
+        q: "Why is another brand showing up in my search?",
+        a: "Because eBay is matching your words, not your garment. A search for Patagonia Synchilla fleece on 2026-08-28 returned a North Face fleece among the sold results, because the listing contained the words. Adding the category filter helps, keeping the brand name first helps more, and the brand-only search in the builder above exists so you can spot when one of your narrower searches has drifted.",
+      },
+      {
+        q: "Can I see sold listings without an eBay account?",
+        a: "Yes. Sold and completed listings are public, so the searches this page builds work signed out, on any device, and cost nothing. You only need an account to save a search and be told when comparable items sell.",
+      },
+    ],
+  },
+  {
+    slug: "single-stitch-dating",
+    status: "live",
+    story: "US-9020",
+    audience: "both",
+    title: "Single Stitch Shirt: Dating a Vintage Tee",
+    description:
+      "What a single stitch shirt is, roughly when the hem changed, and the four other tells that have to agree with it before the date is worth paying for.",
+    h1: "Single stitch shirts: dating a vintage tee",
+    cardBlurb: "Combines the tells on a vintage tee and says when they contradict each other.",
+    primaryKeyword: "single stitch shirt",
+    handoff: {
+      surface: "inventory-management",
+      heading: "Dating one tee is quick. Dating a rail of them is not",
+      body: "The tells are the same every time and so is the note you have to keep about them. FlipDesk holds the era, the blank and the flaws against the item, so the reason you priced it that way is still there when it sells three months later.",
+      cta: "See how FlipDesk tracks items",
+    },
+    secondaryKeywords: [
+      "single stitch t shirt",
+      "single stitch vintage tee",
+      "vintage single stitch shirt",
+      "how to tell if a t shirt is vintage",
+    ],
+    intro:
+      "A single stitch shirt has one line of stitching at the hem and sleeve openings rather than two, and it is the first thing resellers look for on a vintage tee. It earns that reputation: US-made blanks were built this way through the 1980s and the change to a double-needle hem spread through the middle 1990s, manufacturer by manufacturer rather than on a date. What it does not do is prove anything on its own. It is one line of stitching, which makes it the easiest tell on the garment to reproduce, and it is regularly contradicted by another tell on the same shirt. This checks the tells together and tells you when they disagree, which is the finding worth having.",
+    faqs: [
+      {
+        q: "What is a single stitch shirt?",
+        a: "A t-shirt hemmed with one line of stitching at the bottom hem and the sleeve openings, instead of the two parallel lines used on almost every modern blank. Turn the hem over and look at the underside: one row of thread is single stitch, two rows is double. It is a construction detail rather than a brand or a style.",
+      },
+      {
+        q: "Does single stitch mean a shirt is from before 1994?",
+        a: "Not on its own, and the single year is the part to be careful with. Single-needle hems were standard on US-made blanks through the 1980s and were phased out across the middle 1990s by different manufacturers at different times, so the honest range is wide. Small modern runs and reproduction blanks still use it, which is why a page quoting one year is more confident than the evidence.",
+      },
+      {
+        q: "What is the most reliable way to date a vintage t-shirt?",
+        a: "The copyright or event year printed on the graphic, because a shirt cannot be older than the artwork on it. That makes it a hard floor rather than a hint, and it is the tell most guides skip past on the way to the stitch. It does not give you a ceiling: an old copyright line gets reprinted on new blanks, so pair it with the construction.",
+      },
+      {
+        q: "Can single stitch be faked?",
+        a: "Easily. It is one line of stitching, and blanks made to read as vintage use it deliberately. The tell that catches it is a contradiction elsewhere on the garment: a tagless heat-transferred neck label belongs to the 2000s and cannot honestly share a shirt with a 1980s hem. When two tells disagree, price it as modern until something independent settles it.",
+      },
+      {
+        q: "Is a single stitch tee worth more?",
+        a: "It carries a premium on resale sites, which is exactly why the claim needs checking rather than repeating. Age and condition are separate questions, and the second one is what a buyer actually pays for: a genuinely old tee with a cracked print, thin shoulders and pinholes is an old shirt in poor condition. Dating the blank also says nothing about whether the print is a licensed original or a later bootleg on period stock.",
+      },
+    ],
+  },
 ];
 
 export const CALCULATOR_HUB_META = {
@@ -465,8 +565,12 @@ export const CALCULATOR_HUB_META = {
   description:
     "Free calculators for people who sell used clothing: marketplace fees, shipping cost, and profit that accounts for the item's condition. No signup, no account.",
   h1: "Reseller calculators",
+  // US-9021/US-9020 widened this beyond fees and postage. The title still
+  // targets "reseller calculators" because that is what the page ranks for, but
+  // an intro that only described calculators would have been describing two
+  // thirds of the list.
   intro:
-    "Every one of these answers a question you would otherwise guess at: what a sale nets after fees, what postage will cost before you list, and whether an item is worth buying once its condition is priced in. They run in your browser, they need no account, and the fee schedules are dated so you can see which rates a result used.",
+    "Every one of these answers a question you would otherwise guess at: what a sale nets after fees, what postage will cost before you list, whether an item is worth buying once its condition is priced in, where to find what comparable garments really sold for on eBay, and how old the tee in your hand really is. They run in your browser, they need no account, and the fee schedules are dated so you can see which rates a result used.",
   faqs: [
     {
       q: "Are these calculators free?",

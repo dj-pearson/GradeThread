@@ -165,6 +165,8 @@ import {
   EtsyFeeCalculatorPage,
 } from "@/pages/tools/marketplace-fee-calculator";
 import { ResellerProfitCalculatorPage } from "@/pages/tools/reseller-profit-calculator";
+import { EbaySoldListingsPage } from "@/pages/tools/ebay-sold-listings";
+import { SingleStitchDatingPage } from "@/pages/tools/single-stitch-dating";
 import { FOR_BRANDS_PATH } from "@/lib/seo/for-brands";
 import { ForBrandsPage } from "@/pages/marketing/for-brands";
 
@@ -182,6 +184,8 @@ const CALCULATOR_PAGES: Record<string, React.ReactNode> = {
   "depop-fee-calculator": <DepopFeeCalculatorPage />,
   "etsy-fee-calculator": <EtsyFeeCalculatorPage />,
   "reseller-profit-calculator": <ResellerProfitCalculatorPage />,
+  "ebay-sold-listings": <EbaySoldListingsPage />,
+  "single-stitch-dating": <SingleStitchDatingPage />,
 };
 
 const PAGES: Record<string, React.ReactNode> = {

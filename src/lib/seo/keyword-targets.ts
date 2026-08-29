@@ -481,4 +481,47 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
       "how do I convert mens sizes to womens",
     ],
   },
+  {
+    // US-9021. The 2026-08-28 pull sized this cluster at 7,250/mo across 14
+    // keywords at LOW competition, which is the best volume-to-difficulty
+    // ratio either pull has produced. All fourteen are the same question, so
+    // they are served on one URL rather than split.
+    path: "/tools/ebay-sold-listings",
+    cluster: "reseller-tools",
+    intent: "informational",
+    primary: "how to check sold items on ebay",
+    secondary: [
+      "how to check ebay sold listings",
+      "how to find recently sold on ebay",
+      "ebay sold listings search",
+    ],
+    questions: [
+      "how do i check sold items on ebay",
+      "how far back do ebay sold listings go",
+      "why does ebay show best offer accepted",
+      "are sold listings the same as what an item is worth",
+    ],
+  },
+  {
+    // US-9020. 8,850/mo across 25 keywords in the 2026-08-28 pull, and the
+    // sitemap had no URL containing "stitch". Filed under grading-standard
+    // rather than reseller-tools on purpose: dating a blank is an
+    // identification question, and the page's job is to keep it separate from
+    // the condition question that follows it.
+    path: "/tools/single-stitch-dating",
+    cluster: "grading-standard",
+    intent: "informational",
+    primary: "single stitch shirt",
+    secondary: [
+      "single stitch t shirt",
+      "single stitch vintage tee",
+      "vintage single stitch shirt",
+    ],
+    questions: [
+      "what is a single stitch shirt",
+      "does single stitch mean pre 1994",
+      "how do i date a vintage t shirt",
+      "can single stitch be faked",
+    ],
+  },
 ] as const;

@@ -150,14 +150,14 @@ export const OPPORTUNIST_GUIDES: OpportunistGuide[] = [
       },
       {
         heading: "Turning comps into a price, automatically",
-        body: "GradeThread's comp tool pulls recent eBay sold comps for an item and lets you price against the median with a click, and pairs it with a standardized condition grade so you're comparing like condition to like condition — not guessing whether a comp's 'good condition' matches yours. Real sale data plus an objective condition read is a far more defensible list price.",
+        body: "Do the sold search yourself, then let the tool handle the part that is hard to eyeball. GradeThread's comp tool pulls comparable eBay listings for an item and pairs them with a standardized condition grade, so you compare like condition to like condition instead of guessing whether a comp's 'good condition' matches yours. It also labels what you are looking at: comps read from eBay are asking prices, and once you have sold three comparable items yourself it prices from those realised sales instead.",
       },
     ],
     flipdeskCta: {
       label: "See the comp tool in FlipDesk",
       href: "/flipdesk",
       blurb:
-        "FlipDesk pulls recent eBay sold comps per item and prices to the median, paired with a standardized condition grade so you compare like for like.",
+        "FlipDesk pulls comparable eBay listings per item, prices to the median and says whether that median is an asking price or one of your own realised sales, paired with a standardized condition grade so you compare like for like.",
     },
     faqs: [
       {

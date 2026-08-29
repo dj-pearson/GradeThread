@@ -101,7 +101,7 @@ export const FLIPDESK_LANDINGS: FlipdeskLanding[] = [
       "FlipDesk AutoLister turns garment photos into complete eBay listings with AI — title, description, item specifics, condition, and price — ready to review.",
     h1: "AI eBay listing generator for clothing",
     intro:
-      "FlipDesk AutoLister is an AI listing generator for clothing that works with eBay. Photograph a garment and it drafts a complete listing — a keyword-front-loaded title, a description, eBay item specifics (aspects), the condition, and a suggested price from sold comps — for you to review and publish. It turns the slowest part of reselling, writing listings, into a review step.",
+      "FlipDesk AutoLister is an AI listing generator for clothing that works with eBay. Photograph a garment and it drafts a complete listing — a keyword-front-loaded title, a description, eBay item specifics (aspects), the condition, and a suggested price from live comps — for you to review and publish. It turns the slowest part of reselling, writing listings, into a review step.",
     appName: "FlipDesk AutoLister",
     appDescription:
       "AI listing generator for clothing resellers: turns garment photos into complete eBay listings — title, description, item specifics, condition, and comp-based price — ready to review and publish.",
@@ -119,8 +119,8 @@ export const FLIPDESK_LANDINGS: FlipdeskLanding[] = [
         body: "AutoLister reads the garment photos, identifies the brand and style (including from the care/tag photo), and writes a front-loaded title, a description, and the eBay item specifics buyers filter on — the fields eBay keeps adding and requiring.",
       },
       {
-        heading: "Priced from real sold comps",
-        body: "Each draft comes with a suggested price drawn from eBay sold comparables, kept condition-aware so an item graded Excellent is priced against comparable Excellent items — not a blind average.",
+        heading: "Priced from comps, and told which kind",
+        body: "Each draft comes with a suggested price drawn from comparable eBay listings, kept condition-aware so an item graded Excellent is priced against comparable Excellent items rather than a blind average. Those are live asking prices, and the draft says so. Once you have sold three comparable items yourself, it prices from your own realised sales instead and tells you it switched.",
       },
       {
         heading: "You stay in control",
@@ -157,7 +157,7 @@ export const FLIPDESK_LANDINGS: FlipdeskLanding[] = [
       "Cross-list to Poshmark, Mercari & Grailed via the GradeThread Lister extension",
       "One catalog as the source of truth across marketplaces",
       "Verifiable 1.0–10.0 condition grade in every listing",
-      "Condition-aware pricing from sold comps",
+      "Condition-aware pricing from live comps and your own past sales",
     ],
     sections: [
       {
@@ -187,18 +187,19 @@ export const FLIPDESK_LANDINGS: FlipdeskLanding[] = [
   {
     slug: "comps",
     path: `${FLIPDESK_BASE}/comps`,
-    keywordTarget: "ebay sold comps tool",
-    title: "eBay Sold Comps Tool for Resellers",
+    keywordTarget: "ebay comps tool",
+    title: "eBay Comps Tool for Clothing Resellers",
     description:
-      "FlipDesk pulls eBay sold comps and keeps them condition-aware, so you price used clothing against what comparable items in the same condition actually sold for.",
-    h1: "Price to real sold comps, by condition",
+      "FlipDesk pulls comparable eBay listings per item, keeps them condition-aware, and says whether the number is an asking price or one of your own realised sales.",
+    h1: "Comps by condition, labelled by where they came from",
     intro:
-      "FlipDesk's comp tool pulls eBay sold comparables for your item and keeps them condition-aware. Instead of averaging a blur of mint and worn listings, it shows you what comparable items in the same condition actually sold for — so you price an Excellent (8) piece against real Excellent sales, avoiding both underpricing and pricing yourself unsold.",
+      "FlipDesk pulls comparable eBay listings for your item and keeps them condition-aware. Instead of averaging a blur of mint and worn listings, it prices an Excellent (8) piece against comparable Excellent ones. It also tells you what kind of number you are looking at, which most tools do not: comps from eBay are what sellers are ASKING today, and they read high. Once you have sold three comparable items yourself, FlipDesk prices from those realised sales instead and says it has switched.",
     appName: "FlipDesk Comps",
     appDescription:
-      "Sold-comps pricing tool for clothing resellers: pulls eBay sold comparables and filters them by condition so pricing reflects what comparable items in the same condition actually sold for.",
+      "Comp pricing tool for clothing resellers: pulls comparable eBay listings, filters them by condition, and labels each number as a live asking price or one of the seller's own realised sales.",
     featureList: [
-      "Pulls eBay sold comparables per item",
+      "Pulls comparable eBay listings per item",
+      "Labels every number as an asking price or a realised sale",
       "Condition-aware comps (price by grade, not a blind average)",
       "Relevance-ranked comp queries (brand, size, stopword trimming)",
       "Zero-result fallback ladder (progressive broadening)",
@@ -207,7 +208,7 @@ export const FLIPDESK_LANDINGS: FlipdeskLanding[] = [
     sections: [
       {
         heading: "Comps that respect condition",
-        body: "A sold-comps average that mixes mint and beat-up items tells you nothing. FlipDesk keeps comps condition-aware, so the number you price to reflects your item's actual grade on the 1.0–10.0 scale.",
+        body: "A comp average that mixes mint and beat-up items tells you nothing. FlipDesk keeps comps condition-aware, so the number you price to reflects your item's actual grade on the 1.0–10.0 scale.",
       },
       {
         heading: "Smart queries, real results",
@@ -216,8 +217,8 @@ export const FLIPDESK_LANDINGS: FlipdeskLanding[] = [
     ],
     faqs: [
       {
-        q: "How do I find eBay sold comps for used clothing?",
-        a: "Search eBay's sold listings for comparable items, but filter by condition — an average that mixes mint and worn items misleads. FlipDesk pulls the sold comps for you and keeps them condition-aware, so you price against what comparable items in your item's actual condition sold for.",
+        q: "How do I find eBay comps for used clothing?",
+        a: "Search eBay for comparable items and filter by condition, because an average that mixes mint and worn items misleads. Tick Sold items while you are there: active listings are asking prices and many never sell. FlipDesk pulls the comparable listings for you and keeps them condition-aware, and tells you whether the number in front of you is an asking price or one of your own realised sales.",
       },
       {
         q: "Why do condition-aware comps matter?",

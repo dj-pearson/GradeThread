@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "claude/seo-strategy-options-evftv2",
   "description": "SEO rebuild backlog, held OUT of prd.json entirely so the Ralph loop can never collide with it. Derived from vault/40-growth/seo-strategy-options-2026-08.md and the 2026-08-18 Keyword Planner pull (docs/seo/keyword-pull-2026-08-results.csv). Build order is Path 3 (calculators, 127,100/mo seller intent), then Path 7 (conversion + comparisons), then Path 1 (damage and care, 295,750/mo, authority engine only). Path 2 (returns) and Path 4 (resale value) were killed by the pull and are deliberately absent. IDS USE A RESERVED HIGH BLOCK (US-9001+) RATHER THAN prd.json.nextId: an earlier attempt reserved US-2674..US-2689 by bumping prd.json.nextId, and PR #275 merged the same block to main first, so the reservation both conflicted and failed. prd.json is now never touched by this file. Ralph allocates sequentially from US-2684 and will not reach 9001. On merge back, renumber into the live sequence and re-rank priorities, which are local to this file.",
-  "nextId": "US-9019",
+  "nextId": "US-9026",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -385,6 +385,131 @@
         "US-9001"
       ],
       "notes": "Rewritten and implemented 2026-08-18. The original plan (10 new /migrate/ pages) was checked against the data before building and rejected: every migration query already has a ranking /compare/ page. One template change now gives all 16 comparison pages migration content in both directions. 810 SEO tests green, tsc -b clean, ui:check 0 blocking. Handoff landed 2026-08-18: the CTA on all 16 pages, the event registered in analytics-events.ts (which tsc enforces), and src/test/comparison-crosslist-cta.test.tsx asserting every pair carries it and that it sits AFTER the migration answer. The vault note records why each handoff surface keeps its own event name but shares one property shape. Story closed."
+    },
+    {
+      "id": "US-9019",
+      "passes": false,
+      "title": "Deepen /care/pilling until it can hold the head term, and do not expand the cluster until it does",
+      "description": "As the operator, I want the single largest keyword cluster either pull has found served by one page that actually ranks, so that we do not answer 152,400 searches a month with forty more position-70 URLs. /care/pilling targets the head term, is 665 words, and sits at position 72 on 203 impressions with zero clicks.",
+      "acceptanceCriteria": [
+        "The page reaches at least 1,800 words of substantive content, sized against what currently holds page one for \"how to remove pilling from clothes\" rather than against a round number. Measure the top five and record the counts in the story notes before writing.",
+        "It carries real illustration: at minimum a pill-severity visual scale, and a before/after on one garment. The SERP for this term is illustrated end to end and a text-only page cannot match it.",
+        "Method coverage widens past the fabric shaver to the sweater comb, the pumice stone and the disposable-razor method, each with the failure mode that makes people cut the knit. The existing page names the shaver and one comb.",
+        "It answers the tool-choice question explicitly, because a large share of the cluster is people deciding what to buy. No affiliate links; the recommendation is by mechanism, not by brand deal.",
+        "Existing HowTo JSON-LD stays built from the same steps array the page renders, per the US-9013 rule. A second steps source is a defect, not a shortcut.",
+        "The 447 long-tail variants in the cluster are served by this one URL and its two existing children (/care/pilling/wool, /care/pilling/synthetic). NO new pilling URLs are created under this story. A test asserts the /care/pilling/* child count stays at two.",
+        "Baseline recorded before the change: 203 impressions, position 72.14, 0 clicks over the 94 days to 2026-08-26. Without it the follow-up read in US-9024 has nothing to compare against.",
+        "DELIBERATELY NOT IN SCOPE: the 400+ sibling long-tails. The reason is written into the page-family note rather than left implied, because the volume will make someone want to build them again in three months."
+      ],
+      "priority": 30,
+      "notes": "Sized by the 2026-08-28 Keyword Planner pull (docs/seo/keyword-pull-2026-08-28-results.csv) and the Search Console export of the same date. Analysis: docs/seo/keyword-expansion-2026-08-28.md. | The pilling cluster is 447 keywords and 152,400 searches/mo, which is 92% of the entire new pull and larger than anything in the 2026-08-18 pull. That size is exactly why this story is a DEEPEN and not a BUILD. /care is already the worst-performing family on the site: 46 URLs, 494 impressions/mo, 0.6 clicks/mo, weighted position 42.4. Adding to it at that position multiplies the problem. | US-9011 established the repair SERP is held by small craft blogs and UGC rather than by Good Housekeeping or Tide, so this space is reachable. The page is losing on depth, not on domain authority."
+    },
+    {
+      "id": "US-9020",
+      "passes": false,
+      "title": "Single stitch tee dating: the one on-brand gap with volume and no coverage at all",
+      "description": "As someone holding a vintage t-shirt, I want to know whether the single stitch on the hem dates it pre-1994, so that I know what I have before I list it. 8,850 searches a month across 25 keywords and GradeThread has zero pages on it.",
+      "acceptanceCriteria": [
+        "SHIPPED at /tools/single-stitch-dating, owning \"single stitch shirt\" and the near-variants on one URL. Registered in the calculator registry, keyword-targets.ts (grading-standard cluster, not reseller-tools: dating a blank is an identification question), the router and the prerender.",
+        "THE PAGE IS NOT THE ONE EVERY COMPETITOR WROTE. The obvious version says \"single stitch means pre-1994\" and stops. src/lib/single-stitch-dating.ts combines five tells and reports when they DISAGREE, because a garment whose tells conflict is a reproduction or a rework and that is the finding that saves a buyer money.",
+        "FLOORS AND HINTS ARE SEPARATE TYPES, and conflating them is the error the whole module is built around. A printed copyright year and a tagless neck label are FLOORS: hard, and nothing overturns them. Single stitching, Made in USA and a poly-cotton blend are HINTS: common in one era, possible in any. The result carries which kind did the work.",
+        "AC2 (state what single stitch does not prove) got its own section with four entries: it is not a date, it is not hard to reproduce, it is not a condition grade, and it is not authentication. The last two are the bridges to /condition-grading and /tools/authenticity-check.",
+        "A CONFLICT SUPPRESSES THE RANGE rather than printing beside it. A number next to \"these tells disagree\" is the half people remember, so the result returns latest: null and says so in words.",
+        "DATES ARE RANGES, NOT YEARS. The transition off single-needle hems happened manufacturer by manufacturer through the middle 1990s, so the copy says that and a test asserts the registry copy carries the hedge. A page printing one year is more confident than the evidence.",
+        "AC3 (photographic hem comparison) NOT DONE. It needs two real photographs at the same crop and scale, which is content-ops work rather than code, and a placeholder would be worse than the absence. Filed as the one open item on this story.",
+        "The wholesale and blanks terms in the cluster (~200/mo) are deliberately unserved: that searcher is sourcing inventory to print on, not grading a garment.",
+        "20 tests in src/test/single-stitch-dating.test.ts, including that \"unsure\" is not treated as \"no\", that an implausible printed year is ignored rather than dated from, and that the later of two floors wins."
+      ],
+      "priority": 30,
+      "notes": "Sized by the 2026-08-28 Keyword Planner pull (docs/seo/keyword-pull-2026-08-28-results.csv) and the Search Console export of the same date. Analysis: docs/seo/keyword-expansion-2026-08-28.md. | Volume 8,850/mo across 25 keywords, High competition, and the only cluster in the new pull with real volume and literally no existing page. Checked against the live sitemap on 2026-08-28: no URL contains \"stitch\". | The reason to rank this one above the larger clusters is fit. Single stitch is a dating and authentication question, /tools/authenticity-check is the highest-CTR page on the site by a distance (37 clicks / 337 impressions / 10.98%), and the audience is identical. | SHIPPED 2026-08-28 except the hem photographs (AC3), which need content ops. tsc -b, lint and the SEO guard suites clean. | The tool is pure and deterministic, so the estimate a visitor sees is reproducible and the module is tested without a browser."
+    },
+    {
+      "id": "US-9021",
+      "passes": true,
+      "title": "eBay sold comps lookup under /tools/, for the best volume-to-difficulty ratio in the pull",
+      "description": "As a reseller pricing an item, I want to see what it actually sold for on eBay, so that I do not price off active listings that never sell. 7,250 searches a month at Low competition, no coverage, and FlipDesk already has the eBay Browse comps integration wired.",
+      "acceptanceCriteria": [
+        "SHIPPED, BUT NOT AS SPECIFIED, and the correction is the whole story. The AC said \"returns recent sold comps, using the existing eBay comps path\". It cannot. EBAY_MARKETPLACE_INSIGHTS has never been granted (condition-value-curve.ts says so in as many words), so searchSoldComps() returns null before it opens a socket and the only eBay prices this platform can reach are ACTIVE asking prices. A page printing those under the word \"sold\" is precisely the defect value-disclosure.ts exists to prevent.",
+        "WHAT SHIPPED INSTEAD: /tools/ebay-sold-listings builds eBay sold-listing search URLs and hands the visitor eBay's own results, which are real, free, public and exactly what the query asked for. src/lib/ebay-sold-search.ts is pure string-building. Nothing is fetched, no endpoint was added, no eBay credential is exposed to public traffic, and an anonymous visitor leaves no trace.",
+        "It owns \"how to check sold items on ebay\" and the near-variants on one URL. Registered in keyword-targets.ts, and in the calculator registry so it inherits PUBLIC_ROUTES, the prerender, the WebApplication + FAQPage JSON-LD and the sitemap segment from US-9002.",
+        "AC3 (teach the manual method) was the AC that turned out to matter most. The page carries the filter path on desktop and mobile, the three ladder rungs, and a \"what a sold price does not tell you\" section. Verified prerender: 1,327 words of static HTML before any script.",
+        "THE RUNGS MIRROR comps-ladder.ts (exact -> broadened -> brand_category) rather than inventing a method for a marketing page. A visitor who later uses FlipDesk meets the same ladder.",
+        "PARAMETERS VERIFIED AGAINST LIVE EBAY on 2026-08-28, in a browser, because curl gets a 403. A sold search for \"patagonia synchilla fleece\" under _sacat=11450 returned 4,900+ results; LH_ItemCondition=1000 returned 210 and 1500 returned 54. Sold searches already sort by Ended Recently, so no _sop is sent. Only condition ids confirmed against live results are offered: guessing one sends a visitor to an empty page and makes it look like their search terms were wrong.",
+        "FOUR CAVEATS ON THE PAGE ARE MEASURED, NOT RECALLED, and they came out of that same session. Most sold clothing results carried \"Best offer accepted\", meaning the price shown is the asking price and the real median sits below it. The same fleece closed at $29 on five bids and $65 on Buy It Now. A North Face fleece appeared in the Patagonia results. Results ran back about 90 days.",
+        "AC5 and AC8 (rate limiting, tenant-isolation case) are MOOT and that is the point, not a gap: there is no endpoint. The whole class of risk the ACs were guarding against does not exist in what shipped.",
+        "21 tests in src/test/ebay-sold-search.test.ts, including one asserting the page never claims GradeThread knows the sold price.",
+        "A HARD-CODED COUNT WAS FIXED ON THE WAY PAST: calculator-funnel.test.ts asserted exactly eight calculators and failed the moment a ninth shipped, which is a test failing on the thing it existed to permit. The invariant was never the count; it is that nothing sits in the registry unrouted. Rewritten to assert that."
+      ],
+      "priority": 20,
+      "notes": "Sized by the 2026-08-28 Keyword Planner pull (docs/seo/keyword-pull-2026-08-28-results.csv) and the Search Console export of the same date. Analysis: docs/seo/keyword-expansion-2026-08-28.md. | 7,250/mo at LOW competition is the best ratio in either pull. Every other cluster with this volume is High. | This is the strongest case in the file because four things point at the same page: the intent is a reseller, the competition is low, the format is a tool (the only format converting on this site at 3.46% CTR against a 0.73% site average), and the feature already exists in the product. | Ranked above US-9019 and US-9020 on priority for that reason, despite being a twentieth of the volume. | SHIPPED 2026-08-28. /tools/ebay-sold-listings, 1,327 prerendered words, 21 tests, tsc -b and lint clean. | THE ONE THING TO CARRY FORWARD: the story asked for a sold-comps API call and the platform has no source of sold prices. Checking that before building turned a page that would have been wrong into one that is better, and it surfaced US-9025 (five marketing surfaces making the same claim) as a side effect."
+    },
+    {
+      "id": "US-9022",
+      "passes": false,
+      "title": "Reseller inventory spreadsheet as an actual download, not an argument against spreadsheets",
+      "description": "As a reseller trying to track inventory, I want a spreadsheet that works, so that I can stop losing items. 1,600 searches a month and a $21.71 top-of-page bid, which is the highest commercial intent in either pull.",
+      "acceptanceCriteria": [
+        "A real downloadable spreadsheet, xlsx and Google Sheets copy link, with the fields a clothing reseller actually needs: source, cost, SKU, bin, condition grade, listed price, platform, sold price, fees, net.",
+        "The condition-grade column is the bridge back to the product and is the one column a generic reseller template does not have. It is populated with the 1.0-10.0 scale.",
+        "The page ranks for \"reseller inventory spreadsheet\" and \"resell spreadsheet\" and hands the file over above the fold. /blog/when-should-resellers-stop-using-spreadsheets-inventory already exists, argues the opposite case, and earns nothing.",
+        "The FlipDesk handoff is honest and placed after the download, not before it: the spreadsheet is genuinely fine until roughly the point where crosslisting and fee reconciliation start costing more time than the tracking saves. Say where that point is.",
+        "Email is NOT required for the download. Gating it would raise a lead count and lose the ranking, and the ranking is the asset.",
+        "Measured on signup_started_from_tool like the calculators, per US-9010, not on downloads.",
+        "The free-template variants in the cluster (free reseller spreadsheet, reseller spreadsheet template free, and six more) are served on the same URL. They are the same searcher."
+      ],
+      "priority": 40,
+      "notes": "Sized by the 2026-08-28 Keyword Planner pull (docs/seo/keyword-pull-2026-08-28-results.csv) and the Search Console export of the same date. Analysis: docs/seo/keyword-expansion-2026-08-28.md. | Only 1,600/mo, which is small. It is filed anyway because the $21.71 top-of-page bid is the highest in either pull by a factor of three, and because the searcher is precisely the person FlipDesk is for. Volume is the wrong measure for this one. | The competing internal page is /blog/when-should-resellers-stop-using-spreadsheets-inventory. It makes the argument without handing over the file, which is why it earns nothing. Decide during the build whether it gets interlinked or redirected."
+    },
+    {
+      "id": "US-9023",
+      "passes": false,
+      "title": "Photographing clothes to sell, as a workflow page tied to the photo tooling",
+      "description": "As a seller whose listings are not getting clicks, I want to know how to photograph the garment, so that the photos do not cost me the sale. 3,450 searches a month across 28 keywords at Low competition, and no page.",
+      "acceptanceCriteria": [
+        "One page owning \"how to take pictures of clothes to sell\" and the four 500/mo variants, covering the shot list, the flat-lay setup, lighting without a studio, and the order the photos go in.",
+        "It reuses the required-photo-set and photo-order decisions already made in the product (vault/20-domain/listing-photos.md) rather than inventing a second opinion. Two GradeThread pages disagreeing about photo order is worse than not having the page.",
+        "It links to /blog/best-order-ebay-clothing-listing-photos and /blog/why-ebay-listing-thumbnails-lose-clicks-photo-consistency, which already exist, rank at positions 7.45 and 8.57, and serve narrower questions. This page is the parent they have been missing.",
+        "The defect-photography section is the part no competitor page has: how to photograph a flaw so it reads honestly and cuts returns rather than killing the sale. That is the bridge to grading.",
+        "Registered in PUBLIC_ROUTES, entry-server.tsx and keyword-targets.ts under the selling-guide cluster.",
+        "The Poshmark- and eBay-specific photo variants in the cluster are served on this URL with a section each, not as separate pages. Fewer than 100/mo each."
+      ],
+      "priority": 50,
+      "notes": "Sized by the 2026-08-28 Keyword Planner pull (docs/seo/keyword-pull-2026-08-28-results.csv) and the Search Console export of the same date. Analysis: docs/seo/keyword-expansion-2026-08-28.md. | 3,450/mo at LOW competition, 28 keywords, and the site has two narrow blog posts on sub-questions that both rank around position 8 with no parent page above them. This is the cheapest structural win in the pull: an existing ranking signal with a gap directly above it. | Deliberately a workflow page rather than a tool. There is no tool in \"how do I photograph a jacket\" and pretending otherwise would produce a worse page."
+    },
+    {
+      "id": "US-9024",
+      "passes": false,
+      "title": "[GATE] Re-read /care against its own threshold before any pilling expansion is approved",
+      "description": "As the operator, I want the 152,400/mo pilling cluster gated on evidence that the care family can rank at all, so that the largest number in the pull does not override the worst-performing family on the site.",
+      "acceptanceCriteria": [
+        "Read Search Console on 2027-02-18, the date US-9016 already set for the /care threshold, and record impressions/mo, clicks/mo and weighted position for ^/care/ against the baseline captured here: 46 URLs, 494 impressions/mo, 0.6 clicks/mo, weighted position 42.4, over the 94 days to 2026-08-26.",
+        "Read /care/pilling on its own the same day against its own baseline: 203 impressions, position 72.14, 0 clicks. The family number and the head-page number answer different questions and averaging them hides both.",
+        "THE GATE: pilling long-tail expansion is approved only if /care/pilling has reached position 20 or better after US-9019. If the deepened head page cannot reach page two, sibling pages built on the same template will not either, and the finding is that the cluster is out of reach at current domain strength rather than that it needed more URLs.",
+        "If /care as a family is still under 2,000 impressions/mo at that date, run the US-9016 diagnostic that its position band names: under threshold at position 30+ is competition, under threshold at position 5-15 is demand. /care is at 42.4, which reads as competition, and the response to competition is not more pages.",
+        "Whatever the reading, write the verdict into vault/40-growth/seo-strategy-options-2026-08.md Path 1 rather than into this story alone, so the next person planning a content push reads it before they re-propose the same 400 pages.",
+        "The July 2026 grading-cluster kill criterion is quoted in the verdict as precedent. It fired for exactly this reason and its lesson (more pages were not the answer) is the one at stake here."
+      ],
+      "priority": 60,
+      "dependsOn": [
+        "US-9019"
+      ],
+      "notes": "Sized by the 2026-08-28 Keyword Planner pull (docs/seo/keyword-pull-2026-08-28-results.csv) and the Search Console export of the same date. Analysis: docs/seo/keyword-expansion-2026-08-28.md. | Filed as a GATE rather than as a build for the same reason US-9011 was. 152,400/mo is the largest number either pull has produced and it will be quoted at every future planning session; without a written gate the argument restarts from the volume every time. | The counter-evidence is already in hand: /care is 46 URLs at weighted position 42.4 earning 0.6 clicks a month, and /condition-index is 29 URLs that have earned zero clicks ever. The site has now built two large page families that rank nowhere. A third should have to clear a bar first."
+    },
+    {
+      "id": "US-9025",
+      "passes": true,
+      "title": "The FlipDesk marketing copy still says \"eBay sold comps\", which US-2850 established the product cannot see",
+      "description": "As a visitor deciding whether to trust GradeThread, I want the product pages to claim only what the product does, so that the first thing I check is not the thing that was overstated. Five marketing surfaces say FlipDesk pulls eBay sold comps. EBAY_MARKETPLACE_INSIGHTS has never been granted, so the eBay half of that has never returned a row.",
+      "acceptanceCriteria": [
+        "CORRECTED, and the sweep found more than the story listed. flipdesk-landing.ts: the whole /flipdesk/comps entry (keywordTarget, title, description, h1, intro, appDescription, two featureList bullets, one section and one FAQ), the AutoLister intro and its \"Priced from real sold comps\" section, and the crosslisting feature bullet. calculators.ts: the reseller-profit-calculator handoff. PLUS TWO THE STORY DID NOT NAME, both in opportunist-guides.ts: \"GradeThread's comp tool pulls recent eBay sold comps\" and the flipdeskCta blurb \"FlipDesk pulls recent eBay sold comps per item\". The grep that filed this story missed both; the guard test found them.",
+        "AC2 HELD: the correction is not \"delete the word sold\". getRealizedComps has two sources and only the eBay one is ungranted. The seller's own sales table is a real realized comp set at MIN_SOLD_COMPS (3). So the copy now says FlipDesk prices from comparable eBay listings, which are asking prices, and switches to the seller's own realised sales once there are three of them, and says which it used.",
+        "AC4 GUARD SHIPPED: src/test/no-sold-data-overclaim.test.ts, 5 tests. It catches a PRODUCT SUBJECT reaching eBay sold data (GradeThread/FlipDesk/AutoLister/we + a fetch verb + \"sold\"), which is the actual defect, not the word \"sold\".",
+        "THE FIRST CUT OF THE GUARD WAS WRONG IN THE INSTRUCTIVE DIRECTION and the fix is the durable part. Run across all of src/lib/seo it produced eight findings, and four were the site telling the truth: \"Look up what comparable items actually sold for, and price to that\" is correct advice, and \"sold comps are the prices comparable items actually sold for\" is a correct definition. A guard that fails those would have pushed the site towards a worse answer. The unattributed pattern is now scoped to flipdesk-landing.ts, the one registry whose entire subject is what the product does, with a test asserting that narrowing has not drifted to nothing.",
+        "AC5 ANSWERED WITH DATA, AND IT MAKES THE REWRITE FREE: /flipdesk/comps earned 2 impressions and 0 clicks at position 13.5 over the 94 days to 2026-08-26. There is no ranking asset to protect, so changing the title, h1 and keywordTarget costs nothing measurable.",
+        "AC6 ANSWERED: the page should NOT target \"ebay sold comps tool\", and now targets \"ebay comps tool\". Ranking for a phrase and then explaining you cannot deliver it is a bounce, however honest the copy. The honest phrase is also the accurate description of the feature."
+      ],
+      "priority": 10,
+      "notes": "FOUND 2026-08-28 while building US-9021, which is the honest version of the same subject and hands off to /flipdesk/comps. Linking a page that refuses to say \"sold\" into a page that says it five times would launder the claim, which is why this is filed rather than left. | THE EVIDENCE IS THE REPO'S OWN, in three places written by three different stories. condition-value-curve.ts: \"EBAY_MARKETPLACE_INSIGHTS has never been granted, so nothing behind these ratios has been sold, and the header said 'sold comps' here until US-2850.\" value-disclosure.ts: \"THREE THINGS THIS REFUSES TO SAY. 1. SOLD.\" ebay-client.ts isMarketplaceInsightsEnabled() reads an env var that services/edge-functions/.env.example ships as false. | WHY IT SURVIVED US-2850: that story fixed the surfaces that RENDER a price (grade result, scout, FlipDesk pricing, composer hint, Condition Index) and never reached the marketing registry, which renders prose about prices. The guard it left behind guards the render path. Nothing guarded the copy. | Priority 10, ahead of every build story in this file, because it is small, it is an accuracy defect rather than a growth bet, and it sits directly downstream of a page that shipped today. | FIXED 2026-08-28, same session it was found. 5 guard tests, tsc -b clean. | THE LESSON IS ABOUT THE GUARD, NOT THE COPY: a grep for \"sold comps\" filed this story and found five surfaces. The guard found seven, and rejected four true sentences on its first run. Both halves matter - the pattern has to be about the CLAIM (product as subject) rather than the WORD, or it fails correct content and gets loosened until it guards nothing."
     }
   ]
 }
