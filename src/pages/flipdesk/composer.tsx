@@ -3575,8 +3575,20 @@ export function FlipdeskComposerPage({
         {/* ── Preview column ──────────────────────────────────────── */}
         {/* Sticks only when it's actually beside the editor (same @4xl threshold
             as the two-column split) — a stuck preview in one-column flow would
-            just cover the fields below it. */}
-        <div className="space-y-4 @4xl:sticky @4xl:top-4 @4xl:self-start">
+            just cover the fields below it.
+            US-2976: bounded to the scrollport so the rail can never be taller
+            than the screen. A sticky column taller than the viewport pins its
+            top and clips everything past the fold, which put the preview's
+            description out of reach unless you scrolled the EDITOR column down
+            far enough to unstick it. Now the rail is capped at the scrollport
+            height and the preview body scrolls on its own. The 8rem is the
+            real arithmetic, measured on the page: the h-16 header (4rem), the
+            main scrollport's p-6 top padding (1.5rem, which Chrome adds to the
+            sticky top offset), the top-4 offset itself (1rem), and 1.5rem of
+            breathing room at the bottom. At 6rem the rail overhangs the
+            scrollport by 8px and the last line of the description is still
+            cut off. */}
+        <div className="space-y-4 @4xl:sticky @4xl:top-4 @4xl:flex @4xl:max-h-[calc(100dvh-8rem)] @4xl:flex-col @4xl:self-start">
           {/* The actions sit ABOVE the preview, first thing in the sticky column,
               so Save is reachable from anywhere in a thirteen-card form. They used
               to live at the very bottom of the page: every save meant scrolling
@@ -3634,8 +3646,10 @@ export function FlipdeskComposerPage({
             </div>
           )}
 
-          <Card className="overflow-hidden">
-            <CardHeader>
+          {/* min-h-0 is what lets the card shrink below its content height
+              inside the flex column — without it the body never scrolls. */}
+          <Card className="overflow-hidden @4xl:flex @4xl:min-h-0 @4xl:flex-1 @4xl:flex-col">
+            <CardHeader className="@4xl:shrink-0">
               <CardTitle className="flex items-center gap-2">
                 Listing preview
                 <Badge variant="secondary" className="font-normal">
@@ -3646,7 +3660,7 @@ export function FlipdeskComposerPage({
                 How the drafted listing will render to buyers.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="@4xl:min-h-0 @4xl:flex-1 @4xl:overflow-y-auto @4xl:overscroll-contain">
               <EbayViewItemPreview
                 title={title}
                 price={previewPrice}
