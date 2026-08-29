@@ -1,5 +1,35 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## HELD: 00686_ledger_rebuild_no_revoke.sql (US-3002)
+
+⚠ **APPLY THIS ONE FIRST. It removes a live crash vector, it does not add one.**
+
+**Risk if NOT applied: HIGH.** 00685 is already applied and ends with
+`REVOKE ALL ON FUNCTION public.rebuild_ledger_for_user(uuid) FROM public`. On
+this Postgres image a DENIED function call from `anon` or `authenticated`
+segfaults the backend and restarts the whole database (US-2403), and PostgREST
+exposes the function at `/rpc/rebuild_ledger_for_user` — confirmed present in the
+production OpenAPI document. `anon` is the key that ships in the browser bundle,
+so today a database restart is one unauthenticated request away.
+
+It also breaks the feature it was guarding: `rebuild_my_ledger()` is SECURITY
+INVOKER, so it needs EXECUTE as the CALLING role. With execute revoked from
+public, every authenticated seller pressing rebuild takes the denial path.
+
+**Risk of applying it: LOW.** It restores the default EXECUTE (a grant, never a
+denial) and moves the authorization into the function body, where it raises an
+ordinary 42501. Tenant isolation is preserved and is now explicit: the service
+role may rebuild anyone, a signed-in seller may rebuild only their own.
+
+**Apply order:** any time, and sooner is better. It is independent of the rest of
+the ledger epic and safe to apply before the code that ships with it.
+
+**Client-side read risk: NONE.** No column or type changes; a function body and a
+grant only.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — the signature is unchanged,
+so this is belt-and-braces rather than required.
+
 ## ✅ APPLIED: 00685_ledger_entries.sql (US-2984, applied 2026-08-29 — owner-confirmed; ledger_entries present in prod PostgREST schema)
 
 **Risk: low to apply, and it writes nothing on its own.** One new table, three

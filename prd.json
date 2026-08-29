@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3002",
+  "nextId": "US-3003",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3002,6 +3002,22 @@
         "Check the same interaction on the OTHER bars that sit in that Column - BulkUndoBar and BulkResultBar both render in the same position under the same PullToRefreshBox, and an undo the seller cannot tap inside its six-second window is worse than a bulk action they can retry."
       ],
       "priority": 5
+    },
+    {
+      "id": "US-3002",
+      "passes": false,
+      "title": "A REVOKE in 00685 puts a database restart one unauthenticated request away, and it is applied in prod",
+      "description": "As anyone relying on this service staying up, I want no function on this stack to answer a permission denial, so that a stray request cannot restart the production database.",
+      "acceptanceCriteria": [
+        "FOUND 2026-08-29 by the us2403-function-revoke-gate test, which blocked a push and was right to. 00685_ledger_entries.sql ends with REVOKE ALL ON FUNCTION public.rebuild_ledger_for_user(uuid) FROM public, and that migration is ALREADY APPLIED in production.",
+        "WHY IT IS SEVERE: on this Postgres image supautils appends a GRANT hint to a permission error, and a DENIED call from anon or authenticated segfaults the backend and restarts the whole database (US-2403). PostgREST exposes the function at /rpc/rebuild_ledger_for_user - confirmed PRESENT in the production OpenAPI document, read with the public anon key. anon ships in the browser bundle. NOT probed by calling it: the call is the crash.",
+        "IT ALSO BREAKS THE FEATURE IT GUARDS. rebuild_my_ledger() is SECURITY INVOKER, so it needs EXECUTE as the CALLING role. With execute revoked from public, every authenticated seller pressing rebuild takes the denial path - so the crash sits on the ordinary user-facing route, not on an admin corner.",
+        "FIX WRITTEN: 00686_ledger_rebuild_no_revoke.sql restores the default EXECUTE and moves the authorization into the function body, raising an ordinary 42501. Tenant isolation is preserved and now explicit: service role may rebuild anyone, a signed-in seller may rebuild only their own. Same shape 00612 uses.",
+        "OPERATOR: apply 00686 to prod. It removes a live crash vector rather than adding one, so it is safe to apply ahead of the code that ships with it.",
+        "00685 is registered in the revoke gate ALLOWED map with the reason - because the text stays in an applied migration, NOT because the pattern is acceptable. Do not read that entry as precedent.",
+        "WORTH A SECOND LOOK: the ledger epic added three migrations in under an hour and this shipped in the third. Check 00683 and 00684 for the same pattern before the epic closes."
+      ],
+      "priority": 1
     }
   ]
 }
