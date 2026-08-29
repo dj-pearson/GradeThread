@@ -31,7 +31,13 @@ struct MeasurementPhotoEditorView: View {
     @State private var qualityMessage: String?
     @State private var busy: String?
     @State private var imageSize: CGSize?
-    @State private var drag: (index: Int, end: MeasureGeometry.End)?
+    /// What the current drag grabbed, and where it was last seen.
+    ///
+    /// US-2889 AC3: a drag now moves either an ENDPOINT (resize) or the LINE
+    /// BODY (reposition). The body case needs the previous point, because it
+    /// moves by a delta rather than snapping a point to the finger - snapping
+    /// would teleport the line so its midpoint sat under the touch.
+    @State private var drag: (grab: MeasureGeometry.Grab, last: CGPoint)?
 
     private let service = MeasureService()
 
@@ -204,6 +210,10 @@ struct MeasurementPhotoEditorView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Adjust")
                     .font(.subheadline.weight(.semibold))
+                // US-2889 AC4: above the per-line rows, because a line that is
+                // off screen cannot be fixed by the nudge buttons underneath -
+                // they move an endpoint the seller cannot see.
+                recoverStrandedRow
                 ForEach(lines.indices, id: \.self) { index in
                     adjustRow(index: index, step: step, calibration: calib, size: size)
                 }
@@ -243,6 +253,42 @@ struct MeasurementPhotoEditorView: View {
         }
         .font(.footnote)
         .tint(Color.brandNavy)
+    }
+
+    /// US-2889 AC4: one press to bring stranded lines back.
+    ///
+    /// Shown ONLY when there is something to recover. A permanent button would
+    /// be a permanent invitation to move measurements that are exactly where the
+    /// seller put them, and the count is what makes the offer legible - "2 lines
+    /// are off screen" says what pressing it will touch.
+    ///
+    /// It says LINES rather than endpoints on purpose: the recovery moves whole
+    /// lines and keeps their length, so a seller does not have to wonder whether
+    /// their numbers changed.
+    @ViewBuilder
+    private var recoverStrandedRow: some View {
+        let n = strandedCount
+        if n > 0 {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(
+                    n == 1
+                        ? "1 measurement is off screen."
+                        : "\(n) measurements are off screen."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                Button {
+                    AppRouter.haptic()
+                    recenterStrandedLines()
+                } label: {
+                    Label("Bring back into view", systemImage: "arrow.down.left.and.arrow.up.right")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityHint(
+                    "Moves them back inside the photo without changing what they measure."
+                )
+            }
+        }
     }
 
     private func endpointRow(
@@ -326,20 +372,70 @@ struct MeasurementPhotoEditorView: View {
     // MARK: - Interaction
 
     private func handleDrag(at location: CGPoint, scale: Double) {
+        guard let size = imageSize, scale > 0 else { return }
+        if drag == nil, let grab = MeasureGeometry.hitTest(
+            lines: lines, displayPoint: location, scale: scale
+        ) {
+            drag = (grab, location)
+        }
+        guard let active = drag else { return }
+
+        switch active.grab {
+        case .end(let index, let end):
+            guard lines.indices.contains(index) else { return }
+            // An endpoint follows the finger, clamped to the frame. Clamping an
+            // ENDPOINT is correct here: the seller is resizing, so a shorter
+            // line at the edge is the answer they asked for.
+            let pt = CGPoint(
+                x: min(max(0, location.x / scale), size.width),
+                y: min(max(0, location.y / scale), size.height)
+            )
+            if end == .e1 { lines[index].e1 = pt } else { lines[index].e2 = pt }
+            touched.insert(lines[index].key)
+
+        case .line(let index):
+            guard lines.indices.contains(index) else { return }
+            // The body moves by the DELTA since the last event, and the clamp
+            // applies to that delta rather than to the endpoints - clamping the
+            // endpoints would shorten and re-angle the line at the edge, which
+            // changes the measurement while the seller is only repositioning it.
+            lines[index] = MeasureGeometry.translateLine(
+                lines[index],
+                dx: (location.x - active.last.x) / scale,
+                dy: (location.y - active.last.y) / scale,
+                imgW: size.width,
+                imgH: size.height
+            )
+            touched.insert(lines[index].key)
+        }
+        drag = (active.grab, location)
+    }
+
+    /// How many lines currently sit outside the frame (US-2889 AC4).
+    ///
+    /// Non-zero means geometry written before the calibration carry existed: a
+    /// portrait-to-landscape turn left endpoints past the new edge, where the
+    /// canvas draws them off screen and neither a drag nor a nudge can reach
+    /// them, because both need the endpoint visible.
+    private var strandedCount: Int {
+        guard let size = imageSize else { return 0 }
+        return lines.filter {
+            MeasureGeometry.isOutsideFrame($0, imgW: size.width, imgH: size.height)
+        }.count
+    }
+
+    /// Bring every stranded line back into view, keeping each one's length.
+    private func recenterStrandedLines() {
         guard let size = imageSize else { return }
-        if drag == nil {
-            drag = MeasureGeometry.hitEndpoint(lines: lines, displayPoint: location, scale: scale)
+        for index in lines.indices
+        where MeasureGeometry.isOutsideFrame(lines[index], imgW: size.width, imgH: size.height) {
+            lines[index] = MeasureGeometry.recenteredIntoFrame(
+                lines[index], imgW: size.width, imgH: size.height
+            )
+            // The SAME touched bookkeeping a drag does. Without it a recovered
+            // line is not saved, and the next open strands it again.
+            touched.insert(lines[index].key)
         }
-        guard let active = drag, lines.indices.contains(active.index), scale > 0 else { return }
-        let ox = min(max(0, location.x / scale), size.width)
-        let oy = min(max(0, location.y / scale), size.height)
-        let pt = CGPoint(x: ox, y: oy)
-        if active.end == .e1 {
-            lines[active.index].e1 = pt
-        } else {
-            lines[active.index].e2 = pt
-        }
-        touched.insert(lines[active.index].key)
     }
 
     // MARK: - Server flows

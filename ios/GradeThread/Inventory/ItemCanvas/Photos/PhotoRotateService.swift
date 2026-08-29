@@ -84,6 +84,14 @@ struct PhotoRotateService {
             throw RotateError.downloadFailed
         }
 
+        // US-2889: the dimensions the stored calibration is written in, taken
+        // from the image we just decoded rather than from photo.width/height.
+        // Those columns were not written at all before US-2888, so a row from
+        // before then carries nil, and a row written by another client can be
+        // stale. The decoded bytes cannot be.
+        let sourceWidth = Double(image.size.width * image.scale)
+        let sourceHeight = Double(image.size.height * image.scale)
+
         // Rotate, then run through the shared compressor (resize + JPEG encode +
         // EXIF strip; the rotated image is already `.up`).
         let rotated = Self.rotated(image, clockwise: clockwise)
@@ -122,6 +130,30 @@ struct PhotoRotateService {
             .eq("id", value: photo.id)
             .execute()
 
+        // US-2889: the calibration describes the OLD pixels until this runs.
+        //
+        // The homography would go on measuring along the old axis, and every
+        // stored endpoint would keep its old coordinate - so a portrait-to-
+        // landscape turn puts endpoints outside the frame, where the editor
+        // draws them off screen and neither a drag nor a nudge can reach them,
+        // because both need the endpoint visible. This is the iOS half of what
+        // US-2888 fixed on the web.
+        //
+        // Deliberately AFTER the row update and deliberately non-fatal. The
+        // bytes are already rotated at this point; failing the whole rotate
+        // because the calibration could not be rewritten would leave the seller
+        // with an unrotated-looking failure and rotated pixels. A warning in
+        // the breadcrumb trail and a calibration the editor will re-detect is
+        // the better of the two bad outcomes.
+        await carryCalibration(
+            photoId: photo.id,
+            clockwise: clockwise,
+            sourceWidth: sourceWidth,
+            sourceHeight: sourceHeight,
+            outputWidth: newWidth.map(Double.init),
+            outputHeight: newHeight.map(Double.init)
+        )
+
         photo.photoURL = newPhotoURL
         photo.thumbnailURL = newThumbnailURL
         photo.width = newWidth
@@ -141,6 +173,72 @@ struct PhotoRotateService {
     }
 
     // MARK: - Helpers
+
+    /// Move the photo's stored calibration onto the rotated pixels (US-2889).
+    ///
+    /// A quarter turn is rigid, so nothing is re-detected: the homography is
+    /// post-multiplied by the inverse quarter affine and every endpoint goes
+    /// through the same map the pixels took. The inches are unchanged, which is
+    /// the whole reason this is a carry rather than a re-calibration.
+    ///
+    /// Silent when the photo has no calibration, which is almost every photo.
+    private func carryCalibration(
+        photoId: String,
+        clockwise: Bool,
+        sourceWidth: Double,
+        sourceHeight: Double,
+        outputWidth: Double?,
+        outputHeight: Double?
+    ) async {
+        // Clockwise is one quarter; counter-clockwise is three. Expressing the
+        // anti-clockwise case as 3 rather than -1 keeps every turn in this file
+        // in the same 0..<4 space the fixture and the web use.
+        let turns: MeasureQuarterTurn.Quarter = clockwise ? .one : .three
+        let service = MeasureService()
+        do {
+            guard let current = try await service.loadCalibration(photoId: photoId) else { return }
+            let turned = MeasureService.rotated(
+                current, turns: turns, w: sourceWidth, h: sourceHeight
+            )
+
+            // The compressor resizes, so the bytes on the server are not the
+            // bytes that were turned. Take the scale from what was ACTUALLY
+            // encoded rather than from the compressor's budget: the budget is a
+            // ceiling and a photo already under it comes back untouched.
+            let turnedSize = MeasureQuarterTurn.rotatedDims(
+                w: sourceWidth, h: sourceHeight, turns: turns
+            )
+            let moved: MeasureService.Calibration
+            if let outputWidth, let outputHeight,
+               outputWidth > 0, outputHeight > 0,
+               Double(turnedSize.width) > 0, Double(turnedSize.height) > 0,
+               // The scale must be UNIFORM, and this is what checks it rather
+               // than assuming it. resize(_:maxLongEdge:) preserves aspect, but
+               // it floors both sides independently, so a very tall photo can
+               // land a fraction of a percent off square. A tolerance of 1% is
+               // far wider than that rounding and far tighter than any real
+               // reframe, so a genuine non-uniform resize falls to the else
+               // branch instead of skewing every measurement.
+               abs((outputWidth / Double(turnedSize.width))
+                   - (outputHeight / Double(turnedSize.height))) < 0.01 {
+                moved = MeasureService.scaled(
+                    turned, by: outputWidth / Double(turnedSize.width)
+                )
+            } else {
+                // No decodable output size means no trustworthy scale. Write the
+                // turn alone rather than guess a factor: a wrong scale is a
+                // measurement that is quietly short, which is worse than a
+                // measurement that is visibly in the wrong place.
+                moved = turned
+            }
+            try await service.writeCalibration(photoId: photoId, calibration: moved)
+        } catch {
+            Telemetry.breadcrumb(
+                "photo rotate: calibration carry failed for \(photoId): \(error.localizedDescription)",
+                category: "photos"
+            )
+        }
+    }
 
     private func upload(_ data: Data, to path: String, bucket: String) async throws {
         guard let accessToken = await SupabaseShared.currentAccessToken() else {
