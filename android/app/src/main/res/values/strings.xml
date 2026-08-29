@@ -470,7 +470,10 @@
     <string name="drafts_edit_together">Edit %1$d together</string>
     <string name="drafts_retry_failed">Retry the %1$d that failed</string>
     <string name="drafts_reschedule">Reschedule</string>
-    <string name="drafts_bulk_title">Edit %1$d drafts</string>
+    <plurals name="drafts_bulk_title">
+        <item quantity="one">Edit %1$d draft</item>
+        <item quantity="other">Edit %1$d drafts</item>
+    </plurals>
     <string name="drafts_mode_set">Set price</string>
     <string name="drafts_mode_percent">Adjust %</string>
     <string name="drafts_mode_round99">End in .99</string>
@@ -1452,7 +1455,10 @@
     <string name="common_undo">Undo</string>
     <string name="common_value">Value</string>
     <string name="bulk_selected">%1$d selected</string>
-    <string name="bulk_selected_count">%1$d items selected</string>
+    <plurals name="bulk_selected_count">
+        <item quantity="one">%1$d item selected</item>
+        <item quantity="other">%1$d items selected</item>
+    </plurals>
     <string name="consignment_total_owed">%1$s owed</string>
     <string name="bulk_more_failures">\u2026and %1$d more</string>
     <string name="consignment_title">Consignment payouts</string>
@@ -1664,7 +1670,10 @@
     <string name="autolister_verify">Check my grouping</string>
     <string name="autolister_ungrouped">Not in a group yet (%1$d)</string>
     <string name="autolister_group_selected">Make a group</string>
-    <string name="autolister_group_size">%1$d photos</string>
+    <plurals name="autolister_group_size">
+        <item quantity="one">%1$d photo</item>
+        <item quantity="other">%1$d photos</item>
+    </plurals>
     <string name="autolister_set_cover">Set as cover</string>
     <string name="autolister_split">Split out</string>
     <string name="autolister_move_here">Move here</string>
@@ -1698,7 +1707,10 @@
     <string name="cases_show_closed">Show closed (%1$d)</string>
     <string name="cases_hide_closed">Hide closed (%1$d)</string>
     <string name="cases_overdue">Past the eBay deadline</string>
-    <string name="cases_respond_in">Respond within %1$d days</string>
+    <plurals name="cases_respond_in">
+        <item quantity="one">Respond within %1$d day</item>
+        <item quantity="other">Respond within %1$d days</item>
+    </plurals>
     <string name="cases_dispute">Payment dispute</string>
     <string name="cases_return">Return request</string>
     <string name="cases_cancellation">Cancellation request</string>

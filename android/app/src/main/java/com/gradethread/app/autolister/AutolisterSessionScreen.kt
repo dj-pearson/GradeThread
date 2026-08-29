@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -54,10 +55,7 @@ import com.gradethread.app.ui.theme.cardStyle
  * item's photos.
  */
 @Composable
-fun AutolisterSessionScreen(
-    onClose: () -> Unit,
-    viewModel: AutolisterSessionViewModel = hiltViewModel(),
-) {
+fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     var selected by remember { mutableStateOf(setOf<String>()) }
 
@@ -249,8 +247,7 @@ fun AutolisterSessionScreen(
     }
 }
 
-private fun Set<String>.toggle(id: String): Set<String> =
-    if (id in this) this - id else this + id
+private fun Set<String>.toggle(id: String): Set<String> = if (id in this) this - id else this + id
 
 @Composable
 private fun BusyBanner(busy: AutolisterSessionViewModel.Busy, state: AutolisterSessionViewModel.State) {
@@ -285,10 +282,7 @@ private fun BusyBanner(busy: AutolisterSessionViewModel.Busy, state: AutolisterS
 }
 
 @Composable
-private fun SuggestionCard(
-    suggestion: GroupSuggestion,
-    viewModel: AutolisterSessionViewModel,
-) {
+private fun SuggestionCard(suggestion: GroupSuggestion, viewModel: AutolisterSessionViewModel) {
     Column(Modifier.fillMaxWidth().cardStyle()) {
         Text(
             suggestion.reason.ifBlank { stringResource(R.string.autolister_suggestion_fallback) },
@@ -316,7 +310,7 @@ private fun GroupCard(
     val photos = state.session.photosOf(group.id)
     Column(Modifier.fillMaxWidth().cardStyle()) {
         Text(
-            stringResource(R.string.autolister_group_size, photos.size),
+            pluralStringResource(R.plurals.autolister_group_size, photos.size, photos.size),
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium,
         )
@@ -358,12 +352,7 @@ private fun GroupCard(
 }
 
 @Composable
-private fun PhotoStrip(
-    photos: List<SessionPhoto>,
-    selected: Set<String>,
-    coverId: String?,
-    onTap: (String) -> Unit,
-) {
+private fun PhotoStrip(photos: List<SessionPhoto>, selected: Set<String>, coverId: String?, onTap: (String) -> Unit) {
     val coverLabel = stringResource(R.string.autolister_cover)
     val photoLabel = stringResource(R.string.autolister_photo)
     LazyRow(

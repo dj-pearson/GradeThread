@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -44,10 +45,7 @@ import com.gradethread.app.ui.theme.cardStyle
  * wrongly hidden costs them the case.
  */
 @Composable
-fun EbayCasesScreen(
-    onClose: () -> Unit = {},
-    viewModel: EbayCasesViewModel = hiltViewModel(),
-) {
+fun EbayCasesScreen(onClose: () -> Unit = {}, viewModel: EbayCasesViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     var contesting by remember { mutableStateOf<EbayPaymentDispute?>(null) }
@@ -271,7 +269,7 @@ private fun DisputeCard(
                 if (days < 0) {
                     stringResource(R.string.cases_overdue)
                 } else {
-                    stringResource(R.string.cases_respond_in, days.toInt())
+                    pluralStringResource(R.plurals.cases_respond_in, days.toInt(), days.toInt())
                 },
                 style = MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.SemiBold,
@@ -387,11 +385,7 @@ private fun CancellationCard(
 }
 
 @Composable
-private fun ContestDialog(
-    busy: Boolean,
-    onDismiss: () -> Unit,
-    onContest: (String) -> Unit,
-) {
+private fun ContestDialog(busy: Boolean, onDismiss: () -> Unit, onContest: (String) -> Unit) {
     var note by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,

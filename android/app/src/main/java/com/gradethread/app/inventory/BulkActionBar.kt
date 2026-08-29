@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -47,7 +48,7 @@ fun BulkActionBar(
     var confirming by remember { mutableStateOf<BulkAction?>(null) }
     // Hoisted: `semantics { }` is not a composable scope. The bar says "N
     // selected"; TalkBack gets the noun too, since the chip has no context.
-    val selectionSpoken = stringResource(R.string.bulk_selected_count, selectedCount)
+    val selectionSpoken = pluralStringResource(R.plurals.bulk_selected_count, selectedCount, selectedCount)
 
     Column(
         modifier

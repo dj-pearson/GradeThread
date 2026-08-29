@@ -26,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
 import androidx.compose.ui.Modifier
@@ -471,7 +472,7 @@ private fun BulkEditDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.drafts_bulk_title, state.selected.size)) },
+        title = { Text(pluralStringResource(R.plurals.drafts_bulk_title, state.selected.size, state.selected.size)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)) {

@@ -19,7 +19,7 @@
     <ID>ConstructorParameterNaming:ReconciliationService.kt$ReconciliationService.ActiveListingRow$val platform_listing_id: String? = null</ID>
     <ID>CyclomaticComplexMethod:BulkPricingScreen.kt$@Composable fun BulkPricingScreen( onClose: () -&gt; Unit = {}, viewModel: BulkPricingViewModel = hiltViewModel(), )</ID>
     <ID>CyclomaticComplexMethod:CaptureScreen.kt$@Composable fun CaptureScreen( /** US-1334: fired once the item exists and extraction has started. */ onPublished: (String) -&gt; Unit = {}, publishViewModel: CapturePublishViewModel = hiltViewModel(), )</ID>
-    <ID>CyclomaticComplexMethod:EbayCasesScreen.kt$@Composable fun EbayCasesScreen( onClose: () -&gt; Unit = {}, viewModel: EbayCasesViewModel = hiltViewModel(), )</ID>
+    <ID>CyclomaticComplexMethod:EbayCasesScreen.kt$@Composable fun EbayCasesScreen(onClose: () -&gt; Unit = {}, viewModel: EbayCasesViewModel = hiltViewModel())</ID>
     <ID>CyclomaticComplexMethod:EdgeApiError.kt$EdgeApiError.Companion$fun from(statusCode: Int, body: String): EdgeApiError</ID>
     <ID>CyclomaticComplexMethod:IntakeSubmission.kt$IntakeSubmission$fun mergePatch( state: DetailsIntakeState, existing: ExistingItem, keepExisting: Set&lt;ItemMergePlan.Field&gt;, ): JsonObject</ID>
     <ID>CyclomaticComplexMethod:InventoryFilter.kt$InventoryFilter$fun matches( item: InventoryItemEntity, criteria: InventoryFilterCriteria, photoItemIds: Set&lt;String&gt;?, nowMillis: Long, ): Boolean</ID>

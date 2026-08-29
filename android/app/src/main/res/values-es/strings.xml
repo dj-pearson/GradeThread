@@ -424,7 +424,11 @@
     <string name="drafts_edit_together">Editar %1$d juntos</string>
     <string name="drafts_retry_failed">Reintentar los %1$d que fallaron</string>
     <string name="drafts_reschedule">Reprogramar</string>
-    <string name="drafts_bulk_title">Editar %1$d borradores</string>
+    <plurals name="drafts_bulk_title">
+        <item quantity="one">Editar %1$d borrador</item>
+        <item quantity="many">Editar %1$d de borradores</item>
+        <item quantity="other">Editar %1$d borradores</item>
+    </plurals>
     <string name="drafts_mode_set">Fijar precio</string>
     <string name="drafts_mode_percent">Ajustar %</string>
     <string name="drafts_mode_round99">Terminar en .99</string>
@@ -1308,7 +1312,11 @@
     <string name="common_undo">Deshacer</string>
     <string name="common_value">Valor</string>
     <string name="bulk_selected">%1$d seleccionados</string>
-    <string name="bulk_selected_count">%1$d artículos seleccionados</string>
+    <plurals name="bulk_selected_count">
+        <item quantity="one">%1$d artículo seleccionado</item>
+        <item quantity="many">%1$d de artículos seleccionados</item>
+        <item quantity="other">%1$d artículos seleccionados</item>
+    </plurals>
     <string name="consignment_total_owed">%1$s por pagar</string>
     <string name="bulk_more_failures">…y %1$d más</string>
     <string name="consignment_title">Pagos de consignación</string>
@@ -1506,7 +1514,11 @@
     <string name="autolister_verify">Revisar mis grupos</string>
     <string name="autolister_ungrouped">Todavía sin grupo (%1$d)</string>
     <string name="autolister_group_selected">Crear un grupo</string>
-    <string name="autolister_group_size">%1$d fotos</string>
+    <plurals name="autolister_group_size">
+        <item quantity="one">%1$d foto</item>
+        <item quantity="many">%1$d de fotos</item>
+        <item quantity="other">%1$d fotos</item>
+    </plurals>
     <string name="autolister_set_cover">Usar como portada</string>
     <string name="autolister_split">Separar</string>
     <string name="autolister_move_here">Mover aquí</string>
@@ -1540,7 +1552,11 @@
     <string name="cases_show_closed">Ver cerradas (%1$d)</string>
     <string name="cases_hide_closed">Ocultar cerradas (%1$d)</string>
     <string name="cases_overdue">Pasó la fecha límite de eBay</string>
-    <string name="cases_respond_in">Responde en %1$d días</string>
+    <plurals name="cases_respond_in">
+        <item quantity="one">Responde en %1$d día</item>
+        <item quantity="many">Responde en %1$d de días</item>
+        <item quantity="other">Responde en %1$d días</item>
+    </plurals>
     <string name="cases_dispute">Disputa de pago</string>
     <string name="cases_return">Solicitud de devolución</string>
     <string name="cases_cancellation">Solicitud de cancelación</string>
