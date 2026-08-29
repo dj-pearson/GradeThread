@@ -34,6 +34,18 @@ const ADS_API_VERSION = GOOGLE_ADS_API_VERSION;
 
 // Default seed phrases — the buyer-intent roots of GradeThread + FlipDesk. The
 // scheduled run expands these; a manual run may override them.
+//
+// THE SEED LIST IS THE BLIND SPOT, not the tool (US-9027, 2026-08-28). Two
+// Keyword Planner pulls, 776 keywords between them, sized the whole
+// authentication cluster at ONE keyword and 50/mo — while
+// /tools/authenticity-check was quietly the best-converting page on the site at
+// 10.98% CTR. An autocomplete harvest found 945 distinct authentication queries
+// across 20 brands. The pulls were not wrong; they were never asked.
+//
+// Four clusters were missing entirely and are seeded below: authentication,
+// reseller tax and bookkeeping, "what is my X worth", and platform how-to. A
+// seed added here is a cluster the next scheduled run can see, so this list
+// should grow whenever a build reveals a question the taxonomy could not ask.
 export const DEFAULT_SEED_KEYWORDS = [
   "clothing condition grading",
   "used clothing grade",
@@ -42,6 +54,14 @@ export const DEFAULT_SEED_KEYWORDS = [
   "thrift flipping",
   "garment condition report",
   "resale certificate",
+  // US-9027: the four unsized clusters.
+  "brand authenticity checker",
+  "clothing authentication service",
+  "how to spot fake clothing",
+  "reseller taxes",
+  "reseller bookkeeping software",
+  "what is my jacket worth",
+  "how to sell clothes on depop",
 ];
 
 export type KeywordCompetition = "low" | "medium" | "high" | "unspecified";
