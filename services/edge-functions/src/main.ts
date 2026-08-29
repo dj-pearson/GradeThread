@@ -6,6 +6,7 @@ import type { Context } from "hono";
 import { cors } from "hono/cors";
 import { accessLogger } from "./middleware/access-log.ts";
 import { healthRoutes } from "./routes/health.ts";
+import { clientVersionRoutes } from "./routes/client-version.ts";
 import { gradeRoutes } from "./routes/grade.ts";
 import { webhookRoutes } from "./routes/webhooks.ts";
 import { authHookRoutes } from "./routes/auth-hooks.ts";
@@ -1238,6 +1239,10 @@ app.route("/health", healthRoutes);
 // US-887: PUBLIC maintenance status — the SPA app-shell banner reads this with
 // no auth so logged-out / public surfaces show the notice too.
 app.route("/api/maintenance", maintenanceRoutes);
+// US-2911 AC5: PUBLIC on purpose. An app below the floor may be failing auth
+// for the very reason it needs replacing, so a signal behind a session could
+// never reach it.
+app.route("/api/client-version", clientVersionRoutes);
 app.route("/api/grade", gradeRoutes);
 // US-585: waitlist — public capture (POST /) + authed access check (GET /me).
 app.route("/api/waitlist", waitlistRoutes);
