@@ -1096,6 +1096,18 @@ CREATE POLICY "own rows" ON notif_y FOR SELECT USING (user_id = auth.uid());
 // all this claims to do.
 const INITPLAN_EXEMPT = new Map<string, string>([
   [
+    "00683_tax_profiles.sql",
+    "SUPERSEDED BY 00687, which rewrites all thirteen of these policies into the initplan form. These three shipped with the bare `auth.uid()` and were APPLIED to production before anyone noticed, and an applied migration is immutable, so the correction had to be a new file. Listed here because this guard reads the SOURCE and a later corrective migration cannot satisfy it - NOT because the form is acceptable on these tables. ledger_entries is the opposite of exempt: the derivation writes NINE rows per completed sale, which is exactly the per-row re-evaluation AC1 exists to stop. If you are here because a fourth migration tripped the guard, the answer is to write the policy correctly, not to add a fourth entry.",
+  ],
+  [
+    "00684_ledger_accounts.sql",
+    "SUPERSEDED BY 00687, which rewrites all thirteen of these policies into the initplan form. These three shipped with the bare `auth.uid()` and were APPLIED to production before anyone noticed, and an applied migration is immutable, so the correction had to be a new file. Listed here because this guard reads the SOURCE and a later corrective migration cannot satisfy it - NOT because the form is acceptable on these tables. ledger_entries is the opposite of exempt: the derivation writes NINE rows per completed sale, which is exactly the per-row re-evaluation AC1 exists to stop. If you are here because a fourth migration tripped the guard, the answer is to write the policy correctly, not to add a fourth entry.",
+  ],
+  [
+    "00685_ledger_entries.sql",
+    "SUPERSEDED BY 00687, which rewrites all thirteen of these policies into the initplan form. These three shipped with the bare `auth.uid()` and were APPLIED to production before anyone noticed, and an applied migration is immutable, so the correction had to be a new file. Listed here because this guard reads the SOURCE and a later corrective migration cannot satisfy it - NOT because the form is acceptable on these tables. ledger_entries is the opposite of exempt: the derivation writes NINE rows per completed sale, which is exactly the per-row re-evaluation AC1 exists to stop. If you are here because a fourth migration tripped the guard, the answer is to write the policy correctly, not to add a fourth entry.",
+  ],
+  [
     "00474_push_subscriptions.sql",
     "PRE-EXISTING at guard-authoring time (2026-07-19), not a new exemption. " +
       "push_subscriptions is one row per user per device, so the per-row " +

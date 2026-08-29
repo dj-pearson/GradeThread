@@ -1,5 +1,25 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## HELD: 00687_ledger_rls_initplan.sql (US-3005)
+
+**Risk if NOT applied: LOW but growing.** Thirteen RLS policies on tax_profiles,
+tax_profile_changes, ledger_accounts and ledger_entries re-evaluate auth.uid()
+per row instead of once per statement (US-1927 AC1). Invisible on a small table;
+ledger_entries gets NINE rows per completed sale, so it gets worse every month a
+seller uses the product.
+
+**Risk of applying it: LOW.** DROP/CREATE POLICY only. No data, no schema, no
+permission change - the predicates are identical apart from the initplan
+wrapper, including the `user_id IS NULL` arm that makes the system chart of
+accounts readable and the `source_kind = 'adjustment'` arm that stops a seller
+writing a fake 'sale' row. Every DROP is IF EXISTS, so it is safe to run twice.
+
+**Apply order:** independent. Any time, before or after 00686.
+
+**Client-side read risk: NONE.**
+
+**After applying:** no NOTIFY needed - policies are not part of the schema cache.
+
 ## HELD: 00686_ledger_rebuild_no_revoke.sql (US-3002)
 
 ⚠ **APPLY THIS ONE FIRST. It removes a live crash vector, it does not add one.**

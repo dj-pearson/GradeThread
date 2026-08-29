@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3005",
+  "nextId": "US-3006",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3003,6 +3003,21 @@
         "WORTH A SECOND LOOK: the ledger epic added three migrations in under an hour and this shipped in the third. Check 00683 and 00684 for the same pattern before the epic closes."
       ],
       "priority": 1
+    },
+    {
+      "id": "US-3005",
+      "passes": false,
+      "title": "Thirteen Books-and-Taxes RLS policies re-evaluate auth.uid() per row, on the table that gets nine rows per sale",
+      "description": "As a seller opening the ledger after a year of selling, I want the row filter evaluated once rather than once per row, so that the screen does not get slower every month I use the product.",
+      "acceptanceCriteria": [
+        "FOUND 2026-08-29 by rls-guard_test.ts, US-1927 AC1, which failed a push. 00683, 00684 and 00685 wrote thirteen policies as `auth.uid() = user_id`. Inside an RLS policy a bare auth.uid() is a volatile call the planner re-evaluates PER ROW; `(select auth.uid())` is an InitPlan evaluated once per statement.",
+        "ledger_entries is the table this rule exists for. The derivation writes NINE rows per completed sale, so a seller with a year of history reads thousands of rows on one screen and pays for the call on every one.",
+        "FIXED by 00687, which DROP-then-CREATEs all thirteen. The predicates are otherwise untouched: this is a planner fix, not a permissions change. `Read system and own accounts` keeps its `user_id IS NULL OR` arm and the three ledger_entries write policies keep `source_kind = 'adjustment'`, which is what stops a seller hand-writing a 'sale' row.",
+        "00683/00684/00685 are registered in INITPLAN_EXEMPT with the reason - because the guard reads the SOURCE and a later corrective migration cannot satisfy it, NOT because the form is acceptable. The entry says so explicitly, and says that a fourth migration tripping the guard should be written correctly rather than added to the list.",
+        "OPERATOR: apply 00687 to prod. It is DROP/CREATE POLICY only - no data, no schema change - and safe to run twice.",
+        "THE THIRD DEFECT IN THE SAME THREE MIGRATIONS, after US-3002's REVOKE and this. All three shipped inside an hour and were applied before review. Worth a look at how that epic's migrations are being checked before it adds more."
+      ],
+      "priority": 6
     }
   ]
 }
