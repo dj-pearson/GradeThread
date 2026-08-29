@@ -245,7 +245,25 @@ adminGradingRoutes.get("/accuracy/defects", async (c) => {
   }
 });
 
-// GET /accuracy/outcomes — does a higher grade actually realize a higher price?
+// GET /accuracy/price-correlation — does a higher grade actually realize a
+// higher price?
+//
+// US-2954: THIS USED TO BE REGISTERED AT /accuracy/outcomes, and so did the
+// handler ~90 lines below. Hono serves the first match, so this one won and the
+// other was dead code with a comment claiming it was wired.
+//
+// The two answer different questions and only one of them is what the Outcomes
+// tab renders. GradingAccuracyPanel reads { categories, total_graded_sales,
+// overall_dispute_rate } - post-sale dispute feedback per category, which is
+// computeOutcomeFeedback() below. This endpoint returns a correlation report
+// with window_days / scanned / scan_capped and no total_graded_sales at all, so
+// the tab's `data.total_graded_sales === 0` guard read undefined, fell through,
+// and called .map on an undefined categories array. The tab was not showing the
+// wrong numbers; it was throwing.
+//
+// So the PATH goes back to the handler the panel was written against, and this
+// one - which is the newer and more interesting analysis, and which nothing
+// consumes yet - gets a name that says what it computes.
 // (US-2280). Spearman rank correlation between the assigned grade and
 // sale_price / comp_median, plus return and dispute rates per grade band.
 //
@@ -258,7 +276,7 @@ adminGradingRoutes.get("/accuracy/defects", async (c) => {
 // The response reports a coefficient ONLY above the minimum sample and says so
 // in words otherwise — "not enough data to look" and "no relationship found" are
 // different answers and this endpoint never collapses them.
-adminGradingRoutes.get("/accuracy/outcomes", async (c) => {
+adminGradingRoutes.get("/accuracy/price-correlation", async (c) => {
   try {
     const rawDays = Number(c.req.query("days"));
     const days = Number.isFinite(rawDays) && rawDays > 0 && rawDays <= 3650
