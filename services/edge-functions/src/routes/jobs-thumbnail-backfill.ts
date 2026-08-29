@@ -17,6 +17,25 @@
 // (AC3 keeps private-bucket rules intact), and the inventory row never shows them
 // via photo_url anyway.
 //
+// US-2836 AC3: ROWS WRITTEN BEFORE THE CACHE-BUSTER ARE NOT REPAIRED, and that
+// is a decision rather than an oversight.
+//
+// This job only ever touches rows where thumbnail_url IS NULL (the .is() filter
+// below), so a row that already carries an un-busted URL is never revisited. Its
+// stored bytes are already correct - persistPhotoEdit deleted the old object and
+// this job regenerated it - so the only thing stale is what a browser or the
+// Cloudflare edge is still holding, and Supabase advertises max-age=14400. Those
+// copies expire within four hours and the row is then correct everywhere with no
+// write at all.
+//
+// The alternative was a one-off sweep appending ?v= to every existing
+// thumbnail_url. That is a write across every photo row in the product to fix a
+// display that fixes itself before most sellers notice, and it would invalidate
+// every correctly-cached thumbnail at the same time - making the median seller's
+// grid slower to fix the tail. Not worth it. Recorded here so the next person
+// reading a four-hour-old complaint knows it is expected and self-resolving
+// rather than a fix that did not take.
+//
 // Idempotent (only NULL-thumbnail rows), bounded per run, overlap-locked. Mounted
 // in main.ts as POST /api/jobs/thumbnail-backfill, gated by X-Internal-Job-Secret.
 // Run it on a Coolify scheduled task (e.g. every 5 min):
