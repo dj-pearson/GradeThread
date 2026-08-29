@@ -203,45 +203,47 @@ jobs:
       - name: Coverage floor (kover)
         run: ./gradlew :app:koverVerifyDebug --stacktrace
 
-      # US-2502: rendered-UI diffs. NON-BLOCKING, and RIGHT NOW IT IS RED.
+      # US-2502 / US-2902: rendered-UI diffs. BLOCKING as of 2026-08-29.
       #
-      # ⚠ THIS STEP IS FAILING AND HAS BEEN FOR AT LEAST FOUR RUNS.
-      # `ComponentScreenshotTest > statusBadges_dark` fails, the task reports
-      # "2088 tests completed, 1 failed", and the step ends BUILD FAILED. Read
-      # that in the LOG, not from the API: `gh run view <id> --json jobs`
-      # reports this step's conclusion as "success", because continue-on-error
-      # rewrites it. A non-blocking step is supposed to be visible and merely
-      # not fatal; this one is invisible.
+      # IT WAS NON-BLOCKING BECAUSE OF A WORRY THAT TURNED OUT TO BE WRONG, and
+      # it spent 2026-08-25 to 2026-08-29 RED without anyone seeing it.
       #
-      # US-2902, MEASURED 2026-08-29, AND IT IS NOT THE HOST. The old comment
-      # here blamed sub-pixel antialiasing between a Windows checkout and this
-      # runner, and said to flip the gate once the goldens were re-recorded ON A
-      # RUNNER via workflow_dispatch. Two things are now known:
-      #   1. That dispatch has NEVER run — `gh run list --workflow="Android CI"
-      #      --event workflow_dispatch` returns nothing — so the condition was
-      #      never met by anyone.
-      #   2. It was the wrong condition. Running verifyRoborazziDebug on a
-      #      Windows checkout gives diff_percentage 0.000000 on SIX of the seven
-      #      goldens — bit-identical, including buttons-dark — and 0.022547 on
-      #      status-badges-dark. The runner fails the SAME single test, at the
-      #      same assertion line. Six exact zeros is not what host-dependent
-      #      antialiasing looks like; the host is not the variable.
-      # (Numbers from app/build/test-results/roborazzi/results/*.json.)
+      # THE WORRY: sub-pixel antialiasing might differ between a Windows
+      # checkout and this runner, so the gate would be red for a reason nobody
+      # could fix. It does not: the runner failed the SAME single test as a
+      # Windows checkout, at the same assertion line. The host was never the
+      # variable.
       #
-      # SO ONE GOLDEN IS WRONG, and re-recording it is exactly what must not
-      # happen until someone knows why: neither StatusBadge.kt, the theme, nor
-      # ComponentScreenshotTest.kt has changed since the goldens were committed
-      # on 2026-08-15, so the same code renders differently than what was
-      # recorded and the cause is unexplained. A golden re-recorded to make a
-      # diff go away is the assertion deleted (build.gradle.kts says this too).
+      # THE REAL CAUSE: 540d9648d (US-2891, target API 36) bumped Robolectric
+      # 4.14.1 -> 4.16.1, and its native graphics round alpha compositing one
+      # bit differently. Pixel diff against the pre-bump goldens: FOUR of the
+      # seven moved, every one of them by a MAXIMUM per-channel delta of 1 or 2
+      # — buttons-dark 245 pixels, error-state 6, status-badges-light 67093,
+      # status-badges-dark 75176. Not a layout, colour or font change: a
+      # rounding change no eye can see, and the compare image confirms it.
       #
-      # THE CONDITION FOR FLIPPING, checkable: statusBadges_dark explained and
-      # green, then this step green on main for three consecutive runs — read
-      # from the step's LOG each time, since its API conclusion cannot say
-      # otherwise while continue-on-error is here.
+      # ⚠ ONLY ONE CROSSED THE THRESHOLD, AND THAT IS WHY "0.000000" MISLED ME
+      # FIRST TIME. Roborazzi's diff_percentage is a WEIGHTED metric, not the
+      # fraction of differing pixels: status-badges-light had 31% of its pixels
+      # differ and still reported 0.000000, because every delta there is 1.
+      # status-badges-dark reported 0.022547 because 4832 of its deltas are 2.
+      # A Roborazzi 0.000000 means "below its weighting", NOT "identical" —
+      # do not read it as byte-equality the way an earlier version of this
+      # comment did.
+      #
+      # The goldens were re-recorded on 4.16.1 in that same commit. That is
+      # allowed HERE and not in general: "a golden re-recorded on its own is the
+      # assertion deleted" is about hiding a real change, and this one is
+      # measured, explained, and bounded at 2/255.
+      #
+      # AND IT WAS INVISIBLE, WHICH IS WHY IT IS BLOCKING NOW. `gh run view <id>
+      # --json jobs` reported this step's conclusion as "success" for four
+      # straight runs whose own logs say "2088 tests completed, 1 failed" and
+      # "BUILD FAILED" — continue-on-error rewrites a STEP's conclusion. A
+      # non-blocking step is meant to be visible and merely not fatal; this one
+      # could not be seen from the API at all.
       - name: Screenshot tests (Roborazzi)
         if: ${{ !inputs.record_screenshots }}
-        continue-on-error: true
         run: ./gradlew :app:verifyRoborazziDebug --stacktrace
 
       - name: Re-record the screenshot goldens
@@ -424,8 +426,9 @@ jobs:
   #     -q '.jobs[]|select(.name|test("Critical-flow"))|.conclusion'
   # counting only ids that return a conclusion — a `skipped` means the job never
   # ran and is evidence for nothing. A JOB conclusion is trustworthy here; a
-  # STEP conclusion under continue-on-error is not, which is why the screenshot
-  # step above tells you to read its log instead.
+  # STEP conclusion under continue-on-error is NOT — it is reported as "success"
+  # whatever the command did, which is how the screenshot step above stayed red
+  # for four runs while the API called it green.
   #
   # The count starts from the env fix below: every run before it failed on a
   # missing config string rather than on anything this lane tests. Ten rather
