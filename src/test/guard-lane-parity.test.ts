@@ -37,6 +37,17 @@ const WORKFLOWS = resolve(ROOT, ".github/workflows");
  * that filename.
  */
 const NOT_A_LANE_CHECK: Record<string, string> = {
+  "check-ledger-invariant.mjs":
+    "NEEDS A REAL POSTGRES, and its own header already argues this: it runs "  +
+    "the ledger invariant through `docker exec psql`, comparing "  +
+    "public.ledger_entries against public.finances_dashboard, which is a "  +
+    "claim no vitest case can make. US-2984 kept it out of verify "  +
+    "DELIBERATELY, on the same reasoning that gates verify:db on Docker -- a "  +
+    "lane that skips silently when the stack is down teaches everyone to "  +
+    "ignore it. Run it by hand after touching the ledger derivation or "  +
+    "finances_dashboard: `node scripts/check-ledger-invariant.mjs`. Listed "  +
+    "here because the intent was written in the script and never told to "  +
+    "this guard, which then failed a push that had nothing to do with it.",
   "check-copy-reading-level.mjs":
     "REPORT-ONLY BY DESIGN (US-2868 AC3, which asked for exactly that). It " +
     "scores reading level with Flesch-Kincaid over a SYLLABLE GUESS -- the " +
