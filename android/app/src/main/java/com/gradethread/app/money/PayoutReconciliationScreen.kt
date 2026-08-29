@@ -164,7 +164,7 @@ fun PayoutReconciliationScreen(
                     // unmatched deposits must not think they cleared the list.
                     stringResource(R.string.payouts_queue_truncated, queue.showing, queue.total)
                 } else {
-                    stringResource(R.string.payouts_queue_count, queue.total)
+                    pluralStringResource(R.plurals.payouts_queue_count, queue.total, queue.total)
                 },
                 style = MaterialTheme.typography.bodyMedium,
             )
@@ -252,11 +252,7 @@ fun PayoutReconciliationScreen(
  * seller cannot check against anything.
  */
 @Composable
-private fun QueuedPayoutCard(
-    entry: PayoutQueueEntry,
-    busy: Boolean,
-    viewModel: PayoutReconciliationViewModel,
-) {
+private fun QueuedPayoutCard(entry: PayoutQueueEntry, busy: Boolean, viewModel: PayoutReconciliationViewModel) {
     Column(Modifier.fillMaxWidth().cardStyle()) {
         Text(
             entry.payout.amount?.let(Money::format)
@@ -306,10 +302,7 @@ private fun QueuedPayoutCard(
 }
 
 @Composable
-private fun PayoutCard(
-    entry: PayoutReconciliation.Reconciled,
-    onOpenItem: (String) -> Unit,
-) {
+private fun PayoutCard(entry: PayoutReconciliation.Reconciled, onOpenItem: (String) -> Unit) {
     Column(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
@@ -367,11 +360,7 @@ private fun PayoutCard(
 }
 
 @Composable
-private fun SaleLine(
-    sale: SaleEntity,
-    note: String,
-    onOpenItem: (String) -> Unit,
-) {
+private fun SaleLine(sale: SaleEntity, note: String, onOpenItem: (String) -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()

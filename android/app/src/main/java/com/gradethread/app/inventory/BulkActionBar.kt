@@ -58,7 +58,7 @@ fun BulkActionBar(
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                stringResource(R.string.bulk_selected, selectedCount),
+                pluralStringResource(R.plurals.bulk_selected, selectedCount, selectedCount),
                 style = MaterialTheme.typography.labelLarge,
                 modifier = Modifier
                     .weight(1f)

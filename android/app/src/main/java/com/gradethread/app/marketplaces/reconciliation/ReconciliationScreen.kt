@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
 import androidx.compose.ui.Modifier
@@ -41,10 +42,7 @@ import com.gradethread.app.ui.theme.cardStyle
  * US-1356: unmatched eBay listings, one decision each.
  */
 @Composable
-fun ReconciliationScreen(
-    onClose: () -> Unit = {},
-    viewModel: ReconciliationViewModel = hiltViewModel(),
-) {
+fun ReconciliationScreen(onClose: () -> Unit = {}, viewModel: ReconciliationViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     var creating by remember { mutableStateOf<OrphanEbayListing?>(null) }
     var linking by remember { mutableStateOf<OrphanEbayListing?>(null) }
@@ -56,14 +54,19 @@ fun ReconciliationScreen(
         Modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
-        Text(stringResource(R.string.reconciliation_unmatched_ebay_listings), style = MaterialTheme.typography.titleLarge)
+        Text(
+            stringResource(R.string.reconciliation_unmatched_ebay_listings),
+            style = MaterialTheme.typography.titleLarge,
+        )
         Text(
             stringResource(R.string.reconciliation_intro),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        state.errorMessage?.let { InfoCard(stringResource(R.string.reconciliation_that_didn_t_work), it, tone = InfoTone.Error) }
+        state.errorMessage?.let {
+            InfoCard(stringResource(R.string.reconciliation_that_didn_t_work), it, tone = InfoTone.Error)
+        }
         state.banner?.let { InfoCard(stringResource(R.string.reconciliation_done), it, tone = InfoTone.Success) }
         state.bulkProgress?.let { (done, total) ->
             Text(
@@ -113,7 +116,9 @@ fun ReconciliationScreen(
             ) { confirmCreateAll = true }
         }
 
-        BrandSecondaryButton(text = stringResource(R.string.reconciliation_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.reconciliation_back), modifier = Modifier.fillMaxWidth()) {
+            onClose()
+        }
     }
 
     creating?.let { orphan ->
@@ -144,7 +149,9 @@ fun ReconciliationScreen(
         AlertDialog(
             onDismissRequest = { confirmCreateAll = false },
             title = {
-                Text(stringResource(R.string.reconciliation_create_title, state.orphans.size))
+                Text(
+                    pluralStringResource(R.plurals.reconciliation_create_title, state.orphans.size, state.orphans.size),
+                )
             },
             text = {
                 Text(
@@ -158,7 +165,9 @@ fun ReconciliationScreen(
                 }) { Text(stringResource(R.string.reconciliation_create_them)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmCreateAll = false }) { Text(stringResource(R.string.reconciliation_cancel)) }
+                TextButton(onClick = {
+                    confirmCreateAll = false
+                }) { Text(stringResource(R.string.reconciliation_cancel)) }
             },
         )
     }

@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -232,7 +233,7 @@ private fun MeasureCanvas(state: MeasurementEditorViewModel.State, viewModel: Me
     var canvasWidthPx by remember { mutableStateOf(0f) }
 
     val photo = state.photo
-    val spoken = stringResource(R.string.measure_editor_canvas_a11y, state.lines.size)
+    val spoken = pluralStringResource(R.plurals.measure_editor_canvas_a11y, state.lines.size, state.lines.size)
 
     Box(
         Modifier

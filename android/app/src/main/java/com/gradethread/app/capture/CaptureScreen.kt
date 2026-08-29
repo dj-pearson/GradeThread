@@ -46,6 +46,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -281,7 +282,7 @@ fun CaptureScreen(
         val unsupported = profile.unsupportedRoleTypes
         if (unsupported.isNotEmpty()) {
             Text(
-                stringResource(R.string.capture_slots_need_update, unsupported.size),
+                pluralStringResource(R.plurals.capture_slots_need_update, unsupported.size, unsupported.size),
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),

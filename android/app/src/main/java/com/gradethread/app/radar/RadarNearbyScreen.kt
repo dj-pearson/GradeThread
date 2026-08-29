@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -208,7 +209,7 @@ fun RadarNearbyScreen(
             }
 
             if (state.kFloor > 0) {
-                item { Note(stringResource(R.string.radar_k_floor, state.kFloor)) }
+                item { Note(pluralStringResource(R.plurals.radar_k_floor, state.kFloor, state.kFloor)) }
             }
 
             if (state.offMapStores.isNotEmpty()) {
@@ -370,18 +371,17 @@ internal fun hotnessTint(level: RadarHotnessLevel): Color = when (level) {
 
 /** How recently somebody scanned, resolved from the band the pure layer picked. */
 @Composable
-internal fun freshnessLabel(daysSince: Int?): String =
-    when (val band = RadarScoring.freshness(daysSince)) {
-        RadarFreshness.DAYS_AGO ->
-            stringResource(R.string.radar_fresh_days, daysSince ?: 0)
-        else -> stringResource(
-            when (band) {
-                RadarFreshness.UNKNOWN -> R.string.radar_fresh_unknown
-                RadarFreshness.TODAY -> R.string.radar_fresh_today
-                RadarFreshness.YESTERDAY -> R.string.radar_fresh_yesterday
-                RadarFreshness.LAST_WEEK -> R.string.radar_fresh_last_week
-                RadarFreshness.THIS_MONTH -> R.string.radar_fresh_this_month
-                else -> R.string.radar_fresh_older
-            },
-        )
-    }
+internal fun freshnessLabel(daysSince: Int?): String = when (val band = RadarScoring.freshness(daysSince)) {
+    RadarFreshness.DAYS_AGO ->
+        pluralStringResource(R.plurals.radar_fresh_days, daysSince ?: 0, daysSince ?: 0)
+    else -> stringResource(
+        when (band) {
+            RadarFreshness.UNKNOWN -> R.string.radar_fresh_unknown
+            RadarFreshness.TODAY -> R.string.radar_fresh_today
+            RadarFreshness.YESTERDAY -> R.string.radar_fresh_yesterday
+            RadarFreshness.LAST_WEEK -> R.string.radar_fresh_last_week
+            RadarFreshness.THIS_MONTH -> R.string.radar_fresh_this_month
+            else -> R.string.radar_fresh_older
+        },
+    )
+}

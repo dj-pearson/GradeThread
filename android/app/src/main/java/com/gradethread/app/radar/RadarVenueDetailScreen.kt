@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -75,10 +76,7 @@ fun RadarVenueDetailScreen(
 }
 
 @Composable
-private fun WithheldCard(
-    phase: RadarVenueDetailViewModel.Phase.Withheld,
-    onRetry: () -> Unit,
-) {
+private fun WithheldCard(phase: RadarVenueDetailViewModel.Phase.Withheld, onRetry: () -> Unit) {
     Column(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
@@ -153,7 +151,7 @@ private fun ReadyDetail(detail: RadarVenueDetail) {
             ) {
                 Text(brand.brand.orEmpty(), style = MaterialTheme.typography.bodyMedium)
                 Text(
-                    stringResource(R.string.radar_venue_brand_scans, brand.scanCount),
+                    pluralStringResource(R.plurals.radar_venue_brand_scans, brand.scanCount, brand.scanCount),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -184,7 +182,7 @@ private fun ReadyDetail(detail: RadarVenueDetail) {
         Text(
             // Said out loud every time: these are field estimates from a phone
             // photo, not the certified grade the same app also sells.
-            stringResource(R.string.radar_venue_grade_note, mix.graded),
+            pluralStringResource(R.plurals.radar_venue_grade_note, mix.graded, mix.graded),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

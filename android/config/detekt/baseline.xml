@@ -281,10 +281,6 @@
     <ID>MaxLineLength:ProspectScreen.kt$BrandSecondaryButton(text = stringResource(R.string.prospect_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
     <ID>MaxLineLength:ProspectScreen.kt$TextButton(onClick = { viewModel.removePhoto(photo) }) { Text(stringResource(R.string.prospect_remove)) }</ID>
     <ID>MaxLineLength:RealtimeService.kt$RealtimeRows$.</ID>
-    <ID>MaxLineLength:ReconciliationScreen.kt$BrandSecondaryButton(text = stringResource(R.string.reconciliation_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
-    <ID>MaxLineLength:ReconciliationScreen.kt$Text(stringResource(R.string.reconciliation_unmatched_ebay_listings), style = MaterialTheme.typography.titleLarge)</ID>
-    <ID>MaxLineLength:ReconciliationScreen.kt$TextButton(onClick = { confirmCreateAll = false }) { Text(stringResource(R.string.reconciliation_cancel)) }</ID>
-    <ID>MaxLineLength:ReconciliationScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.reconciliation_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
     <ID>MaxLineLength:RepricingScreen.kt$BrandSecondaryButton(text = stringResource(R.string.repricing_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
     <ID>MaxLineLength:RepricingScreen.kt$dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.repricing_cancel)) } }</ID>
     <ID>MaxLineLength:RepricingScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.repricing_that_didn_t_work), it, tone = InfoTone.Error) }</ID>

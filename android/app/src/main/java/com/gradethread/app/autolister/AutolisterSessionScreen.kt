@@ -113,7 +113,7 @@ fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionVie
             item {
                 Column(Modifier.fillMaxWidth().cardStyle()) {
                     Text(
-                        stringResource(R.string.autolister_sent, count),
+                        pluralStringResource(R.plurals.autolister_sent, count, count),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                     TextButton(onClick = viewModel::dismissError) {
@@ -140,7 +140,11 @@ fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionVie
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     BrandSecondaryButton(
-                        text = stringResource(R.string.autolister_propose, state.proposeWindows),
+                        text = pluralStringResource(
+                            R.plurals.autolister_propose,
+                            state.proposeWindows,
+                            state.proposeWindows,
+                        ),
                         enabled = state.canPropose,
                     ) { viewModel.proposeGroups() }
                     BrandSecondaryButton(
@@ -273,7 +277,7 @@ private fun BusyBanner(busy: AutolisterSessionViewModel.Busy, state: AutolisterS
         }
         if (state.skipped > 0) {
             Text(
-                stringResource(R.string.autolister_skipped, state.skipped),
+                pluralStringResource(R.plurals.autolister_skipped, state.skipped, state.skipped),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

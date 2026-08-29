@@ -659,7 +659,10 @@
     <string name="reconciliation_intro">These are live on eBay but aren\'t linked to anything in your inventory. Create an item, link an existing one, or ignore it.</string>
     <string name="reconciliation_creating">Creating items\u2026 %1$d of %2$d</string>
     <string name="reconciliation_create_all">Create items for all %1$d</string>
-    <string name="reconciliation_create_title">Create %1$d items?</string>
+    <plurals name="reconciliation_create_title">
+        <item quantity="one">Create %1$d item?</item>
+        <item quantity="other">Create %1$d items?</item>
+    </plurals>
     <string name="reconciliation_create_body">One new inventory item per listing, using each listing\'s title, SKU and price. You can edit them afterwards.</string>
     <string name="reconciliation_sku_row">\u0020\u0020\u0020SKU %1$s</string>
     <string name="reconciliation_no_match">Nothing matches. Items sync to this device, so a very new one may not be here yet.</string>
@@ -1404,7 +1407,10 @@
     <string name="measure_editor_auto_running">Measuring…</string>
     <string name="measure_editor_line_chip">%1$s %2$s\"</string>
     <string name="measure_editor_add_line">+ %1$s</string>
-    <string name="measure_editor_canvas_a11y">Measurement photo with %1$d draggable lines. Drag an endpoint to move it.</string>
+    <plurals name="measure_editor_canvas_a11y">
+        <item quantity="one">Measurement photo with %1$d draggable line. Drag an endpoint to move it.</item>
+        <item quantity="other">Measurement photo with %1$d draggable lines. Drag an endpoint to move it.</item>
+    </plurals>
     <string name="verified_title">Verified seller</string>
     <string name="verified_subtitle">Your badge shows buyers your grading record. Set it up right here.</string>
     <string name="verified_maybe_stale">Might be out of date</string>
@@ -1454,7 +1460,10 @@
     <string name="common_clear">Clear</string>
     <string name="common_undo">Undo</string>
     <string name="common_value">Value</string>
-    <string name="bulk_selected">%1$d selected</string>
+    <plurals name="bulk_selected">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
     <plurals name="bulk_selected_count">
         <item quantity="one">%1$d item selected</item>
         <item quantity="other">%1$d items selected</item>
@@ -1603,7 +1612,10 @@
     <string name="capture_add_photo_slot">Add photo slot</string>
     <string name="capture_permission_blocked">Camera access is off. Enable it in Settings to capture photos \u2014 or add photos from your library instead.</string>
     <string name="capture_permission_needed">Camera permission needed to capture garment photos.</string>
-    <string name="capture_slots_need_update">This category asks for %1$d photo type(s) this app version cannot take yet. Update the app, or add them from a browser.</string>
+    <plurals name="capture_slots_need_update">
+        <item quantity="one">This category asks for %1$d photo type this app version cannot take yet. Update the app, or add it from a browser.</item>
+        <item quantity="other">This category asks for %1$d photo types this app version cannot take yet. Update the app, or add them from a browser.</item>
+    </plurals>
     <string name="capture_process_failed">That shot could not be saved. Take it again.</string>
     <string name="barcode_point_camera">Point the camera at a barcode</string>
     <string name="intake_share_title">Add to GradeThread</string>
@@ -1666,7 +1678,10 @@
     <string name="autolister_session_title">AutoLister batch</string>
     <string name="autolister_add_photos">Add photos</string>
     <string name="autolister_empty">Add a roll of photos, then sort them into one group per item. The desktop picks the batch up from there.</string>
-    <string name="autolister_propose">Group with AI (%1$d passes)</string>
+    <plurals name="autolister_propose">
+        <item quantity="one">Group with AI (%1$d pass)</item>
+        <item quantity="other">Group with AI (%1$d passes)</item>
+    </plurals>
     <string name="autolister_verify">Check my grouping</string>
     <string name="autolister_ungrouped">Not in a group yet (%1$d)</string>
     <string name="autolister_group_selected">Make a group</string>
@@ -1683,7 +1698,10 @@
     <string name="autolister_suggestion_fallback">The model suggests a change to this grouping.</string>
     <string name="autolister_send">Send to desktop</string>
     <string name="autolister_send_help">The batch waits on your account. Open AutoLister on a computer to finish the listings.</string>
-    <string name="autolister_sent">Sent %1$d photos. Open AutoLister on a computer to pick them up.</string>
+    <plurals name="autolister_sent">
+        <item quantity="one">Sent %1$d photo. Open AutoLister on a computer to pick it up.</item>
+        <item quantity="other">Sent %1$d photos. Open AutoLister on a computer to pick them up.</item>
+    </plurals>
     <string name="autolister_waiting_header">Waiting for a computer</string>
     <string name="autolister_waiting_row">%1$d photos in %2$d groups</string>
     <string name="autolister_discard">Throw away</string>
@@ -1691,7 +1709,10 @@
     <string name="autolister_busy_proposing">Grouping your photos</string>
     <string name="autolister_busy_verifying">Checking your grouping</string>
     <string name="autolister_busy_sending">Sending to your desktop</string>
-    <string name="autolister_skipped">%1$d photos could not be uploaded and were left out.</string>
+    <plurals name="autolister_skipped">
+        <item quantity="one">%1$d photo could not be uploaded and was left out.</item>
+        <item quantity="other">%1$d photos could not be uploaded and were left out.</item>
+    </plurals>
     <string name="autolister_cover">Cover photo</string>
     <string name="autolister_photo">Batch photo</string>
     <string name="drafts_other_platforms">Other marketplaces</string>
@@ -1758,7 +1779,10 @@
     <string name="payouts_matcher_help">This part needs a connection. It asks the server to pair each deposit with the sale it paid for, and leaves anything it is not sure about for you.</string>
     <string name="payouts_matcher_load">Show what needs matching</string>
     <string name="payouts_matcher_run">Match the obvious ones</string>
-    <string name="payouts_queue_count">%1$d deposits still need matching.</string>
+    <plurals name="payouts_queue_count">
+        <item quantity="one">%1$d deposit still needs matching.</item>
+        <item quantity="other">%1$d deposits still need matching.</item>
+    </plurals>
     <string name="payouts_queue_truncated">Showing %1$d of %2$d deposits that still need matching.</string>
     <string name="payouts_sweep_result">Matched %1$d. %2$d were too close to call, and %3$d had nothing to match against.</string>
     <string name="payouts_no_candidates">No sale looks like this deposit.</string>
@@ -1821,7 +1845,10 @@
     <string name="radar_check_again">Check again</string>
     <string name="radar_empty_title">Nothing on the radar here yet</string>
     <string name="radar_empty_body">Share your location to look around you, or link a source to a shop on the web so your own places show up here.</string>
-    <string name="radar_k_floor">A shop appears once %1$d different people have scanned there.</string>
+    <plurals name="radar_k_floor">
+        <item quantity="one">A shop appears once %1$d different person has scanned there.</item>
+        <item quantity="other">A shop appears once %1$d different people have scanned there.</item>
+    </plurals>
     <string name="radar_off_map_header">Your stores that are not on the map</string>
     <string name="radar_off_map_body">These have your money in them but no place yet. Link one on the web and it joins this list.</string>
     <string name="radar_off_map_items">%1$d bought here</string>
@@ -1838,7 +1865,10 @@
     <string name="radar_fresh_unknown">No recent activity</string>
     <string name="radar_fresh_today">Scanned today</string>
     <string name="radar_fresh_yesterday">Scanned yesterday</string>
-    <string name="radar_fresh_days">Scanned %1$d days ago</string>
+    <plurals name="radar_fresh_days">
+        <item quantity="one">Scanned %1$d day ago</item>
+        <item quantity="other">Scanned %1$d days ago</item>
+    </plurals>
     <string name="radar_fresh_last_week">Scanned last week</string>
     <string name="radar_fresh_this_month">Scanned this month</string>
     <string name="radar_fresh_older">Scanned over a month ago</string>
@@ -1850,14 +1880,20 @@
     <string name="radar_venue_brands">Brand mix</string>
     <string name="radar_venue_brands_empty">Not enough scans here to name a brand yet.</string>
     <string name="radar_venue_brands_note">Only brands enough different people have scanned appear here. A brand missing from this list is not a brand missing from the shop.</string>
-    <string name="radar_venue_brand_scans">%1$d scans</string>
+    <plurals name="radar_venue_brand_scans">
+        <item quantity="one">%1$d scan</item>
+        <item quantity="other">%1$d scans</item>
+    </plurals>
     <string name="radar_venue_condition">Condition found here</string>
     <string name="radar_venue_condition_empty">Nothing scanned here has been graded yet, so there is no condition picture to show.</string>
     <string name="radar_venue_grade_high">8 and up (great)</string>
     <string name="radar_venue_grade_mid">6 to 8 (wearable)</string>
     <string name="radar_venue_grade_low">Under 6 (rough)</string>
     <string name="radar_venue_grade_share">%1$d%%</string>
-    <string name="radar_venue_grade_note">Across %1$d graded scans. Estimated from photos in the field, not a certified grade.</string>
+    <plurals name="radar_venue_grade_note">
+        <item quantity="one">Across %1$d graded scan. Estimated from photos in the field, not a certified grade.</item>
+        <item quantity="other">Across %1$d graded scans. Estimated from photos in the field, not a certified grade.</item>
+    </plurals>
     <string name="tools_radar">Sourcing Radar</string>
     <string name="tools_radar_subtitle">Which shops near you are worth the walk in</string>
     <!-- US-2886: the "Sourced by" roster picker. -->

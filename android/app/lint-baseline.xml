@@ -74,7 +74,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/measure/MeasurementPhotoEditorSheet.kt"
-            line="166"
+            line="167"
             column="5"/>
     </issue>
 
@@ -272,7 +272,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="787"
+            line="791"
             column="5"/>
     </issue>
 
@@ -283,7 +283,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="791"
+            line="795"
             column="5"/>
     </issue>
 
@@ -294,7 +294,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="795"
+            line="799"
             column="5"/>
     </issue>
 
@@ -305,7 +305,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="872"
+            line="876"
             column="5"/>
     </issue>
 
@@ -316,7 +316,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="943"
+            line="947"
             column="5"/>
     </issue>
 
@@ -327,7 +327,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="952"
+            line="956"
             column="5"/>
     </issue>
 
@@ -338,7 +338,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="956"
+            line="960"
             column="5"/>
     </issue>
 
@@ -349,7 +349,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="960"
+            line="964"
             column="5"/>
     </issue>
 
@@ -360,7 +360,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="964"
+            line="968"
             column="5"/>
     </issue>
 
@@ -371,7 +371,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1067"
+            line="1071"
             column="5"/>
     </issue>
 
@@ -382,7 +382,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1071"
+            line="1075"
             column="5"/>
     </issue>
 
@@ -393,7 +393,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1143"
+            line="1147"
             column="5"/>
     </issue>
 
@@ -404,7 +404,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1147"
+            line="1151"
             column="5"/>
     </issue>
 
@@ -415,7 +415,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1151"
+            line="1155"
             column="5"/>
     </issue>
 
@@ -426,7 +426,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1155"
+            line="1159"
             column="5"/>
     </issue>
 
@@ -437,7 +437,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1159"
+            line="1163"
             column="5"/>
     </issue>
 
@@ -448,7 +448,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1163"
+            line="1167"
             column="5"/>
     </issue>
 
@@ -459,7 +459,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1167"
+            line="1171"
             column="5"/>
     </issue>
 
@@ -470,7 +470,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1171"
+            line="1175"
             column="5"/>
     </issue>
 
@@ -481,7 +481,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1175"
+            line="1179"
             column="5"/>
     </issue>
 
@@ -492,7 +492,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1179"
+            line="1183"
             column="5"/>
     </issue>
 
@@ -503,7 +503,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1183"
+            line="1187"
             column="5"/>
     </issue>
 
@@ -514,7 +514,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1307"
+            line="1315"
             column="5"/>
     </issue>
 
@@ -525,7 +525,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1336"
+            line="1348"
             column="5"/>
     </issue>
 
@@ -536,7 +536,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1364"
+            line="1376"
             column="5"/>
     </issue>
 
@@ -547,7 +547,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1384"
+            line="1396"
             column="5"/>
     </issue>
 
@@ -558,7 +558,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1388"
+            line="1400"
             column="5"/>
     </issue>
 
@@ -569,7 +569,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1392"
+            line="1404"
             column="5"/>
     </issue>
 
@@ -580,7 +580,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1467"
+            line="1483"
             column="5"/>
     </issue>
 
@@ -591,7 +591,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1472"
+            line="1488"
             column="5"/>
     </issue>
 
@@ -602,7 +602,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1476"
+            line="1492"
             column="5"/>
     </issue>
 
@@ -613,7 +613,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1590"
+            line="1618"
             column="5"/>
     </issue>
 
@@ -624,7 +624,7 @@
         errorLine2="    ^">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1637"
+            line="1669"
             column="5"/>
     </issue>
 
@@ -762,23 +762,12 @@
 
     <issue
         id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;items&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;reconciliation_create_title&quot;>Create %1$d items?&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="662"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
         message="Formatting %d followed by words (&quot;ptional&quot;): This should probably be a plural rather than a string"
         errorLine1="    &lt;string name=&quot;canvas_field_split_pct&quot;>Split % (optional)&lt;/string>"
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="836"
+            line="839"
             column="5"/>
     </issue>
 
@@ -789,7 +778,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="846"
+            line="849"
             column="5"/>
     </issue>
 
@@ -800,7 +789,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="864"
+            line="867"
             column="5"/>
     </issue>
 
@@ -811,7 +800,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="946"
+            line="949"
             column="5"/>
     </issue>
 
@@ -822,7 +811,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1048"
+            line="1051"
             column="5"/>
     </issue>
 
@@ -833,7 +822,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1049"
+            line="1052"
             column="5"/>
     </issue>
 
@@ -844,7 +833,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1052"
+            line="1055"
             column="5"/>
     </issue>
 
@@ -855,7 +844,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1077"
+            line="1080"
             column="5"/>
     </issue>
 
@@ -866,7 +855,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1082"
+            line="1085"
             column="5"/>
     </issue>
 
@@ -877,7 +866,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1084"
+            line="1087"
             column="5"/>
     </issue>
 
@@ -888,7 +877,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1085"
+            line="1088"
             column="5"/>
     </issue>
 
@@ -899,7 +888,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1086"
+            line="1089"
             column="5"/>
     </issue>
 
@@ -910,7 +899,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1087"
+            line="1090"
             column="5"/>
     </issue>
 
@@ -921,7 +910,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1146"
+            line="1149"
             column="5"/>
     </issue>
 
@@ -932,7 +921,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1159"
+            line="1162"
             column="5"/>
     </issue>
 
@@ -943,18 +932,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1179"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;draggable&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;measure_editor_canvas_a11y&quot;>Measurement photo with %1$d draggable lines. Drag an endpoint to move it.&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="1407"
+            line="1182"
             column="5"/>
     </issue>
 
@@ -965,7 +943,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1428"
+            line="1434"
             column="5"/>
     </issue>
 
@@ -976,18 +954,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1447"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;selected&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;bulk_selected&quot;>%1$d selected&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="1457"
+            line="1453"
             column="5"/>
     </issue>
 
@@ -998,7 +965,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1463"
+            line="1472"
             column="5"/>
     </issue>
 
@@ -1009,7 +976,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1477"
+            line="1486"
             column="5"/>
     </issue>
 
@@ -1020,7 +987,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1491"
+            line="1500"
             column="5"/>
     </issue>
 
@@ -1031,18 +998,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1529"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;photo&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;capture_slots_need_update&quot;>This category asks for %1$d photo type(s) this app version cannot take yet. Update the app, or add them from a browser.&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="1606"
+            line="1538"
             column="5"/>
     </issue>
 
@@ -1053,7 +1009,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1611"
+            line="1623"
             column="5"/>
     </issue>
 
@@ -1064,29 +1020,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1650"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;passes&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;autolister_propose&quot;>Group with AI (%1$d passes)&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="1669"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;photos&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;autolister_sent&quot;>Sent %1$d photos. Open AutoLister on a computer to pick them up.&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="1686"
+            line="1662"
             column="5"/>
     </issue>
 
@@ -1097,18 +1031,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1688"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;photos&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;autolister_skipped&quot;>%1$d photos could not be uploaded and were left out.&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="1694"
+            line="1706"
             column="5"/>
     </issue>
 
@@ -1119,18 +1042,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1755"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;deposits&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;payouts_queue_count&quot;>%1$d deposits still need matching.&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="1761"
+            line="1776"
             column="5"/>
     </issue>
 
@@ -1141,7 +1053,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1762"
+            line="1786"
             column="5"/>
     </issue>
 
@@ -1152,7 +1064,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1763"
+            line="1787"
             column="5"/>
     </issue>
 
@@ -1163,7 +1075,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1785"
+            line="1809"
             column="5"/>
     </issue>
 
@@ -1174,7 +1086,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1806"
+            line="1830"
             column="5"/>
     </issue>
 
@@ -1185,18 +1097,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1809"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;different&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;radar_k_floor&quot;>A shop appears once %1$d different people have scanned there.&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="1824"
+            line="1833"
             column="5"/>
     </issue>
 
@@ -1207,7 +1108,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1827"
+            line="1854"
             column="5"/>
     </issue>
 
@@ -1218,7 +1119,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1828"
+            line="1855"
             column="5"/>
     </issue>
 
@@ -1229,18 +1130,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1830"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;days&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;radar_fresh_days&quot;>Scanned %1$d days ago&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="1841"
+            line="1857"
             column="5"/>
     </issue>
 
@@ -1251,29 +1141,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1848"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;scans&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;radar_venue_brand_scans&quot;>%1$d scans&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="1853"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="PluralsCandidate"
-        message="Formatting %d followed by words (&quot;graded&quot;): This should probably be a plural rather than a string"
-        errorLine1="    &lt;string name=&quot;radar_venue_grade_note&quot;>Across %1$d graded scans. Estimated from photos in the field, not a certified grade.&lt;/string>"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="1860"
+            line="1878"
             column="5"/>
     </issue>
 
@@ -1284,11 +1152,11 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="830"
+            line="834"
             column="5"/>
         <location
             file="src/main/res/values/strings.xml"
-            line="917"
+            line="920"
             column="5"
             message="Conflicting number of arguments (0) here"/>
     </issue>
@@ -1322,7 +1190,7 @@
         errorLine2="                                    ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/measure/MeasurementPhotoEditorSheet.kt"
-            line="232"
+            line="233"
             column="37"/>
     </issue>
 
@@ -1443,7 +1311,7 @@
         errorLine2="                                  ~~~~~~~~~~~">
         <location
             file="src/main/res/values-es/strings.xml"
-            line="1662"
+            line="1694"
             column="35"/>
     </issue>
 
@@ -1454,7 +1322,7 @@
         errorLine2="                                  ~~~~~~~~~~~">
         <location
             file="src/main/res/values/strings.xml"
-            line="1816"
+            line="1840"
             column="35"/>
     </issue>
 
@@ -1740,7 +1608,7 @@
         errorLine2="    ~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/capture/CaptureScreen.kt"
-            line="70"
+            line="71"
             column="5"/>
     </issue>
 
@@ -1927,7 +1795,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/measure/MeasurementPhotoEditorSheet.kt"
-            line="68"
+            line="69"
             column="5"/>
     </issue>
 
@@ -2070,7 +1938,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/radar/RadarNearbyScreen.kt"
-            line="57"
+            line="58"
             column="5"/>
     </issue>
 
@@ -2081,7 +1949,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/radar/RadarVenueDetailScreen.kt"
-            line="40"
+            line="41"
             column="5"/>
     </issue>
 
@@ -2099,11 +1967,11 @@
     <issue
         id="ComposeModifierMissing"
         message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun ReconciliationScreen("
+        errorLine1="fun ReconciliationScreen(onClose: () -> Unit = {}, viewModel: ReconciliationViewModel = hiltViewModel()) {"
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/marketplaces/reconciliation/ReconciliationScreen.kt"
-            line="44"
+            line="45"
             column="5"/>
     </issue>
 
@@ -2246,7 +2114,7 @@
         errorLine2="^">
         <location
             file="src/main/java/com/gradethread/app/measure/MeasurementPhotoEditorSheet.kt"
-            line="120"
+            line="121"
             column="1"/>
     </issue>
 
@@ -2279,7 +2147,7 @@
         errorLine2="^">
         <location
             file="src/main/java/com/gradethread/app/radar/RadarVenueDetailScreen.kt"
-            line="111"
+            line="109"
             column="1"/>
     </issue>
 
@@ -2411,7 +2279,7 @@
         errorLine2="              ~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/autolister/AutolisterSessionScreen.kt"
-            line="306"
+            line="310"
             column="15"/>
     </issue>
 
@@ -2422,7 +2290,7 @@
         errorLine2="                               ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/autolister/AutolisterSessionScreen.kt"
-            line="355"
+            line="359"
             column="32"/>
     </issue>
 
@@ -2433,7 +2301,7 @@
         errorLine2="                                                             ~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/autolister/AutolisterSessionScreen.kt"
-            line="355"
+            line="359"
             column="62"/>
     </issue>
 
@@ -2664,7 +2532,7 @@
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/marketplaces/reconciliation/ReconciliationScreen.kt"
-            line="286"
+            line="295"
             column="17"/>
     </issue>
 

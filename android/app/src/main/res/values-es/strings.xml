@@ -596,7 +596,11 @@
     <string name="reconciliation_intro">Estos están activos en eBay pero no están vinculados a nada en tu inventario. Crea un artículo, vincula uno existente o ignóralo.</string>
     <string name="reconciliation_creating">Creando artículos… %1$d de %2$d</string>
     <string name="reconciliation_create_all">Crear artículos para los %1$d</string>
-    <string name="reconciliation_create_title">¿Crear %1$d artículos?</string>
+    <plurals name="reconciliation_create_title">
+        <item quantity="one">¿Crear %1$d artículo?</item>
+        <item quantity="many">¿Crear %1$d de artículos?</item>
+        <item quantity="other">¿Crear %1$d artículos?</item>
+    </plurals>
     <string name="reconciliation_create_body">Un artículo de inventario nuevo por anuncio, usando el título, el SKU y el precio de cada anuncio. Puedes editarlos después.</string>
     <string name="reconciliation_sku_row">   SKU %1$s</string>
     <string name="reconciliation_no_match">No hay coincidencias. Los artículos se sincronizan con este dispositivo, así que uno muy nuevo puede que aún no esté aquí.</string>
@@ -1263,7 +1267,11 @@
     <string name="measure_editor_auto_running">Midiendo…</string>
     <string name="measure_editor_line_chip">%1$s %2$s\"</string>
     <string name="measure_editor_add_line">+ %1$s</string>
-    <string name="measure_editor_canvas_a11y">Foto de medidas con %1$d líneas arrastrables. Arrastra un extremo para moverlo.</string>
+    <plurals name="measure_editor_canvas_a11y">
+        <item quantity="one">Foto de medidas con %1$d línea arrastrable. Arrastra un extremo para moverlo.</item>
+        <item quantity="many">Foto de medidas con %1$d de líneas arrastrables. Arrastra un extremo para moverlo.</item>
+        <item quantity="other">Foto de medidas con %1$d líneas arrastrables. Arrastra un extremo para moverlo.</item>
+    </plurals>
     <string name="verified_title">Vendedor verificado</string>
     <string name="verified_subtitle">Tu insignia muestra a los compradores tu historial de calificaciones. Configúrala aquí mismo.</string>
     <string name="verified_maybe_stale">Puede estar desactualizado</string>
@@ -1311,7 +1319,11 @@
     <string name="common_clear">Borrar</string>
     <string name="common_undo">Deshacer</string>
     <string name="common_value">Valor</string>
-    <string name="bulk_selected">%1$d seleccionados</string>
+    <plurals name="bulk_selected">
+        <item quantity="one">%1$d seleccionado</item>
+        <item quantity="many">%1$d seleccionados</item>
+        <item quantity="other">%1$d seleccionados</item>
+    </plurals>
     <plurals name="bulk_selected_count">
         <item quantity="one">%1$d artículo seleccionado</item>
         <item quantity="many">%1$d de artículos seleccionados</item>
@@ -1447,7 +1459,11 @@
     <string name="capture_add_photo_slot">Agregar espacio de foto</string>
     <string name="capture_permission_blocked">El acceso a la cámara está desactivado. Actívalo en Ajustes para tomar fotos — o agrega fotos desde tu galería.</string>
     <string name="capture_permission_needed">Se necesita permiso de cámara para tomar fotos de prendas.</string>
-    <string name="capture_slots_need_update">Esta categoría pide %1$d tipo(s) de foto que esta versión aún no puede tomar. Actualiza la app o agrégalas desde un navegador.</string>
+    <plurals name="capture_slots_need_update">
+        <item quantity="one">Esta categoría pide %1$d tipo de foto que esta versión aún no puede tomar. Actualiza la app o agrégalo desde un navegador.</item>
+        <item quantity="many">Esta categoría pide %1$d de tipos de foto que esta versión aún no puede tomar. Actualiza la app o agrégalos desde un navegador.</item>
+        <item quantity="other">Esta categoría pide %1$d tipos de foto que esta versión aún no puede tomar. Actualiza la app o agrégalos desde un navegador.</item>
+    </plurals>
     <string name="capture_process_failed">Esa foto no se pudo guardar. Tómala de nuevo.</string>
     <string name="barcode_point_camera">Apunta la cámara a un código de barras</string>
     <string name="intake_share_title">Agregar a GradeThread</string>
@@ -1510,7 +1526,11 @@
     <string name="autolister_session_title">Lote de AutoLister</string>
     <string name="autolister_add_photos">Agregar fotos</string>
     <string name="autolister_empty">Agrega un carrete de fotos y agrúpalas, un grupo por artículo. La computadora recoge el lote desde ahí.</string>
-    <string name="autolister_propose">Agrupar con IA (%1$d pasadas)</string>
+    <plurals name="autolister_propose">
+        <item quantity="one">Agrupar con IA (%1$d pasada)</item>
+        <item quantity="many">Agrupar con IA (%1$d de pasadas)</item>
+        <item quantity="other">Agrupar con IA (%1$d pasadas)</item>
+    </plurals>
     <string name="autolister_verify">Revisar mis grupos</string>
     <string name="autolister_ungrouped">Todavía sin grupo (%1$d)</string>
     <string name="autolister_group_selected">Crear un grupo</string>
@@ -1528,7 +1548,11 @@
     <string name="autolister_suggestion_fallback">El modelo sugiere un cambio en este grupo.</string>
     <string name="autolister_send">Enviar a la computadora</string>
     <string name="autolister_send_help">El lote queda esperando en tu cuenta. Abre AutoLister en una computadora para terminar las publicaciones.</string>
-    <string name="autolister_sent">Se enviaron %1$d fotos. Abre AutoLister en una computadora para recogerlas.</string>
+    <plurals name="autolister_sent">
+        <item quantity="one">Se envió %1$d foto. Abre AutoLister en una computadora para recogerla.</item>
+        <item quantity="many">Se enviaron %1$d de fotos. Abre AutoLister en una computadora para recogerlas.</item>
+        <item quantity="other">Se enviaron %1$d fotos. Abre AutoLister en una computadora para recogerlas.</item>
+    </plurals>
     <string name="autolister_waiting_header">Esperando una computadora</string>
     <string name="autolister_waiting_row">%1$d fotos en %2$d grupos</string>
     <string name="autolister_discard">Descartar</string>
@@ -1536,7 +1560,11 @@
     <string name="autolister_busy_proposing">Agrupando tus fotos</string>
     <string name="autolister_busy_verifying">Revisando tus grupos</string>
     <string name="autolister_busy_sending">Enviando a tu computadora</string>
-    <string name="autolister_skipped">%1$d fotos no se pudieron subir y quedaron fuera.</string>
+    <plurals name="autolister_skipped">
+        <item quantity="one">%1$d foto no se pudo subir y quedó fuera.</item>
+        <item quantity="many">%1$d de fotos no se pudieron subir y quedaron fuera.</item>
+        <item quantity="other">%1$d fotos no se pudieron subir y quedaron fuera.</item>
+    </plurals>
     <string name="autolister_cover">Foto de portada</string>
     <string name="autolister_photo">Foto del lote</string>
     <string name="drafts_other_platforms">Otros mercados</string>
@@ -1604,7 +1632,11 @@
     <string name="payouts_matcher_help">Esta parte necesita conexión. Le pide al servidor que empareje cada depósito con la venta que pagó y te deja lo que no tiene claro.</string>
     <string name="payouts_matcher_load">Ver lo que falta emparejar</string>
     <string name="payouts_matcher_run">Emparejar los obvios</string>
-    <string name="payouts_queue_count">Faltan %1$d depósitos por emparejar.</string>
+    <plurals name="payouts_queue_count">
+        <item quantity="one">Falta %1$d depósito por emparejar.</item>
+        <item quantity="many">Faltan %1$d de depósitos por emparejar.</item>
+        <item quantity="other">Faltan %1$d depósitos por emparejar.</item>
+    </plurals>
     <string name="payouts_queue_truncated">Mostrando %1$d de %2$d depósitos que faltan por emparejar.</string>
     <string name="payouts_sweep_result">Se emparejaron %1$d. %2$d quedaron muy parejos y %3$d no tenían con qué emparejarse.</string>
     <string name="payouts_no_candidates">Ninguna venta se parece a este depósito.</string>
@@ -1667,7 +1699,11 @@
     <string name="radar_check_again">Comprobar otra vez</string>
     <string name="radar_empty_title">Todavía no hay nada en el radar por aquí</string>
     <string name="radar_empty_body">Comparte tu ubicación para mirar a tu alrededor, o vincula una fuente a una tienda en la web para que tus propios sitios aparezcan aquí.</string>
-    <string name="radar_k_floor">Una tienda aparece cuando %1$d personas distintas han escaneado allí.</string>
+    <plurals name="radar_k_floor">
+        <item quantity="one">Una tienda aparece cuando %1$d persona distinta ha escaneado allí.</item>
+        <item quantity="many">Una tienda aparece cuando %1$d de personas distintas han escaneado allí.</item>
+        <item quantity="other">Una tienda aparece cuando %1$d personas distintas han escaneado allí.</item>
+    </plurals>
     <string name="radar_off_map_header">Tus tiendas que no están en el mapa</string>
     <string name="radar_off_map_body">Tienen tu dinero dentro pero todavía no tienen sitio. Vincula una en la web y se une a esta lista.</string>
     <string name="radar_off_map_items">%1$d comprados aquí</string>
@@ -1684,7 +1720,11 @@
     <string name="radar_fresh_unknown">Sin actividad reciente</string>
     <string name="radar_fresh_today">Escaneada hoy</string>
     <string name="radar_fresh_yesterday">Escaneada ayer</string>
-    <string name="radar_fresh_days">Escaneada hace %1$d días</string>
+    <plurals name="radar_fresh_days">
+        <item quantity="one">Escaneada hace %1$d día</item>
+        <item quantity="many">Escaneada hace %1$d de días</item>
+        <item quantity="other">Escaneada hace %1$d días</item>
+    </plurals>
     <string name="radar_fresh_last_week">Escaneada la semana pasada</string>
     <string name="radar_fresh_this_month">Escaneada este mes</string>
     <string name="radar_fresh_older">Escaneada hace más de un mes</string>
@@ -1696,14 +1736,22 @@
     <string name="radar_venue_brands">Mezcla de marcas</string>
     <string name="radar_venue_brands_empty">Todavía no hay suficientes escaneos aquí para nombrar una marca.</string>
     <string name="radar_venue_brands_note">Aquí solo salen las marcas que han escaneado suficientes personas distintas. Una marca que falte en esta lista no es una marca que falte en la tienda.</string>
-    <string name="radar_venue_brand_scans">%1$d escaneos</string>
+    <plurals name="radar_venue_brand_scans">
+        <item quantity="one">%1$d escaneo</item>
+        <item quantity="many">%1$d de escaneos</item>
+        <item quantity="other">%1$d escaneos</item>
+    </plurals>
     <string name="radar_venue_condition">Estado que se encuentra aquí</string>
     <string name="radar_venue_condition_empty">Todavía no se ha calificado nada escaneado aquí, así que no hay una imagen del estado.</string>
     <string name="radar_venue_grade_high">8 o más (excelente)</string>
     <string name="radar_venue_grade_mid">De 6 a 8 (ponible)</string>
     <string name="radar_venue_grade_low">Menos de 6 (gastado)</string>
     <string name="radar_venue_grade_share">%1$d%%</string>
-    <string name="radar_venue_grade_note">Sobre %1$d escaneos calificados. Estimado a partir de fotos en la tienda, no es una calificación certificada.</string>
+    <plurals name="radar_venue_grade_note">
+        <item quantity="one">Sobre %1$d escaneo calificado. Estimado a partir de fotos en la tienda, no es una calificación certificada.</item>
+        <item quantity="many">Sobre %1$d de escaneos calificados. Estimado a partir de fotos en la tienda, no es una calificación certificada.</item>
+        <item quantity="other">Sobre %1$d escaneos calificados. Estimado a partir de fotos en la tienda, no es una calificación certificada.</item>
+    </plurals>
     <string name="tools_radar">Radar de compras</string>
     <string name="tools_radar_subtitle">Qué tiendas cerca de ti valen el viaje</string>
     <!-- US-2886: the "Sourced by" roster picker. -->
