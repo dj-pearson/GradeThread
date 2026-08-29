@@ -466,7 +466,7 @@ td{padding:6px 10px;border-bottom:1px solid #e5e5e5;font-size:13px}
                                 d.cents > 0
                                   ? "text-emerald-700 dark:text-emerald-400"
                                   : d.cents < 0
-                                    ? "text-brand-red"
+                                    ? "text-brand-red-text"
                                     : "",
                               )}
                             >
