@@ -19,7 +19,7 @@ code_refs:
   - supabase/migrations/00587_item_photo_role_qualifier.sql
   - supabase/migrations/00589_submission_image_role.sql
   - services/edge-functions/src/routes/flipdesk-grading.ts
-reviewed: 2026-08-25
+reviewed: 2026-08-28
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
@@ -298,6 +298,16 @@ pre-edit thumbnail from cache while the row and the object were both correct.
 > convention `persistPhotoEdit` already used for `photo_url` and iOS
 > `PhotoRotateService` already used for both. Rows written before the fix are not
 > repaired; they correct themselves when the 4h max-age expires.
+
+> **Re-reviewed 2026-08-28.** Drift flagged `jobs-thumbnail-backfill.ts`. The
+> change was US-2836 AC3, which added no behaviour: it writes the no-repair
+> decision above into the job's own header, where someone reading a four-hour-old
+> complaint will find it. This note already said it and stays correct. The
+> alternative it now records at the source - a one-off sweep appending `?v=` to
+> every existing `thumbnail_url` - was rejected because it writes every photo row
+> in the product to fix a display that fixes itself, and invalidates every
+> correctly-cached thumbnail on the way, making the median seller slower to fix
+> the tail.
 
 Between the save and the next cron tick an edited photo loads full-res in
 galleries. That is the deliberate trade, and it is bounded by the cron interval

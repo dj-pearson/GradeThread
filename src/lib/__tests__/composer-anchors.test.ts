@@ -141,7 +141,25 @@ describe("the publish rail: actions reachable, config still with the form (US-22
   });
 
   it("renders the actions inside the sticky rail, above the preview", () => {
-    const rail = src.indexOf("@4xl:sticky @4xl:top-4 @4xl:self-start");
+    // TOKENS, not a contiguous class string. This assertion used to look for
+    // "@4xl:sticky @4xl:top-4 @4xl:self-start" as one substring, and it broke
+    // the moment the rail gained a max-height and became a flex column so its
+    // contents could scroll - the classes are the same, with two more between
+    // them.
+    //
+    // The comment four lines above this block already says the row's classes
+    // "changed once already and took three tests down with them", which is why
+    // railRender is anchored on the render site. This line was the one place
+    // that advice was not taken, and it went the same way a second time.
+    //
+    // What matters is that the rail IS sticky, IS offset from the top, and does
+    // NOT stretch - not the order Tailwind classes happen to be written in.
+    const railClass = /className="[^"]*@4xl:sticky[^"]*"/.exec(src);
+    expect(railClass, "no @4xl:sticky element found — the rail is gone").not.toBeNull();
+    for (const token of ["@4xl:sticky", "@4xl:top-4", "@4xl:self-start"]) {
+      expect(railClass![0], `the sticky rail lost ${token}`).toContain(token);
+    }
+    const rail = railClass!.index;
     expect(rail).toBeGreaterThan(0);
     expect(railRender).toBeGreaterThan(rail);
     // Actions first: the rail clips at the viewport bottom, so whatever is last

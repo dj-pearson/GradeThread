@@ -60,6 +60,16 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
     sourceNote: "vault/10-ops/deploy.md",
+    // Re-read 2026-08-28. NOTHING to carry, and it is the same reason a SIXTH
+    // consecutive time: US-2972 added the rewards-sweep job, moving the count
+    // 82 -> 83 and adding one generated table row. This copy names no count.
+    //
+    // Six checks, six identical answers, is worth reading as a result rather
+    // than as noise. The distillation was written to point at the generated
+    // table instead of quoting it, and every cron since has confirmed that was
+    // the right call - a copy holding the number would have gone stale six
+    // times and been wrong in an incident at least once.
+    //
     // Re-read 2026-08-25. NOTHING to carry, for the same reason as every check
     // before it: US-2845 added the two comp-read rows and moved the count
     // 80 -> 82, and this copy names no count. Five consecutive checks now where
@@ -98,7 +108,7 @@ export const RUNBOOKS: Runbook[] = [
     // (it cannot know which line changed) and the phrasing doing its job. If a
     // future copy is ever tempted to name the number, this is the four-check
     // record of why not.
-    reviewed: "2026-08-25",
+    reviewed: "2026-08-28",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -399,6 +409,12 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "launch-readiness",
     sourceNote: "vault/10-ops/launch-checklist.md",
+    // Re-read 2026-08-28. Nothing to carry: US-2972's rewards-sweep row and the
+    // count line 82 -> 83. It is a nightly XP backfill behind the existing
+    // rewards machinery, not a launch gate, and §2 here still names no number -
+    // it says the Coolify Scheduled Tasks must exist and points at the
+    // generated table, which is what keeps this copy correct as jobs arrive.
+    //
     // Re-read 2026-08-25. Nothing to carry: US-2845's two comp-read rows and
     // the count line 80 -> 82. Both ship OFF behind the comp_read flag, so
     // neither is a launch gate, and §2 still names no number.
@@ -442,7 +458,7 @@ export const RUNBOOKS: Runbook[] = [
     // `VITE_*` set in Cloudflare Pages" — so the retired row was never here to
     // remove. The generic line is why, and it is the same instinct that keeps
     // the cron count out of §2: name the class, let the source hold the list.
-    reviewed: "2026-08-25",
+    reviewed: "2026-08-28",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:

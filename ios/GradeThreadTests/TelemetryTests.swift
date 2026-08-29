@@ -14,14 +14,39 @@ final class TelemetryTests: XCTestCase {
 
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: toggleKey)
+        // US-2914: the regime is process-wide state now. Leaving one test's
+        // value set would make the next test's answer depend on ordering, which
+        // is the failure that is hardest to read when it finally shows up.
+        Telemetry.setResolvedRegimeForTests(nil)
         super.tearDown()
     }
 
     // MARK: - Opt-in toggle
 
-    func test_isAnalyticsEnabled_defaultsToTrue() {
-        // No value in UserDefaults → default ON per the AC.
+    func test_isAnalyticsEnabled_noLongerDefaultsToTrue() {
+        // US-2914 INVERTED THIS, and the old assertion is what iOS CI caught:
+        // this used to read "No value in UserDefaults → default ON per the AC"
+        // and XCTAssertTrue. That AC is gone. Analytics is now opt-in
+        // everywhere except the US, and opt-in whenever the country is unknown
+        // - which is what an unresolved regime is during a test.
+        //
+        // The same shape as US-2840's fee-rate test, which still asserted
+        // 0.1325 after the constant moved to 0.136: a pin is only a pin if it
+        // moves with the number. Rewritten rather than deleted, because "no
+        // stored choice does NOT mean on" is exactly the property worth
+        // holding, just with the opposite sign.
+        Telemetry.setResolvedRegimeForTests(nil)
+        XCTAssertFalse(Telemetry.isAnalyticsEnabled)
+        XCTAssertNil(Telemetry.explicitAnalyticsChoice)
+    }
+
+    func test_isAnalyticsEnabled_followsTheRegimeWhenNobodyHasChosen() {
+        // The tri-state in one place: absent choice means the regime decides.
+        Telemetry.setResolvedRegimeForTests(.optOut)
         XCTAssertTrue(Telemetry.isAnalyticsEnabled)
+        Telemetry.setResolvedRegimeForTests(.optIn)
+        XCTAssertFalse(Telemetry.isAnalyticsEnabled)
+        Telemetry.setResolvedRegimeForTests(nil)
     }
 
     func test_isAnalyticsEnabled_persistsToUserDefaults() {
