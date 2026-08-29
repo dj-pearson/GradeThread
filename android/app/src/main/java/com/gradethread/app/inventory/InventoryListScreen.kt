@@ -51,6 +51,7 @@ import com.gradethread.app.sync.db.InventoryItemEntity
 import com.gradethread.app.ui.TestTags
 import com.gradethread.app.ui.state.Restorable
 import com.gradethread.app.ui.theme.Spacing
+import com.gradethread.app.ui.theme.gradeColor
 
 /**
  * US-1342: the inventory list / board.
@@ -645,14 +646,6 @@ private fun GradeChip(score: Double, label: String?, onClick: () -> Unit = {}) {
             color = color,
         )
     }
-}
-
-/** The four GradeScale tiers. */
-private fun gradeColor(score: Double): Color = when {
-    score >= 9.5 -> Color(0xFF10B981)
-    score >= 7.0 -> Color(0xFF0F3460)
-    score >= 5.0 -> Color(0xFFF59E0B)
-    else -> Color(0xFFE94560)
 }
 
 @Composable

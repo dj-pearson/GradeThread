@@ -11,13 +11,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gradethread.app.R
 import com.gradethread.app.sync.db.InventoryItemEntity
 import com.gradethread.app.ui.theme.Spacing
+import com.gradethread.app.ui.theme.gradeColor
 import java.util.Locale
 
 /**
@@ -224,12 +225,4 @@ private fun disputeTone(status: String?): Color = when (status) {
     "open", "under_review" -> Color(0xFFF59E0B)
     "resolved" -> Color(0xFF10B981)
     else -> Color(0xFF6B7280)
-}
-
-/** The four GradeScale tiers (same mapping as the inventory row's chip). */
-private fun gradeColor(value: Double): Color = when {
-    value >= 9.5 -> Color(0xFF10B981)
-    value >= 7.0 -> Color(0xFF0F3460)
-    value >= 5.0 -> Color(0xFFF59E0B)
-    else -> Color(0xFFE94560)
 }

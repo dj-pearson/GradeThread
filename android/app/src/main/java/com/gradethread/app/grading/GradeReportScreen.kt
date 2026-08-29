@@ -22,21 +22,22 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.pluralStringResource
-import androidx.compose.ui.res.stringResource
-import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.R
 import com.gradethread.app.ui.components.ErrorStateView
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
+import com.gradethread.app.ui.theme.gradeColor
 import java.util.Locale
 
 /**
@@ -402,11 +403,3 @@ private fun toneColor(tone: CertIntegrity.Tone): Color = when (tone) {
 }
 
 private fun score(value: Double): String = String.format(Locale.US, "%.1f", value)
-
-/** The four GradeScale tiers (same mapping as the inventory row's chip). */
-private fun gradeColor(value: Double): Color = when {
-    value >= 9.5 -> Color(0xFF10B981)
-    value >= 7.0 -> Color(0xFF0F3460)
-    value >= 5.0 -> Color(0xFFF59E0B)
-    else -> Color(0xFFE94560)
-}

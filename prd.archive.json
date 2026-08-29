@@ -43543,6 +43543,22 @@
       ],
       "priority": 6,
       "notes": "2026-08-29 DONE. MainActivity wraps its phase switch in\nSurface(Modifier.fillMaxSize()), and the headline is legible in dark mode.\n\nCAUSE: setContent put GradeThreadTheme straight around the screens with no\nSurface, so LocalContentColor stayed Compose's default BLACK. AuthScreen's\nheadline sets no colour and inherited it - black on the Night navy.\n\nVERIFIED ON THE DEVICE, before and after, at the same settled state on\ngt_api36 with night mode on: black-on-navy became SoftGray-on-navy. Light mode\nis unchanged, which is the point - it was always correct there.\n\n⚠ WHY THE GOLDENS COULD NOT HAVE CAUGHT IT, and this is the durable part.\nEvery screenshot test in this repo wraps its content in its own Surface -\ndeliberately, because a composable rendered without one draws onto a\ntransparent background and the PNG shows something no user sees. That wrapper\nSUPPLIES the content colour the app was failing to supply. So the goldens\nassert a screen's colours GIVEN a correct content colour, not the one the app\nactually provides. A golden that composed the real MainActivity root would\nhave caught this; none of them does.\n\nAC5 (the sweep for other uncoloured Text) is NOT done and is the honest\nremainder: the Surface fixes every Text that inherits, all at once, but a\nscreen hardcoding a dark literal is untouched by it."
+    },
+    {
+      "id": "US-3004",
+      "passes": true,
+      "title": "In dark mode the grade itself is navy on navy: the 8.5 at the top of a report is barely legible",
+      "description": "As a seller checking a grade on a dark-mode phone, I want to be able to read the number, so that the one figure this product exists to produce is visible.",
+      "acceptanceCriteria": [
+        "FOUND 2026-08-29 by opening a dark golden nobody had opened. The 7.0-9.4 band was the literal Color(0xFF0F3460) - brand navy, the LIGHT-mode primary - and the dark surface is BrandPalette.Night, which is also navy. The 8.5 on screen-gradereport-verified-dark.png, the grade tier beneath it and the five factor bars all rendered navy on navy.",
+        "7.0-9.4 IS THE ORDINARY BAND. Most resale garments land there, so this was the common rendering rather than an edge case.",
+        "FIXED: one shared @Composable gradeColor in ui/theme/GradeColor.kt using MaterialTheme.colorScheme.primary for that band, which resolves to the same navy in light and to BrandPalette.NavyDark in dark - the blue the primary buttons already use.",
+        "IT WAS COPIED FIVE TIMES: GradeReportScreen, GradeRequestScreen, GradesListScreen, InventoryListScreen and SnapScreen each had a private copy of the same threshold ladder with the same navy. Five copies of a threshold table is five chances for a grade to be one colour on one screen and another elsewhere. There is one copy now.",
+        "The other three tiers stay literal on purpose: green, amber and red are mid-tone hues that carry on both surfaces (checked on the dark golden) and they are SEMANTIC rather than brand. Navy was the odd one out precisely because it IS the brand colour and so collides with the brand surface.",
+        "VERIFIED: screen-gradereport-verified-dark.png and screen-inventory-list-dark.png re-recorded, and the diff is the fix. spotlessCheck, detekt, lintDebug, verifyRoborazziDebug and testDebugUnitTest green."
+      ],
+      "priority": 6,
+      "notes": "2026-08-29 DONE in the same pass that found it. See the acceptance criteria -\nthey were written from the fix rather than ahead of it.\n\n⚠ THE ROUTE IS THE POINT, AND IT IS THE SAME ROUTE TWICE TODAY. US-3003 was\nfound by looking at a dark-mode launch on a device; this was found by opening\na dark golden that had been sitting in the repo since the hour it was\nrecorded. Both are dark-mode contrast bugs on the product's most-read\nsurfaces, and neither was caught by any check that passes.\n\nThe sweep that led here was US-3003's own last criterion: grep the Android\nsources for a literal Color(. Zero of them are text colours, which is why the\nSurface fix covered everything it needed to - but 31 are literal PAINT colours,\nand one of those is the brand navy, used on the one number that matters."
     }
   ]
 }

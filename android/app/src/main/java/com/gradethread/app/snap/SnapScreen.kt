@@ -32,21 +32,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.stringResource
-import com.gradethread.app.R
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.gradethread.app.R
 import com.gradethread.app.platform.rememberHapticFeedback
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
+import com.gradethread.app.ui.theme.gradeColor
 import java.io.File
 
 /**
@@ -140,7 +140,10 @@ fun SnapScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
-                BrandSecondaryButton(text = stringResource(R.string.snap_open_settings), modifier = Modifier.fillMaxWidth()) {
+                BrandSecondaryButton(
+                    text = stringResource(R.string.snap_open_settings),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
                     context.startActivity(
                         Intent(
                             Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
@@ -190,7 +193,10 @@ fun SnapScreen(
                 // the upsell the server is already pointing at.
                 isUpgradePrompt = state.isUpgradePrompt,
                 canRetry = state.canEvaluate,
-                onRetry = { haptics.light(); viewModel.evaluate() },
+                onRetry = {
+                    haptics.light()
+                    viewModel.evaluate()
+                },
                 onUpgrade = onCertifiedGrade,
             )
         }
@@ -199,8 +205,14 @@ fun SnapScreen(
             ResultCard(
                 result = result,
                 hasHints = state.hasHints,
-                onCertifiedGrade = { haptics.medium(); onCertifiedGrade() },
-                onList = { haptics.light(); onList() },
+                onCertifiedGrade = {
+                    haptics.medium()
+                    onCertifiedGrade()
+                },
+                onList = {
+                    haptics.light()
+                    onList()
+                },
             )
         }
     }
@@ -255,7 +267,10 @@ private fun ErrorCard(
     ) {
         Text(message, style = MaterialTheme.typography.bodyMedium)
         if (isUpgradePrompt) {
-            BrandPrimaryButton(text = stringResource(R.string.snap_get_a_certified_grade), modifier = Modifier.fillMaxWidth()) {
+            BrandPrimaryButton(
+                text = stringResource(R.string.snap_get_a_certified_grade),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 onUpgrade()
             }
         } else {
@@ -269,12 +284,7 @@ private fun ErrorCard(
 }
 
 @Composable
-private fun ResultCard(
-    result: SnapResponse,
-    hasHints: Boolean,
-    onCertifiedGrade: () -> Unit,
-    onList: () -> Unit,
-) {
+private fun ResultCard(result: SnapResponse, hasHints: Boolean, onCertifiedGrade: () -> Unit, onList: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -318,20 +328,17 @@ private fun ResultCard(
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            BrandPrimaryButton(text = stringResource(R.string.snap_get_certified_grade), modifier = Modifier.weight(1f)) {
+            BrandPrimaryButton(
+                text = stringResource(R.string.snap_get_certified_grade),
+                modifier = Modifier.weight(1f),
+            ) {
                 onCertifiedGrade()
             }
-            BrandSecondaryButton(text = stringResource(R.string.snap_list_it), modifier = Modifier.weight(1f)) { onList() }
+            BrandSecondaryButton(text = stringResource(R.string.snap_list_it), modifier = Modifier.weight(1f)) {
+                onList()
+            }
         }
     }
-}
-
-/** The four GradeScale tiers (same mapping as the inventory row's chip). */
-private fun gradeColor(score: Double): Color = when {
-    score >= 9.5 -> Color(0xFF10B981)
-    score >= 7.0 -> Color(0xFF0F3460)
-    score >= 5.0 -> Color(0xFFF59E0B)
-    else -> Color(0xFFE94560)
 }
 
 /**

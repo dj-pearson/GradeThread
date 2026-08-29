@@ -25,17 +25,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import com.gradethread.app.R
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
+import com.gradethread.app.ui.theme.gradeColor
 import java.util.Locale
 
 /**
@@ -140,10 +140,7 @@ fun GradeRequestScreen(
 }
 
 @Composable
-private fun ReadyBody(
-    state: GradeRequestViewModel.State,
-    viewModel: GradeRequestViewModel,
-) {
+private fun ReadyBody(state: GradeRequestViewModel.State, viewModel: GradeRequestViewModel) {
     val item = state.validation?.item
 
     item?.title?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
@@ -209,12 +206,7 @@ private fun ReadyBody(
 }
 
 @Composable
-private fun TierRow(
-    tier: GradeTier,
-    selected: Boolean,
-    spendsCredits: Boolean,
-    onClick: () -> Unit,
-) {
+private fun TierRow(tier: GradeTier, selected: Boolean, spendsCredits: Boolean, onClick: () -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -259,12 +251,7 @@ private fun TierRow(
 }
 
 @Composable
-private fun SpendConfirmDialog(
-    tier: GradeTier,
-    balance: Int,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
+private fun SpendConfirmDialog(tier: GradeTier, balance: Int, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -293,11 +280,7 @@ private fun SpendConfirmDialog(
 }
 
 @Composable
-private fun CompletedBody(
-    phase: GradeRequestMachine.Phase.Completed,
-    onClose: () -> Unit,
-    onViewReport: () -> Unit,
-) {
+private fun CompletedBody(phase: GradeRequestMachine.Phase.Completed, onClose: () -> Unit, onViewReport: () -> Unit) {
     val report = phase.report
     Column(
         Modifier.fillMaxWidth(),
@@ -315,10 +298,15 @@ private fun CompletedBody(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        BrandPrimaryButton(text = stringResource(R.string.graderequest_view_full_report), modifier = Modifier.fillMaxWidth()) {
+        BrandPrimaryButton(
+            text = stringResource(R.string.graderequest_view_full_report),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             onViewReport()
         }
-        BrandSecondaryButton(text = stringResource(R.string.graderequest_done), modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.graderequest_done), modifier = Modifier.fillMaxWidth()) {
+            onClose()
+        }
     }
 }
 
@@ -339,9 +327,16 @@ private fun Outcome(
         )
         detail?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         onRetry?.let {
-            BrandSecondaryButton(text = stringResource(R.string.graderequest_try_again), modifier = Modifier.fillMaxWidth()) { it() }
+            BrandSecondaryButton(
+                text = stringResource(R.string.graderequest_try_again),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                it()
+            }
         }
-        BrandPrimaryButton(text = stringResource(R.string.graderequest_done), modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandPrimaryButton(text = stringResource(R.string.graderequest_done), modifier = Modifier.fillMaxWidth()) {
+            onClose()
+        }
     }
 }
 
@@ -356,11 +351,3 @@ private fun Centered(content: @Composable () -> Unit) {
 }
 
 private fun score(value: Double): String = String.format(Locale.US, "%.1f", value)
-
-/** The four GradeScale tiers (same mapping as the inventory row's chip). */
-private fun gradeColor(value: Double): Color = when {
-    value >= 9.5 -> Color(0xFF10B981)
-    value >= 7.0 -> Color(0xFF0F3460)
-    value >= 5.0 -> Color(0xFFF59E0B)
-    else -> Color(0xFFE94560)
-}
