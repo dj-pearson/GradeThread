@@ -16,11 +16,28 @@ Paired with the Search Console export of the same date
 
 ---
 
+> [!warning] Correction, 2026-08-28: every monthly figure below is a 94-day
+> average, and the site is ramping steeply, so they understate the current rate
+> by about **4x**.
+>
+> Daily, from `Chart.csv`: the first 31 days of the window produced **9
+> impressions in total**; the last 14 produced **555 a day**. Current run rate
+> is **16,654 impressions and 137 clicks a month**, not the 4,072 and 32 the
+> window average gives.
+>
+> What survives the correction is the CTR: **0.82% over the last 14 days**
+> against 0.73% over 94. The click-through problem is current and real. The
+> "traffic is flat" half of the argument is simply false.
+>
+> Also note average position drifting from 10.6 to 24.9 over the eight days to
+> 2026-08-26. That is **not** a decline: it is new pages entering the index at
+> depth and adding impressions there. Filed as US-9028.
+
 ## 1. The finding that outranks the keyword file
 
 Before any of the new clusters are worth arguing about, the per-family Search
 Console numbers settle a question the site has been avoiding. Per month, over
-the 94-day window:
+the 94-day window (see the correction above before quoting these):
 
 | family | URLs | impr/mo | clicks/mo | CTR | weighted position |
 |---|---|---|---|---|---|
@@ -50,6 +67,17 @@ ranking failure and no amount of new glossary pages fixes it.
 **So the format is the strategy, not the topic.** Tools convert. Definitions do
 not. Anything this keyword file justifies building should be built as a tool or
 a workflow page, and only as an article when there is genuinely no tool in it.
+
+> [!note] Why, established after this was written
+> The reason is not that tool pages are better pages. A SERP audit of thirteen
+> target queries found that **the only three without an AI Overview are named
+> tool nouns**: `ebay fee calculator`, `poshmark fee calculator`, `brand
+> authenticity checker`. Every question-shaped query in the set had one, and
+> `vguc meaning` returned no organic links at all.
+>
+> Same site, same authors, same internal linking. Tool queries still have
+> clickable results pages and informational queries do not. See
+> `docs/seo/serp-feature-audit-2026-08-28.md` and US-9026.
 
 ## 2. The clusters in the new pull
 

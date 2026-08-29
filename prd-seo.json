@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "claude/seo-strategy-options-evftv2",
   "description": "SEO rebuild backlog, held OUT of prd.json entirely so the Ralph loop can never collide with it. Derived from vault/40-growth/seo-strategy-options-2026-08.md and the 2026-08-18 Keyword Planner pull (docs/seo/keyword-pull-2026-08-results.csv). Build order is Path 3 (calculators, 127,100/mo seller intent), then Path 7 (conversion + comparisons), then Path 1 (damage and care, 295,750/mo, authority engine only). Path 2 (returns) and Path 4 (resale value) were killed by the pull and are deliberately absent. IDS USE A RESERVED HIGH BLOCK (US-9001+) RATHER THAN prd.json.nextId: an earlier attempt reserved US-2674..US-2689 by bumping prd.json.nextId, and PR #275 merged the same block to main first, so the reservation both conflicted and failed. prd.json is now never touched by this file. Ralph allocates sequentially from US-2684 and will not reach 9001. On merge back, renumber into the live sequence and re-rank priorities, which are local to this file.",
-  "nextId": "US-9026",
+  "nextId": "US-9029",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -525,6 +525,58 @@
       ],
       "priority": 10,
       "notes": "FOUND 2026-08-28 while building US-9021, which is the honest version of the same subject and hands off to /flipdesk/comps. Linking a page that refuses to say \"sold\" into a page that says it five times would launder the claim, which is why this is filed rather than left. | THE EVIDENCE IS THE REPO'S OWN, in three places written by three different stories. condition-value-curve.ts: \"EBAY_MARKETPLACE_INSIGHTS has never been granted, so nothing behind these ratios has been sold, and the header said 'sold comps' here until US-2850.\" value-disclosure.ts: \"THREE THINGS THIS REFUSES TO SAY. 1. SOLD.\" ebay-client.ts isMarketplaceInsightsEnabled() reads an env var that services/edge-functions/.env.example ships as false. | WHY IT SURVIVED US-2850: that story fixed the surfaces that RENDER a price (grade result, scout, FlipDesk pricing, composer hint, Condition Index) and never reached the marketing registry, which renders prose about prices. The guard it left behind guards the render path. Nothing guarded the copy. | Priority 10, ahead of every build story in this file, because it is small, it is an accuracy defect rather than a growth bet, and it sits directly downstream of a page that shipped today. | FIXED 2026-08-28, same session it was found. 5 guard tests, tsc -b clean. | THE LESSON IS ABOUT THE GUARD, NOT THE COPY: a grep for \"sold comps\" filed this story and found five surfaces. The guard found seven, and rejected four true sentences on its first run. Both halves matter - the pattern has to be about the CLAIM (product as subject) rather than the WORD, or it fails correct content and gets loosened until it guards nothing."
+    },
+    {
+      "id": "US-9026",
+      "passes": true,
+      "title": "The query shape decides the click, and only three of thirteen target SERPs still return links",
+      "description": "As the operator, I want to know which of our target queries Google still answers with links rather than with an AI Overview, so that the next quarter is not spent ranking for results pages that have no results.",
+      "acceptanceCriteria": [
+        "DONE: thirteen target queries checked in a browser for AI Overview, People Also Ask and organic link count, recorded in docs/seo/serp-feature-audit-2026-08-28.md with the method and the caveats.",
+        "THE RESULT IS SHARPER THAN EXPECTED. Three of thirteen carry no AI Overview and all three are NAMED TOOL NOUNS: \"ebay fee calculator\", \"poshmark fee calculator\", \"brand authenticity checker\". Every question-shaped or topic-shaped query in the set carries one. \"vguc meaning\" returned no organic links at all in the captured region.",
+        "IT EXPLAINS THE SITE'S OWN SPLIT, which had been the open puzzle: ten /tools URLs out-click 122 blog posts at 3.46% against a 0.73% site average, while 87 /grading URLs sit at position 8.6 and convert at 0.33%. The tempting read was that tool pages are better pages. They are not. Tool queries still have clickable results pages and informational queries do not. Same site, same authors, same internal linking.",
+        "CONFIRMED AGAINST OUR OWN TWO BEST PAGES: /tools/authenticity-check earns 10.98% CTR and /tools/fit-checker 12.5%, and both of their head terms are on the clean list.",
+        "CONSEQUENCE 1, and it retires an argument rather than opening one: the glossary cluster is NOT recoverable by writing. Eighty-seven URLs at a good position converting at 0.33%, on a query whose SERP returns zero organic links. Depth cannot fix a results page with no results. Their remaining value is internal linking and AI citation, and US-9016 should measure them on that rather than on clicks.",
+        "CONSEQUENCE 2, stated because it is uncomfortable: FOUR OF THE FIVE PAGES BUILT ON 2026-08-28 target AI-Overview queries. That was not known when they were scoped. They are still worth having, because they are the best answers on their terms and an AI Overview cites sources, but their click forecast should be halved.",
+        "CONSEQUENCE 3: the fee calculators shipped 2026-08-18, TEN DAYS before the Search Console window closed. Their position 25-49 is an unevaluated page, not a failing one. Do not touch them, and do not read US-9016's December threshold before they have had a full quarter.",
+        "THE PROCESS CHANGE IS THE POINT: query shape is now a build criterion. A 50,000/mo question-shaped keyword with an AI Overview is worth less than a 500/mo tool noun without one, and nothing in the process could tell those apart until now. Check the head term before committing to a cluster."
+      ],
+      "priority": 5,
+      "notes": "Evidence: docs/seo/serp-feature-audit-2026-08-28.md (13 queries checked in a browser) and the Search Console export at keyword/gradethread.com-Performance-on-Search-2026-08-28/. | Run because the AI Overview on the pilling head term was the single most decisive fact in the US-9019 build and nobody had checked whether it was true of the rest of the plan. It was true of nine of thirteen. | ONE SAMPLE PER QUERY, signed in, desktop, US. AI Overview presence varies by user and over time, so re-run alongside the quarterly keyword pull US-9016 already schedules for 2026-11-18. This is a snapshot that changes a decision, not a measurement that settles one."
+    },
+    {
+      "id": "US-9027",
+      "passes": false,
+      "title": "Size the five clusters neither keyword pull has ever measured",
+      "description": "As the operator, I want the gaps in our own keyword research measured before the next build, so that the next quarter is chosen from evidence rather than from what the last two pulls happened to ask for. 776 keywords across two pulls and five clusters have zero coverage between them.",
+      "acceptanceCriteria": [
+        "Pull volume, competition and top-of-page bid for five clusters that BOTH the 2026-08-18 and 2026-08-28 pulls missed entirely. Measured by probing the combined 776-keyword set: authentication by brand (1 keyword, 50/mo), taxes and 1099 and bookkeeping for resellers (ZERO), platform how-to such as \"how to sell on Depop\" (ZERO), \"what is my X worth\" by brand (ZERO), vintage dating beyond single stitch (ZERO).",
+        "AUTHENTICATION BY BRAND IS THE ONE TO PULL FIRST, and the case is unusually strong. /tools/authenticity-check is the best-converting page on the site at 10.98% CTR, its head term \"brand authenticity checker\" is one of only three clean SERPs found in US-9026, and the entire cluster has ONE keyword sized at 50/mo. The queries that matter are brand-shaped: how to tell if a North Face, Carhartt, Patagonia or Nike item is fake.",
+        "BUT CHECK THE SHAPE, NOT ONLY THE VOLUME. \"how to tell if a north face jacket is real\" was checked in US-9026 and carries an AI Overview with six organic links. So the volume may be large and the clickable share small, and the honest target is the tool noun rather than the question: a per-brand checker, not a per-brand article.",
+        "THE \"WHAT IS MY X WORTH\" GAP IS A FINDING ABOUT WORK ALREADY DONE. /value is 15 URLs and /condition-index is 29, and between them they earned 2 clicks in 94 days. Neither cluster was ever sized. Forty-four pages exist on a keyword hypothesis nobody has tested, and the pull should test it retroactively rather than only forward.",
+        "The taxes and bookkeeping cluster is sized because FlipDesk has a bookkeeping surface and the reseller tax question is seasonal, annual and high-intent. It is also the cluster most likely to be tool-shaped, which US-9026 says is the only shape still earning clicks.",
+        "Normalise into docs/seo/keyword-pull-YYYY-MM-DD-results.csv in the same schema as the two existing pulls, so all three can be concatenated and sliced together.",
+        "EVERY CLUSTER THAT CLEARS ON VOLUME GETS A SERP-SHAPE CHECK BEFORE IT GETS A STORY, per US-9026. A cluster that is large and AI-Overview-covered goes in the note as measured-and-declined, with the number, so nobody re-proposes it in three months on the strength of the volume alone."
+      ],
+      "priority": 20,
+      "notes": "Evidence: docs/seo/serp-feature-audit-2026-08-28.md (13 queries checked in a browser) and the Search Console export at keyword/gradethread.com-Performance-on-Search-2026-08-28/. | The gap analysis is reproducible: probe the concatenation of docs/seo/keyword-pull-2026-08-results.csv and keyword-pull-2026-08-28-results.csv. Both pulls were shaped by the path taxonomy in prd-seo.json, so they measured the paths that already existed and are blind in exactly the places the taxonomy is. | DELIBERATELY NOT A BUILD STORY. The last two builds were both improved by checking before writing (US-9021 lost a feature the platform cannot support, US-9019 lost 700 words it did not need), and the pattern is that the cheap check changes the plan."
+    },
+    {
+      "id": "US-9028",
+      "passes": false,
+      "title": "Stop reading the 94-day average as the current number",
+      "description": "As the operator, I want the reporting window matched to a site that is still ramping, so that decisions are not made against an average that is two thirds noise. The site went from 0.3 impressions a day in late May to 555 a day in the last fortnight.",
+      "acceptanceCriteria": [
+        "THE CORRECTION, and it is a factor of four: the 94-day window to 2026-08-26 averages 4,072 impressions and 32 clicks a month. The LAST 14 DAYS run at 555 impressions and 4.57 clicks a day, which is 16,654 impressions and 137 clicks a month. The first third of the window contributed 9 impressions in 31 days. Averaging across it describes a site that no longer exists.",
+        "Daily trend for the record, from Chart.csv: first third 0.3 impr/day and 0 clicks, middle third 46 impr/day and 0.19 clicks/day, last third 354 impr/day and 3.03 clicks/day, last 14 days 555 impr/day and 4.57 clicks/day.",
+        "THE ONE NUMBER THAT DOES NOT IMPROVE ON THE SHORTER WINDOW IS CTR: 0.82% over the last 14 days against 0.73% over 94. So the click-through problem is current and real, and it is not an artifact of averaging. Everything else was.",
+        "AVERAGE POSITION IS DRIFTING WORSE AS IMPRESSIONS GROW (10.6 to 24.9 over the eight days to 2026-08-26) AND THAT IS NOT A DECLINE. It is the signature of new pages entering the index at depth and adding impressions there. Reading it as a ranking loss would be the expensive mistake, and it is the one the raw chart invites.",
+        "Fix the cluster views in vault/40-growth/seo-distribution-and-measurement.md to report a trailing 28-day window alongside the 90-day one, and say which of the two each threshold in US-9016 is judged on.",
+        "Re-date the US-9016 thresholds that were set against the old baseline, or state explicitly that they were set on 90-day figures and are being read on 90-day figures. Either is fine; mixing them is not.",
+        "THE PRACTICAL RULE, written where the next reader will hit it: nothing shipped in the last 8 weeks can be judged yet, and that currently includes the fee calculators (2026-08-18), the care cluster (2026-07-06 onward) and everything built on 2026-08-28."
+      ],
+      "priority": 10,
+      "notes": "Evidence: docs/seo/serp-feature-audit-2026-08-28.md (13 queries checked in a browser) and the Search Console export at keyword/gradethread.com-Performance-on-Search-2026-08-28/. | FOUND WHILE ANSWERING A DIFFERENT QUESTION, which is why it is filed rather than fixed in passing. The per-family table in docs/seo/keyword-expansion-2026-08-28.md and the report given to the owner both quoted the 94-day average as if it were the current rate. It understates the site by about 4x. | The reason it matters more than a reporting nicety: the whole \"the site has a coverage problem or a CTR problem\" argument rests on these numbers, and one of the two candidate answers (traffic is flat) is simply false. Traffic is climbing steeply. The CTR half survives the correction."
     }
   ]
 }
