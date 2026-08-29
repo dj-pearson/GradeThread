@@ -78,6 +78,51 @@ export interface RepairGuide {
   steps: RepairStep[];
 }
 
+/**
+ * One way of removing a flaw, rated against the others (US-9019).
+ *
+ * WHY A RANKED TABLE AND NOT MORE PROSE. The pilling SERP was measured on
+ * 2026-08-28 and two of the three reachable results are built this way:
+ * Gentleman's Gazette ranks nine methods with a summary table, and Vogue
+ * compares tools. A reader on this query is choosing between methods, not
+ * looking for one. Prose that describes a single method loses to a table that
+ * settles an argument.
+ *
+ * `risk` is the field that earns the page. Every competing article lists the
+ * disposable-razor trick; the useful thing to say about it is what it costs
+ * you when it goes wrong.
+ */
+export interface RemovalMethod {
+  name: string;
+  verdict: "best" | "good" | "situational" | "avoid";
+  /** Roughly what it costs to acquire, in plain words. */
+  cost: string;
+  /** What it is good at, in one sentence. */
+  works: string;
+  /** How it damages the garment when it goes wrong. Never omitted. */
+  risk: string;
+}
+
+/**
+ * A band on the flaw's own severity scale, tied to the grade (US-9019).
+ *
+ * THIS IS THE PART NO COMPETING PAGE CAN WRITE. A laundry blog can tell you how
+ * to shave a sweater. Only a grading company can tell you what each amount of
+ * pilling is worth, and that is the honest bridge from a care query back to the
+ * product. It is also the answer to the question the reader actually has, which
+ * is not "how do I remove this" but "does this matter".
+ */
+export interface SeverityBand {
+  /** What the reader sees on the garment. */
+  label: string;
+  /** How to recognise this band rather than the one either side of it. */
+  looksLike: string;
+  /** Where it lands on the 1.0-10.0 scale. Prose, because it is a range. */
+  grade: string;
+  /** What to do about it. */
+  action: string;
+}
+
 export interface FlawEntry {
   slug: string;
   name: string;
@@ -109,6 +154,19 @@ export interface FlawEntry {
   removalHeading: string;
   /** Ordered steps. For a "no" entry, why not, and what to do instead. */
   removal: string[];
+  /**
+   * US-9019. Methods compared against each other, for the entries where the
+   * reader's real question is which tool to use. Only `pilling` carries one so
+   * far: it is 152,400 searches a month, the largest cluster either keyword
+   * pull has produced, and the reachable results on that SERP are all built
+   * this way.
+   */
+  methods?: RemovalMethod[];
+  /**
+   * US-9019. The flaw's own severity scale, tied to the grade. See
+   * SeverityBand: this is the section a laundry blog cannot write.
+   */
+  severity?: SeverityBand[];
   /** One paragraph on stopping it happening again. */
   prevention: string;
   /**
@@ -166,17 +224,109 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     comesOut: "yes",
     removalHeading: "How to get pills off a garment",
     removal: [
-      "Lay the garment flat on a hard surface. Doing this on your lap stretches the knit and the shaver will cut it.",
-      "Go over the pilled area with a fabric shaver on its lowest setting, or a sweater comb for anything loosely knitted or cashmere.",
-      "Work in one direction, short strokes, and empty the shaver often. A full chamber presses pills back into the fabric.",
-      "Stop when the surface reads smooth from a low angle. Chasing the last few pills is how people shave a hole in a sleeve.",
+      "Lay the garment flat on a hard surface. Doing this on your lap stretches the knit, the fabric lifts into the blade, and the shaver cuts it.",
+      "Work out how loose the knit is first. If you can see daylight between the stitches, or the fibre is cashmere, mohair or angora, use a comb rather than a blade.",
+      "Go over the pilled area with a fabric shaver on its lowest setting, holding it flat and letting its own weight do the work. Pressing down is what makes a hole.",
+      "Work in one direction, in short strokes, and empty the shaver often. A full chamber stops cutting and starts pressing pills back into the fabric.",
+      "Stop when the surface reads smooth from a low angle. Chasing the last few pills is how people shave a hole in a sleeve, and the last few are not the ones anybody notices.",
+      "Look at what is underneath. Pills are fibre that has already left the yarn, so a patch that reads thin or shiny after shaving was thin before you started. That is fabric thinning, not pilling, and it does not come back.",
     ],
-    prevention: "Pilling is abrasion, so it comes from friction rather than dirt. Turn knitwear inside out to wash, use a mesh bag, wash cold on a gentle cycle, and skip the dryer. The underarm and the side where you carry a bag will always go first.",
+    methods: [
+      {
+        name: "Electric fabric shaver",
+        verdict: "best",
+        cost: "About $15 to $25",
+        works: "Fastest on a firmly knitted jumper, a fleece or a sweatshirt, and the only method that stays even across a large area.",
+        risk: "Cuts a hole in seconds on a loose knit or over a seam, and the damage is not repairable. Lowest setting, no downward pressure, and never over a raised seam.",
+      },
+      {
+        name: "Sweater comb or stone",
+        verdict: "good",
+        cost: "About $8 to $15",
+        works: "The right tool for cashmere, mohair, angora and anything loosely knitted, because it catches the pill without a blade near the yarn.",
+        risk: "Slow, and it drags a delicate knit out of shape if you pull rather than sweep. Support the fabric with your other hand.",
+      },
+      {
+        name: "Disposable razor",
+        verdict: "situational",
+        cost: "You already own one",
+        works: "Genuinely fine on a flat, firmly woven surface when you have one jumper and no shaver, which is why every article recommends it.",
+        risk: "The reason every article should qualify it: a razor has no guard and no depth stop, so it removes pills and good yarn at the same rate. Use a blunt blade, hold it almost flat, and never on a loose knit.",
+      },
+      {
+        name: "Pumice stone",
+        verdict: "situational",
+        cost: "A few dollars",
+        works: "Good on heavy cotton and fleece, where it lifts pills without cutting anything.",
+        risk: "Abrades the surface it is dragged across, so it dulls a dark colour over repeated use and is wrong for anything fine.",
+      },
+      {
+        name: "Sticky tape or a lint roller",
+        verdict: "avoid",
+        cost: "You already own one",
+        works: "Nothing, for this. It lifts loose fluff sitting on the surface.",
+        risk: "No damage, but no result either. A pill is anchored by fibres still attached to the yarn, which is the whole difference between a pill and lint.",
+      },
+      {
+        name: "Scissors",
+        verdict: "avoid",
+        cost: "Free",
+        works: "Snipping individual pills is precise on the two or three you can see.",
+        risk: "It is also how a small hole starts, because a pill sits directly on the yarn holding it. On a knit, one cut stitch runs.",
+      },
+    ],
+    severity: [
+      {
+        label: "None to trace",
+        looksLike: "Surface reads smooth from a low angle. A few pills at one cuff at most.",
+        grade: "No effect. Excellent (8) and above is still available.",
+        action: "Nothing. Do not shave a garment that does not need it.",
+      },
+      {
+        label: "Light",
+        looksLike: "Visible pills in the friction zones only: underarms, inner thighs, the side you carry a bag on.",
+        grade: "Nudges Fabric Condition down. Typically Excellent (8) toward Good (6.5 to 7).",
+        action: "Worth de-pilling. This is the band where twenty minutes of work moves the grade.",
+      },
+      {
+        label: "Moderate",
+        looksLike: "Pills across whole panels rather than just the friction zones, and the surface has lost its finish.",
+        grade: "Good (6) toward Fair (5).",
+        action: "De-pill and then look again. Some of this comes back to light; some of it turns out to be thinning.",
+      },
+      {
+        label: "Heavy",
+        looksLike: "The whole garment reads dull and matted. Pills come away in the hand.",
+        grade: "Fair (5) or below, and de-pilling will not recover it.",
+        action: "The yarn is already gone. Shaving reveals thinning rather than fixing it, so disclose and price accordingly.",
+      },
+    ],
+    prevention: "Pilling is abrasion, so it comes from friction rather than dirt, and washing more often makes it worse rather than better. Turn knitwear inside out, use a mesh bag, wash cold on a gentle cycle and skip the dryer, where the tumbling does in one cycle what a week of wear does. Wash synthetics separately from cotton, because a polyester pill is anchored by a fibre stronger than the yarn around it and rubbing the two together is what forms them. The underarm and the side you carry a bag on will always go first, whatever you do.",
     relatedSlugs: ["fabric-thinning", "sun-fading"],
     faqs: [
       {
         q: "Does pilling lower a clothing grade?",
-        a: "Yes. Pilling is assessed under the Fabric Condition factor. Light pilling drops an item a tier or so; heavy pilling across the garment can take it to Fair or below. De-pilling before grading can raise the result.",
+        a: "Yes. Pilling is assessed under the Fabric Condition factor, which is 30% of the overall grade. Light pilling in the friction zones drops an item a tier or so; pilling across whole panels takes it toward Fair (5) or below. De-pilling before grading can legitimately raise the result, because the grade is of the garment in front of the camera.",
+      },
+      {
+        q: "Why do clothes pill in the first place?",
+        a: "Friction, not dirt. Every rub breaks a few fibres loose from the yarn; they stay attached at one end and tangle with each other into a ball. That is why it appears at the underarm, the inner thigh and wherever a bag strap sits, and why a garment that is never worn never pills however long it hangs there.",
+      },
+      {
+        q: "Do some fabrics pill more than others?",
+        a: "Yes, and the reason is counter-intuitive. Pilling starts on almost everything; what differs is whether the pill falls off. Short-staple natural fibres shed their pills, so cotton and wool look better than they are. Synthetics do not: a polyester or nylon fibre is stronger than the yarn holding it, so the pill stays put and accumulates. Blends are the worst of both, which is why a 50/50 sweatshirt pills more visibly than either fibre alone.",
+      },
+      {
+        q: "Will removing pills damage the garment?",
+        a: "It can, and the two ways it happens are avoidable. Cutting a hole comes from pressing down, working over a seam, or using a blade on a loose knit; hold the tool flat, let its weight do the work and use a comb on anything you can see daylight through. The subtler one is that shaving does not put fibre back, so a patch that has pilled and been shaved repeatedly gets genuinely thin. At that point you are managing thinning, not pilling.",
+      },
+      {
+        q: "Can you stop clothes pilling permanently?",
+        a: "No, because the cause is wear. You can slow it a lot: inside out, mesh bag, cold gentle cycle, no dryer, and synthetics washed apart from cotton. What you cannot do is stop a jumper you wear weekly from pilling at the underarm, and a garment sold as never pilling is either unworn or made of something that sheds its pills rather than never forming them.",
+      },
+      {
+        q: "Should I de-pill a garment before selling it?",
+        a: "Usually yes, for the light and moderate bands, because a smooth surface photographs honestly and the grade is of what the buyer receives. Two caveats. Do not shave a heavily pilled garment expecting it to come back; you will expose thinning and have less to sell. And do not shave it and then describe it as never pilled, because it will pill again in the same places and that is the return.",
       },
     ],
   },

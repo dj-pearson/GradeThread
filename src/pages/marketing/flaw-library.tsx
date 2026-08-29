@@ -29,6 +29,36 @@ import {
 // from /grading/flaws to /care (/care and /care/:flaw); the old URLs 301. Image-rich where the graded corpus supplies photos;
 // certificates deep-link each detected flaw here (the internal-link flywheel).
 
+// US-9019. Colour carries meaning here, so it is semantic rather than accent:
+// "avoid" has to read as a warning at a glance in a table somebody is skimming
+// to pick a tool. Both themes are declared, because a colour defined for one
+// only is unreadable on the other.
+const METHOD_VERDICT: Record<
+  "best" | "good" | "situational" | "avoid",
+  { label: string; className: string }
+> = {
+  best: {
+    label: "Best",
+    className:
+      "inline-block rounded px-2 py-0.5 text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+  },
+  good: {
+    label: "Good",
+    className:
+      "inline-block rounded px-2 py-0.5 text-xs font-semibold bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
+  },
+  situational: {
+    label: "It depends",
+    className:
+      "inline-block rounded px-2 py-0.5 text-xs font-semibold bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300",
+  },
+  avoid: {
+    label: "Avoid",
+    className:
+      "inline-block rounded px-2 py-0.5 text-xs font-semibold bg-rose-100 text-rose-900 dark:bg-rose-950 dark:text-rose-300",
+  },
+};
+
 export function FlawLibraryHubPage() {
   return (
     <MarketingLayout
@@ -165,6 +195,112 @@ export function FlawPage({ slug: slugProp }: { slug?: string }) {
           <p className="mt-2 text-muted-foreground">{flaw.prevention}</p>
         </div>
       </section>
+
+      {/* US-9019: methods ranked against each other. The reader on a removal
+          query is choosing between tools, not looking for one, and the two
+          reachable results on the pilling SERP (measured 2026-08-28) are both
+          built this way. `risk` is never omitted — the useful thing to say
+          about the disposable-razor trick everybody lists is what it costs
+          when it goes wrong. */}
+      {flaw.methods?.length ? (
+        <section className="border-t px-6 py-16">
+          <div className="mx-auto max-w-3xl">
+            <h2 className="text-2xl font-bold sm:text-3xl">
+              Which tool, and what each one costs you
+            </h2>
+            <p className="mt-3 text-muted-foreground">
+              Ranked, with the damage each one does when it goes wrong. Every method
+              here works on something; the question is whether it works on yours.
+            </p>
+            <div className="mt-6 overflow-x-auto rounded-lg border">
+              <table className="w-full min-w-150 text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th scope="col" className="px-4 py-3 text-left font-semibold">Method</th>
+                    <th scope="col" className="px-4 py-3 text-left font-semibold">Verdict</th>
+                    <th scope="col" className="px-4 py-3 text-left font-semibold">What it is good at</th>
+                    <th scope="col" className="px-4 py-3 text-left font-semibold">How it goes wrong</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {flaw.methods.map((m) => (
+                    <tr key={m.name} className="border-t align-top">
+                      <td className="px-4 py-3">
+                        <span className="font-medium">{m.name}</span>
+                        <span className="mt-1 block text-xs text-muted-foreground">{m.cost}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={METHOD_VERDICT[m.verdict].className}>
+                          {METHOD_VERDICT[m.verdict].label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">{m.works}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{m.risk}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {/* US-9019: the severity scale, which is the section no laundry blog can
+          write. It answers the question the reader actually has — does this
+          matter — and it is the honest bridge from a care query to the grade. */}
+      {flaw.severity?.length ? (
+        <section className="border-t bg-card px-6 py-16">
+          <div className="mx-auto max-w-3xl">
+            <h2 className="text-2xl font-bold sm:text-3xl">
+              How much {flaw.name.toLowerCase()} is too much
+            </h2>
+            <p className="mt-3 text-muted-foreground">
+              What each amount is worth on the 1.0 to 10.0 scale, and whether it is
+              worth your afternoon.
+            </p>
+            <ol className="mt-6 space-y-3">
+              {flaw.severity.map((band, i) => (
+                <li key={band.label} className="rounded-lg border bg-background p-5">
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span
+                      aria-hidden="true"
+                      className="flex gap-1"
+                      title={`Severity ${i + 1} of ${flaw.severity!.length}`}
+                    >
+                      {flaw.severity!.map((_, j) => (
+                        <span
+                          key={j}
+                          className={
+                            "h-2 w-6 rounded-full " +
+                            (j <= i ? "bg-primary" : "bg-muted-foreground/25")
+                          }
+                        />
+                      ))}
+                    </span>
+                    <h3 className="text-lg font-semibold">{band.label}</h3>
+                  </div>
+                  <p className="mt-3 text-sm text-muted-foreground">{band.looksLike}</p>
+                  <p className="mt-2 text-sm">
+                    <span className="font-medium">Grade: </span>
+                    <span className="text-muted-foreground">{band.grade}</span>
+                  </p>
+                  <p className="mt-1 text-sm">
+                    <span className="font-medium">What to do: </span>
+                    <span className="text-muted-foreground">{band.action}</span>
+                  </p>
+                </li>
+              ))}
+            </ol>
+            <p className="mt-6 text-sm text-muted-foreground">
+              The bands are the grading rubric, not a rule of thumb.{" "}
+              <Link to="/condition-grading" className="font-medium text-primary hover:underline">
+                How the 1.0 to 10.0 scale works
+              </Link>
+              .
+            </p>
+          </div>
+        </section>
+      ) : null}
 
       {/* US-9013: the full repair guide, on the seven entries where somebody is
           actually going to pick up a needle. The HowTo JSON-LD is built from

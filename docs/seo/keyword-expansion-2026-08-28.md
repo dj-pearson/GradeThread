@@ -88,6 +88,35 @@ already the worst-performing family on the site at position 42.4 across 46
 URLs. Volume this large is a reason to make one page real, not a reason to
 make forty thin ones.
 
+### The SERP measurement, and the thing it found that changes the odds
+
+Measured in a browser on 2026-08-28 while building US-9019, rather than
+estimated. Article-body word counts on the reachable results:
+
+| result | words | images | structure |
+|---|---|---|---|
+| Patagonia (brand blog) | 1,351 | 6 | prose guide |
+| Vogue | 1,211 | 10 | tool comparison |
+| Gentleman's Gazette | 1,022 | 10 | **9 methods ranked, summary table** |
+| `/care/pilling` (before) | 665 | 0 | one method, prose |
+
+Two useful findings and one uncomfortable one.
+
+The field is **shorter than expected**: 1,000 to 1,350 words, not the 1,800 the
+story assumed. What separates the winners is not length, it is that two of the
+three are built as a **ranked method comparison**. A reader on this query is
+choosing between tools, not looking for one.
+
+The uncomfortable finding: **that SERP carries an AI Overview, a People Also
+Ask block and a video carousel, and returns only seven organic blue links**,
+two of which are Reddit and a Facebook post. This is the same shape that is
+already suppressing `/grading`, where 87 URLs sit at position 8.6 and convert
+at 0.33%.
+
+So US-9019 can succeed on its own terms and still earn very little. That is
+why the gate now requires **both** position 20 or better **and** a click-through
+rate above 1.0%, rather than position alone.
+
 The US-9016 threshold for /care is 10,000 impressions/mo by 2027-02-18. It is
 at 494. That needs a twentyfold increase from 46 URLs, and the honest read is
 that it arrives from three pages that actually rank or it does not arrive.
@@ -102,10 +131,14 @@ audience and the format are both already proven here.
 
 ### eBay sold comps is the best volume-to-difficulty ratio
 
-7,250/mo at **Low** competition, and the product already does it. FlipDesk has
-the eBay Browse comps integration wired. This is the one cluster in the file
-where the search intent, the low competition, the format that converts on this
-site, and a working feature all point at the same page.
+7,250/mo at **Low** competition. Every other cluster with volume near this is
+High, so it is the best ratio in either pull, and the format that converts on
+this site is the format the query wants.
+
+**Corrected after building it.** This section originally said "the product
+already does it, FlipDesk has the eBay Browse comps integration wired". Browse
+returns *active* listings. The sold half of that sentence was never true here:
+`EBAY_MARKETPLACE_INSIGHTS` has never been granted. See §4.
 
 ### The spreadsheet cluster is small and worth more than its volume
 
@@ -133,11 +166,41 @@ Keep the size honest. Closing the whole CTR gap is worth roughly 66 clicks over
 six months. Everything proposed here is a bet on the next two quarters, not a
 fix for this month.
 
-## 4. Stories filed
+## 4. Stories filed, and what shipped
 
-- **US-9019** Deepen /care/pilling to a page that can hold the head term
-- **US-9020** Single stitch dating tool and guide
-- **US-9021** eBay sold comps lookup at /tools/
-- **US-9022** Reseller inventory spreadsheet as a download
-- **US-9023** Photographing clothes to sell, as a workflow page
-- **US-9024** [GATE] Re-read /care against its threshold before any pilling expansion
+All six were built on 2026-08-28. A seventh was found while building the first.
+
+| story | what it is | state |
+|---|---|---|
+| **US-9021** | `/tools/ebay-sold-listings` | shipped |
+| **US-9020** | `/tools/single-stitch-dating` | shipped, less the hem photographs |
+| **US-9022** | `/tools/reseller-inventory-spreadsheet` | shipped, less the Sheets copy link |
+| **US-9023** | `/tools/photograph-clothes-to-sell` | shipped |
+| **US-9019** | `/care/pilling` deepened | shipped, less the before/after photograph |
+| **US-9024** | the gate on pilling expansion | filed, dated 2027-02-18 |
+| **US-9025** | stop claiming FlipDesk reads eBay sold data | fixed |
+
+### The correction that shaped US-9021
+
+The story asked for a page returning sold comps. **The platform has no source
+of realized sold prices.** `EBAY_MARKETPLACE_INSIGHTS` has never been granted,
+so `searchSoldComps()` returns null before it opens a socket, and the only eBay
+prices reachable here are active asking prices. Printing those under the word
+"sold" is exactly the defect `value-disclosure.ts` exists to prevent.
+
+What shipped instead hands the visitor eBay's own sold results, built on the
+same three rungs `comps-ladder.ts` uses. No endpoint, no fetch, no credential
+exposed to public traffic, and it is a better answer to the query that was
+actually typed.
+
+### US-9025 came out of checking that
+
+Seven marketing surfaces claimed FlipDesk pulls eBay sold comps. A grep found
+five; the guard test written for it found seven. The correction is not deleting
+the word: `getRealizedComps` has two sources and only the eBay one is
+ungranted, so the copy now says comparable eBay listings, which are asking
+prices, switching to the seller's own realized sales at three.
+
+The guard's first cut failed four sentences that were **telling the truth**:
+"look up what comparable items actually sold for" is correct advice. The
+pattern has to be about the claim (product as subject), never the word.
