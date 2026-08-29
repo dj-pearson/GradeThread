@@ -14,7 +14,8 @@
 // updated in place rather than re-opened monthly, and it CLOSES itself when the
 // set is current, so its existence means something.
 //
-// Reads `android/build/dependencyUpdates/report.json`, which the workflow
+// Reads the dependencyUpdates report.json that Gradle writes under the
+// android module's build directory (the REPORT const below), which the workflow
 // produces by running `./gradlew dependencyUpdates` (the json formatter is set
 // in android/build.gradle.kts).
 //
