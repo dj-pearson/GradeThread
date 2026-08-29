@@ -18,6 +18,22 @@ import kotlinx.coroutines.flow.StateFlow
  * watermark-schema rule). Room migrations preserve rows; the watermark
  * version decides whether those rows are COMPLETE.
  */
+/**
+ * The Room schema version, as a runtime-readable constant.
+ *
+ * WHY THIS IS NOT JUST THE NUMBER IN THE ANNOTATION. `androidx.room.Database`
+ * is CLASS-retention, so `GradeThreadDb::class.java.getAnnotation(Database::class.java)`
+ * returns NULL on a device. RoomMigrationTest read the version that way and its
+ * `!!` threw an NPE in the companion initializer, which surfaced as
+ * `ExceptionInInitializerError` on the first case and `NoClassDefFoundError` on
+ * the other two - one bug wearing three names, and no test in that class had run
+ * since it was written (US-2902).
+ *
+ * A const keeps the property the test wanted: the version is declared once and
+ * the annotation and the migration test cannot disagree about it.
+ */
+internal const val GRADETHREAD_DB_VERSION = 8
+
 @Database(
     entities = [
         InventoryItemEntity::class,
@@ -33,7 +49,7 @@ import kotlinx.coroutines.flow.StateFlow
         IntakeBatchEntity::class,
         AutolisterSessionEntity::class,
     ],
-    version = 8,
+    version = GRADETHREAD_DB_VERSION,
     exportSchema = true,
 )
 abstract class GradeThreadDb : RoomDatabase() {

@@ -96,11 +96,21 @@ class RoomMigrationTest {
         const val DB_NAME = "migration-test"
 
         /**
-         * Read off the @Database annotation rather than hardcoded, so bumping
-         * the version without adding a migration fails HERE instead of at the
-         * next launch on a real phone.
+         * The version the app declares, so bumping it without adding a
+         * migration fails HERE instead of at the next launch on a real phone.
+         *
+         * ⚠ THIS USED TO READ THE ANNOTATION AND COULD NEVER HAVE WORKED.
+         * `GradeThreadDb::class.java.getAnnotation(Database::class.java)` is
+         * null on a device - `androidx.room.Database` is CLASS-retention, not
+         * RUNTIME - so the `!!` threw an NPE inside this companion. Every case
+         * in this class failed on class initialization, which reported as
+         * `ExceptionInInitializerError` once and `NoClassDefFoundError` twice,
+         * and the class had therefore never actually tested a migration.
+         *
+         * The intent survives: [GRADETHREAD_DB_VERSION] is the const the
+         * `@Database` annotation itself is declared with, so there is still one
+         * number and the two cannot drift.
          */
-        val CURRENT_VERSION: Int =
-            GradeThreadDb::class.java.getAnnotation(androidx.room.Database::class.java)!!.version
+        val CURRENT_VERSION: Int = GRADETHREAD_DB_VERSION
     }
 }

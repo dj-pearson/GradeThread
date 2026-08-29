@@ -46,11 +46,44 @@ if (!existsSync(dbFile)) {
 }
 
 const src = readFileSync(dbFile, "utf8");
-const version = Number(src.match(/^\s*version\s*=\s*(\d+)/m)?.[1]);
-if (!Number.isInteger(version)) {
-  fail("could not read `version = N` out of GradeThreadDb.kt");
+
+/**
+ * The Room version, whether the annotation carries a literal or a const.
+ *
+ * US-2902: the annotation is now `version = GRADETHREAD_DB_VERSION`, because
+ * `androidx.room.Database` is CLASS-retention and RoomMigrationTest could not
+ * read it reflectively on a device — its `!!` threw an NPE in a companion
+ * initializer and every case in that class had been failing on class load,
+ * unnoticed, since it was written.
+ *
+ * So this resolves ONE level of indirection: a literal if the annotation has
+ * one, otherwise the `const val` that names it, in the same file. Deliberately
+ * one level and no further — a chain of consts is a Kotlin parser, and a guard
+ * that quietly stops resolving is worse than one that says it cannot.
+ */
+function readDeclaredVersion(source) {
+  const arg = source.match(/^\s*version\s*=\s*([A-Za-z0-9_]+)\s*,/m)?.[1];
+  if (arg === undefined) return { error: "no `version = …` in the @Database annotation" };
+  if (/^\d+$/.test(arg)) return { version: Number(arg) };
+  const constant = source.match(
+    new RegExp(`\\bconst\\s+val\\s+${arg}\\s*(?::\\s*Int\\s*)?=\\s*(\\d+)`),
+  )?.[1];
+  if (constant === undefined) {
+    return {
+      error:
+        `version = ${arg}, but no \`const val ${arg} = <number>\` in the same file. ` +
+        "Declare it there, or put a literal back in the annotation.",
+    };
+  }
+  return { version: Number(constant) };
+}
+
+const declared = readDeclaredVersion(src);
+if (declared.error) {
+  fail(`could not read the Room version out of GradeThreadDb.kt — ${declared.error}`);
   process.exit(1);
 }
+const version = declared.version;
 
 const dbDirs = existsSync(schemaRoot)
   ? readdirSync(schemaRoot, { withFileTypes: true }).filter((d) => d.isDirectory())
