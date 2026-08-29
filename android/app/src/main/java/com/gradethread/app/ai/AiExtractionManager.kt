@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.gradethread.app.capture.CapturePublishPlan
-import com.gradethread.app.capture.PhotoSlotType
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.sync.SyncTrigger
 import com.gradethread.app.sync.db.GradeThreadDb
@@ -181,13 +180,39 @@ class AiExtractionManager @Inject constructor(
         }
     }
 
-    private suspend fun failedSortOrders(work: WorkManager, itemId: String): Set<Int> =
-        runCatching {
-            work.getWorkInfosByTagFlow(UploadWorker.itemTag(itemId)).first()
-                .filter { it.state == WorkInfo.State.FAILED || it.state == WorkInfo.State.CANCELLED }
-                .mapNotNull { info -> UploadWorker.sortOrderFromTags(info.tags) }
-                .toSet()
-        }.getOrDefault(emptySet())
+    /**
+     * Which of this item's uploads have failed TERMINALLY.
+     *
+     * US-2896 AC6, re-checked when the network constraint landed. Only FAILED
+     * and CANCELLED count, and after US-2896 that is finally the truth rather
+     * than an approximation of it.
+     *
+     * BEFORE: with no constraint, an offline upload ran immediately, the PUT
+     * failed, the attempts drained, and WorkManager reported FAILED. That state
+     * was indistinguishable here from a terminal 4xx - the gate treated "this
+     * seller walked into a lift" as "this photo is never arriving", opened, and
+     * ran the AI without it.
+     *
+     * AFTER: an offline upload is BLOCKED on its constraint. WorkManager does
+     * not run it, does not consume an attempt, and does not report FAILED - so
+     * it is correctly absent from this set and the gate keeps waiting.
+     *
+     * WHAT THAT COSTS, because it is not free: an offline seller now waits the
+     * full AiExtractGate.TIMEOUT_MS (180s) before the gate gives up, where they
+     * used to get a fast failure. That is the better trade in both directions.
+     * The fast failure was WRONG - it ran the AI on a partial photo set - and
+     * the photos themselves survive now: they upload when signal returns
+     * instead of dying with a spent retry budget.
+     *
+     * DO NOT add ENQUEUED or BLOCKED to this filter to restore the old speed.
+     * That would reinstate exactly the ambiguity the constraint removed.
+     */
+    private suspend fun failedSortOrders(work: WorkManager, itemId: String): Set<Int> = runCatching {
+        work.getWorkInfosByTagFlow(UploadWorker.itemTag(itemId)).first()
+            .filter { it.state == WorkInfo.State.FAILED || it.state == WorkInfo.State.CANCELLED }
+            .mapNotNull { info -> UploadWorker.sortOrderFromTags(info.tags) }
+            .toSet()
+    }.getOrDefault(emptySet())
 
     private suspend fun extractPhotos(itemId: String): List<AiExtractPhoto> {
         val rows = db.photos().forItem(itemId).map { row ->
@@ -230,10 +255,7 @@ class AiExtractionManager @Inject constructor(
         }
     }
 
-    private fun stashTagPhoto(
-        itemId: String,
-        uploads: List<CapturePublishPlan.UploadEntry>,
-    ): File? {
+    private fun stashTagPhoto(itemId: String, uploads: List<CapturePublishPlan.UploadEntry>): File? {
         // US-2498: any TAG slot, whatever role it carries. An `== TAG` check
         // matched nothing the moment a profile could name three of them
         // (`tag:brand`, `tag:size`, `tag:care`), which silently turned the OCR
@@ -249,8 +271,7 @@ class AiExtractionManager @Inject constructor(
         }.getOrNull()
     }
 
-    private suspend fun ocrLines(file: File): List<String> =
-        TagTextRecognizer().use { it.recognizeLines(file) }
+    private suspend fun ocrLines(file: File): List<String> = TagTextRecognizer().use { it.recognizeLines(file) }
 
     private fun setPhase(itemId: String, phase: AiExtractPhase) {
         // Compare before assign (the iOS US-1519 lesson): this runs 4×/s for

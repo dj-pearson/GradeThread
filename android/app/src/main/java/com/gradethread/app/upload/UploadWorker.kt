@@ -1,10 +1,14 @@
 package com.gradethread.app.upload
 
 import android.content.Context
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.Data
+import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.gradethread.app.platform.net.SharedHttp
@@ -148,6 +152,34 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         }
     }
 
+    /**
+     * One photo to upload.
+     *
+     * [Input.expedited] marks an upload the seller is WATCHING - they
+     * pressed a button and a spinner is on screen. Those run as expedited
+     * work with a quota fallback; everything else is ordinary background
+     * work. The entry points that count are written down at the call sites
+     * rather than inferred here, because "is anyone looking at this" is a
+     * fact about the screen, not about the upload.
+     *
+     * A data class rather than a ninth parameter: detekt's LongParameterList
+     * fired when `expedited` was added, and it was right to. Nine positional
+     * facts about one photo is a bundle that has not been named yet, and
+     * baselining the warning would have kept the smell and lost the signal.
+     */
+    data class Input(
+        val stagedPath: String,
+        val itemId: String,
+        val serverType: String,
+        val sortOrder: Int,
+        val capturedAt: Long,
+        val width: Int? = null,
+        val height: Int? = null,
+        val photoRole: String? = null,
+        /** True when a seller is watching a spinner this upload is behind. */
+        val expedited: Boolean = false,
+    )
+
     companion object {
         const val KEY_STAGED_PATH = "staged_path"
         const val KEY_ITEM_ID = "item_id"
@@ -190,36 +222,96 @@ class UploadWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
         }.toString().encodeToByteArray()
 
         /** Build the persisted request for one photo. */
-        fun request(
-            stagedPath: String,
-            itemId: String,
-            serverType: String,
-            sortOrder: Int,
-            capturedAt: Long,
-            width: Int? = null,
-            height: Int? = null,
-            photoRole: String? = null,
-        ): OneTimeWorkRequest = OneTimeWorkRequestBuilder<UploadWorker>()
-            .setInputData(
-                Data.Builder()
-                    .putString(KEY_STAGED_PATH, stagedPath)
-                    .putString(KEY_ITEM_ID, itemId.lowercase())
-                    .putString(KEY_SERVER_TYPE, serverType)
-                    .putString(KEY_PHOTO_ROLE, photoRole?.takeIf { it.isNotBlank() })
-                    .putInt(KEY_SORT_ORDER, sortOrder)
-                    .putLong(KEY_CAPTURED_AT, capturedAt)
-                    .putInt(KEY_WIDTH, width ?: 0)
-                    .putInt(KEY_HEIGHT, height ?: 0)
-                    .build(),
-            )
-            .addTag(TAG_ALL)
-            // US-1334: the AI publish gate has to tell "this item's front shot
-            // failed terminally" from "it's still uploading", and WorkInfo
-            // exposes tags but never input data. Two tags — the item and the
-            // sort order — are the only channel WorkManager offers for that.
-            .addTag(itemTag(itemId))
-            .addTag(ORDER_TAG_PREFIX + sortOrder)
+        /**
+         * US-2896: when an upload is allowed to run.
+         *
+         * NetworkType.CONNECTED and nothing else. Deliberately NOT
+         * UNMETERED - a seller shooting a rail in a shop is on mobile data,
+         * and holding their photos until they reach wifi would be a different
+         * product. Deliberately not requiresBatteryNotLow either, unlike
+         * BackgroundRefreshWorker: a sale alert can wait for the last 5%, but a
+         * photo the seller just took and is watching upload cannot, and the
+         * work is already staged on disk so the battery cost of finishing it is
+         * smaller than the cost of asking them to shoot it again.
+         */
+        /**
+         * US-2896 AC4: NO ForegroundInfo, and this is the decision rather than
+         * the omission it replaces.
+         *
+         * A foreground service needs a persistent notification, and
+         * POST_NOTIFICATIONS is a runtime permission the seller may well have
+         * refused - in which case setForeground THROWS and the upload fails,
+         * turning a granted-notifications nicety into a denied-notifications
+         * outage. Photo upload is not worth that failure mode.
+         *
+         * WHAT THE SELLER SEES INSTEAD. In the foreground the capture and photo
+         * screens already render per-photo progress from the item_photos rows
+         * as they land, which is finer-grained than a notification would be.
+         * Backgrounded, the expedited flag on watched uploads buys the window
+         * that matters, and anything still outstanding resumes on the next
+         * launch because the staged file and the queue entry both survive.
+         *
+         * The case this does NOT cover is a large batch backgrounded for long
+         * enough that WorkManager defers it: the seller gets no signal until
+         * they reopen the app. Revisit if that shows up in support, and revisit
+         * WITH the permission-refused path designed, not after.
+         */
+        val CONSTRAINTS: Constraints = Constraints.Builder()
+            .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
+
+        /**
+         * US-2896 AC2: backoff, set explicitly rather than inherited.
+         *
+         * LINEAR, not EXPONENTIAL, and the reason is the retry budget the
+         * publish gate reads. WorkManager allows a fixed number of attempts
+         * before FAILED is terminal; exponential doubling spends the last of
+         * them 40+ minutes out, long after the seller has closed the app and
+         * while the gate is still waiting for a verdict. Linear at 30 seconds
+         * keeps every attempt inside the window a seller is plausibly still
+         * looking at the screen, which is where a retry is worth anything.
+         *
+         * 30s rather than the 10s minimum because the failures this retries are
+         * a flapping connection and a 5xx, and neither recovers in ten seconds.
+         */
+        val BACKOFF_POLICY = BackoffPolicy.LINEAR
+        const val BACKOFF_DELAY_SECONDS = 30L
+
+        fun request(input: Input): OneTimeWorkRequest = with(input) {
+            OneTimeWorkRequestBuilder<UploadWorker>()
+                .setConstraints(CONSTRAINTS)
+                .setBackoffCriteria(BACKOFF_POLICY, BACKOFF_DELAY_SECONDS, TimeUnit.SECONDS)
+                .apply {
+                    // RUN_AS_NON_EXPEDITED_WORK_REQUEST, never DROP_WORK_REQUEST.
+                    // The quota is per-app and finite; dropping the request when it
+                    // is exhausted would silently lose a photo the seller watched
+                    // themselves take, which is the one outcome worse than a slow
+                    // upload.
+                    if (expedited) {
+                        setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                    }
+                }
+                .setInputData(
+                    Data.Builder()
+                        .putString(KEY_STAGED_PATH, stagedPath)
+                        .putString(KEY_ITEM_ID, itemId.lowercase())
+                        .putString(KEY_SERVER_TYPE, serverType)
+                        .putString(KEY_PHOTO_ROLE, photoRole?.takeIf { it.isNotBlank() })
+                        .putInt(KEY_SORT_ORDER, sortOrder)
+                        .putLong(KEY_CAPTURED_AT, capturedAt)
+                        .putInt(KEY_WIDTH, width ?: 0)
+                        .putInt(KEY_HEIGHT, height ?: 0)
+                        .build(),
+                )
+                .addTag(TAG_ALL)
+                // US-1334: the AI publish gate has to tell "this item's front shot
+                // failed terminally" from "it's still uploading", and WorkInfo
+                // exposes tags but never input data. Two tags — the item and the
+                // sort order — are the only channel WorkManager offers for that.
+                .addTag(itemTag(itemId))
+                .addTag(ORDER_TAG_PREFIX + sortOrder)
+                .build()
+        }
 
         /**
          * The tag every photo upload carries, whichever entry point queued it.

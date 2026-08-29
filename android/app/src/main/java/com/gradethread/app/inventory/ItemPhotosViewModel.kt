@@ -182,14 +182,21 @@ class ItemPhotosViewModel @Inject constructor(
                     val slot = slots.removeFirstOrNull()
                     work.enqueue(
                         UploadWorker.request(
-                            stagedPath = photo.processed.file.absolutePath,
-                            itemId = itemId,
-                            serverType = slot?.type ?: PhotoSlotType.DETAIL.serverPhotoType,
-                            photoRole = slot?.role,
-                            sortOrder = order,
-                            capturedAt = photo.captureDateMs,
-                            width = photo.processed.width,
-                            height = photo.processed.height,
+                            UploadWorker.Input(
+                                stagedPath = photo.processed.file.absolutePath,
+                                itemId = itemId,
+                                serverType = slot?.type ?: PhotoSlotType.DETAIL.serverPhotoType,
+                                photoRole = slot?.role,
+                                sortOrder = order,
+                                capturedAt = photo.captureDateMs,
+                                width = photo.processed.width,
+                                height = photo.processed.height,
+                                // US-2896 AC3: watched. The seller picked these a
+                                // moment ago and the photo grid is on screen
+                                // showing them land, so the same rule applies as
+                                // the capture flow.
+                                expedited = true,
+                            ),
                         ),
                     )
                     order++

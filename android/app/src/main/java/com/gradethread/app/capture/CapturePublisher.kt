@@ -41,8 +41,7 @@ class CapturePublisher @Inject constructor(
 ) {
 
     /** Active workspace, else self — matching IntakeRepository. */
-    private fun ownerId(): String? =
-        client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
+    private fun ownerId(): String? = client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
 
     /**
      * Publish the session and return the plan the AI step runs against.
@@ -83,21 +82,36 @@ class CapturePublisher @Inject constructor(
         plan
     }
 
+    /**
+     * US-2896 AC3: EXPEDITED, because the seller is watching this one.
+     *
+     * They pressed Publish and the capture flow is showing them progress; the
+     * AI extract gate is also waiting on these exact uploads before it will
+     * run. That is the definition used throughout: expedited means a human is
+     * looking at a spinner that this work is behind, not merely that the work
+     * is important.
+     *
+     * The quota fallback is RUN_AS_NON_EXPEDITED_WORK_REQUEST, so exhausting it
+     * makes the upload slower rather than making it disappear.
+     */
     private fun enqueueUploads(plan: CapturePublishPlan.Plan) {
         val work = WorkManager.getInstance(context)
         plan.uploads.forEach { entry ->
             work.enqueue(
                 UploadWorker.request(
-                    stagedPath = entry.stagedPath,
-                    itemId = plan.itemId,
-                    serverType = entry.serverPhotoType,
-                    sortOrder = entry.sortOrder,
-                    capturedAt = entry.capturedAtMs,
-                    // US-2498: the role half of the pair. Nothing wrote it
-                    // before, so every photo Android captured landed unroled
-                    // and the retag menu was the only way to say what a shot
-                    // showed — even when the seller had picked the named slot.
-                    photoRole = entry.photoRole,
+                    UploadWorker.Input(
+                        stagedPath = entry.stagedPath,
+                        itemId = plan.itemId,
+                        serverType = entry.serverPhotoType,
+                        sortOrder = entry.sortOrder,
+                        capturedAt = entry.capturedAtMs,
+                        // US-2498: the role half of the pair. Nothing wrote it
+                        // before, so every photo Android captured landed unroled
+                        // and the retag menu was the only way to say what a shot
+                        // showed — even when the seller had picked the named slot.
+                        photoRole = entry.photoRole,
+                        expedited = true,
+                    ),
                 ),
             )
         }

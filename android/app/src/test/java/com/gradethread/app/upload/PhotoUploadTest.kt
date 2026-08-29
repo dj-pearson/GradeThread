@@ -41,7 +41,9 @@ class PhotoUploadTest {
         assertEquals(
             "https://api.x.com/storage/v1/object/public/item-photos/u/i/front_1.jpg",
             PhotoUpload.publicUrlFor(
-                "https://api.x.com", PhotoUpload.Bucket.ITEM_PHOTOS, "u/i/front_1.jpg",
+                "https://api.x.com",
+                PhotoUpload.Bucket.ITEM_PHOTOS,
+                "u/i/front_1.jpg",
             ),
         )
     }
@@ -66,8 +68,11 @@ class PhotoUploadTest {
         val base = server.url("/").toString().trimEnd('/')
 
         val signed = PhotoUpload.mintSignedUploadUrl(
-            OkHttpClient(), base, "jwt-token",
-            PhotoUpload.Bucket.ITEM_PHOTOS, "u/i/f.jpg",
+            OkHttpClient(),
+            base,
+            "jwt-token",
+            PhotoUpload.Bucket.ITEM_PHOTOS,
+            "u/i/f.jpg",
         )
 
         val recorded = server.takeRequest()
@@ -126,13 +131,15 @@ class PhotoUploadTest {
     @Test
     fun workRequest_lowercasesTheItemId_andCarriesEveryField() {
         val request = UploadWorker.request(
-            stagedPath = "/data/p.jpg",
-            itemId = "ITEM-ABC",
-            serverType = "front",
-            sortOrder = 2,
-            capturedAt = 123L,
-            width = 1024,
-            height = 768,
+            UploadWorker.Input(
+                stagedPath = "/data/p.jpg",
+                itemId = "ITEM-ABC",
+                serverType = "front",
+                sortOrder = 2,
+                capturedAt = 123L,
+                width = 1024,
+                height = 768,
+            ),
         )
         val data = request.workSpec.input
         assertEquals("item-abc", data.getString(UploadWorker.KEY_ITEM_ID))
@@ -146,7 +153,13 @@ class PhotoUploadTest {
     @Test
     fun mutationPayload_carriesTheDeterministicPhotoId() {
         val payload = UploadWorker.uploadPayload(
-            "photo-1", "item-1", "front", null, "u/i/front_1.jpg", 0, 99L,
+            "photo-1",
+            "item-1",
+            "front",
+            null,
+            "u/i/front_1.jpg",
+            0,
+            99L,
         ).decodeToString()
         assertTrue(payload.contains("\"photo_id\":\"photo-1\""))
         assertTrue(payload.contains("\"storage_path\":\"u/i/front_1.jpg\""))
@@ -158,7 +171,13 @@ class PhotoUploadTest {
     @Test
     fun mutationPayload_carriesTheRoleWhenTheSlotHasOne() {
         val payload = UploadWorker.uploadPayload(
-            "photo-1", "item-1", "tag", "size_alt", "u/i/tag_1.jpg", 3, 99L,
+            "photo-1",
+            "item-1",
+            "tag",
+            "size_alt",
+            "u/i/tag_1.jpg",
+            3,
+            99L,
         ).decodeToString()
         assertTrue(payload.contains("\"photo_role\":\"size_alt\""))
     }
@@ -170,7 +189,13 @@ class PhotoUploadTest {
         // string resolves to nothing while still counting as "qualified".
         for (role in listOf(null, "", "   ")) {
             val payload = UploadWorker.uploadPayload(
-                "photo-1", "item-1", "front", role, "u/i/front_1.jpg", 0, 99L,
+                "photo-1",
+                "item-1",
+                "front",
+                role,
+                "u/i/front_1.jpg",
+                0,
+                99L,
             ).decodeToString()
             assertTrue("role=$role leaked", !payload.contains("photo_role"))
         }
@@ -179,12 +204,14 @@ class PhotoUploadTest {
     @Test
     fun workRequest_carriesTheRoleAndNormalizesBlankToNull() {
         fun roleOf(role: String?) = UploadWorker.request(
-            stagedPath = "/data/p.jpg",
-            itemId = "item-1",
-            serverType = "tag",
-            sortOrder = 0,
-            capturedAt = 1L,
-            photoRole = role,
+            UploadWorker.Input(
+                stagedPath = "/data/p.jpg",
+                itemId = "item-1",
+                serverType = "tag",
+                sortOrder = 0,
+                capturedAt = 1L,
+                photoRole = role,
+            ),
         ).workSpec.input.getString(UploadWorker.KEY_PHOTO_ROLE)
 
         assertEquals("brand", roleOf("brand"))
