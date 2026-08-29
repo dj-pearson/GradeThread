@@ -140,6 +140,13 @@ const PUBLIC_API_ROUTERS = new Set<string>([
   "/api/content/public/help",
   "/api/newsletter", // public subscribe
   "/api/drip", // public unsubscribe / drip landing
+  // US-2911 AC5: the minimum-client-version floor. Public BY NECESSITY, which
+  // is a stronger reason than the others on this list: an app old enough to be
+  // below the floor may be old enough that its auth no longer works, and the
+  // one thing it must still be able to learn is that it needs updating. The
+  // handler reads a single system setting and returns a number - no tenant
+  // data, no user lookup, nothing to scope.
+  "/api/client-version",
   "/api/drip-track", // open/click tracking pixels
   "/api/campaign-track", // campaign tracking pixels
 ]);

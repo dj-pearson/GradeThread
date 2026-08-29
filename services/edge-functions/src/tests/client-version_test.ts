@@ -1,3 +1,5 @@
+import "./_env.ts";
+
 // US-2911 AC5: the minimum-client-version signal.
 //
 // Almost all of this is about the direction the answer fails in. A version

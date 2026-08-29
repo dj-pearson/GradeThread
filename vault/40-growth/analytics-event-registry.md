@@ -8,7 +8,7 @@ code_refs:
   - src/lib/analytics.ts
   - src/lib/buyer-analytics.ts
   - src/lib/__tests__/analytics-events.test.ts
-reviewed: 2026-08-25
+reviewed: 2026-08-28
 tags: [analytics, posthog, measurement, naming]
 summary: Every product event name is declared in src/lib/analytics-events.ts and enforced by tsc; two naming conventions are live and neither may be renamed.
 ---
@@ -164,6 +164,22 @@ calculator slug rides across in a `from` query parameter
 landing page reads it back, and `signup_started_from_tool` fires only when it is
 present. Without that, every tool-driven signup would be credited to the landing
 page and the calculator that caused it would vanish.
+
+### One page where step 2 is a different event (US-9022, 2026-08-28)
+
+On `/tools/reseller-inventory-spreadsheet` the DOWNLOAD is the tool. There is
+no input to change, so `calculator_used` would fire for anyone who scrolled and
+report every visitor as having used it - which makes the use rate below read as
+100% for that one slug and drags the family average with it.
+
+`inventory_template_downloaded` (property `slug`) is step 2 for that page.
+Substitute it wherever query 2 and query 3 say `calculator_used`, for that slug
+only. The other three steps are unchanged, because the handoff and the signup
+work the same way.
+
+This is worth stating because the alternative looks tidier and is wrong: making
+the download emit `calculator_used` would keep one query definition and quietly
+mean two different things by it.
 
 ### The four saved queries (AC3)
 

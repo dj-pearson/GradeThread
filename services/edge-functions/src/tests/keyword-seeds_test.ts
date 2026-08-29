@@ -1,3 +1,4 @@
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { DEFAULT_SEED_KEYWORDS } from "../lib/keyword-research.ts";
 
