@@ -25,6 +25,48 @@ describe("US-2346: which headings count as HELD", () => {
     );
   });
 
+  it("matches PENDING as well as HELD, because the vocabulary drifted", () => {
+    // 2026-08-28. This is the FIFTH time this control has been routed around
+    // and the first by a SYNONYM. PENDING_MIGRATIONS.md's active convention had
+    // become "## ⏳ PENDING: NNNNN_…" while the gate only matched "HELD:", so it
+    // printed "no HELD migrations listed — OK" with TWO unapplied entries in the
+    // file and BOTH already on origin/main: 00678 (US-2956) and 00682 (US-2890).
+    //
+    // A gate whose real trigger is vocabulary fails the day someone reaches for
+    // a different word, and it fails quietly, in the direction of saying yes.
+    const doc = [
+      "# PENDING MIGRATIONS",
+      "",
+      "## ⏳ PENDING: 00682_auto_upright_setting.sql (US-2890)",
+      "",
+      "## ⏳ PENDING: 00678_listing_description_blocks.sql (US-2956)",
+    ].join("\n");
+    expect(heldMigrations(doc).map((h) => h.version)).toEqual(["00682", "00678"]);
+  });
+
+  it("treats HELD and PENDING as the same state in one document", () => {
+    // Both spellings appear in the file's history, so a mixed document has to
+    // arm on every one of them rather than on whichever came first.
+    const doc = [
+      "## ⏳ HELD: 00512_job_lock_holder_release.sql (US-2311)",
+      "## ⏳ PENDING: 00682_auto_upright_setting.sql (US-2890)",
+      "## ✅ APPLIED: 00677_marketplace_promotions.sql (US-2949)",
+    ].join("\n");
+    expect(heldMigrations(doc).map((h) => h.version)).toEqual(["00512", "00682"]);
+  });
+
+  it("does not match the word PENDING in prose", () => {
+    // The complement of the HELD-in-prose case below. The file's own header is
+    // "# PENDING MIGRATIONS — applied to prod separately from the push", and a
+    // gate that armed on that would block every push forever.
+    const doc = [
+      "# PENDING MIGRATIONS — applied to prod separately from the push",
+      "",
+      "Nothing is pending right now; 00682 was applied on 2026-08-28.",
+    ].join("\n");
+    expect(heldMigrations(doc)).toEqual([]);
+  });
+
   it("ignores an APPLIED heading — this is the whole point of keying on the marker", () => {
     // Keying on the migration's EXISTENCE instead would block every push after
     // a migration is legitimately applied and its heading flipped.

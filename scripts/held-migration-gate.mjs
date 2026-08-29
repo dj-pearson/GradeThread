@@ -60,8 +60,20 @@ const DOC = "PENDING_MIGRATIONS.md";
 // So the VERSION alone arms it and the filename is resolved from the migrations
 // directory. A gate that only fires on a perfectly formatted heading is a gate
 // whose real trigger is formatting.
+//
+// AND THE WORD IS NOT ONLY "HELD" (2026-08-28). This is the FIFTH time the
+// control has been routed around and the first by a SYNONYM. The active
+// convention in PENDING_MIGRATIONS.md had drifted to `## ⏳ PENDING: NNNNN_…`,
+// which this regex did not match, so the gate printed "no HELD migrations
+// listed - OK" while the file carried TWO unapplied entries - 00678 (US-2956)
+// and 00682 (US-2890) - and origin/main already had both.
+//
+// The lesson is the same one the filename fix taught and is worth stating
+// twice: a gate whose real trigger is vocabulary is a gate that fails the day
+// someone reaches for a different word, and it fails QUIETLY, in the direction
+// of saying yes. Both words arm it now, and a test pins that.
 const HELD_HEADING =
-  /^##\s*(?:\S+\s+)?HELD:\s*(\d{5})(?:_([A-Za-z0-9_.-]+\.sql))?/gm;
+  /^##\s*(?:\S+\s+)?(?:HELD|PENDING):\s*(\d{5})(?:_([A-Za-z0-9_.-]+\.sql))?/gm;
 const MIGRATIONS_DIR = "supabase/migrations";
 
 function arg(name, fallback) {
