@@ -4,6 +4,13 @@ import { AdSpendCard } from "@/components/flipdesk/ad-spend-card";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchFinancesDashboard } from "@/lib/finances-dashboard";
 import {
+  fetchTaxProfile,
+  periodStart as fiscalPeriodStart,
+  periodLabel as fiscalPeriodLabel,
+  TAX_PROFILE_DEFAULTS,
+  type FiscalPeriod,
+} from "@/lib/tax-profile";
+import {
   fetchOperatingExpensesTotal,
   netAfterOverhead,
 } from "@/lib/finances-overhead";
@@ -61,36 +68,18 @@ const GradePriceCorrelation = lazy(() =>
   })),
 );
 
-type Period = "this_month" | "last_30" | "this_quarter" | "this_year" | "all_time";
-
-const PERIOD_OPTIONS: { value: Period; label: string }[] = [
-  { value: "this_month", label: "This Month" },
-  { value: "last_30", label: "Last 30 Days" },
-  { value: "this_quarter", label: "This Quarter" },
-  { value: "this_year", label: "This Year" },
-  { value: "all_time", label: "All Time" },
+// US-2982: the period boundaries used to be computed here, and "this year"
+// meant January 1 for everyone. A seller on any other tax year was shown the
+// wrong twelve months with no error and no tell. The maths moved to
+// src/lib/tax-profile.ts so it is unit-tested and so the P&L, the tax packet
+// and this page cannot drift apart on what a year is.
+const PERIOD_ORDER: FiscalPeriod[] = [
+  "this_month",
+  "last_30",
+  "this_quarter",
+  "this_year",
+  "all_time",
 ];
-
-function getPeriodStartDate(period: Period): string | null {
-  const now = new Date();
-  switch (period) {
-    case "this_month":
-      return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    case "last_30": {
-      const d = new Date(now);
-      d.setDate(d.getDate() - 30);
-      return d.toISOString();
-    }
-    case "this_quarter": {
-      const quarter = Math.floor(now.getMonth() / 3);
-      return new Date(now.getFullYear(), quarter * 3, 1).toISOString();
-    }
-    case "this_year":
-      return new Date(now.getFullYear(), 0, 1).toISOString();
-    case "all_time":
-      return null;
-  }
-}
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -102,13 +91,29 @@ function formatCurrency(value: number): string {
 
 export function FinancesPage() {
   const { user } = useAuth();
-  const [period, setPeriod] = useState<Period>("all_time");
-  const periodStart = getPeriodStartDate(period);
+  const [period, setPeriod] = useState<FiscalPeriod>("all_time");
+
+  // The fiscal year start. Its own query rather than a prop: this page is
+  // mounted both inside the Money host and, historically, on its own path, and
+  // a profile threaded through props would be missing on one of those routes.
+  // Falls back to the January default, which is what every seller had before.
+  const { data: taxProfile } = useQuery({
+    queryKey: ["tax-profile", user?.id],
+    enabled: !!user,
+    queryFn: fetchTaxProfile,
+    staleTime: 30 * 60 * 1000,
+  });
+  const fyStart =
+    taxProfile?.fiscal_year_start_month ??
+    TAX_PROFILE_DEFAULTS.fiscal_year_start_month;
+
+  const periodStart =
+    fiscalPeriodStart(period, fyStart, new Date())?.toISOString() ?? null;
 
   // One RPC round-trip per period: Postgres returns every summary metric and
   // chart series pre-aggregated (US-403). No raw tables cross the wire.
   const { data, isLoading, isError, isFetching, refetch } = useQuery({
-    queryKey: ["finances-dashboard", period, user?.id],
+    queryKey: ["finances-dashboard", period, fyStart, user?.id],
     queryFn: () => fetchFinancesDashboard(periodStart),
     staleTime: 5 * 60 * 1000,
   });
@@ -118,7 +123,7 @@ export function FinancesPage() {
   // page can show one reconciled "true net after overhead" figure instead of
   // leaving the Expenses page as a second, disconnected profit number.
   const { data: overhead = 0 } = useQuery({
-    queryKey: ["finances-overhead", period, user?.id],
+    queryKey: ["finances-overhead", period, fyStart, user?.id],
     queryFn: () => fetchOperatingExpensesTotal(periodStart),
     staleTime: 5 * 60 * 1000,
   });
@@ -148,14 +153,14 @@ export function FinancesPage() {
       {/* Period toggle + Export */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap gap-2">
-          {PERIOD_OPTIONS.map((opt) => (
+          {PERIOD_ORDER.map((value) => (
             <Button
-              key={opt.value}
-              variant={period === opt.value ? "default" : "outline"}
+              key={value}
+              variant={period === value ? "default" : "outline"}
               size="sm"
-              onClick={() => setPeriod(opt.value)}
+              onClick={() => setPeriod(value)}
             >
-              {opt.label}
+              {fiscalPeriodLabel(value, fyStart, new Date())}
             </Button>
           ))}
         </div>

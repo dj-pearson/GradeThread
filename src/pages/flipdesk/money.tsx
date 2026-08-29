@@ -44,6 +44,11 @@ const ReconcilePage = lazy(() =>
     default: m.FlipdeskReconcilePage,
   }))
 );
+const TaxSetupPage = lazy(() =>
+  import("@/pages/flipdesk/tax-setup").then((m) => ({
+    default: m.TaxSetupPage,
+  }))
+);
 
 export function FlipdeskMoneyPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -81,6 +86,7 @@ export function FlipdeskMoneyPage() {
             <TabsTrigger value="finances">Finances</TabsTrigger>
             <TabsTrigger value="expenses">Expenses</TabsTrigger>
             <TabsTrigger value="reconcile">Reconcile</TabsTrigger>
+            <TabsTrigger value="tax">Tax</TabsTrigger>
           </TabsList>
 
           {/* Only the active view mounts — each page runs its own queries, and
@@ -103,6 +109,13 @@ export function FlipdeskMoneyPage() {
             {activeView === "reconcile" && (
               <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
                 <ReconcilePage />
+              </Suspense>
+            )}
+          </TabsContent>
+          <TabsContent value="tax" className="mt-6">
+            {activeView === "tax" && (
+              <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
+                <TaxSetupPage />
               </Suspense>
             )}
           </TabsContent>

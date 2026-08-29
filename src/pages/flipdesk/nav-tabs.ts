@@ -87,7 +87,15 @@ export const RETIRED_NAV_REDIRECTS: Readonly<Record<string, string>> = {
 // both levels independently, and it follows the precedent Inventory already
 // set with `?mode=` (US-958).
 
-export const MONEY_VIEWS = ["finances", "expenses", "reconcile"] as const;
+// US-2982 added "tax". It sits at the end because it is the least-visited and
+// most-consequential: a seller opens it once, answers five questions, and every
+// other view in Money starts reading the right twelve months.
+export const MONEY_VIEWS = [
+  "finances",
+  "expenses",
+  "reconcile",
+  "tax",
+] as const;
 export type MoneyView = (typeof MONEY_VIEWS)[number];
 
 export function resolveMoneyView(raw: string | null | undefined): MoneyView {

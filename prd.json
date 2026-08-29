@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2981",
+  "nextId": "US-3001",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2740,6 +2740,283 @@
         "If a client is already correct, record that it was checked and at what values. An unchecked client and a correct one look identical from the outside, which is how this went unnoticed on Android for as long as it did."
       ],
       "priority": 8
+    },
+    {
+      "id": "US-2981",
+      "passes": false,
+      "title": "EPIC: Books and Taxes — bookkeeping a reseller can hand to an accountant, and a QuickBooks connection for the ones who already have one",
+      "description": "Money today answers 'did that flip make money'. It does not answer 'what do I owe' or 'what do I give my accountant in March'. The gap is structural, not cosmetic. There is no chart of accounts, so the eight expense_category enum values map to no IRS line. There is no ledger, so every report re-derives its own totals from sales + inventory_items + flipdesk_expenses and two screens can legitimately disagree. There is no ending-inventory number, which Schedule C Part III line 41 requires and which nothing in the schema can compute. Marketplace facilitator sales tax sits in sales.tax and is never excluded from income. A 1099-K arrives reporting gross including shipping and sales tax, and nothing in the app bridges that number to the seller's actual profit. Mileage is an expense_category with no odometer, no purpose and no date-by-date log, which is not a record the IRS accepts. And there is no accounting integration of any kind: a grep for quickbooks, qbo or xero across src/, services/edge-functions/src/ and supabase/migrations/ returns zero hits. This epic is the umbrella. It closes when the child stories close.",
+      "acceptanceCriteria": [
+        "Every child story in this epic is closed, or is explicitly deferred with the reason recorded here.",
+        "A seller can answer four questions from inside the app without a spreadsheet: what did I make, what do I owe, what can I deduct, and what do I hand my accountant.",
+        "One number is one number: the P&L, the tax packet, the Money overview and the QuickBooks push all read the same ledger, and a test proves they agree.",
+        "Nothing in this epic gives tax advice. Every computed figure names the form line it feeds and carries the not-tax-advice framing already used in the content module."
+      ],
+      "priority": 30
+    },
+    {
+      "id": "US-2983",
+      "passes": false,
+      "title": "Chart of accounts, mapped to the Schedule C line each category actually feeds",
+      "description": "expense_category is eight enum values chosen for a seller's mental model: shipping_supplies, mileage, subscriptions, platform_fees, sourcing_travel, equipment, storage, other. None of them names an IRS line, so at tax time the seller or their accountant re-sorts every row by hand. A chart of accounts fixes that once. It is also the join the QuickBooks push needs: a QBO account mapping is a mapping from THIS list to theirs, and without a stable list there is nothing to map.",
+      "acceptanceCriteria": [
+        "New table ledger_accounts seeded with the account set a reseller needs, each carrying a schedule_c_line (Part I income, Part II lines 8-27, Part III COGS lines 35-42, Part IV vehicle) and a plain-English label.",
+        "The eight existing expense_category values map onto accounts with no data migration required and no loss: an existing expense keeps working and gains an account.",
+        "'other' maps to nothing and is surfaced as a review item rather than silently landing on line 27a. An uncategorised dollar is the thing an accountant charges to sort out.",
+        "Accounts are seeded system rows a user cannot delete; a user MAY add their own sub-account under an existing line.",
+        "The expense category picker shows the IRS line beside the name, so the seller learns the mapping by using it.",
+        "A test asserts every seeded account has a schedule_c_line or an explicit reason it has none."
+      ],
+      "priority": 32
+    },
+    {
+      "id": "US-2984",
+      "passes": false,
+      "title": "One ledger: every dollar becomes an entry, and every report reads from it",
+      "description": "Right now finances_dashboard (migration 00143) derives P&L inline from sales joined to inventory_items, shipments and listings; financial-export.tsx computes its own summary in TypeScript from a different shape; flipdesk_expenses is a separate total that finances.tsx bolts on afterwards through netAfterOverhead. Three code paths, three chances to disagree, and no single place to look up 'what happened to my money on this date'. This story introduces ledger_entries as the canonical record and makes the existing surfaces read it. Deliberately NOT full double-entry: entries are single-sided with a signed amount and an account, because forcing balanced pairs on a one-person reseller business buys nothing and costs every write path. The balance-sheet-shaped questions this cannot answer are named in the story rather than pretended away.",
+      "acceptanceCriteria": [
+        "New table ledger_entries: user_id, entry_date, account_id, amount_cents (signed integer, never a float), currency, memo, source_kind (sale|expense|fee|shipping|payout|adjustment|cogs), source_id, and a natural key that makes re-derivation idempotent.",
+        "Money is integer cents everywhere in this table. sales.sale_price is decimal today and the rounding drift between the two is a real defect waiting to happen; the conversion happens once, at the boundary, and is unit-tested.",
+        "A backfill derives entries from existing sales, shipments, flipdesk_expenses and ebay_payouts, and re-running it produces byte-identical rows rather than duplicates.",
+        "An invariant test asserts the ledger's period net equals finances_dashboard's net for the same period, to the cent, across a seeded fixture. If they disagree the ledger is wrong, not the test.",
+        "Writes stay tenant-scoped per US-268; rls-guard registration where the edge writes with the service-role client.",
+        "The story names what a single-sided ledger cannot do (owner draws, loans, a true balance sheet) so a later reader does not discover it as a surprise."
+      ],
+      "priority": 33
+    },
+    {
+      "id": "US-2985",
+      "passes": false,
+      "title": "A real profit and loss statement: month, quarter, year, and the prior period beside it",
+      "description": "finances.tsx has KPI cards and six charts. It does not have an income statement, which is the one document an accountant, a lender or a buyer asks for by name. The charts answer 'how am I trending'. A P&L answers 'what were my numbers', in the row order a tax preparer reads down.",
+      "acceptanceCriteria": [
+        "A P&L view under Money: revenue, returns and allowances, net revenue, COGS, gross profit, operating expenses itemised by account, net profit. Rows in Schedule C order, not alphabetical.",
+        "Period selector: month, quarter, year, custom range, honouring the fiscal year from the tax profile.",
+        "Prior-period comparison column with the delta, because a number with nothing beside it is not information.",
+        "Every line drills through to the entries behind it. A number a seller cannot open is a number they will not trust.",
+        "Export to CSV and PDF reusing the existing download and escaping helpers (escapeCsvCell, US-1636 formula-injection guard).",
+        "Reads ledger_entries only. No second derivation."
+      ],
+      "priority": 34
+    },
+    {
+      "id": "US-2986",
+      "passes": false,
+      "title": "COGS and ending inventory, because Schedule C Part III asks for a number nothing in the app can compute",
+      "description": "Part III wants beginning inventory (line 35), purchases (36), and ending inventory (41). GradeThread knows acquired_price per item and when it sold, so cost of goods sold is derivable — but there has never been a point-in-time inventory valuation, and once an item's acquired_price is edited the historical value is gone. Without a snapshot, last year's ending inventory is unrecoverable, and last year's ending inventory is this year's beginning inventory. This is the one gap in the epic that gets worse with time.",
+      "acceptanceCriteria": [
+        "A year-end inventory snapshot: unsold items at fiscal year end, their cost basis, and the total, stored so it survives later edits to acquired_price.",
+        "The snapshot records how many items had NO cost basis, and their count is shown, not hidden in a zero. An item with an unknown cost silently valued at zero understates inventory and overstates deductions.",
+        "COGS for a period computed as beginning inventory + purchases - ending inventory, and cross-checked against the sum of sold-item cost basis. When the two disagree the screen says so and names the items causing it.",
+        "A backfill creates a snapshot for each prior completed fiscal year from the best data available, clearly labelled as reconstructed rather than recorded.",
+        "The COGS worksheet exports with the Part III line numbers on it."
+      ],
+      "priority": 35
+    },
+    {
+      "id": "US-2987",
+      "passes": false,
+      "title": "Marketplace facilitator sales tax is not your income, and shipping the buyer paid is not free money",
+      "description": "sales.tax exists and sales.shipping_collected exists, and finances_dashboard adds shipping_collected straight into pnl_revenue while ignoring tax entirely. Both are wrong at tax time in opposite directions. Sales tax collected and remitted by eBay, Poshmark or Mercari under marketplace facilitator law is never the seller's income, but it IS included in the gross on their 1099-K — which is the single biggest reason a reseller's 1099-K looks terrifying. Shipping the buyer paid IS income, and the label the seller bought IS a deduction, and netting them silently means neither appears on the return.",
+      "acceptanceCriteria": [
+        "Facilitator-collected sales tax is excluded from revenue in the ledger and in the P&L, and the excluded amount is shown as its own line so the seller can see it was handled rather than dropped.",
+        "Shipping collected is booked as income and shipping cost as an expense, gross, rather than netted. The net figure stays available as a derived view for the seller who thinks in nets.",
+        "Per-platform handling: which platforms are facilitators for a given state is a fact that changes, so it lives in data with an effective date, not in a constant.",
+        "A test fixture with a sale carrying tax and shipping proves the ledger, the P&L and the 1099-K reconciliation all treat both consistently."
+      ],
+      "priority": 36
+    },
+    {
+      "id": "US-2988",
+      "passes": false,
+      "title": "1099-K reconciliation: the bridge from the scary platform number to your actual profit",
+      "description": "Every January a reseller gets a 1099-K reporting gross payments — sale price plus shipping plus sales tax, before a single fee — and their bank shows a fraction of it. The IRS has the same form. Reconciling the two is the highest-anxiety task in reseller bookkeeping and it is entirely mechanical: gross reported, minus facilitator sales tax, minus platform fees, minus refunds, minus shipping cost, minus cost of goods, equals profit. GradeThread already holds every one of those numbers.",
+      "acceptanceCriteria": [
+        "The seller enters each 1099-K they received: platform, tax year, gross amount, and the payer name and TIN-last-four for their own records.",
+        "The app produces the bridge as a statement: reported gross at the top, each subtraction as its own line naming where the number came from, profit at the bottom.",
+        "An unexplained variance between reported gross and the app's own computed gross is shown as a number with a reason, and the likely causes are named: sales the app never saw, cancelled orders the platform still counted, a date-boundary difference between order date and payout date.",
+        "It reads the ledger, so a correction anywhere upstream flows through without re-entry.",
+        "Exports as a one-page PDF an accountant can read without opening the app."
+      ],
+      "priority": 37
+    },
+    {
+      "id": "US-2989",
+      "passes": false,
+      "title": "Mileage log the IRS would accept, not an expense category called mileage",
+      "description": "expense_category has a 'mileage' value, so today a seller types a dollar amount they computed themselves. The IRS standard mileage deduction needs date, miles, destination and business purpose, recorded at or near the time of the trip, and the rate changes every year. A reseller who sources at thrift stores twice a week is throwing away a four-figure deduction because logging it is tedious. This is the story where the app does the tedious part.",
+      "acceptanceCriteria": [
+        "A trips table: date, start, end, miles, purpose, round trip flag, and an optional link to the source or item it was for.",
+        "Rates live in a dated table, not a constant. A trip is valued at the rate in force on its date, and last year's trips do not silently reprice when the new rate lands.",
+        "Quick entry from where the trip actually happens: logging a source visit or an item pickup offers to log the trip, prefilled.",
+        "The mileage deduction feeds the ledger as an expense entry and the tax packet as a log, and the two are the same number.",
+        "Total business miles, total deduction, and the Part IV vehicle questions (total miles, commuting miles, other personal) are exportable.",
+        "The screen states that mileage is standard-rate OR actual expenses, never both, and shows which the seller has chosen."
+      ],
+      "priority": 38
+    },
+    {
+      "id": "US-2990",
+      "passes": false,
+      "title": "Home office and storage space, simplified method, computed once and carried into the packet",
+      "description": "A reseller storing inventory in a spare room or a rented unit has a deduction most of them never take, because the rules read as complicated and the arithmetic is annoying. The simplified method is square footage times a rate with a cap, which the app can do in one screen. Storage unit rent already lands in flipdesk_expenses under 'storage', so the risk here is double-counting, and the story has to handle that rather than ignore it.",
+      "acceptanceCriteria": [
+        "A one-screen setup: square footage used regularly and exclusively for the business, months used, and the resulting deduction under the simplified method.",
+        "The cap and the rate are dated data, not constants, matching the mileage-rate treatment.",
+        "Double-count guard: a seller claiming a home office AND expensing rent, or claiming square footage they are also billing as a storage unit, is warned with both figures shown side by side.",
+        "The deduction appears in the P&L and the tax packet as its own line naming the form it feeds, and is excluded from the ordinary operating-expense total so it is not counted twice.",
+        "The screen says plainly what regularly and exclusively means, in a sentence, without pretending to be tax advice."
+      ],
+      "priority": 39
+    },
+    {
+      "id": "US-2991",
+      "passes": false,
+      "title": "Quarterly estimated tax: what to set aside, and the date it is due",
+      "description": "The single most useful thing this app can tell a reseller is a dollar figure to move into a second account today. Most of them find out they owed it in April. Self-employment tax is 15.3 percent on net earnings before any income tax at all, which is the part that surprises people, and the four payment dates are not evenly spaced quarters. The math is straightforward from a net-profit number the ledger now has.",
+      "acceptanceCriteria": [
+        "A set-aside figure on the Money overview: this period's net profit, the estimated self-employment plus income tax on it, and the running total the seller should be holding.",
+        "The four due dates for the tax year with the amount due at each, and a clear marker for the next one.",
+        "The seller can record what they actually paid and when, so the screen shows the shortfall rather than restating the ideal.",
+        "The estimate names its assumptions on screen: filing status, other household income if entered, the SE tax rate, and the safe-harbour rule it is or is not using. An unexplained number here is worse than none.",
+        "Framed throughout as an estimate to plan with, not a filing, and never as advice.",
+        "Optional reminder before each due date through the existing notification path."
+      ],
+      "priority": 40
+    },
+    {
+      "id": "US-2992",
+      "passes": false,
+      "title": "Books health: the review queue that tells a seller what is wrong before their accountant does",
+      "description": "QuickBooks' actual hook is not its reports, it is the count badge saying 'N transactions need your review'. GradeThread has the same problem set and no surface for it: items sold with no acquired_price, expenses on 'other', payouts that never matched a sale, expenses with no receipt over the substantiation threshold, sales with no fees recorded, a fiscal year with no inventory snapshot. Each of those quietly corrupts a report and none of them is visible until someone reconciles by hand.",
+      "acceptanceCriteria": [
+        "A single review queue with one row per issue, the dollar impact of each, and a fix action that lands on the exact record rather than the section.",
+        "Checks at minimum: sold items with no cost basis, entries on an unmapped or 'other' account, unmatched payout rows, sales missing platform fees, expenses over the receipt threshold with no receipt, and a closed fiscal year with no inventory snapshot.",
+        "Each issue says what it costs in real terms: an item with no cost basis overstates profit by the amount it cost, and the queue shows that number.",
+        "A dismiss action with a reason, so a seller who knows an item was a gift is not asked forever. The dismissal is recorded, not silent.",
+        "The count appears on the Money nav so it is seen without going looking."
+      ],
+      "priority": 41
+    },
+    {
+      "id": "US-2993",
+      "passes": false,
+      "title": "Snap a receipt and the expense fills itself in",
+      "description": "The expense-receipts bucket, the upload validation and the EXIF strip all exist already (US-2228, migration 00564). What is missing is the part that makes anyone use it: the seller still types vendor, date, amount and category by hand after attaching the photo. Claude Vision is already wired for grading. Reading a receipt is a strictly easier extraction than grading a garment.",
+      "acceptanceCriteria": [
+        "Uploading a receipt returns proposed vendor, date, total, tax and a suggested account, as a draft the seller confirms. Never an auto-commit: a wrong number the seller did not look at is worse than no number.",
+        "Extraction failures degrade to the manual form with the image attached, and say so. A spinner that ends in an empty form teaches the seller the feature is broken.",
+        "Confidence is shown per field, and a low-confidence field is highlighted rather than quietly wrong.",
+        "Duplicate detection: the same vendor, date and total already logged is flagged before the save, because photographing the same receipt twice is the most common way a total goes wrong.",
+        "Runs through the existing AI budget and spend accounting so the cost is visible in admin-ai-spend rather than being an unmetered call.",
+        "The extraction prompt and its version are recorded on the row, so a bad prompt release is traceable to the entries it produced."
+      ],
+      "priority": 42
+    },
+    {
+      "id": "US-2994",
+      "passes": false,
+      "title": "Bank and card CSV import, matched against what the books already know",
+      "description": "The gap a reseller notices between GradeThread and QuickBooks is the bank feed. A live feed means Plaid, which is a paid dependency and a decision that is not this story's to make. A CSV import is most of the value: every bank and card exports one, and matching those rows against existing expenses catches both the expense that was logged twice and the one that was never logged at all. The eBay payout CSV importer (payout_imports) is the pattern to follow, including its column mapping.",
+      "acceptanceCriteria": [
+        "Upload a CSV, map its columns once per account, and have that mapping remembered for the next import from the same source.",
+        "Imported rows match against existing expenses on amount, date proximity and vendor, and unmatched rows become one-click expense entries.",
+        "Re-importing an overlapping date range does not duplicate. Idempotency keys off the source row, not off the import run.",
+        "The seller sees three counts after an import: matched, new, and ignored, and can act on each.",
+        "Statement rows are stored as their own record and never mutate a matched expense silently; the link is recorded and reversible.",
+        "The import never becomes a source of truth for an amount the seller already entered. Where they disagree, the screen asks."
+      ],
+      "priority": 43
+    },
+    {
+      "id": "US-2995",
+      "passes": false,
+      "title": "Close a period, and the numbers stop moving",
+      "description": "Once a return is filed, last year's figures are a matter of record. Today, editing an item's acquired_price silently rewrites a P&L for a year that has already been reported, and nothing anywhere says it happened. That is how a seller ends up unable to reproduce the numbers they filed. Closing a period is the mechanism every real bookkeeping system has and this one does not.",
+      "acceptanceCriteria": [
+        "A fiscal period can be closed, with the closing figures snapshotted at the moment of close.",
+        "A write that would change a closed period is refused at the database level, not merely hidden in the UI. A service-role client bypasses RLS, so a UI-only guard is not a guard.",
+        "The correct escape hatch exists and is an adjusting entry into the open period, dated and reasoned, rather than an edit to history.",
+        "Reopening a closed period is possible, requires a reason, and is recorded in an audit trail with who and when.",
+        "The inventory snapshot from the COGS story is taken at close, so closing a year and valuing its inventory are one action."
+      ],
+      "priority": 44
+    },
+    {
+      "id": "US-2996",
+      "passes": false,
+      "title": "The year-end tax packet: one download an accountant can work from without asking a question",
+      "description": "This is the payoff for the whole epic. A reseller's actual March task is assembling a pile of numbers from four places and emailing it to someone who bills by the hour for every follow-up question. One export, complete and self-explaining, is worth more than every chart on the finances page.",
+      "acceptanceCriteria": [
+        "A single download for a tax year containing: a Schedule C worksheet with the line numbers, the COGS worksheet, the 1099-K reconciliation, the mileage log, the home office computation, expense detail by account, and the inventory snapshot.",
+        "Both formats, because accountants differ: a PDF to read and a CSV or workbook to import.",
+        "Receipts included or linked, with the link surviving longer than the 900-second signed URL. A packet whose evidence links are dead by the time it is opened is not a packet.",
+        "A cover page stating the accounting method, the fiscal year, what is included, what is NOT included, and the not-tax-advice framing.",
+        "Any figure the books flagged as unreliable appears in the packet as flagged, not silently averaged in. The accountant needs to know which numbers to ask about.",
+        "Generating the packet for a year with obvious gaps warns first and still produces the packet, because a partial packet delivered is worth more than a perfect one blocked."
+      ],
+      "priority": 45
+    },
+    {
+      "id": "US-2997",
+      "passes": false,
+      "title": "Connect QuickBooks Online: OAuth, account mapping, and a connection that survives a token expiry",
+      "description": "The direct integration, in two stories. This one is the connection and the mapping only, with no transactions pushed, because the mapping is where the whole thing succeeds or fails: pushing a sale into the wrong QBO account produces a mess an accountant has to unpick manually, and there is no undo. marketplace_connections already holds the OAuth + AES-GCM refresh pattern for eBay (flipdesk-ebay.ts) and that is the pattern to copy, not reinvent. QBO tokens expire fast and the refresh token itself rotates and expires after 100 days of disuse, which is the failure mode to design for.",
+      "acceptanceCriteria": [
+        "OAuth 2.0 connect and disconnect for QuickBooks Online, tokens encrypted at rest with the existing AES-GCM helper, refresh handled by a scheduled job registered in CRON_REGISTRY like the eBay refresh.",
+        "The realm id is stored and every API call is scoped by it. A QBO connection is to one company file, and a seller with two of them must not have transactions land in the wrong one.",
+        "The seller maps each GradeThread account to a QBO account, with a sane proposed default they can override, and the mapping is validated against the live QBO chart of accounts rather than assumed.",
+        "An unmapped account blocks the push for that account only and says which one, rather than failing the whole sync.",
+        "Sandbox and production environments are separate config, and which one is in use is visible on the screen. Pushing test data into a real company file is not recoverable.",
+        "A refresh-token expiry produces an actionable reconnect prompt, not a silent stop. Silent stop is how a seller discovers in March that nothing has synced since November.",
+        "Tenant-scoped per US-268 with tenant-isolation_test.ts cases, and the connection row registered with rls-guard."
+      ],
+      "priority": 46
+    },
+    {
+      "id": "US-2998",
+      "passes": false,
+      "title": "Push to QuickBooks Online: sales, fees, expenses, payouts and COGS, and run it twice safely",
+      "description": "The transactions half. The hard requirement is idempotency: a sync that runs twice and creates two of everything is worse than no sync, because the seller now has to find and delete the duplicates inside QuickBooks. The eBay side of this codebase already learned that lesson (the recurrence slot index in migration 00565 is the same shape of fix). Every pushed object carries a stable external id and the push checks before it creates.",
+      "acceptanceCriteria": [
+        "Sales push as sales receipts with the platform fee, shipping cost and sales tax as their own lines, matching how the ledger books them, so QBO and GradeThread do not disagree on gross.",
+        "Operating expenses push as purchases against the mapped account, with the receipt attached where one exists.",
+        "Payouts push as deposits that reference their constituent sales, which is the shape that lets an accountant reconcile the bank line.",
+        "COGS posts on the sale, not on the purchase, so gross profit in QBO matches gross profit here.",
+        "Every pushed object carries a stable external id derived from the ledger entry, and a re-run updates or skips rather than creating. Proven by a test that runs the same push twice against a mock and asserts one object.",
+        "A sync log with per-object status and the QBO error text on failure. 'Sync failed' with no object named is not a usable error.",
+        "Backfill is bounded and resumable: a seller connecting with three years of history does not hit the QBO rate limit and lose the run.",
+        "Sync direction is one-way, GradeThread to QuickBooks, and the UI says so. Two-way is a much larger problem and pretending to do it is how books get corrupted."
+      ],
+      "priority": 47
+    },
+    {
+      "id": "US-2999",
+      "passes": false,
+      "title": "Money, rebuilt around the books",
+      "description": "Money is three tabs today: Finances, Expenses, Reconcile (US-2161). This epic adds a P&L, a review queue, a tax section, a mileage log and a QuickBooks connection, and bolting five more tabs onto that row is not a design. The information architecture has to be decided once rather than accreted, and it has to survive the ui:check gate at zero, which forbids the icon-tile grid and the side-tab card that this kind of hub attracts.",
+      "acceptanceCriteria": [
+        "A decided structure: an overview that answers the four questions, then the working surfaces, then the tax surfaces, with the review count visible from the top level.",
+        "Every existing route still resolves. /dashboard/finances, /dashboard/flipdesk/expenses, /dashboard/flipdesk/reconcile and /dashboard/flipdesk/reconciliation all redirect correctly today and must continue to, including the inner ?tab= that Reconcile owns.",
+        "npm run ui:check stays at zero, and the new pages are checked with node scripts/check-ui-browser.mjs one URL per invocation.",
+        "The overview leads with the set-aside figure and the review count, because those are the two things a seller can act on today.",
+        "Mobile layout is designed, not inherited. This is a table-heavy section and tables are where the mobile experience usually dies."
+      ],
+      "priority": 48
+    },
+    {
+      "id": "US-3000",
+      "passes": false,
+      "title": "Mileage and receipts on the phone, where they actually happen",
+      "description": "Both of these are captured at a thrift store, not at a desk. A mileage log filled in on a laptop three weeks later is the reconstructed record the IRS specifically discounts, and a receipt photographed on a phone and then uploaded from a computer is a step most people skip. iOS and Android already have the camera and the upload path from the photo work. This is the parity story, and it is deliberately last: the web surfaces have to settle first or this ports a moving target.",
+      "acceptanceCriteria": [
+        "iOS and Android can both log a trip and photograph a receipt, offline-tolerant, syncing when the connection returns.",
+        "Receipt capture uses the same edge extraction as the web so there is one prompt and one set of results, not a second implementation that drifts.",
+        "The known dated-value sync bug is not repeated: US-2339 has Android expense dates walking back one day per edit cycle, which is a timezone defect, and a trip date is exactly the same shape of field.",
+        "Trip entry is two taps from the sourcing screen, because a feature that takes longer than the trip is a feature nobody uses.",
+        "Parity is verified with the parity-auditor rather than asserted."
+      ],
+      "priority": 49
     }
   ]
 }

@@ -2184,6 +2184,44 @@ export type SavedViewUpdate = Partial<
   Omit<SavedViewRow, "id" | "user_id" | "created_at">
 >;
 
+// US-2982 — the tax profile. One row per seller; the settings the whole Books
+// and Taxes epic reads before it computes anything.
+//
+// There is deliberately no `ein` field. Whether the seller HAS one is all this
+// app needs, and holding a nine-digit federal identifier turns the row into a
+// breach target for nothing.
+export interface TaxProfileRow {
+  id: string;
+  user_id: string;
+  entity_type: string;
+  accounting_method: string;
+  fiscal_year_start_month: number;
+  filing_state: string | null;
+  filing_status: string;
+  business_started_on: string | null;
+  has_ein: boolean;
+  other_household_income_cents: number | null;
+  created_at: string;
+  updated_at: string;
+}
+export type TaxProfileInsert = Omit<
+  TaxProfileRow,
+  "id" | "created_at" | "updated_at"
+> &
+  Partial<Pick<TaxProfileRow, "id" | "created_at" | "updated_at">>;
+export type TaxProfileUpdate = Partial<TaxProfileInsert>;
+
+// Append-only. Written by a trigger; there is no INSERT policy, so a user
+// cannot author their own history.
+export interface TaxProfileChangeRow {
+  id: string;
+  user_id: string;
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  changed_at: string;
+}
+
 export interface ExpenseRow {
   id: string;
   user_id: string;
@@ -4179,6 +4217,16 @@ export interface Database {
         Row: ExpenseRow;
         Insert: ExpenseInsert;
         Update: ExpenseUpdate;
+      };
+      tax_profiles: {
+        Row: TaxProfileRow;
+        Insert: TaxProfileInsert;
+        Update: TaxProfileUpdate;
+      };
+      tax_profile_changes: {
+        Row: TaxProfileChangeRow;
+        Insert: TaxProfileChangeRow;
+        Update: Partial<TaxProfileChangeRow>;
       };
       flipdesk_ebay_listings: {
         Row: EbayListingRow;

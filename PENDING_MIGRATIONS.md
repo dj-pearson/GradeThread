@@ -1,5 +1,40 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## HELD: 00683_tax_profiles.sql (US-2982)
+
+**Risk: low.** Two brand-new tables, one new trigger function, no change to any
+existing table, column, function, view or policy. Nothing reads either table
+unless a seller opens Money -> Tax, and the frontend falls back to hard-coded
+defaults when the row is absent.
+
+**What it does.** Creates `public.tax_profiles` (one row per seller: entity
+type, accounting method, fiscal year start month, filing state and status,
+business start date, a `has_ein` boolean, and other household income in integer
+cents) and `public.tax_profile_changes` (append-only history of the three fields
+that are IRS elections rather than preferences). Both are RLS-scoped to the
+owner. `tax_profile_changes` has a SELECT policy only, so the history is written
+by the `record_tax_profile_change()` trigger and cannot be authored by a user.
+
+**The EIN itself is deliberately NOT stored.** The column is a boolean. Nothing
+in the app needs the number and holding it would make the row a breach target.
+
+**Verified locally, not asserted.** Applied twice to
+`supabase_db_gradethread` (second run clean, so it is idempotent), then four
+behaviours proven with a `DO` block: fiscal month 13 rejected, a free-text
+state rejected, a second profile for one user rejected, and the audit trigger
+recording `accounting_method cash -> accrual` and
+`fiscal_year_start_month 1 -> 7`. The test user was deleted afterwards.
+
+**What breaks if the frontend deploys first.** The Tax tab under Money 404s at
+the PostgREST layer and `fetchTaxProfile` throws, which the page surfaces as a
+load error. `src/pages/finances.tsx` also queries `tax_profiles` now - its
+`useQuery` failure is non-fatal there (it falls back to the January default via
+`??`), but the query will retry once and log. **So apply this before the push.**
+
+**Apply order.** Nothing before it. After applying:
+`NOTIFY pgrst, 'reload schema';` - two new tables, so PostgREST will not serve
+them until it reloads.
+
 ## ✅ APPLIED: 00682_auto_upright_setting.sql (US-2890)
 
 > **Applied to prod. Confirmed by the owner on 2026-08-28** — not by reading the
