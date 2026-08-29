@@ -108,6 +108,28 @@ class GradeReportScreenshotTest {
     }
 
     /**
+     * US-3004: the AMBER band, in DARK, and it exists to make a claim true.
+     *
+     * GradeColor.kt argues that green, amber and red stay literal because they
+     * carry on both surfaces - and when that was written, green had been checked
+     * on a dark golden and amber had NOT. Nothing in the repo rendered a 5.0-6.9
+     * grade in dark: this fixture is 8.5 and the AI-fill fixtures are both under
+     * 0.5, so they draw red.
+     *
+     * A comment asserting something no capture shows is the same failure as a
+     * golden nobody opens. This is the capture.
+     */
+    @Test
+    fun midGrade_dark() = capture("screen-gradereport-amber-dark", dark = true) {
+        Content(
+            state().copy(
+                loaded = loaded("https://gradethread.com/verify/GT-FIXTURE-0001")
+                    .copy(report = report.copy(overallScore = 6.0, gradeTier = "Fair")),
+            ),
+        )
+    }
+
+    /**
      * No certificate and a confidence under the review threshold. The share CTA
      * and the integrity badge both disappear, replaced by the notice.
      */
