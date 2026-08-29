@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -276,7 +277,35 @@ internal fun InventoryListContent(
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
+    // US-2905 AC4: one width bound for the WHOLE screen, not just the list.
+    //
+    // The Expanded-width capture showed the row coming APART - title and price
+    // at the far left, the grade badge and the Grade action alone at the far
+    // right, about 1900px away. On a phone they read as one row; at 1280dp the
+    // eye cannot associate a grade with the item it belongs to.
+    //
+    // ⚠ IT HAS TO BE HERE AND NOT ON THE LIST. The first attempt bounded the
+    // Column inside PullToRefreshBox, which is the list only - the search
+    // field, the counts row, the stage tabs and the sort chips all sit ABOVE
+    // that box. The golden showed the result at once: a centred list under
+    // full-width chrome, which is worse than the stretched version because the
+    // screen stops reading as one column at all.
+    //
+    // ⚠ AND ORDER IS THE WHOLE THING. `.fillMaxSize()` sets the MINIMUM width
+    // as well as the maximum, so a `widthIn(max = ...)` after it cannot shrink
+    // anything. Written that way first, the tablet golden came back
+    // BYTE-IDENTICAL - which is how the no-op was caught at all.
+    //
+    // widthIn rather than a size-class branch: below the bound nothing changes,
+    // so every phone golden stays byte-identical and verifyRoborazzi proves it.
+    // 840dp is Material's large-pane width, past every phone, so this is a
+    // tablet-only effect. It is NOT AC4's 65-75ch prose measure, which is
+    // tighter and belongs on text-heavy screens rather than a scannable list.
+    Column(
+        Modifier
+            .widthIn(max = CONTENT_MAX_WIDTH)
+            .fillMaxSize(),
+    ) {
         OutlinedTextField(
             value = query,
             onValueChange = actions.onSetQuery,
@@ -667,3 +696,6 @@ private fun EmptyState() {
 /** US-1339: add/remove one id from the current selection. */
 private fun toggle(selection: Set<String>, id: String): Set<String> =
     if (id in selection) selection - id else selection + id
+
+/** Material's large-pane width; past every phone, so this only bites on tablets. */
+private val CONTENT_MAX_WIDTH = 840.dp
