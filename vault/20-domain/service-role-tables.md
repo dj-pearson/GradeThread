@@ -6,9 +6,9 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-08-25
+reviewed: 2026-08-29
 tags: [security, rls, tenant-isolation, contract]
-summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id; the same file also enforces the (select auth.uid()) initplan form, with a two-entry exemption list that carries repayment triggers.
+summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration.
 ---
 
 # Operator tables and the rls-guard discovery rule
@@ -133,12 +133,32 @@ locked it down, because nobody asked it separately.
 `STABLE` — but the bare one is re-evaluated **per row** while the wrapped one
 hoists to a single InitPlan. On a large per-user scan that is the whole cost.
 
-`INITPLAN_EXEMPT` is the escape hatch, and it exists for one specific trade
-rather than for convenience. Both current entries share the same three facts:
-the table holds a handful of rows per user, so the planner win is single-digit;
-the migration is already applied and therefore immutable, so the correct form
-needs a NEW migration; and RLS DDL cannot be validated without Docker, so that
-migration would ship unverified.
+`INITPLAN_EXEMPT` is the escape hatch, and it exists for a specific trade
+rather than for convenience. There are now FIVE entries and they fall into two
+different cases, which matters because only the first is a judgement that the
+bare form is acceptable.
+
+**Case 1, the negligible table** (`00474_push_subscriptions.sql`,
+`00588_extension_work_queue.sql`). Three facts together: the table holds a handful of
+rows per user, so the planner win is single-digit; the migration is applied and
+therefore immutable, so the correct form needs a NEW migration; and RLS DDL
+cannot be validated without Docker, so that migration would ship unverified.
+The trade is that shipping an unverifiable rewrite for a negligible gain is the
+worse bargain.
+
+**Case 2, superseded** (`00683_tax_profiles.sql`, `00684_ledger_accounts.sql`,
+`00685_ledger_entries.sql`, added 2026-08-29 under US-3005). These are NOT a
+judgement that the form is acceptable — it is not, and `ledger_entries` is the
+sharpest counter-example in the schema, because the ledger derivation writes
+**nine rows per completed sale**. All thirteen policies are rewritten correctly
+by **00687**. They are listed only because this guard reads the SOURCE of every
+migration file, so a later corrective migration cannot satisfy it, and the three
+originals are immutable.
+
+⚠ **The distinction is worth keeping straight when the next entry is proposed.**
+Case 1 says "small table, leave it". Case 2 says "already fixed elsewhere". A
+third case — "large table, not fixed" — has no entry and should not get one:
+write the policy correctly instead.
 
 ## The connector tables (added 2026-08-18, recorded 2026-08-19)
 
@@ -173,9 +193,20 @@ has any business reading it, and here they do: they are their own search terms.
 | `00474_push_subscriptions.sql` | `push_subscriptions` | the next migration touching it |
 | `00588_extension_work_queue.sql` | `extension_work_queue` | the next migration touching it — or **immediately** if it grows a per-user scan (a history view, an admin sweep) |
 
-**Do not add a third entry to silence a hot table.** If the table is read many
-rows at a time, the exemption's reasoning does not apply to it and the answer is
-the migration.
+**Do not add an entry to silence a hot table.** If the table is read many rows
+at a time, the exemption's reasoning does not apply to it and the answer is the
+migration.
+
+The three Case 2 entries are not in that table because they carry no debt:
+`00683`, `00684` and `00685` are **already repaid** by 00687, which rewrites all
+thirteen policies. They stay listed in `INITPLAN_EXEMPT` only because the guard
+reads migration SOURCE and those three files are immutable. Nothing is owed and
+nothing is waiting for a future migration.
+
+⚠ `ledger_entries` is the case the paragraph above is warning about, and it went
+in anyway — nine rows per completed sale, read a year at a time. It was caught
+by this guard failing an unrelated push rather than by review, which is worth
+knowing about how those three migrations were checked.
 
 ## Why discovery-by-regex rather than an explicit list
 
