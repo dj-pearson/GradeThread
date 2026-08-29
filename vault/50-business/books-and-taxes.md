@@ -8,6 +8,9 @@ code_refs:
   - supabase/migrations/00684_ledger_accounts.sql
   - src/lib/tax-profile.ts
   - src/lib/chart-of-accounts.ts
+  - supabase/migrations/00685_ledger_entries.sql
+  - src/lib/ledger-math.ts
+  - scripts/check-ledger-invariant.mjs
 reviewed: 2026-08-29
 tags: [finance, tax, flipdesk, money]
 summary: The rules the Books and Taxes epic (US-2981) obeys - what each stored figure means, which form line it feeds, and the four things the app deliberately refuses to do.
@@ -157,6 +160,86 @@ in TypeScript. Setting the column is how a seller OVERRIDES that default. An
 unset column and a column set to the default mean different things, and only
 one of them was a decision.
 
+## The ledger
+
+`public.ledger_entries`, derived by `rebuild_ledger_for_user()` in migration
+00685. This is the canonical record, and the P&L, the tax packet and the
+QuickBooks push all read it.
+
+### It is NOT double-entry, and here is what that costs
+
+Entries are **single-sided**: a signed amount against one account. Forcing
+balanced pairs on a one-person reseller business costs every write path and
+buys nothing it needs. The price, stated here so nobody discovers it as a
+surprise:
+
+- **No balance sheet.** There is no cash account, no accounts receivable, no
+  equity. Ask for one and the answer is "this ledger cannot".
+- **No owner draws or capital contributions.** Money the seller moves in or out
+  of the business personally is invisible.
+- **No loans.** Interest paid is an expense account; the principal is not
+  tracked.
+
+If any of those becomes a requirement, the change is a second `amount_cents`
+column and a balancing constraint, not a patch.
+
+### Sign convention
+
+**Positive increases profit.** Income positive, every cost negative. The
+alternative -- positive magnitudes with the account's flow deciding the sign at
+read time -- means every reader has to know the convention, and one of them
+eventually will not.
+
+### Integer cents, and why the conversion is exact
+
+Every source column is `numeric(10,2)`, so `value * 100` is an integer and
+nothing is lost. In SQL that is a plain multiply. In TypeScript it is
+`toCents()` in `src/lib/ledger-math.ts`, which works on the DIGITS rather than
+on a float, because `19.99 * 100` is `1998.9999999999998` in IEEE 754 and
+rounding it happens to work while `1.005 * 100` does not.
+
+### Two things recorded but kept out of profit
+
+`sales_tax_collected` and `cash_payout`. Sales tax was never the seller's
+income; a payout is money already counted when the sale happened. Counting
+either would double income. They are recorded anyway, because the 1099-K bridge
+ties to both and a number the seller cannot see is a number they distrust.
+
+### The invariant: one number is one number
+
+`public.ledger_reconciliation(period_start)` returns the ledger's net, the
+`finances_dashboard` net, and the variance. **`agrees: false` means the LEDGER
+is wrong** -- the dashboard is the behaviour sellers have been reading for
+months, so it is the one with standing.
+
+Run it with `npm run check:ledger`. It seeds a fixture inside a transaction
+that rolls back, so it is safe against any database with the migrations
+applied. It is deliberately NOT in `npm run verify`: it needs Postgres, and a
+lane that skips silently when the stack is down teaches everyone to ignore it.
+
+> **The fixture's sixth case exists because a sabotage run passed without it.**
+> Removing the double-count guard from the legacy-shipment join changed nothing,
+> because no sale in the fixture had BOTH a `shipping_cost` and a `shipments`
+> row. The invariant stayed green against a genuinely broken ledger. With that
+> case added, the same sabotage moves the variance to -$9.85. **A fixture that
+> cannot exercise a guard cannot verify it**, and a green result from one is
+> worth less than no result at all.
+
+### Rebuilding is safe to repeat
+
+`rebuild_ledger_for_user()` deletes every derived row for the user and
+re-inserts, and the natural key `(user_id, source_kind, source_id,
+source_detail)` refuses a duplicate -- the same shape as migration 00565's
+recurrence slot index. It needs no bookkeeping column, can catch up after an
+outage and can race a second instance; the worst outcome is a rejected insert
+rather than a seller's totals doubling.
+
+**Adjustments are never touched by a rebuild.** They are the correction
+mechanism, and the browser can write nothing else: the only INSERT policy on
+`ledger_entries` covers `source_kind = 'adjustment'`. A seller who could
+hand-author a `sale` entry could inflate the very number their 1099-K
+reconciliation is meant to check.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -164,9 +247,9 @@ its contract into this note. Currently landed:
 
 - **US-2982** - the tax profile and the fiscal year, above.
 - **US-2983** - the chart of accounts and its Schedule C mapping, above.
+- **US-2984** - the ledger, its limits and its invariant, above.
 
-Still open, and each will add a section here rather than a new note: the ledger
-and its one-number-is-one-number invariant (US-2984), COGS and the ending-inventory
+Still open, and each will add a section here rather than a new note: COGS and the ending-inventory
 snapshot (US-2986), facilitator sales tax (US-2987), the 1099-K bridge
 (US-2988), the dated mileage and home-office rates (US-2989, US-2990),
 estimated tax (US-2991), period close (US-2995) and the QuickBooks account

@@ -2197,6 +2197,40 @@ export type SavedViewUpdate = Partial<
 // The client-side mirror of the seeded rows lives in src/lib/chart-of-accounts.ts
 // and is drift-guarded against migration 00684 by a test. Read labels from
 // there; read a seller's own sub-accounts from here.
+// US-2984 — the canonical record. Single-sided, signed INTEGER CENTS against
+// one account; positive increases profit. NOT double-entry: no balance sheet,
+// no owner draws, no loans. That limit is deliberate and is written up in
+// vault/50-business/books-and-taxes.md rather than left to be discovered.
+export interface LedgerEntryRow {
+  id: string;
+  user_id: string;
+  entry_date: string;
+  account_id: string;
+  amount_cents: number;
+  currency: string;
+  memo: string | null;
+  source_kind:
+    | "sale"
+    | "expense"
+    | "fee"
+    | "shipping"
+    | "payout"
+    | "adjustment"
+    | "cogs";
+  // NULL only on a hand-entered adjustment, which is the one entry kind a human
+  // authors directly -- and the only kind RLS lets the browser write.
+  source_id: string | null;
+  source_detail: string;
+  created_at: string;
+  updated_at: string;
+}
+export type LedgerEntryInsert = Omit<
+  LedgerEntryRow,
+  "id" | "created_at" | "updated_at" | "currency" | "source_detail"
+> &
+  Partial<LedgerEntryRow>;
+export type LedgerEntryUpdate = Partial<LedgerEntryInsert>;
+
 export interface LedgerAccountRow {
   id: string;
   user_id: string | null;
@@ -4253,6 +4287,11 @@ export interface Database {
         Row: ExpenseRow;
         Insert: ExpenseInsert;
         Update: ExpenseUpdate;
+      };
+      ledger_entries: {
+        Row: LedgerEntryRow;
+        Insert: LedgerEntryInsert;
+        Update: LedgerEntryUpdate;
       };
       ledger_accounts: {
         Row: LedgerAccountRow;

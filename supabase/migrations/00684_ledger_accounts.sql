@@ -176,6 +176,15 @@ VALUES
   ('home_office', 'Home office', 'expense', 'II', '30',
    'Expenses for business use of your home', NULL, true, 480),
 
+  -- Cash arriving in the bank. NOT income a second time: the sale was already
+  -- booked when it happened, and a payout only moves money the seller has
+  -- already earned. It is recorded because the bank statement shows it, because
+  -- the 1099-K bridge (US-2988) ties to it, and because the QuickBooks push
+  -- (US-2998) creates a deposit from it. It affects no line and no net.
+  ('cash_payout', 'Money that reached your bank', 'asset', NULL, NULL, NULL,
+   'A deposit moves money you already earned from the marketplace into your bank. Counting it again would double your income, so it reaches no line on your return -- but it is what your bank statement shows, which is why the books keep it.',
+   true, 500),
+
   -- The account with no line, and it is not an oversight.
   --
   -- AC3: an uncategorised dollar is exactly what an accountant charges to sort

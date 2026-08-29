@@ -6,6 +6,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -80,10 +81,25 @@ class InventoryBulkSelectFlowTest {
         item("i3", "Carhartt Detroit Jacket", "photographed"),
     )
 
+    /**
+     * ⚠ THE FIRST CHIP IS NOT THE ORDINARY PATH, which is what this test found.
+     *
+     * For TO_LIST the bar offers Grade, Create draft, Delete - and Grade is
+     * INTERCEPTED: it routes to onBulkGrade rather than the bulk executor,
+     * because grading needs a tier, a readiness check and credits, which is the
+     * grade sheet's whole job. The first version of this test clicked index 0,
+     * asserted onRunBulk had fired, and failed. The app was right.
+     *
+     * So both routes are pinned here. The interception is the interesting one:
+     * it is a special case in a loop over a list, exactly the kind of thing a
+     * later edit flattens back into "call the executor for everything", which
+     * would bill a seller for a grade with no tier chosen.
+     */
     @Test
-    fun longPressThenTapSelectsTwoAndTheBulkActionFiresWithBoth() {
+    fun longPressThenTapSelectsTwoAndEachActionTakesItsOwnRoute() {
         var ranAction: BulkAction? = null
         var ranIds: List<String>? = null
+        var gradedIds: List<String>? = null
 
         rule.setContent {
             GradeThreadTheme {
@@ -115,7 +131,7 @@ class InventoryBulkSelectFlowTest {
                     ),
                     onGrade = {},
                     onOpenReport = {},
-                    onBulkGrade = {},
+                    onBulkGrade = { gradedIds = it },
                     onOpenItem = {},
                 )
             }
@@ -136,14 +152,30 @@ class InventoryBulkSelectFlowTest {
         rule.onNodeWithTag(TestTags.Inventory.row("i2")).performClick()
         rule.waitForIdle()
 
-        val chips = rule.onAllNodesWithTag(TestTags.Inventory.BULK_ACTION).fetchSemanticsNodes()
+        // DIAGNOSTIC: what does the bar itself say is selected?
+        rule.onNodeWithText("2 selected", substring = true).assertExists()
+
+        // Chips are addressed BY NAME. See TestTags.Inventory.bulkAction: an
+        // earlier draft took index 0 and got Delete, because onAllNodesWithTag
+        // does not promise visual order.
+        rule.onNodeWithTag(TestTags.Inventory.bulkAction(BulkAction.Grade.id)).performClick()
+        rule.waitForIdle()
+
+        assertNotNull("onBulkGrade never fired at all", gradedIds)
         assertEquals(
-            "the bar offered no actions, so the flow cannot be completed",
-            true,
-            chips.isNotEmpty(),
+            "Grade should reach the grade sheet with the whole selection",
+            listOf("i1", "i2").sorted(),
+            gradedIds.orEmpty().sorted(),
+        )
+        assertEquals(
+            "Grade must NOT go through the bulk executor - it has no tier yet",
+            null,
+            ranAction,
         )
 
-        rule.onAllNodesWithTag(TestTags.Inventory.BULK_ACTION)[0].performClick()
+        // Create draft is the ordinary route. The selection survives Grade, so
+        // both ids are still live here.
+        rule.onNodeWithTag(TestTags.Inventory.bulkAction(BulkAction.CreateDraft.id)).performClick()
         rule.waitForIdle()
 
         assertNotNull("the bulk action never fired", ranAction)

@@ -337,6 +337,17 @@ export const SYSTEM_ACCOUNTS: readonly LedgerAccount[] = [
     sort_order: 480,
   },
   {
+    code: "cash_payout",
+    name: "Money that reached your bank",
+    flow: "asset",
+    schedule_c_part: null,
+    schedule_c_line: null,
+    schedule_c_label: null,
+    no_line_reason:
+      "A deposit moves money you already earned from the marketplace into your bank. Counting it again would double your income, so it reaches no line on your return -- but it is what your bank statement shows, which is why the books keep it.",
+    sort_order: 500,
+  },
+  {
     code: "uncategorised",
     name: "Not sorted yet",
     flow: "expense",

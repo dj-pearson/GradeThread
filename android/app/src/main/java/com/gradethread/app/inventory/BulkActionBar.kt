@@ -76,7 +76,7 @@ fun BulkActionBar(
             // a bug rather than a rule.
             BulkAction.forStage(stage).forEach { action ->
                 AssistChip(
-                    modifier = Modifier.testTag(TestTags.Inventory.BULK_ACTION),
+                    modifier = Modifier.testTag(TestTags.Inventory.bulkAction(action.id)),
                     enabled = !busy,
                     onClick = {
                         if (action.destructive) confirming = action else onAction(action)

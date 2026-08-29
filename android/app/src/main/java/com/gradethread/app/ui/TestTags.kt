@@ -59,14 +59,19 @@ object TestTags {
         const val BULK_BAR = "inventory:bulkbar"
 
         /**
-         * Every action chip in that bar carries this same tag.
+         * One action chip, keyed by BulkAction.id ("grade", "create_draft",
+         * "delete", "drop_price_10").
          *
-         * NOT one tag per action: the set is stage-dependent
-         * (BulkAction.forStage), so a test that names an action also pins which
-         * stage was showing. A test wanting a specific action can filter these
-         * by text; a test wanting "the first thing a seller can do here" - which
-         * is the flow being covered - just takes index 0.
+         * ⚠ KEYED, NOT INDEXED, AND THAT COST A DEBUGGING SESSION. The first
+         * version tagged every chip alike and let the test take index 0.
+         * onAllNodesWithTag does NOT guarantee visual order, so index 0 turned
+         * out to be Delete - which is destructive, opens a confirmation dialog
+         * and fires no callback. The test failed with an empty selection and
+         * looked like a selection bug. It was a matcher bug.
+         *
+         * BulkAction.id already existed as the stable wire key, so this needed
+         * no new production concept: the chip a test means is the chip it names.
          */
-        const val BULK_ACTION = "inventory:bulkaction"
+        fun bulkAction(actionId: String) = "inventory:bulkaction:$actionId"
     }
 }

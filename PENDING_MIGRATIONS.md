@@ -1,5 +1,45 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## HELD: 00685_ledger_entries.sql (US-2984)
+
+**Risk: low to apply, and it writes nothing on its own.** One new table, three
+new functions. No existing table, column, policy or function is altered.
+`rebuild_ledger_for_user()` only runs when something calls it, and nothing calls
+it automatically -- the client calls `rebuild_my_ledger()` the first time a
+books screen finds an empty ledger.
+
+**What it does.** Creates `public.ledger_entries` (signed integer cents against
+one account, with a natural key that makes re-derivation idempotent) plus
+`rebuild_ledger_for_user(uuid)` SECURITY DEFINER, `rebuild_my_ledger()` SECURITY
+INVOKER (the only one `authenticated` may execute, and it resolves the owner
+from `auth.uid()`), and `ledger_reconciliation(timestamptz)`.
+
+**RLS is deliberately narrow.** SELECT is the owner's own rows. INSERT, UPDATE
+and DELETE are confined to `source_kind = 'adjustment'`. A seller who could
+hand-author a `sale` entry could inflate the very number their 1099-K
+reconciliation is meant to check.
+
+**Verified against real Postgres, not asserted.** Applied to the local stack,
+then a six-case fixture (`scripts/fixtures/ledger-invariant.sql`) seeded and
+`ledger_reconciliation()` run as the real `authenticated` role:
+**variance $0.00, agrees true**, 15 entries, ledger net $127.64 against
+finances_dashboard net $127.64. Re-running the rebuild produced 15 entries
+again, not 30.
+
+> **Sabotage-verified, and the first attempt failed to fail.** Removing the
+> double-count guard from the legacy-shipment join left the invariant GREEN,
+> because no sale in the fixture had both a `shipping_cost` and a `shipments`
+> row. Added that case; the same sabotage now moves the variance to -$9.85 and
+> restoring the guard returns it to $0.00.
+
+**Depends on 00684.** `rebuild_ledger_for_user()` looks accounts up by code and
+raises rather than skipping if one is missing, so applying this without 00684
+means every rebuild fails loudly. That is the intended failure.
+
+**Apply order.** After 00683 and 00684. Then
+`NOTIFY pgrst, 'reload schema';` - one new table and three new RPCs, and
+PostgREST will 404 `rebuild_my_ledger` until it reloads.
+
 ## HELD: 00684_ledger_accounts.sql (US-2983)
 
 **Risk: low.** One new table, one seeded chart of 31 system rows, one new

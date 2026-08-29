@@ -2755,21 +2755,6 @@
       "priority": 30
     },
     {
-      "id": "US-2984",
-      "passes": false,
-      "title": "One ledger: every dollar becomes an entry, and every report reads from it",
-      "description": "Right now finances_dashboard (migration 00143) derives P&L inline from sales joined to inventory_items, shipments and listings; financial-export.tsx computes its own summary in TypeScript from a different shape; flipdesk_expenses is a separate total that finances.tsx bolts on afterwards through netAfterOverhead. Three code paths, three chances to disagree, and no single place to look up 'what happened to my money on this date'. This story introduces ledger_entries as the canonical record and makes the existing surfaces read it. Deliberately NOT full double-entry: entries are single-sided with a signed amount and an account, because forcing balanced pairs on a one-person reseller business buys nothing and costs every write path. The balance-sheet-shaped questions this cannot answer are named in the story rather than pretended away.",
-      "acceptanceCriteria": [
-        "New table ledger_entries: user_id, entry_date, account_id, amount_cents (signed integer, never a float), currency, memo, source_kind (sale|expense|fee|shipping|payout|adjustment|cogs), source_id, and a natural key that makes re-derivation idempotent.",
-        "Money is integer cents everywhere in this table. sales.sale_price is decimal today and the rounding drift between the two is a real defect waiting to happen; the conversion happens once, at the boundary, and is unit-tested.",
-        "A backfill derives entries from existing sales, shipments, flipdesk_expenses and ebay_payouts, and re-running it produces byte-identical rows rather than duplicates.",
-        "An invariant test asserts the ledger's period net equals finances_dashboard's net for the same period, to the cent, across a seeded fixture. If they disagree the ledger is wrong, not the test.",
-        "Writes stay tenant-scoped per US-268; rls-guard registration where the edge writes with the service-role client.",
-        "The story names what a single-sided ledger cannot do (owner draws, loans, a true balance sheet) so a later reader does not discover it as a surprise."
-      ],
-      "priority": 33
-    },
-    {
       "id": "US-2985",
       "passes": false,
       "title": "A real profit and loss statement: month, quarter, year, and the prior period beside it",

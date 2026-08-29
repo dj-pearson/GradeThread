@@ -42,6 +42,7 @@
     "verify:web": "node scripts/verify.mjs --web",
     "verify:edge": "node scripts/verify.mjs --edge",
     "verify:db": "node scripts/verify.mjs --db",
+    "check:ledger": "node scripts/check-ledger-invariant.mjs",
     "verify:security": "node scripts/verify.mjs --security",
     "verify:android": "node scripts/verify.mjs --android",
     "android:doctor": "node android/scripts/doctor.mjs --fix",
