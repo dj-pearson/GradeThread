@@ -8,7 +8,7 @@ code_refs:
   - .env.example
   - services/edge-functions/.env.example
   - services/edge-functions/src/lib/env-validation.ts
-reviewed: 2026-08-25
+reviewed: 2026-08-29
 tags: [ops, env, deploy, contract]
 summary: Every env var the codebase reads, which of the eight deployment surfaces it belongs to, and which six are boot-fatal in production.
 ---
@@ -436,9 +436,24 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` 🔒 | ⬜ Coolify edge | General Google OAuth client (shared base for integrations). |
 | `GOOGLE_PHOTOS_CLIENT_ID` / `_SECRET` 🔒 / `_REDIRECT_URI` | ⬜ Coolify edge | Google Photos import OAuth (the `google_photos` boot feature). |
 | `GOOGLE_SHEETS_CLIENT_ID` / `_SECRET` 🔒 / `_REDIRECT_URI` | ⬜ Coolify edge | Google Sheets export OAuth (the `google_sheets` boot feature). |
-| `GOOGLE_ADS_DEVELOPER_TOKEN` 🔒 | ⬜ Coolify edge | Google Ads API developer token (keyword research). |
-| `GOOGLE_ADS_CLIENT_ID` / `_CLIENT_SECRET` 🔒 / `_REFRESH_TOKEN` 🔒 | ⬜ Coolify edge | Google Ads OAuth client + offline refresh token. |
-| `GOOGLE_ADS_CUSTOMER_ID` / `_LOGIN_CUSTOMER_ID` | ⬜ Coolify edge | Ads customer ID (and manager/MCC ID) for keyword ideas. |
+| `GOOGLE_ADS_DEVELOPER_TOKEN` 🔒 | ⬜ Coolify edge | Google Ads API developer token. Must be APPROVED by Google, not merely issued. |
+| `GOOGLE_ADS_CLIENT_ID` / `_CLIENT_SECRET` 🔒 / `_REFRESH_TOKEN` 🔒 | ⬜ Coolify edge | Google Ads OAuth client + offline refresh token. No fallback to the shared `GOOGLE_CLIENT_*`, unlike Photos and Sheets. |
+
+> [!warning] These five serve TWO scheduled jobs, and a green cron ledger does not mean they work (US-2668)
+> `keyword-research` reads them directly and `ads-sync` reaches them through
+> `lib/google-ads-client.ts`, so one revoked refresh token or one unapproved
+> developer token takes out both.
+>
+> **Unset is a clean skip.** Both jobs return **200** with `skipped`, so the cron
+> ledger stays green while no spend is read and no keyword volume is refreshed.
+> "Green" there means *not running*, not *working*.
+>
+> **Set-but-rejected is a 502 on every run**, and only in the cron ledger — that
+> is how these two failed 7-of-7 for nine days unnoticed. `/health/ready` gained
+> a `google_ads` group on 2026-08-29 so the *unset* case is visible from
+> outside; the *rejected* case is `cron-fleet-governance.ts`'s job, since it
+> escalates any job failing 100% of the time over its own cadence.
+| `GOOGLE_ADS_CUSTOMER_ID` / `_LOGIN_CUSTOMER_ID` | ⬜ Coolify edge | Which account the spend and keyword ideas are read for. `_LOGIN_CUSTOMER_ID` only under a manager (MCC) account, so `google_ads` readiness does not require it. |
 | `GSC_SERVICE_ACCOUNT_EMAIL` / `GSC_SERVICE_ACCOUNT_PRIVATE_KEY` 🔒 | ⬜ Coolify edge | Search Console service-account credentials (GSC closed-loop). |
 | `GSC_SITE_URL` | ⬜ Coolify edge | The verified GSC property URL to query. |
 
