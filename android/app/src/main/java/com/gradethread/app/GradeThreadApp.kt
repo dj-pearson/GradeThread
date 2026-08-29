@@ -1,29 +1,30 @@
 package com.gradethread.app
 
 import android.app.Application
+import android.os.Looper
 import androidx.work.Configuration
-import com.gradethread.app.platform.AppConfig
-import com.gradethread.app.platform.applock.AppLock
-import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.auth.AuthRepository
 import com.gradethread.app.billing.SubscriptionService
+import com.gradethread.app.intake.IntakeDrainer
+import com.gradethread.app.platform.AppConfig
+import com.gradethread.app.platform.applock.AppLock
 import com.gradethread.app.platform.push.PushConfig
 import com.gradethread.app.platform.push.PushNotifier
 import com.gradethread.app.platform.push.PushRegistration
+import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.platform.workspace.WorkspaceScope
-import com.gradethread.app.intake.IntakeDrainer
 import com.gradethread.app.sync.BackgroundRefreshStore
 import com.gradethread.app.sync.BackgroundRefreshWorker
 import com.gradethread.app.sync.ConnectivityMonitor
 import com.gradethread.app.sync.RealtimeCoordinator
 import com.gradethread.app.sync.SyncTrigger
 import dagger.hilt.android.HiltAndroidApp
+import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import javax.inject.Inject
 
 /**
  * US-1300: Hilt application root. Feature graph modules install into this
@@ -81,14 +82,30 @@ class GradeThreadApp :
         // through the same listener as a fresh buy, with no screen open to
         // catch them. Without this the plan only moves when a webhook does.
         subscriptions.observe(appScope)
-        // US-1378: channels first, so a seller who opens system settings before
-        // their first push still sees what the app can send.
-        PushNotifier.createChannels(this)
-        if (PushConfig.initialize(this)) {
-            // Re-registered on EVERY cold start, not only when the token
-            // rotates: the server prunes stale tokens, and a client that only
-            // registers on change would never come back after a prune.
-            appScope.launch { pushRegistration.register() }
+        // US-2900 AC6: DEFERRED TO MAIN-THREAD IDLE, which is after the
+        // first frame.
+        //
+        // FirebaseApp.initializeApp is the heaviest thing this method did:
+        // class loading and a disk-backed init, on the main thread, before
+        // any activity exists. Nothing before the first frame needs it -
+        // PushConfig's own comment says push "is a convenience; the app has
+        // to open without it" - and the registration that follows was
+        // already off-thread.
+        //
+        // Notification CHANNELS go with it for the same reason: a channel
+        // matters when a notification is posted, and a notification needs a
+        // push, which needs the registration below.
+        //
+        // addIdleHandler rather than appScope.launch: launch would move it
+        // off the main thread but still start it competing with startup for
+        // CPU. Idle means the main looper has drained, i.e. the first frame
+        // is up. Returning false runs it exactly once.
+        Looper.myQueue().addIdleHandler {
+            PushNotifier.createChannels(this)
+            if (PushConfig.initialize(this)) {
+                appScope.launch { pushRegistration.register() }
+            }
+            false
         }
         // US-2367: live inventory updates. RealtimeService has been complete
         // since US-1321 with NO caller, so the app had no realtime at all —
