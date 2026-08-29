@@ -143,6 +143,17 @@ jobs:
           node scripts/check-root-insets.mjs --self-test
           node scripts/check-root-insets.mjs
 
+      # US-2912 AC5: the lint and detekt baselines may only shrink. Both gates
+      # below run with their baseline applied, so a NEW finding absorbed by a
+      # casual `updateLintBaseline` / `detektBaseline` regeneration leaves both
+      # of them green and says so nowhere. This is the only thing that notices
+      # the number went up. It also fails when the number goes DOWN without the
+      # ceiling being lowered, because a ceiling above reality is how a ratchet
+      # stops ratcheting. Runs BEFORE the gates it protects, since it is
+      # instant and they are not.
+      - name: Lint and detekt baselines may only shrink
+        run: node scripts/check-baseline-ratchet.mjs
+
       # ------------------------------------------------------- static analysis
       # US-2502. Cheapest-first: a formatting failure should not cost the eight
       # minutes assembleRelease takes to surface.

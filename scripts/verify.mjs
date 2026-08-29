@@ -616,6 +616,13 @@ if (on("android")) {
     // insets, and the failure is visual only - it compiles, lints and tests
     // green while the sign-in headline draws over the status-bar clock.
     run("android: root screens consume window insets", "node scripts/check-root-insets.mjs --self-test && node scripts/check-root-insets.mjs", a);
+    // US-2912 AC5: lint and detekt both run WITH their baseline, so a new
+    // finding absorbed by a casual baseline regeneration leaves both green.
+    // This is the only thing that notices the count went up - or that it went
+    // down without the ceiling following it, which is how a ratchet quietly
+    // stops ratcheting. Its own self-test runs first: a counter that has
+    // stopped matching reports zero, which reads as "the debt was paid".
+    run("android: lint/detekt baselines only shrink", "node scripts/check-baseline-ratchet.mjs", a);
 
     run("android: format (spotless/ktlint)", `${gw} :app:spotlessCheck`, a);
     run("android: static analysis (detekt)", `${gw} :app:detekt`, a);
