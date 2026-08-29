@@ -244,7 +244,6 @@
     <ID>MaxLineLength:GradeRequestScreen.kt$BrandSecondaryButton(text = stringResource(R.string.graderequest_try_again), modifier = Modifier.fillMaxWidth()) { it() }</ID>
     <ID>MaxLineLength:InventoryDerivationTest.kt$InventoryDerivationTest$d.filtered(listOf(item("1", updatedAt = 1)), InventoryStage.ALL, "", SortOption.NEWEST, InventoryFilterCriteria())</ID>
     <ID>MaxLineLength:InventoryDerivationTest.kt$InventoryDerivationTest$d.filtered(listOf(item("1", updatedAt = 2)), InventoryStage.ALL, "", SortOption.NEWEST, InventoryFilterCriteria())</ID>
-    <ID>MaxLineLength:InventoryListScreen.kt$TextButton(onClick = viewModel::dismissRefreshError) { Text(stringResource(R.string.inventorylist_dismiss)) }</ID>
     <ID>MaxLineLength:MarketplacesScreen.kt$dismissButton = { TextButton(onClick = { renaming = null }) { Text(stringResource(R.string.marketplaces_cancel)) } }</ID>
     <ID>MaxLineLength:NegotiationInboxScreen.kt$BrandSecondaryButton(text = stringResource(R.string.negotiation_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
     <ID>MaxLineLength:NegotiationInboxScreen.kt$Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.negotiation_offers)) })</ID>
@@ -308,7 +307,6 @@
     <ID>ModifierMissing:EbayCasesScreen.kt$EbayCasesScreen</ID>
     <ID>ModifierMissing:FulfillmentScreen.kt$FulfillmentScreen</ID>
     <ID>ModifierMissing:ImportScreen.kt$ImportScreen</ID>
-    <ID>ModifierMissing:InventoryListScreen.kt$InventoryListScreen</ID>
     <ID>ModifierMissing:ListingPerformanceScreen.kt$ListingPerformanceScreen</ID>
     <ID>ModifierMissing:LockScreen.kt$LockScreen</ID>
     <ID>ModifierMissing:MyStoresScreen.kt$MyStoresScreen</ID>

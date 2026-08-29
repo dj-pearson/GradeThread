@@ -27,6 +27,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -93,6 +94,122 @@ fun InventoryListScreen(
         if (pendingBrand != null) viewModel.applyPendingBrandFilter()
     }
 
+    InventoryListContent(
+        ui = InventoryUiState(
+            items = items,
+            stage = stage,
+            sort = sort,
+            criteria = criteria,
+            viewMode = viewMode,
+            query = query,
+            debouncedQuery = debouncedQuery,
+            photoItemIds = photoItemIds,
+            serverSearchIds = serverSearchIds,
+            refreshing = refreshing,
+            refreshError = refreshError,
+            bulkBusy = bulkBusy,
+            bulkResult = bulkResult,
+            bulkUndo = bulkUndo,
+        ),
+        actions = InventoryActions(
+            onSetCriteria = viewModel::setCriteria,
+            onClearFilters = viewModel::clearFilters,
+            onSetQuery = viewModel::setQuery,
+            onToggleViewMode = viewModel::toggleViewMode,
+            onSelectStage = viewModel::selectStage,
+            onSetSort = viewModel::setSort,
+            onDismissRefreshError = viewModel::dismissRefreshError,
+            onRefresh = viewModel::refresh,
+            onRunBulk = viewModel::runBulk,
+            onUndoBulk = viewModel::undoBulk,
+            onDismissBulkUndo = viewModel::dismissBulkUndo,
+            onDismissBulkResult = viewModel::dismissBulkResult,
+        ),
+        onGrade = onGrade,
+        onOpenReport = onOpenReport,
+        onBulkGrade = onBulkGrade,
+        onOpenItem = onOpenItem,
+    )
+}
+
+/**
+ * US-2902 AC3: the fourteen flows this screen collects, as one value.
+ *
+ * Same shape and same reason as MoneyUiState. InventoryListViewModel exposes
+ * fourteen separate StateFlows, and fourteen plus twelve callbacks plus four
+ * navigation lambdas is not a signature, it is a haystack. The aggregate is
+ * built in the wrapper from the collected values, so the ViewModel's own API
+ * is untouched.
+ */
+@Immutable
+data class InventoryUiState(
+    val items: List<InventoryItemEntity>,
+    val stage: InventoryStage,
+    val sort: SortOption,
+    val criteria: InventoryFilterCriteria,
+    val viewMode: InventoryViewMode,
+    val query: String,
+    val debouncedQuery: String,
+    val photoItemIds: Set<String>,
+    val serverSearchIds: Set<String>?,
+    val refreshing: Boolean,
+    val refreshError: String?,
+    val bulkBusy: Boolean,
+    val bulkResult: BulkActionResult?,
+    val bulkUndo: BulkUndo?,
+)
+
+/** Everything this screen can do, with defaults so a golden needs none of it. */
+@Immutable
+data class InventoryActions(
+    val onSetCriteria: (InventoryFilterCriteria) -> Unit = {},
+    val onClearFilters: () -> Unit = {},
+    val onSetQuery: (String) -> Unit = {},
+    val onToggleViewMode: () -> Unit = {},
+    val onSelectStage: (InventoryStage) -> Unit = {},
+    val onSetSort: (SortOption) -> Unit = {},
+    val onDismissRefreshError: () -> Unit = {},
+    val onRefresh: () -> Unit = {},
+    val onRunBulk: (BulkAction, List<String>, () -> Unit) -> Unit = { _, _, _ -> },
+    val onUndoBulk: () -> Unit = {},
+    val onDismissBulkUndo: () -> Unit = {},
+    val onDismissBulkResult: () -> Unit = {},
+)
+
+/**
+ * The inventory list with no ViewModel in it.
+ *
+ * The fourteen values are unpacked to locals immediately below rather than
+ * threaded through as ui.items, ui.stage and so on, which keeps four hundred
+ * lines of layout byte-identical to what they were before the split. That is
+ * deliberate: a refactor that also rewrites the layout is a refactor whose
+ * diff nobody can check.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun InventoryListContent(
+    ui: InventoryUiState,
+    actions: InventoryActions,
+    onGrade: (String) -> Unit,
+    onOpenReport: (String) -> Unit,
+    onBulkGrade: (List<String>) -> Unit,
+    onOpenItem: (String) -> Unit,
+) {
+    val items = ui.items
+    val stage = ui.stage
+    val sort = ui.sort
+    val criteria = ui.criteria
+    val viewMode = ui.viewMode
+    val query = ui.query
+    val debouncedQuery = ui.debouncedQuery
+    val photoItemIds = ui.photoItemIds
+    val serverSearchIds = ui.serverSearchIds
+    val refreshing = ui.refreshing
+    val refreshError = ui.refreshError
+    val bulkBusy = ui.bulkBusy
+    val bulkResult = ui.bulkResult
+    val bulkUndo = ui.bulkUndo
+
     // One cache per screen, NOT per composition — a per-composition instance
     // would defeat the entire point.
     val derivation = remember { InventoryDerivation() }
@@ -145,11 +262,11 @@ fun InventoryListScreen(
                 stage = stage,
                 photoItemIds = photoItemIds,
                 onApply = {
-                    viewModel.setCriteria(it)
+                    actions.onSetCriteria(it)
                     showingFilters = false
                 },
                 onClear = {
-                    viewModel.clearFilters()
+                    actions.onClearFilters()
                     showingFilters = false
                 },
             )
@@ -159,7 +276,7 @@ fun InventoryListScreen(
     Column(Modifier.fillMaxSize()) {
         OutlinedTextField(
             value = query,
-            onValueChange = viewModel::setQuery,
+            onValueChange = actions.onSetQuery,
             label = { Text(stringResource(R.string.inventorylist_search_inventory)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(Spacing.md),
@@ -183,7 +300,7 @@ fun InventoryListScreen(
                     },
                 )
             }
-            TextButton(onClick = viewModel::toggleViewMode) {
+            TextButton(onClick = actions.onToggleViewMode) {
                 Text(
                     stringResource(
                         if (viewMode == InventoryViewMode.LIST) {
@@ -205,7 +322,7 @@ fun InventoryListScreen(
                 InventoryStage.userFacing.forEach { candidate ->
                     Tab(
                         selected = candidate == stage,
-                        onClick = { viewModel.selectStage(candidate) },
+                        onClick = { actions.onSelectStage(candidate) },
                         text = {
                             Text(
                                 stringResource(
@@ -220,7 +337,7 @@ fun InventoryListScreen(
             }
         }
 
-        SortRow(current = sort, onSelect = viewModel::setSort)
+        SortRow(current = sort, onSelect = actions.onSetSort)
 
         refreshError?.let { message ->
             Row(
@@ -233,7 +350,9 @@ fun InventoryListScreen(
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = viewModel::dismissRefreshError) { Text(stringResource(R.string.inventorylist_dismiss)) }
+                TextButton(onClick = actions.onDismissRefreshError) {
+                    Text(stringResource(R.string.inventorylist_dismiss))
+                }
             }
         }
 
@@ -241,7 +360,7 @@ fun InventoryListScreen(
         // shows the banner above and leaves the cached list untouched.
         PullToRefreshBox(
             isRefreshing = refreshing,
-            onRefresh = viewModel::refresh,
+            onRefresh = actions.onRefresh,
             modifier = Modifier.fillMaxSize(),
         ) {
             // US-1348: the real action bar replaces US-1339's minimal one.
@@ -258,7 +377,7 @@ fun InventoryListScreen(
                             // intercepted rather than run by the executor.
                             onBulkGrade(selection.toList())
                         } else {
-                            viewModel.runBulk(action, selection.toList()) {
+                            actions.onRunBulk(action, selection.toList()) {
                                 selection = emptySet()
                             }
                         }
@@ -268,21 +387,33 @@ fun InventoryListScreen(
             bulkUndo?.let { undo ->
                 BulkUndoBar(
                     undo = undo,
-                    onUndo = viewModel::undoBulk,
-                    onDismiss = viewModel::dismissBulkUndo,
+                    onUndo = actions.onUndoBulk,
+                    onDismiss = actions.onDismissBulkUndo,
                 )
             }
             bulkResult?.let { result ->
-                BulkResultBar(result = result, onDismiss = viewModel::dismissBulkResult)
+                BulkResultBar(result = result, onDismiss = actions.onDismissBulkResult)
             }
             when (viewMode) {
                 InventoryViewMode.LIST -> InventoryList(
-                    visible, photoItemIds, onGrade, onOpenReport, onOpenItem,
-                    selection, selecting, { id -> selection = toggle(selection, id) },
+                    visible,
+                    photoItemIds,
+                    onGrade,
+                    onOpenReport,
+                    onOpenItem,
+                    selection,
+                    selecting,
+                    { id -> selection = toggle(selection, id) },
                 )
                 InventoryViewMode.BOARD -> InventoryBoard(
-                    visible, photoItemIds, onGrade, onOpenReport, onOpenItem,
-                    selection, selecting, { id -> selection = toggle(selection, id) },
+                    visible,
+                    photoItemIds,
+                    onGrade,
+                    onOpenReport,
+                    onOpenItem,
+                    selection,
+                    selecting,
+                    { id -> selection = toggle(selection, id) },
                 )
             }
         }
@@ -372,15 +503,15 @@ private fun InventoryBoard(
                 LazyColumn {
                     items(grouped[column.status].orEmpty(), key = { it.id }) { item ->
                         InventoryRow(
-                item,
-                hasPhotos = item.id in photoItemIds,
-                onGrade = onGrade,
-                onOpenReport = onOpenReport,
-                onOpenItem = onOpenItem,
-                selected = item.id in selection,
-                selecting = selecting,
-                onToggleSelect = onToggleSelect,
-            )
+                            item,
+                            hasPhotos = item.id in photoItemIds,
+                            onGrade = onGrade,
+                            onOpenReport = onOpenReport,
+                            onOpenItem = onOpenItem,
+                            selected = item.id in selection,
+                            selecting = selecting,
+                            onToggleSelect = onToggleSelect,
+                        )
                     }
                 }
             }

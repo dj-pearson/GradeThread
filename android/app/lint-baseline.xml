@@ -1604,17 +1604,6 @@
     <issue
         id="ComposeModifierMissing"
         message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
-        errorLine1="fun InventoryListScreen("
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/gradethread/app/inventory/InventoryListScreen.kt"
-            line="61"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="ComposeModifierMissing"
-        message="This @Composable function emits content but doesn&apos;t have a modifier parameter.See https://slackhq.github.io/compose-lints/rules/#when-should-i-expose-modifier-parameters for more information."
         errorLine1="fun LanguagePicker(onDismiss: () -> Unit) {"
         errorLine2="    ~~~~~~~~~~~~~~">
         <location
@@ -2301,7 +2290,7 @@
         errorLine2="           ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/InventoryListScreen.kt"
-            line="310"
+            line="441"
             column="12"/>
     </issue>
 
@@ -2312,7 +2301,7 @@
         errorLine2="                  ~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/InventoryListScreen.kt"
-            line="311"
+            line="442"
             column="19"/>
     </issue>
 
@@ -2323,7 +2312,7 @@
         errorLine2="               ~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/InventoryListScreen.kt"
-            line="315"
+            line="446"
             column="16"/>
     </issue>
 
@@ -2334,7 +2323,7 @@
         errorLine2="           ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/InventoryListScreen.kt"
-            line="341"
+            line="472"
             column="12"/>
     </issue>
 
@@ -2345,7 +2334,7 @@
         errorLine2="                  ~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/InventoryListScreen.kt"
-            line="342"
+            line="473"
             column="19"/>
     </issue>
 
@@ -2356,7 +2345,7 @@
         errorLine2="               ~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/inventory/InventoryListScreen.kt"
-            line="346"
+            line="477"
             column="16"/>
     </issue>
 
