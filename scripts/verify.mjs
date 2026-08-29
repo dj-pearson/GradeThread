@@ -622,11 +622,17 @@ if (on("android")) {
     run("android: lint (warnings as errors)", `${gw} :app:lintDebug`, a);
     run("android: unit tests", `${gw} :app:testDebugUnitTest`, a);
     run("android: coverage floor (kover)", `${gw} :app:koverVerifyDebug`, a);
-    // US-2502: rendered-UI diffs. ADVISORY, matching the `continue-on-error` on
-    // the CI step — see the comment on it in android-ci.yml for the condition
-    // that flips both. Locally it is the more useful of the two runs: the
-    // goldens were recorded on this machine, so a diff here is a real visual
-    // change rather than a font difference between a checkout and a runner.
+    // US-2502: rendered-UI diffs. ADVISORY, and currently RED on one golden -
+    // see the long comment on the CI step in android-ci.yml for the numbers.
+    //
+    // ⚠ THE SENTENCE THAT USED TO BE HERE WAS WRONG and is worth replacing
+    // rather than deleting: it said the goldens were recorded on this machine,
+    // "so a diff here is a real visual change rather than a font difference
+    // between a checkout and a runner". Measured 2026-08-29: six of the seven
+    // goldens come back diff_percentage 0.000000 here, and the seventh
+    // (status-badges-dark, 0.022547) fails on the Linux runner too, at the same
+    // assertion line. Local and CI are not two different readings of the same
+    // question - they agree, and one golden disagrees with both.
     advisory("android: screenshots (roborazzi)", `${gw} :app:verifyRoborazziDebug`, a);
     run("android: assembleDebug", `${gw} :app:assembleDebug`, a);
     // US-1391 AC3: the widget, share target and deep links are reachable only

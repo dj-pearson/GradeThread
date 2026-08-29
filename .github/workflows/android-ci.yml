@@ -203,19 +203,42 @@ jobs:
       - name: Coverage floor (kover)
         run: ./gradlew :app:koverVerifyDebug --stacktrace
 
-      # US-2502: rendered-UI diffs. NON-BLOCKING for now, deliberately.
+      # US-2502: rendered-UI diffs. NON-BLOCKING, and RIGHT NOW IT IS RED.
       #
-      # The goldens in src/test/screenshots are recorded on a developer machine.
-      # Robolectric's native graphics carry their own font stack, so the output
-      # is far more portable than a device screenshot, but sub-pixel
-      # antialiasing can still differ between a Windows checkout and this
-      # runner. A gate that is red for a reason nobody can fix from the diff is
-      # a gate everybody learns to ignore.
+      # ⚠ THIS STEP IS FAILING AND HAS BEEN FOR AT LEAST FOUR RUNS.
+      # `ComponentScreenshotTest > statusBadges_dark` fails, the task reports
+      # "2088 tests completed, 1 failed", and the step ends BUILD FAILED. Read
+      # that in the LOG, not from the API: `gh run view <id> --json jobs`
+      # reports this step's conclusion as "success", because continue-on-error
+      # rewrites it. A non-blocking step is supposed to be visible and merely
+      # not fatal; this one is invisible.
       #
-      # Flip `continue-on-error` off once the goldens have been recorded ON A
-      # RUNNER (workflow_dispatch with record_screenshots: true, download the
-      # artifact, commit it) and one full cycle has passed clean. That is the
-      # whole condition — nothing else has to change.
+      # US-2902, MEASURED 2026-08-29, AND IT IS NOT THE HOST. The old comment
+      # here blamed sub-pixel antialiasing between a Windows checkout and this
+      # runner, and said to flip the gate once the goldens were re-recorded ON A
+      # RUNNER via workflow_dispatch. Two things are now known:
+      #   1. That dispatch has NEVER run — `gh run list --workflow="Android CI"
+      #      --event workflow_dispatch` returns nothing — so the condition was
+      #      never met by anyone.
+      #   2. It was the wrong condition. Running verifyRoborazziDebug on a
+      #      Windows checkout gives diff_percentage 0.000000 on SIX of the seven
+      #      goldens — bit-identical, including buttons-dark — and 0.022547 on
+      #      status-badges-dark. The runner fails the SAME single test, at the
+      #      same assertion line. Six exact zeros is not what host-dependent
+      #      antialiasing looks like; the host is not the variable.
+      # (Numbers from app/build/test-results/roborazzi/results/*.json.)
+      #
+      # SO ONE GOLDEN IS WRONG, and re-recording it is exactly what must not
+      # happen until someone knows why: neither StatusBadge.kt, the theme, nor
+      # ComponentScreenshotTest.kt has changed since the goldens were committed
+      # on 2026-08-15, so the same code renders differently than what was
+      # recorded and the cause is unexplained. A golden re-recorded to make a
+      # diff go away is the assertion deleted (build.gradle.kts says this too).
+      #
+      # THE CONDITION FOR FLIPPING, checkable: statusBadges_dark explained and
+      # green, then this step green on main for three consecutive runs — read
+      # from the step's LOG each time, since its API conclusion cannot say
+      # otherwise while continue-on-error is here.
       - name: Screenshot tests (Roborazzi)
         if: ${{ !inputs.record_screenshots }}
         continue-on-error: true
@@ -390,12 +413,47 @@ jobs:
   # It is worth knowing that a migration failure surfaces HERE, in the lane
   # people are told to treat as advisory — so read this job's result before any
   # release that contains a schema version bump.
+  #
+  # US-2902 AC6 — THE CONDITION FOR REMOVING `continue-on-error`, checkable
+  # rather than a matter of opinion: ten consecutive runs of this job green on
+  # main. Count them with
+  #   gh run list --workflow="Android CI" --branch main --limit 20 \
+  #     --json databaseId -q '.[].databaseId'
+  # then, per id,
+  #   gh run view <id> --json jobs \
+  #     -q '.jobs[]|select(.name|test("Critical-flow"))|.conclusion'
+  # counting only ids that return a conclusion — a `skipped` means the job never
+  # ran and is evidence for nothing. A JOB conclusion is trustworthy here; a
+  # STEP conclusion under continue-on-error is not, which is why the screenshot
+  # step above tells you to read its log instead.
+  #
+  # The count starts from the env fix below: every run before it failed on a
+  # missing config string rather than on anything this lane tests. Ten rather
+  # than three, because this job boots an emulator and a flake costs 25 minutes.
   instrumented:
     name: Critical-flow E2E (emulator, non-blocking)
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 45
     needs: build-and-test
+    # US-2902: THE SAME BLOCK build-and-test CARRIES, AND FOR THE SAME REASON.
+    # It was added there and not here, so every instrumented run since has died
+    # in Application.onCreate with "SUPABASE_ANON_KEY missing — set it in
+    # local.properties or CI env". The app crashes before a single test body
+    # runs and all four tests report FAILED for one missing string. Measured
+    # 2026-08-29: the last four runs that reached this job all failed this way,
+    # and the workflow reported success on every one of them.
+    #
+    # That is what made RoomMigrationTest useless. It is the only thing in the
+    # repo that proves a Room migration runs against real SQLite, the comment
+    # above tells people to read this job before a schema bump, and it has not
+    # executed once.
+    #
+    # These are public client-side config values and the key is a throwaway
+    # placeholder. src/test/android-ci-env-parity.test.ts fails if the two jobs
+    # drift apart again.
+    env:
+      SUPABASE_ANON_KEY: ci-placeholder-anon-key
     defaults:
       run:
         working-directory: android
