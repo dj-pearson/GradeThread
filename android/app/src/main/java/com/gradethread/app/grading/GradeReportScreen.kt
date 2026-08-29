@@ -55,6 +55,42 @@ fun GradeReportScreen(
 ) {
     LaunchedEffect(itemId) { viewModel.bind(itemId) }
     val state by viewModel.state.collectAsState()
+    GradeReportContent(
+        state = state,
+        onClose = onClose,
+        onDispute = onDispute,
+        onRetryLoad = viewModel::load,
+        onRetryVerify = viewModel::verify,
+        modifier = modifier,
+    )
+}
+
+/**
+ * US-2902 AC3: the screen with no ViewModel in it.
+ *
+ * WHY THE SPLIT. Everything above this line is wiring: bind the id, collect the
+ * flow, hand the callbacks down. Everything below is what a seller actually sees,
+ * and it now takes a plain [GradeReportViewModel.State] and four lambdas. That
+ * makes it renderable from a screenshot test without standing up a Hilt graph,
+ * which is what AC3 needs and what almost every screen in this app currently
+ * makes impossible.
+ *
+ * It also retires the detekt ViewModelForwarding finding on this file by
+ * construction rather than by suppression. The child no longer receives a
+ * ViewModel because there is no longer one to receive.
+ *
+ * Internal rather than private: the screenshot test lives in the same module and
+ * needs to call it. Not public, because nothing outside the module should.
+ */
+@Composable
+internal fun GradeReportContent(
+    state: GradeReportViewModel.State,
+    onClose: () -> Unit,
+    onDispute: (String) -> Unit,
+    onRetryLoad: () -> Unit,
+    onRetryVerify: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
 
     Column(
@@ -78,7 +114,7 @@ fun GradeReportScreen(
             state.errorMessage != null -> ErrorStateView(
                 title = stringResource(R.string.gradereport_couldn_t_load_this_report),
                 message = state.errorMessage.orEmpty(),
-                retry = { viewModel.load() },
+                retry = onRetryLoad,
             )
 
             loaded == null -> Column {
@@ -88,7 +124,12 @@ fun GradeReportScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                BrandPrimaryButton(text = stringResource(R.string.gradereport_done), modifier = Modifier.fillMaxWidth()) { onClose() }
+                BrandPrimaryButton(
+                    text = stringResource(R.string.gradereport_done),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    onClose()
+                }
             }
 
             else -> {
@@ -103,7 +144,7 @@ fun GradeReportScreen(
                 } else {
                     IntegrityBadge(
                         verification = state.verification,
-                        onRetry = viewModel::verify,
+                        onRetry = onRetryVerify,
                     )
                     if (state.canShare) {
                         val url = loaded.certificateUrl.orEmpty()
@@ -152,7 +193,12 @@ fun GradeReportScreen(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                BrandSecondaryButton(text = stringResource(R.string.gradereport_done), modifier = Modifier.fillMaxWidth()) { onClose() }
+                BrandSecondaryButton(
+                    text = stringResource(R.string.gradereport_done),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    onClose()
+                }
             }
         }
     }
@@ -337,7 +383,12 @@ private fun IntegrityBadge(verification: CertVerification, onRetry: () -> Unit) 
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (display.retryable) {
-            BrandSecondaryButton(text = stringResource(R.string.gradereport_try_again), modifier = Modifier.fillMaxWidth()) { onRetry() }
+            BrandSecondaryButton(
+                text = stringResource(R.string.gradereport_try_again),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                onRetry()
+            }
         }
     }
 }

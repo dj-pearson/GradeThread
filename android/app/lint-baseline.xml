@@ -2279,7 +2279,7 @@
         errorLine2="                                 ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/grading/GradeReportScreen.kt"
-            line="246"
+            line="292"
             column="34"/>
     </issue>
 

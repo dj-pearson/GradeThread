@@ -238,9 +238,6 @@
     <ID>MaxLineLength:GarmentGroup.kt$GarmentGroup.Companion$if (m("(pant|jean|short|skirt|trouser|chino|jogger|legging|sweatpant|cargo|trunk|slack|bottom)", c)) return BOTTOM</ID>
     <ID>MaxLineLength:GarmentGroup.kt$GarmentGroup.Companion$if (m("(shirt|tee|t-shirt|top|blouse|sweater|hoodie|sweatshirt|tank|polo|jersey|henley|pullover|crewneck|longsleeve|long.sleeve|rugby|button.down|button.up|oxford|flannel|thermal)", c)) return TOP</ID>
     <ID>MaxLineLength:GarmentGroup.kt$GarmentGroup.Companion$if (m("(tie|necktie|bow.?tie|belt|scarf|scarves|glove|mitten|shawl|pocket.?square|cravat|ascot|suspender|accessor)", c)) return ACCESSORY</ID>
-    <ID>MaxLineLength:GradeReportScreen.kt$BrandPrimaryButton(text = stringResource(R.string.gradereport_done), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
-    <ID>MaxLineLength:GradeReportScreen.kt$BrandSecondaryButton(text = stringResource(R.string.gradereport_done), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
-    <ID>MaxLineLength:GradeReportScreen.kt$BrandSecondaryButton(text = stringResource(R.string.gradereport_try_again), modifier = Modifier.fillMaxWidth()) { onRetry() }</ID>
     <ID>MaxLineLength:GradeRequestScreen.kt$BrandPrimaryButton</ID>
     <ID>MaxLineLength:GradeRequestScreen.kt$BrandPrimaryButton(text = stringResource(R.string.graderequest_done), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
     <ID>MaxLineLength:GradeRequestScreen.kt$BrandSecondaryButton(text = stringResource(R.string.graderequest_done), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>

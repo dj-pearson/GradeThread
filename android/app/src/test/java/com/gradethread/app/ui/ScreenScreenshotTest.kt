@@ -35,10 +35,15 @@ import org.robolectric.annotation.GraphicsMode
  * SO THIS FILE IS DELIBERATELY SMALL, AND THAT IS THE FINDING RATHER THAN A
  * SHORTFALL. AC3 names capture, the AI draft review, the grade report, publish,
  * inventory and money. Every one of them is ViewModel-bound, so covering them
- * needs a stateless `XScreenContent(state, callbacks)` extracted from each
- * — a refactor of production UI, worth doing and worth doing on its own. This
+ * needs a stateless XScreenContent(state, callbacks) extracted from each: a
+ * refactor of production UI, worth doing and worth doing on its own. This
  * establishes that screen goldens work in this harness before that starts,
  * which is the cheaper order.
+ *
+ * THAT REFACTOR HAS NOW STARTED. GradeReportScreen was the first of the six to
+ * be split, and its five goldens live in GradeReportScreenshotTest. New screens
+ * with a stateless half go in their own file next to that one rather than here,
+ * because this file's cases are screens that never needed extracting.
  *
  * The two screens here are not filler. LockScreen is what a locked launch shows
  * first and owns its own insets (US-2891/US-2899), and ToolsScreen is the
