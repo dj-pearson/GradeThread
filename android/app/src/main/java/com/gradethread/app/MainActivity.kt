@@ -5,6 +5,8 @@ import android.os.Bundle
 import android.os.SystemClock
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Surface
 import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
@@ -14,14 +16,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.fragment.app.FragmentActivity
 import com.gradethread.app.auth.AuthRepository
 import com.gradethread.app.auth.AuthScreen
+import com.gradethread.app.marketplaces.EbayOAuthCallbacks
 import com.gradethread.app.platform.applock.AppLock
 import com.gradethread.app.platform.applock.LockScreen
 import com.gradethread.app.platform.applock.PrivacyCover
-import com.gradethread.app.marketplaces.EbayOAuthCallbacks
 import com.gradethread.app.platform.deeplink.DeepLinkController
 import com.gradethread.app.ui.shell.AppShell
 import com.gradethread.app.ui.theme.GradeThreadTheme
@@ -95,52 +98,69 @@ class MainActivity : FragmentActivity() {
         EbayOAuthCallbacks.offer(intent?.data)
         setContent {
             GradeThreadTheme {
-                val locked by AppLock.locked.collectAsState()
-                val authPhase by authRepository.phase.collectAsState()
-                if (locked) {
-                    LockScreen(onUnlock = { AppLock.promptUnlock(this) })
-                } else {
-                    // US-2369: the shell used to compose UNCONDITIONALLY, so
-                    // the app was unusable by anyone without a session — there
-                    // was nowhere to sign in. Loading renders nothing rather
-                    // than flashing the form: the session restores from
-                    // encrypted storage in milliseconds, and a sign-in screen
-                    // that appears and vanishes on every cold start reads as a
-                    // bug.
-                    // US-2899: the escape hatch for a restore that never
-                    // finishes. The splash lets go at SPLASH_MAX_HOLD_MS and
-                    // this flips off the SAME clock, so the two cannot
-                    // disagree about when the app gave up waiting.
-                    var restoreGaveUp by remember { mutableStateOf(false) }
-                    LaunchedEffect(Unit) {
-                        val remaining =
-                            SPLASH_MAX_HOLD_MS - (SystemClock.elapsedRealtime() - launchedAt)
-                        if (remaining > 0) delay(remaining)
-                        restoreGaveUp = true
-                    }
-                    when (authPhase) {
-                        is AuthRepository.Phase.SignedIn -> {
-                            val sizeClass = calculateWindowSizeClass(this)
-                            AppShell(
-                                isCompactWidth =
-                                sizeClass.widthSizeClass == WindowWidthSizeClass.Compact,
-                            )
+                // US-3003: a Surface, and it is not decoration.
+                //
+                // setContent put the theme straight around the screens with no
+                // Surface, so LocalContentColor stayed Compose's default BLACK.
+                // Any Text that does not set a colour inherits that - and the
+                // sign-in headline is one, so on a dark-mode phone the first
+                // word a signed-out seller sees was black on navy, effectively
+                // invisible. In light mode black-on-light looks correct, which
+                // is why it survived: the bug is only visible in the theme
+                // nobody screenshots by hand.
+                //
+                // Surface is the idiomatic Material 3 root because it sets the
+                // background AND publishes contentColor = onSurface, so every
+                // screen below inherits a legible default rather than each one
+                // having to remember.
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    val locked by AppLock.locked.collectAsState()
+                    val authPhase by authRepository.phase.collectAsState()
+                    if (locked) {
+                        LockScreen(onUnlock = { AppLock.promptUnlock(this) })
+                    } else {
+                        // US-2369: the shell used to compose UNCONDITIONALLY, so
+                        // the app was unusable by anyone without a session — there
+                        // was nowhere to sign in. Loading renders nothing rather
+                        // than flashing the form: the session restores from
+                        // encrypted storage in milliseconds, and a sign-in screen
+                        // that appears and vanishes on every cold start reads as a
+                        // bug.
+                        // US-2899: the escape hatch for a restore that never
+                        // finishes. The splash lets go at SPLASH_MAX_HOLD_MS and
+                        // this flips off the SAME clock, so the two cannot
+                        // disagree about when the app gave up waiting.
+                        var restoreGaveUp by remember { mutableStateOf(false) }
+                        LaunchedEffect(Unit) {
+                            val remaining =
+                                SPLASH_MAX_HOLD_MS - (SystemClock.elapsedRealtime() - launchedAt)
+                            if (remaining > 0) delay(remaining)
+                            restoreGaveUp = true
                         }
+                        when (authPhase) {
+                            is AuthRepository.Phase.SignedIn -> {
+                                val sizeClass = calculateWindowSizeClass(this)
+                                AppShell(
+                                    isCompactWidth =
+                                    sizeClass.widthSizeClass == WindowWidthSizeClass.Compact,
+                                )
+                            }
 
-                        AuthRepository.Phase.SignedOut -> AuthScreen()
-                        // US-2899: Loading renders nothing WHILE THE SPLASH IS
-                        // UP, which is the whole point - the launch icon is on
-                        // screen, not a blank rectangle. Past the bound it
-                        // renders the sign-in screen instead of nothing: the
-                        // shell cannot draw without a session, so sign-in is
-                        // the only surface with an action on it, and a restore
-                        // that has not finished in five seconds has failed.
-                        // The cost of being wrong is a form that appears and is
-                        // replaced by the shell - the flash US-2369 avoids -
-                        // but only on the failure path, where it is the right
-                        // trade against staring at a logo forever.
-                        AuthRepository.Phase.Loading ->
-                            if (restoreGaveUp) AuthScreen() else Unit
+                            AuthRepository.Phase.SignedOut -> AuthScreen()
+                            // US-2899: Loading renders nothing WHILE THE SPLASH IS
+                            // UP, which is the whole point - the launch icon is on
+                            // screen, not a blank rectangle. Past the bound it
+                            // renders the sign-in screen instead of nothing: the
+                            // shell cannot draw without a session, so sign-in is
+                            // the only surface with an action on it, and a restore
+                            // that has not finished in five seconds has failed.
+                            // The cost of being wrong is a form that appears and is
+                            // replaced by the shell - the flash US-2369 avoids -
+                            // but only on the failure path, where it is the right
+                            // trade against staring at a logo forever.
+                            AuthRepository.Phase.Loading ->
+                                if (restoreGaveUp) AuthScreen() else Unit
+                        }
                     }
                 }
             }
