@@ -2190,6 +2190,37 @@ export type SavedViewUpdate = Partial<
 // There is deliberately no `ein` field. Whether the seller HAS one is all this
 // app needs, and holding a nine-digit federal identifier turns the row into a
 // breach target for nothing.
+// US-2983 — the chart of accounts. `user_id IS NULL` is a seeded SYSTEM row,
+// readable by everyone and writable by nobody through RLS; a row with a user_id
+// is that seller's own sub-account under a system parent.
+//
+// The client-side mirror of the seeded rows lives in src/lib/chart-of-accounts.ts
+// and is drift-guarded against migration 00684 by a test. Read labels from
+// there; read a seller's own sub-accounts from here.
+export interface LedgerAccountRow {
+  id: string;
+  user_id: string | null;
+  code: string;
+  name: string;
+  flow: string;
+  schedule_c_part: string | null;
+  schedule_c_line: string | null;
+  schedule_c_label: string | null;
+  no_line_reason: string | null;
+  parent_id: string | null;
+  is_system: boolean;
+  sort_order: number;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export type LedgerAccountInsert = Omit<
+  LedgerAccountRow,
+  "id" | "created_at" | "updated_at" | "is_system" | "archived" | "sort_order"
+> &
+  Partial<LedgerAccountRow>;
+export type LedgerAccountUpdate = Partial<LedgerAccountInsert>;
+
 export interface TaxProfileRow {
   id: string;
   user_id: string;
@@ -2242,6 +2273,11 @@ export interface ExpenseRow {
   // never repeat themselves (the DB refuses that combination outright).
   recurs_monthly: boolean;
   recurrence_source_id: string | null;
+  // US-2983. NULL means "use the default account for this category", resolved
+  // by CATEGORY_DEFAULT_ACCOUNT / public.default_account_for_category(). It is
+  // never backfilled: an unset column and a column set to the default mean
+  // different things, and only one of them was a decision the seller made.
+  account_id: string | null;
 }
 
 export interface ExpenseInsert {
@@ -4217,6 +4253,11 @@ export interface Database {
         Row: ExpenseRow;
         Insert: ExpenseInsert;
         Update: ExpenseUpdate;
+      };
+      ledger_accounts: {
+        Row: LedgerAccountRow;
+        Insert: LedgerAccountInsert;
+        Update: LedgerAccountUpdate;
       };
       tax_profiles: {
         Row: TaxProfileRow;

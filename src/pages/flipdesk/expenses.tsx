@@ -2,6 +2,14 @@ import { useId, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
+// US-2983: the IRS line each category feeds. Shown beside the name so the
+// seller learns the mapping by using the form, rather than discovering in March
+// that nobody ever sorted their expenses onto a return.
+import {
+  CATEGORY_DEFAULT_ACCOUNT,
+  accountByCode,
+  scheduleCTag,
+} from "@/lib/chart-of-accounts";
 import {
   Wallet,
   Plus,
@@ -282,11 +290,21 @@ export function FlipdeskExpensesPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All categories</SelectItem>
-                {EXPENSE_CATEGORIES.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {EXPENSE_CATEGORY_LABELS[c]}
-                  </SelectItem>
-                ))}
+                {EXPENSE_CATEGORIES.map((c) => {
+                  const tag = scheduleCTag(
+                    accountByCode(CATEGORY_DEFAULT_ACCOUNT[c]),
+                  );
+                  return (
+                    <SelectItem key={c} value={c}>
+                      <span className="flex flex-col items-start">
+                        <span>{EXPENSE_CATEGORY_LABELS[c]}</span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {tag ?? "Schedule C: not sorted yet"}
+                        </span>
+                      </span>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
           </div>
@@ -394,6 +412,22 @@ export function FlipdeskExpensesPage() {
                         <Badge variant="outline">
                           {EXPENSE_CATEGORY_LABELS[e.category]}
                         </Badge>
+                        {/* US-2983: which line this row feeds, on the row
+                            itself. "Not sorted" is a state, not a category --
+                            it is what the review queue will pick up. */}
+                        {e.category === "other" ? (
+                          <span className="text-[11px] text-amber-700 dark:text-amber-400">
+                            Not sorted
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground">
+                            {scheduleCTag(
+                              accountByCode(
+                                CATEGORY_DEFAULT_ACCOUNT[e.category],
+                              ),
+                            )}
+                          </span>
+                        )}
                         {/* US-2228 AC3. Two different facts, so two different
                             words: this row GENERATES copies, or this row IS
                             one. Labelling both "Recurring" would leave a seller
@@ -678,6 +712,22 @@ function ExpenseDialog({
                 ))}
               </SelectContent>
             </Select>
+            {/* US-2983 AC3/AC5. The mapping is stated where the choice is made,
+                and "other" is deliberately NOT quietly dropped onto line 27a --
+                an uncategorised dollar is exactly what an accountant charges to
+                sort out, so it has to look uncategorised here too. */}
+            {category === "other" ? (
+              <p className="text-[13px] leading-relaxed text-amber-700 dark:text-amber-400">
+                Nothing filed under Other reaches your tax return until you say
+                what it was. Pick a real category when you know.
+              </p>
+            ) : (
+              <p className="text-[13px] leading-relaxed text-muted-foreground">
+                Goes on your Schedule C,{" "}
+                {scheduleCTag(accountByCode(CATEGORY_DEFAULT_ACCOUNT[category]))}
+                .
+              </p>
+            )}
           </div>
           <div className="space-y-1">
             <Label htmlFor={amountId}>Amount</Label>

@@ -1,7 +1,7 @@
 package com.gradethread.app.inventory
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,11 +21,11 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,18 +35,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.pluralStringResource
-import androidx.compose.ui.res.stringResource
-import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gradethread.app.R
 import com.gradethread.app.sync.db.InventoryItemEntity
+import com.gradethread.app.ui.TestTags
 import com.gradethread.app.ui.state.Restorable
 import com.gradethread.app.ui.theme.Spacing
 
@@ -366,6 +368,7 @@ internal fun InventoryListContent(
             // US-1348: the real action bar replaces US-1339's minimal one.
             if (selecting) {
                 BulkActionBar(
+                    modifier = Modifier.testTag(TestTags.Inventory.BULK_BAR),
                     selectedCount = selection.size,
                     stage = stage,
                     busy = bulkBusy,
@@ -534,6 +537,7 @@ private fun InventoryRow(
     Row(
         Modifier
             .fillMaxWidth()
+            .testTag(TestTags.Inventory.row(item.id))
             .combinedClickable(
                 // Long-press starts a selection; once one is running a plain
                 // tap toggles, so the second pick doesn't need a long press.

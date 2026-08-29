@@ -2755,21 +2755,6 @@
       "priority": 30
     },
     {
-      "id": "US-2983",
-      "passes": false,
-      "title": "Chart of accounts, mapped to the Schedule C line each category actually feeds",
-      "description": "expense_category is eight enum values chosen for a seller's mental model: shipping_supplies, mileage, subscriptions, platform_fees, sourcing_travel, equipment, storage, other. None of them names an IRS line, so at tax time the seller or their accountant re-sorts every row by hand. A chart of accounts fixes that once. It is also the join the QuickBooks push needs: a QBO account mapping is a mapping from THIS list to theirs, and without a stable list there is nothing to map.",
-      "acceptanceCriteria": [
-        "New table ledger_accounts seeded with the account set a reseller needs, each carrying a schedule_c_line (Part I income, Part II lines 8-27, Part III COGS lines 35-42, Part IV vehicle) and a plain-English label.",
-        "The eight existing expense_category values map onto accounts with no data migration required and no loss: an existing expense keeps working and gains an account.",
-        "'other' maps to nothing and is surfaced as a review item rather than silently landing on line 27a. An uncategorised dollar is the thing an accountant charges to sort out.",
-        "Accounts are seeded system rows a user cannot delete; a user MAY add their own sub-account under an existing line.",
-        "The expense category picker shows the IRS line beside the name, so the seller learns the mapping by using it.",
-        "A test asserts every seeded account has a schedule_c_line or an explicit reason it has none."
-      ],
-      "priority": 32
-    },
-    {
       "id": "US-2984",
       "passes": false,
       "title": "One ledger: every dollar becomes an entry, and every report reads from it",

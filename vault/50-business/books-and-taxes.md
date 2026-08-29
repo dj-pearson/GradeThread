@@ -5,7 +5,9 @@ status: current
 source_of_truth: vault
 code_refs:
   - supabase/migrations/00683_tax_profiles.sql
+  - supabase/migrations/00684_ledger_accounts.sql
   - src/lib/tax-profile.ts
+  - src/lib/chart-of-accounts.ts
 reviewed: 2026-08-29
 tags: [finance, tax, flipdesk, money]
 summary: The rules the Books and Taxes epic (US-2981) obeys - what each stored figure means, which form line it feeds, and the four things the app deliberately refuses to do.
@@ -108,16 +110,63 @@ the conversion happens once, at the boundary, in
 is a real answer ("I have no other income") and silently turning a typo into it
 would change the seller's estimated tax without telling them.
 
+## The chart of accounts
+
+`public.ledger_accounts`, seeded by migration 00684. A row with `user_id IS
+NULL` is a system account: readable by everyone, writable by nobody through
+RLS. A row with a `user_id` is that seller's own sub-account under a system
+parent.
+
+`src/lib/chart-of-accounts.ts` mirrors the seeded rows so a picker can show the
+IRS line without a round trip. **The mirror is drift-guarded**: a test parses
+the migration's `VALUES` block and compares field for field, and was
+sabotage-verified by changing one line number in the SQL, which reddened it.
+
+### The two judgement calls
+
+Both are questions a preparer would ask, so both are decided here rather than
+re-derived each time someone reads the code:
+
+- **`equipment` defaults to line 13 (depreciation), not line 22 (supplies).**
+  Whether a camera or a steamer is expensed outright or depreciated is a
+  threshold question only the seller's accountant can settle. Defaulting to
+  supplies would quietly take the aggressive position on their behalf.
+- **`subscriptions` defaults to line 27a (other expenses), not line 18 (office
+  expense).** Both are defensible and preparers split roughly evenly. 27a wins
+  because it is itemised and labelled on the form, so the accountant sees what
+  it is instead of a lump.
+
+### 'other' reaches no line, deliberately
+
+The `uncategorised` account has `schedule_c_line = NULL` and a
+`no_line_reason` explaining it. Dropping an unsorted dollar onto 27a would hide
+exactly the thing an accountant bills to sort out. The expense form says so at
+the point of choosing, the row says "Not sorted" in the list, and US-2992 will
+pick it up as a review item.
+
+Every system account either carries a line or carries a reason it has none. A
+test asserts it, because an unmapped account with no explanation is
+indistinguishable from a forgotten one.
+
+### The bridge from the eight categories
+
+`flipdesk_expenses.account_id` is nullable and **is never backfilled**. NULL
+means "use the default for this category", resolved identically by
+`public.default_account_for_category()` in SQL and `CATEGORY_DEFAULT_ACCOUNT`
+in TypeScript. Setting the column is how a seller OVERRIDES that default. An
+unset column and a column set to the default mean different things, and only
+one of them was a decision.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
 its contract into this note. Currently landed:
 
 - **US-2982** - the tax profile and the fiscal year, above.
+- **US-2983** - the chart of accounts and its Schedule C mapping, above.
 
-Still open, and each will add a section here rather than a new note: the chart
-of accounts and its Schedule C mapping (US-2983), the ledger and its
-one-number-is-one-number invariant (US-2984), COGS and the ending-inventory
+Still open, and each will add a section here rather than a new note: the ledger
+and its one-number-is-one-number invariant (US-2984), COGS and the ending-inventory
 snapshot (US-2986), facilitator sales tax (US-2987), the 1099-K bridge
 (US-2988), the dated mileage and home-office rates (US-2989, US-2990),
 estimated tax (US-2991), period close (US-2995) and the QuickBooks account

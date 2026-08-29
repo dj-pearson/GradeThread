@@ -8,13 +8,19 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-08-27
+reviewed: 2026-08-29
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
 
 # The listings table — column inventory and read policy
 
+> **Re-reviewed 2026-08-29.** Drift flagged `src/types/database.ts` a fifth
+> time and **no `listings` column moved**. The edit added `TaxProfileRow`,
+> `TaxProfileChangeRow` and `LedgerAccountRow` (US-2982, US-2983) plus one
+> nullable `account_id` on `flipdesk_expenses` -- a different table. The
+> inventory below is unchanged.
+>
 > **Re-reviewed 2026-08-27.** Drift flagged `src/types/database.ts` a fourth
 > time, and this time a `listings` column really did move: migration 00678
 > (US-2956) adds **`description_blocks jsonb`**, nullable, no default. It is the

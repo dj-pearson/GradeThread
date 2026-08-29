@@ -42,4 +42,31 @@ object TestTags {
         /** The sign-in / sign-up mode switch beneath it. */
         const val TOGGLE = "auth:toggle"
     }
+
+    /** The inventory list and its multi-select bar. */
+    object Inventory {
+        /**
+         * One row, keyed by item id.
+         *
+         * Keyed rather than indexed on purpose: the list is sorted and filtered,
+         * so an index is a statement about the sort order as much as about the
+         * row, and a test that means "the Levi's" should not break when Newest
+         * becomes Best ROI.
+         */
+        fun row(itemId: String) = "inventory:row:$itemId"
+
+        /** The bar that replaces the normal chrome while a selection is live. */
+        const val BULK_BAR = "inventory:bulkbar"
+
+        /**
+         * Every action chip in that bar carries this same tag.
+         *
+         * NOT one tag per action: the set is stage-dependent
+         * (BulkAction.forStage), so a test that names an action also pins which
+         * stage was showing. A test wanting a specific action can filter these
+         * by text; a test wanting "the first thing a seller can do here" - which
+         * is the flow being covered - just takes index 0.
+         */
+        const val BULK_ACTION = "inventory:bulkaction"
+    }
 }

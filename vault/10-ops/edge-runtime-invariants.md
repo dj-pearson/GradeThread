@@ -7,13 +7,18 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-08-28
+reviewed: 2026-08-29
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
 
 # Edge runtime invariants
 
+> **Re-reviewed 2026-08-29.** Bump-only again, twice: 00682 -> 00683 -> 00684
+> for the tax profile and the chart of accounts (US-2982, US-2983). Nothing in
+> the boot guard, the grace window or the fail-open/fail-closed split moved.
+> This is the case the 2026-08-23 callout below predicted, for the sixth time.
+>
 > **Re-reviewed 2026-08-23.** Drift has now flagged `schema-version.ts` FOUR
 > consecutive times, and four times nothing in this note has moved:
 > `EXPECTED_SCHEMA_VERSION` went 00647 -> 00648 with migration 00648, and

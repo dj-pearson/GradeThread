@@ -1,5 +1,42 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## HELD: 00684_ledger_accounts.sql (US-2983)
+
+**Risk: low.** One new table, one seeded chart of 31 system rows, one new
+nullable column on `flipdesk_expenses`, one new IMMUTABLE function. No existing
+column, policy, view or index is altered.
+
+**What it does.** Creates `public.ledger_accounts` (the chart of accounts) and
+seeds 31 system rows, each carrying the Schedule C part, line number and the
+IRS's own wording for that line. Adds
+`public.flipdesk_expenses.account_id uuid NULL` and
+`public.default_account_for_category(expense_category) -> text`.
+
+**Nothing is backfilled.** `account_id` stays NULL on every existing row and
+that is the design: NULL means "use the default for this category", and setting
+the column is how a seller OVERRIDES that default. An unset column and a column
+set to the default mean different things.
+
+**The seed is an UPSERT, so a wording fix ships as an ordinary migration.**
+`ON CONFLICT (code) WHERE user_id IS NULL DO UPDATE` refreshes the labels and
+never deletes, so a seller's own sub-accounts survive a re-seed.
+
+**RLS, verified rather than asserted.** A system row is readable by everyone
+and writable by nobody. Proven on the local stack inside a transaction as the
+real `authenticated` role with a JWT claim set: 31 rows visible, 0 deletable,
+0 updatable, a cross-tenant insert blocked, and an attempt to mint a new SYSTEM
+row (user_id NULL) blocked. The first attempt at this test was INVALID -
+`SET LOCAL ROLE` outside a transaction block is a no-op, so it ran as superuser
+and deleted the chart. Re-seeded and redone inside `BEGIN`.
+
+**What breaks if the frontend deploys first.** The expense form and list read
+the chart from the bundled TypeScript mirror, not from the database, so the
+Schedule C lines still render. The `account_id` column is not read by the
+client yet. Low urgency, but apply it with 00683 anyway.
+
+**Apply order.** After 00683. Then `NOTIFY pgrst, 'reload schema';` - one new
+table and one new column.
+
 ## HELD: 00683_tax_profiles.sql (US-2982)
 
 **Risk: low.** Two brand-new tables, one new trigger function, no change to any
