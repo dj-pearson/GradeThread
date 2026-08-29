@@ -12,6 +12,99 @@ import XCTest
 /// own behaviour is covered in `GradeThreadCoreTests/DescriptionBlocksTests`.
 final class ListingDescriptionTemplateTests: XCTestCase {
 
+    // MARK: - The eBay leaf (US-2955)
+
+    func test_theEbayLeafBeatsAStaleGarmentCategory() {
+        // THE BUG THIS CLOSES, in the story's own words: a seller corrects the
+        // item's eBay category to a Tops leaf and the measurement fields go on
+        // asking for an inseam, because iOS never read the leaf at all and
+        // garment_category still says pants.
+        let descriptor = ListingDescriptionTemplate.garmentDescriptor(
+            ebayLeaf: "T-Shirts",
+            garmentCategory: "pants",
+            garmentType: "bottoms",
+            itemCategory: "clothing",
+            style: nil,
+            title: "Untitled item"
+        )
+        XCTAssertEqual(descriptor, "T-Shirts")
+        XCTAssertEqual(GarmentGroup.from(descriptor), .top)
+    }
+
+    func test_theLeafIsNeverDemotedForBeingACoarseVertical() {
+        // Mirrors the web's coarseEligible: false on the leaf. "Tops" from
+        // garment_type is a vertical we DERIVED when intake told us nothing;
+        // "Tops" as an eBay leaf is a value eBay assigned to this item. Same
+        // string, different standing, and only the second one should win.
+        let fromLeaf = ListingDescriptionTemplate.garmentDescriptor(
+            ebayLeaf: "Tops",
+            garmentCategory: nil,
+            garmentType: nil,
+            itemCategory: "clothing",
+            style: nil,
+            title: "Untitled item"
+        )
+        XCTAssertEqual(fromLeaf, "Tops")
+    }
+
+    func test_aCoarseGarmentTypeStillLosesToARealGarmentWord() {
+        // The other half of the same rule, unchanged by US-2955: garment_type
+        // IS coarse-eligible, so a real noun in the title beats it.
+        let descriptor = ListingDescriptionTemplate.garmentDescriptor(
+            ebayLeaf: nil,
+            garmentCategory: nil,
+            garmentType: "tops",
+            itemCategory: "clothing",
+            style: nil,
+            title: "Levi's 550 Denim Shorts"
+        )
+        XCTAssertEqual(GarmentGroup.from(descriptor), .bottom)
+    }
+
+    func test_noLeafLeavesTheOldOrderIntact() {
+        // Every item nobody has re-categorised passes nil, so the change must be
+        // invisible to them.
+        let descriptor = ListingDescriptionTemplate.garmentDescriptor(
+            ebayLeaf: nil,
+            garmentCategory: "blazer",
+            garmentType: "outerwear",
+            itemCategory: "clothing",
+            style: nil,
+            title: "Navy wool blazer"
+        )
+        XCTAssertEqual(descriptor, "blazer")
+    }
+
+    // MARK: - Leaf extraction
+
+    func test_ebayCategoryLeaf_takesTheLastSegment() {
+        XCTAssertEqual(
+            ListingDescriptionTemplate.ebayCategoryLeaf("Clothing > Men > Shirts > T-Shirts"),
+            "T-Shirts"
+        )
+    }
+
+    func test_ebayCategoryLeaf_handlesBothSeparators() {
+        // eBay's own payloads use the ASCII '>' and its Browse responses use the
+        // single right-pointing angle quote. Splitting on only one yields the
+        // WHOLE path as a single "leaf", which then resolves to generic and
+        // contributes nothing - silently, which is the problem.
+        XCTAssertEqual(
+            ListingDescriptionTemplate.ebayCategoryLeaf("Clothing \u{203A} Men \u{203A} Jeans"),
+            "Jeans"
+        )
+    }
+
+    func test_ebayCategoryLeaf_isNilForNothingUsable() {
+        XCTAssertNil(ListingDescriptionTemplate.ebayCategoryLeaf(nil))
+        XCTAssertNil(ListingDescriptionTemplate.ebayCategoryLeaf(""))
+        XCTAssertNil(ListingDescriptionTemplate.ebayCategoryLeaf(" > > "))
+    }
+
+    func test_ebayCategoryLeaf_trimsAndKeepsASingleSegment() {
+        XCTAssertEqual(ListingDescriptionTemplate.ebayCategoryLeaf("  Jeans  "), "Jeans")
+    }
+
     // MARK: - Group selection
 
     func test_group_comesFromTheGarmentWord_notTheCategoryEnum() {

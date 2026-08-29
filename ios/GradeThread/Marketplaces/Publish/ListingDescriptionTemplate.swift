@@ -262,31 +262,85 @@ enum ListingDescriptionTemplate {
         "tops", "bottoms", "outerwear", "dresses", "footwear", "accessories",
     ]
 
+    /// The last segment of an eBay category path, or nil.
+    ///
+    /// Mirrors the web `ebayCategoryLeaf`. Both separators are handled because
+    /// eBay's own payloads use the ASCII `>` and its Browse responses use `›`,
+    /// and a path split on only one of them yields the whole path as a single
+    /// "leaf" - which then never resolves to a group and silently contributes
+    /// nothing.
+    static func ebayCategoryLeaf(_ path: String?) -> String? {
+        guard let path, !path.isEmpty else { return nil }
+        let segments = path
+            .split(whereSeparator: { $0 == ">" || $0 == "\u{203A}" })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return segments.last
+    }
+
+    /// One candidate for the descriptor, and whether the coarse filter may
+    /// demote it.
+    private struct Candidate {
+        let value: String
+        /// False means "never demoted for being a coarse vertical".
+        let coarseEligible: Bool
+    }
+
     /// Pick the string that should decide the template, most-specific-first.
-    /// Mirrors the web `garmentDescriptorFor`: a candidate only wins if it
-    /// resolves to a real group, so `item_category`'s literal "clothing" is
-    /// skipped rather than swallowing the answer, and the title is a genuine
-    /// last resort ("Vintage Levi's 550 Denim Shorts" beats nothing).
+    ///
+    /// Mirrors the web `garmentDescriptorFor` candidate for candidate. A
+    /// candidate only wins if it resolves to a real group, so `item_category`'s
+    /// literal "clothing" is skipped rather than swallowing the answer, and the
+    /// title is a genuine last resort ("Vintage Levi's 550 Denim Shorts" beats
+    /// nothing).
+    ///
+    /// US-2955: THE EBAY LEAF GOES FIRST AND IS NEVER DEMOTED. Until this, iOS
+    /// never consulted the leaf at all - so a seller who corrected an item's
+    /// eBay category to a Tops leaf still got the template `garmentCategory`
+    /// implied, and a top went on asking for an inseam. It is exempt from the
+    /// coarse filter for the same reason the web exempts it: the leaf is a
+    /// value eBay assigned to THIS item, so even when it reads "Tops" that is a
+    /// statement about the garment rather than a vertical we derived when
+    /// intake told us nothing.
     static func garmentDescriptor(
+        ebayLeaf: String? = nil,
         garmentCategory: String?,
         garmentType: String?,
         itemCategory: String?,
         style: String?,
         title: String?
     ) -> String {
-        let candidates = [garmentCategory, garmentType, itemCategory, style, title]
-            .map { ($0 ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        let candidates: [Candidate] = [
+            Candidate(value: ebayLeaf ?? "", coarseEligible: false),
+            Candidate(value: garmentCategory ?? "", coarseEligible: true),
+            Candidate(value: garmentType ?? "", coarseEligible: true),
+            Candidate(value: itemCategory ?? "", coarseEligible: true),
+            Candidate(value: style ?? "", coarseEligible: true),
+            // A title is free text a human wrote, not a derived vertical, and it
+            // is the last resort anyway.
+            Candidate(value: title ?? "", coarseEligible: false),
+        ]
+            .map {
+                Candidate(
+                    value: $0.value.trimmingCharacters(in: .whitespacesAndNewlines),
+                    coarseEligible: $0.coarseEligible
+                )
+            }
+            .filter { !$0.value.isEmpty }
 
-        for candidate in candidates
-        where !coarseVerticals.contains(candidate.lowercased())
-            && GarmentGroup.from(candidate) != .generic {
-            return candidate
+        // Two passes over the same list, so the order above still expresses
+        // preference within each tier: everything specific first, verticals
+        // after.
+        for candidate in candidates {
+            if candidate.coarseEligible && coarseVerticals.contains(candidate.value.lowercased()) {
+                continue
+            }
+            if GarmentGroup.from(candidate.value) != .generic { return candidate.value }
         }
-        for candidate in candidates where GarmentGroup.from(candidate) != .generic {
-            return candidate
+        for candidate in candidates where GarmentGroup.from(candidate.value) != .generic {
+            return candidate.value
         }
-        return candidates.first ?? ""
+        return candidates.first?.value ?? ""
     }
 
     /// Fill one template. Mirrors the web `interpolateDescription`, with one

@@ -59,6 +59,137 @@ describe("US-2225: the measurement templates are one definition in two files", (
 // This is the same shape as US-2797 one table over: a value exists, a
 // destination exists, and nothing connects the two. Both halves look correct
 // read on their own.
+describe("US-2955: the Swift descriptor reads the same candidates as the web", () => {
+  // WHY THIS IS A TEXT COMPARISON AND NOT A BEHAVIOUR ONE. Swift does not run
+  // here, so the numbers cannot be replayed the way the quarter-turn fixture
+  // does it for geometry. What CAN be compared is the ORDER of the candidate
+  // list and which entries are exempt from the coarse filter, because both
+  // files spell those out declaratively - and order plus exemption is the whole
+  // of the rule. A divergence in either is exactly the bug US-2955 fixed: iOS
+  // never consulted the eBay leaf, so a seller who corrected the category still
+  // got the template garment_category implied.
+
+  const SWIFT = "ios/GradeThread/Marketplaces/Publish/ListingDescriptionTemplate.swift";
+
+  /** The candidate identifiers, in order, from the web's array literal. */
+  function webCandidates(): string[] {
+    const src = normalized(WEB);
+    const block = /const candidates: Candidate\[\] = \[([\s\S]*?)\n {2}\];/.exec(src);
+    expect(block, "the web candidate array moved — this guard is reading nothing").not.toBeNull();
+    // `noUncheckedIndexedAccess` is on, so both index reads are
+    // `string | undefined`. The `expect` above already proved the block
+    // matched; these say so to the compiler.
+    return [...(block![1] ?? "").matchAll(/value: item\.([a-z_]+)/g)].map((m) => m[1]!);
+  }
+
+  /** The same, from the Swift Candidate list. */
+  function swiftCandidates(): string[] {
+    const src = normalized(SWIFT);
+    const block = /let candidates: \[Candidate\] = \[([\s\S]*?)\n {8}\]/.exec(src);
+    expect(block, "the Swift candidate array moved — this guard is reading nothing").not.toBeNull();
+    return [...(block![1] ?? "").matchAll(/Candidate\(value: ([A-Za-z]+)/g)].map((m) => m[1]!);
+  }
+
+  /** snake_case on the web, camelCase in Swift, same concept. */
+  const EQUIVALENT: Record<string, string> = {
+    ebay_leaf: "ebayLeaf",
+    garment_category: "garmentCategory",
+    garment_type: "garmentType",
+    item_category: "itemCategory",
+    title: "title",
+  };
+
+  /**
+   * Candidates that exist on ONE platform, with the reason.
+   *
+   * The two lists are not identical and cannot be, because the two data models
+   * are not. Writing that down here rather than weakening the comparison is the
+   * point: an entry that appears on one side and is NOT named here fails the
+   * shared-order test below, which is exactly the drift AC4 is for.
+   */
+  const PLATFORM_ONLY = {
+    // items_full's COALESCE(item_category, garment_category). A view column, so
+    // there is nothing for iOS to read - it queries inventory_items directly.
+    web: new Set(["category"]),
+    // inventory_items.style. The web list predates the column being useful here
+    // and never picked it up; adding it would change web behaviour and belongs
+    // in its own story rather than in a parity guard.
+    swift: new Set(["style"]),
+  };
+
+  it("finds a real list on both sides", () => {
+    // Guards the guard: a regex that stops matching would compare two empty
+    // arrays and pass, which is indistinguishable from agreement.
+    expect(webCandidates().length).toBeGreaterThan(4);
+    expect(swiftCandidates().length).toBeGreaterThan(4);
+  });
+
+  it("the eBay leaf is FIRST on both sides", () => {
+    expect(webCandidates()[0]).toBe("ebay_leaf");
+    expect(swiftCandidates()[0]).toBe("ebayLeaf");
+  });
+
+  it("the leaf and the title are the two exempt from the coarse filter", () => {
+    // coarseEligible: false is the exemption, and it must be the same two
+    // entries in both files. The leaf because eBay assigned it to THIS item;
+    // the title because it is free text a human wrote, not a vertical we
+    // derived.
+    const webExempt = [...normalized(WEB).matchAll(/value: item\.([a-z_]+), coarseEligible: false/g)]
+      .map((m) => m[1]);
+    const swiftExempt = [...normalized(SWIFT).matchAll(/Candidate\(value: ([A-Za-z]+)[^)]*coarseEligible: false/g)]
+      .map((m) => m[1]);
+    expect(webExempt.sort()).toEqual(["ebay_leaf", "title"]);
+    expect(swiftExempt.sort()).toEqual(["ebayLeaf", "title"]);
+  });
+
+  it("every candidate is either shared or declared platform-only", () => {
+    // The half that catches a NEW entry nobody thought about. A candidate that
+    // is neither in EQUIVALENT nor in PLATFORM_ONLY fails here, which forces
+    // whoever added it to say which it is.
+    const unknownWeb = webCandidates().filter(
+      (k) => !(k in EQUIVALENT) && !PLATFORM_ONLY.web.has(k),
+    );
+    const swiftKnown = new Set(Object.values(EQUIVALENT));
+    const unknownSwift = swiftCandidates().filter(
+      (k) => !swiftKnown.has(k) && !PLATFORM_ONLY.swift.has(k),
+    );
+    expect(unknownWeb, "undeclared web candidate — is it shared or platform-only?").toEqual([]);
+    expect(unknownSwift, "undeclared Swift candidate — is it shared or platform-only?").toEqual([]);
+  });
+
+  it("the SHARED candidates appear in the same relative order", () => {
+    // Order is the rule. Dropping the platform-only entries first, what remains
+    // must read the same on both sides - otherwise a seller gets a different
+    // template on the phone than on the desktop for the same item, which is
+    // precisely what US-2955 fixed by putting the leaf first.
+    const web = webCandidates()
+      .filter((k) => k in EQUIVALENT)
+      .map((k) => EQUIVALENT[k]!);
+    const swift = swiftCandidates().filter((k) => new Set(Object.values(EQUIVALENT)).has(k));
+    expect(
+      swift,
+      "the Swift candidate order diverged from the web's — a seller would get a " +
+        "different template on the phone than on the desktop for the same item",
+    ).toEqual(web);
+  });
+
+  it("Swift has a leaf extractor that splits on both separators", () => {
+    // eBay's own payloads use '>' and its Browse responses use the single
+    // right-pointing angle quote. Splitting on one yields the whole path as a
+    // single leaf, which resolves to generic and contributes nothing - silently.
+    const src = normalized(SWIFT);
+    expect(src).toContain("static func ebayCategoryLeaf(");
+    // The LITERAL escape text as it appears in the Swift source, not the
+    // character it denotes - String.raw keeps JS from interpreting it first,
+    // which is how the first version of this line searched for "›" and failed
+    // against a file that contains the six characters \u{203A}.
+    expect(src).toContain(String.raw`\u{203A}`);
+    // And the web's does the same, so the pair stays honest.
+    expect(ebayCategoryLeaf("A \u{203A} B \u{203A} C")).toBe("C");
+    expect(ebayCategoryLeaf("A > B > C")).toBe("C");
+  });
+});
+
 describe("US-2798: every taxonomy value reaches a real measurement group", () => {
   it("no garment category falls through to generic", () => {
     // `other` is the one honest exception: it means "we could not classify

@@ -2404,6 +2404,15 @@ struct ItemCanvasView: View {
 
     private func descriptionGarmentDescriptor(state: ItemCanvasState) -> String {
         ListingDescriptionTemplate.garmentDescriptor(
+            // US-2955: the eBay leaf decides, and THIS is the screen where a
+            // seller corrects the category - so the value they just picked is
+            // the one the template should follow. It comes from the inline
+            // specifics editor rather than the item row, because iOS stores
+            // ebay_category_id and never the category NAME, so the row has no
+            // leaf to read. Nil until they have chosen one, which leaves the
+            // old candidate order intact.
+            ebayLeaf: ListingDescriptionTemplate.ebayCategoryLeaf(specificsModel?.selectedCategoryPath)
+                ?? specificsModel?.selectedCategoryName,
             garmentCategory: state.draft.garmentCategory,
             garmentType: state.draft.garmentType,
             itemCategory: state.draft.category?.rawValue,
