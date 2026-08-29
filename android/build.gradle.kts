@@ -52,6 +52,10 @@ tasks.register("ciCheck") {
  */
 tasks.named<com.github.benmanes.gradle.versions.updates.DependencyUpdatesTask>("dependencyUpdates") {
     gradleReleaseChannel = "current"
+    // US-2906 AC5: json alongside plain so a script can read the report. The
+    // recurring drift check parses build/dependencyUpdates/report.json; the
+    // plain copy stays because that is what a person opens.
+    outputFormatter = "json,plain"
     rejectVersionIf {
         val stable = listOf("RELEASE", "FINAL", "GA").any { candidate.version.uppercase().contains(it) } ||
             "^[0-9,.v-]+(-r)?$".toRegex().matches(candidate.version)

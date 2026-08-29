@@ -51,6 +51,15 @@ jobs:
     name: App launches and migrations run (emulator)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # US-2902: the same block android-ci.yml carries, for the same reason, and
+    # its absence here was worse. This job is named "App launches and
+    # migrations run" and it is the gate before a Play upload - without the
+    # key, AppConfig asserts in Application.onCreate, the app dies before a
+    # single test body runs, and every case fails for one missing string. The
+    # release build gets the REAL key later in this workflow; an emulator
+    # smoke test does not need it, only a non-blank one.
+    env:
+      SUPABASE_ANON_KEY: ci-placeholder-anon-key
     defaults:
       run:
         working-directory: android

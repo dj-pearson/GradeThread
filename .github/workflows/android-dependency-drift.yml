@@ -1,0 +1,83 @@
+# US-2906 AC5 — the recurring check that stops the Android dependency set
+# drifting for another year.
+#
+# WHY THIS IS SEPARATE FROM Android CI. That workflow is the compile gate and
+# runs on every push to android/**; this one needs the NETWORK to ask every
+# repository what the newest version is, takes minutes, and answers a question
+# nobody asks per-commit. Bolting it on would slow the gate for a signal that is
+# only interesting monthly.
+#
+# WHY IT REPORTS AND DOES NOT FAIL: the outdated count moves when Google
+# publishes, not when we change code. A gate on it goes red on a Tuesday because
+# androidx shipped, and within a month it is the check everybody force-merges
+# past. The output is a labelled issue instead — updated in place, and closed by
+# the script when nothing is behind, so its existence is the signal.
+# scripts/ops/android-dependency-drift.mjs carries the long version.
+name: Android dependency drift
+
+on:
+  schedule:
+    # 07:11 on the 1st. Off the hour and off midnight so it does not land with
+    # every other scheduled job in the fleet.
+    - cron: "11 7 1 * *"
+  workflow_dispatch:
+
+concurrency:
+  group: android-dependency-drift
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  report:
+    name: dependencyUpdates → issue
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Gradle (cached)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve the newest version of everything
+        # SUPABASE_ANON_KEY for the same reason Android CI's jobs carry it: the
+        # build configures the app module, and `secret()` asserts on it.
+        # src/test/android-ci-env-parity.test.ts fails if a job that runs
+        # ./gradlew loses this block.
+        env:
+          SUPABASE_ANON_KEY: ci-placeholder-anon-key
+        run: ./gradlew dependencyUpdates
+
+      - name: File or update the drift issue
+        working-directory: .
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/ops/android-dependency-drift.mjs
+
+      - name: Upload the full report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-dependency-report
+          # Both formats: the json is what the script reads, the plain text is
+          # what a person opens.
+          path: android/build/dependencyUpdates/
+          if-no-files-found: warn
+          retention-days: 30
