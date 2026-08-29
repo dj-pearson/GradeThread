@@ -2684,23 +2684,6 @@
       "notes": ""
     },
     {
-      "id": "US-2914",
-      "passes": false,
-      "title": "iOS still sends analytics by default worldwide while the web and Android ask first",
-      "description": "iOS defaults product analytics ON worldwide. Telemetry.swift:49 reads `UserDefaults.standard.object(forKey: analyticsToggleKey).flatMap { ($0 as? Bool) } ?? true`, and its own doc comment states it plainly: 'Opt-out, on by default'. There is no location awareness anywhere in it.  THE WEB DECIDED OTHERWISE, AND DID SO FIRST. src/lib/consent-regime.ts has been location-aware since US-2513: opt-in for the EU, the UK, Switzerland and every unresolved country, opt-out for the United States alone, and it FAILS SAFE - an unknown country (VPN, Tor, an edge failure) gets the strict treatment rather than the permissive one. Same company, same PostHog project, same privacy policy, three clients disagreeing.  ANDROID NOW MIRRORS THE WEB (US-2897); iOS is the remaining half. Owner decision, 2026-08-25: mirror the web rule on BOTH mobile clients rather than pick a new posture for phones. So this is a port of a port, and the Android work is the reference implementation - ConsentRegime.kt, GeoService.kt and ConsentRegimeTest.kt were written to be read alongside consent-regime.ts, with the test cases mirrored one for one so a divergence reads as 'the clients disagree' rather than 'this client has a bug'.  ⚠ A CORRECTION THAT SHOULD NOT BE REPEATED. US-2897 was originally filed claiming 'Android sends analytics by default while iOS asks first', and PLAY_STORE_SUBMISSION.md said the same. BOTH WERE WRONG - iOS never asked first. The false claim survived from a doc into a story because nobody opened Telemetry.swift. Anyone picking this up should read line 49 before trusting any summary of it, this one included.  NOT DONE HERE because Swift cannot be compiled on the Windows dev box (xcodebuild is macOS-only) and this is a privacy behaviour change on the app's startup path - exactly the kind that needs to be run, not just written. Filed with the reference implementation named rather than patched blind.",
-      "acceptanceCriteria": [
-        "Telemetry.swift resolves a consent regime instead of defaulting to true: opt-in everywhere except the US, failing safe to opt-in when the country is unknown or the lookup fails. Mirrors src/lib/consent-regime.ts and android ConsentRegime.kt.",
-        "The stored choice is TRI-STATE, matching Android. Absent means NEVER ASKED and the regime decides; an explicit false is never overridden by an opt-out jurisdiction; an explicit true is honoured in an opt-in one. `?? true` is precisely the expression being removed - do not reintroduce it as `?? false`, which would be a different wrong answer.",
-        "Geo comes from https://gradethread.com/geo.json - the Cloudflare PAGES site, never functions.gradethread.com. The edge service runs on Coolify behind no Cloudflare edge, so `request.cf` does not exist there and the endpoint could only ever answer 'unknown'. That fails SAFE, so a wrong host would look like it was working while treating every seller as opt-in.",
-        "PostHog does not start until the regime resolves. Sentry still starts immediately and unconditionally (DSN permitting) - crash reporting is operational rather than product analytics, it is declared non-optional in both stores' privacy forms, and a crash in the first second of a cold start is the one most worth having.",
-        "The Settings analytics toggle reflects the resolved state rather than reading it once at view construction. On Android that was a real trap: the state now settles asynchronously, so a one-shot read renders 'off' and stays there while analytics comes on a moment later.",
-        "Test cases mirror consent-regime.test.ts and ConsentRegimeTest.kt one for one, including the two that matter most: a fresh install in the EU does not start analytics, and a fresh install with no network does not either.",
-        "ios/APP_STORE_SUBMISSION.md's privacy answers are updated, and the Apple privacy nutrition label is re-checked - 'Analytics' collected but off by default outside the US is a different declaration from collected by default.",
-        "PLAY_STORE_SUBMISSION.md section 0 currently says iOS remains opt-out worldwide and points at this story. Remove that line when this lands, so the two documents cannot drift the way they just did."
-      ],
-      "priority": 9
-    },
-    {
       "id": "US-2915",
       "passes": false,
       "title": "EPIC: Size check against brand size charts",
