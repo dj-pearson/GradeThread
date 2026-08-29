@@ -34,6 +34,9 @@ import { PageHelp } from "@/components/help/page-help";
 const FinancesPage = lazy(() =>
   import("@/pages/finances").then((m) => ({ default: m.FinancesPage }))
 );
+const PnlPage = lazy(() =>
+  import("@/pages/flipdesk/pnl").then((m) => ({ default: m.PnlPage }))
+);
 const ExpensesPage = lazy(() =>
   import("@/pages/flipdesk/expenses").then((m) => ({
     default: m.FlipdeskExpensesPage,
@@ -84,6 +87,7 @@ export function FlipdeskMoneyPage() {
         <Tabs value={activeView} onValueChange={setActiveView}>
           <TabsList>
             <TabsTrigger value="finances">Finances</TabsTrigger>
+            <TabsTrigger value="pnl">P&amp;L</TabsTrigger>
             <TabsTrigger value="expenses">Expenses</TabsTrigger>
             <TabsTrigger value="reconcile">Reconcile</TabsTrigger>
             <TabsTrigger value="tax">Tax</TabsTrigger>
@@ -95,6 +99,13 @@ export function FlipdeskMoneyPage() {
             {activeView === "finances" && (
               <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
                 <FinancesPage />
+              </Suspense>
+            )}
+          </TabsContent>
+          <TabsContent value="pnl" className="mt-6">
+            {activeView === "pnl" && (
+              <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
+                <PnlPage />
               </Suspense>
             )}
           </TabsContent>

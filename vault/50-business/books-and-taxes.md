@@ -13,6 +13,8 @@ code_refs:
   - scripts/check-ledger-invariant.mjs
   - supabase/migrations/00686_ledger_rebuild_no_revoke.sql
   - supabase/migrations/00687_ledger_rls_initplan.sql
+  - src/lib/pnl-statement.ts
+  - src/pages/flipdesk/pnl.tsx
 reviewed: 2026-08-29
 tags: [finance, tax, flipdesk, money]
 summary: The rules the Books and Taxes epic (US-2981) obeys - what each stored figure means, which form line it feeds, and the four things the app deliberately refuses to do.
@@ -299,6 +301,63 @@ The lesson is not "add more guards". It is that three migrations written in one
 sitting got less review than one migration written alone, and the guards were
 the only thing standing between that and production.
 
+## The profit and loss statement
+
+`src/lib/pnl-statement.ts` builds it; `src/pages/flipdesk/pnl.tsx` is the
+screen, at Money -> P&L.
+
+**It is not `src/lib/pnl.ts`.** That file already existed and answers a
+different question: one sale's margin from a `SaleRow`. This one aggregates
+ledger entries into a statement. Two files because they are two questions --
+"did this flip make money" and "what were my numbers this quarter".
+
+### Rules the statement obeys
+
+- **Schedule C order, never alphabetical.** A preparer reads down the form; an
+  alphabetised statement makes them hunt. Row order comes from the chart's
+  `sort_order`.
+- **Section membership is derived from the account's `flow`,** not from a
+  second list of codes. The failure mode otherwise is an account that exists,
+  collects entries and appears in no section -- which reads as a balanced
+  statement quietly missing money.
+- **Costs are stored signed and printed positive.** Every total is a plain sum,
+  so nobody has to remember which rows to flip. The CSV export keeps the SIGN,
+  because a spreadsheet summing a column needs it, and the file says so in a
+  header row rather than leaving the seller to notice the difference.
+- **Three rows print at zero:** `sales_revenue`, `returns_allowances`,
+  `purchases`. A statement with no COGS row does not say "no cost of goods", it
+  says nothing, and the seller cannot tell a zero from a gap.
+- **An entry against an unknown account is shown, not dropped,** as "Entries we
+  could not place", and it moves the bottom line because the money is real.
+- **A percentage against a zero prior period is null, not 100%.** Going from $0
+  to $500 is not a 100% rise, and printing one is a lie the seller repeats to
+  somebody. The delta uses the prior period's MAGNITUDE, so a loss shrinking
+  from -$1000 to -$400 reads as +60%.
+
+### Periods are half-open
+
+`periodRange()` and `priorRange()` in `src/lib/tax-profile.ts` return
+`{ from, to }` with `to` EXCLUSIVE. Half-open is the only convention that
+composes: two adjacent periods share a boundary, no day belongs to both, and a
+test asserts four quarters laid end to end are exactly the fiscal year for
+every start month. Dates are `yyyy-mm-dd` strings built with `ymd()`, never
+`toISOString()`, which lands on the previous day west of Greenwich.
+
+A custom range compares against **the same number of days before it** -- 17
+days against the 17 preceding. It is the only defensible reading, and the
+screen says so, because "the previous period" for an arbitrary range is
+otherwise a guess the seller has to reverse-engineer.
+
+### The statement is pinned to a measured result
+
+`pnl-statement.test.ts` carries the fifteen entries that
+`scripts/fixtures/ledger-invariant.sql` actually produced on Postgres, and
+asserts the builder nets to **9165 cents** -- the `true_net_cents` the
+database's own `ledger_reconciliation()` reported for the same rows. That ties
+the pure builder to a measurement rather than to a second copy of the same
+arithmetic. If the SQL derivation and the TypeScript builder ever drift, one of
+those two numbers moves.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -307,9 +366,10 @@ its contract into this note. Currently landed:
 - **US-2982** - the tax profile and the fiscal year, above.
 - **US-2983** - the chart of accounts and its Schedule C mapping, above.
 - **US-2984** - the ledger, its limits and its invariant, above.
+- **US-2985** - the P&L statement and the half-open period rules, above.
 
-Still open, and each will add a section here rather than a new note: COGS and the ending-inventory
-snapshot (US-2986), facilitator sales tax (US-2987), the 1099-K bridge
+Still open, and each will add a section here rather than a new note: COGS and
+the ending-inventory snapshot (US-2986), facilitator sales tax (US-2987), the 1099-K bridge
 (US-2988), the dated mileage and home-office rates (US-2989, US-2990),
 estimated tax (US-2991), period close (US-2995) and the QuickBooks account
 mapping (US-2997, US-2998).

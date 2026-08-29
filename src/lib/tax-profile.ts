@@ -322,6 +322,119 @@ export function periodStart(
   }
 }
 
+// ── Half-open ranges, for the P&L ──────────────────────────────────────────
+//
+// Everything below returns { from, to } where `to` is EXCLUSIVE. Half-open is
+// the only convention that composes: two adjacent periods share a boundary and
+// no day belongs to both, which is what makes a prior-period comparison add up
+// to the year.
+//
+// Dates are yyyy-mm-dd strings, because that is what `ledger_entries.entry_date`
+// is and what a `<input type="date">` produces. Comparing them as strings IS
+// comparing them as dates, with no parsing and no timezone to get wrong.
+
+export type PnlGranularity = "month" | "quarter" | "year" | "custom";
+
+export interface DateRange {
+  /** Inclusive yyyy-mm-dd. */
+  from: string;
+  /** EXCLUSIVE yyyy-mm-dd. */
+  to: string;
+  label: string;
+}
+
+/** Local date to yyyy-mm-dd. Never toISOString(), which shifts west of Greenwich. */
+export function ymd(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/** The range containing `on`, at the given granularity, honouring the fiscal year. */
+export function periodRange(
+  granularity: Exclude<PnlGranularity, "custom">,
+  startMonth: number,
+  on: Date,
+): DateRange {
+  switch (granularity) {
+    case "month": {
+      const from = new Date(on.getFullYear(), on.getMonth(), 1);
+      const to = new Date(on.getFullYear(), on.getMonth() + 1, 1);
+      return {
+        from: ymd(from),
+        to: ymd(to),
+        label: `${MONTH_LABELS[from.getMonth()]} ${from.getFullYear()}`,
+      };
+    }
+    case "quarter": {
+      const from = fiscalQuarterStart(on, startMonth);
+      const to = new Date(from.getFullYear(), from.getMonth() + 3, 1);
+      const yearStart = fiscalYearStart(on, startMonth);
+      const q =
+        Math.floor(
+          ((from.getFullYear() - yearStart.getFullYear()) * 12 +
+            (from.getMonth() - yearStart.getMonth())) /
+            3,
+        ) + 1;
+      return {
+        from: ymd(from),
+        to: ymd(to),
+        label: `Q${q} ${fiscalYearLabel(on, startMonth)}`,
+      };
+    }
+    case "year": {
+      const from = fiscalYearStart(on, startMonth);
+      const to = fiscalYearEnd(on, startMonth);
+      return {
+        from: ymd(from),
+        to: ymd(to),
+        label:
+          startMonth === 1
+            ? String(from.getFullYear())
+            : `Tax year ${fiscalYearLabel(on, startMonth)}`,
+      };
+    }
+  }
+}
+
+/**
+ * The period immediately before `range`, at the same granularity.
+ *
+ * For month, quarter and year this steps back one whole period, so the
+ * comparison is like for like. For a CUSTOM range it steps back by the range's
+ * own length -- 17 days compared against the 17 before them. That is the only
+ * defensible reading, and the screen says so, because "the previous period" for
+ * an arbitrary range is otherwise a guess the seller has to reverse-engineer.
+ */
+export function priorRange(
+  granularity: PnlGranularity,
+  startMonth: number,
+  range: DateRange,
+): DateRange {
+  const from = parseYmd(range.from);
+  if (granularity === "custom") {
+    const to = parseYmd(range.to);
+    const days = Math.round((to.getTime() - from.getTime()) / 86_400_000);
+    const priorFrom = new Date(from);
+    priorFrom.setDate(priorFrom.getDate() - days);
+    return {
+      from: ymd(priorFrom),
+      to: range.from,
+      label: `Previous ${days} day${days === 1 ? "" : "s"}`,
+    };
+  }
+  const step =
+    granularity === "month" ? 1 : granularity === "quarter" ? 3 : 12;
+  const priorOn = new Date(from.getFullYear(), from.getMonth() - step, 1);
+  return periodRange(granularity, startMonth, priorOn);
+}
+
+/** yyyy-mm-dd to a LOCAL Date at midnight. `new Date("2026-01-01")` is UTC; this is not. */
+export function parseYmd(s: string): Date {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
+}
+
 /** The label a period selector shows, so "This year" can say which year it means. */
 export function periodLabel(
   period: FiscalPeriod,

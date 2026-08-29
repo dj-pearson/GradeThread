@@ -90,8 +90,14 @@ export const RETIRED_NAV_REDIRECTS: Readonly<Record<string, string>> = {
 // US-2982 added "tax". It sits at the end because it is the least-visited and
 // most-consequential: a seller opens it once, answers five questions, and every
 // other view in Money starts reading the right twelve months.
+// US-2985 added "pnl". It sits SECOND, right after the dashboard: Finances
+// answers "how am I trending" with tiles and charts, and this answers "what
+// were my numbers" in the row order a preparer reads down. The two belong
+// beside each other, and the statement is the one a seller has to hand to
+// somebody else.
 export const MONEY_VIEWS = [
   "finances",
+  "pnl",
   "expenses",
   "reconcile",
   "tax",

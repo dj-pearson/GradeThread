@@ -2755,21 +2755,6 @@
       "priority": 30
     },
     {
-      "id": "US-2985",
-      "passes": false,
-      "title": "A real profit and loss statement: month, quarter, year, and the prior period beside it",
-      "description": "finances.tsx has KPI cards and six charts. It does not have an income statement, which is the one document an accountant, a lender or a buyer asks for by name. The charts answer 'how am I trending'. A P&L answers 'what were my numbers', in the row order a tax preparer reads down.",
-      "acceptanceCriteria": [
-        "A P&L view under Money: revenue, returns and allowances, net revenue, COGS, gross profit, operating expenses itemised by account, net profit. Rows in Schedule C order, not alphabetical.",
-        "Period selector: month, quarter, year, custom range, honouring the fiscal year from the tax profile.",
-        "Prior-period comparison column with the delta, because a number with nothing beside it is not information.",
-        "Every line drills through to the entries behind it. A number a seller cannot open is a number they will not trust.",
-        "Export to CSV and PDF reusing the existing download and escaping helpers (escapeCsvCell, US-1636 formula-injection guard).",
-        "Reads ledger_entries only. No second derivation."
-      ],
-      "priority": 34
-    },
-    {
       "id": "US-2986",
       "passes": false,
       "title": "COGS and ending inventory, because Schedule C Part III asks for a number nothing in the app can compute",
@@ -2987,21 +2972,6 @@
         "Parity is verified with the parity-auditor rather than asserted."
       ],
       "priority": 49
-    },
-    {
-      "id": "US-3006",
-      "passes": false,
-      "title": "src/lib/ledger.ts is a feature with no entry point: 7 exports, imported by nothing",
-      "description": "As a seller who was promised a ledger, I want the code that reads it to be reachable from a screen, so that the work that shipped is work I can use.",
-      "acceptanceCriteria": [
-        "FOUND 2026-08-29 by scripts/check-web-unwired.mjs, which failed the verify web lane. src/lib/ledger.ts (US-2984) exports seven symbols and is imported by nothing at all. Its own header describes reading ledger_entries from the browser, so it is an implementation rather than a spec.",
-        "IT IS NOT ALLOWLISTABLE, and the allowlist says so itself: every entry there is a spec or rule set whose consumer is a GUARD, and the docstring states that an IMPLEMENTATION landing there is not fine because \"an implementation nobody calls is a feature that does not run\". Adding it would be using the escape hatch against its stated purpose.",
-        "Wire it: the Books-and-Taxes epic already shipped src/pages/flipdesk/tax-setup.tsx, so the pattern for a page exists. A ledger surface that imports these seven exports is what the module was written for.",
-        "Or delete it, tests included, if the surface is not coming. Passing tests around an uncalled module prove it works, not that it runs - which is the distinction the check exists to draw.",
-        "The check is shrink-only, so whichever way it goes the resolution is permanent: wiring it or deleting it both make the entry stop matching.",
-        "CONTEXT WORTH CARRYING: this is the fourth finding in the same epic in one day, after the REVOKE crash vector (US-3002), thirteen per-row RLS policies (US-3005) and an unwired guard script. Three of the four were caught by guards firing on an unrelated push rather than on the epic own."
-      ],
-      "priority": 7
     }
   ]
 }
