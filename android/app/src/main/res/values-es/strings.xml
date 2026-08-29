@@ -995,8 +995,16 @@
     <string name="community_you_row">%1$d publicados · %2$d vendidos</string>
     <string name="community_tap_to_see">Toca para ver tus artículos de %1$s</string>
     <string name="community_brand_row">%1$d vendedores · %2$d de %3$d vendidos</string>
-    <string name="community_trend_up">Ventas suben %1$s en 30 días · %2$d vendedores</string>
-    <string name="community_trend_down">Ventas bajan %1$s en 30 días · %2$d vendedores</string>
+    <plurals name="community_trend_up">
+        <item quantity="one">Ventas suben %1$s en 30 días · %2$d vendedor</item>
+        <item quantity="many">Ventas suben %1$s en 30 días · %2$d de vendedores</item>
+        <item quantity="other">Ventas suben %1$s en 30 días · %2$d vendedores</item>
+    </plurals>
+    <plurals name="community_trend_down">
+        <item quantity="one">Ventas bajan %1$s en 30 días · %2$d vendedor</item>
+        <item quantity="many">Ventas bajan %1$s en 30 días · %2$d de vendedores</item>
+        <item quantity="other">Ventas bajan %1$s en 30 días · %2$d vendedores</item>
+    </plurals>
     <string name="community_trend_flat">%1$d vendidos en 30 días · %2$d vendedores</string>
     <string name="photos_more">Más</string>
     <string name="photos_duplicate_item">Duplicar artículo</string>

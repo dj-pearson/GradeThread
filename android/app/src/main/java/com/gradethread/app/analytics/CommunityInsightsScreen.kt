@@ -18,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
 import androidx.compose.ui.Modifier
@@ -85,7 +86,9 @@ fun CommunityInsightsScreen(
             BrandSecondaryButton(text = stringResource(R.string.community_refresh), modifier = Modifier.weight(1f)) {
                 viewModel.refresh()
             }
-            BrandSecondaryButton(text = stringResource(R.string.community_back), modifier = Modifier.weight(1f)) { onClose() }
+            BrandSecondaryButton(text = stringResource(R.string.community_back), modifier = Modifier.weight(1f)) {
+                onClose()
+            }
         }
     }
 }
@@ -189,10 +192,7 @@ private fun YouCard(state: CommunityInsightsViewModel.State, data: CommunityBenc
 }
 
 @Composable
-private fun RecommendationCard(
-    rec: CommunityRecommendation,
-    onOpenBrand: (String) -> Unit,
-) {
+private fun RecommendationCard(rec: CommunityRecommendation, onOpenBrand: (String) -> Unit) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -273,8 +273,9 @@ private fun CategoryRow(trend: CategoryTrend) {
             trend.growth?.let {
                 // Two whole sentences rather than a spliced up/down: the verb does not
                 // sit in the same place in every language.
-                stringResource(
-                    if (it >= 0) R.string.community_trend_up else R.string.community_trend_down,
+                pluralStringResource(
+                    if (it >= 0) R.plurals.community_trend_up else R.plurals.community_trend_down,
+                    trend.sellers,
                     Money.formatPercent(kotlin.math.abs(it)),
                     trend.sellers,
                 )

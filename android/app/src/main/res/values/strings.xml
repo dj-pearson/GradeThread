@@ -1094,8 +1094,14 @@
     <string name="community_you_row">%1$d listed \u00b7 %2$d sold</string>
     <string name="community_tap_to_see">Tap to see your %1$s items</string>
     <string name="community_brand_row">%1$d sellers \u00b7 %2$d of %3$d sold</string>
-    <string name="community_trend_up">Sales up %1$s over 30 days \u00b7 %2$d sellers</string>
-    <string name="community_trend_down">Sales down %1$s over 30 days \u00b7 %2$d sellers</string>
+    <plurals name="community_trend_up">
+        <item quantity="one">Sales up %1$s over 30 days \u00b7 %2$d seller</item>
+        <item quantity="other">Sales up %1$s over 30 days \u00b7 %2$d sellers</item>
+    </plurals>
+    <plurals name="community_trend_down">
+        <item quantity="one">Sales down %1$s over 30 days \u00b7 %2$d seller</item>
+        <item quantity="other">Sales down %1$s over 30 days \u00b7 %2$d sellers</item>
+    </plurals>
     <string name="community_trend_flat">%1$d sold in 30 days \u00b7 %2$d sellers</string>
 
     <!-- US-2368: photos screen text. -->

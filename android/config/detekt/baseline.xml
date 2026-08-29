@@ -221,7 +221,6 @@
     <ID>MaxLineLength:AutomationsScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.automations_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
     <ID>MaxLineLength:BulkPricingScreen.kt$BrandSecondaryButton(text = stringResource(R.string.bulkpricing_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
     <ID>MaxLineLength:BulkPricingScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.bulkpricing_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
-    <ID>MaxLineLength:CommunityInsightsScreen.kt$BrandSecondaryButton(text = stringResource(R.string.community_back), modifier = Modifier.weight(1f)) { onClose() }</ID>
     <ID>MaxLineLength:ConsignorsScreen.kt$BrandSecondaryButton</ID>
     <ID>MaxLineLength:ConsignorsScreen.kt$BrandSecondaryButton(text = stringResource(R.string.consignors_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
     <ID>MaxLineLength:ConsignorsScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.consignors_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
