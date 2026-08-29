@@ -10,13 +10,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
@@ -24,15 +24,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
-import com.gradethread.app.R
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gradethread.app.R
 import com.gradethread.app.ui.components.BarChart
 import com.gradethread.app.ui.components.BarDatum
 import com.gradethread.app.ui.components.GroupedBarChart
@@ -218,24 +220,37 @@ internal fun MoneyContent(
 
             // ── KPI row ──────────────────────────────────────────────────────────
             item {
+                val revenue = Money.format(state.metrics.revenueThisMonth)
+                val netProfit = Money.format(state.metrics.netProfitThisMonth)
+                // "—" rather than 0% when no cost basis is recorded.
+                val roi = Money.formatPercent(state.metrics.roiThisMonth)
+                // US-2979: ONE size for the row, chosen by its longest value.
+                // Sizing each tile independently is what the first fix did, and
+                // it left "124%" at full size beside two shrunken dollar
+                // figures - which reads as a mistake rather than as a fit.
+                val valueSize = kpiFontSize(
+                    maxOf(revenue.length, netProfit.length, roi.length),
+                )
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = Spacing.md),
                     horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
                 ) {
                     KpiTile(
                         label = stringResource(R.string.money_revenue_mo),
-                        value = Money.format(state.metrics.revenueThisMonth),
+                        value = revenue,
+                        valueSize = valueSize,
                         modifier = Modifier.weight(1f),
                     )
                     KpiTile(
                         label = stringResource(R.string.money_net_profit_mo),
-                        value = Money.format(state.metrics.netProfitThisMonth),
+                        value = netProfit,
+                        valueSize = valueSize,
                         modifier = Modifier.weight(1f),
                     )
                     KpiTile(
                         label = stringResource(R.string.money_roi_mo),
-                        // "—" rather than 0% when no cost basis is recorded.
-                        value = Money.formatPercent(state.metrics.roiThisMonth),
+                        value = roi,
+                        valueSize = valueSize,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -548,7 +563,7 @@ private fun Panel(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun KpiTile(label: String, value: String, modifier: Modifier = Modifier) {
+private fun KpiTile(label: String, value: String, valueSize: TextUnit, modifier: Modifier = Modifier) {
     val spoken = stringResource(R.string.money_tile_spoken, label, value)
     Card(modifier) {
         Column(Modifier.padding(Spacing.sm).semantics { contentDescription = spoken }) {
@@ -559,12 +574,49 @@ private fun KpiTile(label: String, value: String, modifier: Modifier = Modifier)
             )
             Text(
                 value,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium.copy(fontSize = valueSize),
                 fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                softWrap = false,
             )
         }
     }
 }
+
+/**
+ * One pass, decided from the string length, and NOT from measuring.
+ *
+ * ⚠ THE MEASURE-AND-RETRY VERSION SHIPPED A WORSE BUG THAN THE ONE IT FIXED,
+ * which is the whole reason this is written down. It rendered at the type scale,
+ * dropped a step on didOverflowWidth, and gated drawing behind a `fits` flag so
+ * the oversized frame was never painted. On a five-figure month the golden came
+ * back with the Revenue tile EMPTY - the flag had not settled by capture. A
+ * blank headline figure is worse than a wrapped one: a wrapped number is ugly
+ * and still readable, a missing one tells the seller nothing and reads as a data
+ * error.
+ *
+ * So the size is decided before layout and there is no gate left to fail.
+ *
+ * THE THRESHOLD IS MEASURED, NOT GUESSED. Three equal-width tiles in a 411dp row
+ * leave about 104dp inside the card padding, and at titleMedium the value ran
+ * out of room at eight characters - which is exactly how "$1,284.50" came to
+ * render as "$1,284.5" then "0". Eight is the boundary because that is where it
+ * broke.
+ *
+ * Truncation is deliberately not an option at any size: "$1,28…" is not a
+ * smaller revenue figure, it is a wrong one.
+ */
+private fun kpiFontSize(longestValue: Int): TextUnit = when {
+    longestValue <= KPI_CHARS_AT_FULL_SIZE -> 16.sp
+    longestValue <= KPI_CHARS_AT_REDUCED_SIZE -> 12.sp
+    else -> 10.sp
+}
+
+/** Where titleMedium ran out of tile: "$1,284.50" is 9 and it wrapped. */
+private const val KPI_CHARS_AT_FULL_SIZE = 8
+
+/** 12sp still fits a five-figure amount with cents ("$18,642.75" is 10). */
+private const val KPI_CHARS_AT_REDUCED_SIZE = 11
 
 @Composable
 private fun SourceRoiRowView(row: SourceRoiRow) {

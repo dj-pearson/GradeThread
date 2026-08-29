@@ -192,6 +192,31 @@ class MoneyScreenshotTest {
     @Test
     fun populated_dark() = capture("screen-money-populated-dark", dark = true) { Content(ui()) }
 
+    /**
+     * US-2979: a five-figure month, which is the size the KPI row broke worse at.
+     *
+     * The original defect wrapped $1,284.50 into "$1,284.5" and "0" because three
+     * equal-width tiles share the row and the first carries both the longest
+     * label and the longest value. populated_light covers the four-figure case
+     * that found it; this covers the one nothing covered, and it is the case that
+     * would hit the shrink-to-fit floor first if the floor were ever raised.
+     */
+    @Test
+    fun fiveFigureMonth_light() = capture("screen-money-bigmonth-light") {
+        Content(
+            ui(
+                state = state.copy(
+                    metrics = MoneyMetrics(
+                        revenueThisMonth = 18_642.75,
+                        netProfitThisMonth = 7_215.40,
+                        roiThisMonth = 1.24,
+                        monthlyRevenue = emptyList(),
+                    ),
+                ),
+            ),
+        )
+    }
+
     /** Day one. hasAnyData false replaces the whole list with one message. */
     @Test
     fun empty_light() = capture("screen-money-empty-light") {
