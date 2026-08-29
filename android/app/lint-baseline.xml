@@ -140,7 +140,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/com/gradethread/app/money/MoneyScreen.kt"
-            line="60"
+            line="61"
             column="5"/>
     </issue>
 
@@ -2037,7 +2037,7 @@
         errorLine2="               ^">
         <location
             file="src/main/java/com/gradethread/app/money/MoneyScreen.kt"
-            line="57"
+            line="58"
             column="16"/>
     </issue>
 

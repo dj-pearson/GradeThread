@@ -18,6 +18,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,6 +73,98 @@ fun MoneyScreen(
     val equityLoading by viewModel.equityLoading.collectAsStateWithLifecycle()
     val equityError by viewModel.equityError.collectAsStateWithLifecycle()
     androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.loadEquity() }
+    MoneyContent(
+        ui = MoneyUiState(
+            state = state,
+            sort = sort,
+            refreshing = refreshing,
+            refreshError = refreshError,
+            notice = notice,
+            equity = equity,
+            equityTrend = equityTrend,
+            equityLoading = equityLoading,
+            equityError = equityError,
+        ),
+        actions = MoneyActions(
+            onRefresh = viewModel::refresh,
+            onDismissRefreshError = viewModel::dismissRefreshError,
+            onDismissNotice = viewModel::dismissNotice,
+            onRetryEquity = viewModel::loadEquity,
+            onSetSort = viewModel::setSort,
+            onDeleteExpense = viewModel::deleteExpense,
+            onSaveExpense = viewModel::saveExpense,
+        ),
+        onOpenSales = onOpenSales,
+        onOpenPayouts = onOpenPayouts,
+        modifier = modifier,
+    )
+}
+
+/**
+ * US-2902 AC3: the nine flows this screen collects, as one value.
+ *
+ * WHY AN AGGREGATE AND NOT NINE PARAMETERS. MoneyViewModel exposes nine
+ * separate StateFlows rather than one state object, which is fine for the
+ * ViewModel and unworkable for a content function: nine of those plus seven
+ * callbacks plus two navigation lambdas is a signature nobody reads, and
+ * detekt's LongParameterList would refuse it anyway.
+ *
+ * The aggregate is built in the wrapper from the collected values, so the
+ * ViewModel's own API is untouched. @Immutable is honest here because every
+ * field is a read-only snapshot of a flow.
+ */
+@Immutable
+data class MoneyUiState(
+    val state: MoneyViewModel.State,
+    val sort: ItemProfitSort,
+    val refreshing: Boolean,
+    val refreshError: String?,
+    val notice: String?,
+    val equity: EquitySummary?,
+    val equityTrend: EquityTrend?,
+    val equityLoading: Boolean,
+    val equityError: String?,
+)
+
+/** Everything this screen can do, with defaults so a golden needs none of it. */
+@Immutable
+data class MoneyActions(
+    val onRefresh: () -> Unit = {},
+    val onDismissRefreshError: () -> Unit = {},
+    val onDismissNotice: () -> Unit = {},
+    val onRetryEquity: () -> Unit = {},
+    val onSetSort: (ItemProfitSort) -> Unit = {},
+    val onDeleteExpense: (String) -> Unit = {},
+    val onSaveExpense: (ExpenseDraft, () -> Unit) -> Unit = { _, _ -> },
+)
+
+/**
+ * The money screen with no ViewModel in it.
+ *
+ * The nine values are unpacked to locals immediately below rather than
+ * threaded through as ui.state, ui.sort and so on. That keeps the body
+ * identical to what it was before the split, which is the point: a refactor
+ * that also rewrites three hundred lines of layout is a refactor whose diff
+ * nobody can check.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun MoneyContent(
+    ui: MoneyUiState,
+    actions: MoneyActions,
+    onOpenSales: () -> Unit,
+    onOpenPayouts: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val state = ui.state
+    val sort = ui.sort
+    val refreshing = ui.refreshing
+    val refreshError = ui.refreshError
+    val notice = ui.notice
+    val equity = ui.equity
+    val equityTrend = ui.equityTrend
+    val equityLoading = ui.equityLoading
+    val equityError = ui.equityError
 
     var sheetDraft by remember { mutableStateOf<ExpenseDraft?>(null) }
     val sortedRows = remember(state.profitRows, sort) {
@@ -90,7 +183,7 @@ fun MoneyScreen(
     // pullable - that is the state a seller pulls from.
     PullToRefreshBox(
         isRefreshing = refreshing,
-        onRefresh = viewModel::refresh,
+        onRefresh = actions.onRefresh,
         // detekt ModifierParameter: the caller's modifier belongs on the
         // ROOT-most layout, and after this wrap that is the box, not the list.
         modifier = modifier.fillMaxSize(),
@@ -106,7 +199,7 @@ fun MoneyScreen(
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = viewModel::refresh, enabled = !refreshing) {
+                    TextButton(onClick = actions.onRefresh, enabled = !refreshing) {
                         Text(
                             stringResource(
                                 if (refreshing) R.string.common_refreshing else R.string.common_refresh,
@@ -117,10 +210,10 @@ fun MoneyScreen(
             }
 
             refreshError?.let { message ->
-                item { Banner(message, onDismiss = viewModel::dismissRefreshError) }
+                item { Banner(message, onDismiss = actions.onDismissRefreshError) }
             }
             notice?.let { message ->
-                item { Banner(message, onDismiss = viewModel::dismissNotice) }
+                item { Banner(message, onDismiss = actions.onDismissNotice) }
             }
 
             // ── KPI row ──────────────────────────────────────────────────────────
@@ -311,7 +404,7 @@ fun MoneyScreen(
                     trend = equityTrend,
                     loading = equityLoading,
                     errorMessage = equityError,
-                    onRetry = viewModel::loadEquity,
+                    onRetry = actions.onRetryEquity,
                 )
             }
             item {
@@ -338,7 +431,7 @@ fun MoneyScreen(
                     ItemProfitSort.entries.forEach { option ->
                         FilterChip(
                             selected = option == sort,
-                            onClick = { viewModel.setSort(option) },
+                            onClick = { actions.onSetSort(option) },
                             label = { Text(option.label) },
                         )
                     }
@@ -392,7 +485,7 @@ fun MoneyScreen(
                     ExpenseRowView(
                         expense = expense,
                         onEdit = { sheetDraft = ExpenseDraft.from(expense) },
-                        onDelete = { viewModel.deleteExpense(expense.id) },
+                        onDelete = { actions.onDeleteExpense(expense.id) },
                     )
                     HorizontalDivider()
                 }
@@ -404,7 +497,7 @@ fun MoneyScreen(
         ExpenseFormSheet(
             initial = draft,
             onDismiss = { sheetDraft = null },
-            onSave = { edited -> viewModel.saveExpense(edited) { sheetDraft = null } },
+            onSave = { edited -> actions.onSaveExpense(edited) { sheetDraft = null } },
         )
     }
 }
