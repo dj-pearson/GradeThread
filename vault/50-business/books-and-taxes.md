@@ -11,6 +11,8 @@ code_refs:
   - supabase/migrations/00685_ledger_entries.sql
   - src/lib/ledger-math.ts
   - scripts/check-ledger-invariant.mjs
+  - supabase/migrations/00686_ledger_rebuild_no_revoke.sql
+  - supabase/migrations/00687_ledger_rls_initplan.sql
 reviewed: 2026-08-29
 tags: [finance, tax, flipdesk, money]
 summary: The rules the Books and Taxes epic (US-2981) obeys - what each stored figure means, which form line it feeds, and the four things the app deliberately refuses to do.
@@ -239,6 +241,63 @@ mechanism, and the browser can write nothing else: the only INSERT policy on
 `ledger_entries` covers `source_kind = 'adjustment'`. A seller who could
 hand-author a `sale` entry could inflate the very number their 1099-K
 reconciliation is meant to check.
+
+## What is live in production
+
+All five migrations (00683-00687) were applied on **2026-08-29**. Three of them
+are confirmed by reading production rather than by trust: `tax_profiles`,
+`tax_profile_changes`, `ledger_accounts` and `ledger_entries` all appear in the
+prod PostgREST OpenAPI document, as do `rebuild_my_ledger`,
+`rebuild_ledger_for_user`, `ledger_reconciliation` and
+`default_account_for_category` — so the SQL landed and `NOTIFY pgrst` ran. The
+seeded chart reads back as **32 system accounts**, with `cash_payout` present,
+Part III complete (35, 36, 37, 38, 39, 41), and exactly three accounts
+deliberately carrying no line: `sales_tax_collected`, `cash_payout`,
+`uncategorised`.
+
+00686 (the grant) and 00687 (policy predicates) are **owner-confirmed only**.
+Neither a grant nor an RLS predicate is in the PostgREST schema cache, so there
+is no outside read that shows them, and the one direct probe for 00686 — calling
+the function as `anon` — is the outage it exists to remove.
+
+### The system chart is readable with the anon key, and that is fine
+
+The SELECT policy is `user_id IS NULL OR (select auth.uid()) = user_id`. For an
+unauthenticated caller `auth.uid()` is null, so the second arm is never true and
+the first one is: **anyone holding the public anon key can read the 32 system
+accounts.** Confirmed by doing it against production.
+
+That is acceptable and is recorded here so nobody re-discovers it as a scare.
+The rows are account codes and IRS line numbers — public reference data with no
+seller in it. The same read returns exactly 32 rows, which is the seed and
+nothing more, so no seller's own sub-accounts leak. It was a consequence of the
+policy rather than a decision, though, and this paragraph is the decision.
+
+### Three defects shipped in these migrations, and all three were caught by guards
+
+Worth keeping, because the pattern is more useful than any one of them. The
+epic's first three migrations went in inside an hour and each tripped an
+existing check on the way out:
+
+- **US-3002** — 00685 ended with `REVOKE ALL ON FUNCTION ... FROM public`. On
+  this Postgres image a denied `EXECUTE` from `anon` segfaults the backend and
+  restarts the database, taking every other session with it, and PostgREST
+  exposes the function. Caught by `us2403-function-revoke-gate`, fixed by 00686,
+  which moves the authorization into the function body. See
+  [[postgres-revoke-from-anon-is-a-noop]] for the wider rule — it already
+  existed, and this still happened.
+- **US-3005** — thirteen policies written as `auth.uid() = user_id` rather than
+  `(select auth.uid()) = user_id`, so the planner re-evaluates per row. On
+  `ledger_entries`, which gets nine rows per completed sale, that is the table
+  the rule exists for. Caught by `rls-guard_test.ts` (US-1927 AC1), fixed by
+  00687.
+- **US-3006** — `src/lib/ledger.ts` has seven exports and no importer: the
+  reading half of the ledger shipped with no entry point. US-2985 is where it
+  gets one.
+
+The lesson is not "add more guards". It is that three migrations written in one
+sitting got less review than one migration written alone, and the guards were
+the only thing standing between that and production.
 
 ## Where the rest of the epic is written down
 

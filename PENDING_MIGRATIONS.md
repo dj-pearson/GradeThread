@@ -1,6 +1,13 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## HELD: 00687_ledger_rls_initplan.sql (US-3005)
+## ✅ APPLIED: 00687_ledger_rls_initplan.sql (US-3005, applied 2026-08-29)
+
+> **Owner-confirmed, not read from the database.** The same distinction the
+> 00682 entry draws, and it matters here more than usual: this migration changes
+> only RLS policy predicates, which are not part of the PostgREST schema cache
+> and are not visible in the OpenAPI document. There is no read that confirms it
+> from outside the database. What is recorded is who said so and when.
+
 
 **Risk if NOT applied: LOW but growing.** Thirteen RLS policies on tax_profiles,
 tax_profile_changes, ledger_accounts and ledger_entries re-evaluate auth.uid()
@@ -20,7 +27,24 @@ writing a fake 'sale' row. Every DROP is IF EXISTS, so it is safe to run twice.
 
 **After applying:** no NOTIFY needed - policies are not part of the schema cache.
 
-## HELD: 00686_ledger_rebuild_no_revoke.sql (US-3002)
+## ✅ APPLIED: 00686_ledger_rebuild_no_revoke.sql (US-3002, applied 2026-08-29)
+
+> **Owner-confirmed, not read from the database.** The signature of
+> `rebuild_ledger_for_user` is unchanged by this migration, so its presence in
+> the production OpenAPI document proves nothing either way — a grant is not in
+> the schema cache. And the only direct probe, calling the function as `anon`,
+> IS the outage this migration exists to remove. So there is deliberately no
+> verification here beyond the owner saying it was applied.
+>
+> **What this closes and what it does not.** It removes THIS instance: the
+> `REVOKE` that 00685 left on a PostgREST-exposed function. It does nothing
+> about the class — on this Postgres image, any denied `EXECUTE` from `anon` or
+> `authenticated` still segfaults the backend and restarts the database, taking
+> every other connected session with it. That is [US-2403](prd.json), and the
+> host-level defusal (`supautils.hint_roles = ''` in
+> `/etc/postgresql-custom/supautils.conf`, then restart Postgres) cannot be done
+> from SQL and cannot be carried by any commit in this repo.
+
 
 ⚠ **APPLY THIS ONE FIRST. It removes a live crash vector, it does not add one.**
 

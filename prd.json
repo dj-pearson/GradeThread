@@ -2989,38 +2989,6 @@
       "priority": 49
     },
     {
-      "id": "US-3002",
-      "passes": false,
-      "title": "A REVOKE in 00685 puts a database restart one unauthenticated request away, and it is applied in prod",
-      "description": "As anyone relying on this service staying up, I want no function on this stack to answer a permission denial, so that a stray request cannot restart the production database.",
-      "acceptanceCriteria": [
-        "FOUND 2026-08-29 by the us2403-function-revoke-gate test, which blocked a push and was right to. 00685_ledger_entries.sql ends with REVOKE ALL ON FUNCTION public.rebuild_ledger_for_user(uuid) FROM public, and that migration is ALREADY APPLIED in production.",
-        "WHY IT IS SEVERE: on this Postgres image supautils appends a GRANT hint to a permission error, and a DENIED call from anon or authenticated segfaults the backend and restarts the whole database (US-2403). PostgREST exposes the function at /rpc/rebuild_ledger_for_user - confirmed PRESENT in the production OpenAPI document, read with the public anon key. anon ships in the browser bundle. NOT probed by calling it: the call is the crash.",
-        "IT ALSO BREAKS THE FEATURE IT GUARDS. rebuild_my_ledger() is SECURITY INVOKER, so it needs EXECUTE as the CALLING role. With execute revoked from public, every authenticated seller pressing rebuild takes the denial path - so the crash sits on the ordinary user-facing route, not on an admin corner.",
-        "FIX WRITTEN: 00686_ledger_rebuild_no_revoke.sql restores the default EXECUTE and moves the authorization into the function body, raising an ordinary 42501. Tenant isolation is preserved and now explicit: service role may rebuild anyone, a signed-in seller may rebuild only their own. Same shape 00612 uses.",
-        "OPERATOR: apply 00686 to prod. It removes a live crash vector rather than adding one, so it is safe to apply ahead of the code that ships with it.",
-        "00685 is registered in the revoke gate ALLOWED map with the reason - because the text stays in an applied migration, NOT because the pattern is acceptable. Do not read that entry as precedent.",
-        "WORTH A SECOND LOOK: the ledger epic added three migrations in under an hour and this shipped in the third. Check 00683 and 00684 for the same pattern before the epic closes."
-      ],
-      "priority": 1,
-      "notes": "2026-08-29 THE CRASH IS DEMONSTRATED, NOT CITED — and it is worse than this\nstory says. There is also a permanent fix that is NOT a migration.\n\nscripts/db-denied-rpc-crash-check.mjs ran in the verify db lane today against\nthe local stack and reported a live reproduction:\n\n  - the connection was dropped mid-statement (the crash signature)\n  - the server log gained a backend-crash / recovery line during the call —\n    EVERY OTHER CONNECTED SESSION WAS TERMINATED TOO\n  - no clean \"permission denied for function\" error was returned\n\n⚠ THE SECOND BULLET IS THE ONE THIS STORY UNDERSTATED. I wrote it up as a\ndenial-of-service reachable by any visitor, which is true, and the blast\nradius is bigger: it is not the calling session that dies, it is the whole\nbackend and every other session on it. One unauthenticated request to\n/rpc/rebuild_ledger_for_user takes out every seller currently using the app.\n\nAND THERE IS A HOST-LEVEL MITIGATION THAT DEFUSES THE WHOLE CLASS, verified\n2026-08-08 on public.ecr.aws/supabase/postgres:17.6.1.106 and printed by the\ncheck itself:\n\n  set `supautils.hint_roles = ''` in /etc/postgresql-custom/supautils.conf\n  and restart Postgres.\n\nThe hint only appends a GRANT suggestion to the error message, so clearing it\ncosts nothing. It CANNOT be done from SQL — supautils rejects ALTER SYSTEM on\nthat parameter even as superuser — so it is a config change on the host, not a\nmigration and not something any commit here can carry.\n\nWHY THAT MATTERS BEYOND THIS STORY: 00686 removes ONE crash surface. The\nconfig change removes the mechanism, so the next REVOKE anyone writes — and\n00527 is parked precisely because of this — stops being a production incident\nwaiting to happen. It also retires the reason the no-revoke rule exists at all.\n\nOPERATOR, TWO THINGS, and the second is the durable one:\n  1. Apply 00686. It closes the surface that exists today.\n  2. Read `supautils.hint_roles` on the PROD host and clear it if set. The\n     local stack reports \"anon, authenticated, service_role\", which is the\n     unmitigated default; whether prod matches is not observable from here.\n\nNOT CLAIMED: that prod crashes. The reproduction is on the local stack, which\nruns the same image family and the same default. That is strong evidence and\nit is not a prod measurement, and the way to settle it is (2) above rather\nthan by calling the route."
-    },
-    {
-      "id": "US-3005",
-      "passes": false,
-      "title": "Thirteen Books-and-Taxes RLS policies re-evaluate auth.uid() per row, on the table that gets nine rows per sale",
-      "description": "As a seller opening the ledger after a year of selling, I want the row filter evaluated once rather than once per row, so that the screen does not get slower every month I use the product.",
-      "acceptanceCriteria": [
-        "FOUND 2026-08-29 by rls-guard_test.ts, US-1927 AC1, which failed a push. 00683, 00684 and 00685 wrote thirteen policies as `auth.uid() = user_id`. Inside an RLS policy a bare auth.uid() is a volatile call the planner re-evaluates PER ROW; `(select auth.uid())` is an InitPlan evaluated once per statement.",
-        "ledger_entries is the table this rule exists for. The derivation writes NINE rows per completed sale, so a seller with a year of history reads thousands of rows on one screen and pays for the call on every one.",
-        "FIXED by 00687, which DROP-then-CREATEs all thirteen. The predicates are otherwise untouched: this is a planner fix, not a permissions change. `Read system and own accounts` keeps its `user_id IS NULL OR` arm and the three ledger_entries write policies keep `source_kind = 'adjustment'`, which is what stops a seller hand-writing a 'sale' row.",
-        "00683/00684/00685 are registered in INITPLAN_EXEMPT with the reason - because the guard reads the SOURCE and a later corrective migration cannot satisfy it, NOT because the form is acceptable. The entry says so explicitly, and says that a fourth migration tripping the guard should be written correctly rather than added to the list.",
-        "OPERATOR: apply 00687 to prod. It is DROP/CREATE POLICY only - no data, no schema change - and safe to run twice.",
-        "THE THIRD DEFECT IN THE SAME THREE MIGRATIONS, after US-3002's REVOKE and this. All three shipped inside an hour and were applied before review. Worth a look at how that epic's migrations are being checked before it adds more."
-      ],
-      "priority": 6
-    },
-    {
       "id": "US-3006",
       "passes": false,
       "title": "src/lib/ledger.ts is a feature with no entry point: 7 exports, imported by nothing",
