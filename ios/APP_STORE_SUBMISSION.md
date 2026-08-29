@@ -472,6 +472,50 @@ and Cleared for Sale per §6.3 before submitting.
 
 ---
 
+
+## Analytics consent and the privacy nutrition label
+
+US-2914. **Analytics is not on by default outside the United States**, and that
+is a different declaration from "collected by default" — which is what this app
+did until that story landed and what an earlier version of
+`android/PLAY_STORE_SUBMISSION.md` wrongly said iOS did *not* do.
+
+The rule, ported from `src/lib/consent-regime.ts` (web, US-2513) and
+`ConsentRegime.kt` (Android, US-2897) and living in
+`ios/GradeThread/Telemetry/ConsentRegime.swift`:
+
+| Where the seller is | Analytics before they are asked |
+|---|---|
+| United States | on (CCPA/CPRA notice-and-opt-out) |
+| EU, UK, Switzerland, everywhere else | off until they turn it on |
+| Country unknown — VPN, Tor, offline, lookup failed | off (fails safe) |
+
+An explicit choice always wins: a seller who turned it **off** stays off in the
+US, and one who turned it **on** stays on in the EU.
+
+**What to answer in App Store Connect.** *Analytics → Product Interaction* stays
+**collected**, and it is still **not linked to identity for tracking** — the
+identifier is the account id and no email or advertising identifier is attached. The
+change is that collection is now conditional on consent outside the US, so the
+"Data is used for tracking" answer remains **No** and the analytics purpose
+remains declared. Do not remove the analytics declaration: it is collected for
+some sellers, and a label that under-declares is as wrong as one that
+over-declares.
+
+**Crash reporting is separate and unconditional.** Sentry starts immediately at
+launch regardless of the regime — crash reporting is operational rather than
+product analytics, is declared non-optional in both stores' privacy forms, and
+the crash most worth having is the one in the first second of a cold start,
+which is inside the window the geo lookup occupies.
+
+**The geo lookup sends nothing.** `https://gradethread.com/geo.json` is a
+Cloudflare Pages Function reading the country off the network path the request
+already takes — no third-party IP-geolocation service, no body, no cookie, no
+identifier, and the answer is never written to disk. It must be the **Pages**
+site: `functions.gradethread.com` runs on Coolify behind no Cloudflare edge, so
+it could only ever answer "unknown", which fails safe and would therefore look
+exactly like it was working.
+
 ## 7. App Privacy (nutrition labels)
 
 Transcribe `ios/fastlane/metadata/PRIVACY_LABELS.md` into ASC → App Privacy.

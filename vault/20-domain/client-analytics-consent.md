@@ -8,16 +8,18 @@ code_refs:
   - android/app/src/main/java/com/gradethread/app/platform/telemetry/ConsentRegime.kt
   - android/app/src/main/java/com/gradethread/app/platform/telemetry/GeoService.kt
   - android/app/src/main/java/com/gradethread/app/platform/telemetry/Telemetry.kt
+  - ios/GradeThread/Telemetry/ConsentRegime.swift
   - ios/GradeThread/Telemetry/Telemetry.swift
-reviewed: 2026-08-26
+reviewed: 2026-08-28
 tags: [privacy, consent, telemetry, analytics, android, ios, contract]
 summary: One consent rule for every GradeThread client - product analytics is opt-in everywhere except the United States, failing safe to opt-in when the country is unknown, with crash reporting deliberately outside the toggle.
 ---
 
 # Client analytics consent regime
 
-Decided 2026-08-25 (owner). Web decided it first in US-2513; Android ported it in
-US-2897; iOS is the remaining client and is tracked as US-2914.
+Decided 2026-08-25 (owner). Web decided it first in US-2513, Android ported it in
+US-2897, and iOS followed in US-2914 (2026-08-28). **All three clients now
+implement the same rule.**
 
 ## The rule
 
@@ -85,14 +87,27 @@ Differences are allowed; undocumented ones are not.
 
 | | Web | Android | iOS |
 |---|---|---|---|
-| Location-aware regime | yes (US-2513) | yes (US-2897) | **not yet** - US-2914 |
+| Location-aware regime | yes (US-2513) | yes (US-2897) | yes (US-2914) |
 | Global Privacy Control honoured | yes | n/a - no browser signal exists | n/a |
 | "Your Privacy Choices" affordance | shown under opt-out | n/a - the toggle is always visible in Settings, so the right is never harder to exercise than the banner makes it | n/a |
 | Granular categories | yes (cookie banner) | no - one analytics toggle, because there is one non-essential collector | no |
 
-Until US-2914 lands, `ios/APP_STORE_SUBMISSION.md` must say iOS is opt-out
-worldwide rather than imply parity. Two store documents describing one product
-differently is the failure that produced the correction below.
+`ios/APP_STORE_SUBMISSION.md` now carries the rule and what to answer in App
+Store Connect, and `android/PLAY_STORE_SUBMISSION.md` no longer says iOS is the
+odd one out. Two store documents describing one product differently is the
+failure that produced the correction below, so both were changed in the commit
+that made them true rather than after it.
+
+The iOS port lives in `ios/GradeThread/Telemetry/ConsentRegime.swift` and its
+test cases mirror `ConsentRegimeTest.kt` one for one, so a divergence between
+the clients reads as "they disagree" rather than as a bug in whichever was read
+last. Two things it had to get right that the other clients had already met:
+the stored choice is tri-state, so "never asked" is distinguishable from "said
+no" (`?? true` was the defect and `?? false` would have been a different one),
+and the Settings toggle re-reads after the regime resolves rather than at view
+construction - a one-shot read renders whatever was true before the answer
+arrived and stays there, which on Android showed "off" while analytics came on a
+moment later.
 
 ## Existing sellers were not silently switched, because there are none
 

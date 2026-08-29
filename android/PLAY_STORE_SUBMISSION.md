@@ -59,9 +59,12 @@ location-aware since US-2513 while both phones were not, so an EU seller on a
 phone got a posture the web side had already decided was unacceptable for them,
 under one shared privacy policy.
 
-Android now mirrors the web. **iOS still does not** — it remains opt-out
-worldwide, tracked as US-2914, and `ios/APP_STORE_SUBMISSION.md` must say so
-until that lands rather than implying parity.
+**All three clients now agree.** Android mirrored the web in US-2897 and iOS
+followed in US-2914, so the rule is the same everywhere: opt-in outside the US,
+opt-in whenever the country is unknown, and an explicit choice honoured under
+either regime. `ios/GradeThread/Telemetry/ConsentRegime.swift` is the Swift
+port; its test cases mirror `ConsentRegimeTest.kt` one for one, so a divergence
+reads as "the clients disagree" rather than as a bug in whichever was read last.
 
 The rule itself, the three-client comparison and the reasoning live in
 `vault/20-domain/client-analytics-consent.md`. That note is the source of truth;

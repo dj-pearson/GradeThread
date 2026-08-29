@@ -43,13 +43,43 @@ public enum Telemetry {
     private static let analyticsToggleKey = "com.gradethread.app.analytics.enabled"
     private static var didInitialize = false
 
-    /// User-facing analytics toggle. Opt-out, on by default; the user can
-    /// disable it in Settings → Analytics. Flipping it false stops PostHog
-    /// events (Sentry crashes still go through — that's the AC).
+    /// The regime resolved at launch, or nil while the lookup is still running.
+    ///
+    /// nil means UNRESOLVED and is treated as `.optIn` everywhere it is read,
+    /// which is the same fail-safe the other two clients use: the window before
+    /// the answer arrives must not be the permissive one.
+    private static var resolvedRegime: ConsentRegime?
+
+    /// What the seller has actually said, TRI-STATE.
+    ///
+    /// nil is the case that used to be hard-coded to "on": never asked, never
+    /// touched the toggle, so the regime decides. An explicit false is never
+    /// overridden by an opt-out jurisdiction, and an explicit true is honoured
+    /// in an opt-in one.
+    static var explicitAnalyticsChoice: Bool? {
+        UserDefaults.standard.object(forKey: analyticsToggleKey).flatMap { $0 as? Bool }
+    }
+
+    /// User-facing analytics toggle.
+    ///
+    /// US-2914: no longer "on by default". The answer is the seller's own
+    /// choice when they have made one, and otherwise the consent regime for
+    /// where they are - opt-in everywhere except the US, and opt-in whenever
+    /// the country is unknown. `?? true` is the expression that was here and
+    /// is precisely what was wrong; `?? false` would be a different wrong
+    /// answer, silently opting a US seller out of something they never objected
+    /// to while the store privacy forms say analytics is collected there.
+    ///
+    /// Sentry is unaffected - crash reporting is operational rather than
+    /// product analytics, is declared non-optional in both stores' privacy
+    /// forms, and a crash in the first second of a cold start is the one most
+    /// worth having.
     public static var isAnalyticsEnabled: Bool {
         get {
-            UserDefaults.standard.object(forKey: analyticsToggleKey)
-                .flatMap { ($0 as? Bool) } ?? true
+            Consent.analyticsAllowed(
+                regime: resolvedRegime ?? .optIn,
+                explicitChoice: explicitAnalyticsChoice
+            )
         }
         set {
             UserDefaults.standard.set(newValue, forKey: analyticsToggleKey)
@@ -67,8 +97,34 @@ public enum Telemetry {
     public static func bootstrap() {
         guard !didInitialize else { return }
         didInitialize = true
+        // Sentry FIRST and unconditionally (DSN permitting). It is not gated on
+        // the regime: crash reporting is operational, and the crash most worth
+        // having is the one in the first second of a cold start - which is
+        // inside the window the geo lookup occupies.
         startSentry()
-        startPostHog()
+        // PostHog waits for the regime. Starting it first and stopping it later
+        // would mean events already sent for a seller the answer turns out to
+        // protect, which is the whole defect.
+        Task { @MainActor in
+            await resolveConsentRegime()
+            if isAnalyticsEnabled { startPostHog() }
+        }
+    }
+
+    /// Resolve the consent regime once, from the coarse country signal.
+    ///
+    /// Separated from `bootstrap` so a test can drive it, and so the Settings
+    /// toggle has something to await rather than reading a value that has not
+    /// settled yet.
+    static func resolveConsentRegime() async {
+        guard resolvedRegime == nil else { return }
+        let geo = await GeoService.shared.signal()
+        resolvedRegime = Consent.regime(for: geo)
+    }
+
+    /// Test hook: set the regime without a network call.
+    static func setResolvedRegimeForTests(_ regime: ConsentRegime?) {
+        resolvedRegime = regime
     }
 
     // MARK: - User context

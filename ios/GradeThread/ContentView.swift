@@ -2363,7 +2363,22 @@ private struct AppLockToggleSection: View {
 /// not analytics, and users typically expect crash reports to keep
 /// flowing even with analytics off.
 private struct AnalyticsToggleSection: View {
+    /// US-2914 AC5: seeded from the CURRENT answer and re-read once the consent
+    /// regime settles.
+    ///
+    /// This used to be the whole story - a single `= Telemetry.isAnalyticsEnabled`
+    /// at view construction. That was correct while the answer was a constant
+    /// `?? true`. It is not correct now: the regime resolves asynchronously
+    /// from a network lookup, so a one-shot read renders whatever was true
+    /// before the answer arrived and stays there. On Android that was a real
+    /// trap - the toggle showed "off" while analytics came on a moment later,
+    /// which is the worst possible direction for a privacy control to lie in.
     @State private var isEnabled: Bool = Telemetry.isAnalyticsEnabled
+    /// Guards the write-back. `onChange` cannot tell a user's tap from the
+    /// refresh below, and without this the refresh would write the resolved
+    /// value into UserDefaults as though the seller had chosen it - turning
+    /// "never asked" into an explicit choice they never made, permanently.
+    @State private var didResolve = false
 
     var body: some View {
         Section {
@@ -2371,7 +2386,13 @@ private struct AnalyticsToggleSection: View {
                 Label("Share product analytics", systemImage: "chart.bar.xaxis")
             }
             .onChange(of: isEnabled) { _, newValue in
+                guard didResolve else { return }
                 Telemetry.isAnalyticsEnabled = newValue
+            }
+            .task {
+                await Telemetry.resolveConsentRegime()
+                isEnabled = Telemetry.isAnalyticsEnabled
+                didResolve = true
             }
         } header: {
             Text("Analytics")
