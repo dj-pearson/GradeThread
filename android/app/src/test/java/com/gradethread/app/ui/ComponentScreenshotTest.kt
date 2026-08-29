@@ -44,6 +44,13 @@ import org.robolectric.annotation.GraphicsMode
  * graph, and the result asserts mostly on the fake. Components have no state to
  * fake, so what fails is always a real visual change.
  *
+ * US-2902 AC3 QUALIFIED THAT, and ScreenScreenshotTest is the other half. The
+ * paragraph above holds for the 49 screens that take
+ * `viewModel: X = hiltViewModel()`. It does not hold for a screen whose entire
+ * input is lambdas — there is no graph to fake — so those live in that file.
+ * Covering the six screens AC3 actually names needs a stateless
+ * `XScreenContent(state, callbacks)` extracted from each first.
+ *
  * Pixel5 qualifiers rather than the default: an unpinned density and width make
  * the golden depend on Robolectric's defaults, which move between versions.
  */
