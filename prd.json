@@ -2989,21 +2989,6 @@
       "priority": 49
     },
     {
-      "id": "US-3001",
-      "passes": false,
-      "title": "A real tap never reaches the bulk action chips on Android, so a seller taps Create draft and nothing happens",
-      "description": "As a seller who has just multi-selected a pile of items, I want tapping a bulk action to run it, so that the selection I built is worth building.",
-      "acceptanceCriteria": [
-        "FOUND 2026-08-29 by the US-2902 AC5 instrumented flow test, on a real API 36 emulator. The evidence is a clean split: performSemanticsAction(OnClick) on a bulk chip fires the handler with the right selection every time, and performClick() on the SAME node fires nothing. The node passes assertIsDisplayed() and assertHasClickAction() immediately before the tap, so it is on screen, not clipped, and carries a click action.",
-        "IT IS NOT A GENERAL TOUCH PROBLEM IN THAT SCREEN, which is what makes it worth chasing. The sibling case in the same file taps a LIST ROW inside the same PullToRefreshBox and passes - the tap opens the item. So touches reach the list; they do not reach the action bar above it.",
-        "FIRST QUESTION, and it decides everything after: is this the app or the harness? The test composes InventoryListContent directly in a bare ComponentActivity, so it is not proof about the shipped screen on its own. Reproduce by hand on the emulator - multi-select two items, tap Create draft - before writing any fix. If a hand tap works, the defect is in the test harness and this story becomes a note on the test.",
-        "IF IT REPRODUCES BY HAND, the first suspect is US-2910 AC3, which wrapped this whole screen in PullToRefreshBox. A pull gesture that claims the down event would explain a chip that looks tappable and is not, and would explain why rows inside the LazyColumn still work while the bar above it does not. Check whether the bar needs to sit outside the PullToRefreshBox, or whether the gesture needs to yield to a child that has a click action.",
-        "The regression test already exists and is one line from being the right one: InventoryBulkSelectFlowTest uses performSemanticsAction with a comment naming this story. Switch it back to performClick as part of the fix, so the touch itself is what is proven rather than the wiring.",
-        "Check the same interaction on the OTHER bars that sit in that Column - BulkUndoBar and BulkResultBar both render in the same position under the same PullToRefreshBox, and an undo the seller cannot tap inside its six-second window is worse than a bulk action they can retry."
-      ],
-      "priority": 5
-    },
-    {
       "id": "US-3002",
       "passes": false,
       "title": "A REVOKE in 00685 puts a database restart one unauthenticated request away, and it is applied in prod",

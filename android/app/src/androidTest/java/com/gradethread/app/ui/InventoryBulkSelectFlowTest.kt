@@ -1,7 +1,6 @@
 package com.gradethread.app.ui
 
 import androidx.activity.ComponentActivity
-import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -10,7 +9,6 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.gradethread.app.inventory.BulkAction
@@ -158,15 +156,14 @@ class InventoryBulkSelectFlowTest {
         // The bar agrees the selection is two.
         rule.onNodeWithText("2 selected", substring = true).assertExists()
 
-        // ⚠ SemanticsActions.OnClick, NOT performClick, AND THAT IS A FINDING
-        // RATHER THAN A CONVENIENCE. See US-3001: on this device a real touch
-        // never reaches these chips, though they are displayed and carry a
-        // click action, while a touch on a ROW in the same container works.
-        // Invoking the action directly proves the WIRING below is right, which
-        // is what this test is for; the touch itself is the separate defect.
+        // A REAL TAP. It was performSemanticsAction until US-3001 was found
+        // and fixed: PullToRefreshBox is a Box, so the bars and the list
+        // stacked on one layer and the list - fillMaxSize, drawn last -
+        // covered them. The chips were visible and untappable. Keep this a
+        // real tap; it is the assertion that would have caught it.
         rule.onNodeWithTag(TestTags.Inventory.bulkAction(BulkAction.Grade.id))
             .assertIsDisplayed()
-            .performSemanticsAction(SemanticsActions.OnClick)
+            .performClick()
         rule.waitForIdle()
 
         assertNotNull("onBulkGrade never fired at all", gradedIds)
@@ -184,7 +181,7 @@ class InventoryBulkSelectFlowTest {
         // Create draft is the ordinary route. The selection survives Grade, so
         // both ids are still live here.
         rule.onNodeWithTag(TestTags.Inventory.bulkAction(BulkAction.CreateDraft.id))
-            .performSemanticsAction(SemanticsActions.OnClick)
+            .performClick()
         rule.waitForIdle()
 
         assertNotNull("onRunBulk never fired for Create draft", ranAction)

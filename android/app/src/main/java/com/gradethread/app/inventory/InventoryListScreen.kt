@@ -365,59 +365,70 @@ internal fun InventoryListContent(
             onRefresh = actions.onRefresh,
             modifier = Modifier.fillMaxSize(),
         ) {
-            // US-1348: the real action bar replaces US-1339's minimal one.
-            if (selecting) {
-                BulkActionBar(
-                    modifier = Modifier.testTag(TestTags.Inventory.BULK_BAR),
-                    selectedCount = selection.size,
-                    stage = stage,
-                    busy = bulkBusy,
-                    onClear = { selection = emptySet() },
-                    onAction = { action ->
-                        if (action == BulkAction.Grade) {
-                            // Grading needs a tier, readiness and credits —
-                            // that is the US-1339 sheet's whole job, so it is
-                            // intercepted rather than run by the executor.
-                            onBulkGrade(selection.toList())
-                        } else {
-                            actions.onRunBulk(action, selection.toList()) {
-                                selection = emptySet()
+            // US-3001: a COLUMN, and the missing one was a real bug.
+            //
+            // PullToRefreshBox is a Box, so its children STACK. The action
+            // bar, the undo bar, the result bar and the list all landed on
+            // the same layer with the list - which is fillMaxSize and drawn
+            // last - on top of the bars. They were visible through it and
+            // could not be tapped, so an Undo inside its six-second window
+            // was unreachable. A screen golden shows the undo bar rendering
+            // through the first row.
+            Column(Modifier.fillMaxSize()) {
+                // US-1348: the real action bar replaces US-1339's minimal one.
+                if (selecting) {
+                    BulkActionBar(
+                        modifier = Modifier.testTag(TestTags.Inventory.BULK_BAR),
+                        selectedCount = selection.size,
+                        stage = stage,
+                        busy = bulkBusy,
+                        onClear = { selection = emptySet() },
+                        onAction = { action ->
+                            if (action == BulkAction.Grade) {
+                                // Grading needs a tier, readiness and credits —
+                                // that is the US-1339 sheet's whole job, so it is
+                                // intercepted rather than run by the executor.
+                                onBulkGrade(selection.toList())
+                            } else {
+                                actions.onRunBulk(action, selection.toList()) {
+                                    selection = emptySet()
+                                }
                             }
-                        }
-                    },
-                )
-            }
-            bulkUndo?.let { undo ->
-                BulkUndoBar(
-                    undo = undo,
-                    onUndo = actions.onUndoBulk,
-                    onDismiss = actions.onDismissBulkUndo,
-                )
-            }
-            bulkResult?.let { result ->
-                BulkResultBar(result = result, onDismiss = actions.onDismissBulkResult)
-            }
-            when (viewMode) {
-                InventoryViewMode.LIST -> InventoryList(
-                    visible,
-                    photoItemIds,
-                    onGrade,
-                    onOpenReport,
-                    onOpenItem,
-                    selection,
-                    selecting,
-                    { id -> selection = toggle(selection, id) },
-                )
-                InventoryViewMode.BOARD -> InventoryBoard(
-                    visible,
-                    photoItemIds,
-                    onGrade,
-                    onOpenReport,
-                    onOpenItem,
-                    selection,
-                    selecting,
-                    { id -> selection = toggle(selection, id) },
-                )
+                        },
+                    )
+                }
+                bulkUndo?.let { undo ->
+                    BulkUndoBar(
+                        undo = undo,
+                        onUndo = actions.onUndoBulk,
+                        onDismiss = actions.onDismissBulkUndo,
+                    )
+                }
+                bulkResult?.let { result ->
+                    BulkResultBar(result = result, onDismiss = actions.onDismissBulkResult)
+                }
+                when (viewMode) {
+                    InventoryViewMode.LIST -> InventoryList(
+                        visible,
+                        photoItemIds,
+                        onGrade,
+                        onOpenReport,
+                        onOpenItem,
+                        selection,
+                        selecting,
+                        { id -> selection = toggle(selection, id) },
+                    )
+                    InventoryViewMode.BOARD -> InventoryBoard(
+                        visible,
+                        photoItemIds,
+                        onGrade,
+                        onOpenReport,
+                        onOpenItem,
+                        selection,
+                        selecting,
+                        { id -> selection = toggle(selection, id) },
+                    )
+                }
             }
         }
     }
