@@ -58,7 +58,11 @@ class GradeThreadApp :
         // US-1309: the workspace scope backs every X-Workspace-Owner header.
         WorkspaceScope.initialize(this)
         // US-1315: a cold launch with the lock enabled starts locked.
-        AppLock.initialize(this)
+        // US-2900: takes the app scope now. The stored mode is read off the
+        // main thread and MainActivity holds the splash until it lands, so the
+        // first frame still cannot render unlocked - the guarantee is kept by
+        // waiting rather than by blocking Application.onCreate on a file read.
+        AppLock.initialize(this, appScope)
         // The session tail AuthRepository documents ("call once from the app
         // scope") had no caller, so phase never left Loading. Sync's sign-in
         // trigger depends on it.

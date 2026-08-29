@@ -15,7 +15,11 @@ import com.gradethread.app.platform.telemetry.Telemetry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 
 private val Context.appLockDataStore by preferencesDataStore(name = "app_lock")
@@ -43,8 +47,7 @@ object AppLock {
         ;
 
         companion object {
-            fun fromStorage(value: String?): Mode =
-                entries.firstOrNull { it.storageValue == value } ?: OFF
+            fun fromStorage(value: String?): Mode = entries.firstOrNull { it.storageValue == value } ?: OFF
         }
     }
 
@@ -79,14 +82,45 @@ object AppLock {
      * alternative - locking with a mode nobody can satisfy - strands the owner
      * behind a prompt that can never succeed.
      */
-    fun initialize(context: Context) {
-        mode = runCatching {
-            runBlocking {
-                Mode.fromStorage(context.appLockDataStore.data.first()[MODE_KEY])
-            }
-        }.getOrDefault(Mode.OFF)
-        // A cold launch with the lock enabled starts locked.
-        if (mode != Mode.OFF) lockedFlow.value = true
+    /**
+     * Has the stored mode been read yet?
+     *
+     * US-2900. This used to be unnecessary because [initialize] blocked until
+     * it knew - `runBlocking { dataStore.data.first() }` on the MAIN THREAD in
+     * Application.onCreate, which is a DataStore first-collection (create the
+     * store, open the file, parse it) on the critical path of every cold start.
+     * The comment on it called it "one small disk read". Under storage
+     * contention it is the textbook ANR shape, and StrictMode flags it.
+     *
+     * Now the read is async and this says whether the answer has landed. The
+     * first frame must not render UNLOCKED before it has - the splash is held
+     * on this instead, which is the same mechanism US-2899 uses for the session
+     * restore and costs nothing, because the splash was already on screen.
+     */
+    private val resolvedFlow = MutableStateFlow(false)
+    val resolved: StateFlow<Boolean> = resolvedFlow.asStateFlow()
+
+    /**
+     * Read the stored lock mode off the main thread.
+     *
+     * FAILS TO OFF, deliberately, and that is safe here for a reason worth
+     * stating: a read that fails means no stored preference could be loaded, and
+     * an app that locked itself on a storage error would be unopenable with no
+     * way for the seller to fix it. The lock protects financial screens behind
+     * a shell that still requires a session; a failed read is not a bypass.
+     */
+    fun initialize(context: Context, scope: CoroutineScope) {
+        scope.launch {
+            val stored = runCatching {
+                withContext(Dispatchers.IO) {
+                    Mode.fromStorage(context.appLockDataStore.data.first()[MODE_KEY])
+                }
+            }.getOrDefault(Mode.OFF)
+            mode = stored
+            // A cold launch with the lock enabled starts locked.
+            if (stored != Mode.OFF) lockedFlow.value = true
+            resolvedFlow.value = true
+        }
     }
 
     suspend fun setMode(context: Context, newMode: Mode) {
@@ -149,9 +183,7 @@ object AppLock {
             activity,
             ContextCompat.getMainExecutor(activity),
             object : BiometricPrompt.AuthenticationCallback() {
-                override fun onAuthenticationSucceeded(
-                    result: BiometricPrompt.AuthenticationResult,
-                ) {
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                     lockedFlow.value = false
                     promptInFlight.set(false)
                 }

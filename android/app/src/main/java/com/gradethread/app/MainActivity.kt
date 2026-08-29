@@ -58,15 +58,32 @@ class MainActivity : FragmentActivity() {
         // that is where Hilt fills authRepository.
         val launchedAt = SystemClock.elapsedRealtime()
         splash.setKeepOnScreenCondition {
-            // A LOCKED LAUNCH IS NOT WAITING ON ANYTHING. AppLock.initialize
-            // has already run (blocking, in Application.onCreate), so `locked`
-            // is settled before the first composition and the lock screen can
-            // draw immediately. Holding the splash for the session restore
-            // would delay it behind up to five seconds of logo for no reason -
-            // the lock is what the seller has to answer either way.
-            !AppLock.locked.value &&
-                authRepository.phase.value is AuthRepository.Phase.Loading &&
-                SystemClock.elapsedRealtime() - launchedAt < SPLASH_MAX_HOLD_MS
+            // US-2900: hold until the LOCK MODE is known.
+            //
+            // This condition used to rely on AppLock.initialize having blocked
+            // Application.onCreate on a DataStore read, so `locked` was settled
+            // before the first composition. That read is async now, and without
+            // this clause the shell would render UNLOCKED for the frames before
+            // the answer arrives - which is the exact thing the blocking read
+            // was there to prevent. The splash is already on screen, so waiting
+            // here costs nothing that was not already being spent.
+            //
+            // Bounded by the same clock as the auth escape below: a storage
+            // failure must not hold the logo forever.
+            (
+                !AppLock.resolved.value &&
+                    SystemClock.elapsedRealtime() - launchedAt < SPLASH_MAX_HOLD_MS
+                ) ||
+                // A LOCKED LAUNCH IS NOT WAITING ON ANYTHING ELSE. Once the mode
+                // is known and it says locked, the lock screen can draw
+                // immediately; holding for the session restore would delay it
+                // behind up to five seconds of logo for no reason - the lock is
+                // what the seller has to answer either way.
+                (
+                    !AppLock.locked.value &&
+                        authRepository.phase.value is AuthRepository.Phase.Loading &&
+                        SystemClock.elapsedRealtime() - launchedAt < SPLASH_MAX_HOLD_MS
+                    )
         }
         enableEdgeToEdge()
         // US-1314: the launch intent may carry a deep link. isReady=true until

@@ -2486,22 +2486,6 @@
       "notes": ""
     },
     {
-      "id": "US-2896",
-      "title": "Photo uploads run with no network constraint, no backoff and no expedited request",
-      "description": "UploadWorker.request() builds a OneTimeWorkRequest with input data and three tags. That is all. No setConstraints, no setRequiredNetworkType, no setBackoffCriteria, no setExpedited, no ForegroundInfo.  Every other worker in the app has constraints. BackgroundRefreshWorker sets NetworkType.CONNECTED. PushActionWorker sets NetworkType.CONNECTED. The one worker that moves multi-megabyte JPEGs over the network is the one with none, which reads like an omission rather than a decision - there is no comment defending it, and the ones defending the tags are three lines long.  WHAT IT COSTS, IN ORDER. Offline, WorkManager runs the job immediately, the PUT fails, the attempt is consumed, and the default exponential backoff pushes the retry out - so a seller shooting twenty photos in a dead spot burns their retry budget before they ever reach signal, and the photos arrive far later than they need to. Backgrounded, an unexpedited, unforegrounded job with no constraint competes with everything else the system has queued, on a platform that has spent five versions getting more aggressive about exactly this. And a failure that is purely 'no network' is indistinguishable, in WorkInfo, from the terminal 4xx the US-1334 publish gate is trying to detect - the gate asks 'did this item's front shot fail terminally', and a no-network failure looks the same from the outside.  The three tags exist because someone worked out that WorkInfo exposes tags and not input data. The same care has not been applied to when the job is allowed to run.",
-      "acceptanceCriteria": [
-        "The request sets NetworkType.CONNECTED, so an offline capture waits for signal instead of failing and consuming an attempt.",
-        "Backoff is set explicitly rather than inherited, with the chosen policy and delay justified in a comment against the retry budget the publish gate reads.",
-        "Uploads triggered by a user action the seller is watching are expedited (setExpedited with a foreground fallback), and the choice of which entry points count is written down.",
-        "A batch that outlives the foreground shows a notification through ForegroundInfo, or the story records why it does not and what the seller sees instead.",
-        "A test proves the constraints are on the request, not merely intended - assert on the built WorkRequest's constraints and backoff.",
-        "The publish gate's terminal-vs-pending distinction is re-checked against the new retry behaviour, since changing when a job runs changes what a failed WorkInfo means."
-      ],
-      "priority": 10,
-      "passes": false,
-      "notes": ""
-    },
-    {
       "id": "US-2899",
       "title": "A cold launch on a dark-mode phone flashes a white window",
       "description": "res/values/themes.xml is three lines: Theme.GradeThread extends android:Theme.Material.Light.NoActionBar. There is no values-night. So the window background is white on every device, in every system theme, from the moment the launcher starts the activity until Compose draws its first frame.  On a phone in dark mode that is a full-screen white flash before a dark app appears. It is the first thing anyone sees, it is the single most common 'this app feels cheap' tell on Android, and it is entirely a resource file.  IT COMPOUNDS WITH THE AUTH GATE. MainActivity renders `AuthRepository.Phase.Loading -> Unit`, deliberately, so a sign-in form does not flash and vanish on every cold start. The comment defending that is right about the flash and leaves a hole: for however long the session takes to restore from encrypted storage, the app shows an empty white window with nothing on it. The correct shape for both problems is the same one - the platform SplashScreen API, held on screen with keepOnScreenCondition until the auth phase leaves Loading, so the launch icon stays up instead of a blank rectangle, and it is themed for the system's dark mode.  Neither androidx.core:core-splashscreen nor any splash theme exists in the project today; grepping libs.versions.toml for splashscreen returns nothing.",
