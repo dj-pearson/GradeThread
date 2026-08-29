@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
@@ -38,6 +39,7 @@ import com.gradethread.app.R
 import com.gradethread.app.ui.components.BarChart
 import com.gradethread.app.ui.components.BarDatum
 import com.gradethread.app.ui.components.GroupedBarChart
+import com.gradethread.app.ui.theme.ContentMaxWidth
 import com.gradethread.app.ui.theme.Spacing
 import java.time.Instant
 import java.time.format.DateTimeFormatter
@@ -190,7 +192,15 @@ internal fun MoneyContent(
         // ROOT-most layout, and after this wrap that is the box, not the list.
         modifier = modifier.fillMaxSize(),
     ) {
-        LazyColumn(Modifier.fillMaxSize()) {
+        // US-2905 AC2/AC4: the same bound inventory carries. Here the list IS
+        // the whole screen - there is no chrome above the box - so the bound
+        // goes on the LazyColumn. Before fillMaxSize, never after: fillMaxSize
+        // sets the minimum width too, which makes a later bound a silent no-op.
+        LazyColumn(
+            Modifier
+                .widthIn(max = ContentMaxWidth)
+                .fillMaxSize(),
+        ) {
             item {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),

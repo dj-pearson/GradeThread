@@ -51,6 +51,7 @@ import com.gradethread.app.R
 import com.gradethread.app.sync.db.InventoryItemEntity
 import com.gradethread.app.ui.TestTags
 import com.gradethread.app.ui.state.Restorable
+import com.gradethread.app.ui.theme.ContentMaxWidth
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.gradeColor
 
@@ -303,7 +304,7 @@ internal fun InventoryListContent(
     // tighter and belongs on text-heavy screens rather than a scannable list.
     Column(
         Modifier
-            .widthIn(max = CONTENT_MAX_WIDTH)
+            .widthIn(max = ContentMaxWidth)
             .fillMaxSize(),
     ) {
         OutlinedTextField(
@@ -696,6 +697,3 @@ private fun EmptyState() {
 /** US-1339: add/remove one id from the current selection. */
 private fun toggle(selection: Set<String>, id: String): Set<String> =
     if (id in selection) selection - id else selection + id
-
-/** Material's large-pane width; past every phone, so this only bites on tablets. */
-private val CONTENT_MAX_WIDTH = 840.dp

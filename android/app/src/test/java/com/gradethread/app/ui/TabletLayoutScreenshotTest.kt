@@ -10,6 +10,13 @@ import com.gradethread.app.inventory.InventoryStage
 import com.gradethread.app.inventory.InventoryUiState
 import com.gradethread.app.inventory.InventoryViewMode
 import com.gradethread.app.inventory.SortOption
+import com.gradethread.app.money.AgingBracket
+import com.gradethread.app.money.ItemProfitSort
+import com.gradethread.app.money.MoneyActions
+import com.gradethread.app.money.MoneyContent
+import com.gradethread.app.money.MoneyMetrics
+import com.gradethread.app.money.MoneyUiState
+import com.gradethread.app.money.MoneyViewModel
 import com.gradethread.app.sync.db.InventoryItemEntity
 import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
@@ -96,6 +103,46 @@ class TabletLayoutScreenshotTest {
             onOpenReport = {},
             onBulkGrade = {},
             onOpenItem = {},
+        )
+    }
+
+    /**
+     * US-2905 AC2: the same bound on Money, which the criterion names.
+     *
+     * Money is the sharper case for a bound than inventory, because it is a
+     * DASHBOARD: charts stretched to 1280dp put a bar's label at one end of the
+     * screen and its value at the other, and the KPI row's three tiles grow
+     * until the numbers stop reading as a set.
+     */
+    @Test
+    fun moneyOnATabletWidth_light() = capture("screen-money-tablet-light") {
+        MoneyContent(
+            ui = MoneyUiState(
+                state = MoneyViewModel.State(
+                    metrics = MoneyMetrics(
+                        revenueThisMonth = 1_284.50,
+                        netProfitThisMonth = 486.20,
+                        roiThisMonth = 0.61,
+                        monthlyRevenue = emptyList(),
+                    ),
+                    aging = listOf(
+                        AgingBracket("0-30 days", 12, 640.00),
+                        AgingBracket("31-60 days", 5, 275.00),
+                    ),
+                    hasAnyData = true,
+                ),
+                sort = ItemProfitSort.entries.first(),
+                refreshing = false,
+                refreshError = null,
+                notice = null,
+                equity = null,
+                equityTrend = null,
+                equityLoading = false,
+                equityError = null,
+            ),
+            actions = MoneyActions(),
+            onOpenSales = {},
+            onOpenPayouts = {},
         )
     }
 
