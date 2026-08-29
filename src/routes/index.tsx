@@ -132,6 +132,8 @@ const EtsyFeeCalculatorPage = lazy(() => import("@/pages/tools/marketplace-fee-c
 const ResellerProfitCalculatorPage = lazy(() => import("@/pages/tools/reseller-profit-calculator").then(m => ({ default: m.ResellerProfitCalculatorPage })));
 const EbaySoldListingsPage = lazy(() => import("@/pages/tools/ebay-sold-listings").then(m => ({ default: m.EbaySoldListingsPage })));
 const SingleStitchDatingPage = lazy(() => import("@/pages/tools/single-stitch-dating").then(m => ({ default: m.SingleStitchDatingPage })));
+const ResellerInventorySpreadsheetPage = lazy(() => import("@/pages/tools/reseller-inventory-spreadsheet").then(m => ({ default: m.ResellerInventorySpreadsheetPage })));
+const PhotographClothesToSellPage = lazy(() => import("@/pages/tools/photograph-clothes-to-sell").then(m => ({ default: m.PhotographClothesToSellPage })));
 const ForBrandsPage = lazy(() => import("@/pages/marketing/for-brands").then(m => ({ default: m.ForBrandsPage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
 const CareMatrixPage = lazy(() => import("@/pages/marketing/care-matrix").then(m => ({ default: m.CareMatrixPage })));
@@ -458,6 +460,8 @@ export const router = createBrowserRouter([
       { path: "/tools/reseller-profit-calculator", element: <SuspenseWrapper><ResellerProfitCalculatorPage /></SuspenseWrapper> },
       { path: "/tools/ebay-sold-listings", element: <SuspenseWrapper><EbaySoldListingsPage /></SuspenseWrapper> },
       { path: "/tools/single-stitch-dating", element: <SuspenseWrapper><SingleStitchDatingPage /></SuspenseWrapper> },
+      { path: "/tools/reseller-inventory-spreadsheet", element: <SuspenseWrapper><ResellerInventorySpreadsheetPage /></SuspenseWrapper> },
+      { path: "/tools/photograph-clothes-to-sell", element: <SuspenseWrapper><PhotographClothesToSellPage /></SuspenseWrapper> },
       { path: "/for-brands", element: <SuspenseWrapper><ForBrandsPage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served
       // by a single dynamic route. The indexable set is registered in

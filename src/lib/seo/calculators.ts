@@ -557,6 +557,105 @@ export const CALCULATORS: readonly Calculator[] = [
       },
     ],
   },
+  {
+    slug: "reseller-inventory-spreadsheet",
+    status: "live",
+    story: "US-9022",
+    audience: "seller",
+    title: "Free Reseller Inventory Spreadsheet",
+    description:
+      "A free reseller inventory spreadsheet for clothing: source, cost, bin, condition grade, fees and net profit, with the arithmetic already written. No email.",
+    h1: "Free reseller inventory spreadsheet",
+    cardBlurb: "A real file with the profit columns written, and a condition grade column no generic template has.",
+    primaryKeyword: "reseller inventory spreadsheet",
+    handoff: {
+      surface: "inventory-management",
+      heading: "Where a spreadsheet stops being the right tool",
+      body: "A spreadsheet is genuinely fine for a long time. It stops being fine at the point where the same item has to exist on three marketplaces at once and the fees arrive as a payout you have to unpick. That is bookkeeping and crosslisting, not tracking, and it is where FlipDesk starts.",
+      cta: "See how FlipDesk tracks inventory",
+    },
+    secondaryKeywords: [
+      "resell spreadsheet",
+      "free reseller spreadsheet template",
+      "reseller inventory spreadsheet free",
+      "inventory spreadsheet for resellers",
+    ],
+    intro:
+      "Here is the file. It is a CSV, which means Excel, Numbers and Google Sheets all open it and all three keep the formulas working, so net profit, margin and days-to-sell calculate themselves the moment you type a sold price. No email address, no signup. It has nineteen columns and one of them is the reason this page exists: a condition grade from 1.0 to 10.0. Every generic reseller template tracks cost, price and fees. None of them tracks the thing that moves resale price most, so none of them can tell you afterwards whether the beat-up ones were worth buying.",
+    faqs: [
+      {
+        q: "What should a reseller inventory spreadsheet track?",
+        a: "Four groups. What it is and where it is: SKU, bin, brand, item, size. What it cost you: date sourced, source, cost. What you did with it: date listed, listed price, platform. And what happened: date sold, sold price, fees, shipping. Net profit, margin and days-to-sell should be calculated from those rather than typed, because a number you type is a number that goes stale.",
+      },
+      {
+        q: "Why track condition in a spreadsheet?",
+        a: "Because it is the largest single lever on what a used garment makes, and without it your history cannot answer the most useful question you will ask it: which items were actually worth buying. Two Patagonia fleeces bought at the same price and sold six weeks apart for very different money look like luck in a normal spreadsheet. With a grade in the row it is not luck, it is a sourcing rule.",
+      },
+      {
+        q: "Does the free spreadsheet work in Google Sheets?",
+        a: "Yes. Download it, then in Google Sheets use File then Import and choose Replace spreadsheet, or drag the file into Drive. The calculated columns arrive as live formulas rather than as text. Excel and Numbers open it directly by double-clicking, with the same result.",
+      },
+      {
+        q: "When should a reseller stop using a spreadsheet?",
+        a: "Later than most software wants you to believe. A spreadsheet is fine while one item lives on one marketplace and you enter its outcome once. The point it stops being fine is specific: the same garment listed in three places at once, where a sale in one has to end the other two, and payouts that arrive as a lump sum you have to unpick back to individual items. That is when the file starts costing more time than it saves.",
+      },
+      {
+        q: "Is there a catch to the free download?",
+        a: "No email, no account, and nothing you type is sent anywhere. The file is generated in your browser when you click, which is also why it can never be out of date with the column guide above it.",
+      },
+    ],
+  },
+  {
+    slug: "photograph-clothes-to-sell",
+    status: "live",
+    story: "US-9023",
+    audience: "seller",
+    title: "How to Take Pictures of Clothes to Sell",
+    description:
+      "The shot list, the order it goes in, and how to light a garment without a studio. Plus how to photograph a flaw so it cuts returns instead of the sale.",
+    h1: "How to take pictures of clothes to sell",
+    cardBlurb: "The shot list per category, in the order buyers read it, from the app's own profiles.",
+    primaryKeyword: "how to take pictures of clothes to sell",
+    handoff: {
+      surface: "autolister",
+      heading: "The photos are also the listing",
+      body: "Once the shots are right they carry more than the gallery. FlipDesk reads them to draft the title, the item specifics and the condition, so the twenty minutes you spent photographing properly is also the twenty minutes you did not spend typing.",
+      cta: "See what FlipDesk does with the photos",
+    },
+    secondaryKeywords: [
+      "how to photograph clothes to sell",
+      "how to take photos of clothes to sell online",
+      "how to photograph clothing for resale",
+    ],
+    intro:
+      "Photos are the whole listing. A buyer decides on the thumbnail, checks the detail shots, and returns the item over something you did not show. So this is two things and the second one is the half other guides skip: the shot list, in the order buyers read it, and how to photograph a flaw so it prevents a return rather than costing you the sale. The shot list below is the one GradeThread's own app uses, not a generic one, which is why it changes by category.",
+    faqs: [
+      {
+        q: "How do you take good pictures of clothes to sell?",
+        a: "Lay the garment flat on a plain surface in daylight, shoot straight down from above so nothing keystones, and take the same crop on the front and the back. Then get closer: the brand label, the size tag, the care label, a fabric close-up, and a tight shot of every flaw. Flat and honest beats styled and flattering, because the styled photo is what the return is argued about.",
+      },
+      {
+        q: "What photos do you need to sell clothes online?",
+        a: "Two are non-negotiable, front and back, and they should be the same crop as each other. After that the ones that actually get asked about are the brand label, the size tag, the care and fabric label, a close-up of the material, and every defect. Measurements photographed against a tape are worth more than measurements typed into the description, because a buyer can check them.",
+      },
+      {
+        q: "What order should listing photos go in?",
+        a: "Front, back, tags, details, measurements, defects, then anything extra. The first image is doing a different job from the rest: it competes in a grid of thumbnails against every other seller, so it wants the whole garment, filling the frame, on a plain ground. Detail shots go after because nobody scrolls past a thumbnail they did not stop on.",
+      },
+      {
+        q: "How do you photograph a flaw without killing the sale?",
+        a: "Shoot it tight, in even light, with something for scale, and photograph it once rather than from five angles. The instinct is to hide it and the arithmetic says otherwise: a disclosed flaw costs you a percentage of the price, and an undisclosed one costs you the item, the postage both ways and the marketplace case. A buyer who can see the flaw and buys anyway does not open a not-as-described claim.",
+      },
+      {
+        q: "Do you need a lightbox or special lighting?",
+        a: "No, and buying one is usually the wrong first purchase. Daylight from a window at midday, with the garment on the floor or a table and your body not casting a shadow across it, beats most cheap lightboxes. What actually helps: a plain mid-tone surface, turning off the room light so you are not mixing warm bulbs with daylight, and taking every photo of one item in the same spot so the colour matches across the gallery.",
+      },
+      {
+        q: "Should you shoot flat lay or on a model?",
+        a: "Flat for the truth, on a hanger or model for the shape. Flat lay is where measurements and flaws are legible, so it belongs in the required shots. A hanger or model shot shows drape and how it actually falls, which flat lay flattens away, so it earns a place in the gallery but not the first slot on most marketplaces.",
+      },
+    ],
+  },
 ];
 
 export const CALCULATOR_HUB_META = {

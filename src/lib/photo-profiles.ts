@@ -106,6 +106,30 @@ function fallbackProfile(category: string | null | undefined): PhotoProfile {
 }
 
 /**
+ * The bundled profiles, for surfaces that cannot wait for the server table.
+ *
+ * US-9022/US-9023: /tools/photograph-clothes-to-sell prerenders, so it has no
+ * fetch to await and renders this. That makes it a FIFTH consumer of the shot
+ * list after web, iOS, Android and the server, which is exactly why it reads
+ * the same constant rather than copying it into a marketing file — the copy
+ * would be the one nothing keeps current, and a public page telling sellers a
+ * different shot list from the app is worse than no public page.
+ *
+ * These are deliberately shorter than the server's, which
+ * photo-profile-fallback-parity.test.ts documents: the clients say LESS than
+ * the server, and what they must not do is say something DIFFERENT.
+ */
+export const BUNDLED_PHOTO_PROFILES: readonly PhotoProfile[] = [
+  CLOTHING_FALLBACK,
+  SHOES_FALLBACK,
+  GENERIC_FALLBACK,
+] as const;
+
+export function bundledPhotoProfile(category: string | null | undefined): PhotoProfile {
+  return fallbackProfile(category);
+}
+
+/**
  * The required slots a set of photos does not cover yet.
  *
  * US-2769 AC3. The gate is per TYPE, not per (type, role): `front` and `back`

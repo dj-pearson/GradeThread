@@ -524,4 +524,43 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
       "can single stitch be faked",
     ],
   },
+  {
+    // US-9022. 1,600/mo is small. The $21.71 top-of-page bid is the highest in
+    // either pull by a factor of three, and the searcher is exactly who
+    // FlipDesk is for, so volume is the wrong measure for this one.
+    path: "/tools/reseller-inventory-spreadsheet",
+    cluster: "reseller-tools",
+    intent: "commercial",
+    primary: "reseller inventory spreadsheet",
+    secondary: [
+      "resell spreadsheet",
+      "free reseller spreadsheet template",
+      "inventory spreadsheet for resellers",
+    ],
+    questions: [
+      "what should a reseller inventory spreadsheet track",
+      "why track condition in a spreadsheet",
+      "when should a reseller stop using a spreadsheet",
+    ],
+  },
+  {
+    // US-9023. 3,450/mo at LOW competition. Two existing blog posts already
+    // rank around position 8 on sub-questions with no parent page above them,
+    // which makes this the cheapest structural win in the pull.
+    path: "/tools/photograph-clothes-to-sell",
+    cluster: "selling-guide",
+    intent: "informational",
+    primary: "how to take pictures of clothes to sell",
+    secondary: [
+      "how to photograph clothes to sell",
+      "how to take photos of clothes to sell online",
+      "how to photograph clothing for resale",
+    ],
+    questions: [
+      "what photos do you need to sell clothes online",
+      "what order should listing photos go in",
+      "how do you photograph a flaw without killing the sale",
+      "do you need a lightbox to photograph clothes",
+    ],
+  },
 ] as const;

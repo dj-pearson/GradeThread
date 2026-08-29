@@ -106,6 +106,11 @@ export const ANALYTICS_EVENTS = {
   "calculator_cta_clicked": "A calculator handed off to its matching FlipDesk surface.",
   "signup_started_from_tool":
     "Signup was started from a FlipDesk page the visitor reached from a calculator.",
+  // US-9022. The download IS the tool on /tools/reseller-inventory-spreadsheet,
+  // so `calculator_used` alone would report every visitor as having used it.
+  // This separates reading the column guide from taking the file.
+  "inventory_template_downloaded":
+    "The free reseller inventory spreadsheet was downloaded. Property `slug` is the tool.",
 
   // ── Commercial landing funnel (US-9009) ───────────────────────────────────
   // The funnel is: calculator view -> landing page view -> signup start.
