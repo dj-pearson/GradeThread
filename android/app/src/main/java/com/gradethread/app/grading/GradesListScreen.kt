@@ -13,7 +13,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -37,6 +39,9 @@ import java.util.Locale
 /**
  * US-1341: every certified grade in one place (iOS `GradesListView`).
  */
+// US-2910 AC3. PullToRefreshBox is still ExperimentalMaterial3Api on Compose
+// BOM 2025.04.00 - the same opt-in InventoryListScreen carries.
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GradesListScreen(
     onOpenReport: (String) -> Unit,
@@ -111,27 +116,37 @@ fun GradesListScreen(
 
         HorizontalDivider()
 
-        if (sorted.isEmpty()) {
-            Column(
-                Modifier.fillMaxSize().padding(Spacing.xl),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    stringResource(R.string.grades_empty_title),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    stringResource(R.string.grades_empty_body),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            LazyColumn(Modifier.fillMaxSize()) {
-                items(sorted, key = { it.id }) { item ->
-                    GradeRow(item) { onOpenReport(item.id) }
-                    HorizontalDivider()
+        // US-2910 AC3: wraps the WHOLE conditional so the empty state is
+        // pullable too - that is the state a seller pulls from, because they
+        // are looking at nothing and want to know whether it is the truth or
+        // the network.
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = viewModel::refresh,
+            modifier = Modifier.weight(1f),
+        ) {
+            if (sorted.isEmpty()) {
+                Column(
+                    Modifier.fillMaxSize().padding(Spacing.xl),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        stringResource(R.string.grades_empty_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        stringResource(R.string.grades_empty_body),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(sorted, key = { it.id }) { item ->
+                        GradeRow(item) { onOpenReport(item.id) }
+                        HorizontalDivider()
+                    }
                 }
             }
         }

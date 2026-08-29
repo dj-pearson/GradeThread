@@ -13,7 +13,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,6 +51,9 @@ import com.gradethread.app.ui.theme.Spacing
  * rollups. The sparkline is a static Canvas drawing, so there is no animation to
  * gate for reduced motion.
  */
+// US-2910 AC3. PullToRefreshBox is still ExperimentalMaterial3Api on
+// Compose BOM 2025.04.00 - the same opt-in InventoryListScreen carries.
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onAddItem: () -> Unit,
@@ -78,287 +83,316 @@ fun HomeScreen(
         )
     }
 
-    LazyColumn(modifier.fillMaxSize()) {
-        item {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    stringResource(R.string.home_today),
-                    style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = viewModel::refresh, enabled = !refreshing) {
-                    Text(
-                        stringResource(
-                            if (refreshing) R.string.home_refreshing else R.string.home_refresh,
-                        ),
-                    )
-                }
-            }
-        }
-
-        refreshError?.let { message ->
+    // US-2910 AC3: the GESTURE, not just the button.
+    //
+    // The Refresh control above has been here since this screen was
+    // built and the view model's refresh() is real. What was missing
+    // is the pull - what a thumb reaches for on a list, and the only
+    // affordance available one-handed in a shop. Inventory was the
+    // only sync-backed list of five that had it.
+    //
+    // The whole list is inside, so a screen showing nothing is still
+    // pullable - that is the state a seller pulls from.
+    PullToRefreshBox(
+        isRefreshing = refreshing,
+        onRefresh = viewModel::refresh,
+        // detekt ModifierParameter: the caller's modifier belongs on the
+        // ROOT-most layout, and after this wrap that is the box, not the list.
+        modifier = modifier.fillMaxSize(),
+    ) {
+        LazyColumn(Modifier.fillMaxSize()) {
             item {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = Spacing.md),
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        message,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+                        stringResource(R.string.home_today),
+                        style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = viewModel::dismissRefreshError) { Text(stringResource(R.string.home_dismiss)) }
+                    TextButton(onClick = viewModel::refresh, enabled = !refreshing) {
+                        Text(
+                            stringResource(
+                                if (refreshing) R.string.home_refreshing else R.string.home_refresh,
+                            ),
+                        )
+                    }
                 }
             }
-        }
 
-        // ── Snapshot ─────────────────────────────────────────────────────────
-        item {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = Spacing.md),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-            ) {
-                StatTile(
-                    label = stringResource(R.string.home_inventory_value),
-                    value = Money.format(state.metrics.inventoryValue),
-                    detail = pluralStringResource(
-                        R.plurals.home_on_hand,
-                        state.metrics.onHandCount,
-                        state.metrics.onHandCount,
-                    ),
-                    modifier = Modifier.weight(1f),
-                    onClick = onOpenInventory,
-                )
-                StatTile(
-                    label = stringResource(R.string.home_listed),
-                    value = state.metrics.listedCount.toString(),
-                    detail = stringResource(R.string.home_active_listings),
-                    modifier = Modifier.weight(1f),
-                    onClick = onOpenMarketplaces,
-                )
+            refreshError?.let { message ->
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = Spacing.md),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = viewModel::dismissRefreshError) {
+                            Text(stringResource(R.string.home_dismiss))
+                        }
+                    }
+                }
             }
-        }
-        item {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
-                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-            ) {
-                StatTile(
-                    label = stringResource(R.string.home_sold_7_days),
-                    value = state.metrics.soldThisWeekCount.toString(),
-                    detail = Money.format(state.metrics.revenueThisWeek),
-                    modifier = Modifier.weight(1f),
-                    onClick = onOpenMoney,
-                )
-                StatTile(
-                    label = stringResource(R.string.home_net_profit_7_days),
-                    value = Money.format(state.metrics.netProfitThisWeek),
-                    detail = stringResource(R.string.home_after_fees),
-                    modifier = Modifier.weight(1f),
-                    onClick = onOpenMoney,
-                )
-            }
-        }
 
-        // ── Sparkline ────────────────────────────────────────────────────────
-        if (state.hasTrendActivity) {
+            // ── Snapshot ─────────────────────────────────────────────────────────
             item {
-                Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.md)) {
-                    Text(
-                        stringResource(R.string.home_last_14_days),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Sparkline(
-                        values = state.trend.map { it.revenue },
-                        // A spoken sentence rather than 14 unlabeled shapes: the
-                        // rising/falling cue must not be colour-only (US-1223).
-                        description = stringResource(
-                            R.string.home_trend_spoken,
-                            Money.format(Money.sum(state.trend) { it.revenue }),
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.md),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    StatTile(
+                        label = stringResource(R.string.home_inventory_value),
+                        value = Money.format(state.metrics.inventoryValue),
+                        detail = pluralStringResource(
+                            R.plurals.home_on_hand,
+                            state.metrics.onHandCount,
+                            state.metrics.onHandCount,
                         ),
+                        modifier = Modifier.weight(1f),
+                        onClick = onOpenInventory,
+                    )
+                    StatTile(
+                        label = stringResource(R.string.home_listed),
+                        value = state.metrics.listedCount.toString(),
+                        detail = stringResource(R.string.home_active_listings),
+                        modifier = Modifier.weight(1f),
+                        onClick = onOpenMarketplaces,
                     )
                 }
             }
-        }
-
-        // ── Activation checklist ─────────────────────────────────────────────
-        if (activation.shouldShow) {
             item {
-                ChecklistCard(
-                    state = activation,
-                    onDismiss = viewModel::dismissChecklist,
-                    onStep = { step ->
-                        when (step.id) {
-                            ActivationStep.ADD_ITEM.id -> onAddItem()
-                            ActivationStep.CONNECT_EBAY.id -> onOpenMarketplaces()
-                            // Opens system settings rather than firing a runtime
-                            // permission request.
-                            //
-                            // US-2907: the reason used to read "push DELIVERY is
-                            // US-1378 and isn't built yet". US-1378 SHIPPED —
-                            // platform/push holds nine files including a working
-                            // registration and notifier — so that sentence had
-                            // been false for as long as the feature has existed.
-                            // Same stale-forward-reference shape as the Scout and
-                            // Prospect comment ten lines below, in the same file.
-                            //
-                            // The BEHAVIOUR is still right, for a different
-                            // reason. Android gives an app one usable
-                            // POST_NOTIFICATIONS dialog: a second ask after a
-                            // refusal is auto-denied, and the seller is left
-                            // thinking they said yes. OnboardingHost already
-                            // spends that one ask on a checklist row the person
-                            // taps deliberately, which is the good version of
-                            // asking. From here, settings is the route that
-                            // still works afterwards.
-                            //
-                            // OPEN, and not settled here: a seller who never
-                            // finished onboarding has an UNSPENT ask, and this
-                            // path sends them to settings anyway. Wiring the
-                            // real prompt for that case is a behaviour change
-                            // with its own argument, not a comment fix.
-                            ActivationStep.NOTIFICATIONS.id -> context.startActivity(
-                                Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                ) {
+                    StatTile(
+                        label = stringResource(R.string.home_sold_7_days),
+                        value = state.metrics.soldThisWeekCount.toString(),
+                        detail = Money.format(state.metrics.revenueThisWeek),
+                        modifier = Modifier.weight(1f),
+                        onClick = onOpenMoney,
+                    )
+                    StatTile(
+                        label = stringResource(R.string.home_net_profit_7_days),
+                        value = Money.format(state.metrics.netProfitThisWeek),
+                        detail = stringResource(R.string.home_after_fees),
+                        modifier = Modifier.weight(1f),
+                        onClick = onOpenMoney,
+                    )
+                }
+            }
+
+            // ── Sparkline ────────────────────────────────────────────────────────
+            if (state.hasTrendActivity) {
+                item {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.md)) {
+                        Text(
+                            stringResource(R.string.home_last_14_days),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Sparkline(
+                            values = state.trend.map { it.revenue },
+                            // A spoken sentence rather than 14 unlabeled shapes: the
+                            // rising/falling cue must not be colour-only (US-1223).
+                            description = stringResource(
+                                R.string.home_trend_spoken,
+                                Money.format(Money.sum(state.trend) { it.revenue }),
+                            ),
+                        )
+                    }
+                }
+            }
+
+            // ── Activation checklist ─────────────────────────────────────────────
+            if (activation.shouldShow) {
+                item {
+                    ChecklistCard(
+                        state = activation,
+                        onDismiss = viewModel::dismissChecklist,
+                        onStep = { step ->
+                            when (step.id) {
+                                ActivationStep.ADD_ITEM.id -> onAddItem()
+                                ActivationStep.CONNECT_EBAY.id -> onOpenMarketplaces()
+                                // Opens system settings rather than firing a runtime
+                                // permission request.
+                                //
+                                // US-2907: the reason used to read "push DELIVERY is
+                                // US-1378 and isn't built yet". US-1378 SHIPPED —
+                                // platform/push holds nine files including a working
+                                // registration and notifier — so that sentence had
+                                // been false for as long as the feature has existed.
+                                // Same stale-forward-reference shape as the Scout and
+                                // Prospect comment ten lines below, in the same file.
+                                //
+                                // The BEHAVIOUR is still right, for a different
+                                // reason. Android gives an app one usable
+                                // POST_NOTIFICATIONS dialog: a second ask after a
+                                // refusal is auto-denied, and the seller is left
+                                // thinking they said yes. OnboardingHost already
+                                // spends that one ask on a checklist row the person
+                                // taps deliberately, which is the good version of
+                                // asking. From here, settings is the route that
+                                // still works afterwards.
+                                //
+                                // OPEN, and not settled here: a seller who never
+                                // finished onboarding has an UNSPENT ask, and this
+                                // path sends them to settings anyway. Wiring the
+                                // real prompt for that case is a behaviour change
+                                // with its own argument, not a comment fix.
+                                ActivationStep.NOTIFICATIONS.id -> context.startActivity(
+                                    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+
+            // ── Quick actions ────────────────────────────────────────────────────
+            item {
+                Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
+                    Text(stringResource(R.string.home_quick_actions), style = MaterialTheme.typography.titleMedium)
+                    // US-2899 sibling note, US-2907: TWO ROWS OF TWO, not one row
+                    // of four. At 320dp the four labels are "Add item", "Snap to
+                    // Value", "Scout" and "Prospect" — a quarter width each leaves
+                    // "Snap to Value" wrapping to three lines or ellipsing, and a
+                    // horizontally scrolling row hides the last action behind a
+                    // gesture nothing signals. A 2x2 grid keeps every label on one
+                    // line at the small end and costs one row of height.
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = Spacing.xs),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    ) {
+                        BrandSecondaryButton(
+                            text = stringResource(R.string.home_add_item),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            onAddItem()
+                        }
+                        BrandSecondaryButton(
+                            text = stringResource(R.string.home_snap_to_value),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            onSnap()
+                        }
+                    }
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = Spacing.xs),
+                        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    ) {
+                        // Same strings the Tools sheet uses. One feature, one name:
+                        // a second copy would let the two drift and teach a seller
+                        // that Scout and whatever-it-got-renamed-to are different
+                        // things.
+                        BrandSecondaryButton(
+                            text = stringResource(R.string.tools_scout),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            onScout()
+                        }
+                        BrandSecondaryButton(
+                            text = stringResource(R.string.tools_prospect),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            onProspect()
+                        }
+                    }
+                }
+            }
+
+            // ── Certified grades (US-1341 AC2's outstanding half) ────────────────
+            if (state.grades.total > 0) {
+                item {
+                    Card(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Spacing.md)
+                            .clickable(onClick = onOpenGrades),
+                    ) {
+                        Column(Modifier.padding(Spacing.sm)) {
+                            Text(
+                                stringResource(R.string.home_certified_grades),
+                                style = MaterialTheme.typography.titleMedium,
+                            )
+                            Text(
+                                state.grades.label,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                    },
-                )
-            }
-        }
-
-        // ── Quick actions ────────────────────────────────────────────────────
-        item {
-            Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
-                Text(stringResource(R.string.home_quick_actions), style = MaterialTheme.typography.titleMedium)
-                // US-2899 sibling note, US-2907: TWO ROWS OF TWO, not one row
-                // of four. At 320dp the four labels are "Add item", "Snap to
-                // Value", "Scout" and "Prospect" — a quarter width each leaves
-                // "Snap to Value" wrapping to three lines or ellipsing, and a
-                // horizontally scrolling row hides the last action behind a
-                // gesture nothing signals. A 2x2 grid keeps every label on one
-                // line at the small end and costs one row of height.
-                Row(
-                    Modifier.fillMaxWidth().padding(top = Spacing.xs),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                ) {
-                    BrandSecondaryButton(
-                        text = stringResource(R.string.home_add_item),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        onAddItem()
-                    }
-                    BrandSecondaryButton(
-                        text = stringResource(R.string.home_snap_to_value),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        onSnap()
-                    }
-                }
-                Row(
-                    Modifier.fillMaxWidth().padding(top = Spacing.xs),
-                    horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
-                ) {
-                    // Same strings the Tools sheet uses. One feature, one name:
-                    // a second copy would let the two drift and teach a seller
-                    // that Scout and whatever-it-got-renamed-to are different
-                    // things.
-                    BrandSecondaryButton(text = stringResource(R.string.tools_scout), modifier = Modifier.weight(1f)) {
-                        onScout()
-                    }
-                    BrandSecondaryButton(
-                        text = stringResource(R.string.tools_prospect),
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        onProspect()
                     }
                 }
             }
-        }
 
-        // ── Certified grades (US-1341 AC2's outstanding half) ────────────────
-        if (state.grades.total > 0) {
-            item {
-                Card(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = Spacing.md)
-                        .clickable(onClick = onOpenGrades),
-                ) {
-                    Column(Modifier.padding(Spacing.sm)) {
+            // ── Aging nudges ─────────────────────────────────────────────────────
+            if (state.agingItems.isNotEmpty()) {
+                item {
+                    Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
                         Text(
-                            stringResource(R.string.home_certified_grades),
+                            stringResource(R.string.home_sitting_too_long),
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
-                            state.grades.label,
+                            pluralStringResource(
+                                R.plurals.home_aging_body,
+                                state.metrics.agingCount,
+                                state.metrics.agingCount,
+                                DashboardRollup.AGING_THRESHOLD_DAYS,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
-            }
-        }
-
-        // ── Aging nudges ─────────────────────────────────────────────────────
-        if (state.agingItems.isNotEmpty()) {
-            item {
-                Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
-                    Text(stringResource(R.string.home_sitting_too_long), style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        pluralStringResource(
-                            R.plurals.home_aging_body,
-                            state.metrics.agingCount,
-                            state.metrics.agingCount,
-                            DashboardRollup.AGING_THRESHOLD_DAYS,
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                items(state.agingItems, key = { it.id }) { agingItem ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenItem(agingItem.id) }
+                            .padding(horizontal = Spacing.md, vertical = Spacing.xs),
+                    ) {
+                        Text(
+                            agingItem.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            Money.format(
+                                agingItem.listingPrice
+                                    ?: agingItem.targetPrice
+                                    ?: agingItem.acquiredPrice
+                                    ?: 0.0,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    HorizontalDivider()
                 }
             }
-            items(state.agingItems, key = { it.id }) { agingItem ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { onOpenItem(agingItem.id) }
-                        .padding(horizontal = Spacing.md, vertical = Spacing.xs),
-                ) {
-                    Text(
-                        agingItem.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        Money.format(
-                            agingItem.listingPrice
-                                ?: agingItem.targetPrice
-                                ?: agingItem.acquiredPrice
-                                ?: 0.0,
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                HorizontalDivider()
-            }
-        }
 
-        if (!state.hasAnyItems) {
-            item {
-                Column(Modifier.fillMaxWidth().padding(Spacing.xl)) {
-                    Text(stringResource(R.string.home_nothing_here_yet), style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        stringResource(R.string.home_empty_body),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            if (!state.hasAnyItems) {
+                item {
+                    Column(Modifier.fillMaxWidth().padding(Spacing.xl)) {
+                        Text(
+                            stringResource(R.string.home_nothing_here_yet),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            stringResource(R.string.home_empty_body),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }

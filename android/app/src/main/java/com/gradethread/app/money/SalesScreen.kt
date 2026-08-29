@@ -11,7 +11,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,6 +50,9 @@ import java.util.Locale
  * Both come from the same [SalePnL] helpers the Money tab uses, so the figure
  * here and the figure there can't diverge.
  */
+// PullToRefreshBox is still ExperimentalMaterial3Api in Compose BOM
+// 2025.04.00, the same opt-in InventoryListScreen carries.
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SalesScreen(
     onOpenItem: (String) -> Unit,
@@ -136,23 +141,44 @@ fun SalesScreen(
 
         HorizontalDivider()
 
-        if (state.rows.isEmpty()) {
-            Column(Modifier.fillMaxSize().padding(Spacing.xl)) {
-                Text(
-                    stringResource(R.string.sales_empty_title),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    stringResource(R.string.sales_empty_body),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            LazyColumn(Modifier.fillMaxSize()) {
-                items(state.rows, key = { it.saleId }) { row ->
-                    SaleRowView(row) { onOpenItem(row.itemId) }
-                    HorizontalDivider()
+        // US-2910 AC3: the GESTURE, not just the button.
+        //
+        // The Refresh button above has been here since this screen was built
+        // and the view model's refresh() is real - what was missing is the pull,
+        // which is what a thumb reaches for on a list and the only affordance
+        // available one-handed in a shop. Inventory was the only sync-backed
+        // list of five that had it.
+        //
+        // WRAPPED AROUND THE WHOLE CONDITIONAL, empty branch included. Wrapping
+        // only the LazyColumn would leave the empty state un-pullable, which is
+        // exactly the state a seller pulls from: they are looking at nothing and
+        // want to know whether that is the truth or the network.
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = viewModel::refresh,
+            modifier = Modifier.weight(1f),
+        ) {
+            if (state.rows.isEmpty()) {
+                // fillMaxSize so the empty column still fills the pull area -
+                // a short child would leave most of the screen unable to start
+                // the gesture.
+                Column(Modifier.fillMaxSize().padding(Spacing.xl)) {
+                    Text(
+                        stringResource(R.string.sales_empty_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        stringResource(R.string.sales_empty_body),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                LazyColumn(Modifier.fillMaxSize()) {
+                    items(state.rows, key = { it.saleId }) { row ->
+                        SaleRowView(row) { onOpenItem(row.itemId) }
+                        HorizontalDivider()
+                    }
                 }
             }
         }
@@ -225,9 +251,8 @@ private fun StatusChip(text: String) {
     )
 }
 
-private fun formatDate(epochMs: Long, locale: Locale = Locale.getDefault()): String =
-    runCatching {
-        Instant.ofEpochMilli(epochMs)
-            .atZone(ZoneId.systemDefault())
-            .format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale))
-    }.getOrElse { "—" }
+private fun formatDate(epochMs: Long, locale: Locale = Locale.getDefault()): String = runCatching {
+    Instant.ofEpochMilli(epochMs)
+        .atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale))
+}.getOrElse { "—" }
