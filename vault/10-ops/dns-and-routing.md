@@ -6,12 +6,21 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - scripts/ops/edge-watchdog.sh
-reviewed: 2026-08-27
+reviewed: 2026-08-28
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
 
 # DNS and routing
+
+> **Re-reviewed 2026-08-28.** Drift flagged `main.ts` again and the change was
+> four lines: US-2972 imports `handleRewardsSweepCron` and mounts
+> `POST /api/jobs/rewards-sweep` on the Hono app. That is a new route on the
+> app, which is exactly what this note says belongs on
+> `functions.gradethread.com` - so it CONFIRMS the rule rather than bending it.
+> No hostname touched, nothing renamed, nothing moved to the Supabase host.
+> Recorded rather than silently bumped, for the reason the 2026-08-22 entry
+> below gives.
 
 > **Re-reviewed 2026-08-22.** Drift flagged `main.ts` again, and this time the
 > change added no route at all: US-2001 and US-2003 added two BOOT-TIME log

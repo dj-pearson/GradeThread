@@ -11,12 +11,20 @@ code_refs:
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-08-27
+reviewed: 2026-08-28
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
 
 # eBay required-aspect completeness on publish and revise
+
+> **Re-reviewed 2026-08-28.** Drift flagged both refs, for two commits that
+> leave aspects alone. US-2974 adds an `item_id` to the comps search and stamps
+> the comp stage for rewards. US-2967 moves a listing template's boilerplate
+> into `description_blocks` so it is written by the same upsert that renders
+> them, rather than appended by a follow-up UPDATE. Neither reads or writes an
+> item specific, and the gap-fill this note describes on publish and revise is
+> unchanged.
 
 > **Re-reviewed 2026-08-17.** Drift flagged `flipdesk-ebay.ts` for `edd76704`
 > (keep what eBay actually said about a listing) and `b25e7650` (relist

@@ -8,12 +8,21 @@ code_refs:
   - supabase/migrations/00507_autolister_handoff_sessions.sql
   - ios/GradeThread/AutoLister/AutoListerReviewModel.swift
   - src/hooks/use-autolister.ts
-reviewed: 2026-08-25
+reviewed: 2026-08-28
 tags: [flipdesk, autolister, mobile, contract]
 summary: What crosses from the phone to the desktop AutoLister before any AI runs, and the rules that keep the crossing safe.
 ---
 
 # AutoLister phone → desktop handoff
+
+> **Re-reviewed 2026-08-28.** Drift flagged `flipdesk-autolister.ts`. The change
+> was US-2967: `buildTemplateListingPatch` stopped carrying the description and
+> stopped reading the listing row first, because the template's boilerplate is a
+> description BLOCK now and is handed to `generateListing` instead. Nothing in
+> this note is about the description - it covers what crosses from the phone
+> before any AI runs: the staging folder, the photo list, the timeless-capture
+> rule and the storage-prefix checks. All four still read true against the file.
+> Recorded rather than silently bumped.
 
 US-2374. The phone is where the camera is; the desktop is where a 200-photo
 batch is bearable to review. This is the shelf between them.

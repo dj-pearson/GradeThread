@@ -10,12 +10,29 @@ code_refs:
   - src/pages/flipdesk/grid.tsx
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-08-27
+reviewed: 2026-08-28
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
 
 # The draft snapshot shadows the item
+
+> **Re-reviewed 2026-08-28.** Drift flagged `flipdesk-ebay.ts` and
+> `composer.tsx`. Two changes, neither of which moves the precedence.
+>
+> US-2974 adds an optional `item_id` to the comps search and stamps the comp
+> stage for rewards after a successful lookup. It writes no title, description
+> or price, so the rule below does not reach it.
+>
+> US-2967 is closer and still does not change this note: the template's
+> boilerplate became a description BLOCK handed to `generateListing`, so it
+> lands in the same upsert as everything else rendered from those blocks,
+> instead of being appended by a follow-up UPDATE that the composer's first save
+> then overwrote. That is an INSTANCE of the rule here rather than an exception
+> to it - a second write left the row holding a `listing_description` its
+> `description_blocks` did not produce, which is exactly the shadowing this note
+> exists to describe. `listing.listing_description ?? item.description` is
+> unchanged.
 
 > **Re-reviewed 2026-08-17.** Drift flagged `composer.tsx` and `flipdesk-ebay.ts`
 > for `0ea04f6f` (a duplicate item that could be neither deleted nor ended) and

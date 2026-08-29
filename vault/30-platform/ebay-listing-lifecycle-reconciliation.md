@@ -15,12 +15,21 @@ code_refs:
   - services/edge-functions/src/lib/ebay-webhook-topics.ts
   - services/edge-functions/src/lib/ebay-notification-subscriptions.ts
   - services/edge-functions/src/routes/flipdesk-webhooks.ts
-reviewed: 2026-08-27
+reviewed: 2026-08-28
 tags: [ebay, listings, sync, gotcha]
 summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error - and to keep WHICH of those it was, since ended and removed-by-eBay need opposite actions.
 ---
 
 # Reconciling eBay-ended and policy-removed listings
+
+> **Re-reviewed 2026-08-28.** Drift flagged `flipdesk-ebay.ts` for US-2974,
+> which adds an optional `item_id` query param to the COMPS SEARCH endpoint and
+> stamps the comp pipeline stage for rewards after a successful lookup. It
+> touches no lifecycle verb: nothing about ending, relisting, policy removal or
+> the reconciliation sweep changed, and the stamp is best-effort precisely so a
+> rewards problem cannot cost a seller the thing they asked for. Recorded rather
+> than silently bumped, because this file is large and the drift guard cannot
+> tell which part of it moved.
 
 eBay can end a listing without telling us: a policy removal, or the seller ending
 it in eBay's own UI. When that happens the local row must catch up. Three
