@@ -200,6 +200,19 @@ enum MeasureGeometry {
         }
     }
 
+    /// Is any part of this line outside the frame? The negation of
+    /// lineWithinBounds, so there is one definition of "inside" and not two.
+    ///
+    /// US-2889. Deleted by accident on 2026-08-28 while this file's line math
+    /// was being rewritten to mirror the web, and iOS CI is what found it:
+    /// "Type 'MeasureGeometry' has no member 'isOutsideFrame'", from the two
+    /// call sites in MeasurementPhotoEditorView and one in the test. Nothing on
+    /// the Windows box could have caught it - Swift does not compile here, and
+    /// the source guards read for patterns rather than for resolution.
+    static func isOutsideFrame(_ line: Line, imgW: Double, imgH: Double) -> Bool {
+        !lineWithinBounds(line, imgW: imgW, imgH: imgH)
+    }
+
     /// Pull a line that is partly or wholly outside the image back into view,
     /// keeping its length and angle where it can.
     ///

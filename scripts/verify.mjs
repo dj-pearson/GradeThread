@@ -276,6 +276,11 @@ const IOS_GUARDS = [
   ["AI routes on the AI session", "check-ai-session.py"],
   ["no trailing comma in a param list", "no-trailing-comma.py"],
   ["help slugs exist in the shared registry", "check-help-slugs.py"],
+  // US-2889: the only one of these that checks RESOLUTION rather than a
+  // pattern. A rewrite deleted MeasureGeometry.isOutsideFrame while three call
+  // sites still used it; every guard above passed, because none of them asks
+  // whether a symbol exists. iOS CI found it a push later.
+  ["every Type.member resolves", "check-symbol-resolution.py"],
 ];
 
 const results = [];

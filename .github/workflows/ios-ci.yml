@@ -104,6 +104,14 @@ jobs:
         working-directory: ios
         run: xcodegen generate
 
+      # US-2889. The other guards read for patterns; this one asks whether a
+      # symbol exists. It runs BEFORE the build because it answers, in a second,
+      # the single most common way a change authored on Windows breaks here -
+      # calling a member of one of this repo's own types that no longer exists.
+      # A pass is not a build; a failure is a build error found without one.
+      - name: Lint — every Type.member resolves (US-2889)
+        run: python3 ios/Scripts/check-symbol-resolution.py
+
       - name: Check ATS posture + https base URLs (US-1008)
         # Run AFTER xcodegen so the regenerated Info.plist is what we scan. Fails
         # if the merged Release Info.plist relaxes App Transport Security or if an
