@@ -1,7 +1,6 @@
 package com.gradethread.app.ui
 
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.gradethread.app.MainActivity
@@ -70,7 +69,7 @@ class AppLaunchTest {
     @Test
     fun aSessionlessLaunchReachesTheSignInForm() {
         hilt.inject()
-        awaitAuthScreen()
+        compose.awaitAuthScreen()
 
         compose.onNodeWithTag(TestTags.Auth.EMAIL).assertExists()
         compose.onNodeWithTag(TestTags.Auth.PASSWORD).assertExists()
@@ -80,37 +79,12 @@ class AppLaunchTest {
     @Test
     fun theSignUpToggleSwapsTheForm() {
         hilt.inject()
-        awaitAuthScreen()
+        compose.awaitAuthScreen()
 
         // Kept from the original, retargeted. It matched the literal
         // "Need an account? Sign up", which is one rewording or one Spanish
         // device away from failing for a reason that has nothing to do with the
         // toggle.
         compose.onNodeWithTag(TestTags.Auth.TOGGLE).assertExists()
-    }
-
-    /**
-     * Waits for the signed-out surface, past the splash's own give-up clock.
-     *
-     * Fails with a message that says which of the two things went wrong, since
-     * "node not found" on its own sent the last reader looking at the Hilt graph
-     * for a timing problem.
-     */
-    private fun awaitAuthScreen() {
-        compose.waitUntil(timeoutMillis = LAUNCH_TIMEOUT_MS) {
-            compose.onAllNodesWithTag(TestTags.Auth.SCREEN).fetchSemanticsNodes().isNotEmpty()
-        }
-        compose.onNodeWithTag(TestTags.Auth.SCREEN).assertExists(
-            "The app never reached the sign-in surface within ${LAUNCH_TIMEOUT_MS}ms — " +
-                "either startup or the Hilt graph failed, or the auth phase never left Loading.",
-        )
-    }
-
-    private companion object {
-        /**
-         * Longer than MainActivity.SPLASH_MAX_HOLD_MS (5s) on purpose. Anything
-         * shorter tests the splash rather than the app.
-         */
-        const val LAUNCH_TIMEOUT_MS = 15_000L
     }
 }

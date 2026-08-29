@@ -168,6 +168,49 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
         has(get, "GOOGLE_SHEETS_CLIENT_SECRET")) ||
       hasGoogleShared(get),
   },
+  // US-2668: the Google Ads credentials, which TWO scheduled jobs depend on and
+  // which nothing on this page reported until 2026-08-29.
+  //
+  // WHY IT EARNED A LINE. ads-sync and keyword-research both 502'd on every run
+  // for nine days and the only place that showed was the cron ledger. Both share
+  // this one credential set: keyword-research reads it directly
+  // (lib/keyword-research.ts) and ads-sync through google-ads-client.ts, so one
+  // bad refresh token takes out both and neither says so anywhere a person looks.
+  //
+  // CUSTOMER_ID IS IN THE LIST DELIBERATELY. The other four are the OAuth app;
+  // the customer id is which account the ideas and the spend are read for, and
+  // without it the two jobs have credentials that authenticate and nothing to
+  // point them at. LOGIN_CUSTOMER_ID is not: it is only needed under a manager
+  // (MCC) account, so requiring it would report a correct single-account setup
+  // as broken.
+  {
+    name: "google_ads",
+    vars: [
+      "GOOGLE_ADS_DEVELOPER_TOKEN",
+      "GOOGLE_ADS_CLIENT_ID",
+      "GOOGLE_ADS_CLIENT_SECRET",
+      "GOOGLE_ADS_REFRESH_TOKEN",
+      "GOOGLE_ADS_CUSTOMER_ID",
+    ],
+    // No shared-credential fallback here, unlike google_photos/google_sheets:
+    // the Ads API needs its own approved developer token and a refresh token
+    // with the Ads scope, which GOOGLE_CLIENT_* does not carry.
+    whenMissing:
+      "ads-sync and keyword-research will SKIP cleanly and report 200, so the " +
+      "cron ledger stays green while no spend is read and no keyword volumes " +
+      "are refreshed. A green ledger here means 'not running', not 'working'.",
+    // NO `alsoUnverifiable`, and this is the argument rather than an oversight.
+    // The first draft carried one — "set does not mean Google accepts them" —
+    // and the ration guard in env-validation_test.ts refused it. Re-read against
+    // the two-part rule at the field's definition: the second half does live
+    // where this service cannot read (token validity, developer-token approval,
+    // whether the customer id is reachable), but failing it is NOT silent. It
+    // 502s on the first API call of every run, and US-2668 AC4 already built the
+    // thing that makes that loud in a place people look —
+    // cron-fleet-governance.ts escalates a job whose failure RATE is 100% over
+    // its own cadence. A caveat here would restate a signal that already has an
+    // owner, on a page whose value is that its lines are short.
+  },
   // US-2001: SENTRY_DSN alone is not enough to call observability "ok". Prod
   // measured release:"dev" while this line reported ok, because the Dockerfile's
   // ARG GIT_SHA=dev default survived into the image — so every edge error was

@@ -368,6 +368,57 @@ Deno.test("US-2003: alerting says a channel is configured, not that anyone is pa
   }
 });
 
+const GOOGLE_ADS_ENV = {
+  GOOGLE_ADS_DEVELOPER_TOKEN: "dev",
+  GOOGLE_ADS_CLIENT_ID: "id",
+  GOOGLE_ADS_CLIENT_SECRET: "secret",
+  GOOGLE_ADS_REFRESH_TOKEN: "refresh",
+  GOOGLE_ADS_CUSTOMER_ID: "1234567890",
+};
+
+Deno.test("US-2668: google_ads reports missing, and says what a green ledger means", () => {
+  const r = computeFeatureReadiness(envOf({}));
+  assert(r.google_ads.startsWith("missing:"), r.google_ads);
+  // The CONSEQUENCE, not just the variable list. Unconfigured is a clean skip
+  // in both jobs (they return 200), so the cron ledger reads green while
+  // nothing syncs - which is the one thing an operator would get wrong here.
+  assertStringIncludes(r.google_ads, "green");
+});
+
+Deno.test("US-2668: all five variables satisfy google_ads", () => {
+  assertEquals(computeFeatureReadiness(envOf(GOOGLE_ADS_ENV)).google_ads, "ok");
+});
+
+Deno.test("US-2668: the shared GOOGLE_CLIENT_* does NOT satisfy google_ads", () => {
+  // The property that separates this group from google_photos / google_sheets,
+  // which DO fall back to the shared client. The Ads API needs its own approved
+  // developer token and a refresh token carrying the Ads scope, so treating the
+  // shared pair as enough would report a broken setup as ok - and the failure
+  // it hides is two daily jobs 502ing, which is the whole of US-2668.
+  const r = computeFeatureReadiness(
+    envOf({ GOOGLE_CLIENT_ID: "id", GOOGLE_CLIENT_SECRET: "secret" }),
+  );
+  assertEquals(r.google_photos, "ok");
+  assertEquals(r.google_sheets, "ok");
+  assert(r.google_ads.startsWith("missing:"), r.google_ads);
+});
+
+Deno.test("US-2668: the customer id is required and the manager id is not", () => {
+  // GOOGLE_ADS_CUSTOMER_ID is which ACCOUNT the spend and the keyword ideas are
+  // read for - without it the jobs authenticate and have nothing to point at.
+  // LOGIN_CUSTOMER_ID is only needed under a manager (MCC) account, so
+  // requiring it would report a correct single-account setup as broken.
+  const withoutCustomer = { ...GOOGLE_ADS_ENV };
+  delete (withoutCustomer as Record<string, string>).GOOGLE_ADS_CUSTOMER_ID;
+  assert(computeFeatureReadiness(envOf(withoutCustomer)).google_ads.startsWith("missing:"));
+  assertStringIncludes(
+    computeFeatureReadiness(envOf(withoutCustomer)).google_ads,
+    "GOOGLE_ADS_CUSTOMER_ID",
+  );
+  // Manager id absent from a complete set: still ok.
+  assertEquals(computeFeatureReadiness(envOf(GOOGLE_ADS_ENV)).google_ads, "ok");
+});
+
 Deno.test("the unverifiable caveat is rationed, not sprayed on every group", () => {
   // Every group is technically unverifiable if you push hard enough, and a
   // health page where every line carries a paragraph is a page nobody reads.
