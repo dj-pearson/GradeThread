@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## HELD: 00685_ledger_entries.sql (US-2984)
+## ✅ APPLIED: 00685_ledger_entries.sql (US-2984, applied 2026-08-29 — owner-confirmed; ledger_entries present in prod PostgREST schema)
 
 **Risk: low to apply, and it writes nothing on its own.** One new table, three
 new functions. No existing table, column, policy or function is altered.
@@ -40,7 +40,7 @@ means every rebuild fails loudly. That is the intended failure.
 `NOTIFY pgrst, 'reload schema';` - one new table and three new RPCs, and
 PostgREST will 404 `rebuild_my_ledger` until it reloads.
 
-## HELD: 00684_ledger_accounts.sql (US-2983)
+## ✅ APPLIED: 00684_ledger_accounts.sql (US-2983, applied 2026-08-29 — owner-confirmed; ledger_accounts present in prod PostgREST schema)
 
 **Risk: low.** One new table, one seeded chart of 31 system rows, one new
 nullable column on `flipdesk_expenses`, one new IMMUTABLE function. No existing
@@ -77,7 +77,7 @@ client yet. Low urgency, but apply it with 00683 anyway.
 **Apply order.** After 00683. Then `NOTIFY pgrst, 'reload schema';` - one new
 table and one new column.
 
-## HELD: 00683_tax_profiles.sql (US-2982)
+## ✅ APPLIED: 00683_tax_profiles.sql (US-2982, applied 2026-08-29 — owner-confirmed; tax_profiles present in prod PostgREST schema)
 
 **Risk: low.** Two brand-new tables, one new trigger function, no change to any
 existing table, column, function, view or policy. Nothing reads either table
