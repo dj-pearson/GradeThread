@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -29,6 +30,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.text.KeyboardOptions
 import com.gradethread.app.R
+import com.gradethread.app.ui.TestTags
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -50,6 +52,7 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
 
     Column(
         Modifier
+            .testTag(TestTags.Auth.SCREEN)
             .fillMaxSize()
             // US-2891: API 36 makes edge-to-edge mandatory - the opt-out that
             // still existed at 35 is gone - and MainActivity composes this
@@ -101,7 +104,7 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
                 keyboardType = KeyboardType.Email,
                 imeAction = ImeAction.Next,
             ),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.testTag(TestTags.Auth.EMAIL).fillMaxWidth(),
         )
 
         OutlinedTextField(
@@ -138,7 +141,7 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
                 keyboardType = KeyboardType.Password,
                 imeAction = ImeAction.Done,
             ),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.testTag(TestTags.Auth.PASSWORD).fillMaxWidth(),
         )
 
         state.errorMessage?.let { message ->
@@ -201,14 +204,17 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
                     else -> R.string.auth_sign_in
                 },
             ),
-            modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
+            modifier = Modifier
+                .testTag(TestTags.Auth.SUBMIT)
+                .fillMaxWidth()
+                .padding(top = Spacing.sm),
             enabled = state.canSubmit,
         ) { viewModel.submit() }
 
         TextButton(
             onClick = viewModel::toggleMode,
             enabled = !state.busy,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.testTag(TestTags.Auth.TOGGLE).fillMaxWidth(),
         ) {
             Text(
                 stringResource(
