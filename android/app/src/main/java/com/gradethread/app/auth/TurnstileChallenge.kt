@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -46,9 +48,14 @@ fun TurnstileChallenge(
     onResult: (TurnstileResult) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // US-2978: onResult is not among the effect keys below, so the block
+    // carries whichever closure existed at first composition. Read it through
+    // rememberUpdatedState rather than keying on it - this effect is meant to
+    // fire exactly once, and keying on a lambda would re-fire it.
+    val currentOnResult by rememberUpdatedState(onResult)
     val siteKey = AppConfig.turnstileSiteKey
     if (siteKey == null) {
-        LaunchedEffect(Unit) { onResult(TurnstileResult.NotConfigured) }
+        LaunchedEffect(Unit) { currentOnResult(TurnstileResult.NotConfigured) }
         return
     }
 
@@ -87,10 +94,8 @@ fun TurnstileChallenge(
                      * a captcha widget has no legitimate reason to send the
                      * seller anywhere mid-challenge.
                      */
-                    override fun shouldOverrideUrlLoading(
-                        view: WebView,
-                        request: WebResourceRequest,
-                    ): Boolean = !TurnstileHtml.isAllowedNavigation(request.url.toString())
+                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
+                        !TurnstileHtml.isAllowedNavigation(request.url.toString())
                 }
                 addJavascriptInterface(
                     object {

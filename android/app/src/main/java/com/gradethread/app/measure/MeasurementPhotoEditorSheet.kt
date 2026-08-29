@@ -25,6 +25,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -75,7 +76,13 @@ fun MeasurementPhotoEditorSheet(
     // Closing on the SAVED flag rather than in the click handler: the sheet
     // must not disappear while the write is still in flight, or a failure has
     // nowhere left to be reported.
-    LaunchedEffect(state.saved) { if (state.saved) onDismiss() }
+    // US-2978: the callback is not among this effect's keys, so the block
+    // carries whichever closure existed when the key last changed. Read it
+    // through rememberUpdatedState rather than adding it to the keys —
+    // restarting on a lambda that changes every recomposition would re-run
+    // the effect for no reason.
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+    LaunchedEffect(state.saved) { if (state.saved) currentOnDismiss() }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -218,10 +225,7 @@ private fun EditorBody(
  * a tablet.
  */
 @Composable
-private fun MeasureCanvas(
-    state: MeasurementEditorViewModel.State,
-    viewModel: MeasurementEditorViewModel,
-) {
+private fun MeasureCanvas(state: MeasurementEditorViewModel.State, viewModel: MeasurementEditorViewModel) {
     val density = LocalDensity.current
     val textMeasurer = rememberTextMeasurer()
     val maxHeightDp = 360.dp
@@ -254,7 +258,9 @@ private fun MeasureCanvas(
                     detectDragGestures(
                         onDragStart = { offset ->
                             val scale = displayScale(
-                                state, canvasWidthPx, with(density) { maxHeightDp.toPx() },
+                                state,
+                                canvasWidthPx,
+                                with(density) { maxHeightDp.toPx() },
                             )
                             grabbed = MeasureGeometry.hitEndpoint(
                                 lines = state.lines,
@@ -269,7 +275,9 @@ private fun MeasureCanvas(
                             val hit = grabbed ?: return@detectDragGestures
                             change.consume()
                             val scale = displayScale(
-                                state, canvasWidthPx, with(density) { maxHeightDp.toPx() },
+                                state,
+                                canvasWidthPx,
+                                with(density) { maxHeightDp.toPx() },
                             )
                             if (scale <= 0.0) return@detectDragGestures
                             viewModel.moveEndpoint(
@@ -286,7 +294,10 @@ private fun MeasureCanvas(
         ) {
             canvasWidthPx = size.width
             val scale = MeasureGeometry.fitScale(
-                state.imageWidth, state.imageHeight, size.width.toDouble(), size.height.toDouble(),
+                state.imageWidth,
+                state.imageHeight,
+                size.width.toDouble(),
+                size.height.toDouble(),
             ).toFloat()
             if (scale <= 0f) return@Canvas
 
@@ -328,13 +339,10 @@ private fun MeasureCanvas(
 }
 
 /** The same fit the Canvas draws with, for hit-testing before the first draw. */
-private fun displayScale(
-    state: MeasurementEditorViewModel.State,
-    widthPx: Float,
-    heightPx: Float,
-): Double = MeasureGeometry.fitScale(
-    state.imageWidth,
-    state.imageHeight,
-    widthPx.toDouble(),
-    heightPx.toDouble(),
-)
+private fun displayScale(state: MeasurementEditorViewModel.State, widthPx: Float, heightPx: Float): Double =
+    MeasureGeometry.fitScale(
+        state.imageWidth,
+        state.imageHeight,
+        widthPx.toDouble(),
+        heightPx.toDouble(),
+    )

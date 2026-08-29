@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import android.annotation.SuppressLint
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -107,6 +108,19 @@ fun BarcodeScanScreen(onScanned: (String) -> Unit, onDismiss: () -> Unit) {
     val executor = remember { Executors.newSingleThreadExecutor() }
     val controller = remember { LifecycleCameraController(context) }
 
+    // US-2978: the effect below keys on lifecycleOwner, which never changes for
+    // the life of this screen — so without these it would capture whichever
+    // onScanned/onDismiss existed at first composition and call THAT forever. A
+    // caller that recomposes with a new lambda (a different target item, say)
+    // would have its scan delivered to the old closure, silently.
+    //
+    // rememberUpdatedState rather than adding the lambdas to the effect keys:
+    // restarting this effect tears down and rebuilds the CameraX analyzer and
+    // the dedup, so keying on a lambda that changes on every recomposition
+    // would rebuild the camera pipeline constantly.
+    val currentOnScanned by rememberUpdatedState(onScanned)
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
+
     DisposableEffect(lifecycleOwner) {
         // Fresh dedup per presentation, so returning to the scanner can
         // re-read the SAME barcode rather than mysteriously doing nothing.
@@ -115,8 +129,8 @@ fun BarcodeScanScreen(onScanned: (String) -> Unit, onDismiss: () -> Unit) {
                 val sku = normalizeScannedSku(raw)
                 if (sku.isNotEmpty()) {
                     haptics.success()
-                    onScanned(sku)
-                    onDismiss()
+                    currentOnScanned(sku)
+                    currentOnDismiss()
                 }
             },
         )

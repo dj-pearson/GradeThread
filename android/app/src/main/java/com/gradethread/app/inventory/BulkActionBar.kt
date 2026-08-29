@@ -17,6 +17,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -63,8 +64,8 @@ fun BulkActionBar(
                     .semantics { contentDescription = selectionSpoken },
             )
             TextButton(onClick = onClear, enabled = !busy) {
-            Text(stringResource(R.string.common_clear))
-        }
+                Text(stringResource(R.string.common_clear))
+            }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
             // Stage-appropriate: a status action offered against a mixed
@@ -87,7 +88,10 @@ fun BulkActionBar(
             onDismissRequest = { confirming = null },
             title = { Text(action.confirmationTitle(selectedCount)) },
             confirmButton = {
-                TextButton(onClick = { confirming = null; onAction(action) }) {
+                TextButton(onClick = {
+                    confirming = null
+                    onAction(action)
+                }) {
                     Text(action.label)
                 }
             },
@@ -108,21 +112,22 @@ fun BulkActionBar(
  * Undo gone has no way to know whether they missed it or it never appeared.
  */
 @Composable
-fun BulkUndoBar(
-    undo: BulkUndo,
-    onUndo: () -> Unit,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+fun BulkUndoBar(undo: BulkUndo, onUndo: () -> Unit, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     var remaining by remember(undo) { mutableStateOf(BulkUndo.WINDOW_SECONDS) }
 
+    // US-2978, and this is one of the two SEVERE instances rather than a
+    // theoretical one: the effect below runs a countdown for the whole undo
+    // window, so it holds its captured onDismiss for WINDOW_SECONDS. A
+    // recomposition with a new lambda during that window would have the
+    // dismissal delivered to the old one.
+    val currentOnDismiss by rememberUpdatedState(onDismiss)
     LaunchedEffect(undo) {
         remaining = BulkUndo.WINDOW_SECONDS
         while (remaining > 0) {
             delay(1_000)
             remaining -= 1
         }
-        onDismiss()
+        currentOnDismiss()
     }
 
     Row(
@@ -151,11 +156,7 @@ fun BulkUndoBar(
 
 /** The result line, with per-item failures listed rather than counted. */
 @Composable
-fun BulkResultBar(
-    result: BulkActionResult,
-    onDismiss: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+fun BulkResultBar(result: BulkActionResult, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     Column(
         modifier
             .fillMaxWidth()

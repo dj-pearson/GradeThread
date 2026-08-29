@@ -37,6 +37,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -123,10 +124,15 @@ fun CaptureScreen(
     }
 
     val publish by publishViewModel.state.collectAsState()
+    // US-2978: onPublished is not among this effect keys, so the block that runs
+    // carries whichever closure existed when publishedItemId last changed. The
+    // window is narrower than BarcodeScanScreen milliseconds rather than the
+    // life of a camera session but the fix is the same and costs nothing.
+    val currentOnPublished by rememberUpdatedState(onPublished)
     LaunchedEffect(publish.publishedItemId) {
         publish.publishedItemId?.let { itemId ->
             publishViewModel.onNavigated()
-            onPublished(itemId)
+            currentOnPublished(itemId)
         }
     }
 

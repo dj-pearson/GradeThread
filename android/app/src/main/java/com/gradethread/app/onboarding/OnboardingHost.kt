@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,10 +57,16 @@ fun OnboardingHost(
 ) {
     val state by viewModel.state.collectAsState()
 
+    // US-2978: the callback is not among this effect's keys, so the block
+    // carries whichever closure existed when the key last changed. Read it
+    // through rememberUpdatedState rather than adding it to the keys —
+    // restarting on a lambda that changes every recomposition would re-run
+    // the effect for no reason.
+    val currentOnFirstAction by rememberUpdatedState(onFirstAction)
     LaunchedEffect(state.navigateTo) {
         state.navigateTo?.let {
             viewModel.onNavigated()
-            onFirstAction(it)
+            currentOnFirstAction(it)
         }
     }
 
@@ -148,10 +155,7 @@ private fun Carousel(state: OnboardingViewModel.State, onPage: (Int) -> Unit) {
 }
 
 @Composable
-private fun UseCaseStep(
-    state: OnboardingViewModel.State,
-    onPick: (OnboardingUseCase) -> Unit,
-) {
+private fun UseCaseStep(state: OnboardingViewModel.State, onPick: (OnboardingUseCase) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Text(
             stringResource(R.string.onboarding_use_case_title),

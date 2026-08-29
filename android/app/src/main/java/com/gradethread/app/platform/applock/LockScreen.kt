@@ -14,6 +14,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -31,7 +33,13 @@ import com.gradethread.app.ui.theme.Spacing
  */
 @Composable
 fun LockScreen(onUnlock: () -> Unit) {
-    LaunchedEffect(Unit) { onUnlock() }
+    // US-2978: the callback is not among this effect's keys, so the block
+    // carries whichever closure existed when the key last changed. Read it
+    // through rememberUpdatedState rather than adding it to the keys —
+    // restarting on a lambda that changes every recomposition would re-run
+    // the effect for no reason.
+    val currentOnUnlock by rememberUpdatedState(onUnlock)
+    LaunchedEffect(Unit) { currentOnUnlock() }
     Surface(modifier = Modifier.fillMaxSize()) {
         Column(
             // US-2891: mandatory edge-to-edge at API 36. The lock cover is

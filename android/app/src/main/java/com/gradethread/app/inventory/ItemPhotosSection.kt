@@ -24,6 +24,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -64,13 +65,20 @@ fun ItemPhotosSection(
     val profile by viewModel.profile.collectAsState()
     val ordered = viewModel.displayed(confirmed)
 
+    // US-2978: the callback is not among this effect's keys, so the block
+    // carries whichever closure existed when the key last changed. Read it
+    // through rememberUpdatedState rather than adding it to the keys —
+    // restarting on a lambda that changes every recomposition would re-run
+    // the effect for no reason.
+    val currentOnDuplicated by rememberUpdatedState(onDuplicated)
+    val currentOnDeleted by rememberUpdatedState(onDeleted)
     LaunchedEffect(state.duplicatedItemId) {
         state.duplicatedItemId?.let {
             viewModel.onNavigated()
-            onDuplicated(it)
+            currentOnDuplicated(it)
         }
     }
-    LaunchedEffect(state.deleted) { if (state.deleted) onDeleted() }
+    LaunchedEffect(state.deleted) { if (state.deleted) currentOnDeleted() }
 
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(PhotoImport.MAX_PICK),
@@ -100,12 +108,18 @@ fun ItemPhotosSection(
                     onShareCertificate?.let { share ->
                         DropdownMenuItem(
                             text = { Text(stringResource(R.string.photos_share_certificate)) },
-                            onClick = { overflowOpen = false; share() },
+                            onClick = {
+                                overflowOpen = false
+                                share()
+                            },
                         )
                     }
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.photos_delete_item)) },
-                        onClick = { overflowOpen = false; confirmDelete = true },
+                        onClick = {
+                            overflowOpen = false
+                            confirmDelete = true
+                        },
                     )
                 }
             }
@@ -192,7 +206,10 @@ fun ItemPhotosSection(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { confirmDelete = false; viewModel.deleteItem(itemId) }) {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    viewModel.deleteItem(itemId)
+                }) {
                     Text(stringResource(R.string.photos_delete))
                 }
             },
@@ -271,7 +288,9 @@ private fun PhotoTile(
                 TextButton(onClick = onMoveLeft, contentPadding = tight) { Text(stringResource(R.string.photos_text)) }
             }
             if (canMoveRight) {
-                TextButton(onClick = onMoveRight, contentPadding = tight) { Text(stringResource(R.string.photos_text_2)) }
+                TextButton(onClick = onMoveRight, contentPadding = tight) {
+                    Text(stringResource(R.string.photos_text_2))
+                }
             }
             if (!isCover) {
                 TextButton(onClick = onSetCover, contentPadding = tight) { Text(stringResource(R.string.photos_cover)) }
@@ -363,11 +382,7 @@ private fun RetagSectionHeader(text: String) {
 }
 
 @Composable
-private fun RetagChoice(
-    choice: PhotoTagOptions.Choice,
-    current: String,
-    onPick: () -> Unit,
-) {
+private fun RetagChoice(choice: PhotoTagOptions.Choice, current: String, onPick: () -> Unit) {
     val isCurrent = choice.slot == current
     DropdownMenuItem(
         text = { Text(choice.label) },

@@ -14,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -43,7 +44,13 @@ fun AiExtractScreen(
     val state by viewModel.state.collectAsState()
 
     // Applying is terminal for this screen; the item canvas owns the row now.
-    LaunchedEffect(state.applied) { if (state.applied) onDone() }
+    // US-2978: the callback is not among this effect's keys, so the block
+    // carries whichever closure existed when the key last changed. Read it
+    // through rememberUpdatedState rather than adding it to the keys —
+    // restarting on a lambda that changes every recomposition would re-run
+    // the effect for no reason.
+    val currentOnDone by rememberUpdatedState(onDone)
+    LaunchedEffect(state.applied) { if (state.applied) currentOnDone() }
 
     val review = state.review
     Column(
@@ -66,7 +73,10 @@ fun AiExtractScreen(
                         onDone()
                     },
                 )
-                TextButton(onClick = { viewModel.skip(); onDone() }, Modifier.fillMaxWidth()) {
+                TextButton(onClick = {
+                    viewModel.skip()
+                    onDone()
+                }, Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.aiextract_skip))
                 }
             }

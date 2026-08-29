@@ -8,7 +8,6 @@
     <ID>ComposableParamOrder:MoneyScreen.kt$MoneyScreen</ID>
     <ID>ComposableParamOrder:SettingsScreen.kt$SettingsScreen</ID>
     <ID>ComposableParamOrder:SyncStatusBar.kt$SyncStatusBar</ID>
-    <ID>ComposableParamOrder:ToolsScreen.kt$ToolsScreen</ID>
     <ID>CompositionLocalAllowlist:CachedThumbnail.kt$LocalStoragePathResolver</ID>
     <ID>ConstructorParameterNaming:EdgeApiError.kt$EdgeApiError.Companion.WirePayload$val error_code: String? = null</ID>
     <ID>ConstructorParameterNaming:ListingDraftService.kt$ListingDraftService.ListingRow$val ebay_condition: String? = null</ID>
@@ -35,18 +34,6 @@
     <ID>InstanceOfCheckForException:UploadWorker.kt$UploadWorker$t is java.io.IOException</ID>
     <ID>LambdaParameterEventTrailing:Components.kt$onClick</ID>
     <ID>LambdaParameterEventTrailing:HomeScreen.kt$onClick</ID>
-    <ID>LambdaParameterInRestartableEffect:AiExtractScreen.kt$onDone</ID>
-    <ID>LambdaParameterInRestartableEffect:BarcodeScanScreen.kt$onDismiss</ID>
-    <ID>LambdaParameterInRestartableEffect:BarcodeScanScreen.kt$onScanned</ID>
-    <ID>LambdaParameterInRestartableEffect:BulkActionBar.kt$onDismiss</ID>
-    <ID>LambdaParameterInRestartableEffect:CaptureScreen.kt$onPublished</ID>
-    <ID>LambdaParameterInRestartableEffect:ItemPhotosSection.kt$onDeleted</ID>
-    <ID>LambdaParameterInRestartableEffect:ItemPhotosSection.kt$onDuplicated</ID>
-    <ID>LambdaParameterInRestartableEffect:LockScreen.kt$onUnlock</ID>
-    <ID>LambdaParameterInRestartableEffect:MeasurementPhotoEditorSheet.kt$onDismiss</ID>
-    <ID>LambdaParameterInRestartableEffect:OnboardingHost.kt$onFirstAction</ID>
-    <ID>LambdaParameterInRestartableEffect:SupportScreen.kt$onOpenTicket</ID>
-    <ID>LambdaParameterInRestartableEffect:TurnstileChallenge.kt$onResult</ID>
     <ID>LongParameterList:AiExtractFlow.kt$AiExtractFlow$( itemId: String, isOnline: Boolean, photos: List&lt;AiExtractPhoto&gt;, existingValues: Map&lt;String, String&gt;, extract: suspend (List&lt;AiExtractPhoto&gt;) -&gt; AiExtractResponse, ocrLines: suspend () -&gt; List&lt;String&gt;, liveTextOnly: (List&lt;String&gt;) -&gt; AiExtractResponse?, mergeGaps: (AiExtractResponse, List&lt;String&gt;) -&gt; AiExtractResponse, )</ID>
     <ID>LongParameterList:FulfillmentTest.kt$FulfillmentTest$( id: String, itemId: String = "i-$id", soldAt: Long? = null, saleDate: Long = daysAgo(1), shippedAt: Long? = null, status: String = "completed", platformOrderId: String? = "order-$id", tracking: String? = null, shippingCost: Double? = null, )</ID>
     <ID>LongParameterList:InventoryDerivation.kt$InventoryDerivation$( items: List&lt;InventoryItemEntity&gt;, stage: InventoryStage, query: String, sort: SortOption, criteria: InventoryFilterCriteria, photoItemIds: Set&lt;String&gt;? = null, serverSearchIds: Set&lt;String&gt;? = null, nowMillis: Long = System.currentTimeMillis(), )</ID>
@@ -57,7 +44,6 @@
     <ID>LongParameterList:MoneyFixtures.kt$MoneyFixtures$( id: String, itemId: String, salePrice: Double = 100.0, platformFees: Double = 0.0, paymentProcessingFees: Double? = null, shippingCollected: Double? = null, shippingCost: Double? = null, gradingCost: Double? = null, otherCosts: Double? = null, status: String = "completed", saleDate: Long = 0L, payoutReference: String? = null, payoutAmount: Double? = null, )</ID>
     <ID>LongParameterList:MoneyFixtures.kt$MoneyFixtures$( id: String, status: String = "cataloged", acquiredPrice: Double? = null, listingPrice: Double? = null, targetPrice: Double? = null, title: String = "Item $id", sourceId: String? = null, acquiredDate: Long? = null, createdAt: Long = 0L, updatedAt: Long = 0L, )</ID>
     <ID>LongParameterList:RepricingTest.kt$RepricingTest$( name: String = "Weekly trim", enabled: Boolean = true, dropPct: Double = 10.0, intervalDays: Int = 7, floorCents: Int? = 999, confidence: Double? = null, brand: String? = null, minAge: Int = 0, itemId: String? = null, )</ID>
-    <ID>LongParameterList:UploadWorker.kt$UploadWorker.Companion$( stagedPath: String, itemId: String, serverType: String, sortOrder: Int, capturedAt: Long, width: Int? = null, height: Int? = null, photoRole: String? = null, )</ID>
     <ID>LoopWithTooManyJumpStatements:AiExtractReview.kt$AiExtractReview$for</ID>
     <ID>LoopWithTooManyJumpStatements:AspectSync.kt$AspectSync$for</ID>
     <ID>LoopWithTooManyJumpStatements:AutolisterSession.kt$AutolisterGroups$for</ID>
@@ -234,10 +220,6 @@
     <ID>MaxLineLength:AutomationsScreen.kt$confirmButton = { TextButton(onClick = viewModel::closeDryRun) { Text(stringResource(R.string.automations_close)) } }</ID>
     <ID>MaxLineLength:AutomationsScreen.kt$dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.automations_cancel)) } }</ID>
     <ID>MaxLineLength:AutomationsScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.automations_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
-    <ID>MaxLineLength:BulkGradeScreen.kt$BrandPrimaryButton(text = stringResource(R.string.bulkgrade_close), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
-    <ID>MaxLineLength:BulkGradeScreen.kt$BrandPrimaryButton(text = stringResource(R.string.bulkgrade_done), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
-    <ID>MaxLineLength:BulkGradeScreen.kt$BrandSecondaryButton</ID>
-    <ID>MaxLineLength:BulkGradeScreen.kt$confirmButton = { TextButton(onClick = viewModel::confirmTier) { Text(stringResource(R.string.bulkgrade_use_credits)) } }</ID>
     <ID>MaxLineLength:BulkPricingScreen.kt$BrandSecondaryButton(text = stringResource(R.string.bulkpricing_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
     <ID>MaxLineLength:BulkPricingScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.bulkpricing_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
     <ID>MaxLineLength:CommunityInsightsScreen.kt$BrandSecondaryButton(text = stringResource(R.string.community_back), modifier = Modifier.weight(1f)) { onClose() }</ID>
@@ -246,9 +228,6 @@
     <ID>MaxLineLength:ConsignorsScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.consignors_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
     <ID>MaxLineLength:DisclosureScreen.kt$BrandSecondaryButton(text = stringResource(R.string.disclosure_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
     <ID>MaxLineLength:DisclosureScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.disclosure_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
-    <ID>MaxLineLength:DraftsLibraryScreen.kt$BrandSecondaryButton(text = stringResource(R.string.drafts_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
-    <ID>MaxLineLength:DraftsLibraryScreen.kt$TextButton(onClick = onClearSchedule, enabled = !busy) { Text(stringResource(R.string.drafts_unschedule)) }</ID>
-    <ID>MaxLineLength:DraftsLibraryScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.drafts_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
     <ID>MaxLineLength:EdgeApiError.kt$EdgeApiError$"Please confirm your email to use this feature. Check your inbox for the verification link we sent when you signed up."</ID>
     <ID>MaxLineLength:EquityService.kt$"An estimate for planning only, from sold comps and your own sell-through — not an appraisal, an offer, or borrowing capacity. Items without a grade or usable comps are excluded."</ID>
     <ID>MaxLineLength:FriendlyAuthError.kt$FriendlyAuthError$EMAIL_NOT_CONFIRMED -&gt; "Confirm your email to sign in — check your inbox for the link we sent, or resend it below."</ID>
@@ -270,20 +249,10 @@
     <ID>MaxLineLength:GradeRequestScreen.kt$BrandPrimaryButton(text = stringResource(R.string.graderequest_done), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
     <ID>MaxLineLength:GradeRequestScreen.kt$BrandSecondaryButton(text = stringResource(R.string.graderequest_done), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
     <ID>MaxLineLength:GradeRequestScreen.kt$BrandSecondaryButton(text = stringResource(R.string.graderequest_try_again), modifier = Modifier.fillMaxWidth()) { it() }</ID>
-    <ID>MaxLineLength:HomeScreen.kt$BrandSecondaryButton</ID>
-    <ID>MaxLineLength:HomeScreen.kt$Text(stringResource(R.string.home_certified_grades), style = MaterialTheme.typography.titleMedium)</ID>
     <ID>MaxLineLength:InventoryDerivationTest.kt$InventoryDerivationTest$d.filtered(listOf(item("1", updatedAt = 1)), InventoryStage.ALL, "", SortOption.NEWEST, InventoryFilterCriteria())</ID>
     <ID>MaxLineLength:InventoryDerivationTest.kt$InventoryDerivationTest$d.filtered(listOf(item("1", updatedAt = 2)), InventoryStage.ALL, "", SortOption.NEWEST, InventoryFilterCriteria())</ID>
     <ID>MaxLineLength:InventoryListScreen.kt$TextButton(onClick = viewModel::dismissRefreshError) { Text(stringResource(R.string.inventorylist_dismiss)) }</ID>
-    <ID>MaxLineLength:ItemCanvasScreen.kt$BrandPrimaryButton(text = stringResource(R.string.canvas_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
-    <ID>MaxLineLength:ItemCanvasScreen.kt$BrandSecondaryButton(text = stringResource(R.string.canvas_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
-    <ID>MaxLineLength:ItemCanvasScreen.kt$BrandSecondaryButton(text = stringResource(R.string.canvas_grade), modifier = Modifier.weight(1f)) { onGrade(itemId) }</ID>
-    <ID>MaxLineLength:ItemCanvasScreen.kt$Field(stringResource(R.string.canvas_field_container), draft.container) { v -&gt; viewModel.edit { it.copy(container = v) } }</ID>
-    <ID>MaxLineLength:ItemCanvasScreen.kt$Field(stringResource(R.string.canvas_field_material), draft.material) { v -&gt; viewModel.edit { it.copy(material = v) } }</ID>
-    <ID>MaxLineLength:ItemCanvasScreen.kt$Field(stringResource(R.string.canvas_field_sourced_by), draft.sourcedBy) { v -&gt; viewModel.edit { it.copy(sourcedBy = v) } }</ID>
-    <ID>MaxLineLength:ItemPhotosSection.kt$TextButton(onClick = onMoveRight, contentPadding = tight) { Text(stringResource(R.string.photos_text_2)) }</ID>
     <ID>MaxLineLength:MarketplacesScreen.kt$dismissButton = { TextButton(onClick = { renaming = null }) { Text(stringResource(R.string.marketplaces_cancel)) } }</ID>
-    <ID>MaxLineLength:MoneyScreen.kt$Text(stringResource(R.string.money_money), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))</ID>
     <ID>MaxLineLength:NegotiationInboxScreen.kt$BrandSecondaryButton(text = stringResource(R.string.negotiation_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
     <ID>MaxLineLength:NegotiationInboxScreen.kt$Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.negotiation_offers)) })</ID>
     <ID>MaxLineLength:NegotiationInboxScreen.kt$Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.negotiation_messages)) })</ID>
@@ -322,7 +291,6 @@
     <ID>MaxLineLength:ResponseCacheTenantGuardTest.kt$ResponseCacheTenantGuardTest$Regex("""(?m)^[ \t]*((?:@\w+[ \t]+)*(?:public |internal |open |override |final |static |class |suspend )*)(?:fun|func)\s+(\w+)""")</ID>
     <ID>MaxLineLength:ResponseCacheTenantGuardTest.kt$ResponseCacheTenantGuardTest$private val typeDeclaration = Regex("""(?m)^[ \t]*(?:\w+[ \t]+)*(class|object|interface|actor|struct|enum)\s+(\w+)""")</ID>
     <ID>MaxLineLength:ScoutScreen.kt$BrandSecondaryButton(text = stringResource(R.string.scout_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
-    <ID>MaxLineLength:SettingsScreen.kt$TextButton(onClick = viewModel::confirmDeleteAccount) { Text(stringResource(R.string.settings_continue)) }</ID>
     <ID>MaxLineLength:SnapScreen.kt$BrandPrimaryButton</ID>
     <ID>MaxLineLength:SnapScreen.kt$BrandSecondaryButton</ID>
     <ID>MaxLineLength:SnapScreen.kt$BrandSecondaryButton(text = stringResource(R.string.snap_list_it), modifier = Modifier.weight(1f)) { onList() }</ID>
@@ -389,7 +357,6 @@
     <ID>MultipleEmitters:SettingsScreen.kt$SectionHeader</ID>
     <ID>MultipleEmitters:SpecificsSection.kt$SpecificField</ID>
     <ID>MutableStateAutoboxing:MeasurementPhotoEditorSheet.kt$mutableStateOf(0f)</ID>
-    <ID>NewLineAtEndOfFile:CreditTopUpViewModel.kt$com.gradethread.app.billing.CreditTopUpViewModel.kt</ID>
     <ID>ParameterNaming:AutolisterSessionScreen.kt$onSelected</ID>
     <ID>ParameterNaming:BarcodeScanScreen.kt$onScanned</ID>
     <ID>ParameterNaming:CaptureScreen.kt$onPublished</ID>
@@ -428,16 +395,11 @@
     <ID>UnstableCollections:MeasurementsSection.kt$Map&lt;String, Double&gt;</ID>
     <ID>UnstableCollections:ReconciliationScreen.kt$List&lt;com.gradethread.app.sync.db.InventoryItemEntity&gt;</ID>
     <ID>UnstableCollections:ShareTargetActivity.kt$List&lt;Uri&gt;</ID>
-    <ID>UnusedImports:AiExtractionManager.kt$import com.gradethread.app.capture.PhotoSlotType</ID>
-    <ID>UnusedImports:AppShell.kt$import androidx.compose.runtime.remember</ID>
     <ID>UnusedImports:AutomationsScreen.kt$import com.gradethread.app.ui.theme.BrandPrimaryButton</ID>
     <ID>UnusedImports:Comps.kt$import kotlinx.serialization.json.jsonPrimitive</ID>
     <ID>UnusedImports:ConsignmentReportScreen.kt$import kotlinx.coroutines.flow.asStateFlow</ID>
     <ID>UnusedImports:ExpenseFormSheet.kt$import java.time.ZoneId</ID>
     <ID>UnusedImports:ImportScreen.kt$import androidx.compose.foundation.clickable</ID>
-    <ID>UnusedImports:IntakeRepository.kt$import kotlinx.serialization.json.JsonObject</ID>
-    <ID>UnusedImports:MoneyScreen.kt$import java.time.ZoneId</ID>
-    <ID>UnusedImports:ShareTargetActivity.kt$import android.content.Intent</ID>
     <ID>UnusedParameter:MoneyAnalyticsRollup.kt$MoneyAnalyticsRollup$nowMs: Long</ID>
     <ID>UnusedPrivateMember:CachedThumbnail.kt$@Preview(showBackground = true) @Composable private fun CachedThumbnailPreview()</ID>
     <ID>UnusedPrivateMember:DataRow.kt$@Preview(showBackground = true) @Composable private fun DataRowPreview()</ID>
