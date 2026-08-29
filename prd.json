@@ -2553,7 +2553,7 @@
       ],
       "priority": 30,
       "passes": false,
-      "notes": ""
+      "notes": "2026-08-29 THE PREMISE IS NOW A PICTURE, and it is worse than the sentence.\n\nNEW: android/app/src/test/.../TabletLayoutScreenshotTest.kt, one capture at\nsw800dp-w1280dp-h800dp-land-xhdpi (Expanded width, the shape the Play listing\nwants shots of): screen-inventory-tablet-light.png.\n\nIt confirms 'the same single stretched column', and shows a specific harm the\nstory's wording does not carry:\n\n  THE ROW'S TWO ENDS ARE ABOUT 1900px APART. Title, brand and price sit at the\n  far left; the grade badge and the Grade action sit at the far RIGHT edge,\n  alone in empty space. On a phone those are one glanceable row. At 1280dp the\n  eye cannot associate '8.5 Excellent' with 'Levi's 501 Straight Jean' without\n  tracking across the whole screen, so the row stops working as a unit.\n\n  THE LIST OCCUPIES THE TOP QUARTER. Three items fill roughly 400 of 1600px\n  and the rest is white. That is the space AC1's detail pane would use.\n\nSo AC4's 65-75ch bound is not a polish item here - it is the fix for a row\nthat has come apart, and it is independent of the list-detail work in AC1.\n\n⚠ WHAT THE CAPTURE DOES NOT SHOW, stated so nobody reads more into it: the\nnavigation RAIL. InventoryListContent is the content; the rail lives in\nAppShell, which is still ViewModel-bound and not extracted. This is the half\nof the complaint AC1 and AC4 are about, not the whole sentence.\n\nThis is the BEFORE for AC5. The two-pane layout now has something to be\ncompared against, and the claim in the description is evidence rather than\nassertion.\n\nVERIFIED: spotlessCheck, detekt, lintDebug and verifyRoborazziDebug green."
     },
     {
       "id": "US-2906",
