@@ -430,7 +430,6 @@
     <ID>ViewModelForwarding:PayoutReconciliationScreen.kt$QueuedPayoutCard(entry, state.queueBusy, viewModel)</ID>
     <ID>ViewModelForwarding:PromotionSheet.kt$PromotionPanel(promo, state, viewModel)</ID>
     <ID>ViewModelForwarding:PromotionSheet.kt$SalePanel(promo, state, viewModel)</ID>
-    <ID>ViewModelForwarding:PublishSheet.kt$Composer(state, viewModel)</ID>
     <ID>ViewModelForwarding:ReferralsScreen.kt$RedeemSection(state, viewModel)</ID>
     <ID>ViewModelForwarding:SettingsScreen.kt$FeedbackSheet( onOpenSupport = onOpenSupport, viewModel = feedbackViewModel, )</ID>
     <ID>ViewModelForwarding:SupportScreen.kt$Composer(state, viewModel)</ID>

@@ -16,6 +16,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,7 +28,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.inventory.EbayAspect
 import com.gradethread.app.money.Money
+import com.gradethread.app.templates.ListingTemplate
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.components.LabeledDropdown
@@ -55,56 +58,117 @@ fun PublishSheet(
     LaunchedEffect(itemId) { viewModel.bind(itemId) }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = Spacing.md)
-                .padding(bottom = Spacing.lg),
-            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-        ) {
+        PublishSheetContent(
+            state = state,
+            actions = PublishActions(
+                onBackToComposer = viewModel::backToComposer,
+                onApplyTemplate = viewModel::applyTemplate,
+                onEditTitle = viewModel::editTitle,
+                onEditCondition = viewModel::editCondition,
+                onEditConditionDescription = viewModel::editConditionDescription,
+                onEditPrice = viewModel::editPrice,
+                onSetSpecific = viewModel::setSpecific,
+                onValidate = viewModel::validate,
+                onPublishNow = viewModel::publishNow,
+            ),
+            onOpenListing = onOpenListing,
+            onDismiss = onDismiss,
+        )
+    }
+}
+
+/**
+ * US-2902 AC3: every action this sheet can take, in one place.
+ *
+ * WHY AN OBJECT AND NOT NINE LAMBDA PARAMETERS. GradeReportContent takes its
+ * four callbacks loose, which is the right call at four. Nine is where the
+ * signature stops being readable and a caller starts passing them positionally
+ * by accident, and two of these take a String while three more take one value
+ * each, so a swap would compile.
+ *
+ * @Immutable is load-bearing rather than decorative: a data class of function
+ * types is UNSTABLE to the Compose compiler by default, so without it every
+ * recomposition of the sheet would recompose the whole composer beneath it.
+ * The defaults exist for screenshot tests, which want the layout and none of
+ * the behaviour.
+ */
+@Immutable
+data class PublishActions(
+    val onBackToComposer: () -> Unit = {},
+    val onApplyTemplate: (ListingTemplate) -> Unit = {},
+    val onEditTitle: (String) -> Unit = {},
+    val onEditCondition: (EbayCondition) -> Unit = {},
+    val onEditConditionDescription: (String) -> Unit = {},
+    val onEditPrice: (String) -> Unit = {},
+    val onSetSpecific: (EbayAspect, List<String>) -> Unit = { _, _ -> },
+    val onValidate: () -> Unit = {},
+    val onPublishNow: () -> Unit = {},
+)
+
+/**
+ * The sheet with no ViewModel in it, and deliberately WITHOUT the
+ * ModalBottomSheet wrapper.
+ *
+ * The wrapper renders into its own dialog window, which a Robolectric capture
+ * cannot reach. Everything a seller reads and taps is in here, so the golden
+ * gets the whole surface and the wrapper stays where it belongs.
+ */
+@Composable
+internal fun PublishSheetContent(
+    state: PublishViewModel.State,
+    actions: PublishActions,
+    onOpenListing: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = Spacing.md)
+            .padding(bottom = Spacing.lg),
+        verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+    ) {
+        Text(
+            stringResource(
+                if (state.relist) R.string.publish_relist_title else R.string.publish_list_title,
+            ),
+            style = MaterialTheme.typography.titleLarge,
+        )
+        if (state.relist) {
             Text(
-                stringResource(
-                    if (state.relist) R.string.publish_relist_title else R.string.publish_list_title,
-                ),
-                style = MaterialTheme.typography.titleLarge,
+                stringResource(R.string.publish_relist_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (state.relist) {
-                Text(
-                    stringResource(R.string.publish_relist_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        }
+
+        state.errorMessage?.let {
+            InfoCard(stringResource(R.string.publish_check_this_first), it, tone = InfoTone.Warning)
+        }
+
+        when (val phase = state.phase) {
+            is PublishPhase.Published -> PublishedPanel(phase.result, onOpenListing, onDismiss)
+            is PublishPhase.PlanLimit -> InfoCard(
+                stringResource(R.string.publish_ve_hit_plan_limit),
+                phase.message,
+                tone = InfoTone.Warning,
+            )
+
+            is PublishPhase.Failed -> {
+                InfoCard(stringResource(R.string.publish_publish_failed), phase.message, tone = InfoTone.Error)
+                BrandSecondaryButton(
+                    text = stringResource(R.string.publish_back_composer),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { actions.onBackToComposer() }
             }
 
-            state.errorMessage?.let {
-                InfoCard(stringResource(R.string.publish_check_this_first), it, tone = InfoTone.Warning)
-            }
-
-            when (val phase = state.phase) {
-                is PublishPhase.Published -> PublishedPanel(phase.result, onOpenListing, onDismiss)
-                is PublishPhase.PlanLimit -> InfoCard(
-                    stringResource(R.string.publish_ve_hit_plan_limit),
-                    phase.message,
-                    tone = InfoTone.Warning,
-                )
-
-                is PublishPhase.Failed -> {
-                    InfoCard(stringResource(R.string.publish_publish_failed), phase.message, tone = InfoTone.Error)
-                    BrandSecondaryButton(
-                        text = stringResource(R.string.publish_back_composer),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { viewModel.backToComposer() }
-                }
-
-                else -> Composer(state, viewModel)
-            }
+            else -> Composer(state, actions)
         }
     }
 }
 
 @Composable
-private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel) {
+private fun Composer(state: PublishViewModel.State, actions: PublishActions) {
     val bullet = stringResource(R.string.publish_bullet_prefix)
     // US-1373: renders nothing when the seller has no templates, so the composer
     // stays exactly as it was for everyone who doesn't use them.
@@ -115,7 +179,7 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
         ) {
             state.templates.forEach { template ->
                 AssistChip(
-                    onClick = { viewModel.applyTemplate(template) },
+                    onClick = { actions.onApplyTemplate(template) },
                     enabled = !state.busy,
                     label = { Text(template.name) },
                 )
@@ -131,7 +195,7 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
     }
     OutlinedTextField(
         value = state.title,
-        onValueChange = viewModel::editTitle,
+        onValueChange = actions.onEditTitle,
         label = { Text(stringResource(R.string.publish_listing_title)) },
         enabled = !state.busy,
         modifier = Modifier.fillMaxWidth(),
@@ -141,20 +205,20 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
         selected = state.condition,
         options = EbayCondition.entries,
         optionLabel = { it.label },
-        onSelect = viewModel::editCondition,
+        onSelect = actions.onEditCondition,
         enabled = !state.busy,
         modifier = Modifier.fillMaxWidth(),
     )
     OutlinedTextField(
         value = state.conditionDescription,
-        onValueChange = viewModel::editConditionDescription,
+        onValueChange = actions.onEditConditionDescription,
         label = { Text(stringResource(R.string.publish_condition_notes_optional)) },
         enabled = !state.busy,
         modifier = Modifier.fillMaxWidth(),
     )
     OutlinedTextField(
         value = state.priceText,
-        onValueChange = viewModel::editPrice,
+        onValueChange = actions.onEditPrice,
         label = { Text(stringResource(R.string.publish_price)) },
         prefix = { Text(stringResource(R.string.drafts_currency_prefix)) },
         singleLine = true,
@@ -169,7 +233,7 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
 
     // US-1353: the category's specifics, edited here so they are on the draft
     // before pre-flight runs.
-    SpecificsSection(state, viewModel::setSpecific)
+    SpecificsSection(state, actions.onSetSpecific)
     if (state.specificBlockers.isNotEmpty()) {
         InfoCard(
             stringResource(R.string.publish_still_needed_this_category),
@@ -209,7 +273,7 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
         ),
         enabled = !state.busy,
         modifier = Modifier.fillMaxWidth(),
-    ) { viewModel.validate() }
+    ) { actions.onValidate() }
 
     BrandPrimaryButton(
         text = when {
@@ -219,7 +283,7 @@ private fun Composer(state: PublishViewModel.State, viewModel: PublishViewModel)
         },
         enabled = state.canPublish,
         modifier = Modifier.fillMaxWidth(),
-    ) { viewModel.publishNow() }
+    ) { actions.onPublishNow() }
 
     if (!state.canPublish && !state.busy && phase !is PublishPhase.Composing) {
         Text(
@@ -306,11 +370,7 @@ private fun SummaryPanel(summary: PublishSummary) {
 }
 
 @Composable
-private fun PublishedPanel(
-    result: PushResponse,
-    onOpenListing: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
+private fun PublishedPanel(result: PushResponse, onOpenListing: (String) -> Unit, onDismiss: () -> Unit) {
     InfoCard(
         stringResource(R.string.publish_s_live_ebay),
         if (result.syncPending) {
