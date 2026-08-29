@@ -2201,6 +2201,37 @@ export type SavedViewUpdate = Partial<
 // one account; positive increases profit. NOT double-entry: no balance sheet,
 // no owner draws, no loans. That limit is deliberate and is written up in
 // vault/50-business/books-and-taxes.md rather than left to be discovered.
+// US-2986 — a point-in-time inventory valuation for Schedule C Part III lines
+// 35 and 41. Per-item costs are COPIED into inventory_snapshot_items, so a
+// later edit to acquired_price cannot rewrite a year already filed.
+//
+// There is no Insert type on purpose: the table has no INSERT policy. Snapshots
+// are created only by take_my_inventory_snapshot(), which counts the items
+// itself. A record a user can hand-write is not a record.
+export interface InventorySnapshotRow {
+  id: string;
+  user_id: string;
+  as_of: string;
+  fiscal_label: string;
+  total_cost_cents: number;
+  item_count: number;
+  // Stored beside the total because an unpriced item contributes zero, which
+  // understates inventory and overstates the deduction.
+  items_without_cost: number;
+  reconstructed: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InventorySnapshotItemRow {
+  id: string;
+  snapshot_id: string;
+  item_id: string | null;
+  title: string | null;
+  cost_cents: number | null;
+  acquired_on: string | null;
+}
+
 export interface LedgerEntryRow {
   id: string;
   user_id: string;
@@ -4287,6 +4318,16 @@ export interface Database {
         Row: ExpenseRow;
         Insert: ExpenseInsert;
         Update: ExpenseUpdate;
+      };
+      inventory_snapshots: {
+        Row: InventorySnapshotRow;
+        Insert: never;
+        Update: Partial<Pick<InventorySnapshotRow, "fiscal_label">>;
+      };
+      inventory_snapshot_items: {
+        Row: InventorySnapshotItemRow;
+        Insert: never;
+        Update: never;
       };
       ledger_entries: {
         Row: LedgerEntryRow;

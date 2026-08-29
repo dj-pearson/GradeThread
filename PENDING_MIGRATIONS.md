@@ -1,5 +1,58 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## HELD: 00688_inventory_snapshots.sql (US-2986)
+
+**Risk: low.** Two new tables, four new functions. No existing table, column,
+policy or function is touched, and nothing runs until a seller presses "Value my
+inventory" on the P&L page.
+
+**What it does.** Creates `public.inventory_snapshots` and
+`public.inventory_snapshot_items` (a point-in-time inventory valuation for
+Schedule C Part III lines 35 and 41), plus
+`take_inventory_snapshot(uuid, date, text, boolean)` SECURITY DEFINER,
+`take_my_inventory_snapshot(date, text, boolean)` SECURITY INVOKER (the only one
+`authenticated` may execute), `cogs_worksheet(date, date)` and
+`items_missing_cost_basis(date, date)`.
+
+**Why it could not wait.** `inventory_items.acquired_price` is editable, so the
+moment a seller corrects last year's cost, last year's ending inventory silently
+changes -- and last year's ending inventory is this year's beginning inventory.
+The snapshot COPIES each cost rather than referencing it. This is the one gap in
+the epic that gets harder to close the longer it is left.
+
+**NO REVOKE ANYWHERE.** Authorization is in the function body raising 42501,
+matching 00686. On this Postgres image a denied EXECUTE from `anon` or
+`authenticated` restarts the database (US-2403).
+
+**RLS.** SELECT and DELETE for the owner. Deliberately NO INSERT or UPDATE
+policy on `inventory_snapshots`: a record a user can hand-write is not a record.
+Snapshots are created only by the function, which counts the items itself.
+DELETE is allowed because a seller who took one on the wrong date needs a way
+out. All policies use the `(select auth.uid())` initplan form from the start,
+which is what US-3005 had to retrofit onto the first three migrations.
+
+**Verified against real Postgres, not asserted.** Applied twice (second run
+clean). `npm run check:cogs` seeds a two-year fixture inside a rolling-back
+transaction and asserts twelve things, including that 2025 reconciles at $0.00
+and 2026 does NOT, at -$50.00. Sabotage-verified: removing the
+`NOT EXISTS (... sales ...)` arm so sold items never leave inventory turns seven
+checks red; restoring it returns them to green.
+
+> **A finding worth carrying, measured rather than assumed.** A sold item with
+> NO cost basis does **not** move the variance, because both routes to COGS read
+> the same `acquired_price` column and a null cancels on both sides. The
+> variance catches STRUCTURAL mismatches; the `items_without_cost` counts catch
+> UNDERSTATED ones. A screen watching only the variance would call those books
+> clean. Both signals are shown, as two different problems with two different
+> fixes.
+
+**Apply order.** After 00685 (it reads `ledger_entries` for the cross-check).
+Then `NOTIFY pgrst, 'reload schema';` - two new tables and three new RPCs.
+
+**Client-side read risk: LOW.** The COGS card is inside the P&L page. Without
+the migration it fails its own query and renders nothing; the statement above it
+is unaffected.
+
 ## ✅ APPLIED: 00687_ledger_rls_initplan.sql (US-3005, applied 2026-08-29)
 
 > **Owner-confirmed, not read from the database.** The same distinction the

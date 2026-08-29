@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3007",
+  "nextId": "US-3008",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2755,20 +2755,6 @@
       "priority": 30
     },
     {
-      "id": "US-2986",
-      "passes": false,
-      "title": "COGS and ending inventory, because Schedule C Part III asks for a number nothing in the app can compute",
-      "description": "Part III wants beginning inventory (line 35), purchases (36), and ending inventory (41). GradeThread knows acquired_price per item and when it sold, so cost of goods sold is derivable — but there has never been a point-in-time inventory valuation, and once an item's acquired_price is edited the historical value is gone. Without a snapshot, last year's ending inventory is unrecoverable, and last year's ending inventory is this year's beginning inventory. This is the one gap in the epic that gets worse with time.",
-      "acceptanceCriteria": [
-        "A year-end inventory snapshot: unsold items at fiscal year end, their cost basis, and the total, stored so it survives later edits to acquired_price.",
-        "The snapshot records how many items had NO cost basis, and their count is shown, not hidden in a zero. An item with an unknown cost silently valued at zero understates inventory and overstates deductions.",
-        "COGS for a period computed as beginning inventory + purchases - ending inventory, and cross-checked against the sum of sold-item cost basis. When the two disagree the screen says so and names the items causing it.",
-        "A backfill creates a snapshot for each prior completed fiscal year from the best data available, clearly labelled as reconstructed rather than recorded.",
-        "The COGS worksheet exports with the Part III line numbers on it."
-      ],
-      "priority": 35
-    },
-    {
       "id": "US-2987",
       "passes": false,
       "title": "Marketplace facilitator sales tax is not your income, and shipping the buyer paid is not free money",
@@ -2972,6 +2958,20 @@
         "Parity is verified with the parity-auditor rather than asserted."
       ],
       "priority": 49
+    },
+    {
+      "id": "US-3007",
+      "passes": false,
+      "title": "An item that is lost, donated or kept never leaves inventory, so ending inventory is overstated for ever",
+      "description": "FOUND 2026-08-29 while building US-2986. take_inventory_snapshot() decides what a seller was holding with a date-based predicate: acquired before as_of, and not SOLD before as_of. That is deliberate and right for the decay problem it solves - filtering on the current status column would make every historical snapshot wrong the moment an item's status moved. But it means the ONLY way out of inventory is a completed sale. An item that is lost, damaged beyond selling, donated, returned to a consignor, or taken for personal use sits in ending inventory permanently. Schedule C Part III line 41 is therefore overstated, which understates line 42 COGS, which OVERSTATES the seller's profit and the tax they pay on it. It is the rare bug that costs the user money in the government's favour. There is no write-off concept in the schema at all: item_status has 'archived' and 'returned', but neither is read by the snapshot predicate, and neither carries a date saying WHEN it happened - which is what a date-based predicate needs.",
+      "acceptanceCriteria": [
+        "A way to record that an item left inventory without being sold, carrying the DATE it left and the reason (lost, damaged, donated, personal use, returned to consignor). The date is the load-bearing part: the snapshot predicate is date-based on purpose and a status flag alone cannot be read historically.",
+        "take_inventory_snapshot() excludes items that left before as_of, by the same date logic it already uses for sales.",
+        "A write-off is not automatically a deduction, and the screen must not imply it is. Personal use is not deductible at all; a donation and a casualty loss go on different forms. Record the reason, name what it feeds, and stop there.",
+        "The COGS worksheet's variance picks the change up: an item written off during a period leaves ending inventory with no matching ledger entry, so the two routes to COGS will disagree by its cost unless the write-off also books an entry. Decide which, and say so in vault/50-business/books-and-taxes.md.",
+        "Existing snapshots are NOT retroactively changed. They are records of what was believed at the time, and US-2995 (period close) is the mechanism for correcting a closed year - an adjusting entry in the open period, never an edit to history."
+      ],
+      "priority": 50
     }
   ]
 }

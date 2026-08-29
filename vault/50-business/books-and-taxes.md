@@ -15,6 +15,9 @@ code_refs:
   - supabase/migrations/00687_ledger_rls_initplan.sql
   - src/lib/pnl-statement.ts
   - src/pages/flipdesk/pnl.tsx
+  - supabase/migrations/00688_inventory_snapshots.sql
+  - src/lib/cogs.ts
+  - scripts/check-cogs-worksheet.mjs
 reviewed: 2026-08-29
 tags: [finance, tax, flipdesk, money]
 summary: The rules the Books and Taxes epic (US-2981) obeys - what each stored figure means, which form line it feeds, and the four things the app deliberately refuses to do.
@@ -358,6 +361,75 @@ the pure builder to a measurement rather than to a second copy of the same
 arithmetic. If the SQL derivation and the TypeScript builder ever drift, one of
 those two numbers moves.
 
+## Cost of goods sold, and ending inventory
+
+`public.inventory_snapshots` (migration 00688) values what a seller was holding
+at one instant. `cogs_worksheet(from, to)` turns two of those into Schedule C
+Part III.
+
+### Why the snapshot copies rather than references
+
+`inventory_items.acquired_price` is editable. The moment a seller corrects last
+year's cost, last year's ending inventory silently changes -- and last year's
+ending inventory is **this** year's beginning inventory. So
+`inventory_snapshot_items` COPIES each cost. Proven: the fixture edits an item
+from $25 to $999 after the snapshot and the total stays at $85.
+
+This was the one gap in the epic that got harder to close the longer it was
+left, which is why it went in before the tax packet that needs it.
+
+### What counts as on hand
+
+Acquired before `as_of`, and not sold before `as_of`. **Both halves are
+date-based on purpose.** Filtering on the current `status` column would make
+every historical snapshot wrong the moment an item's status moved, which is
+exactly the decay the table exists to stop. Dates do not change retroactively.
+
+`as_of` is EXCLUSIVE, so one snapshot is both year N's ending inventory and year
+N+1's beginning inventory. That is the whole reason the boundary is a single
+date rather than two.
+
+### The two signals are different problems
+
+> **Measured on Postgres, not assumed.** A sold item with **no cost basis does
+> not move the variance.** Both routes to COGS read the same `acquired_price`
+> column, so a null cancels on both sides. A screen watching only the variance
+> would call those books clean.
+
+So the worksheet reports two things and `cogsConfidence()` names which:
+
+- **`variance`** -- the two routes to COGS disagree. Structural: an item is in
+  one and not the other, usually a wrong acquisition date. The fixture's Item F
+  is acquired in 2027 on paper and sold in 2026, which fires it at -$50.
+- **`missing_cost`** -- an item is valued at zero. Understates inventory,
+  overstates the deduction, leaves the variance at zero.
+- **`no_snapshot`** -- reported ahead of both, because line 42 without lines 35
+  and 41 is arithmetic on a hole.
+
+### Reconstructed is not recorded
+
+A snapshot created by the backfill is flagged `reconstructed`, and the screen
+and the CSV both say so. It is the best available answer rebuilt from what
+survived, not a count taken on the day, and an accountant needs to know which
+they are holding.
+
+### Running the check
+
+`npm run check:cogs`. Twelve assertions against a two-year fixture inside a
+rolling-back transaction, including the one that must FAIL: 2025 reconciles at
+$0.00 and 2026 does not, at -$50.00. Sabotage-verified by removing the
+`NOT EXISTS (... sales ...)` arm so sold items never leave inventory, which
+turns seven checks red.
+
+### A limit, recorded rather than discovered
+
+An item that is lost, donated or written off **never leaves inventory**, because
+the predicate only removes items that were SOLD. It will sit in ending inventory
+for ever, overstating line 41 and therefore understating COGS. There is no
+write-off path in the schema today. Filed as **US-3007**, including the
+reason a status flag alone cannot fix it: the predicate is date-based, and
+`archived` carries no date saying when it happened.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -367,6 +439,7 @@ its contract into this note. Currently landed:
 - **US-2983** - the chart of accounts and its Schedule C mapping, above.
 - **US-2984** - the ledger, its limits and its invariant, above.
 - **US-2985** - the P&L statement and the half-open period rules, above.
+- **US-2986** - COGS, the inventory snapshot and its two signals, above.
 
 Still open, and each will add a section here rather than a new note: COGS and
 the ending-inventory snapshot (US-2986), facilitator sales tax (US-2987), the 1099-K bridge

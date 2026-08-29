@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
+import { CogsWorksheetCard } from "@/components/finances/cogs-worksheet-card";
 import {
   ensureLedgerBuilt,
   fetchLedgerEntries,
@@ -411,6 +412,18 @@ td{padding:6px 10px;border-bottom:1px solid #e5e5e5;font-size:13px}
               </table>
             </CardContent>
           </Card>
+
+          {/* US-2986. Part III sits under the statement rather than on its own
+              page because it FEEDS line 4 of Part I, which the table above
+              prints. Splitting them makes a seller navigate between two halves
+              of one calculation. */}
+          <CogsWorksheetCard
+            from={range.from}
+            to={range.to}
+            periodLabel={range.label}
+            fiscalYearStartMonth={fyStart}
+            businessStartedOn={taxProfile?.business_started_on ?? null}
+          />
 
           <Card>
             <CardHeader>
