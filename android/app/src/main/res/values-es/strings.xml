@@ -1403,6 +1403,14 @@
     <string name="expense_note_optional">Nota (opcional)</string>
     <string name="expense_date_invalid">Usa AAAA-MM-DD.</string>
     <string name="grades_pending_review">Pendiente de revisión</string>
+    <!-- US-2976: los cinco nombres de sección. "Mercados" es la etiqueta corta
+         de la barra inferior; el riel muestra el nombre completo. -->
+    <string name="shell_home">Inicio</string>
+    <string name="shell_inventory">Inventario</string>
+    <string name="shell_add">Añadir</string>
+    <string name="shell_money">Dinero</string>
+    <string name="shell_marketplaces">Marketplaces</string>
+    <string name="shell_marketplaces_short">Mercados</string>
     <string name="shell_search">Buscar</string>
     <string name="shell_tools">Herramientas</string>
     <string name="shell_settings">Ajustes</string>

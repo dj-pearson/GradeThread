@@ -1553,6 +1553,20 @@
     <string name="expense_note_optional">Note (optional)</string>
     <string name="expense_date_invalid">Use YYYY-MM-DD.</string>
     <string name="grades_pending_review">Pending review</string>
+    <!-- US-2976: the five shell section names. These were literals in the
+         ShellSection enum, which no-bare-strings.py could not see because its
+         scope is files containing @Composable and an enum has none - so the
+         most-visible text in the app was the least guarded. -->
+    <string name="shell_home">Home</string>
+    <string name="shell_inventory">Inventory</string>
+    <string name="shell_add">Add</string>
+    <string name="shell_money">Money</string>
+    <string name="shell_marketplaces">Marketplaces</string>
+    <!-- The BAR label, separate from the name above. Five items share the
+         width of a compact phone, and "Marketplaces" wrapped onto two lines,
+         leaving a lone "s" under the label on every screen. The rail and every
+         other surface keep the full word. -->
+    <string name="shell_marketplaces_short">Markets</string>
     <string name="shell_search">Search</string>
     <string name="shell_tools">Tools</string>
     <string name="shell_settings">Settings</string>

@@ -1,5 +1,6 @@
 package com.gradethread.app.ui.shell
 
+import androidx.annotation.StringRes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.outlined.AccountCircle
@@ -7,21 +8,51 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.List
 import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.gradethread.app.R
 
 /**
  * US-1313: the five-section shell registry (mirrors the iOS tab structure:
  * Home, Inventory, Add, Money, Marketplaces). One place owns routes, labels,
  * and icons so the bottom bar, the rail, and the nav graph can never drift.
+ *
+ * US-2976: [label] and [barLabel] are string RESOURCES, not literals. They were
+ * literals until 2026-08-28, and a Spanish seller got Herramientas and Ajustes
+ * in the top bar with English directly beneath them. An enum cannot call
+ * stringResource - it is not a Composable - so it carries the id and the two
+ * call sites resolve it, which is also what puts these strings inside the
+ * localization guard's reach for the first time.
  */
-enum class ShellSection(val route: String, val label: String, val icon: ImageVector) {
-    HOME("home", "Home", Icons.Outlined.Home),
-    INVENTORY("inventory", "Inventory", Icons.Outlined.List),
+enum class ShellSection(
+    val route: String,
+    @StringRes val label: Int,
+    @StringRes val barLabel: Int,
+    val icon: ImageVector,
+) {
+    HOME("home", R.string.shell_home, R.string.shell_home, Icons.Outlined.Home),
+    INVENTORY(
+        "inventory",
+        R.string.shell_inventory,
+        R.string.shell_inventory,
+        Icons.Outlined.List,
+    ),
 
     /** The one-tap capture shortcut — visually centered, opens the method
      *  sheet (Photos / Details / AutoLister) rather than a plain tab. */
-    ADD("add", "Add", Icons.Filled.AddCircle),
-    MONEY("money", "Money", Icons.Outlined.ShoppingCart),
-    MARKETPLACES("marketplaces", "Marketplaces", Icons.Outlined.AccountCircle),
+    ADD("add", R.string.shell_add, R.string.shell_add, Icons.Filled.AddCircle),
+    MONEY("money", R.string.shell_money, R.string.shell_money, Icons.Outlined.ShoppingCart),
+
+    /**
+     * The only section whose bar label differs from its name. Five items share
+     * the width of a compact phone and "Marketplaces" does not fit: it wrapped
+     * onto two lines, leaving a lone "s" under the label on every screen. The
+     * rail has room and keeps the full word.
+     */
+    MARKETPLACES(
+        "marketplaces",
+        R.string.shell_marketplaces,
+        R.string.shell_marketplaces_short,
+        Icons.Outlined.AccountCircle,
+    ),
     ;
 
     companion object {

@@ -31,7 +31,24 @@ class SectionsTest {
     }
 
     @Test
-    fun labels_areNonEmpty() {
-        assertTrue(ShellSection.entries.all { it.label.isNotBlank() })
+    fun labels_areRealResourceIds() {
+        // US-2976: these were String literals until 2026-08-28, so a Spanish
+        // seller got Herramientas and Ajustes in the top bar with English
+        // directly beneath them. `isNotBlank` was the old assertion and it
+        // could not have failed on that - a hardcoded English string is not
+        // blank. Zero is the id an unresolved resource reference carries.
+        assertTrue(ShellSection.entries.all { it.label != 0 })
+        assertTrue(ShellSection.entries.all { it.barLabel != 0 })
+    }
+
+    @Test
+    fun onlyMarketplacesShortensItsBarLabel() {
+        // A bar label that differs from the section's name is a deliberate
+        // decision - it means the section is called one thing and shown as
+        // another - and there should be exactly one, for the one label that
+        // does not fit five-across on a compact phone. A second one appearing
+        // silently is the drift this pins.
+        val shortened = ShellSection.entries.filter { it.barLabel != it.label }
+        assertEquals(listOf(ShellSection.MARKETPLACES), shortened)
     }
 }

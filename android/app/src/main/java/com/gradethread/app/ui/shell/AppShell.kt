@@ -25,6 +25,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -152,7 +153,17 @@ fun AppShell(
                             selected = currentRoute == section.route,
                             onClick = { selectSection(section) },
                             icon = { Icon(section.icon, contentDescription = null) },
-                            label = { Text(section.label) },
+                            // maxLines = 1 is the half that survives translation.
+                            // A shorter English label fixes English; a label that
+                            // ellipsizes fixes every locale, and an ellipsis is a
+                            // legible failure where a lone trailing letter is not.
+                            label = {
+                                Text(
+                                    stringResource(section.barLabel),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            },
                         )
                     }
                 }
@@ -167,7 +178,9 @@ fun AppShell(
                             selected = currentRoute == section.route,
                             onClick = { selectSection(section) },
                             icon = { Icon(section.icon, contentDescription = null) },
-                            label = { Text(section.label) },
+                            // The rail is not width-constrained the way the bar
+                            // is, so it shows the section's real name.
+                            label = { Text(stringResource(section.label)) },
                         )
                     }
                 }
