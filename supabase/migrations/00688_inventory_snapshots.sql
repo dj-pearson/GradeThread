@@ -119,6 +119,29 @@ AS $$
 DECLARE
   v_snapshot_id uuid;
 BEGIN
+  -- ⚠ THE AUTHORIZATION CHECK, and it is NOT optional just because the grant
+  -- below names service_role.
+  --
+  -- CREATE FUNCTION grants EXECUTE to PUBLIC by default, and a later
+  -- `grant ... to service_role` ADDS a grant rather than removing that one.
+  -- Only a REVOKE would remove it, and a REVOKE is exactly what must not be
+  -- written on this image (US-2403: a denied call restarts the database). So
+  -- without this block any authenticated caller could invoke
+  -- take_inventory_snapshot with SOMEBODY ELSE'S user id and delete and
+  -- replace their snapshots - the function DELETEs by p_user_id on the line
+  -- below.
+  --
+  -- Same shape as 00686's rebuild_ledger_for_user, and for the same reason:
+  -- when the grant cannot protect a SECURITY DEFINER function that takes a
+  -- caller-supplied id, the body has to.
+  IF auth.role() IS NOT NULL
+     AND auth.role() <> 'service_role'
+     AND ((select auth.uid()) IS NULL OR (select auth.uid()) <> p_user_id)
+  THEN
+    RAISE EXCEPTION 'take_inventory_snapshot: may only snapshot your own inventory'
+      USING ERRCODE = '42501';
+  END IF;
+
   -- Re-taking a snapshot for the same date REPLACES it. A seller who fixes a
   -- cost basis and re-runs should get the corrected figure, and the alternative
   -- (refusing, or accumulating duplicates) is worse than either.

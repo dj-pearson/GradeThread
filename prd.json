@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3008",
+  "nextId": "US-3009",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2972,6 +2972,22 @@
         "Existing snapshots are NOT retroactively changed. They are records of what was believed at the time, and US-2995 (period close) is the mechanism for correcting a closed year - an adjusting entry in the open period, never an edit to history."
       ],
       "priority": 50
+    },
+    {
+      "id": "US-3008",
+      "passes": false,
+      "title": "take_inventory_snapshot lets any signed-in seller delete another seller’s snapshots",
+      "description": "As a seller, I want my inventory snapshots to be mine, so that another account cannot delete and replace the figures my Schedule C is built from.",
+      "acceptanceCriteria": [
+        "FOUND 2026-08-29 by reading 00688 BEFORE it was applied, while checking the new migration for the three defect classes 00683-00685 shipped. take_inventory_snapshot(p_user_id uuid, ...) is SECURITY DEFINER, takes a caller-supplied user id, DELETEs public.inventory_snapshots WHERE user_id = p_user_id, and had no authorization check in its body.",
+        "THE GRANT LOOKS LIKE A RESTRICTION AND IS NOT. CREATE FUNCTION grants EXECUTE to PUBLIC by default; the file’s  ADDS a grant rather than removing that default. Only a REVOKE removes it, and a REVOKE is precisely what must not be written on this image (US-2403). So the function was reachable by any authenticated caller with any user id.",
+        "IT IS THE OTHER HALF OF THE US-3002 LESSON. That story taught “do not REVOKE”, and 00688 correctly did not - it even says so in a comment. What did not travel with it is the consequence: when the grant cannot protect a SECURITY DEFINER function that takes a caller-supplied id, the BODY has to.",
+        "FIXED IN PLACE in 00688 rather than by a follow-up migration, because 00688 is committed but NOT applied to any environment - the immutability rule covers applied migrations, and this one is still editable. The guard permits service_role, or the caller acting on their own id, and raises an ordinary 42501 otherwise. Same shape as 00686.",
+        "VERIFY BEFORE APPLYING: the sibling wrapper take_my_inventory_snapshot is SECURITY INVOKER and passes auth.uid(), so it is unaffected. Check cogs_worksheet and items_missing_cost_basis in the same file the same way - both are SECURITY INVOKER, so the caller’s own RLS applies and neither takes a user id.",
+        "WORTH A RULE RATHER THAN A THIRD INCIDENT: every SECURITY DEFINER function in public that accepts a user id parameter needs a body guard, and a grep for that shape would be cheaper than finding the next one by reading. Consider a guard test alongside rls-guard_test.ts."
+      ],
+      "priority": 2,
+      "notes": "AC2 IS MISSING A CLAUSE — the shell ate a backticked fragment when this story\nwas filed. It should read:\n\n  THE GRANT LOOKS LIKE A RESTRICTION AND IS NOT. CREATE FUNCTION grants\n  EXECUTE to PUBLIC by default; the file's\n\n      grant execute on function public.take_inventory_snapshot(...)\n        to service_role;\n\n  ADDS a grant rather than removing that default. Only a REVOKE removes it,\n  and a REVOKE is precisely what must not be written on this image (US-2403).\n  So the function was reachable by any authenticated caller with any user id.\n\nTHE FIX IS IN, in 00688 itself. take_inventory_snapshot now opens with a body\nguard permitting the service role, or a caller acting on their own id, and\nraising 42501 otherwise — the same shape 00686 uses.\n\n⚠ WHY THIS ONE IS DIFFERENT FROM US-3002 AND US-3005: those were found by a\nguard failing a push, AFTER the migrations were applied to production. This\nwas found by reading the file before it was applied anywhere, because the\nprevious two taught me what to grep for. The cost of the same class of defect\nfell from an emergency migration to an edit."
     }
   ]
 }
