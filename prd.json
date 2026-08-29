@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3006",
+  "nextId": "US-3007",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3019,6 +3019,21 @@
         "THE THIRD DEFECT IN THE SAME THREE MIGRATIONS, after US-3002's REVOKE and this. All three shipped inside an hour and were applied before review. Worth a look at how that epic's migrations are being checked before it adds more."
       ],
       "priority": 6
+    },
+    {
+      "id": "US-3006",
+      "passes": false,
+      "title": "src/lib/ledger.ts is a feature with no entry point: 7 exports, imported by nothing",
+      "description": "As a seller who was promised a ledger, I want the code that reads it to be reachable from a screen, so that the work that shipped is work I can use.",
+      "acceptanceCriteria": [
+        "FOUND 2026-08-29 by scripts/check-web-unwired.mjs, which failed the verify web lane. src/lib/ledger.ts (US-2984) exports seven symbols and is imported by nothing at all. Its own header describes reading ledger_entries from the browser, so it is an implementation rather than a spec.",
+        "IT IS NOT ALLOWLISTABLE, and the allowlist says so itself: every entry there is a spec or rule set whose consumer is a GUARD, and the docstring states that an IMPLEMENTATION landing there is not fine because \"an implementation nobody calls is a feature that does not run\". Adding it would be using the escape hatch against its stated purpose.",
+        "Wire it: the Books-and-Taxes epic already shipped src/pages/flipdesk/tax-setup.tsx, so the pattern for a page exists. A ledger surface that imports these seven exports is what the module was written for.",
+        "Or delete it, tests included, if the surface is not coming. Passing tests around an uncalled module prove it works, not that it runs - which is the distinction the check exists to draw.",
+        "The check is shrink-only, so whichever way it goes the resolution is permanent: wiring it or deleting it both make the entry stop matching.",
+        "CONTEXT WORTH CARRYING: this is the fourth finding in the same epic in one day, after the REVOKE crash vector (US-3002), thirteen per-row RLS policies (US-3005) and an unwired guard script. Three of the four were caught by guards firing on an unrelated push rather than on the epic own."
+      ],
+      "priority": 7
     }
   ]
 }
