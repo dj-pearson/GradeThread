@@ -336,7 +336,10 @@
     <string name="analytics_empty_title">Nothing to analyse yet</string>
     <string name="analytics_empty_body">Add items and record a few sales, and this fills in by itself.</string>
     <string name="analytics_grade_distribution">Grade distribution</string>
-    <string name="analytics_graded_average">%1$d graded · average %2$s</string>
+    <plurals name="analytics_graded_average">
+        <item quantity="one">%1$d graded \u00b7 average %2$s</item>
+        <item quantity="other">%1$d graded \u00b7 average %2$s</item>
+    </plurals>
     <string name="analytics_grade_distribution_spoken">Graded items by tier: %1$s</string>
     <!-- Reused wherever a chart is read out as "<label> <value>" pairs. -->
     <string name="analytics_pair_spoken_item">%1$s %2$s</string>
@@ -358,7 +361,10 @@
     <string name="analytics_write_again">Write it again</string>
     <string name="analytics_summarise">Summarise</string>
     <string name="analytics_profit_on_revenue">%1$s profit on %2$s revenue</string>
-    <string name="analytics_units_fees_cogs">%1$d sold · %2$s fees · %3$s cost of goods</string>
+    <plurals name="analytics_units_fees_cogs">
+        <item quantity="one">%1$d sold \u00b7 %2$s fees \u00b7 %3$s cost of goods</item>
+        <item quantity="other">%1$d sold \u00b7 %2$s fees \u00b7 %3$s cost of goods</item>
+    </plurals>
     <string name="analytics_sell_through">Sell-through %1$s</string>
     <string name="analytics_roi_title">Does grading pay?</string>
     <string name="analytics_roi_subtitle">Graded versus ungraded, by sale price</string>
@@ -1665,7 +1671,10 @@
     <string name="team_remove">Remove</string>
     <string name="team_resend">Resend</string>
     <string name="team_revoke">Revoke</string>
-    <string name="team_invite_expires">%1$s, expires in %2$d days</string>
+    <plurals name="team_invite_expires">
+        <item quantity="one">%1$s, expires in %2$d day</item>
+        <item quantity="other">%1$s, expires in %2$d days</item>
+    </plurals>
     <string name="team_invite_title">Invite a teammate</string>
     <string name="team_invite_email">Email address</string>
     <string name="team_invite_role">Role: %1$s</string>

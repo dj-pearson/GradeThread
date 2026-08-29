@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
 import androidx.compose.ui.Modifier
@@ -92,8 +93,9 @@ fun AnalyticsScreen(
                     Panel(
                         stringResource(R.string.analytics_grade_distribution),
                         state.averageGrade?.let {
-                            stringResource(
-                                R.string.analytics_graded_average,
+                            pluralStringResource(
+                                R.plurals.analytics_graded_average,
+                                state.gradedCount,
                                 state.gradedCount,
                                 "%.1f".format(it),
                             )
@@ -225,7 +227,9 @@ fun AnalyticsScreen(
             }
         }
 
-        BrandSecondaryButton(text = stringResource(R.string.analytics_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.analytics_back), modifier = Modifier.fillMaxWidth()) {
+            onClose()
+        }
     }
 
     if (customOpen) {
@@ -240,11 +244,7 @@ fun AnalyticsScreen(
 }
 
 @Composable
-private fun RangePicker(
-    selected: AnalyticsRange,
-    onPick: (AnalyticsRange) -> Unit,
-    onCustom: () -> Unit,
-) {
+private fun RangePicker(selected: AnalyticsRange, onPick: (AnalyticsRange) -> Unit, onCustom: () -> Unit) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
@@ -319,8 +319,9 @@ private fun PeriodCard(state: AnalyticsViewModel.State) {
             style = MaterialTheme.typography.bodyLarge,
         )
         Text(
-            stringResource(
-                R.string.analytics_units_fees_cogs,
+            pluralStringResource(
+                R.plurals.analytics_units_fees_cogs,
+                state.pnl.unitsSold,
                 state.pnl.unitsSold,
                 Money.format(state.pnl.fees),
                 Money.format(state.pnl.cogs),
@@ -339,10 +340,7 @@ private fun PeriodCard(state: AnalyticsViewModel.State) {
 }
 
 @Composable
-private fun NarrativeCard(
-    state: AnalyticsViewModel.NarrativeState,
-    onGenerate: () -> Unit,
-) {
+private fun NarrativeCard(state: AnalyticsViewModel.NarrativeState, onGenerate: () -> Unit) {
     Column(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
@@ -366,9 +364,9 @@ private fun NarrativeCard(
                     )
                     narrative.actions.forEach {
                         Text(
-                        stringResource(R.string.analytics_bullet, it),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                            stringResource(R.string.analytics_bullet, it),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                 }
                 narrative.remainingLabel?.let {

@@ -292,7 +292,11 @@
     <string name="analytics_empty_title">Todavía no hay nada que analizar</string>
     <string name="analytics_empty_body">Agrega artículos y registra algunas ventas, y esto se llena solo.</string>
     <string name="analytics_grade_distribution">Distribución de calificaciones</string>
-    <string name="analytics_graded_average">%1$d calificados · promedio %2$s</string>
+    <plurals name="analytics_graded_average">
+        <item quantity="one">%1$d calificado · promedio %2$s</item>
+        <item quantity="many">%1$d calificados · promedio %2$s</item>
+        <item quantity="other">%1$d calificados · promedio %2$s</item>
+    </plurals>
     <string name="analytics_grade_distribution_spoken">Artículos calificados por nivel: %1$s</string>
     <string name="analytics_pair_spoken_item">%1$s %2$s</string>
     <string name="analytics_top_brands">Marcas con más ganancia</string>
@@ -313,7 +317,11 @@
     <string name="analytics_write_again">Escribirlo otra vez</string>
     <string name="analytics_summarise">Resumir</string>
     <string name="analytics_profit_on_revenue">%1$s de ganancia sobre %2$s de ingresos</string>
-    <string name="analytics_units_fees_cogs">%1$d vendidos · %2$s en comisiones · %3$s de costo de la mercancía</string>
+    <plurals name="analytics_units_fees_cogs">
+        <item quantity="one">%1$d vendido · %2$s en comisiones · %3$s de costo de la mercancía</item>
+        <item quantity="many">%1$d vendidos · %2$s en comisiones · %3$s de costo de la mercancía</item>
+        <item quantity="other">%1$d vendidos · %2$s en comisiones · %3$s de costo de la mercancía</item>
+    </plurals>
     <string name="analytics_sell_through">Tasa de venta %1$s</string>
     <string name="analytics_roi_title">¿Vale la pena calificar?</string>
     <string name="analytics_roi_subtitle">Calificados frente a no calificados, por precio de venta</string>
@@ -1515,7 +1523,11 @@
     <string name="team_remove">Quitar</string>
     <string name="team_resend">Reenviar</string>
     <string name="team_revoke">Revocar</string>
-    <string name="team_invite_expires">%1$s, vence en %2$d días</string>
+    <plurals name="team_invite_expires">
+        <item quantity="one">%1$s, vence en %2$d día</item>
+        <item quantity="many">%1$s, vence en %2$d de días</item>
+        <item quantity="other">%1$s, vence en %2$d días</item>
+    </plurals>
     <string name="team_invite_title">Invitar a un compañero</string>
     <string name="team_invite_email">Correo electrónico</string>
     <string name="team_invite_role">Rol: %1$s</string>

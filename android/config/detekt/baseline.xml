@@ -216,7 +216,6 @@
     <ID>MatchingDeclarationName:TurnstileChallenge.kt$TurnstileResult</ID>
     <ID>MatchingDeclarationName:VerifiedScreen.kt$VerifiedViewModel : ViewModel</ID>
     <ID>MaxLineLength:AiFillReviewSheet.kt$TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.aifill_cancel)) }</ID>
-    <ID>MaxLineLength:AnalyticsScreen.kt$BrandSecondaryButton(text = stringResource(R.string.analytics_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
     <ID>MaxLineLength:AutomationsScreen.kt$confirmButton = { TextButton(onClick = viewModel::closeDryRun) { Text(stringResource(R.string.automations_close)) } }</ID>
     <ID>MaxLineLength:AutomationsScreen.kt$dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.automations_cancel)) } }</ID>
     <ID>MaxLineLength:AutomationsScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.automations_that_didn_t_work), it, tone = InfoTone.Error) }</ID>

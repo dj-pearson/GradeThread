@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -46,10 +47,7 @@ import com.gradethread.app.ui.theme.cardStyle
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TeamScreen(
-    onClose: () -> Unit,
-    viewModel: TeamViewModel = hiltViewModel(),
-) {
+fun TeamScreen(onClose: () -> Unit, viewModel: TeamViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
 
     Column(
@@ -155,11 +153,7 @@ private fun AcceptLinkCard(url: String, viewModel: TeamViewModel) {
 }
 
 @Composable
-private fun MemberRow(
-    member: TeamMember,
-    state: TeamViewModel.State,
-    viewModel: TeamViewModel,
-) {
+private fun MemberRow(member: TeamMember, state: TeamViewModel.State, viewModel: TeamViewModel) {
     var menuOpen by remember(member.memberId) { mutableStateOf(false) }
     val label = member.email ?: member.name ?: stringResource(R.string.team_unnamed_member)
 
@@ -207,11 +201,7 @@ private fun MemberRow(
 }
 
 @Composable
-private fun InvitationRow(
-    invitation: WorkspaceInvitationRow,
-    state: TeamViewModel.State,
-    viewModel: TeamViewModel,
-) {
+private fun InvitationRow(invitation: WorkspaceInvitationRow, state: TeamViewModel.State, viewModel: TeamViewModel) {
     val days = WorkspaceDate.daysUntil(invitation.expiresAt, System.currentTimeMillis())
     Column(Modifier.fillMaxWidth().cardStyle()) {
         Text(invitation.email, style = MaterialTheme.typography.bodyMedium)
@@ -219,8 +209,9 @@ private fun InvitationRow(
             if (days == null) {
                 roleLabel(WorkspaceRole.from(invitation.role))
             } else {
-                stringResource(
-                    R.string.team_invite_expires,
+                pluralStringResource(
+                    R.plurals.team_invite_expires,
+                    days.toInt(),
                     roleLabel(WorkspaceRole.from(invitation.role)),
                     days.toInt(),
                 )
