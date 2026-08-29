@@ -1,5 +1,5 @@
 {
   "_comment": "US-2912 AC5. Accepted-debt ceilings for the lint and detekt baselines. A count may never RISE; a count that FALLS must be lowered here in the same commit, or a ceiling above reality quietly stops meaning anything. Regenerate with: node android/scripts/check-baseline-ratchet.mjs --rebaseline",
-  "lint": 222,
+  "lint": 221,
   "detekt": 440
 }

@@ -219,15 +219,27 @@ fun MoneyScreen(
 
             // ── Inventory aging ──────────────────────────────────────────────────
             item {
-                val agingItem = stringResource(R.string.money_aging_spoken_item)
+                // US-2977: built with map rather than inside joinToString, and the
+                // difference is not style. pluralStringResource is @Composable, and
+                // joinToString's transform is NOT an inline lambda — it cannot host a
+                // composable call. map IS inline, so the composable context carries
+                // into it. This was the only one of the 63 plural candidates whose
+                // blocker was structural rather than a wording question.
+                val agingParts = state.aging.map { bucket ->
+                    pluralStringResource(
+                        R.plurals.money_aging_spoken_item,
+                        bucket.count,
+                        bucket.label,
+                        bucket.count,
+                        Money.formatCompact(bucket.value),
+                    )
+                }
                 Panel(stringResource(R.string.money_aging_title)) {
                     BarChart(
                         bars = state.aging.map { BarDatum(it.label, it.count.toDouble()) },
                         description = stringResource(
                             R.string.money_aging_spoken,
-                            state.aging.joinToString(", ") {
-                                agingItem.format(it.label, it.count, Money.formatCompact(it.value))
-                            },
+                            agingParts.joinToString(", "),
                         ),
                     )
                     state.aging.lastOrNull()?.takeIf { it.count > 0 }?.let { oldest ->

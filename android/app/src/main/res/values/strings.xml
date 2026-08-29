@@ -259,7 +259,10 @@
     <string name="money_this_month_summary">This month: in %1$s, out %2$s, net %3$s</string>
     <string name="money_aging_title">Inventory aging — capital tied up</string>
     <string name="money_aging_spoken">Inventory aging: %1$s</string>
-    <string name="money_aging_spoken_item">%1$s, %2$d items, %3$s</string>
+    <plurals name="money_aging_spoken_item">
+        <item quantity="one">%1$s, %2$d item, %3$s</item>
+        <item quantity="other">%1$s, %2$d items, %3$s</item>
+    </plurals>
     <plurals name="money_aging_oldest">
         <item quantity="one">%1$d item held 60+ days (%2$s of cost basis).</item>
         <item quantity="other">%1$d items held 60+ days (%2$s of cost basis).</item>

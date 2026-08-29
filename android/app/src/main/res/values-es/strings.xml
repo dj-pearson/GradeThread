@@ -221,7 +221,11 @@
     <string name="money_this_month_summary">Este mes: entra %1$s, sale %2$s, neto %3$s</string>
     <string name="money_aging_title">Antigüedad del inventario — capital inmovilizado</string>
     <string name="money_aging_spoken">Antigüedad del inventario: %1$s</string>
-    <string name="money_aging_spoken_item">%1$s, %2$d artículos, %3$s</string>
+    <plurals name="money_aging_spoken_item">
+        <item quantity="one">%1$s, %2$d artículo, %3$s</item>
+        <item quantity="many">%1$s, %2$d de artículos, %3$s</item>
+        <item quantity="other">%1$s, %2$d artículos, %3$s</item>
+    </plurals>
     <plurals name="money_aging_oldest">
         <item quantity="one">%1$d artículo guardado más de 60 días (%2$s del costo).</item>
         <item quantity="other">%1$d artículos guardados más de 60 días (%2$s del costo).</item>
