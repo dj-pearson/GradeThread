@@ -429,8 +429,16 @@
     <string name="blocks_remove">Quitar</string>
 
     <string name="drafts_select_all">Seleccionar todo</string>
-    <string name="drafts_edit_together">Editar %1$d juntos</string>
-    <string name="drafts_retry_failed">Reintentar los %1$d que fallaron</string>
+    <plurals name="drafts_edit_together">
+        <item quantity="one">Editar %1$d borrador</item>
+        <item quantity="many">Editar %1$d de borradores</item>
+        <item quantity="other">Editar %1$d borradores</item>
+    </plurals>
+    <plurals name="drafts_retry_failed">
+        <item quantity="one">Reintentar %1$d borrador fallido</item>
+        <item quantity="many">Reintentar %1$d de borradores fallidos</item>
+        <item quantity="other">Reintentar %1$d borradores fallidos</item>
+    </plurals>
     <string name="drafts_reschedule">Reprogramar</string>
     <plurals name="drafts_bulk_title">
         <item quantity="one">Editar %1$d borrador</item>

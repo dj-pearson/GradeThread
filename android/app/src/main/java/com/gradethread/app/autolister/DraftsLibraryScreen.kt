@@ -122,7 +122,7 @@ fun DraftsLibraryScreen(onClose: () -> Unit = {}, viewModel: AutolisterViewModel
 
         if (state.selected.isNotEmpty()) {
             BrandPrimaryButton(
-                text = stringResource(R.string.drafts_edit_together, state.selected.size),
+                text = pluralStringResource(R.plurals.drafts_edit_together, state.selected.size, state.selected.size),
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
             ) { bulkOpen = true }
@@ -221,7 +221,7 @@ private fun BatchPanel(batch: AutolisterBatch, state: AutolisterViewModel.State,
         }
         if (state.canRetry) {
             BrandSecondaryButton(
-                text = stringResource(R.string.drafts_retry_failed, batch.failedCount),
+                text = pluralStringResource(R.plurals.drafts_retry_failed, batch.failedCount, batch.failedCount),
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
             ) { viewModel.retryFailed() }

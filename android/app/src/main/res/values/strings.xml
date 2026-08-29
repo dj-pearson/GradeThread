@@ -473,8 +473,14 @@
     <string name="blocks_rewriting">Rewriting…</string>
     <string name="blocks_remove">Remove</string>
     <string name="drafts_select_all">Select all</string>
-    <string name="drafts_edit_together">Edit %1$d together</string>
-    <string name="drafts_retry_failed">Retry the %1$d that failed</string>
+    <plurals name="drafts_edit_together">
+        <item quantity="one">Edit %1$d draft</item>
+        <item quantity="other">Edit %1$d drafts</item>
+    </plurals>
+    <plurals name="drafts_retry_failed">
+        <item quantity="one">Retry %1$d failed draft</item>
+        <item quantity="other">Retry %1$d failed drafts</item>
+    </plurals>
     <string name="drafts_reschedule">Reschedule</string>
     <plurals name="drafts_bulk_title">
         <item quantity="one">Edit %1$d draft</item>
