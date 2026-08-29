@@ -949,7 +949,11 @@
         <item quantity="other">%1$d artículos</item>
     </plurals>
     <string name="bulkgrade_counts">%1$d listos · %2$d bloqueados · %3$d créditos</string>
-    <string name="bulkgrade_blocked_count">%1$d no se enviarán</string>
+    <plurals name="bulkgrade_blocked_count">
+        <item quantity="one">%1$d no se enviará</item>
+        <item quantity="many">%1$d no se enviarán</item>
+        <item quantity="other">%1$d no se enviarán</item>
+    </plurals>
     <string name="bulkgrade_blocked_row">• %1$s — %2$s</string>
     <string name="bulkgrade_not_ready">no está listo</string>
     <string name="bulkgrade_and_more">…y %1$d más</string>
@@ -1044,7 +1048,11 @@
     <string name="disclosure_loading">Cargando…</string>
     <string name="disclosure_not_graded">Este artículo aún no se ha calificado. Califícalo y sus defectos aparecerán aquí.</string>
     <string name="disclosure_no_flaws">La calificación no encontró defectos que valga la pena divulgar.</string>
-    <string name="disclosure_noted">%1$d anotados</string>
+    <plurals name="disclosure_noted">
+        <item quantity="one">%1$d anotado</item>
+        <item quantity="many">%1$d anotados</item>
+        <item quantity="other">%1$d anotados</item>
+    </plurals>
     <string name="disclosure_unplaced">La calificación no pudo ubicar estos defectos en una foto, así que no hay nada que marcar — la divulgación escrita sigue aplicando.</string>
     <string name="disclosure_photo_tab">%1$s (%2$d)</string>
     <string name="disclosure_rendering">Marcando la foto…</string>
@@ -1706,10 +1714,18 @@
     </plurals>
     <string name="radar_off_map_header">Tus tiendas que no están en el mapa</string>
     <string name="radar_off_map_body">Tienen tu dinero dentro pero todavía no tienen sitio. Vincula una en la web y se une a esta lista.</string>
-    <string name="radar_off_map_items">%1$d comprados aquí</string>
+    <plurals name="radar_off_map_items">
+        <item quantity="one">%1$d comprado aquí</item>
+        <item quantity="many">%1$d comprados aquí</item>
+        <item quantity="other">%1$d comprados aquí</item>
+    </plurals>
     <string name="radar_row_activity">%1$d escaneos, %2$d personas, %3$s</string>
     <string name="radar_row_nothing_shared">Tu tienda. Todavía no se comparte nada sobre este sitio.</string>
-    <string name="radar_row_sourced">%1$d comprados aquí</string>
+    <plurals name="radar_row_sourced">
+        <item quantity="one">%1$d comprado aquí</item>
+        <item quantity="many">%1$d comprados aquí</item>
+        <item quantity="other">%1$d comprados aquí</item>
+    </plurals>
     <string name="radar_row_distance_km">a %1$s km</string>
     <string name="radar_row_distance_mi">a %1$s mi</string>
     <string name="radar_viewing_not_contributing">Abrir el radar nunca te apunta como colaborador. Mirar y compartir son interruptores distintos.</string>

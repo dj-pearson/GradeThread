@@ -35,11 +35,7 @@ import com.gradethread.app.ui.theme.cardStyle
  * disclosure in front of the buyer.
  */
 @Composable
-fun DisclosureScreen(
-    itemId: String,
-    onClose: () -> Unit = {},
-    viewModel: DisclosureViewModel = hiltViewModel(),
-) {
+fun DisclosureScreen(itemId: String, onClose: () -> Unit = {}, viewModel: DisclosureViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     LaunchedEffect(itemId) { viewModel.bind(itemId) }
 
@@ -52,7 +48,9 @@ fun DisclosureScreen(
     ) {
         Text(stringResource(R.string.disclosure_flaw_disclosure), style = MaterialTheme.typography.titleLarge)
 
-        state.errorMessage?.let { InfoCard(stringResource(R.string.disclosure_that_didn_t_work), it, tone = InfoTone.Error) }
+        state.errorMessage?.let {
+            InfoCard(stringResource(R.string.disclosure_that_didn_t_work), it, tone = InfoTone.Error)
+        }
         state.banner?.let { InfoCard(stringResource(R.string.disclosure_done), it, tone = InfoTone.Success) }
 
         when {
@@ -73,7 +71,7 @@ fun DisclosureScreen(
                         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
                     ) {
                         Text(
-                            stringResource(R.string.disclosure_noted, state.defectCount),
+                            pluralStringResource(R.plurals.disclosure_noted, state.defectCount, state.defectCount),
                             style = MaterialTheme.typography.bodyLarge,
                         )
                         Text(text, style = MaterialTheme.typography.bodyMedium)
@@ -140,7 +138,9 @@ fun DisclosureScreen(
             }
         }
 
-        BrandSecondaryButton(text = stringResource(R.string.disclosure_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.disclosure_back), modifier = Modifier.fillMaxWidth()) {
+            onClose()
+        }
     }
 }
 

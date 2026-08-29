@@ -226,7 +226,7 @@ fun RadarNearbyScreen(
                     ) {
                         Text(store.name, style = MaterialTheme.typography.bodyMedium)
                         Text(
-                            stringResource(R.string.radar_off_map_items, store.itemsSourced),
+                            pluralStringResource(R.plurals.radar_off_map_items, store.itemsSourced, store.itemsSourced),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -318,7 +318,7 @@ private fun NearbyRow(row: RadarNearbyRow, onClick: () -> Unit) {
         }
         row.personal?.takeIf { it.itemsSourced > 0 }?.let { personal ->
             Text(
-                stringResource(R.string.radar_row_sourced, personal.itemsSourced),
+                pluralStringResource(R.plurals.radar_row_sourced, personal.itemsSourced, personal.itemsSourced),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
             )

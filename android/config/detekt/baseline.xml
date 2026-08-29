@@ -226,8 +226,6 @@
     <ID>MaxLineLength:ConsignorsScreen.kt$BrandSecondaryButton</ID>
     <ID>MaxLineLength:ConsignorsScreen.kt$BrandSecondaryButton(text = stringResource(R.string.consignors_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
     <ID>MaxLineLength:ConsignorsScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.consignors_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
-    <ID>MaxLineLength:DisclosureScreen.kt$BrandSecondaryButton(text = stringResource(R.string.disclosure_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
-    <ID>MaxLineLength:DisclosureScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.disclosure_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
     <ID>MaxLineLength:EdgeApiError.kt$EdgeApiError$"Please confirm your email to use this feature. Check your inbox for the verification link we sent when you signed up."</ID>
     <ID>MaxLineLength:EquityService.kt$"An estimate for planning only, from sold comps and your own sell-through — not an appraisal, an offer, or borrowing capacity. Items without a grade or usable comps are excluded."</ID>
     <ID>MaxLineLength:FriendlyAuthError.kt$FriendlyAuthError$EMAIL_NOT_CONFIRMED -&gt; "Confirm your email to sign in — check your inbox for the link we sent, or resend it below."</ID>

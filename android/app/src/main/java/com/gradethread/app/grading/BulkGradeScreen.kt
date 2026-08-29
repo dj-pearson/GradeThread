@@ -187,7 +187,7 @@ private fun ReadyBody(state: BulkGradeViewModel.State, viewModel: BulkGradeViewM
                 .padding(Spacing.sm),
         ) {
             Text(
-                stringResource(R.string.bulkgrade_blocked_count, state.blocked.size),
+                pluralStringResource(R.plurals.bulkgrade_blocked_count, state.blocked.size, state.blocked.size),
                 style = MaterialTheme.typography.labelLarge,
             )
             // Named individually: "3 blocked" with no names means opening each

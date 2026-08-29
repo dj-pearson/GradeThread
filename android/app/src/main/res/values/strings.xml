@@ -1049,7 +1049,10 @@
     </plurals>
 
     <string name="bulkgrade_counts">%1$d ready \u00b7 %2$d blocked \u00b7 %3$d credits</string>
-    <string name="bulkgrade_blocked_count">%1$d won\'t be submitted</string>
+    <plurals name="bulkgrade_blocked_count">
+        <item quantity="one">%1$d won\'t be submitted</item>
+        <item quantity="other">%1$d won\'t be submitted</item>
+    </plurals>
     <string name="bulkgrade_blocked_row">\u2022 %1$s \u2014 %2$s</string>
     <string name="bulkgrade_not_ready">not ready</string>
     <string name="bulkgrade_and_more">\u2026and %1$d more</string>
@@ -1159,7 +1162,10 @@
     <string name="disclosure_loading">Loading\u2026</string>
     <string name="disclosure_not_graded">This item hasn\'t been graded yet. Grade it and its flaws show up here.</string>
     <string name="disclosure_no_flaws">The grade found no flaws worth disclosing.</string>
-    <string name="disclosure_noted">%1$d noted</string>
+    <plurals name="disclosure_noted">
+        <item quantity="one">%1$d noted</item>
+        <item quantity="other">%1$d noted</item>
+    </plurals>
     <string name="disclosure_unplaced">The grade couldn\'t place these flaws on a photo, so there\'s nothing to mark up \u2014 the written disclosure still applies.</string>
     <string name="disclosure_photo_tab">%1$s (%2$d)</string>
     <string name="disclosure_rendering">Marking up the photo\u2026</string>
@@ -1851,10 +1857,16 @@
     </plurals>
     <string name="radar_off_map_header">Your stores that are not on the map</string>
     <string name="radar_off_map_body">These have your money in them but no place yet. Link one on the web and it joins this list.</string>
-    <string name="radar_off_map_items">%1$d bought here</string>
+    <plurals name="radar_off_map_items">
+        <item quantity="one">%1$d bought here</item>
+        <item quantity="other">%1$d bought here</item>
+    </plurals>
     <string name="radar_row_activity">%1$d scans, %2$d people, %3$s</string>
     <string name="radar_row_nothing_shared">Your store. Nothing shared about this place yet.</string>
-    <string name="radar_row_sourced">%1$d sourced here</string>
+    <plurals name="radar_row_sourced">
+        <item quantity="one">%1$d sourced here</item>
+        <item quantity="other">%1$d sourced here</item>
+    </plurals>
     <string name="radar_row_distance_km">%1$s km away</string>
     <string name="radar_row_distance_mi">%1$s mi away</string>
     <string name="radar_viewing_not_contributing">Opening Radar never signs you up as a contributor. Looking and sharing are separate switches.</string>
