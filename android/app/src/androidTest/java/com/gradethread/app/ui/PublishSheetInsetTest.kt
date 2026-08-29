@@ -79,10 +79,11 @@ class PublishSheetInsetTest {
      */
     @Test
     fun publishSheetKeepsItsTextClearOfTheSystemBars() {
-        val offenders = offendersFor(zeroInsets = false)
+        val probe = offendersFor(zeroInsets = false)
         assertTrue(
-            "Publish sheet text drew under a system bar:\n" + offenders.joinToString("\n"),
-            offenders.isEmpty(),
+            "Publish sheet text drew under a system bar:\n" +
+                probe.offenders.joinToString("\n"),
+            probe.offenders.isEmpty(),
         )
     }
 
@@ -104,11 +105,27 @@ class PublishSheetInsetTest {
      */
     @Test
     fun theCheckStillCatchesASheetThatIgnoresTheInsets() {
-        val offenders = offendersFor(zeroInsets = true)
+        val probe = offendersFor(zeroInsets = true)
+
+        // ⚠ ONLY MEANINGFUL WHERE THE BARS ARE DEEPER THAN THE TOLERANCE.
+        //
+        // Zeroing the insets moves content up by barTop. If barTop is not
+        // itself larger than tolerancePx then nothing crosses the line, and the
+        // sabotage is undetectable BY CONSTRUCTION rather than because the
+        // check is broken. It failed on CI for exactly that reason: a 128px
+        // status bar on the local API 36 emulator, a smaller one on the runner.
+        // A red run there said nothing about the check it was guarding, and it
+        // reset US-2902 AC6's consecutive-green count for no reason.
+        assumeTrue(
+            "system bars (top " + probe.barTop + ") are not deeper than the " +
+                tolerancePx.toInt() + "px tolerance, so this sabotage cannot be seen here",
+            probe.barTop > tolerancePx,
+        )
+
         assertTrue(
             "Zeroing the sheet's content insets produced NO offenders, so the " +
                 "check above cannot detect a real inset regression either.",
-            offenders.isNotEmpty(),
+            probe.offenders.isNotEmpty(),
         )
     }
 
@@ -121,7 +138,7 @@ class PublishSheetInsetTest {
     private val tolerancePx = 4f
 
     @OptIn(ExperimentalMaterial3Api::class)
-    private fun offendersFor(zeroInsets: Boolean): List<String> {
+    private fun offendersFor(zeroInsets: Boolean): Probe {
         rule.activityRule.scenario.onActivity { it.enableEdgeToEdge() }
 
         rule.setContent {
@@ -158,7 +175,7 @@ class PublishSheetInsetTest {
         )
 
         val navBarTop = windowHeight - barBottom
-        return rule.onAllNodes(
+        val offenders = rule.onAllNodes(
             SemanticsMatcher.keyIsDefined(SemanticsProperties.Text),
             useUnmergedTree = true,
         )
@@ -180,7 +197,13 @@ class PublishSheetInsetTest {
                 "\"" + text + "\" at " + node.boundsInWindow +
                     " (status bar 0..$barTop, nav bar $navBarTop..$windowHeight)"
             }
+        return Probe(offenders, barTop)
     }
+
+    /**
+     * What a run saw, and the inset that decides whether it could see anything.
+     */
+    private data class Probe(val offenders: List<String>, val barTop: Int)
 }
 
 /**
