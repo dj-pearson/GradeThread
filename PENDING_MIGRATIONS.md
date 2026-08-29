@@ -2,6 +2,24 @@
 
 ## ⏳ PENDING: 00682_auto_upright_setting.sql (US-2890)
 
+> ⚠ **ALREADY ON origin/main as of 2026-08-28** — commit `8818ecdb4`, 3 hours before this note.
+> The standing rule is that a commit carrying a migration is not pushed until
+> the SQL is on prod; that did not happen here, and it was not caught because
+> `scripts/held-migration-gate.mjs` only matched the word **HELD** while these
+> headings say **PENDING**. The gate is fixed and now reports both.
+>
+> **This entry does NOT claim the SQL is unapplied.** Nobody has asked the
+> database. `PENDING_MIGRATIONS.md` is a hand-edited marker and has gone stale
+> in both directions before, so the only thing recorded here is what was
+> actually verified: the migration file is reachable from origin/main, and EXPECTED_SCHEMA_VERSION on origin/main is 00682 — so the next edge deploy boot-guards on it.
+>
+> Settle it, do not assume it:
+> ```
+> cd services/edge-functions
+> deno run --allow-net --allow-env scripts/check-prod-migration.ts 00682
+> ```
+> Then flip this heading to `## ✅ APPLIED:` with the date, or apply the SQL.
+
 **Risk: very low.** One INSERT of one row into `public.system_settings`, with
 `on conflict (key) do nothing`. No table, column, function, view, policy or
 index is touched. Re-running it is a no-op, verified locally.
@@ -31,6 +49,24 @@ migration was applied to the local stack rather than reasoned about.
 afterwards out of habit, though strictly nothing about the schema changed.
 
 ## ⏳ PENDING: 00678_listing_description_blocks.sql (US-2956)
+
+> ⚠ **ALREADY ON origin/main as of 2026-08-28** — commit `3c81a129d`, 31 hours before this note.
+> The standing rule is that a commit carrying a migration is not pushed until
+> the SQL is on prod; that did not happen here, and it was not caught because
+> `scripts/held-migration-gate.mjs` only matched the word **HELD** while these
+> headings say **PENDING**. The gate is fixed and now reports both.
+>
+> **This entry does NOT claim the SQL is unapplied.** Nobody has asked the
+> database. `PENDING_MIGRATIONS.md` is a hand-edited marker and has gone stale
+> in both directions before, so the only thing recorded here is what was
+> actually verified: the migration file is reachable from origin/main. This is the one that matters of the two: it adds a column AND a table, where 00682 inserts a single settings row.
+>
+> Settle it, do not assume it:
+> ```
+> cd services/edge-functions
+> deno run --allow-net --allow-env scripts/check-prod-migration.ts 00678
+> ```
+> Then flip this heading to `## ✅ APPLIED:` with the date, or apply the SQL.
 
 **Risk: low.** One nullable column and one new table. Nothing existing is
 altered, nothing is backfilled, no function or view is replaced.
