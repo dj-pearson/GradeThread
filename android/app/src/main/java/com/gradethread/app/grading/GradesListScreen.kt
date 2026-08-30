@@ -94,10 +94,14 @@ data class GradesListActions(
  * The grades list with no ViewModel attached (US-2902 AC3).
  *
  * Worth a golden beyond the extraction itself: every row draws its score through
- * `gradeColor`, and US-3010 moved the failing-grade band off a hardcoded
- * `Color(0xFFE94560)` onto `MaterialTheme.colorScheme.error`. That value differs
- * between light and dark, so capturing both is the only thing that would notice
- * it silently changing back.
+ * `gradeColor`, and US-3010 moved the failing-grade band off a hardcoded surface
+ * red onto `MaterialTheme.colorScheme.error`. That value differs between light
+ * and dark, so capturing both is the only thing that would notice it silently
+ * changing back.
+ *
+ * (The old hex is described rather than written: BrandLiteralTest scans raw
+ * text, so quoting the banned literal in prose fails the guard - which it did,
+ * on the first draft of this comment.)
  *
  * The layout body is unchanged from the version inside GradesListScreen - the
  * two `remember` derivations moved in with it and the callbacks are rebound - so

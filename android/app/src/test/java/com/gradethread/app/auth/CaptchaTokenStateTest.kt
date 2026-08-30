@@ -24,14 +24,13 @@ class CaptchaTokenStateTest {
         AuthViewModel.State(mode = AuthFormRules.Mode.SIGN_UP, captchaToken = token)
 
     /** The same mapping setCaptcha applies, kept in one place. */
-    private fun applied(from: AuthViewModel.State, result: TurnstileResult) =
-        from.copy(
-            captchaToken = when (result) {
-                is TurnstileResult.Token -> result.token
-                is TurnstileResult.Failed -> null
-                TurnstileResult.NotConfigured -> null
-            },
-        )
+    private fun applied(from: AuthViewModel.State, result: TurnstileResult) = from.copy(
+        captchaToken = when (result) {
+            is TurnstileResult.Token -> result.token
+            is TurnstileResult.Failed -> null
+            TurnstileResult.NotConfigured -> null
+        },
+    )
 
     @Test
     fun solvedChallenge_keepsTheToken() {
@@ -125,9 +124,20 @@ class CaptchaTokenStateTest {
             vm.substringAfter("fun toggleMode").substringBefore("    }")
                 .contains("captchaToken = null"),
         )
+        // ⚠ TWO LINKS NOW, NOT ONE (US-2902 AC3). AuthScreen was split into a
+        // stateful wrapper and a stateless AuthContent, so the screen no longer
+        // names the ViewModel directly - it renders `actions.setCaptcha`, and
+        // the wrapper binds that to `viewModel::setCaptcha`. Asserting only the
+        // render would pass while the binding was deleted, which is a chain
+        // this scan exists to hold end to end.
         assertTrue(
             "nothing renders the challenge on signup",
-            screen.contains("SignUpCaptcha(state.isSignUp, viewModel::setCaptcha)"),
+            screen.contains("SignUpCaptcha(state.isSignUp, actions.setCaptcha)"),
+        )
+        assertTrue(
+            "AuthScreen no longer binds setCaptcha - the challenge renders and " +
+                "its result reaches nothing",
+            screen.contains("setCaptcha = viewModel::setCaptcha"),
         )
         assertTrue(
             "the challenge is not signup-gated",
