@@ -41,8 +41,6 @@ import {
   type TaxProfileDefaults,
 } from "@/lib/tax-profile";
 import { Form1099kBridge } from "@/components/finances/form-1099k-bridge";
-import { MileageLogCard } from "@/components/finances/mileage-log-card";
-import { HomeOfficeCard } from "@/components/finances/home-office-card";
 import { EstimatedTaxCard } from "@/components/finances/estimated-tax-card";
 import { PeriodCloseCard } from "@/components/finances/period-close-card";
 import { TaxPacketCard } from "@/components/finances/tax-packet-card";
@@ -353,12 +351,11 @@ export function TaxSetupPage() {
           move into a second account this week. */}
       <EstimatedTaxCard />
 
-      <MileageLogCard />
-
-      {/* US-2990. Beside mileage because both are once-a-year deductions a
-          reseller is entitled to and usually never claims, and both are
-          calendar-year figures. */}
-      <HomeOfficeCard />
+      {/* US-2999 MOVED mileage and the home office to their own Deductions
+          view. They were at positions six and seven of a nine-card stack, and
+          they are the only two things here that a seller records DURING the
+          year rather than in March. Buried under the packet and the QuickBooks
+          mapping they were effectively invisible. */}
 
       <Form1099kBridge />
 

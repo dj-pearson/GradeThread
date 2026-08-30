@@ -95,17 +95,65 @@ export const RETIRED_NAV_REDIRECTS: Readonly<Record<string, string>> = {
 // were my numbers" in the row order a preparer reads down. The two belong
 // beside each other, and the statement is the one a seller has to hand to
 // somebody else.
+// US-2999 rebuilt the row into a DECIDED structure rather than five more tabs.
+// The epic added a P&L, a review queue, a tax section, a mileage log, a home
+// office, a packet and a QuickBooks connection; bolting each one on as it
+// landed is how a hub ends up with eleven peers and no order.
+//
+// Three groups, and the order is the order a seller uses them:
+//
+//   Overview   - the four questions, answered on arrival. Default.
+//   Day to day - the surfaces you touch weekly.
+//   Tax        - the surfaces you touch in March, plus the two that quietly
+//                accumulate all year (mileage, the home office).
+//
+// "overview" is the default now, not "finances". A seller arriving at Money
+// wants the answer, not the chart that implies it. Every retired path still
+// carries an explicit ?view=, so no bookmark changes meaning.
 export const MONEY_VIEWS = [
+  "overview",
   "finances",
-  "pnl",
   "expenses",
   "reconcile",
+  "pnl",
+  "deductions",
   "tax",
 ] as const;
 export type MoneyView = (typeof MONEY_VIEWS)[number];
 
+export interface MoneyViewGroup {
+  /** null on the first group: "Overview" as a heading over one tab is noise. */
+  label: string | null;
+  views: readonly MoneyView[];
+}
+
+/**
+ * The structure, declared once so the strip, the mobile picker and the test can
+ * all read the same thing.
+ *
+ * A view missing from here would render nowhere while still resolving from a
+ * URL, which is the failure mode this shape exists to make testable: the test
+ * asserts the groups cover MONEY_VIEWS exactly, with no gaps and no repeats.
+ */
+export const MONEY_VIEW_GROUPS: readonly MoneyViewGroup[] = [
+  { label: null, views: ["overview"] },
+  { label: "Day to day", views: ["finances", "expenses", "reconcile"] },
+  { label: "Tax", views: ["pnl", "deductions", "tax"] },
+];
+
+/** What each view is called on screen. One place, so the two strips agree. */
+export const MONEY_VIEW_LABELS: Readonly<Record<MoneyView, string>> = {
+  overview: "Overview",
+  finances: "Trends",
+  expenses: "Expenses",
+  reconcile: "Reconcile",
+  pnl: "P&L",
+  deductions: "Deductions",
+  tax: "Tax & filing",
+};
+
 export function resolveMoneyView(raw: string | null | undefined): MoneyView {
-  return MONEY_VIEWS.includes(raw as MoneyView) ? (raw as MoneyView) : "finances";
+  return MONEY_VIEWS.includes(raw as MoneyView) ? (raw as MoneyView) : "overview";
 }
 
 export const AUTOLISTER_VIEWS = ["generate", "drafts"] as const;

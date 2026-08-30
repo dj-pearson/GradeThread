@@ -19,6 +19,8 @@ code_refs:
   - src/lib/cogs.ts
   - scripts/check-cogs-worksheet.mjs
   - src/lib/tax-packet.ts
+  - src/pages/flipdesk/nav-tabs.ts
+  - src/pages/flipdesk/money-overview.tsx
   - supabase/migrations/00704_quickbooks_connection.sql
   - supabase/migrations/00705_quickbooks_sync_log.sql
   - services/edge-functions/src/lib/qbo-documents.ts
@@ -1333,6 +1335,78 @@ failure is recorded with QuickBooks' own words, which name the field -- AC6 is
 about that sentence, because "sync failed" with no object named is not something
 anyone can act on.
 
+## Money, and why it is three groups
+
+US-2999. Money was five flat tabs and this epic added seven more surfaces to it.
+Eleven peers in one row is not an information architecture, it is an accretion,
+and the fix had to be decided once.
+
+**Three groups, in the order a seller uses them.** `MONEY_VIEW_GROUPS` in
+`src/pages/flipdesk/nav-tabs.ts` is the declaration, and the desktop strip, the
+mobile picker and the test all read it -- so a view cannot fall out of the nav
+while still resolving from a URL, which is the failure mode a hand-maintained
+strip invites. A test asserts the groups cover `MONEY_VIEWS` exactly, with no
+gaps and no repeats.
+
+- **Overview** - the four questions, answered on arrival. The default.
+- **Day to day** - Trends, Expenses, Reconcile.
+- **Tax** - P&L, Deductions, Tax & filing.
+
+**The default moved from `finances` to `overview`.** Every retired path carries
+an explicit `?view=`, so no bookmark changed meaning -- and a test now asserts
+each of those values is still a declared view, because a rename would silently
+send `/dashboard/finances` to the fallback and nothing would fail.
+
+### The overview leads with what can be acted on
+
+Set-aside and the review count come first and are set larger. Profit and spend
+sit under them. That ordering is the whole point: the first two are things a
+seller can do something about today, and the second two are the answer to "how
+did it go", which is worth knowing and cannot be acted on. Four identical cards
+in a grid would say all four matter equally.
+
+Emphasis is weight, size and a tinted border -- never a gradient, and never a
+border under a wide shadow. Elevation is declared once per card.
+
+### Mileage and the home office moved out
+
+They were positions six and seven of a nine-card stack on the tax page, under
+the packet and the QuickBooks mapping. Everything else on that page is a March
+job; those two are recorded during the year, and buried there they were
+effectively invisible. They have their own **Deductions** view now. Both stay
+calendar-year surfaces: mileage rates are published per calendar year and the
+Part IV questions are asked per calendar year, so a fiscal-year selector would
+be actively wrong.
+
+### The mobile layout is a picker, not a scrolling strip
+
+Seven tabs in a row on a phone is a horizontal scroll where the tab you want is
+off-screen with no sign it exists. Below `sm:` the strip is replaced by a native
+grouped `Select`; both render from the same `MONEY_VIEW_GROUPS`.
+
+### What could NOT be checked, and the evidence
+
+AC3 asked for the new pages to be scanned with `scripts/check-ui-browser.mjs`.
+**That tool cannot reach any screen behind a login** -- it scans nine public
+marketing URLs, and an authed route on a dev server redirects to the sign-in
+page. A harness to render authed screens to static HTML was built and then
+REMOVED rather than shipped, because it could not pass its own self-check.
+Three measurements worth keeping, so the next attempt does not repeat them:
+
+1. `vite.transformRequest("/src/index.css")` returns the **HMR JavaScript that
+   injects** the CSS, not the CSS. Inlined into a `<style>` tag it is inert, so
+   every page renders unstyled and every rule that reads a computed style comes
+   back clean. `?direct` is required. A deliberate nested card was added to
+   prove the harness worked and the scan still reported zero.
+2. Even with real Tailwind CSS inlined, a page built from the app's components
+   reported **zero** findings while a hand-written page with an explicit border
+   and shadow on the same server reported three, including `nested-cards`.
+3. Inlining the whole app stylesheet raises `gradient-text`, `bounce-easing`
+   and `dark-glow` from utility **definitions the page never uses**.
+
+`npm run ui:check` is at zero, which is the half of AC3 that a source scan can
+answer. The rest is **US-3013**.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -1355,9 +1429,10 @@ its contract into this note. Currently landed:
 - **US-2996** - the year-end packet, its receipts-not-links answer and its exclusions, above.
 - **US-2997** - the QuickBooks connection, the realm rule and the mapping, above.
 - **US-2998** - the push, its four idempotency failure modes and the bookmark, above.
+- **US-2999** - the Money structure, and what the UI scan could not reach, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
-Still open, and each will add a section here rather than a new note: the rebuilt
-Money navigation
-(US-2999), mileage and receipts on mobile (US-3000), and matching a receipt's
-line items back to inventory (US-3012).
+Still open, and each will add a section here rather than a new note: mileage and
+receipts on mobile (US-3000), and matching a receipt's line items back to
+inventory (US-3012). US-3013 carries the authed-UI scan this note describes as
+unbuilt.

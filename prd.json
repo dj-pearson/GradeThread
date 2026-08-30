@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3013",
+  "nextId": "US-3014",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2741,20 +2741,6 @@
       "priority": 30
     },
     {
-      "id": "US-2999",
-      "passes": false,
-      "title": "Money, rebuilt around the books",
-      "description": "Money is three tabs today: Finances, Expenses, Reconcile (US-2161). This epic adds a P&L, a review queue, a tax section, a mileage log and a QuickBooks connection, and bolting five more tabs onto that row is not a design. The information architecture has to be decided once rather than accreted, and it has to survive the ui:check gate at zero, which forbids the icon-tile grid and the side-tab card that this kind of hub attracts.",
-      "acceptanceCriteria": [
-        "A decided structure: an overview that answers the four questions, then the working surfaces, then the tax surfaces, with the review count visible from the top level.",
-        "Every existing route still resolves. /dashboard/finances, /dashboard/flipdesk/expenses, /dashboard/flipdesk/reconcile and /dashboard/flipdesk/reconciliation all redirect correctly today and must continue to, including the inner ?tab= that Reconcile owns.",
-        "npm run ui:check stays at zero, and the new pages are checked with node scripts/check-ui-browser.mjs one URL per invocation.",
-        "The overview leads with the set-aside figure and the review count, because those are the two things a seller can act on today.",
-        "Mobile layout is designed, not inherited. This is a table-heavy section and tables are where the mobile experience usually dies."
-      ],
-      "priority": 48
-    },
-    {
       "id": "US-3000",
       "passes": false,
       "title": "Mileage and receipts on the phone, where they actually happen",
@@ -2823,6 +2809,20 @@
         "Works with NO line items at all: a receipt that reads only as a total can still be split across chosen items evenly or by the seller typing amounts. That is the common case for a handwritten estate-sale receipt."
       ],
       "priority": 42
+    },
+    {
+      "id": "US-3013",
+      "passes": false,
+      "priority": 62,
+      "title": "The browser-scoped UI rules cannot see any screen behind a login",
+      "description": "scripts/check-ui-browser.mjs scans nine PUBLIC marketing URLs. Four craft-floor tells need a laid-out DOM -- nested-cards, icon-tile-stack, hero-eyebrow-chip and gpt-thin-border-wide-shadow -- so nothing has ever checked them on the dashboard, which is most of the product. US-2999 built a harness for this and it was REMOVED rather than shipped, because it could not pass its own self-check. The evidence, so the next attempt does not repeat it: (1) vite.transformRequest(\"/src/index.css\") returns the HMR JavaScript that injects the css, not the css -- ?direct is required, and without it every page renders unstyled and every rule comes back clean; (2) even with real Tailwind css inlined, a page built from the app components reported ZERO findings while a hand-written page with explicit border/shadow on the same server reported three including nested-cards; (3) scanning a page whose <style> holds the whole app stylesheet raises gradient-text, bounce-easing and dark-glow from utility DEFINITIONS the page never uses, so the stylesheet cannot simply be inlined wholesale. A working version needs the css narrowed to what the page uses, and a self-check fixture built from the app Card component that is proven to trip nested-cards before any clean result is believed.",
+      "acceptanceCriteria": [
+        "A harness that renders an authed screen to static HTML with the styles it actually uses, serves it, and scans it ONE URL PER INVOCATION.",
+        "A self-check built from the real Card component that MUST raise nested-cards. A clean run is refused unless the self-check fired -- this is the requirement US-2999 could not meet, and the reason the first attempt was deleted.",
+        "No finding may come from a utility definition the page does not use. The three false positives measured in US-2999 (gradient-text, bounce-easing, dark-glow, all from src/index.css) must not appear.",
+        "At least the Money views are covered, and adding a screen is one line.",
+        "Report-only first, with the enforce flag and the CI wiring left to a follow-up once the baseline is known."
+      ]
     }
   ]
 }

@@ -2,10 +2,24 @@ import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router";
 import { Wallet } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { PageHeader } from "@/components/ui/page-header";
 import { PageHostContext } from "@/hooks/use-page-host";
 import { HostViewSkeleton } from "@/components/flipdesk/host-view-skeleton";
-import { resolveMoneyView } from "@/pages/flipdesk/nav-tabs";
+import {
+  MONEY_VIEW_GROUPS,
+  MONEY_VIEW_LABELS,
+  resolveMoneyView,
+} from "@/pages/flipdesk/nav-tabs";
 import { PageHelp } from "@/components/help/page-help";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/auth-store";
@@ -55,6 +69,16 @@ const TaxSetupPage = lazy(() =>
     default: m.TaxSetupPage,
   }))
 );
+const MoneyOverviewPage = lazy(() =>
+  import("@/pages/flipdesk/money-overview").then((m) => ({
+    default: m.MoneyOverviewPage,
+  }))
+);
+const DeductionsPage = lazy(() =>
+  import("@/pages/flipdesk/deductions").then((m) => ({
+    default: m.DeductionsPage,
+  }))
+);
 
 export function FlipdeskMoneyPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -101,26 +125,78 @@ export function FlipdeskMoneyPage() {
       />
       <PageHostContext.Provider value={{ embedded: true }}>
         <Tabs value={activeView} onValueChange={setActiveView}>
-          <TabsList>
-            <TabsTrigger value="finances">Finances</TabsTrigger>
-            <TabsTrigger value="pnl">
-              P&amp;L
-              {reviewCount > 0 && (
-                <span
-                  className="ml-1.5 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300"
-                  aria-label={`${reviewCount} thing${reviewCount === 1 ? "" : "s"} in your books need a look`}
-                >
-                  {reviewCount}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="expenses">Expenses</TabsTrigger>
-            <TabsTrigger value="reconcile">Reconcile</TabsTrigger>
-            <TabsTrigger value="tax">Tax</TabsTrigger>
-          </TabsList>
+          {/* US-2999. THE STRIP IS GROUPED, and on a phone it is not a strip
+              at all.
+
+              Seven equal tabs in one row is what this hub would have become,
+              and it is unreadable twice over: on a laptop it reads as seven
+              peers when three of them are a March job, and on a phone it is a
+              horizontal scroll where the tab you want is off-screen with no
+              sign it exists. AC5 asks for a designed mobile layout, and a
+              scrolling tab row is the inherited one.
+
+              So: a labelled two-tier strip from `sm:` up, and a native picker
+              below it. Both read MONEY_VIEW_GROUPS, so neither can drift. */}
+          <div className="sm:hidden">
+            <Label htmlFor="money-view" className="sr-only">
+              Which part of Money
+            </Label>
+            <Select value={activeView} onValueChange={setActiveView}>
+              <SelectTrigger id="money-view" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MONEY_VIEW_GROUPS.map((group) => (
+                  <SelectGroup key={group.label ?? "top"}>
+                    {group.label && <SelectLabel>{group.label}</SelectLabel>}
+                    {group.views.map((v) => (
+                      <SelectItem key={v} value={v}>
+                        {MONEY_VIEW_LABELS[v]}
+                        {v === "pnl" && reviewCount > 0 ? ` (${reviewCount})` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="hidden flex-wrap items-center gap-x-5 gap-y-2 sm:flex">
+            {MONEY_VIEW_GROUPS.map((group) => (
+              <div key={group.label ?? "top"} className="flex items-center gap-2">
+                {group.label && (
+                  <span className="text-[13px] text-muted-foreground">
+                    {group.label}
+                  </span>
+                )}
+                <TabsList>
+                  {group.views.map((v) => (
+                    <TabsTrigger key={v} value={v}>
+                      {MONEY_VIEW_LABELS[v]}
+                      {v === "pnl" && reviewCount > 0 && (
+                        <span
+                          className="ml-1.5 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300"
+                          aria-label={`${reviewCount} thing${reviewCount === 1 ? "" : "s"} in your books need a look`}
+                        >
+                          {reviewCount}
+                        </span>
+                      )}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </div>
+            ))}
+          </div>
 
           {/* Only the active view mounts — each page runs its own queries, and
               mounting all three would fire every one of them on arrival. */}
+          <TabsContent value="overview" className="mt-6">
+            {activeView === "overview" && (
+              <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
+                <MoneyOverviewPage />
+              </Suspense>
+            )}
+          </TabsContent>
           <TabsContent value="finances" className="mt-6">
             {activeView === "finances" && (
               <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
@@ -146,6 +222,13 @@ export function FlipdeskMoneyPage() {
             {activeView === "reconcile" && (
               <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
                 <ReconcilePage />
+              </Suspense>
+            )}
+          </TabsContent>
+          <TabsContent value="deductions" className="mt-6">
+            {activeView === "deductions" && (
+              <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
+                <DeductionsPage />
               </Suspense>
             )}
           </TabsContent>

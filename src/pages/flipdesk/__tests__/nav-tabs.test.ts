@@ -16,6 +16,8 @@ import {
   RETIRED_NAV_REDIRECTS,
   SOURCING_TABS,
   MONEY_VIEWS,
+  MONEY_VIEW_GROUPS,
+  MONEY_VIEW_LABELS,
   AUTOLISTER_VIEWS,
   resolveMoneyView,
   resolveAutolisterView,
@@ -168,11 +170,57 @@ describe("the ?view= hosts (US-2161 second pass)", () => {
     // matters — a value from Reconcile's INNER tab set, which must not be
     // mistaken for an outer view.
     for (const bad of [null, undefined, "", "  ", "nope", "generate", "payouts"]) {
-      expect(resolveMoneyView(bad)).toBe("finances");
+      // US-2999 moved the default from "finances" to "overview": a seller
+      // arriving at Money wants the answer, not the chart that implies it.
+      expect(resolveMoneyView(bad)).toBe("overview");
     }
     for (const bad of [null, undefined, "", "reconcile", "photos"]) {
       expect(resolveAutolisterView(bad)).toBe("generate");
     }
+  });
+
+  // US-2999. The groups ARE the information architecture, so a view that fell
+  // out of them would still resolve from a URL and render nowhere -- reachable
+  // by bookmark, invisible in the nav. That is the exact failure a flat list of
+  // eleven tabs was replaced to avoid, and it is the one a source read cannot
+  // see.
+  it("the groups cover every view exactly once, and label every one", () => {
+    const grouped = MONEY_VIEW_GROUPS.flatMap((g) => g.views);
+    expect([...grouped].sort()).toEqual([...MONEY_VIEWS].sort());
+    expect(new Set(grouped).size).toBe(grouped.length);
+    for (const v of MONEY_VIEWS) {
+      expect(MONEY_VIEW_LABELS[v], `view "${v}" has no label`).toBeTruthy();
+    }
+  });
+
+  // US-2999 AC2. The restructure moved the DEFAULT and added two views. Every
+  // retired path carries an explicit ?view=, so none of them changed meaning --
+  // but only if every one of those values is still a declared view. A rename
+  // here would send a bookmarked /dashboard/finances to the fallback, which now
+  // renders a different page than it used to, and nothing would fail.
+  it("every retired path still names a view that exists", () => {
+    const routes = readFileSync("src/routes/index.tsx", "utf8");
+    for (const to of Object.values(RETIRED_VIEW_REDIRECTS)) {
+      if (!to.includes("/money")) continue;
+      const view = new URL(to, "https://x").searchParams.get("view");
+      expect(MONEY_VIEWS, `retired path targets missing view "${view}"`)
+        .toContain(view);
+    }
+    // /dashboard/flipdesk/reconciliation is a plain Navigate rather than a
+    // ViewRedirect (it pins Reconcile's inner tab), so it is not in the map and
+    // has to be checked against the file itself.
+    const line = routes
+      .split(/\r?\n/)
+      .find((l) => l.includes('path: "/dashboard/flipdesk/reconciliation"'));
+    expect(line, "the reconciliation redirect is gone").toBeTruthy();
+    expect(line).toContain("view=reconcile");
+    expect(line, "it must keep pinning the eBay inner tab").toContain("tab=ebay");
+  });
+
+  it("the default view is the first view in the first group", () => {
+    // Otherwise the strip opens with one tab highlighted and a different one
+    // rendered, which reads as a bug on the first screen a seller sees.
+    expect(resolveMoneyView(null)).toBe(MONEY_VIEW_GROUPS[0]!.views[0]);
   });
 
   it("keeps ?view= and Reconcile's ?tab= in separate namespaces", () => {
