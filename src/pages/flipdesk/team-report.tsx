@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDown,
@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Download,
   Hourglass,
+  TrendingDown,
   Users,
 } from "lucide-react";
 import {
@@ -17,6 +18,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
@@ -33,13 +36,18 @@ import { downloadCsv } from "@/lib/csv-export";
 import { useWorkspace } from "@/hooks/use-workspace";
 import {
   AGE_BUCKETS,
+  DEFAULT_TARGET_MARGIN,
   EMPTY_DEAD_CAPITAL,
+  EMPTY_MISS_REPORT,
   EMPTY_SCORECARD,
   OLDEST_SHOWN,
   fetchDeadCapital,
+  fetchMissReport,
   fetchScorecard,
   sortScorecard,
   type DeadCapital,
+  type MissReason,
+  type MissReport,
   type Scorecard,
   type ScorecardRow,
   type ScorecardSortKey,
@@ -386,7 +394,291 @@ export function TeamReportPage({
           two-year-old item because the picker says "last 30 days" would answer
           the opposite of what was asked. */}
       <DeadCapitalCard />
+      <OverpayCard periodStart={periodStart} />
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════
+// OVERPAY / MISS (US-3021)
+// ══════════════════════════════════════════════════════════
+
+/**
+ * The target margin, in the URL.
+ *
+ * Same contract as `?preset=` in analytics.tsx: the whole view is a real URL,
+ * so a manager can send "here is the 45% view" to someone rather than telling
+ * them which box to type in. The default is omitted from the query string so a
+ * plain link is not littered with the value it already has.
+ */
+function useMarginParam(): [number, (m: number) => void] {
+  const [sp, setSp] = useSearchParams();
+  const raw = Number(sp.get("margin"));
+  const margin =
+    Number.isFinite(raw) && raw > 0 && raw < 100
+      ? raw / 100
+      : DEFAULT_TARGET_MARGIN;
+
+  const setMargin = (pctValue: number) =>
+    setSp(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (pctValue === Math.round(DEFAULT_TARGET_MARGIN * 100))
+          next.delete("margin");
+        else next.set("margin", String(pctValue));
+        return next;
+      },
+      { replace: true },
+    );
+
+  return [margin, setMargin];
+}
+
+const REASON_LABEL: Record<MissReason, string> = {
+  loss: "Lost money",
+  "below-target": "Under target",
+};
+
+export function OverpayCard({ periodStart }: { periodStart: string | null }) {
+  const { workspaceOwnerId } = useWorkspace();
+  const [margin, setMargin] = useMarginParam();
+  const marginPct = Math.round(margin * 100);
+
+  const {
+    data = EMPTY_MISS_REPORT,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<MissReport>({
+    queryKey: ["team-report", "misses", workspaceOwnerId, periodStart, margin],
+    enabled: !!workspaceOwnerId,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () =>
+      fetchMissReport(workspaceOwnerId as string, periodStart, margin),
+  });
+
+  function exportCsv() {
+    downloadCsv(
+      `flipdesk-overpay-${csvDate()}.csv`,
+      [
+        "Person",
+        "Shop",
+        "Item",
+        "Sale date",
+        "Why",
+        "Paid",
+        "Sold for",
+        "Net",
+        "Short of target",
+      ],
+      // `all`, not `worst` -- the card tells the reader the CSV has the rest.
+      data.rows.flatMap((r) =>
+        r.all.map((w) => [
+          r.person,
+          w.sourceKey,
+          w.title,
+          w.saleDate.slice(0, 10),
+          REASON_LABEL[w.reason],
+          w.paid.toFixed(2),
+          w.soldFor.toFixed(2),
+          w.net.toFixed(2),
+          w.shortfall.toFixed(2),
+        ]),
+      ),
+    );
+  }
+
+  if (error) {
+    return (
+      <ErrorState
+        title="Could not load the miss report"
+        description={error instanceof Error ? error.message : String(error)}
+        onRetry={() => void refetch()}
+      />
+    );
+  }
+
+  const marginControl = (
+    <div className="flex items-center gap-2">
+      <Label htmlFor="target-margin" className="whitespace-nowrap text-sm">
+        Target margin
+      </Label>
+      <Input
+        id="target-margin"
+        type="number"
+        min={0}
+        max={99}
+        value={marginPct}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          if (Number.isFinite(next) && next >= 0 && next < 100) setMargin(next);
+        }}
+        className="w-20"
+      />
+      <span className="text-sm text-muted-foreground">%</span>
+    </div>
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <TrendingDown className="h-4 w-4" />
+              Overpaid and under target
+            </CardTitle>
+            <CardDescription>
+              Sales that lost money, or made less than you want, grouped by who
+              bought the item and where they bought it.
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-3">
+            {marginControl}
+            {data.count > 0 && (
+              <Button variant="outline" size="sm" onClick={exportCsv}>
+                <Download className="mr-2 h-4 w-4" />
+                CSV
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <TableLoadingSkeleton rows={3} columns={4} />
+        ) : data.count === 0 ? (
+          // "No misses" out of 80 sales is praise; out of 0 sales it is
+          // silence. The copy has to tell them apart or the card reads as
+          // broken on a quiet month.
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            {data.salesConsidered === 0
+              ? "No completed sales in this period, so there is nothing to judge yet."
+              : `Nothing missed target. All ${data.salesConsidered} ${
+                  data.salesConsidered === 1 ? "sale" : "sales"
+                } in this period cleared ${marginPct}%.`}
+          </p>
+        ) : (
+          <>
+            <p className="text-sm">
+              <span className="text-2xl font-semibold tabular-nums">
+                {usd(data.shortfall)}
+              </span>{" "}
+              <span className="text-muted-foreground">
+                short of target across {data.count}{" "}
+                {data.count === 1 ? "sale" : "sales"}, out of{" "}
+                {data.salesConsidered} in this period.
+              </span>
+            </p>
+
+            <div className="space-y-6">
+              {data.rows.map((r) => (
+                <div key={r.key} className="space-y-2">
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <h4 className="font-medium">
+                      {r.person}
+                      <span className="ml-2 text-sm font-normal text-muted-foreground">
+                        {r.count} {r.count === 1 ? "miss" : "misses"}
+                        {r.lossCount > 0 &&
+                          `, ${r.lossCount} at an outright loss`}
+                      </span>
+                    </h4>
+                    <span className="text-sm tabular-nums text-destructive">
+                      {usd(r.shortfall)} short
+                    </span>
+                  </div>
+
+                  {/* Where it happened, worst shop first. This is the half a
+                      manager acts on: the coaching is "stop paying that much
+                      at this shop", not "do better". */}
+                  <p className="text-xs text-muted-foreground">
+                    {r.shops
+                      .map(
+                        (s) =>
+                          `${s.sourceKey} (${s.count}, ${usd(s.shortfall)} short)`,
+                      )
+                      .join(" · ")}
+                  </p>
+
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Item</TableHead>
+                          <TableHead>Shop</TableHead>
+                          <TableHead>Why</TableHead>
+                          <TableHead className="text-right">Paid</TableHead>
+                          <TableHead className="text-right">Sold for</TableHead>
+                          <TableHead className="text-right">Net</TableHead>
+                          <TableHead className="text-right">Short</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {r.worst.map((w) => (
+                          <TableRow key={w.saleId}>
+                            <TableCell className="font-medium">
+                              {w.itemId ? (
+                                <Link
+                                  to={`/dashboard/flipdesk/items/${w.itemId}`}
+                                  className="hover:underline"
+                                >
+                                  {w.title}
+                                </Link>
+                              ) : (
+                                w.title
+                              )}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground">
+                              {w.sourceKey}
+                            </TableCell>
+                            <TableCell>
+                              <span
+                                className={cn(
+                                  "text-xs",
+                                  w.reason === "loss"
+                                    ? "text-destructive"
+                                    : "text-muted-foreground",
+                                )}
+                              >
+                                {REASON_LABEL[w.reason]}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {usd(w.paid)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {usd(w.soldFor)}
+                            </TableCell>
+                            <TableCell
+                              className={cn(
+                                "text-right tabular-nums",
+                                w.net < 0 && "text-destructive",
+                              )}
+                            >
+                              {usd(w.net)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {usd(w.shortfall)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {r.count > r.worst.length && (
+                    <p className="text-xs text-muted-foreground">
+                      Showing the {r.worst.length} worst of {r.count}. The CSV
+                      has the rest.
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

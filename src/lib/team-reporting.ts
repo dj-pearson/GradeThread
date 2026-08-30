@@ -420,6 +420,254 @@ export async function fetchDeadCapital(
 }
 
 // ══════════════════════════════════════════════════════════
+// OVERPAY / MISS (US-3021)
+// ══════════════════════════════════════════════════════════
+
+/** The margin a buy is expected to clear. 30% unless the seller says otherwise. */
+export const DEFAULT_TARGET_MARGIN = 0.3;
+
+export type MissReason = "loss" | "below-target";
+
+export interface MissClassification {
+  isMiss: boolean;
+  reason: MissReason | null;
+  /** Dollars short of target. Positive by construction when isMiss. */
+  shortfall: number;
+}
+
+/**
+ * Was this sale a miss, and by how much?
+ *
+ * ALL OF THIS IS DONE IN CENTS. `revenue * 0.3` in floating point gives
+ * 29.999999999999996 on ordinary inputs, so a sale landing exactly on target
+ * compares as one hundred-millionth of a cent under it and gets reported as a
+ * miss. Naming someone for missing target by $0.00000001 is the kind of wrong
+ * that destroys trust in a whole report, and it is invisible in every test
+ * that does not use an awkward number.
+ *
+ * A sale with no revenue cannot be measured against a margin, so it is judged
+ * on the only question that still makes sense: did it lose money. That falls
+ * out of the arithmetic rather than needing its own branch -- the target for
+ * zero revenue is zero, so the test reduces to `net < 0`.
+ */
+export function classifyMiss(
+  sale: Pick<SalePnlRow, "revenue" | "net">,
+  targetMargin: number,
+): MissClassification {
+  const revenueCents = Math.round(money(sale.revenue) * 100);
+  const netCents = Math.round(money(sale.net) * 100);
+  const targetNetCents = Math.round(revenueCents * targetMargin);
+  const shortfallCents = targetNetCents - netCents;
+
+  if (shortfallCents <= 0) return { isMiss: false, reason: null, shortfall: 0 };
+  return {
+    isMiss: true,
+    // A sale that lost money is a different conversation from one that made
+    // money slowly, so the two are labelled apart even though one formula
+    // catches both.
+    reason: netCents < 0 ? "loss" : "below-target",
+    shortfall: shortfallCents / 100,
+  };
+}
+
+export interface MissItem {
+  saleId: string;
+  itemId: string | null;
+  title: string;
+  sourceKey: string;
+  paid: number;
+  soldFor: number;
+  net: number;
+  shortfall: number;
+  reason: MissReason;
+  saleDate: string;
+}
+
+export interface MissShopGroup {
+  sourceKey: string;
+  count: number;
+  shortfall: number;
+  net: number;
+}
+
+export interface MissPersonGroup {
+  key: string;
+  person: string;
+  count: number;
+  /** Of those, how many actually lost money. */
+  lossCount: number;
+  shortfall: number;
+  net: number;
+  shops: MissShopGroup[];
+  /** The worst five by shortfall -- what the card shows. */
+  worst: MissItem[];
+  /**
+   * Every miss for this person, worst first.
+   *
+   * The card shows `worst` and tells the reader the CSV has the rest, so the
+   * CSV has to actually have the rest. It read `worst` at first, which made
+   * that sentence false for anyone with more than five.
+   */
+  all: MissItem[];
+}
+
+export interface MissReport {
+  rows: MissPersonGroup[];
+  count: number;
+  shortfall: number;
+  targetMargin: number;
+  /** Sales examined. Zero misses out of zero sales is not the same as out of 80. */
+  salesConsidered: number;
+}
+
+/** How many of the worst items each group names. */
+export const WORST_SHOWN = 5;
+
+export function buildMissReport(
+  sales: SalePnlRow[],
+  titleById: Map<string, string>,
+  targetMargin: number,
+): MissReport {
+  const byKey = new Map<string, MissPersonGroup>();
+  // Every miss per person, kept beside the group rather than inside it. The
+  // shop rollup and the worst-five are two views of this SAME list, so they
+  // cannot disagree about how many misses there were -- and `worst` never
+  // spends part of its life meaning "all of them".
+  const allMisses = new Map<string, MissItem[]>();
+  let count = 0;
+  let shortfall = 0;
+
+  for (const s of sales) {
+    const verdict = classifyMiss(s, targetMargin);
+    if (!verdict.isMiss || verdict.reason === null) continue;
+
+    const key = sourcerKey(s.sourcer_name);
+    let group = byKey.get(key);
+    if (!group) {
+      group = {
+        key,
+        person: sourcerLabel(s.sourcer_name),
+        count: 0,
+        lossCount: 0,
+        shortfall: 0,
+        net: 0,
+        shops: [],
+        worst: [],
+        all: [],
+      };
+      byKey.set(key, group);
+    }
+
+    group.count += 1;
+    if (verdict.reason === "loss") group.lossCount += 1;
+    group.shortfall += verdict.shortfall;
+    group.net += money(s.net);
+    count += 1;
+    shortfall += verdict.shortfall;
+
+    const list = allMisses.get(key) ?? [];
+    list.push({
+      saleId: s.sale_id,
+      itemId: s.inventory_item_id,
+      title:
+        (s.inventory_item_id ? titleById.get(s.inventory_item_id) : null) ??
+        "Untitled item",
+      sourceKey: s.source_key,
+      paid: money(s.cost_basis),
+      soldFor: money(s.revenue),
+      net: money(s.net),
+      shortfall: verdict.shortfall,
+      reason: verdict.reason,
+      saleDate: s.sale_date,
+    });
+    allMisses.set(key, list);
+  }
+
+  for (const group of byKey.values()) {
+    const misses = allMisses.get(group.key) ?? [];
+    const shops = new Map<string, MissShopGroup>();
+    for (const m of misses) {
+      const shop = shops.get(m.sourceKey) ?? {
+        sourceKey: m.sourceKey,
+        count: 0,
+        shortfall: 0,
+        net: 0,
+      };
+      shop.count += 1;
+      shop.shortfall += m.shortfall;
+      shop.net += m.net;
+      shops.set(m.sourceKey, shop);
+    }
+    group.shops = [...shops.values()].sort((a, b) => b.shortfall - a.shortfall);
+
+    group.all = [...misses].sort((a, b) => b.shortfall - a.shortfall);
+    group.worst = group.all.slice(0, WORST_SHOWN);
+  }
+
+  const rows = [...byKey.values()].sort(
+    (a, b) => b.shortfall - a.shortfall || a.person.localeCompare(b.person),
+  );
+
+  return {
+    rows,
+    count,
+    shortfall,
+    targetMargin,
+    salesConsidered: sales.length,
+  };
+}
+
+export const EMPTY_MISS_REPORT: MissReport = {
+  rows: [],
+  count: 0,
+  shortfall: 0,
+  targetMargin: DEFAULT_TARGET_MARGIN,
+  salesConsidered: 0,
+};
+
+/** Titles for a set of item ids, in one read. */
+export async function fetchItemTitles(
+  ownerId: string,
+  ids: string[],
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (ids.length === 0) return out;
+  const { data, error } = await supabase
+    .from("inventory_items")
+    .select("id, title")
+    .eq("user_id", ownerId)
+    .in("id", ids);
+  if (error) throw error;
+  const rows = (data ?? []) as unknown as Array<{
+    id: string;
+    title: string | null;
+  }>;
+  for (const r of rows) out.set(r.id, (r.title ?? "").trim() || "Untitled item");
+  return out;
+}
+
+export async function fetchMissReport(
+  ownerId: string,
+  from: string | null,
+  targetMargin: number,
+  to: string | null = null,
+): Promise<MissReport> {
+  const sales = await fetchSalePnl(ownerId, from, to);
+  // Only the misses need titles, so the id list is the misses' -- not every
+  // sale in the period.
+  const missIds = [
+    ...new Set(
+      sales
+        .filter((s) => classifyMiss(s, targetMargin).isMiss)
+        .map((s) => s.inventory_item_id)
+        .filter((id): id is string => !!id),
+    ),
+  ];
+  const titles = await fetchItemTitles(ownerId, missIds);
+  return buildMissReport(sales, titles, targetMargin);
+}
+
+// ══════════════════════════════════════════════════════════
 // FETCHERS
 // ══════════════════════════════════════════════════════════
 

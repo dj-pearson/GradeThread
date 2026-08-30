@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   ageBucket,
   buildDeadCapital,
+  buildMissReport,
   buildScorecard,
+  classifyMiss,
   daysHeld,
   money,
   sortScorecard,
@@ -513,5 +515,242 @@ describe("buildDeadCapital", () => {
     expect(dc.rows).toEqual([]);
     expect(dc.grandTotal).toBe(0);
     expect(dc.staleTotal).toBe(0);
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// OVERPAY / MISS (US-3021)
+// ══════════════════════════════════════════════════════════
+
+describe("classifyMiss", () => {
+  it("calls a sale that lost money a loss", () => {
+    const v = classifyMiss({ revenue: "100.00", net: "-20.00" }, 0.3);
+    expect(v.isMiss).toBe(true);
+    expect(v.reason).toBe("loss");
+    // Target was $30 of the $100; it came back $20 down, so it is $50 short.
+    expect(v.shortfall).toBe(50);
+  });
+
+  it("does not flag a sale exactly at target", () => {
+    const v = classifyMiss({ revenue: "100.00", net: "30.00" }, 0.3);
+    expect(v.isMiss).toBe(false);
+    expect(v.reason).toBeNull();
+    expect(v.shortfall).toBe(0);
+  });
+
+  it("flags a sale one cent under target", () => {
+    const v = classifyMiss({ revenue: "100.00", net: "29.99" }, 0.3);
+    expect(v.isMiss).toBe(true);
+    expect(v.reason).toBe("below-target");
+    expect(v.shortfall).toBeCloseTo(0.01, 10);
+  });
+
+  it("does not flag a sale one cent OVER target", () => {
+    expect(classifyMiss({ revenue: "100.00", net: "30.01" }, 0.3).isMiss).toBe(
+      false,
+    );
+  });
+
+  it("holds the exactly-at-target line on awkward numbers", () => {
+    // The whole reason the arithmetic is done in cents. In floating point
+    // 89.9 * 0.3 is 26.969999999999995, so a sale that made exactly its target
+    // compares as a hundred-billionth of a cent under and gets a person named
+    // on a report for missing by nothing at all.
+    for (const [revenue, margin] of [
+      ["89.90", 0.3],
+      ["19.99", 0.3],
+      ["0.03", 0.3],
+      ["1234.56", 0.15],
+      ["77.77", 0.7],
+    ] as const) {
+      const targetNet = (
+        Math.round(Math.round(Number(revenue) * 100) * margin) / 100
+      ).toFixed(2);
+      const v = classifyMiss({ revenue, net: targetNet }, margin);
+      expect(
+        `${revenue} @ ${margin} -> net ${targetNet}: miss=${v.isMiss}`,
+      ).toBe(`${revenue} @ ${margin} -> net ${targetNet}: miss=false`);
+    }
+  });
+
+  it("judges a zero-revenue sale on loss alone, never dividing by zero", () => {
+    const lost = classifyMiss({ revenue: "0", net: "-15.00" }, 0.3);
+    expect(lost.isMiss).toBe(true);
+    expect(lost.reason).toBe("loss");
+    expect(lost.shortfall).toBe(15);
+
+    const flat = classifyMiss({ revenue: "0", net: "0" }, 0.3);
+    expect(flat.isMiss).toBe(false);
+    expect(Number.isFinite(flat.shortfall)).toBe(true);
+  });
+
+  it("reads a target of zero as 'just do not lose money'", () => {
+    expect(classifyMiss({ revenue: "100.00", net: "0.01" }, 0).isMiss).toBe(false);
+    expect(classifyMiss({ revenue: "100.00", net: "-0.01" }, 0).isMiss).toBe(true);
+  });
+});
+
+describe("buildMissReport", () => {
+  const titles = new Map([
+    ["i1", "Carhartt Jacket"],
+    ["i2", "Levi 501"],
+  ]);
+
+  function missSale(over: Partial<SalePnlRow>): SalePnlRow {
+    return sale({ revenue: "100.00", net: "-10.00", ...over });
+  }
+
+  it("keeps only the misses and counts what it examined", () => {
+    const r = buildMissReport(
+      [
+        missSale({ sale_id: "a" }),
+        sale({ sale_id: "b", revenue: "100.00", net: "60.00" }),
+        sale({ sale_id: "c", revenue: "100.00", net: "50.00" }),
+      ],
+      titles,
+      0.3,
+    );
+    expect(r.count).toBe(1);
+    expect(r.salesConsidered).toBe(3);
+  });
+
+  it("separates a loss from a merely thin sale", () => {
+    const r = buildMissReport(
+      [
+        missSale({ sale_id: "a", sourcer_name: "Dan", net: "-10.00" }),
+        missSale({ sale_id: "b", sourcer_name: "Dan", net: "10.00" }),
+      ],
+      titles,
+      0.3,
+    );
+    expect(r.rows[0]!.count).toBe(2);
+    expect(r.rows[0]!.lossCount).toBe(1);
+  });
+
+  it("groups by person and rolls shops up from the same misses", () => {
+    const r = buildMissReport(
+      [
+        missSale({ sale_id: "a", sourcer_name: "Dan", source_key: "Goodwill" }),
+        missSale({ sale_id: "b", sourcer_name: "Dan", source_key: "Goodwill" }),
+        missSale({ sale_id: "c", sourcer_name: "Dan", source_key: "Estate" }),
+      ],
+      titles,
+      0.3,
+    );
+    const dan = r.rows[0]!;
+    expect(dan.count).toBe(3);
+    // The two halves of a group cannot disagree about how many misses there were.
+    expect(dan.shops.reduce((n, s) => n + s.count, 0)).toBe(dan.count);
+    expect(dan.shops[0]!.sourceKey).toBe("Goodwill");
+    expect(dan.shops[0]!.count).toBe(2);
+  });
+
+  it("names the five worst by shortfall even when there are more", () => {
+    const sales = Array.from({ length: 9 }, (_, i) =>
+      missSale({
+        sale_id: `s${i}`,
+        inventory_item_id: "i1",
+        net: String(-(i + 1) * 10),
+      }),
+    );
+    const r = buildMissReport(sales, titles, 0.3);
+    expect(r.rows[0]!.count).toBe(9);
+    expect(r.rows[0]!.worst).toHaveLength(5);
+    // The card says "the CSV has the rest", and the CSV reads `all`. If this
+    // held only the same five, that sentence on screen would be a lie.
+    expect(r.rows[0]!.all).toHaveLength(9);
+    expect(r.rows[0]!.all.slice(0, 5)).toEqual(r.rows[0]!.worst);
+    const shortfalls = r.rows[0]!.worst.map((w) => w.shortfall);
+    expect(shortfalls).toEqual([...shortfalls].sort((a, b) => b - a));
+    // The worst one is the biggest loss, not whichever arrived first.
+    expect(r.rows[0]!.worst[0]!.net).toBe(-90);
+  });
+
+  it("shows what was paid and what it sold for, with the item title", () => {
+    const r = buildMissReport(
+      [
+        missSale({
+          sale_id: "a",
+          inventory_item_id: "i1",
+          cost_basis: "45.00",
+          revenue: "50.00",
+          net: "-5.00",
+        }),
+      ],
+      titles,
+      0.3,
+    );
+    const worst = r.rows[0]!.worst[0]!;
+    expect(worst.title).toBe("Carhartt Jacket");
+    expect(worst.paid).toBe(45);
+    expect(worst.soldFor).toBe(50);
+    expect(worst.net).toBe(-5);
+  });
+
+  it("falls back to a name when the item title is missing", () => {
+    const r = buildMissReport(
+      [missSale({ sale_id: "a", inventory_item_id: "gone" })],
+      titles,
+      0.3,
+    );
+    expect(r.rows[0]!.worst[0]!.title).toBe("Untitled item");
+  });
+
+  it("leads with the person who is furthest short overall", () => {
+    const r = buildMissReport(
+      [
+        // One big miss.
+        missSale({ sale_id: "a", sourcer_name: "Big", net: "-200.00" }),
+        // Two small ones.
+        missSale({ sale_id: "b", sourcer_name: "Small", net: "20.00" }),
+        missSale({ sale_id: "c", sourcer_name: "Small", net: "20.00" }),
+      ],
+      titles,
+      0.3,
+    );
+    expect(r.rows[0]!.person).toBe("Big");
+  });
+
+  it("merges the same person written two ways", () => {
+    const r = buildMissReport(
+      [
+        missSale({ sale_id: "a", sourcer_name: "Dan" }),
+        missSale({ sale_id: "b", sourcer_name: "dan" }),
+      ],
+      titles,
+      0.3,
+    );
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows[0]!.count).toBe(2);
+  });
+
+  it("reports zero misses out of a real number of sales, not just zero", () => {
+    // "No misses" out of 80 sales is praise. Out of 0 sales it is silence, and
+    // the card has to be able to tell them apart.
+    const r = buildMissReport(
+      [
+        sale({ sale_id: "a", revenue: "100.00", net: "50.00" }),
+        sale({ sale_id: "b", revenue: "100.00", net: "40.00" }),
+      ],
+      titles,
+      0.3,
+    );
+    expect(r.rows).toEqual([]);
+    expect(r.count).toBe(0);
+    expect(r.salesConsidered).toBe(2);
+  });
+
+  it("totals the shortfall across everyone", () => {
+    const r = buildMissReport(
+      [
+        missSale({ sale_id: "a", sourcer_name: "Dan", net: "-10.00" }),
+        missSale({ sale_id: "b", sourcer_name: "Sam", net: "0.00" }),
+      ],
+      titles,
+      0.3,
+    );
+    // 40 short and 30 short.
+    expect(r.shortfall).toBe(70);
+    expect(r.count).toBe(2);
   });
 });
