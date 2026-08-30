@@ -1,7 +1,33 @@
 # US-1300: pinned versions for reproducible builds. Bump deliberately, one at a
 # time, with a green `gradlew assembleDebug test lint` before committing.
+#
+# US-2906 AC2: WHAT IS HELD BACK, AND WHY. Measured 2026-08-29 by
+# `npm run android:updates`: 86 of 100 dependencies are behind and 16 are at
+# least one major behind. The reasons for the majors are recorded beside their
+# pins below.
+#
+# THE FULL LIST IS NOT COPIED HERE, deliberately. It moves when Google
+# publishes, not when this repo changes, so a list in this file would be stale
+# within a week and would then read as current. The monthly drift workflow
+# (.github/workflows/android-dependency-drift.yml, US-2906 AC5) regenerates it
+# and keeps ONE labelled issue in sync - it closes the issue when nothing is
+# behind, so its existence is the signal. Read that, not a comment.
+#
+# The minors and patches carry no individual reason: they are held only because
+# AC4's gate has not been met, which is one decision about all of them rather
+# than 70 decisions. That gate is a real-device smoke pass. The screenshot lane
+# became BLOCKING on 2026-08-29 and covers 11 goldens, but 49 of the app's 52
+# screens still take a ViewModel and have none (US-2902 AC3), so a padding
+# change on the publish screen or the grade report remains invisible to CI.
 [versions]
+# HELD: 9.3.2 is out. AGP, Gradle (8.13 -> 9.7.1), the nine
+# com.android.tools.utp artefacts (31 -> 32) and spotless (7 -> 8) are ONE piece
+# of work, not four: `dependencyUpdates` already emits configuration-cache
+# problems from the plugin and Gradle warns this build "is incompatible with
+# Gradle 9.0", so the toolchain has prerequisite work before the version moves.
 agp = "8.13.2"
+# HELD: 2.4.10 is out. Numbered a minor by JetBrains and a compiler change in
+# practice, so it travels with the AGP/Gradle jump above rather than alone.
 kotlin = "2.1.20"
 ksp = "2.1.20-2.0.0"
 coreKtx = "1.15.0"
@@ -12,6 +38,10 @@ coreSplashscreen = "1.0.1"
 appcompat = "1.7.0"
 lifecycle = "2.8.7"
 activityCompose = "1.10.1"
+# HELD: 2026.08.00 is out - SIXTEEN MONTHS of Material 3, and the single
+# largest visual risk in the set. The blocking screenshot lane would catch a
+# change to any of its 11 goldens; it would not catch one on the 49 screens
+# that have none. This is the pin that most needs AC4's real-device pass.
 composeBom = "2025.04.00"
 navigationCompose = "2.8.9"
 hilt = "2.56"
@@ -20,6 +50,8 @@ room = "2.7.0"
 datastore = "1.1.4"
 coroutines = "1.10.1"
 coil = "2.7.0"
+# HELD: 5.5.0 is out, and it is an API-breaking major. mockwebserver moves
+# with it (4.12.0 -> 5.5.0), so the test sources change in the same pass.
 okhttp = "4.12.0"
 supabase = "3.1.4"
 ktor = "3.1.2"
@@ -47,6 +79,9 @@ ktor = "3.1.2"
 # EncryptedSessionManager now carries the same recovery ladder DatabaseProvider
 # does. The deprecation is a cost to plan for; that crash was a bug.
 securityCrypto = "1.1.0-alpha06"
+# HELD: 8.54.0 is out, an API-breaking major. Sentry is the crash reporter, so
+# a bad upgrade is silent - it stops reporting rather than failing a build.
+# Worth its own pass with a deliberate test event afterwards.
 sentry = "7.22.0"
 posthog = "3.11.2"
 browser = "1.8.0"
@@ -77,6 +112,11 @@ glance = "1.1.1"
 # what it actually buys is that the barcode/text MODELS ship in the APK rather
 # than being downloaded from Play, so scanning works with no network and on a
 # Play-less device. That property is unaffected by this dependency.
+# HELD, AND OWNED BY US-2901 rather than by this file. 9.1.0 is current, so
+# this is TWO majors behind - US-2901 AC2 as written asks for 8.x, which is
+# itself already superseded and would need doing twice. Whoever takes it must
+# re-read Play's minimum-version page (that story's own AC1) before moving the
+# pin: Play enforces a FLOOR here, so this one has a deadline the rest do not.
 billing = "7.1.1"
 
 # US-1378: FCM push. Added WITHOUT the google-services Gradle plugin, so no
@@ -84,6 +124,10 @@ billing = "7.1.1"
 # from BuildConfig values (see PushConfig), exactly like the Sentry DSN. An
 # unconfigured build simply has no push, which is the correct outcome for a
 # fork or a CI checkout that has no Firebase project.
+# HELD: 34.18.0 is out, a major. Bundled SDKs are what AC6 is about - one that
+# starts collecting an advertising id makes the Play Data safety declaration
+# false with no change to our code, so this pin cannot move without re-checking
+# that form.
 firebaseBom = "33.7.0"
 lifecycleProcess = "2.8.7"
 serialization = "1.8.0"
@@ -121,6 +165,9 @@ detekt = "1.23.8"
 # and just recomposes forever.
 detektCompose = "0.4.28"
 # Spotless drives ktlint = "Reformat Code", as a gate rather than a habit.
+# HELD: 8.10.1 is out. Travels with the AGP and Gradle jump at the top of this
+# file - and note the ratchet, which makes a spotless bump wider than it looks:
+# touching an old .kt file makes you own its accumulated ktlint debt.
 spotless = "7.2.1"
 ktlint = "1.5.0"
 # Kover = the coverage gutter, as a number with a floor under it.
