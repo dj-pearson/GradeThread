@@ -19,6 +19,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,23 +42,85 @@ import com.gradethread.app.ui.theme.cardStyle
  * US-1358: standing repricing rules, and the suggestions a scan turns up.
  */
 @Composable
-fun RepricingScreen(
-    onClose: () -> Unit = {},
-    viewModel: RepricingViewModel = hiltViewModel(),
-) {
+fun RepricingScreen(onClose: () -> Unit = {}, viewModel: RepricingViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     var editing by remember { mutableStateOf<RuleDraft?>(null) }
     var deleting by remember { mutableStateOf<RepricingRule?>(null) }
 
     LaunchedEffect(Unit) { viewModel.load() }
 
+    RepricingContent(
+        state = state,
+        actions = RepricingActions(
+            apply = viewModel::apply,
+            dismissSuggestion = viewModel::dismiss,
+            toggleRule = viewModel::toggleRule,
+            // The two dialogs are LOCAL ui state, so the wrapper owns them and
+            // the body only asks for them to open or close. That is what lets a
+            // screenshot test capture the editor and the delete confirmation -
+            // a `remember` inside the body would put both out of reach.
+            setEditing = { editing = it },
+            setDeleting = { deleting = it },
+            saveRule = {
+                viewModel.saveRule(it)
+                editing = null
+            },
+            confirmDelete = {
+                viewModel.deleteRule(it)
+                deleting = null
+            },
+            scan = viewModel::scan,
+            close = onClose,
+        ),
+        editing = editing,
+        deleting = deleting,
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class RepricingActions(
+    val apply: (RepricingSuggestion) -> Unit = {},
+    val dismissSuggestion: (RepricingSuggestion) -> Unit = {},
+    val toggleRule: (RepricingRule) -> Unit = {},
+    /** Open the rule editor on this draft, or close it with null. */
+    val setEditing: (RuleDraft?) -> Unit = {},
+    /** Open the delete confirmation for this rule, or close it with null. */
+    val setDeleting: (RepricingRule?) -> Unit = {},
+    val saveRule: (RuleDraft) -> Unit = {},
+    val confirmDelete: (RepricingRule) -> Unit = {},
+    val scan: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * Repricing with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THIS SCREEN CHANGES LIVE PRICES ON A SCHEDULE, and the seller is not
+ * watching when it does. A suggestion card shows the old price, the new one and
+ * why; a rule card shows the drop, the interval and the floor. Those numbers
+ * are the whole safety story - a floor that stops rendering is a rule that
+ * looks like it will keep cutting forever, and the delete dialog's promise that
+ * prices already changed STAY changed is the difference between deleting a rule
+ * and expecting a refund.
+ */
+@Composable
+fun RepricingContent(
+    state: RepricingViewModel.State,
+    actions: RepricingActions,
+    modifier: Modifier = Modifier,
+    editing: RuleDraft? = null,
+    deleting: RepricingRule? = null,
+) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.repricing_repricing), style = MaterialTheme.typography.titleLarge)
 
-        state.errorMessage?.let { InfoCard(stringResource(R.string.repricing_that_didn_t_work), it, tone = InfoTone.Error) }
+        state.errorMessage?.let {
+            InfoCard(stringResource(R.string.repricing_that_didn_t_work), it, tone = InfoTone.Error)
+        }
         state.banner?.let { InfoCard(stringResource(R.string.repricing_scan), it, tone = InfoTone.Success) }
         state.caveat?.let { InfoCard(stringResource(R.string.repricing_worth_knowing), it, tone = InfoTone.Warning) }
 
@@ -88,8 +151,8 @@ fun RepricingScreen(
                 SuggestionCard(
                     suggestion = suggestion,
                     busy = state.busy,
-                    onApply = { viewModel.apply(suggestion) },
-                    onDismiss = { viewModel.dismiss(suggestion) },
+                    onApply = { actions.apply(suggestion) },
+                    onDismiss = { actions.dismissSuggestion(suggestion) },
                 )
             }
 
@@ -107,9 +170,9 @@ fun RepricingScreen(
                 RuleCard(
                     rule = rule,
                     busy = state.busy,
-                    onToggle = { viewModel.toggleRule(rule) },
-                    onEdit = { editing = RuleDraft.from(rule) },
-                    onDelete = { deleting = rule },
+                    onToggle = { actions.toggleRule(rule) },
+                    onEdit = { actions.setEditing(RuleDraft.from(rule)) },
+                    onDelete = { actions.setDeleting(rule) },
                 )
             }
         }
@@ -120,41 +183,43 @@ fun RepricingScreen(
             ),
             enabled = !state.scanning,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.scan() }
+        ) { actions.scan() }
 
         BrandSecondaryButton(
             text = stringResource(R.string.repricing_new_rule),
             enabled = !state.busy,
             modifier = Modifier.fillMaxWidth(),
-        ) { editing = RuleDraft() }
+        ) { actions.setEditing(RuleDraft()) }
 
-        BrandSecondaryButton(text = stringResource(R.string.repricing_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.repricing_back), modifier = Modifier.fillMaxWidth()) {
+            actions.close()
+        }
     }
 
     editing?.let { draft ->
         RuleEditorDialog(
             initial = draft,
             busy = state.busy,
-            onDismiss = { editing = null },
-            onSave = {
-                viewModel.saveRule(it)
-                editing = null
-            },
+            onDismiss = { actions.setEditing(null) },
+            onSave = actions.saveRule,
         )
     }
 
     deleting?.let { rule ->
         AlertDialog(
-            onDismissRequest = { deleting = null },
+            onDismissRequest = { actions.setDeleting(null) },
             title = { Text(stringResource(R.string.repricing_delete_rule, rule.name)) },
             text = { Text(stringResource(R.string.repricing_prices_already_changed_stay_as)) },
             confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteRule(rule)
-                    deleting = null
-                }) { Text(stringResource(R.string.repricing_delete)) }
+                TextButton(onClick = { actions.confirmDelete(rule) }) {
+                    Text(stringResource(R.string.repricing_delete))
+                }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.repricing_cancel)) } },
+            dismissButton = {
+                TextButton(onClick = { actions.setDeleting(null) }) {
+                    Text(stringResource(R.string.repricing_cancel))
+                }
+            },
         )
     }
 }
@@ -248,12 +313,7 @@ private fun RuleCard(
 }
 
 @Composable
-private fun RuleEditorDialog(
-    initial: RuleDraft,
-    busy: Boolean,
-    onDismiss: () -> Unit,
-    onSave: (RuleDraft) -> Unit,
-) {
+private fun RuleEditorDialog(initial: RuleDraft, busy: Boolean, onDismiss: () -> Unit, onSave: (RuleDraft) -> Unit) {
     var draft by remember(initial.id) { mutableStateOf(initial) }
 
     AlertDialog(
