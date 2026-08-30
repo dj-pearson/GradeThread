@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🔴 HELD: 00696_pricing_plans_shipping_labels.sql (US-3011 — turns the shippingLabels gate flag on for Pro and Business)
+## ✅ APPLIED: 00696_pricing_plans_shipping_labels.sql (US-3011 — turns the shippingLabels gate flag on for Pro and Business; applied 2026-08-29, confirmed by prod /health/ready reporting applied=00696)
 
 **Risk: very low.** Two `UPDATE`s that merge one boolean key into
 `public.pricing_plans.gate_flags`. No table, column, function, policy or piece of
@@ -41,7 +41,7 @@ seller can see until the eBay application lands.
 in order, or the edge boot guard reports `behind`.
 
 
-## 🟠 PUSHED, NOT YET APPLIED: 00694_drop_phantom_00689.sql (removes a stale applied_migrations row)
+## ✅ APPLIED: 00694_drop_phantom_00689.sql (removes a stale applied_migrations row; applied 2026-08-29, confirmed by prod /health/ready no longer listing 00689 as unexpected)
 
 **Risk: very low.** One `DELETE` of a single row from `public.applied_migrations`.
 No table, column, function, policy or piece of seller data is touched.
