@@ -1319,6 +1319,7 @@
     <string name="verified_edit_profile">Editar mi perfil</string>
     <string name="verified_handle_label">Identificador</string>
     <string name="verified_handle_help">Tu dirección pública: gradethread.com/verified/tu-identificador</string>
+    <string name="verified_handle_help_typed">Tu dirección pública: gradethread.com/verified/%1$s</string>
     <string name="verified_handle_check">Comprobar si está libre</string>
     <string name="verified_handle_checking">Comprobando\u2026</string>
     <string name="verified_handle_free">Está libre. Guarda para reclamarlo.</string>

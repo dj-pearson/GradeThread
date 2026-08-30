@@ -1450,6 +1450,7 @@
     <string name="verified_edit_profile">Edit my profile</string>
     <string name="verified_handle_label">Handle</string>
     <string name="verified_handle_help">Your public address: gradethread.com/verified/your-handle</string>
+    <string name="verified_handle_help_typed">Your public address: gradethread.com/verified/%1$s</string>
     <string name="verified_handle_check">Check if it\'s free</string>
     <string name="verified_handle_checking">Checking\u2026</string>
     <string name="verified_handle_free">That one\'s free. Save to claim it.</string>

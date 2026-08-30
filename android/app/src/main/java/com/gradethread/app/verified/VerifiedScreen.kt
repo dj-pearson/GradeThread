@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -44,9 +45,7 @@ import javax.inject.Inject
  * US-1375: where the seller stands on the verified badge.
  */
 @HiltViewModel
-class VerifiedViewModel @Inject constructor(
-    private val service: VerifiedProviding,
-) : ViewModel() {
+class VerifiedViewModel @Inject constructor(private val service: VerifiedProviding) : ViewModel() {
 
     data class State(
         val profile: VerifiedProfile? = null,
@@ -259,11 +258,9 @@ class VerifiedViewModel @Inject constructor(
     /** Flip one of the three switches. Sent on its own, nothing else touched. */
     fun setEnabled(value: Boolean) = applyUpdate(VerifiedProfileUpdate(enabled = value))
 
-    fun setShowListings(value: Boolean) =
-        applyUpdate(VerifiedProfileUpdate(showListings = value))
+    fun setShowListings(value: Boolean) = applyUpdate(VerifiedProfileUpdate(showListings = value))
 
-    fun setEmbedInListings(value: Boolean) =
-        applyUpdate(VerifiedProfileUpdate(embedInListings = value))
+    fun setEmbedInListings(value: Boolean) = applyUpdate(VerifiedProfileUpdate(embedInListings = value))
 
     private fun applyUpdate(update: VerifiedProfileUpdate, onSuccess: () -> Unit = {}) {
         if (_state.value.saving) return
@@ -303,16 +300,69 @@ class VerifiedViewModel @Inject constructor(
 }
 
 @Composable
-fun VerifiedScreen(
-    onClose: () -> Unit = {},
-    viewModel: VerifiedViewModel = hiltViewModel(),
-) {
+fun VerifiedScreen(onClose: () -> Unit = {}, viewModel: VerifiedViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) { viewModel.load() }
 
+    VerifiedContent(
+        state,
+        VerifiedActions(
+            retry = viewModel::load,
+            startEditing = viewModel::startEditing,
+            editHandle = viewModel::editHandle,
+            checkHandle = viewModel::checkHandle,
+            editDisplayName = viewModel::editDisplayName,
+            editBio = viewModel::editBio,
+            saveProfile = viewModel::saveProfile,
+            cancelEditing = viewModel::cancelEditing,
+            setEnabled = viewModel::setEnabled,
+            setShowListings = viewModel::setShowListings,
+            setEmbedInListings = viewModel::setEmbedInListings,
+            // A Custom Tab needs a real Context, which a golden has nowhere to
+            // get.
+            openPublicProfile = { url -> CustomTabsLauncher.open(context, url) },
+            close = onClose,
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Suppress("LongParameterList")
+@Immutable
+data class VerifiedActions(
+    val retry: () -> Unit = {},
+    val startEditing: () -> Unit = {},
+    val editHandle: (String) -> Unit = {},
+    val checkHandle: () -> Unit = {},
+    val editDisplayName: (String) -> Unit = {},
+    val editBio: (String) -> Unit = {},
+    val saveProfile: () -> Unit = {},
+    val cancelEditing: () -> Unit = {},
+    val setEnabled: (Boolean) -> Unit = {},
+    val setShowListings: (Boolean) -> Unit = {},
+    val setEmbedInListings: (Boolean) -> Unit = {},
+    val openPublicProfile: (String) -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * The public seller profile, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ A HANDLE IS PUBLIC AND PERMANENT-ISH, so the editor has three answers about
+ * one: not checked yet, available, and taken. `handleAvailable` is a nullable
+ * Boolean precisely because "we have not asked" is not "no", and a form that
+ * rendered null as taken would refuse a name nobody has.
+ *
+ * ⚠ AND `stale` IS NOT AN ERROR. It means the numbers on screen came from the
+ * device rather than the server. The card says so instead of blanking, because
+ * a seller looking at their own badge progress would rather see yesterday's
+ * figure than nothing.
+ */
+@Composable
+fun VerifiedContent(state: VerifiedViewModel.State, actions: VerifiedActions, modifier: Modifier = Modifier) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Spacing.md),
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
         Text(stringResource(R.string.verified_title), style = MaterialTheme.typography.titleLarge)
@@ -400,46 +450,20 @@ fun VerifiedScreen(
                 BrandSecondaryButton(
                     text = stringResource(R.string.verified_edit_profile),
                     modifier = Modifier.fillMaxWidth(),
-                ) { viewModel.startEditing() }
+                ) { actions.startEditing() }
             } else {
                 VerifiedEditor(
                     editor = editor,
-                    onHandle = viewModel::editHandle,
-                    onCheckHandle = viewModel::checkHandle,
-                    onDisplayName = viewModel::editDisplayName,
-                    onBio = viewModel::editBio,
-                    onSave = viewModel::saveProfile,
-                    onCancel = viewModel::cancelEditing,
+                    onHandle = actions.editHandle,
+                    onCheckHandle = actions.checkHandle,
+                    onDisplayName = actions.editDisplayName,
+                    onBio = actions.editBio,
+                    onSave = actions.saveProfile,
+                    onCancel = actions.cancelEditing,
                 )
             }
 
-            VerifiedSwitchRow(
-                label = stringResource(R.string.verified_public_profile),
-                // The server refuses to go public without a handle, so the
-                // switch says so instead of offering a tap that returns a 400.
-                detail = if (state.profile?.handle.isNullOrBlank()) {
-                    stringResource(R.string.verified_public_needs_handle)
-                } else {
-                    stringResource(R.string.verified_public_detail)
-                },
-                checked = state.profile?.enabled == true,
-                enabled = !state.saving && !state.profile?.handle.isNullOrBlank(),
-                onCheckedChange = viewModel::setEnabled,
-            )
-            VerifiedSwitchRow(
-                label = stringResource(R.string.verified_show_listings),
-                detail = stringResource(R.string.verified_show_listings_detail),
-                checked = state.profile?.showListings == true,
-                enabled = !state.saving,
-                onCheckedChange = viewModel::setShowListings,
-            )
-            VerifiedSwitchRow(
-                label = stringResource(R.string.verified_embed_in_listings),
-                detail = stringResource(R.string.verified_embed_in_listings_detail),
-                checked = state.profile?.embedInListings == true,
-                enabled = !state.saving,
-                onCheckedChange = viewModel::setEmbedInListings,
-            )
+            VisibilitySwitches(state, actions)
         }
 
         if (state.requirements.isNotEmpty()) {
@@ -483,10 +507,10 @@ fun VerifiedScreen(
 
         state.profileUrl?.let { url ->
             BrandSecondaryButton(
-            text = stringResource(R.string.verified_view_profile),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-                CustomTabsLauncher.open(context, url)
+                text = stringResource(R.string.verified_view_profile),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                actions.openPublicProfile(url)
             }
         }
         BrandSecondaryButton(
@@ -497,11 +521,11 @@ fun VerifiedScreen(
             },
             enabled = !state.loading,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.load() }
+        ) { actions.retry() }
         BrandSecondaryButton(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
-        ) { onClose() }
+        ) { actions.close() }
     }
 }
 
@@ -512,6 +536,50 @@ fun VerifiedScreen(
  * does: it is the only one that can be refused for a reason the seller cannot
  * see by looking at what they typed.
  */
+/**
+ * The three switches that decide what the world can see.
+ *
+ * Split out because inlined they took VerifiedContent to a cyclomatic
+ * complexity of exactly 20, the configured ceiling. They belong together: each
+ * one widens what a stranger can read about this seller.
+ *
+ * ⚠ THE FIRST ONE IS DISABLED WITHOUT A HANDLE, and says why. The server
+ * refuses to publish a profile with no handle, so offering the tap would be a
+ * switch whose only outcome is a 400.
+ */
+@Composable
+private fun VisibilitySwitches(state: VerifiedViewModel.State, actions: VerifiedActions) {
+    // Same spacing as the parent column, so wrapping these three for the
+    // one-emitter rule does not move a pixel.
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        VerifiedSwitchRow(
+            label = stringResource(R.string.verified_public_profile),
+            detail = if (state.profile?.handle.isNullOrBlank()) {
+                stringResource(R.string.verified_public_needs_handle)
+            } else {
+                stringResource(R.string.verified_public_detail)
+            },
+            checked = state.profile?.enabled == true,
+            enabled = !state.saving && !state.profile?.handle.isNullOrBlank(),
+            onCheckedChange = actions.setEnabled,
+        )
+        VerifiedSwitchRow(
+            label = stringResource(R.string.verified_show_listings),
+            detail = stringResource(R.string.verified_show_listings_detail),
+            checked = state.profile?.showListings == true,
+            enabled = !state.saving,
+            onCheckedChange = actions.setShowListings,
+        )
+        VerifiedSwitchRow(
+            label = stringResource(R.string.verified_embed_in_listings),
+            detail = stringResource(R.string.verified_embed_in_listings_detail),
+            checked = state.profile?.embedInListings == true,
+            enabled = !state.saving,
+            onCheckedChange = actions.setEmbedInListings,
+        )
+    }
+}
+
 @Composable
 private fun VerifiedEditor(
     editor: VerifiedViewModel.Editor,
@@ -531,7 +599,19 @@ private fun VerifiedEditor(
             onValueChange = onHandle,
             label = { Text(stringResource(R.string.verified_handle_label)) },
             singleLine = true,
-            supportingText = { Text(stringResource(R.string.verified_handle_help)) },
+            // Once there is something typed, show the address they would
+            // actually get. The placeholder version is only useful while the
+            // field is empty.
+            supportingText = {
+                val typed = VerifiedHandleRules.normalize(editor.handle)
+                Text(
+                    if (typed.isEmpty()) {
+                        stringResource(R.string.verified_handle_help)
+                    } else {
+                        stringResource(R.string.verified_handle_help_typed, typed)
+                    },
+                )
+            },
             isError = editor.handleError != null || editor.handleAvailable == false,
             modifier = Modifier.fillMaxWidth(),
         )
