@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,8 +54,48 @@ fun ReferralsScreen(viewModel: ReferralsViewModel = hiltViewModel()) {
 
     LaunchedEffect(Unit) { viewModel.load() }
 
+    ReferralsContent(
+        state,
+        ReferralsActions(
+            retry = viewModel::load,
+            setTypedCode = viewModel::setTypedCode,
+            redeem = viewModel::redeem,
+            // Clipboard and the share sheet both need a real Context, and the
+            // announcer needs a live composition. Both stay in the wrapper.
+            copy = { text, label -> copyToClipboard(context, a11y, text, label) },
+            share = { text -> share(context, text) },
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class ReferralsActions(
+    val retry: () -> Unit = {},
+    val setTypedCode: (String) -> Unit = {},
+    val redeem: () -> Unit = {},
+    val copy: (String, String) -> Unit = { _, _ -> },
+    val share: (String) -> Unit = {},
+)
+
+/**
+ * Referrals with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ A CODE CAN ONLY BE REDEEMED ONCE, AND THAT IS THREE DIFFERENT SCREENS.
+ * `alreadyReferred` means somebody else's code is already on this account;
+ * `redeemed` means it just worked; and a plain empty field means neither has
+ * happened. All three render the same section with different words, and
+ * offering the field to someone who already used a code is a form that can only
+ * fail.
+ *
+ * ⚠ AND THE SHARE CARD IS THE PRODUCT. The link and the code are what a seller
+ * actually hands to somebody, so a card that rendered an empty code, or the
+ * wrong one, hands out a link that credits nobody.
+ */
+@Composable
+fun ReferralsContent(state: ReferralsViewModel.State, actions: ReferralsActions, modifier: Modifier = Modifier) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Spacing.md),
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
         Text(
@@ -68,7 +109,7 @@ fun ReferralsScreen(viewModel: ReferralsViewModel = hiltViewModel()) {
                 horizontalArrangement = Arrangement.Center,
             ) { CircularProgressIndicator() }
 
-            state.loadError != null -> ErrorCard(state.loadError!!, onRetry = viewModel::load)
+            state.loadError != null -> ErrorCard(state.loadError!!, onRetry = actions.retry)
 
             state.locked -> Text(
                 // Deliberately not a share button over an empty link: sending a
@@ -82,15 +123,15 @@ fun ReferralsScreen(viewModel: ReferralsViewModel = hiltViewModel()) {
                 ShareCard(
                     state = state,
                     onCopy = { text, label ->
-                        copyToClipboard(context, a11y, text, label)
+                        actions.copy(text, label)
                     },
-                    onShare = { text -> share(context, text) },
+                    onShare = actions.share,
                 )
                 StatsCard(state)
             }
         }
 
-        RedeemSection(state, viewModel)
+        RedeemSection(state, actions)
     }
 }
 
@@ -205,7 +246,7 @@ private fun Stat(label: String, value: Int, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun RedeemSection(state: ReferralsViewModel.State, viewModel: ReferralsViewModel) {
+private fun RedeemSection(state: ReferralsViewModel.State, actions: ReferralsActions) {
     Column(Modifier.fillMaxWidth().cardStyle()) {
         Text(
             stringResource(R.string.referrals_redeem_title),
@@ -232,7 +273,7 @@ private fun RedeemSection(state: ReferralsViewModel.State, viewModel: ReferralsV
         )
         OutlinedTextField(
             value = state.typedCode,
-            onValueChange = viewModel::setTypedCode,
+            onValueChange = actions.setTypedCode,
             label = { Text(stringResource(R.string.referrals_redeem_label)) },
             singleLine = true,
             isError = state.redeemError != null,
@@ -264,7 +305,7 @@ private fun RedeemSection(state: ReferralsViewModel.State, viewModel: ReferralsV
             ),
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
             enabled = state.canRedeem,
-        ) { viewModel.redeem() }
+        ) { actions.redeem() }
     }
 }
 
