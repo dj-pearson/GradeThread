@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -100,6 +101,87 @@ fun SnapScreen(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> uri?.let { viewModel.setPhoto(stageFromUri(context, it)) } }
 
+    SnapContent(
+        state,
+        SnapActions(
+            setBrand = viewModel::setBrand,
+            setKeyword = viewModel::setKeyword,
+            // The camera permission check, the FileProvider grant and the photo
+            // picker all stay in the wrapper. None of them exists in a
+            // screenshot test, and none of them is layout.
+            takePhoto = {
+                haptics.light()
+                cameraDenied = false
+                val granted = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.CAMERA,
+                ) == PackageManager.PERMISSION_GRANTED
+                if (granted) launchCamera() else requestCamera.launch(Manifest.permission.CAMERA)
+            },
+            pickPhoto = {
+                haptics.light()
+                pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            openSettings = {
+                context.startActivity(
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.fromParts("package", context.packageName, null),
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            },
+            // Haptics move here with the gestures they belong to: a body that
+            // is only layout should not be reaching for the vibrator.
+            evaluate = {
+                haptics.medium()
+                viewModel.evaluate()
+            },
+            certifiedGrade = {
+                haptics.medium()
+                onCertifiedGrade()
+            },
+            list = {
+                haptics.light()
+                onList()
+            },
+        ),
+        modifier = modifier,
+        cameraDenied = cameraDenied,
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class SnapActions(
+    val setBrand: (String) -> Unit = {},
+    val setKeyword: (String) -> Unit = {},
+    val takePhoto: () -> Unit = {},
+    val pickPhoto: () -> Unit = {},
+    val openSettings: () -> Unit = {},
+    val evaluate: () -> Unit = {},
+    val certifiedGrade: () -> Unit = {},
+    val list: () -> Unit = {},
+)
+
+/**
+ * Snap to Value with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ A PLAN WALL IS NOT A FAILURE, AND HERE THE BUTTON CHANGES. `isUpgradePrompt`
+ * turns the error card's action from "try again" into the upgrade path,
+ * because retrying a plan wall hits the same wall. Both render the same card
+ * with the same message slot, so only a capture sees which button came out.
+ *
+ * ⚠ AND THE RESULT IS A VALUATION SOMEBODY ACTS ON. `hasHints` says whether the
+ * seller narrowed it with a brand or keyword, which is the difference between
+ * a confident answer and a guess off one photo.
+ */
+@Composable
+fun SnapContent(
+    state: SnapViewModel.State,
+    actions: SnapActions,
+    modifier: Modifier = Modifier,
+    cameraDenied: Boolean = false,
+) {
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -116,21 +198,16 @@ fun SnapScreen(
         PhotoArea(state.photo)
 
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-            BrandSecondaryButton(text = stringResource(R.string.snap_take_photo), modifier = Modifier.weight(1f)) {
-                haptics.light()
-                cameraDenied = false
-                val granted = ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.CAMERA,
-                ) == PackageManager.PERMISSION_GRANTED
-                if (granted) launchCamera() else requestCamera.launch(Manifest.permission.CAMERA)
-            }
-            BrandSecondaryButton(text = stringResource(R.string.snap_library), modifier = Modifier.weight(1f)) {
-                haptics.light()
-                pickPhoto.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                )
-            }
+            BrandSecondaryButton(
+                text = stringResource(R.string.snap_take_photo),
+                modifier = Modifier.weight(1f),
+                onClick = actions.takePhoto,
+            )
+            BrandSecondaryButton(
+                text = stringResource(R.string.snap_library),
+                modifier = Modifier.weight(1f),
+                onClick = actions.pickPhoto,
+            )
         }
 
         if (cameraDenied) {
@@ -143,27 +220,21 @@ fun SnapScreen(
                 BrandSecondaryButton(
                     text = stringResource(R.string.snap_open_settings),
                     modifier = Modifier.fillMaxWidth(),
-                ) {
-                    context.startActivity(
-                        Intent(
-                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            Uri.fromParts("package", context.packageName, null),
-                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
-                }
+                    onClick = actions.openSettings,
+                )
             }
         }
 
         OutlinedTextField(
             value = state.brand,
-            onValueChange = viewModel::setBrand,
+            onValueChange = actions.setBrand,
             label = { Text(stringResource(R.string.snap_brand_optional_unlocks_value)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = state.keyword,
-            onValueChange = viewModel::setKeyword,
+            onValueChange = actions.setKeyword,
             label = { Text(stringResource(R.string.snap_item_e_g_better_sweater_optional)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -175,10 +246,8 @@ fun SnapScreen(
             ),
             enabled = state.canEvaluate,
             modifier = Modifier.fillMaxWidth(),
-        ) {
-            haptics.medium()
-            viewModel.evaluate()
-        }
+            onClick = actions.evaluate,
+        )
 
         if (state.loading) {
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -193,11 +262,8 @@ fun SnapScreen(
                 // the upsell the server is already pointing at.
                 isUpgradePrompt = state.isUpgradePrompt,
                 canRetry = state.canEvaluate,
-                onRetry = {
-                    haptics.light()
-                    viewModel.evaluate()
-                },
-                onUpgrade = onCertifiedGrade,
+                onRetry = actions.evaluate,
+                onUpgrade = actions.certifiedGrade,
             )
         }
 
@@ -205,14 +271,8 @@ fun SnapScreen(
             ResultCard(
                 result = result,
                 hasHints = state.hasHints,
-                onCertifiedGrade = {
-                    haptics.medium()
-                    onCertifiedGrade()
-                },
-                onList = {
-                    haptics.light()
-                    onList()
-                },
+                onCertifiedGrade = actions.certifiedGrade,
+                onList = actions.list,
             )
         }
     }
