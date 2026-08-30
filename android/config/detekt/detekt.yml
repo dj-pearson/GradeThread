@@ -113,6 +113,17 @@ Compose:
     active: true
   ComposableParamOrder:
     active: true
+  CompositionLocalAllowlist:
+    active: true
+    # US-3010 AC10. Two, both provided by GradeThreadTheme and read only by the
+    # grade ladder. LocalIsDarkTheme exists because GradeThreadTheme takes
+    # darkTheme as a PARAMETER - every screenshot test passes it explicitly
+    # while Robolectric's system setting stays light, so isSystemInDarkTheme()
+    # would give a light colour inside a golden captured as dark.
+    # LocalHighContrast carries a setting with no other way down the tree.
+    # Passing either as a parameter would mean threading it through every
+    # composable between the theme and a grade badge.
+    allowedCompositionLocals: LocalIsDarkTheme,LocalHighContrast
   ContentEmitterReturningValues:
     active: true
   ModifierComposable:

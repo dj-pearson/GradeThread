@@ -34,8 +34,23 @@ object BrandPalette {
     val RedDark = Color(0xFFFB5E78)
 
     // Status tones (from the iOS asset catalog; mirror the web status system).
+    //
+    // US-3010 AC10: four variants each, ported byte-for-byte from
+    // ios/GradeThread/Assets.xcassets/Brand{Emerald,Amber}.colorset. iOS has
+    // carried light / light-high-contrast / dark / dark-high-contrast since it
+    // shipped; Android had ONE fixed value, so a grade badge kept its light
+    // colour on a Night surface and ignored Increase Contrast entirely. These
+    // are ports, not new choices - picking Android's own values would be the
+    // brand decision AC6 is still waiting on.
     val Emerald = Color(0xFF10B981)
+    val EmeraldDark = Color(0xFF34D399)
+    val EmeraldHighContrast = Color(0xFF047857)
+    val EmeraldDarkHighContrast = Color(0xFF5AE3B0)
+
     val Amber = Color(0xFFF59E0B)
+    val AmberDark = Color(0xFFFFB83C)
+    val AmberHighContrast = Color(0xFFD97706)
+    val AmberDarkHighContrast = Color(0xFFFFCA5A)
 
     // Supporting neutrals.
     val NightSurface = Color(0xFF23233B) // one step above Night for cards

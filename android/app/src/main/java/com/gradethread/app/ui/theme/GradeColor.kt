@@ -48,6 +48,13 @@ import androidx.compose.ui.graphics.Color
  * precisely because the vibrant red fails AA as text. Following the spec here
  * would re-introduce the defect the spec's own consumer already fixed.
  *
+ * ⚠ US-3010 AC10 UPDATES ONE LINE ABOVE. "Emerald and Amber stay literal" is
+ * now only half true: they are still palette tokens rather than scheme roles,
+ * for the semantic reason below, but they are no longer ONE value each. Both
+ * resolve through the four iOS variants - light, light high-contrast, dark,
+ * dark high-contrast - so a 9.5 on a Night surface is #34D399 rather than the
+ * light #10B981 it used to keep.
+ *
  * The SEMANTIC argument survives untouched: a 9.5 is green because green means
  * good, not because green is ours. That is why emerald and amber map to palette
  * tokens rather than to scheme roles, while the red maps to `error` - the red
@@ -62,9 +69,9 @@ import androidx.compose.ui.graphics.Color
 @Composable
 @ReadOnlyComposable
 fun gradeColor(value: Double): Color = when {
-    value >= GRADE_EXCELLENT -> BrandPalette.Emerald
+    value >= GRADE_EXCELLENT -> statusEmerald()
     value >= GRADE_GOOD -> MaterialTheme.colorScheme.primary
-    value >= GRADE_FAIR -> BrandPalette.Amber
+    value >= GRADE_FAIR -> statusAmber()
     else -> MaterialTheme.colorScheme.error
 }
 

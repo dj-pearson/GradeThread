@@ -33,6 +33,20 @@ import java.io.File
  * claim had not been checked. Only the BRAND values are banned, because those
  * are the ones that collide with the brand surfaces.
  *
+ * ⚠ US-3010 AC10 NARROWS THAT, and the paragraph above now overstates its case.
+ * "Carry on both surfaces" was measured and holds - emerald is 6.72:1 and amber
+ * 7.94:1 against Night, nothing like the 1.36:1 that made navy illegible. But
+ * carrying is not the same as being right: iOS has always had FOUR variants of
+ * each, and Android had one, so a status colour could not follow the theme even
+ * where it was legible. `statusEmerald()` / `statusAmber()` in StatusColor.kt
+ * now resolve all four, and the grade ladder uses them.
+ *
+ * SEVENTEEN OTHER SITES DO NOT YET, and eight of those hold the raw hex rather
+ * than the token - which is the same duplicate-of-a-token shape this test was
+ * written to catch, just below its threshold because the value is semantic
+ * rather than brand. They are legible and they are wrong, which is why this
+ * scan still passes them and why the count is written down here.
+ *
  * It starts green: the sweep behind US-3009 found exactly one offender in the
  * whole app and it is fixed.
  *
