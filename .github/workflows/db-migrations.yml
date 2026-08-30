@@ -25,6 +25,7 @@ on:
       # asserts that two independent SQL paths reach the same number, which no
       # vitest case can express.
       - "scripts/check-ledger-invariant.mjs"
+      - "scripts/check-sale-pnl-invariant.mjs"
       - "scripts/check-cogs-worksheet.mjs"
       - "scripts/check-facilitator-tax.mjs"
       - "scripts/check-1099k-bridge.mjs"
@@ -55,6 +56,7 @@ on:
       # asserts that two independent SQL paths reach the same number, which no
       # vitest case can express.
       - "scripts/check-ledger-invariant.mjs"
+      - "scripts/check-sale-pnl-invariant.mjs"
       - "scripts/check-cogs-worksheet.mjs"
       - "scripts/check-facilitator-tax.mjs"
       - "scripts/check-1099k-bridge.mjs"
@@ -148,6 +150,13 @@ jobs:
       # accumulated before the inconsistency was noticed.
       - name: Ledger equals finances_dashboard (US-2984)
         run: node scripts/check-ledger-invariant.mjs
+      # US-3018: a THIRD route to the same number, so the team reports can group
+      # profit by the person who sourced an item. 00143's per-sale pnl_net column
+      # is not the dashboard's net -- the summary subtracts ship_extra on top of
+      # it -- so a view that copies pnl_net is wrong only on accounts with legacy
+      # shipments rows, which is to say the oldest ones.
+      - name: sale_pnl equals finances_dashboard (US-3018)
+        run: node scripts/check-sale-pnl-invariant.mjs
       - name: COGS worksheet and its cross-check (US-2986)
         run: node scripts/check-cogs-worksheet.mjs
       # Net profit is IDENTICAL on both tax branches, so only gross receipts

@@ -490,6 +490,13 @@ if (on("db")) {
     // reach the same number. Keeping them out of CI meant they only ran when
     // somebody remembered.
     run("db: ledger equals finances_dashboard (US-2984)", "node scripts/check-ledger-invariant.mjs");
+    // US-3018: sale_pnl is a THIRD route to the number the two above already
+    // produce, and it exists so the team reports can group by the person who
+    // sourced an item. The trap is specific: 00143's per-sale `pnl_net` column
+    // is NOT the dashboard's net -- the summary subtracts `ship_extra` on top
+    // of it -- so a view built by copying that column is correct except on
+    // accounts with legacy shipments rows, which is to say the oldest ones.
+    run("db: sale_pnl equals finances_dashboard (US-3018)", "node scripts/check-sale-pnl-invariant.mjs");
     run("db: COGS worksheet and its cross-check (US-2986)", "node scripts/check-cogs-worksheet.mjs");
     run("db: facilitator vs seller-collected sales tax (US-2987)", "node scripts/check-facilitator-tax.mjs");
     run("db: 1099-K gross is branch-independent (US-2988)", "node scripts/check-1099k-bridge.mjs");

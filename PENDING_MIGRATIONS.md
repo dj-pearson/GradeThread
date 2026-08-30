@@ -1,11 +1,39 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ▶ OUTSTANDING RIGHT NOW — none
+## ▶ OUTSTANDING RIGHT NOW — 00706
 
-Production reports `applied: 00705` with no missing versions
+### HELD: 00706_sale_pnl_view.sql (US-3018 — one per-sale profit row the team reports group by)
+
+**Risk: low.** One NEW view. No table, column, function, policy or row is
+touched, and nothing existing reads it yet.
+
+**⚠ Needs `NOTIFY pgrst, 'reload schema';`** — the view is new, and PostgREST
+will 404 on `/rest/v1/sale_pnl` until it is told.
+
+**Apply order: any time after 00143 and 00008**, both of which are years old.
+Order against 00700-00705 does not matter.
+
+**What it does.** Creates `public.sale_pnl`: one row per completed sale
+carrying the profit `finances_dashboard` already computes, plus the grouping
+keys the FlipDesk team reports need (`sourcer_name`, `sourcer_key`,
+`source_key`, `brand_key`, `category_key`). `security_invoker = on`, the same as
+`items_full`, so RLS on `sales` and `inventory_items` decides visibility and no
+new tenant logic is introduced.
+
+**Does client code read it before the apply?** NO. This commit ships the view
+and its invariant check only. The first reader is US-3019, which is not written
+yet. A push before the apply therefore breaks nothing on the frontend — but the
+edge boot guard still expects `00706`, so keep the normal order.
+
+**Verified locally 2026-08-30** against `supabase_db_gradethread`:
+`node scripts/check-sale-pnl-invariant.mjs` reports the view and
+`finances_dashboard` agreeing at $164.84 with $0.00 variance. Both guards were
+sabotage-tested: dropping the legacy-shipments term fails at $5.95, and removing
+the case fold fails on `'Dan'`/`'dan'` not collapsing.
+
+Production reported `applied: 00705` with no missing versions
 (`GET https://functions.gradethread.com/health/ready`, unauthenticated), and the
-owner confirmed the apply on 2026-08-30. Nothing on local `main` is ahead of the
-database.
+owner confirmed that apply on 2026-08-30.
 
 `unexpected` currently lists 00700-00705. That is the DEPLOYED EDGE CONTAINER
 reporting versions its own shipped manifest predates, not a problem with the
