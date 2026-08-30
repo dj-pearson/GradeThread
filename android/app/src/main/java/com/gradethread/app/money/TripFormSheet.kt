@@ -18,6 +18,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.text.input.KeyboardType
 import com.gradethread.app.ui.components.LabeledDropdown
 import com.gradethread.app.ui.theme.BrandPrimaryButton
@@ -73,7 +75,9 @@ fun TripFormSheet(
                 .padding(bottom = Spacing.xl),
         ) {
             Text(
-                if (initial.id == null) "Log a trip" else "Edit this trip",
+                stringResource(
+                    if (initial.id == null) R.string.trip_form_new_title else R.string.trip_form_edit_title,
+                ),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.padding(bottom = Spacing.sm),
             )
@@ -81,7 +85,7 @@ fun TripFormSheet(
             OutlinedTextField(
                 value = draft.milesText,
                 onValueChange = { draft = draft.copy(milesText = it) },
-                label = { Text("Miles") },
+                label = { Text(stringResource(R.string.trip_form_miles)) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 singleLine = true,
                 isError = draft.milesText.isNotBlank() && !draft.isValid,
@@ -89,7 +93,7 @@ fun TripFormSheet(
             )
 
             LabeledDropdown(
-                label = "What for",
+                label = stringResource(R.string.trip_form_purpose),
                 selected = draft.purpose,
                 options = TripDraft.PURPOSES.map { it.first },
                 optionLabel = { TripDraft.label(it) },
@@ -100,9 +104,13 @@ fun TripFormSheet(
             OutlinedTextField(
                 value = dateText,
                 onValueChange = { dateText = it },
-                label = { Text("Date") },
+                label = { Text(stringResource(R.string.trip_form_date)) },
                 supportingText = {
-                    Text(dateError ?: parsedDate?.let { friendly(it) } ?: "YYYY-MM-DD")
+                    Text(
+                        dateError
+                            ?: parsedDate?.let { friendly(it) }
+                            ?: stringResource(R.string.trip_form_date_hint),
+                    )
                 },
                 isError = dateError != null,
                 singleLine = true,
@@ -112,7 +120,7 @@ fun TripFormSheet(
             OutlinedTextField(
                 value = draft.startLocation,
                 onValueChange = { draft = draft.copy(startLocation = it) },
-                label = { Text("From (optional)") },
+                label = { Text(stringResource(R.string.trip_form_from)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xs),
             )
@@ -120,7 +128,7 @@ fun TripFormSheet(
             OutlinedTextField(
                 value = draft.endLocation,
                 onValueChange = { draft = draft.copy(endLocation = it) },
-                label = { Text("To (optional)") },
+                label = { Text(stringResource(R.string.trip_form_to)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xs),
             )
@@ -133,7 +141,7 @@ fun TripFormSheet(
                 // so doubling it here would silently disagree with what the
                 // seller typed -- and every reseller enters the round trip.
                 Text(
-                    "Round trip",
+                    stringResource(R.string.trip_form_round_trip),
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(end = Spacing.sm),
                 )
@@ -153,7 +161,7 @@ fun TripFormSheet(
             }
 
             BrandPrimaryButton(
-                text = "Save",
+                text = stringResource(R.string.trip_form_save),
                 // Disabled rather than failing on submit: the button state is
                 // the only place the seller learns the miles are not usable yet.
                 enabled = validation == null && dateError == null,
@@ -168,7 +176,7 @@ fun TripFormSheet(
                 onSave(draft.copy(tripDateMs = tripDate))
             }
             BrandSecondaryButton(
-                text = "Cancel",
+                text = stringResource(R.string.trip_form_cancel),
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 onDismiss()

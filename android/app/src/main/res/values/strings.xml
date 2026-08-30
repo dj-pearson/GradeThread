@@ -2032,4 +2032,25 @@
     <string name="push_action_shipped">Mark shipped</string>
     <string name="push_action_shipped_hint">Tracking number (optional)</string>
     <string name="push_action_reconnect">Reconnect</string>
+
+    <!-- US-3000: mileage log and receipt scanning. -->
+    <string name="money_mileage_header">Mileage</string>
+    <string name="money_log_a_trip">Log a trip</string>
+    <string name="money_trips_empty">No trips yet. A drive to a thrift store is deductible, and the log has to be kept as you go.</string>
+    <string name="money_trip_round_trip">round trip</string>
+    <string name="money_trip_miles">%1$s mi</string>
+    <string name="money_trip_route">%1$s to %2$s</string>
+    <string name="receipt_scan_cta">Scan a receipt</string>
+    <string name="receipt_scan_reading">Reading it</string>
+    <string name="trip_form_new_title">Log a trip</string>
+    <string name="trip_form_edit_title">Edit this trip</string>
+    <string name="trip_form_miles">Miles</string>
+    <string name="trip_form_purpose">What for</string>
+    <string name="trip_form_date">Date</string>
+    <string name="trip_form_date_hint">YYYY-MM-DD</string>
+    <string name="trip_form_from">From (optional)</string>
+    <string name="trip_form_to">To (optional)</string>
+    <string name="trip_form_round_trip">Round trip</string>
+    <string name="trip_form_save">Save</string>
+    <string name="trip_form_cancel">Cancel</string>
 </resources>

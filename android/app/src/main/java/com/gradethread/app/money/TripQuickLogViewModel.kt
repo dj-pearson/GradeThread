@@ -11,6 +11,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -75,7 +77,8 @@ class TripQuickLogViewModel @Inject constructor(private val mileage: MileageRepo
 @Composable
 fun TripQuickLogButton(
     modifier: Modifier = Modifier,
-    label: String = "Log a trip",
+    /** Empty means the default caption; a host can override it. */
+    label: String = "",
     sourceId: String? = null,
     snackbarHostState: SnackbarHostState? = null,
     viewModel: TripQuickLogViewModel = hiltViewModel(),
@@ -90,7 +93,7 @@ fun TripQuickLogButton(
     }
 
     TextButton(onClick = { draft = TripDraft.today(sourceId) }, modifier = modifier) {
-        Text(label)
+        Text(label.ifEmpty { stringResource(R.string.money_log_a_trip) })
     }
 
     draft?.let { current ->

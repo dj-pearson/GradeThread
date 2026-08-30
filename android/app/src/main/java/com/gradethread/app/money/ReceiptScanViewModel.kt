@@ -11,6 +11,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.gradethread.app.R
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -175,7 +177,7 @@ class ReceiptScanViewModel @Inject constructor(
 @Composable
 fun ReceiptScanButton(
     modifier: Modifier = Modifier,
-    label: String = "Scan a receipt",
+    label: String = "",
     viewModel: ReceiptScanViewModel = hiltViewModel(),
     onNotice: (String) -> Unit = {},
 ) {
@@ -227,6 +229,12 @@ fun ReceiptScanButton(
 @Composable
 fun ReceiptScanTrigger(label: String, scanning: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     TextButton(onClick = onClick, enabled = !scanning, modifier = modifier) {
-        Text(if (scanning) "Reading it" else label)
+        Text(
+            when {
+                scanning -> stringResource(R.string.receipt_scan_reading)
+                label.isNotEmpty() -> label
+                else -> stringResource(R.string.receipt_scan_cta)
+            },
+        )
     }
 }

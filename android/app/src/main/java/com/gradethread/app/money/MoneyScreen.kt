@@ -556,20 +556,19 @@ internal fun MoneyContent(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "Mileage",
+                        stringResource(R.string.money_mileage_header),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
                     TextButton(onClick = { tripDraft = TripDraft.today() }) {
-                        Text("Log a trip")
+                        Text(stringResource(R.string.money_log_a_trip))
                     }
                 }
             }
             if (state.trips.isEmpty()) {
                 item {
                     Text(
-                        "No trips yet. A drive to a thrift store is deductible, " +
-                            "and the log has to be kept as you go.",
+                        stringResource(R.string.money_trips_empty),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
@@ -838,7 +837,7 @@ private fun TripRowView(
                     listOfNotNull(trip.startLocation, trip.endLocation)
                         .takeIf { it.isNotEmpty() }
                         ?.joinToString(" to "),
-                    "round trip".takeIf { trip.roundTrip },
+                    stringResource(R.string.money_trip_round_trip).takeIf { trip.roundTrip },
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -847,7 +846,10 @@ private fun TripRowView(
         // One decimal place, always: the column is numeric(8,1) and "12" and
         // "12.0" being shown differently makes the log look inconsistent.
         Text(
-            String.format(Locale.getDefault(), "%.1f mi", trip.miles),
+            stringResource(
+                R.string.money_trip_miles,
+                String.format(Locale.getDefault(), "%.1f", trip.miles),
+            ),
             style = MaterialTheme.typography.bodyMedium,
         )
         TextButton(onClick = onDelete) { Text(stringResource(R.string.money_remove)) }
