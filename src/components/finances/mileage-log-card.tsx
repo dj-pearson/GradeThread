@@ -315,6 +315,7 @@ export function MileageLogCard() {
                       <Button
                         size="sm"
                         variant="ghost"
+                        aria-label={`Edit the ${t.miles} mile trip on ${t.trip_date}`}
                         onClick={() => {
                           setEditing(t);
                           setDialogOpen(true);

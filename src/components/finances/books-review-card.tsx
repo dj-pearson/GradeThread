@@ -201,6 +201,7 @@ export function BooksReviewCard({
                       <Button
                         size="sm"
                         variant="ghost"
+                        aria-label={`Not a problem: ${issue.title}`}
                         onClick={() => {
                           setDismissing(issue);
                           setReason("");
@@ -244,6 +245,7 @@ export function BooksReviewCard({
                     <Button
                       size="sm"
                       variant="ghost"
+                      aria-label={`Bring back: ${d.reason}`}
                       onClick={() => bringBack(d.issue_kind, d.subject_id)}
                     >
                       <RotateCcw className="mr-1.5 h-3.5 w-3.5" />

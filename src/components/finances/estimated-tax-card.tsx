@@ -296,6 +296,7 @@ export function EstimatedTaxCard() {
                               />
                               <Button
                                 size="sm"
+                                aria-label={`Save the payment for the period due ${p.dueOn}`}
                                 onClick={() => recordPayment(p.quarter)}
                               >
                                 Save
