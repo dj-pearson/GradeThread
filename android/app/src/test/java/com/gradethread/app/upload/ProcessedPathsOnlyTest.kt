@@ -191,6 +191,38 @@ class ProcessedPathsOnlyTest {
     }
 
     /**
+     * US-2658 AC5: nothing attaches a location to a camera capture.
+     *
+     * CameraX writes GPS into the JPEG only when `OutputFileOptions` carries an
+     * `ImageCapture.Metadata` with a location set. Nothing does, so a raw
+     * capture has no GPS to begin with - which is the half of AC5 a source scan
+     * can settle, and it is worth pinning because THIS APP HOLDS
+     * ACCESS_COARSE_LOCATION for the Radar feature. The permission is already
+     * granted on plenty of devices, so the line between "no GPS in photos" and
+     * "GPS in every photo" is one `setMetadata` call that would look harmless
+     * in review.
+     *
+     * The processor re-encode destroys it either way. This guards the raw file,
+     * which exists on disk between the shutter and the process call.
+     */
+    @Test
+    fun `no camera capture attaches a location`() {
+        sources().forEach { (name, src) ->
+            assertTrue(
+                "$name attaches ImageCapture.Metadata to a capture. If it carries a location, " +
+                    "CameraX writes GPS into the raw JPEG - and this app already holds " +
+                    "ACCESS_COARSE_LOCATION for Radar, so the permission prompt that would " +
+                    "otherwise make this visible never appears.",
+                !src.contains("ImageCapture.Metadata"),
+            )
+            assertTrue(
+                "$name sets a location on a capture",
+                !Regex("""setLocation\(""").containsMatchIn(src) || name.startsWith("radar/"),
+            )
+        }
+    }
+
+    /**
      * The matcher, run against the shape of the original defect.
      *
      * Without this a rename that made every regex miss would report a clean
