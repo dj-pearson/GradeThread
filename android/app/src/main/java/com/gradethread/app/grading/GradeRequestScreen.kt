@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +62,71 @@ fun GradeRequestScreen(
 
     val state by viewModel.state.collectAsState()
 
+    GradeRequestContent(
+        state,
+        GradeRequestActions(
+            selectTier = viewModel::selectTier,
+            confirmTier = viewModel::confirmTier,
+            cancelTierConfirm = viewModel::cancelTierConfirm,
+            submit = viewModel::submit,
+            retry = viewModel::load,
+            revalidate = viewModel::revalidate,
+            close = onClose,
+            viewReport = onViewReport,
+        ),
+        modifier = modifier,
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class GradeRequestActions(
+    val selectTier: (GradeTier) -> Unit = {},
+    val confirmTier: () -> Unit = {},
+    val cancelTierConfirm: () -> Unit = {},
+    val submit: () -> Unit = {},
+    val retry: () -> Unit = {},
+    val revalidate: suspend () -> Unit = {},
+    val close: () -> Unit = {},
+    val viewReport: () -> Unit = {},
+)
+
+/**
+ * Requesting one grade, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ NINE PHASES, AND FOUR OF THEM ARE "IT DID NOT COME BACK". Completed,
+ * PendingReview, StillProcessing, NeedsPhotos and Failed all leave the seller
+ * on a screen with a sentence on it, and the differences are entirely in the
+ * words and the buttons:
+ *
+ *   PendingReview    graded, but a human is checking it - NOT a failure
+ *   StillProcessing  we stopped waiting; the grade is still coming
+ *   NeedsPhotos      we cannot start; the seller has something to fix
+ *   Failed           it broke, and retrying is worth a try
+ *
+ * Telling a seller "couldn't grade this" when the truth is "a human is looking
+ * at it" is a support ticket and a refund request. Only a capture sees which
+ * words and which buttons came out.
+ *
+ * ⚠ AND THE SPEND CONFIRMATION IS SKIPPED WHEN NOTHING IS SPENT. The first
+ * Standard grade of the month may be included, and a confirmation dialog for a
+ * free action trains people to tap through the one that costs money.
+ */
+@Composable
+fun GradeRequestContent(
+    state: GradeRequestViewModel.State,
+    actions: GradeRequestActions,
+    modifier: Modifier = Modifier,
+    creditPackSheet: @Composable (GradeRequestViewModel.State) -> Unit = { s ->
+        com.gradethread.app.billing.CreditPackSheet(
+            itemId = s.itemId.orEmpty(),
+            tier = s.tier,
+            creditsRequired = s.validation?.creditsRequired ?: 0,
+            creditBalance = s.creditBalance,
+            onGranted = actions.revalidate,
+        )
+    },
+) {
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -73,7 +139,7 @@ fun GradeRequestScreen(
         when (val phase = state.phase) {
             GradeRequestMachine.Phase.Loading -> Centered { CircularProgressIndicator() }
 
-            GradeRequestMachine.Phase.Ready -> ReadyBody(state, viewModel)
+            GradeRequestMachine.Phase.Ready -> ReadyBody(state, actions, creditPackSheet)
 
             GradeRequestMachine.Phase.Submitting,
             GradeRequestMachine.Phase.Processing,
@@ -94,7 +160,7 @@ fun GradeRequestScreen(
                 )
             }
 
-            is GradeRequestMachine.Phase.Completed -> CompletedBody(phase, onClose, onViewReport)
+            is GradeRequestMachine.Phase.Completed -> CompletedBody(phase, actions.close, actions.viewReport)
 
             is GradeRequestMachine.Phase.PendingReview -> Outcome(
                 title = stringResource(R.string.graderequest_submitted_human_review),
@@ -102,13 +168,13 @@ fun GradeRequestScreen(
                 detail = phase.report?.let {
                     stringResource(R.string.graderequest_provisional, score(it.overallScore))
                 },
-                onClose = onClose,
+                onClose = actions.close,
             )
 
             GradeRequestMachine.Phase.StillProcessing -> Outcome(
                 title = stringResource(R.string.graderequest_still_grading),
                 body = stringResource(R.string.graderequest_slow_body),
-                onClose = onClose,
+                onClose = actions.close,
             )
 
             is GradeRequestMachine.Phase.NeedsPhotos -> Outcome(
@@ -117,14 +183,14 @@ fun GradeRequestScreen(
                 // Named explicitly: the single most common worry at this point
                 // is "did that cost me a grade?"
                 detail = stringResource(R.string.graderequest_not_charged),
-                onClose = onClose,
+                onClose = actions.close,
             )
 
             is GradeRequestMachine.Phase.Failed -> Outcome(
                 title = stringResource(R.string.graderequest_couldn_t_grade_this_item),
                 body = phase.message,
-                onClose = onClose,
-                onRetry = viewModel::load,
+                onClose = actions.close,
+                onRetry = actions.retry,
             )
         }
     }
@@ -133,14 +199,18 @@ fun GradeRequestScreen(
         SpendConfirmDialog(
             tier = tier,
             balance = state.creditBalance,
-            onConfirm = viewModel::confirmTier,
-            onDismiss = viewModel::cancelTierConfirm,
+            onConfirm = actions.confirmTier,
+            onDismiss = actions.cancelTierConfirm,
         )
     }
 }
 
 @Composable
-private fun ReadyBody(state: GradeRequestViewModel.State, viewModel: GradeRequestViewModel) {
+private fun ReadyBody(
+    state: GradeRequestViewModel.State,
+    actions: GradeRequestActions,
+    creditPackSheet: @Composable (GradeRequestViewModel.State) -> Unit,
+) {
     val item = state.validation?.item
 
     item?.title?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
@@ -182,26 +252,23 @@ private fun ReadyBody(state: GradeRequestViewModel.State, viewModel: GradeReques
             tier = tier,
             selected = tier == state.tier,
             spendsCredits = state.spendsCredits(tier),
-            onClick = { viewModel.selectTier(tier) },
+            onClick = { actions.selectTier(tier) },
         )
     }
 
     if (state.isBlockedOnCredits) {
-        // US-1338: buy in place, then re-validate — the server decides whether
+        // US-1338: buy in place, then re-validate - the server decides whether
         // submit unblocks, not the client's arithmetic on the new balance.
-        com.gradethread.app.billing.CreditPackSheet(
-            itemId = state.itemId.orEmpty(),
-            tier = state.tier,
-            creditsRequired = state.validation?.creditsRequired ?: 0,
-            creditBalance = state.creditBalance,
-            onGranted = { viewModel.revalidate() },
-        )
+        //
+        // A SLOT because CreditPackSheet resolves its own ViewModel through
+        // Hilt, and RoborazziActivity is not a Hilt component.
+        creditPackSheet(state)
     } else {
         BrandPrimaryButton(
             text = stringResource(R.string.graderequest_grade_this_item),
             enabled = state.canSubmit,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.submit() }
+        ) { actions.submit() }
     }
 }
 
