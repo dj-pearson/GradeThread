@@ -20,6 +20,7 @@ import { Hono } from "hono";
 import {
   isQboSelfAuthenticating,
   qboAuthMiddleware,
+  qboWorkspaceMiddleware,
   QBO_SELF_AUTHENTICATING,
 } from "../middleware/qbo-auth.ts";
 
@@ -161,6 +162,56 @@ Deno.test("a sibling of a skip-listed path is NOT exempt", () => {
   assert(!isQboSelfAuthenticating(`${PREFIX}/oauth/callback/extra`));
   assert(!isQboSelfAuthenticating(`${PREFIX}/oauth/start`));
   assert(!isQboSelfAuthenticating("/api/flipdesk/ebay/oauth/callback"));
+});
+
+Deno.test("workspace context does NOT 401 the session-free routes", async () => {
+  // THIS SHIPPED BROKEN AND WAS CAUGHT IN PRODUCTION, before anyone tried to
+  // connect. main.ts mounted the plain `workspaceMiddleware` as a wildcard over
+  // /api/flipdesk/qbo/*, and that middleware answers 401 "Auth context missing"
+  // the moment userId is absent. It is absent by definition on both exempt
+  // routes: Intuit redirects a browser to /oauth/callback with no session, and
+  // the cron calls /oauth/refresh with a job secret and no user.
+  //
+  // So the seller approved at Intuit, came back, and got a bare 401 -- the
+  // connect flow could never complete. The refresh sweep died the same way,
+  // silently, which is the exact failure AC6 exists to prevent. Neither was
+  // visible from the route files; the bug was one line in main.ts.
+  const app = new Hono();
+  app.use(`${PREFIX}/*`, qboWorkspaceMiddleware);
+  app.all(`${PREFIX}/*`, (c) => c.json({ reached: true }));
+
+  for (const path of QBO_SELF_AUTHENTICATING.keys()) {
+    const res = await app.request(`${PREFIX}${path}`);
+    assertEquals(
+      res.status,
+      200,
+      `${path} must reach its handler without a session, got ${res.status}`,
+    );
+    await res.body?.cancel();
+  }
+
+  // And an ordinary route still gets the workspace check.
+  const guarded = await app.request(`${PREFIX}/status`);
+  assertEquals(guarded.status, 401, "an ordinary route must still be scoped");
+  await guarded.body?.cancel();
+});
+
+Deno.test("main.ts mounts the qbo-aware workspace middleware, not the plain one", () => {
+  // A source check as well as the behavioural one above, because the behaviour
+  // test passes against a correct middleware that nothing mounts.
+  const mounts = [
+    ...MAIN.matchAll(
+      /app\.use\(\s*"(\/api\/flipdesk\/qbo[^"]*)"\s*,\s*(\w*[Ww]orkspace\w*)\s*\)/g,
+    ),
+  ].map((m) => ({ path: m[1]!, mw: m[2]! }));
+
+  assertEquals(
+    mounts,
+    [{ path: "/api/flipdesk/qbo/*", mw: "qboWorkspaceMiddleware" }],
+    "the plain workspaceMiddleware 401s the OAuth callback and the cron, which " +
+      "breaks the whole connect flow. Use qboWorkspaceMiddleware, which skips " +
+      "the same paths the auth skip-list does.",
+  );
 });
 
 Deno.test("the middleware 401s a normal route and passes a skip-listed one", async () => {

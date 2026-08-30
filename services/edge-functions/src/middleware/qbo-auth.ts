@@ -10,6 +10,7 @@
 
 import { createMiddleware } from "hono/factory";
 import { authMiddleware } from "./auth.ts";
+import { workspaceMiddleware } from "./workspace.ts";
 
 const QBO_PREFIX = "/api/flipdesk/qbo";
 
@@ -40,4 +41,31 @@ export const qboAuthMiddleware = createMiddleware(async (c, next) => {
     return;
   }
   return await authMiddleware(c, next);
+});
+
+/**
+ * Workspace context for the QuickBooks module, skipping the two routes that
+ * have no session.
+ *
+ * WHY THIS EXISTS AND IS NOT JUST `workspaceMiddleware`. That middleware 401s
+ * with "Auth context missing" the moment `userId` is absent, and the two
+ * self-authenticating routes are absent by definition: Intuit redirects a
+ * browser to /oauth/callback carrying no session, and the cron calls
+ * /oauth/refresh with a job secret and no user at all.
+ *
+ * Mounted as a wildcard, it therefore 401s the OAuth callback and the ENTIRE
+ * connect flow can never complete -- the seller approves at Intuit, comes back,
+ * and gets a bare 401. The hourly refresh sweep dies the same way, silently,
+ * which is the exact failure AC6 exists to prevent.
+ *
+ * It reuses `isQboSelfAuthenticating` rather than repeating the path list, so
+ * the two skip sets cannot drift: a route that stops needing auth stops needing
+ * workspace context at the same moment, by construction.
+ */
+export const qboWorkspaceMiddleware = createMiddleware(async (c, next) => {
+  if (isQboSelfAuthenticating(c.req.path)) {
+    await next();
+    return;
+  }
+  return await workspaceMiddleware(c, next);
 });

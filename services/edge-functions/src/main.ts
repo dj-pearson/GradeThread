@@ -76,7 +76,7 @@ import { extensionOrUserAuthMiddleware } from "./middleware/extension-or-user-au
 import { flipdeskSyncRoutes } from "./routes/flipdesk-sync.ts";
 import { flipdeskExpensesRoutes } from "./routes/flipdesk-expenses.ts";
 import { qboRoutes } from "./routes/qbo.ts";
-import { qboAuthMiddleware } from "./middleware/qbo-auth.ts";
+import { qboAuthMiddleware, qboWorkspaceMiddleware } from "./middleware/qbo-auth.ts";
 import { flipdeskConsignmentRoutes } from "./routes/flipdesk-consignment.ts";
 import {
   flipdeskPricingRoutes,
@@ -644,7 +644,7 @@ app.use("/api/payments/*", workspaceMiddleware);
 // US-2997: a member acting inside a workspace connects and maps the OWNER's
 // QuickBooks file, so every qbo route resolves workspaceOwnerId ?? userId.
 // The two self-authenticating paths carry no session and are unaffected.
-app.use("/api/flipdesk/qbo/*", workspaceMiddleware);
+app.use("/api/flipdesk/qbo/*", qboWorkspaceMiddleware);
 app.use("/api/flipdesk/ebay/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/oauth/debug", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/disconnect", workspaceMiddleware);
