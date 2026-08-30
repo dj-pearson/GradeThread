@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
+  Activity,
   ArrowDown,
   ArrowUp,
   ChevronRight,
@@ -50,14 +51,17 @@ import {
   EMPTY_DEAD_CAPITAL,
   EMPTY_MISS_REPORT,
   EMPTY_SCORECARD,
+  EMPTY_THROUGHPUT,
   OLDEST_SHOWN,
   OTHER_SHOPS,
+  UNNAMED_LABEL,
   crosstabScale,
   crosstabValue,
   fetchCrosstab,
   fetchDeadCapital,
   fetchMissReport,
   fetchScorecard,
+  fetchThroughput,
   sortScorecard,
   type Crosstab,
   type CrosstabMetric,
@@ -67,6 +71,8 @@ import {
   type Scorecard,
   type ScorecardRow,
   type ScorecardSortKey,
+  type Throughput,
+  type ThroughputRow,
 } from "@/lib/team-reporting";
 
 // US-3019 -- the sourcing team's scorecard.
@@ -412,7 +418,240 @@ export function TeamReportPage({
       <DeadCapitalCard />
       <OverpayCard periodStart={periodStart} />
       <PersonBySourceCard periodStart={periodStart} />
+      <ThroughputCard periodStart={periodStart} />
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════
+// THROUGHPUT (US-3024)
+// ══════════════════════════════════════════════════════════
+
+/** "Aug 24" from a yyyy-mm-dd week key, parsed as local rather than UTC. */
+function weekLabel(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y!, m! - 1, d!).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/**
+ * A week's worth of activity as one bar.
+ *
+ * Plain divs, not Recharts. The chart module is ~346KB and is lazy-loaded at a
+ * chart boundary for good reason; mounting one per person per row would pull it
+ * in many times over for what is a row of rectangles. Solid brand fill, no
+ * gradient, no easing.
+ */
+function WeekBars({
+  row,
+  weeks,
+  scale,
+}: {
+  row: ThroughputRow;
+  weeks: string[];
+  scale: number;
+}) {
+  return (
+    <div className="flex h-8 items-end gap-0.5">
+      {weeks.map((w) => {
+        const v = row.byWeek.get(w) ?? 0;
+        const height = scale > 0 ? Math.round((v / scale) * 100) : 0;
+        return (
+          <div
+            key={w}
+            className="relative flex-1 rounded-sm bg-muted"
+            style={{ height: "100%" }}
+            title={`Week of ${weekLabel(w)}: ${v}`}
+          >
+            <div
+              className={cn(
+                "absolute bottom-0 left-0 right-0 rounded-sm",
+                row.isAutomated ? "bg-muted-foreground/40" : "bg-primary",
+              )}
+              // A non-zero week always shows at least a sliver, so "one" and
+              // "none" are never the same picture.
+              style={{ height: v === 0 ? 0 : `${Math.max(8, height)}%` }}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function ThroughputCard({
+  periodStart,
+}: {
+  periodStart: string | null;
+}) {
+  const { workspaceOwnerId } = useWorkspace();
+
+  const {
+    data = EMPTY_THROUGHPUT,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<Throughput>({
+    queryKey: ["team-report", "throughput", workspaceOwnerId, periodStart],
+    enabled: !!workspaceOwnerId,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchThroughput(workspaceOwnerId as string, periodStart),
+  });
+
+  const scale = useMemo(() => {
+    let max = 0;
+    for (const row of data.rows) {
+      for (const v of row.byWeek.values()) max = Math.max(max, v);
+    }
+    return max;
+  }, [data]);
+
+  const anyUnnamed = data.rows.some((r) => r.isUnnamed);
+
+  function exportCsv() {
+    downloadCsv(
+      `flipdesk-throughput-${csvDate()}.csv`,
+      [
+        "Person",
+        "Items created",
+        "Listings created",
+        "Total",
+        ...data.weeks.map((w) => `Week of ${w}`),
+      ],
+      data.rows.map((r) => [
+        r.person,
+        r.items,
+        r.listings,
+        r.total,
+        ...data.weeks.map((w) => r.byWeek.get(w) ?? 0),
+      ]),
+    );
+  }
+
+  if (error) {
+    return (
+      <ErrorState
+        title="Could not load throughput"
+        description={error instanceof Error ? error.message : String(error)}
+        onRetry={() => void refetch()}
+      />
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Activity className="h-4 w-4" />
+              Who is producing
+            </CardTitle>
+            <CardDescription>
+              Items catalogued and listings created per teammate, by week.
+            </CardDescription>
+          </div>
+          {data.rows.length > 0 && (
+            <Button variant="outline" size="sm" onClick={exportCsv}>
+              <Download className="mr-2 h-4 w-4" />
+              CSV
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <TableLoadingSkeleton rows={4} columns={5} />
+        ) : data.allUnattributed ? (
+          // The signature of a workspace whose rows all predate 00707. Saying
+          // "no activity" here would be a lie: there IS activity, it just has
+          // nobody's name on it, and the seller needs to know that is expected
+          // rather than broken.
+          <EmptyState
+            icon={Activity}
+            title="No creator recorded on this work yet"
+            description={`There ${
+              data.automated === 1 ? "is 1 row" : `are ${data.automated} rows`
+            } in this period, but none of them carry a creator. Rows created before this feature shipped stay blank for good, and so do rows made by background jobs. This fills in as your team creates new items and listings.`}
+          />
+        ) : data.rows.length === 0 || data.rows.every((r) => r.total === 0) ? (
+          <EmptyState
+            icon={Activity}
+            title="Nothing created in this period"
+            description="Widen the date range above, or check back once someone catalogues an item."
+          />
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Person</TableHead>
+                    <TableHead className="text-right">Items</TableHead>
+                    <TableHead className="text-right">Listings</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="min-w-[180px]">
+                      By week
+                      <span className="ml-2 text-xs font-normal text-muted-foreground">
+                        {data.weeks.length > 0 &&
+                          `${weekLabel(data.weeks[0]!)} to ${weekLabel(
+                            data.weeks[data.weeks.length - 1]!,
+                          )}`}
+                      </span>
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.rows.map((r) => (
+                    <TableRow key={r.key}>
+                      <TableCell className="font-medium">
+                        {r.person}
+                        {r.isAutomated && (
+                          <span className="ml-2 text-xs font-normal text-muted-foreground">
+                            background jobs and older rows
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {r.items}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {r.listings}
+                      </TableCell>
+                      <TableCell className="text-right font-medium tabular-nums">
+                        {r.total}
+                      </TableCell>
+                      <TableCell>
+                        <WeekBars row={r} weeks={data.weeks} scale={scale} />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="space-y-1 text-xs text-muted-foreground">
+              {data.automated > 0 && (
+                <p>
+                  {data.automated}{" "}
+                  {data.automated === 1 ? "row was" : "rows were"} made by
+                  background jobs, or created before this feature shipped. They
+                  are never counted toward a person.
+                </p>
+              )}
+              {anyUnnamed && (
+                <p>
+                  Some rows show as &ldquo;{UNNAMED_LABEL}&rdquo;: only the
+                  workspace owner and admins can see everyone&rsquo;s name.
+                </p>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   OTHER_SHOPS,
+  UNNAMED_LABEL,
   ageBucket,
   buildCrosstab,
   buildDeadCapital,
@@ -14,6 +15,10 @@ import {
   sortScorecard,
   sourcerKey,
   sourcerLabel,
+  buildThroughput,
+  weekBuckets,
+  weekStart,
+  type CreatedRow,
   type TeamItemRow,
 } from "@/lib/team-reporting";
 import type { SalePnlRow } from "@/types/database";
@@ -961,5 +966,232 @@ describe("crosstabScale", () => {
 
   it("is zero for an empty grid instead of dividing by nothing later", () => {
     expect(crosstabScale(buildCrosstab([]), "net")).toBe(0);
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// THROUGHPUT (US-3024)
+// ══════════════════════════════════════════════════════════
+
+/** Local-midnight Date, so these cases never depend on the runner's timezone. */
+function day(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y!, m! - 1, d!);
+}
+
+describe("weekStart", () => {
+  it("returns the Monday of that week", () => {
+    // 2026-08-26 is a Wednesday.
+    expect(weekStart(day("2026-08-26"))).toBe("2026-08-24");
+  });
+
+  it("leaves a Monday on itself", () => {
+    expect(weekStart(day("2026-08-24"))).toBe("2026-08-24");
+  });
+
+  it("puts SUNDAY at the END of its week, not the start of the next", () => {
+    // The trap. getDay() is 0 on Sunday, so the naive `d.getDay() - 1` gives
+    // -1 and rolls Sunday forward into the following Monday -- one day of
+    // every single week lands in the wrong column, and nothing looks wrong
+    // until somebody adds the numbers up.
+    expect(weekStart(day("2026-08-30"))).toBe("2026-08-24");
+    expect(weekStart(day("2026-08-31"))).toBe("2026-08-31");
+  });
+
+  it("crosses a month boundary", () => {
+    // 2026-09-01 is a Tuesday; its Monday is in August.
+    expect(weekStart(day("2026-09-01"))).toBe("2026-08-31");
+  });
+});
+
+describe("weekBuckets", () => {
+  it("spans the range, oldest first, one entry per week", () => {
+    const w = weekBuckets(day("2026-08-10"), day("2026-08-30"));
+    expect(w).toEqual(["2026-08-10", "2026-08-17", "2026-08-24"]);
+  });
+
+  it("returns ONE bucket for a period shorter than a week", () => {
+    const w = weekBuckets(day("2026-08-25"), day("2026-08-27"));
+    expect(w).toEqual(["2026-08-24"]);
+  });
+
+  it("returns one bucket for a single day", () => {
+    expect(weekBuckets(day("2026-08-26"), day("2026-08-26"))).toEqual([
+      "2026-08-24",
+    ]);
+  });
+
+  it("does not loop forever on an inverted range", () => {
+    const w = weekBuckets(day("2026-08-30"), day("2026-01-01"));
+    expect(w).toHaveLength(1);
+  });
+});
+
+describe("buildThroughput", () => {
+  const FROM = day("2026-08-10");
+  const TO = day("2026-08-30");
+
+  const roster = [
+    { id: "u1", name: "Dan" },
+    { id: "u2", name: "Priya" },
+  ];
+
+  function made(created_by: string | null, iso: string): CreatedRow {
+    return { created_by, created_at: `${iso}T12:00:00` };
+  }
+
+  it("counts items and listings separately and together", () => {
+    const t = buildThroughput(
+      [made("u1", "2026-08-11"), made("u1", "2026-08-12")],
+      [made("u1", "2026-08-13")],
+      roster,
+      FROM,
+      TO,
+    );
+    const dan = t.rows.find((r) => r.key === "u1")!;
+    expect(dan.items).toBe(2);
+    expect(dan.listings).toBe(1);
+    expect(dan.total).toBe(3);
+  });
+
+  it("keeps a teammate who did nothing, with zeros", () => {
+    // An absent row reads as "not on the team", which is a different and worse
+    // claim than "did nothing this week".
+    const t = buildThroughput([made("u1", "2026-08-11")], [], roster, FROM, TO);
+    const priya = t.rows.find((r) => r.key === "u2");
+    expect(priya).toBeDefined();
+    expect(priya!.total).toBe(0);
+    expect(priya!.isAutomated).toBe(false);
+    expect([...priya!.byWeek.values()].every((v) => v === 0)).toBe(true);
+  });
+
+  it("puts NULL created_by in Automated, never merged into a person", () => {
+    const t = buildThroughput(
+      [made(null, "2026-08-11"), made("u1", "2026-08-11")],
+      [],
+      roster,
+      FROM,
+      TO,
+    );
+    const auto = t.rows.find((r) => r.isAutomated)!;
+    expect(auto.person).toBe("Automated");
+    expect(auto.total).toBe(1);
+    expect(t.rows.find((r) => r.key === "u1")!.total).toBe(1);
+    expect(t.automated).toBe(1);
+    expect(t.attributed).toBe(1);
+  });
+
+  it("sorts Automated last even when it is the busiest", () => {
+    const t = buildThroughput(
+      [
+        made(null, "2026-08-11"),
+        made(null, "2026-08-12"),
+        made(null, "2026-08-13"),
+        made("u1", "2026-08-11"),
+      ],
+      [],
+      roster,
+      FROM,
+      TO,
+    );
+    expect(t.rows[t.rows.length - 1]!.isAutomated).toBe(true);
+  });
+
+  it("names an unreadable id 'Another teammate', not a uuid and not Automated", () => {
+    // A member cannot read another member's profile, so real people arrive as
+    // ids with no name. Folding them into Automated would call a colleague a
+    // background job.
+    const t = buildThroughput(
+      [made("u-unknown", "2026-08-11")],
+      [],
+      roster,
+      FROM,
+      TO,
+    );
+    const row = t.rows.find((r) => r.key === "u-unknown")!;
+    expect(row.person).toBe(UNNAMED_LABEL);
+    expect(row.isUnnamed).toBe(true);
+    expect(row.isAutomated).toBe(false);
+    expect(t.attributed).toBe(1);
+    expect(t.automated).toBe(0);
+  });
+
+  it("buckets activity into the right week", () => {
+    const t = buildThroughput(
+      [
+        made("u1", "2026-08-11"), // week of the 10th
+        made("u1", "2026-08-19"), // week of the 17th
+        made("u1", "2026-08-23"), // SUNDAY -- still the week of the 17th
+      ],
+      [],
+      roster,
+      FROM,
+      TO,
+    );
+    const dan = t.rows.find((r) => r.key === "u1")!;
+    expect(dan.byWeek.get("2026-08-10")).toBe(1);
+    expect(dan.byWeek.get("2026-08-17")).toBe(2);
+    expect(dan.byWeek.get("2026-08-24")).toBe(0);
+  });
+
+  it("gives every row the same week keys, so the columns line up", () => {
+    const t = buildThroughput([made("u1", "2026-08-11")], [], roster, FROM, TO);
+    for (const row of t.rows) {
+      expect([...row.byWeek.keys()]).toEqual(t.weeks);
+    }
+  });
+
+  it("drops a row dated outside the window from the weekly bars", () => {
+    // It still counts in the totals -- the query decided what is in range --
+    // but it must not open a column the header does not know about.
+    const t = buildThroughput(
+      [made("u1", "2026-01-01"), made("u1", "2026-08-11")],
+      [],
+      roster,
+      FROM,
+      TO,
+    );
+    const dan = t.rows.find((r) => r.key === "u1")!;
+    expect(dan.total).toBe(2);
+    expect([...dan.byWeek.keys()]).toEqual(t.weeks);
+    expect([...dan.byWeek.values()].reduce((a, b) => a + b, 0)).toBe(1);
+  });
+
+  it("flags a workspace where nothing carries a creator at all", () => {
+    // The signature of a workspace that predates 00707. Without this flag the
+    // card looks like nobody did any work.
+    const t = buildThroughput(
+      [made(null, "2026-08-11"), made(null, "2026-08-12")],
+      [],
+      roster,
+      FROM,
+      TO,
+    );
+    expect(t.allUnattributed).toBe(true);
+  });
+
+  it("does not flag a mixed workspace as unattributed", () => {
+    const t = buildThroughput(
+      [made(null, "2026-08-11"), made("u1", "2026-08-12")],
+      [],
+      roster,
+      FROM,
+      TO,
+    );
+    expect(t.allUnattributed).toBe(false);
+  });
+
+  it("does not flag a silent period as unattributed", () => {
+    // Nothing happened at all. That is not the same as "nothing is attributed",
+    // and telling the seller to apply a migration would be wrong.
+    const t = buildThroughput([], [], roster, FROM, TO);
+    expect(t.allUnattributed).toBe(false);
+    expect(t.rows.every((r) => r.total === 0)).toBe(true);
+  });
+
+  it("works with an empty roster", () => {
+    const t = buildThroughput([made("u9", "2026-08-11")], [], [], FROM, TO);
+    expect(t.rows).toHaveLength(1);
+    expect(t.rows[0]!.person).toBe(UNNAMED_LABEL);
   });
 });

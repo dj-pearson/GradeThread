@@ -839,6 +839,284 @@ export async function fetchCrosstab(
 }
 
 // ══════════════════════════════════════════════════════════
+// THROUGHPUT (US-3024)
+// ══════════════════════════════════════════════════════════
+
+/** The id every row with a NULL created_by is grouped under. */
+export const AUTOMATED_KEY = "__automated__";
+
+/**
+ * A person whose id we can see but whose NAME we are not allowed to read.
+ *
+ * Not a rare edge: `public.users` lets an OWNER read their members' profiles
+ * and a MEMBER read the owner's, but gives one member no way to read another
+ * member's row. So a listing manager looking at this card sees real ids they
+ * cannot name. Showing a raw uuid would be useless and folding them into
+ * 'Automated' would be a lie -- a person is not a background job.
+ */
+export const UNNAMED_LABEL = "Another teammate";
+
+/** Monday of the week containing `date`, as yyyy-mm-dd, in local time. */
+export function weekStart(date: Date): string {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  // getDay() is 0 for Sunday, so Sunday is 6 days into a Monday-first week
+  // rather than -1. Getting this wrong shifts one day of every week into the
+  // wrong column, which is invisible until someone counts.
+  const offset = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - offset);
+  return ymdLocal(d);
+}
+
+function ymdLocal(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/**
+ * The week columns spanning a range, oldest first.
+ *
+ * Always at least one, even when the range is a single afternoon: a card with
+ * no columns reads as broken, and "this week, nothing yet" is a real answer.
+ */
+export function weekBuckets(from: Date, to: Date): string[] {
+  const out: string[] = [];
+  const cursor = new Date(`${weekStart(from)}T00:00:00`);
+  const last = weekStart(to);
+  // Guard against an inverted range rather than looping forever.
+  if (cursor > new Date(`${last}T00:00:00`)) return [weekStart(to)];
+  for (;;) {
+    const key = ymdLocal(cursor);
+    out.push(key);
+    if (key === last) break;
+    cursor.setDate(cursor.getDate() + 7);
+    // 520 weeks is ten years. A malformed date should not hang the tab.
+    if (out.length > 520) break;
+  }
+  return out;
+}
+
+/** One created row, reduced to what throughput needs. */
+export interface CreatedRow {
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface ThroughputRow {
+  key: string;
+  person: string;
+  /** True for the NULL bucket. Never a person. */
+  isAutomated: boolean;
+  /** True when the id is real but the viewer may not read the name. */
+  isUnnamed: boolean;
+  items: number;
+  listings: number;
+  total: number;
+  /** Counts per week key, aligned to `weeks`. */
+  byWeek: Map<string, number>;
+}
+
+export interface Throughput {
+  weeks: string[];
+  rows: ThroughputRow[];
+  /** Rows attributable to a person. Excludes the Automated bucket. */
+  attributed: number;
+  automated: number;
+  /**
+   * True when there is activity but NONE of it carries a created_by.
+   *
+   * The signature of a workspace that predates 00707. The card has to say that
+   * out loud, because otherwise it looks like nobody did any work.
+   */
+  allUnattributed: boolean;
+}
+
+export interface RosterEntry {
+  id: string;
+  name: string;
+}
+
+/**
+ * Weekly counts per person.
+ *
+ * `roster` seeds the rows so a teammate who created nothing still appears with
+ * zeros instead of vanishing -- an absent row reads as "not on the team", which
+ * is a different and worse claim than "did nothing this week".
+ */
+export function buildThroughput(
+  items: CreatedRow[],
+  listings: CreatedRow[],
+  roster: RosterEntry[],
+  from: Date,
+  to: Date,
+): Throughput {
+  const weeks = weekBuckets(from, to);
+  const weekSet = new Set(weeks);
+  const byKey = new Map<string, ThroughputRow>();
+
+  const blank = (key: string, person: string, opts: {
+    isAutomated?: boolean;
+    isUnnamed?: boolean;
+  } = {}): ThroughputRow => ({
+    key,
+    person,
+    isAutomated: opts.isAutomated ?? false,
+    isUnnamed: opts.isUnnamed ?? false,
+    items: 0,
+    listings: 0,
+    total: 0,
+    byWeek: new Map(weeks.map((w) => [w, 0])),
+  });
+
+  for (const person of roster) {
+    byKey.set(person.id, blank(person.id, person.name));
+  }
+
+  const nameOf = new Map(roster.map((p) => [p.id, p.name]));
+
+  const tally = (rows: CreatedRow[], field: "items" | "listings") => {
+    for (const r of rows) {
+      const key = r.created_by ?? AUTOMATED_KEY;
+      let row = byKey.get(key);
+      if (!row) {
+        row =
+          key === AUTOMATED_KEY
+            ? blank(key, "Automated", { isAutomated: true })
+            : blank(key, nameOf.get(key) ?? UNNAMED_LABEL, {
+                isUnnamed: !nameOf.has(key),
+              });
+        byKey.set(key, row);
+      }
+      row[field] += 1;
+      row.total += 1;
+      const w = weekStart(new Date(r.created_at));
+      // A row dated outside the requested window is dropped rather than
+      // silently opening a new column the header does not know about.
+      if (weekSet.has(w)) row.byWeek.set(w, (row.byWeek.get(w) ?? 0) + 1);
+    }
+  };
+
+  tally(items, "items");
+  tally(listings, "listings");
+
+  const all = [...byKey.values()];
+  const people = all.filter((r) => !r.isAutomated);
+  const automatedRow = all.find((r) => r.isAutomated);
+
+  const attributed = people.reduce((n, r) => n + r.total, 0);
+  const automated = automatedRow?.total ?? 0;
+
+  // People first, busiest first; Automated always last. It is a bucket, not a
+  // colleague, and ranking it among people invites reading it as one.
+  people.sort((a, b) => b.total - a.total || a.person.localeCompare(b.person));
+  const rows = automatedRow ? [...people, automatedRow] : people;
+
+  return {
+    weeks,
+    rows,
+    attributed,
+    automated,
+    allUnattributed: automated > 0 && attributed === 0,
+  };
+}
+
+export const EMPTY_THROUGHPUT: Throughput = {
+  weeks: [],
+  rows: [],
+  attributed: 0,
+  automated: 0,
+  allUnattributed: false,
+};
+
+/**
+ * The workspace roster, as far as this viewer is allowed to see it.
+ *
+ * ⚠ RLS makes this VIEWER-DEPENDENT, checked against pg_policies rather than
+ * assumed. `workspace_members` lets the owner (and an admin member) read every
+ * row, but a plain member reads only their own. `public.users` lets an owner
+ * read member profiles and a member read the OWNER's, and gives one member no
+ * route to another member's name at all.
+ *
+ * So an owner sees the full roster with names, and a listing manager sees
+ * themselves plus the owner. Everyone else comes back from buildThroughput as
+ * UNNAMED_LABEL rather than as a uuid or as 'Automated'. Never throws on a
+ * refused read -- a partial roster is the correct output here, not an error.
+ */
+export async function fetchRoster(ownerId: string): Promise<RosterEntry[]> {
+  const out = new Map<string, string>();
+
+  const { data: memberRows } = await supabase
+    .from("workspace_members")
+    .select("member_id")
+    .eq("owner_id", ownerId);
+  const ids = new Set<string>([ownerId]);
+  for (const r of (memberRows ?? []) as unknown as Array<{
+    member_id: string;
+  }>) {
+    ids.add(r.member_id);
+  }
+
+  const { data: userRows } = await supabase
+    .from("users")
+    .select("id, full_name, email")
+    .in("id", [...ids]);
+  for (const u of (userRows ?? []) as unknown as Array<{
+    id: string;
+    full_name: string | null;
+    email: string | null;
+  }>) {
+    const name =
+      (u.full_name ?? "").trim() ||
+      (u.email ?? "").split("@")[0] ||
+      UNNAMED_LABEL;
+    out.set(u.id, name);
+  }
+
+  return [...out.entries()].map(([id, name]) => ({ id, name }));
+}
+
+async function fetchCreated(
+  table: "inventory_items" | "listings",
+  ownerId: string,
+  from: string | null,
+  to: string | null,
+): Promise<CreatedRow[]> {
+  let q = supabase
+    .from(table)
+    .select("created_by, created_at")
+    .eq("user_id", ownerId);
+  if (from) q = q.gte("created_at", from);
+  if (to) q = q.lt("created_at", to);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as unknown as CreatedRow[];
+}
+
+export async function fetchThroughput(
+  ownerId: string,
+  from: string | null,
+  to: string | null = null,
+): Promise<Throughput> {
+  const [items, listings, roster] = await Promise.all([
+    fetchCreated("inventory_items", ownerId, from, to),
+    fetchCreated("listings", ownerId, from, to),
+    fetchRoster(ownerId),
+  ]);
+
+  // With no explicit start, span the data itself rather than defaulting to a
+  // window that might not contain any of it.
+  const stamps = [...items, ...listings]
+    .map((r) => new Date(r.created_at).getTime())
+    .filter((t) => Number.isFinite(t));
+  const start = from
+    ? new Date(`${from}T00:00:00`)
+    : new Date(stamps.length ? Math.min(...stamps) : Date.now());
+  const end = to ? new Date(`${to}T00:00:00`) : new Date();
+
+  return buildThroughput(items, listings, roster, start, end);
+}
+
+// ══════════════════════════════════════════════════════════
 // FETCHERS
 // ══════════════════════════════════════════════════════════
 

@@ -528,6 +528,10 @@ export const CONTEXTUAL_ROUTES: readonly { path: string; why: string }[] = [
     path: "/dashboard/flipdesk/analytics/grading-roi",
     why: "An Analytics tab, reached from Analytics.",
   },
+  {
+    path: "/dashboard/flipdesk/analytics/team",
+    why: "An Analytics tab, reached from Analytics.",
+  },
 ];
 
 /** Every surface the web sidebar renders, in sidebar order. */
