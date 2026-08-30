@@ -2795,22 +2795,6 @@
       "notes": "Rescoped 2026-08-29, same sitting it was filed. The first draft added EasyPost as a second label provider, a prepaid postage wallet and carrier-adjustment chargebacks. Owner chose eBay-direct instead, and that is the cheaper shape by a lot: eBay bills the SELLER's own eBay account for the postage and for any reweigh adjustment, so we never hold seller money, never float postage, and never have to reconcile a carrier bill that lands three weeks later. The wallet, the Stripe top-up and the adjustment ledger all disappeared with that one decision. What it costs is coverage - eBay Logistics only covers eBay orders, so a Shopify sale or an extension-listed Poshmark sale still has no in-app label path. File that as its own story if sellers ask for it.\n\nSTILL DARK. None of this can run until eBay grants sell.logistics on the prod keyset (US-2380), and the capability check puts the deployment scope AHEAD of the plan check deliberately, so today every seller on every plan still gets feature_unavailable. That ordering is tested, not incidental: showing a Starter seller an upgrade prompt for a capability no plan can currently reach would be selling something that does not exist yet."
     },
     {
-      "id": "US-3012",
-      "passes": false,
-      "title": "Match a thrift receipt's lines to the items sourced that day, so every one gets a real cost basis",
-      "description": "OWNER'S IDEA, 2026-08-29, and it attacks the single worst issue in the books-health queue: items sold with no cost basis. Those overstate profit by exactly the figure nobody recorded, and US-2992 can only ESTIMATE the damage from the seller's median cost ratio. THE SHAPE OF THE PROBLEM IS WHY IT IS TRACTABLE. A thrift receipt describes nothing useful - 'MENS SHIRT', 'RED ITEM', 'CLOTHING 2.99' - so line-to-item matching on DESCRIPTION is hopeless and always will be. The PRICES are the useful part. A Goodwill receipt with six lines totalling 47.83 dollars, photographed on the day the seller added six items, carries six real cost bases; all that is missing is which price goes with which item. That is a question a person answers in about fifteen seconds and a computer answers badly. US-2993 ALREADY CAPTURES THE DATA. receipt-extract.ts returns draft.lines as {description, amount_cents} in printed order, deliberately copying the description verbatim however useless it is, and linesReconcile() reports whether the lines add up to the total less tax - a receipt whose lines miss the total was read partially, and a split built on it would allocate the wrong cost to every item. Nothing consumes either yet.",
-      "acceptanceCriteria": [
-        "After a receipt is extracted, offer the items the seller acquired near that date (same day first, widening to a few days) and let them drag or tap each receipt line onto an item. Cheap and obvious beats clever: the seller knows which shirt was 2.99.",
-        "Where the counts match and the seller says so, allow a one-tap 'these six lines are these six items, in order' - thrift receipts print in the order things came off the counter, which is often the order they were photographed.",
-        "REFUSE TO SPLIT when the lines do not reconcile. linesReconcile() returning anything but roughly zero means the receipt was read partially, and allocating a partial total across every item is worse than allocating nothing - it puts a WRONG cost basis on items that previously had an honest gap. Say so and fall back to the whole-receipt total.",
-        "An unmatched remainder (bag fee, a line for something not inventoried) goes to an operating expense rather than being smeared across the items. Smearing it makes every cost basis slightly wrong and untraceable.",
-        "Setting a cost basis this way writes inventory_items.acquired_price and is visible as such - it must not create a second, parallel notion of what an item cost. US-2984's ledger derives COGS from that column and would otherwise disagree.",
-        "The items it fixes drop out of the US-2992 review queue on the next load, and the queue's estimated-impact figure for them is replaced by the real one.",
-        "Works with NO line items at all: a receipt that reads only as a total can still be split across chosen items evenly or by the seller typing amounts. That is the common case for a handwritten estate-sale receipt."
-      ],
-      "priority": 42
-    },
-    {
       "id": "US-3013",
       "passes": false,
       "priority": 62,

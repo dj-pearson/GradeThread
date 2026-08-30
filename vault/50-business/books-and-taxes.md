@@ -19,6 +19,8 @@ code_refs:
   - src/lib/cogs.ts
   - scripts/check-cogs-worksheet.mjs
   - src/lib/tax-packet.ts
+  - src/lib/receipt-allocation.ts
+  - src/lib/receipt-allocation-data.ts
   - src/pages/flipdesk/nav-tabs.ts
   - src/pages/flipdesk/money-overview.tsx
   - supabase/migrations/00704_quickbooks_connection.sql
@@ -1407,6 +1409,70 @@ Three measurements worth keeping, so the next attempt does not repeat them:
 `npm run ui:check` is at zero, which is the half of AC3 that a source scan can
 answer. The rest is **US-3013**.
 
+## Splitting a receipt across the items it bought
+
+US-3012, the owner's idea, and it attacks the single worst issue in the books
+health queue: items sold with no cost basis. Those overstate profit by exactly
+the figure nobody recorded, and US-2992 can only ESTIMATE the damage from the
+seller's median cost ratio.
+
+**The prices are the useful part, not the descriptions.** A thrift receipt says
+"MENS SHIRT", "RED ITEM", "CLOTHING 2.99". Matching a line to an item on its
+description is hopeless and always will be. But a Goodwill receipt with six
+lines totalling $47.83, photographed on the day six items were added, carries
+six real cost bases -- all that is missing is which price goes with which item,
+and that is a question a person answers in fifteen seconds and a computer
+answers badly. So nothing here guesses. `src/lib/receipt-allocation.ts` arranges
+what the seller says into an allocation that is arithmetically honest, and
+refuses in the two cases where an allocation would be worse than none.
+
+### It refuses when the lines do not reconcile
+
+`linesReconcile()` returns total less tax less the sum of the lines. Anything
+outside two cents means a line was NOT READ, and a split built on it puts a
+wrong cost on every item. An honest gap is recoverable; a confident wrong number
+is not, because nobody re-checks a field that is already filled in. The
+whole-total path stays available, because that number was read.
+
+Two cents rather than zero: a vision model can be a cent out on a rounding line,
+and refusing over one cent sends sellers back to typing. A missed LINE is
+dollars, not cents, so nothing real hides under the tolerance.
+
+### The leftover is one expense, never smeared
+
+A bag fee spread across six items makes every cost basis slightly wrong AND
+untraceable -- the seller can never work out afterwards which part of a price
+was really the bag. It becomes one `flipdesk_expenses` row on category `other`,
+which maps to the ledger's `uncategorised` account and therefore reaches no
+Schedule C line. That puts it in the review queue, which is exactly where a
+thing nobody has decided about belongs.
+
+### The even split distributes its cents
+
+$1.00 across three items is 34/33/33, never 33/33/33. Dropping the cent loses it
+from a cost basis silently, and a total that reconciled on the receipt stops
+reconciling in the books. The extra cents go to the earliest items, so re-running
+gives the same answer.
+
+### One column, and it is the one the ledger reads
+
+Setting a cost basis writes `inventory_items.acquired_price` and nothing else.
+US-2984's ledger derives cost of goods from that column, so an allocation stored
+anywhere else would produce a P&L that disagrees with the item page about the
+same jacket. Items fixed this way drop out of the US-2992 review queue on the
+next load for free, because that branch is keyed on the same column.
+
+Writes go item by item rather than as one bulk upsert: a failure then names the
+item it belongs to and the ones that worked stay written. A seller who has just
+assigned six lines by hand should not lose five of them to the sixth.
+
+### Where it is offered
+
+In the expense dialog, under the form, with the receipt still in hand and the
+lines on screen. That is the only moment the seller knows which shirt was $2.99;
+an hour later they do not, and the item keeps its honest gap for ever. Optional,
+so a seller who only wanted to log the expense is not made to do this.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -1430,9 +1496,9 @@ its contract into this note. Currently landed:
 - **US-2997** - the QuickBooks connection, the realm rule and the mapping, above.
 - **US-2998** - the push, its four idempotency failure modes and the bookmark, above.
 - **US-2999** - the Money structure, and what the UI scan could not reach, above.
+- **US-3012** - splitting a receipt across items, and the two refusals, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
-Still open, and each will add a section here rather than a new note: mileage and
-receipts on mobile (US-3000), and matching a receipt's line items back to
-inventory (US-3012). US-3013 carries the authed-UI scan this note describes as
-unbuilt.
+Still open: mileage and receipts on mobile (US-3000), where Android is complete
+and iOS has neither feature. US-3013 carries the authed-UI scan this note
+describes as unbuilt.

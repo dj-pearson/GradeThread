@@ -2,6 +2,7 @@ import { useId, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
+import { ReceiptSplitCard } from "@/components/finances/receipt-split-card";
 // US-2983: the IRS line each category feeds. Shown beside the name so the
 // seller learns the mapping by using the form, rather than discovering in March
 // that nobody ever sorted their expenses onto a return.
@@ -1006,6 +1007,20 @@ function ExpenseDialog({
               through.
             </p>
           </div>
+        )}
+        {/* US-3012. Offered here, with the receipt still in the seller's hand
+            and the lines on screen. It is the only moment they know which shirt
+            was $2.99; an hour later they do not, and the item keeps its honest
+            gap for ever. Optional and below the form, so a seller who only
+            wanted to log the expense is not made to do this. */}
+        {scan?.draft?.total_cents != null && !scanFailed(scan) && (
+          <ReceiptSplitCard
+            lines={scan.draft.lines ?? []}
+            totalCents={scan.draft.total_cents}
+            vendor={scan.draft.vendor}
+            spentOn={scan.draft.spent_on ?? date}
+            linesGapCents={scan.lines_gap_cents ?? null}
+          />
         )}
         <DialogFooter>
           <Button
