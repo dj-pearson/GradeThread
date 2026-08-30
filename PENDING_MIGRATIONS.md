@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## HELD: 00688_inventory_snapshots.sql (US-2986)
+## ✅ APPLIED: 00688_inventory_snapshots.sql (US-2986 + US-3008, applied 2026-08-29 — owner-confirmed; /health/ready reports applied 00688. Carries the US-3008 body guard on take_inventory_snapshot, which was added before the file was applied anywhere.)
 
 **Risk: low.** Two new tables, four new functions. No existing table, column,
 policy or function is touched, and nothing runs until a seller presses "Value my
