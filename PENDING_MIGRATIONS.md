@@ -1,5 +1,39 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🔴 HELD: 00703_archived_needs_a_reason.sql (US-3007 — archived items with no reason reach the review queue)
+
+**Risk: low.** Re-emits `public.books_review_queue(date, date)` with one extra
+branch. No table, column, policy or row is touched, and nothing else changes.
+
+**⚠ Needs `NOTIFY pgrst, 'reload schema';`** — a function body changes, so
+PostgREST must be told or the queue keeps returning six kinds.
+
+**Apply AFTER 00699**, which created the function. Order against 00701/00702
+does not matter; they touch different objects.
+
+**What it does.** Adds a seventh branch, `archived_no_reason`: an item whose
+status is `archived` with no `removed_reason` recorded. It is the one status the
+US-3007 removal trigger will not resolve, because lost, damaged, donated and
+sold-off-platform are four answers with four different tax treatments.
+
+**Why it matters.** Until answered, the item still counts as stock, so ending
+inventory is too high and cost of goods sold too low. That direction OVERSTATES
+the tax owed, which is why the trigger leaves it alone rather than guessing —
+nobody under-reports while this sits unread.
+
+**Frontend dependency, and it is one-way.** `src/lib/books-review.ts` ships the
+new `IssueKind` and its copy in the same commit. If the frontend deploys before
+this SQL is applied, nothing breaks — the kind simply never appears. The reverse
+is also safe. There is no window where either half is wrong.
+
+**Verified on the local stack**, on real rows rather than by inspection:
+archived-with-no-reason fires with an exact 5500 impact; archived WITH a reason
+does not; archived AFTER a completed sale does not; archived with no cost
+recorded fires with a null impact rather than a guess. Dismissal round-trips
+seven → six → seven. `scripts/check-books-review.mjs` covers all of it and runs
+in the db lane.
+
+
 ## ✅ APPLIED: 00696_pricing_plans_shipping_labels.sql (US-3011 — turns the shippingLabels gate flag on for Pro and Business; applied 2026-08-29, confirmed by prod /health/ready reporting applied=00696)
 
 **Risk: very low.** Two `UPDATE`s that merge one boolean key into
