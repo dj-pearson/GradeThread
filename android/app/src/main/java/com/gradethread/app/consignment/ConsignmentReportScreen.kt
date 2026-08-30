@@ -34,7 +34,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -48,10 +47,8 @@ import javax.inject.Inject
  * in place rather than blanking the report.
  */
 @HiltViewModel
-class ConsignmentReportViewModel @Inject constructor(
-    db: GradeThreadDb,
-    private val service: ConsignorProviding,
-) : ViewModel() {
+class ConsignmentReportViewModel @Inject constructor(db: GradeThreadDb, private val service: ConsignorProviding) :
+    ViewModel() {
 
     data class State(
         val rows: List<ConsignmentReportRow> = emptyList(),
@@ -106,15 +103,43 @@ class ConsignmentReportViewModel @Inject constructor(
 }
 
 @Composable
-fun ConsignmentReportScreen(
-    onClose: () -> Unit = {},
-    viewModel: ConsignmentReportViewModel = hiltViewModel(),
-) {
+fun ConsignmentReportScreen(onClose: () -> Unit = {}, viewModel: ConsignmentReportViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { viewModel.load() }
 
+    ConsignmentReportContent(
+        state = state,
+        onClose = onClose,
+        onRetry = viewModel::load,
+    )
+}
+
+/**
+ * Who is owed what, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE FIGURES ON THIS SCREEN ARE OWED TO SOMEONE ELSE. Everywhere else a
+ * layout regression misreports the seller's own money to the seller. Here it
+ * misreports what a CONSIGNOR is owed, to the person who has to pay them - and
+ * the split between `consignorPayout` and `yourCut` is the whole point of the
+ * row. Two columns swapping places is a plausible regression and an ugly
+ * conversation.
+ *
+ * `load` reaches this function as onRetry rather than staying with the wrapper's
+ * LaunchedEffect: it is BOTH, and the error state's retry button is a thing a
+ * person presses. Leaving it out would have made that button dead in every
+ * capture - which is how the first attempt at this extraction failed, and it
+ * failed loudly rather than silently only because the body still named
+ * `viewModel`.
+ */
+@Composable
+fun ConsignmentReportContent(
+    state: ConsignmentReportViewModel.State,
+    modifier: Modifier = Modifier,
+    onClose: () -> Unit = {},
+    onRetry: () -> Unit = {},
+) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(
@@ -175,7 +200,7 @@ fun ConsignmentReportScreen(
             },
             enabled = !state.loading,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.load() }
+        ) { onRetry() }
         BrandSecondaryButton(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
