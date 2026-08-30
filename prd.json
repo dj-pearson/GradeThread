@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3015",
+  "nextId": "US-3016",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2831,6 +2831,28 @@
         "Parity is verified with the parity-auditor against the shipped Android surface, not asserted.",
         "It compiles. Nothing here can be verified on the Windows dev box, so the owner runs iOS CI before this closes."
       ]
+    },
+    {
+      "id": "US-3015",
+      "passes": false,
+      "title": "EasyPost as the second label provider, on seller-billed sub-accounts so we never touch the postage money",
+      "description": "As a seller whose sale did not come from eBay - or whose platform eBay never granted the logistics scope to - I want to buy a shipping label in FlipDesk anyway, so the ship step does not depend on one marketplace's approval. US-3011 shipped the Pro gate and US-2160 shipped the eBay path, and the eBay path is dark pending US-2380. This adds EasyPost behind the same route surface as the fallback and as the answer for Shopify and extension-listed sales. THE BILLING MODEL IS THE WHOLE DESIGN: EasyPost referral customers on EasyPost-Managed Billing, where the seller enters their own card with EasyPost through Stripe and EasyPost charges THEM for postage. We never front postage, never hold a float, and carry no liability for a carrier reweigh that lands three weeks later. The prepaid wallet, the Stripe top-up and the adjustment-chargeback ledger that the first draft of US-3011 called for all disappear with that one choice, and they were most of the work.",
+      "acceptanceCriteria": [
+        "A services/edge-functions/src/lib/easypost.ts wraps rate shopping, label buy, refund/void and shipment read-back, mirroring the exported shape of lib/ebay-logistics.ts so one route surface serves both providers.",
+        "Sellers are onboarded as EasyPost ReferralCustomers under our partner account, on EasyPost-Managed Billing: the seller's own card is charged by EasyPost for postage, and no GradeThread-held balance, wallet or float exists anywhere in the code.",
+        "A seller with no EasyPost sub-account or no payment method on it gets a clean onboarding prompt, never a failed purchase - the same contract as the eBay capability gate, checked before the buy button renders.",
+        "routes/flipdesk-logistics.ts picks the provider per sale: an eBay order on a connection holding the sell.logistics grant uses eBay; every other sale, and every sale when the deployment has no logistics scope, uses EasyPost. The rates response names the provider it used.",
+        "logisticsCapability() generalizes past its eBay shape: the feature_unavailable state must stop meaning 'this deployment has no eBay scope' once a second provider can serve the same seller, or an eBay rejection leaves the fallback unreachable behind a check about eBay.",
+        "The existing Pro gate (shippingLabels, US-3011) covers the EasyPost path unchanged - rates and buy gated, reprint and void open - with no second flag and no plan-matrix migration.",
+        "An EasyPost purchase writes the same sales columns the eBay path writes: shipping_cost, tracking_number, carrier, label_purchased_at, and never overwrites a real cost with 0.",
+        "For an eBay-sourced sale whose label was bought through EasyPost, the tracking number still reaches eBay through the existing createShippingFulfillment call rather than a second implementation.",
+        "Label cost continues to post to the shipping_postage account through src/lib/ledger-math.ts with no provider-specific branch, so the P&L is right whichever provider bought the label.",
+        "A label purchase is never automatically retried: EasyPost buy is idempotent only on its own terms, so an unclear 5xx is settled by reading the shipment back, never by re-posting.",
+        "Every new route is tenant-scoped per US-268 and has a case in tenant-isolation_test.ts; the seller-to-EasyPost-sub-account mapping is owner-scoped and never read from a request body.",
+        "EASYPOST_API_KEY (partner account) is documented in vault/10-ops/env-reference.md and services/edge-functions/.env.example. With the key absent, the EasyPost path reports unavailable rather than throwing a 500.",
+        "Postage is passed through at cost on this path too: no percentage, no per-label fee, nothing added to the carrier rate."
+      ],
+      "priority": 46
     }
   ]
 }
