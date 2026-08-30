@@ -37,6 +37,17 @@ const WORKFLOWS = resolve(ROOT, ".github/workflows");
  * that filename.
  */
 const NOT_A_LANE_CHECK: Record<string, string> = {
+  "check-cogs-worksheet.mjs":
+    "NEEDS A REAL POSTGRES, and says so in its own header: it is the "  +
+    "COMPANION to check-ledger-invariant.mjs above and is gated the same way. "  +
+    "It runs the COGS worksheet through `docker exec psql` - two snapshots, a "  +
+    "frozen ending inventory that must not move when acquired_price is edited "  +
+    "afterwards, and a 2026 that must NOT reconcile, because a check that "  +
+    "cannot fail is not a check. None of that is expressible in vitest. Run "  +
+    "it by hand after touching the snapshot or worksheet SQL: "  +
+    "`node scripts/check-cogs-worksheet.mjs`. Listed here for the same reason "  +
+    "as its companion - the intent was written in the script and never told "  +
+    "to this guard, so it failed an unrelated push.",
   "check-ledger-invariant.mjs":
     "NEEDS A REAL POSTGRES, and its own header already argues this: it runs "  +
     "the ledger invariant through `docker exec psql`, comparing "  +
