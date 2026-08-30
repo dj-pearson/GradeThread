@@ -1,5 +1,46 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🔴 HELD: 00696_pricing_plans_shipping_labels.sql (US-3011 — turns the shippingLabels gate flag on for Pro and Business)
+
+**Risk: very low.** Two `UPDATE`s that merge one boolean key into
+`public.pricing_plans.gate_flags`. No table, column, function, policy or piece of
+seller data is touched, and both are guarded by `not (gate_flags ? 'shippingLabels')`
+so an operator who has already set the key keeps their value and the file is safe
+to re-run.
+
+**No `NOTIFY pgrst` needed** — no table, column or RPC changes shape.
+
+**What it does.**
+`free`/`starter` get `shippingLabels: false`; `pro`/`business` get `true`.
+
+**⚠ APPLY BEFORE THE PUSH, or the feature ships switched off for everyone.**
+This is the one thing to get right here. `pricing_plans.gate_flags` is CANONICAL
+once the row exists — `pricing-config.ts` `rowToConfig()` reads
+`gateFlags[k] = flags[k] === true`, so a key absent from the row is a hard false
+that outranks `FALLBACK_MATRIX`. Push the code without this SQL and a Pro seller
+is told label buying is not part of their plan and pointed at the pricing page
+they are already paying for. Nothing errors, nothing logs. That is precisely
+what happened to `connectorAccess` (US-2687, fixed by 00625), and
+`src/test/plan-gate-flags-seeded.test.ts` exists to stop it happening a third
+time — it fails the build if a flag in `GATE_FLAG_KEYS` appears in no migration.
+
+**The frontend reads it too.** `src/lib/constants.ts` carries the mirror
+`FLIPDESK_PLANS[*].gateFlags.shippingLabels` and the Pro/Business feature bullet,
+and Cloudflare Pages auto-deploys the frontend on push. The bullet says labels are
+included; if the SQL has not run, the ship dialog will still say the plan does not
+include them.
+
+**Nothing is live yet either way.** Buying labels needs eBay's limited-release
+`sell.logistics` scope, which this keyset does not hold (US-2380). Until that is
+granted, `/capabilities` returns `feature_unavailable` for every seller on every
+plan, deliberately ahead of the plan check — so this migration changes nothing a
+seller can see until the eBay application lands.
+
+**⚠ 00695_mileage_log.sql was written by a concurrent agent and is NOT mine.**
+`EXPECTED_SCHEMA_VERSION` is 00696, which asserts 00695 applied too. Apply both,
+in order, or the edge boot guard reports `behind`.
+
+
 ## 🟠 PUSHED, NOT YET APPLIED: 00694_drop_phantom_00689.sql (removes a stale applied_migrations row)
 
 **Risk: very low.** One `DELETE` of a single row from `public.applied_migrations`.
@@ -63,6 +104,48 @@ hand-set `lost` survives a status change. SABOTAGE-CHECKED by widening the
 trigger to include `wearing` — it went red naming the real risk ("wearing or
 returned was removed from inventory - both must STAY") and green on restore.
 
+
+## ✅ APPLIED: 00695_mileage_log.sql (US-2989, applied 2026-08-29)
+
+> **Confirmed by READING production.** All seven `mileage_rates` rows are live
+> and read back correctly through the anon key: 56.0c for 2021, **58.5c to 30
+> June 2022 and 62.5c from 1 July** (the mid-year change, which is the whole
+> reason the rate is a dated table rather than a constant), 65.5c, 67.0c, 70.0c,
+> and a **PROVISIONAL** 70.0c for 2026.
+
+**What it does.** Creates `mileage_rates`, `mileage_trips` and
+`vehicle_use_years`; adds `mileage_rate_on(date)` and
+`mileage_summary(from, to)`; and replaces `rebuild_ledger_for_user()` so trips
+become ledger entries on the `vehicle_mileage` account.
+
+**The rate is looked up by trip DATE, never snapshotted onto the trip.** A
+corrected rate flows through instead of being frozen into rows nobody revisits,
+and last year cannot silently reprice when a new rate lands.
+
+**A trip with no rate for its date produces NO ENTRY.** A rate we do not have is
+not a rate of zero, and `mileage_summary` reports the count so the screen can
+say so rather than showing a silently smaller total.
+
+**The 2026 rate is carried forward and flagged.** The IRS notice was not out
+when this shipped. Carrying the last known rate and SAYING SO beats a silent
+zero and a silent guess. **Update that row when the real rate is published.**
+
+**The unit is TENTHS OF A CENT and the column name says so.** Most published
+rates are not whole cents, so an integer `cents_per_mile` cannot hold them, and
+585 in a column called cents means five dollars eighty-five a mile.
+
+> **A one-cent bug found and fixed before shipping.** `mileage_summary` first
+> rounded once on the total while the ledger rounds per trip. Two 10.4-mile
+> trips at 58.5 cents are 608.4 cents each: 1216 per trip against 1217 rounded
+> once. Reproduced on Postgres (15498 against 15499), then fixed by rounding per
+> trip in both places. `npm run check:mileage` asserts they agree, and
+> sabotage-verified by reverting the rounding, which reddens exactly that check.
+
+**Apply order.** After 00691. Then `NOTIFY pgrst, 'reload schema';` — three new
+tables and two new RPCs.
+
+**Sellers need to press Rebuild** on the P&L before logged trips reach their
+books; entries are written by the rebuild, not on save.
 
 ## ✅ APPLIED: 00693_form_1099k.sql (US-2988, applied 2026-08-29)
 

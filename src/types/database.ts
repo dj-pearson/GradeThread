@@ -2220,6 +2220,62 @@ export type SavedViewUpdate = Partial<
 // Reference data with no user_id: readable by everyone, writable by nobody.
 // US-2988 — a 1099-K the seller received. One per platform per CALENDAR year;
 // a 1099-K never follows a fiscal year.
+// US-2989 — the mileage rate table. TENTHS OF A CENT per mile, because most
+// published rates are not whole cents (58.5, 62.5, 65.5) and an integer cents
+// column cannot hold them. Dated ranges, because the rate has changed MID-year.
+//
+// Reference data with no user_id: readable by everyone, writable by nobody.
+export interface MileageRateRow {
+  id: string;
+  effective_from: string;
+  effective_to: string | null;
+  tenths_of_cent_per_mile: number;
+  /** Carried forward rather than published. The screen has to say so. */
+  is_provisional: boolean;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MileageTripRow {
+  id: string;
+  user_id: string;
+  trip_date: string;
+  miles: number;
+  // NOT NULL with no default: "business" is not a purpose, and a log full of
+  // blanks is the reconstructed record the IRS discounts.
+  purpose: string;
+  start_location: string | null;
+  end_location: string | null;
+  round_trip: boolean;
+  source_id: string | null;
+  inventory_item_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export type MileageTripInsert = Omit<MileageTripRow, "id" | "created_at" | "updated_at"> &
+  Partial<Pick<MileageTripRow, "id" | "created_at" | "updated_at">>;
+export type MileageTripUpdate = Partial<MileageTripInsert>;
+
+// Schedule C Part IV. None of the three mile figures is derivable from a
+// business-trip log, so they are entered. Also carries the standard-versus-
+// actual election, which is per year and never both.
+export interface VehicleUseYearRow {
+  id: string;
+  user_id: string;
+  tax_year: number;
+  method: string;
+  total_miles: number | null;
+  commuting_miles: number | null;
+  other_personal_miles: number | null;
+  placed_in_service_on: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export type VehicleUseYearInsert = Omit<VehicleUseYearRow, "id" | "created_at" | "updated_at"> &
+  Partial<Pick<VehicleUseYearRow, "id" | "created_at" | "updated_at">>;
+export type VehicleUseYearUpdate = Partial<VehicleUseYearInsert>;
+
 export interface Form1099kRow {
   id: string;
   user_id: string;
@@ -4363,6 +4419,21 @@ export interface Database {
         Row: ExpenseRow;
         Insert: ExpenseInsert;
         Update: ExpenseUpdate;
+      };
+      mileage_rates: {
+        Row: MileageRateRow;
+        Insert: never;
+        Update: never;
+      };
+      mileage_trips: {
+        Row: MileageTripRow;
+        Insert: MileageTripInsert;
+        Update: MileageTripUpdate;
+      };
+      vehicle_use_years: {
+        Row: VehicleUseYearRow;
+        Insert: VehicleUseYearInsert;
+        Update: VehicleUseYearUpdate;
       };
       form_1099k: {
         Row: Form1099kRow;

@@ -23,6 +23,9 @@ code_refs:
   - supabase/migrations/00693_form_1099k.sql
   - src/lib/form-1099k.ts
   - scripts/check-1099k-bridge.mjs
+  - supabase/migrations/00695_mileage_log.sql
+  - src/lib/mileage.ts
+  - scripts/check-mileage-log.mjs
   - supabase/migrations/00690_inventory_writeoffs.sql
   - scripts/check-inventory-writeoffs.mjs
   - supabase/migrations/00692_keeping_leaves_inventory.sql
@@ -605,6 +608,67 @@ sales or wrong amounts.
 a federal identifier this app has no use for, and a free-text field is how one
 ends up in the database despite the column name.
 
+## Mileage
+
+`mileage_rates`, `mileage_trips` and `vehicle_use_years` (migration 00695).
+Trips become ledger entries on the `vehicle_mileage` account, so the deduction
+is on the P&L rather than in a second place.
+
+### The rate is a dated table, and that is not over-engineering
+
+The IRS rate changes every year and it has changed **mid-year**: 2022 ran at
+58.5 cents to 30 June and 62.5 cents from 1 July. A constant cannot express
+that, and a constant that is edited silently reprices every trip a seller ever
+logged. Lookup is by trip DATE, so a corrected rate flows through and last year
+cannot move.
+
+### The unit is in the column name
+
+`tenths_of_cent_per_mile`. Most published rates are not whole cents — 58.5,
+62.5, 65.5 — so an integer `cents_per_mile` cannot hold them, and putting 585
+in a column called cents means five dollars eighty-five a mile: an eight-fold
+overstatement that looks plausible on a summary and absurd only on a big year.
+
+### Two disclosures the number cannot make for itself
+
+- **A trip with no rate for its date produces NO ENTRY.** A rate we do not have
+  is not a rate of zero. The summary counts those trips so the screen can say
+  the total is smaller than the log.
+- **A provisional rate is used AND flagged.** The 2026 row is 2025's rate
+  carried forward because the IRS notice was not out. Carrying it and saying so
+  beats a silent zero and a silent guess. **Update that row when the real rate
+  is published.**
+
+### Rounding is PER TRIP, in both places
+
+> **A one-cent bug, found by building the check rather than by reasoning.**
+> `mileage_summary` first rounded once on the total while the ledger rounds per
+> trip. Two 10.4-mile trips at 58.5 cents are 608.4 cents each: **1216 per trip
+> against 1217 rounded once.** Reproduced on Postgres at 15498 against 15499.
+> Rounding once is more precise in isolation and is the wrong answer here,
+> because the ledger is the record and a seller who finds two of our own screens
+> a cent apart stops believing both.
+
+`npm run check:mileage` asserts the two routes agree, and reverting the rounding
+reddens exactly that check.
+
+### Part IV is asked, not derived
+
+Business miles come from the log. Total, commuting and other personal miles
+cannot be derived from a business-trip log — only the seller knows them — so a
+blank stays a blank rather than becoming a zero. Zero commuting miles is a real
+answer and printing 0 for a blank puts a claim on a form the seller never made.
+`partIvConflict()` catches the parts adding up to more than the whole, because
+four figures that contradict each other are worse on a form than three and a
+question.
+
+### Standard OR actual, never both
+
+`vehicle_use_years.method` is per year, because the election is per year, and
+the screen states it where the number is. On actual expenses the mileage figure
+does not apply, and the card says so instead of showing a deduction the seller
+cannot take.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -617,9 +681,10 @@ its contract into this note. Currently landed:
 - **US-2986** - COGS, the inventory snapshot and its two signals, above.
 - **US-2987** - the two sales-tax branches and the facilitator registry, above.
 - **US-2988** - the 1099-K bridge and its variance causes, above.
+- **US-2989** - mileage, dated rates and the per-trip rounding rule, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
 Still open, and each will add a section here rather than a new note: COGS and
-the ending-inventory snapshot (US-2986), facilitator sales tax (US-2987), the dated mileage and home-office rates (US-2989, US-2990),
+the ending-inventory snapshot (US-2986), facilitator sales tax (US-2987), the dated home-office rates (US-2990),
 estimated tax (US-2991), period close (US-2995) and the QuickBooks account
 mapping (US-2997, US-2998).

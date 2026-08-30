@@ -41,6 +41,7 @@ import {
   type TaxProfileDefaults,
 } from "@/lib/tax-profile";
 import { Form1099kBridge } from "@/components/finances/form-1099k-bridge";
+import { MileageLogCard } from "@/components/finances/mileage-log-card";
 
 // US-2982 — the tax setup screen.
 //
@@ -336,6 +337,12 @@ export function TaxSetupPage() {
           follows the seller's fiscal year. Putting a calendar-year figure on a
           fiscal-year page is how a variance that is pure artefact gets read as
           a finding. */}
+      {/* US-2989. Mileage sits beside the 1099-K bridge because both are
+          calendar-year surfaces: rates are published per calendar year and the
+          Part IV questions are asked per calendar year, so a fiscal-year
+          selector here would be actively wrong. */}
+      <MileageLogCard />
+
       <Form1099kBridge />
 
       <div className="flex items-center gap-3">

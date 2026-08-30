@@ -2741,21 +2741,6 @@
       "priority": 30
     },
     {
-      "id": "US-2989",
-      "passes": false,
-      "title": "Mileage log the IRS would accept, not an expense category called mileage",
-      "description": "expense_category has a 'mileage' value, so today a seller types a dollar amount they computed themselves. The IRS standard mileage deduction needs date, miles, destination and business purpose, recorded at or near the time of the trip, and the rate changes every year. A reseller who sources at thrift stores twice a week is throwing away a four-figure deduction because logging it is tedious. This is the story where the app does the tedious part.",
-      "acceptanceCriteria": [
-        "A trips table: date, start, end, miles, purpose, round trip flag, and an optional link to the source or item it was for.",
-        "Rates live in a dated table, not a constant. A trip is valued at the rate in force on its date, and last year's trips do not silently reprice when the new rate lands.",
-        "Quick entry from where the trip actually happens: logging a source visit or an item pickup offers to log the trip, prefilled.",
-        "The mileage deduction feeds the ledger as an expense entry and the tax packet as a log, and the two are the same number.",
-        "Total business miles, total deduction, and the Part IV vehicle questions (total miles, commuting miles, other personal) are exportable.",
-        "The screen states that mileage is standard-rate OR actual expenses, never both, and shows which the seller has chosen."
-      ],
-      "priority": 38
-    },
-    {
       "id": "US-2990",
       "passes": false,
       "title": "Home office and storage space, simplified method, computed once and carried into the packet",
