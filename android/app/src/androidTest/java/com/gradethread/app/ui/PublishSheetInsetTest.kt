@@ -107,19 +107,38 @@ class PublishSheetInsetTest {
     fun theCheckStillCatchesASheetThatIgnoresTheInsets() {
         val probe = offendersFor(zeroInsets = true)
 
-        // ⚠ ONLY MEANINGFUL WHERE THE BARS ARE DEEPER THAN THE TOLERANCE.
+        // ⚠ THE ASSUMPTION IS EMPIRICAL, AND THE FIRST VERSION GOT IT WRONG.
         //
-        // Zeroing the insets moves content up by barTop. If barTop is not
-        // itself larger than tolerancePx then nothing crosses the line, and the
-        // sabotage is undetectable BY CONSTRUCTION rather than because the
-        // check is broken. It failed on CI for exactly that reason: a 128px
-        // status bar on the local API 36 emulator, a smaller one on the runner.
-        // A red run there said nothing about the check it was guarding, and it
-        // reset US-2902 AC6's consecutive-green count for no reason.
+        // It guarded on `probe.barTop > tolerancePx`, reasoning that zeroing the
+        // insets moves content up by barTop. That is the wrong axis. This is a
+        // BOTTOM sheet: its content sits against the NAVIGATION bar, so the
+        // offender filter's `underNav` arm is the one the sabotage perturbs, and
+        // that depends on barBottom. On a runner with a status bar deeper than
+        // the tolerance and shallow gesture navigation, the assumption passed
+        // and the sabotage still moved nothing - so the test failed for a
+        // reason that said nothing about the detector, on every run, while the
+        // job's non-blocking flag kept the workflow green.
+        //
+        // So the guard moves to the axis that matters, and stays a property of
+        // the DEVICE rather than a restatement of the offender formula. If the
+        // navigation inset is not itself deeper than the tolerance, zeroing it
+        // cannot push content across the line and the sabotage is inert here.
+        //
+        // ⚠ A REJECTED ALTERNATIVE, recorded because it looks better than it is:
+        // assuming on "did any text come within the tolerance of a bar" is the
+        // offender test restated, so the assumption would guarantee the
+        // assertion and the one case worth catching - a sabotage that DID
+        // overlap while the detector stayed silent - could never be reached. A
+        // self-check satisfied by its own arithmetic is the exact failure this
+        // test exists to prevent. Comparing against a second, unsabotaged
+        // render would be independent, but ComposeTestRule.setContent may only
+        // be called once per test, so it is not available here.
         assumeTrue(
-            "system bars (top " + probe.barTop + ") are not deeper than the " +
-                tolerancePx.toInt() + "px tolerance, so this sabotage cannot be seen here",
-            probe.barTop > tolerancePx,
+            "the navigation inset (" + probe.barBottom + "px) is not deeper " +
+                "than the " + tolerancePx.toInt() + "px tolerance, so zeroing " +
+                "it cannot move content across a bar and this sabotage cannot " +
+                "be seen on this device (status bar " + probe.barTop + "px)",
+            probe.barBottom > tolerancePx,
         )
 
         assertTrue(
@@ -197,13 +216,22 @@ class PublishSheetInsetTest {
                 "\"" + text + "\" at " + node.boundsInWindow +
                     " (status bar 0..$barTop, nav bar $navBarTop..$windowHeight)"
             }
-        return Probe(offenders, barTop)
+        return Probe(offenders, barTop, barBottom)
     }
 
     /**
      * What a run saw, and the inset that decides whether it could see anything.
      */
-    private data class Probe(val offenders: List<String>, val barTop: Int)
+    private data class Probe(
+        val offenders: List<String>,
+        val barTop: Int,
+        /**
+         * The NAVIGATION bar inset. This is the axis a bottom sheet's content
+         * moves along when the insets are zeroed, and the first version of the
+         * self-check guarded on barTop instead - see the comment there.
+         */
+        val barBottom: Int,
+    )
 }
 
 /**
