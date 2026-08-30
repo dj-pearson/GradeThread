@@ -2039,7 +2039,6 @@
     <string name="money_trips_empty">No trips yet. A drive to a thrift store is deductible, and the log has to be kept as you go.</string>
     <string name="money_trip_round_trip">round trip</string>
     <string name="money_trip_miles">%1$s mi</string>
-    <string name="money_trip_route">%1$s to %2$s</string>
     <string name="receipt_scan_cta">Scan a receipt</string>
     <string name="receipt_scan_reading">Reading it</string>
     <string name="trip_form_new_title">Log a trip</string>
