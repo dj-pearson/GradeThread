@@ -18,6 +18,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableStateOf
@@ -50,8 +51,61 @@ import com.gradethread.app.ui.theme.cardStyle
 fun TeamScreen(onClose: () -> Unit, viewModel: TeamViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
 
+    TeamContent(
+        state,
+        TeamActions(
+            openInvite = viewModel::openInvite,
+            closeInvite = viewModel::closeInvite,
+            setInviteEmail = viewModel::setInviteEmail,
+            setInviteRole = viewModel::setInviteRole,
+            sendInvite = viewModel::sendInvite,
+            changeRole = viewModel::changeRole,
+            remove = viewModel::remove,
+            resend = viewModel::resend,
+            revoke = viewModel::revoke,
+            dismissError = viewModel::dismissError,
+            dismissAcceptUrl = viewModel::dismissAcceptUrl,
+            close = onClose,
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Suppress("LongParameterList")
+@Immutable
+data class TeamActions(
+    val openInvite: () -> Unit = {},
+    val closeInvite: () -> Unit = {},
+    val setInviteEmail: (String) -> Unit = {},
+    val setInviteRole: (WorkspaceRole) -> Unit = {},
+    val sendInvite: () -> Unit = {},
+    val changeRole: (String, WorkspaceRole) -> Unit = { _, _ -> },
+    val remove: (String) -> Unit = {},
+    val resend: (String) -> Unit = {},
+    val revoke: (String) -> Unit = {},
+    val dismissError: () -> Unit = {},
+    val dismissAcceptUrl: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * The workspace team with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE READ-ONLY VIEW IS THE ONE THAT MATTERS. A member who cannot manage the
+ * team sees the same list with the Invite button, the role menus and the Remove
+ * buttons simply absent - not greyed. Everything about permissions on this
+ * screen is what is missing from the layout, which is the one thing a unit test
+ * on the state cannot see. Both views are captured.
+ *
+ * ⚠ AND THE ACCEPT LINK IS OFFERED, NOT MENTIONED. When an invitation is
+ * created but its email does not send, that URL is the only way the person gets
+ * in. A card that stopped rendering would strand them with no error anywhere.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TeamContent(state: TeamViewModel.State, actions: TeamActions, modifier: Modifier = Modifier) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md).verticalScroll(rememberScrollState()),
+        modifier.fillMaxSize().padding(Spacing.md).verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -61,9 +115,10 @@ fun TeamScreen(onClose: () -> Unit, viewModel: TeamViewModel = hiltViewModel()) 
                 modifier = Modifier.weight(1f),
             )
             if (state.canManage) {
-                BrandPrimaryButton(text = stringResource(R.string.team_invite)) {
-                    viewModel.openInvite()
-                }
+                BrandPrimaryButton(
+                    text = stringResource(R.string.team_invite),
+                    onClick = actions.openInvite,
+                )
             }
         }
 
@@ -83,7 +138,7 @@ fun TeamScreen(onClose: () -> Unit, viewModel: TeamViewModel = hiltViewModel()) 
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
-                TextButton(onClick = viewModel::dismissError) {
+                TextButton(onClick = actions.dismissError) {
                     Text(stringResource(R.string.common_dismiss))
                 }
             }
@@ -91,7 +146,7 @@ fun TeamScreen(onClose: () -> Unit, viewModel: TeamViewModel = hiltViewModel()) 
 
         // The invite landed but the email did not. The link is then the only
         // way in, so it is offered rather than mentioned.
-        state.acceptUrl?.let { url -> AcceptLinkCard(url, viewModel) }
+        state.acceptUrl?.let { url -> AcceptLinkCard(url, actions) }
 
         if (state.loading && state.members.isEmpty()) {
             Row(
@@ -101,7 +156,7 @@ fun TeamScreen(onClose: () -> Unit, viewModel: TeamViewModel = hiltViewModel()) 
         }
 
         for (member in state.members) {
-            MemberRow(member, state, viewModel)
+            MemberRow(member, state, actions)
         }
 
         if (state.showsInvitations && state.invitations.isNotEmpty()) {
@@ -112,25 +167,25 @@ fun TeamScreen(onClose: () -> Unit, viewModel: TeamViewModel = hiltViewModel()) 
                 modifier = Modifier.padding(top = Spacing.sm),
             )
             for (invitation in state.invitations) {
-                InvitationRow(invitation, state, viewModel)
+                InvitationRow(invitation, state, actions)
             }
         }
 
         BrandSecondaryButton(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
-        ) { onClose() }
+        ) { actions.close() }
     }
 
     if (state.inviteOpen) {
-        ModalBottomSheet(onDismissRequest = viewModel::closeInvite) {
-            InviteSheet(state, viewModel)
+        ModalBottomSheet(onDismissRequest = actions.closeInvite) {
+            InviteSheet(state, actions)
         }
     }
 }
 
 @Composable
-private fun AcceptLinkCard(url: String, viewModel: TeamViewModel) {
+private fun AcceptLinkCard(url: String, actions: TeamActions) {
     val clipboard = LocalClipboardManager.current
     Column(Modifier.fillMaxWidth().cardStyle()) {
         Text(stringResource(R.string.team_email_not_sent), style = MaterialTheme.typography.bodyMedium)
@@ -145,7 +200,7 @@ private fun AcceptLinkCard(url: String, viewModel: TeamViewModel) {
             TextButton(onClick = { clipboard.setText(AnnotatedString(url)) }) {
                 Text(stringResource(R.string.team_copy_link))
             }
-            TextButton(onClick = viewModel::dismissAcceptUrl) {
+            TextButton(onClick = actions.dismissAcceptUrl) {
                 Text(stringResource(R.string.common_dismiss))
             }
         }
@@ -153,7 +208,7 @@ private fun AcceptLinkCard(url: String, viewModel: TeamViewModel) {
 }
 
 @Composable
-private fun MemberRow(member: TeamMember, state: TeamViewModel.State, viewModel: TeamViewModel) {
+private fun MemberRow(member: TeamMember, state: TeamViewModel.State, actions: TeamActions) {
     var menuOpen by remember(member.memberId) { mutableStateOf(false) }
     val label = member.email ?: member.name ?: stringResource(R.string.team_unnamed_member)
 
@@ -180,7 +235,7 @@ private fun MemberRow(member: TeamMember, state: TeamViewModel.State, viewModel:
                         text = { Text(roleLabel(role)) },
                         onClick = {
                             menuOpen = false
-                            viewModel.changeRole(member.memberId, role)
+                            actions.changeRole(member.memberId, role)
                         },
                     )
                 }
@@ -190,7 +245,7 @@ private fun MemberRow(member: TeamMember, state: TeamViewModel.State, viewModel:
             // simply does not offer it.
             if (member.memberId != state.selfId) {
                 TextButton(
-                    onClick = { viewModel.remove(member.memberId) },
+                    onClick = { actions.remove(member.memberId) },
                     enabled = state.busyKey == null,
                 ) {
                     Text(stringResource(R.string.team_remove))
@@ -201,7 +256,7 @@ private fun MemberRow(member: TeamMember, state: TeamViewModel.State, viewModel:
 }
 
 @Composable
-private fun InvitationRow(invitation: WorkspaceInvitationRow, state: TeamViewModel.State, viewModel: TeamViewModel) {
+private fun InvitationRow(invitation: WorkspaceInvitationRow, state: TeamViewModel.State, actions: TeamActions) {
     val days = WorkspaceDate.daysUntil(invitation.expiresAt, System.currentTimeMillis())
     Column(Modifier.fillMaxWidth().cardStyle()) {
         Text(invitation.email, style = MaterialTheme.typography.bodyMedium)
@@ -221,13 +276,13 @@ private fun InvitationRow(invitation: WorkspaceInvitationRow, state: TeamViewMod
         )
         Row {
             TextButton(
-                onClick = { viewModel.resend(invitation.id) },
+                onClick = { actions.resend(invitation.id) },
                 enabled = state.busyKey == null,
             ) {
                 Text(stringResource(R.string.team_resend))
             }
             TextButton(
-                onClick = { viewModel.revoke(invitation.id) },
+                onClick = { actions.revoke(invitation.id) },
                 enabled = state.busyKey == null,
             ) {
                 Text(stringResource(R.string.team_revoke))
@@ -237,7 +292,7 @@ private fun InvitationRow(invitation: WorkspaceInvitationRow, state: TeamViewMod
 }
 
 @Composable
-private fun InviteSheet(state: TeamViewModel.State, viewModel: TeamViewModel) {
+private fun InviteSheet(state: TeamViewModel.State, actions: TeamActions) {
     var menuOpen by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxWidth().padding(Spacing.md),
@@ -246,7 +301,7 @@ private fun InviteSheet(state: TeamViewModel.State, viewModel: TeamViewModel) {
         Text(stringResource(R.string.team_invite_title), style = MaterialTheme.typography.titleMedium)
         OutlinedTextField(
             value = state.inviteEmail,
-            onValueChange = viewModel::setInviteEmail,
+            onValueChange = actions.setInviteEmail,
             label = { Text(stringResource(R.string.team_invite_email)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -266,7 +321,7 @@ private fun InviteSheet(state: TeamViewModel.State, viewModel: TeamViewModel) {
                         text = { Text(roleLabel(role)) },
                         onClick = {
                             menuOpen = false
-                            viewModel.setInviteRole(role)
+                            actions.setInviteRole(role)
                         },
                     )
                 }
@@ -281,7 +336,7 @@ private fun InviteSheet(state: TeamViewModel.State, viewModel: TeamViewModel) {
             text = stringResource(R.string.team_send_invite),
             modifier = Modifier.fillMaxWidth(),
             enabled = state.canSendInvite,
-        ) { viewModel.sendInvite() }
+        ) { actions.sendInvite() }
     }
 }
 
