@@ -105,11 +105,14 @@ data class AuthActions(
  * have altered what a golden records.
  */
 @Composable
-fun AuthContent(state: AuthViewModel.State, actions: AuthActions) {
+fun AuthContent(state: AuthViewModel.State, actions: AuthActions, modifier: Modifier = Modifier) {
     var passwordVisible by remember { mutableStateOf(false) }
 
     Column(
-        Modifier
+        // The default is Modifier, so this chain is identical to the one that
+        // lived here before the extraction - the goldens recorded against it
+        // cannot have moved.
+        modifier
             .testTag(TestTags.Auth.SCREEN)
             .fillMaxSize()
             // US-2891: API 36 makes edge-to-edge mandatory - the opt-out that
