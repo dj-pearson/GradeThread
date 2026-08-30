@@ -122,6 +122,47 @@ function composableBody(source, name) {
   return null;
 }
 
+
+/**
+ * Does [name] consume window insets, following at most one hop?
+ *
+ * @param sources the Kotlin sources to look in, as strings.
+ * @returns "ok", "missing" (found, no insets), or "absent" (no such composable).
+ *
+ * ⚠ THE SELF-TEST CALLS THIS TOO. It used to carry its own simplified copy of
+ * the same logic, which is how the delegation hop below could be added, be
+ * correct, and still be reported as broken by a self-test that had never heard
+ * of it. A guard whose test re-implements the guard tests the copy.
+ */
+function insetsFor(name, sources) {
+  let body = null;
+  for (const src of sources) {
+    if (!src.includes(`fun ${name}(`)) continue;
+    body = composableBody(src, name);
+    if (body) break;
+  }
+  if (body === null) return "absent";
+  if (INSET_MARKERS.some((m) => body.includes(m))) return "ok";
+
+  // US-2902 AC3 moved every screen's layout into a sibling `<Name>Content`,
+  // leaving the screen itself as a wrapper that collects state and delegates.
+  // The insets did not go anywhere - they are on the Content's root - but a
+  // scan reading only the screen's own body cannot see them, and reports a
+  // screen as drawing under the status bar when it does not.
+  //
+  // ⚠ ONE HOP, AND ONLY TO THE SCREEN'S OWN CONTENT. Following arbitrary calls
+  // would let any indirection launder the check; `<Name>Content` is the one
+  // rename that sweep performed.
+  const contentName = `${name.replace(/Screen$/, "")}Content`;
+  if (!body.includes(`${contentName}(`)) return "missing";
+  for (const src of sources) {
+    if (!src.includes(`fun ${contentName}(`)) continue;
+    const delegate = composableBody(src, contentName);
+    if (delegate) return INSET_MARKERS.some((m) => delegate.includes(m)) ? "ok" : "missing";
+  }
+  return "missing";
+}
+
 /** The `setContent { ... }` block of a MainActivity source. */
 function setContentBlock(source) {
   const at = source.indexOf("setContent {");
@@ -149,19 +190,12 @@ function check(activitySource, files) {
 
   // Half 1: each listed screen consumes insets somewhere in its own body.
   const known = new Set(ROOT_SCREENS.map(([n]) => n));
+  const sources = files.map((f) => readFileSync(f, "utf8"));
   for (const [name, symptom] of ROOT_SCREENS) {
-    let body = null;
-    for (const f of files) {
-      const src = readFileSync(f, "utf8");
-      if (!src.includes(`fun ${name}(`)) continue;
-      body = composableBody(src, name);
-      if (body) break;
-    }
-    if (body === null) {
+    const verdict = insetsFor(name, sources);
+    if (verdict === "absent") {
       problems.push(`${name}: listed as a root screen but no composable of that name was found`);
-      continue;
-    }
-    if (!INSET_MARKERS.some((m) => body.includes(m))) {
+    } else if (verdict === "missing") {
       problems.push(
         `${name}: composed directly by MainActivity with no Scaffold above it, and applies no `
           + `window insets. At API 36 edge-to-edge is mandatory, so ${symptom}. `
@@ -209,14 +243,17 @@ if (process.argv.includes("--self-test")) {
     files: clean.files,
   };
 
+  // Bumped by each assertion below so the summary line cannot drift from the
+  // number of cases that actually ran.
+  let cases = 0;
   const run = (c) => {
+    cases += 1;
     const problems = [];
     const block = setContentBlock(c.activity);
     const known = new Set(["AuthScreen"]);
     for (const name of known) {
-      const src = c.files.find((f) => f.includes(`fun ${name}(`));
-      const body = src ? composableBody(src, name) : null;
-      if (!body || !INSET_MARKERS.some((m) => body.includes(m))) problems.push(`${name}: no insets`);
+      // The SAME function the real check uses. See insetsFor's own note.
+      if (insetsFor(name, c.files) !== "ok") problems.push(`${name}: no insets`);
     }
     for (const m of block.matchAll(/(?:^|[^A-Za-z0-9_.])([A-Z][A-Za-z0-9_]*)\s*[({]/g)) {
       if (!known.has(m[1]) && !NOT_A_SCREEN.has(m[1])) problems.push(`${m[1]}: unlisted`);
@@ -228,6 +265,30 @@ if (process.argv.includes("--self-test")) {
   if (run(clean).length) failures.push("clean fixture should pass, reported: " + run(clean).join("; "));
   if (!run(stripped).some((p) => p.includes("no insets"))) failures.push("a screen with the insets removed did not fail");
   if (!run(smuggled).some((p) => p.includes("unlisted"))) failures.push("an unlisted screen in setContent did not fail");
+
+  // US-2902 AC3: a screen that delegates its layout to its own *Content passes
+  // when the Content applies the insets...
+  const delegating = {
+    activity: `class MainActivity { fun onCreate() { setContent { GradeThreadTheme { AuthScreen() } } } }`,
+    files: [
+      `@Composable fun AuthScreen() { AuthContent(state, actions) }`,
+      `@Composable fun AuthContent(state: S, actions: A) { Column(Modifier.fillMaxSize().safeDrawingPadding()) { } }`,
+    ],
+  };
+  if (run(delegating).length) failures.push("a screen delegating to its own Content with insets was reported");
+
+  // ...and still fails when it does not. The hop must not launder the check.
+  const delegatingBare = {
+    activity: `class MainActivity { fun onCreate() { setContent { GradeThreadTheme { AuthScreen() } } } }`,
+    files: [
+      `@Composable fun AuthScreen() { AuthContent(state, actions) }`,
+      `@Composable fun AuthContent(state: S, actions: A) { Column(Modifier.fillMaxSize()) { } }`,
+    ],
+  };
+  if (!run(delegatingBare).some((p) => p.includes("AuthScreen"))) {
+    failures.push("a delegate with no insets was not reported");
+  }
+
   if (run(defaultLambda).length) failures.push("a screen with a default-lambda parameter was misread as having no body, reported: " + run(defaultLambda).join("; "));
 
   if (failures.length) {
@@ -235,7 +296,8 @@ if (process.argv.includes("--self-test")) {
     for (const f of failures) console.error("  - " + f);
     process.exit(1);
   }
-  console.log("check-root-insets self-test ok (4 cases)");
+  // Counted, not asserted from memory: this said "4 cases" while six ran.
+  console.log(`check-root-insets self-test ok (${cases} cases)`);
   process.exit(0);
 }
 
