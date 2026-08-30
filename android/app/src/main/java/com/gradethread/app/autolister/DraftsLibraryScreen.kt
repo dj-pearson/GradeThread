@@ -2,6 +2,8 @@ package com.gradethread.app.autolister
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,14 +54,77 @@ import java.time.ZoneId
 @Composable
 fun DraftsLibraryScreen(onClose: () -> Unit = {}, viewModel: AutolisterViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+
+    LaunchedEffect(Unit) { viewModel.loadDrafts() }
+
+    DraftsLibraryContent(
+        state,
+        DraftsLibraryActions(
+            toggleAll = viewModel::toggleAll,
+            toggle = viewModel::toggle,
+            deleteDraft = viewModel::deleteDraft,
+            clearSchedule = viewModel::clearSchedule,
+            loadPlatformFields = viewModel::loadPlatformFields,
+            dismissPlatformFields = viewModel::dismissPlatformFields,
+            saveDraft = viewModel::saveDraft,
+            schedule = viewModel::schedule,
+            bulkPrice = viewModel::bulkPrice,
+            bulkText = viewModel::bulkText,
+            resume = viewModel::resume,
+            retryFailed = viewModel::retryFailed,
+            close = onClose,
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Suppress("LongParameterList")
+@Immutable
+data class DraftsLibraryActions(
+    val toggleAll: () -> Unit = {},
+    val toggle: (String) -> Unit = {},
+    val deleteDraft: (DraftListing) -> Unit = {},
+    val clearSchedule: (DraftListing) -> Unit = {},
+    val loadPlatformFields: (String) -> Unit = {},
+    val dismissPlatformFields: () -> Unit = {},
+    val saveDraft: (DraftListing, String?, String?, String) -> Unit = { _, _, _, _ -> },
+    val schedule: (DraftListing, java.time.LocalDate, java.time.LocalTime) -> Unit = { _, _, _ -> },
+    val bulkPrice: (DraftBulk.PriceChange) -> Unit = {},
+    val bulkText: (String?, String?) -> Unit = { _, _ -> },
+    val resume: () -> Unit = {},
+    val retryFailed: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * The drafts library, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ A STALLED BATCH IS THE ONE A PROGRESS BAR HIDES. The bar sits still at
+ * whatever fraction it reached and looks exactly like slow work, so `stalled`
+ * puts the words and the resume button on screen. A golden of the moving batch
+ * beside the stalled one is what proves those two frames differ at all.
+ *
+ * ⚠ AND FOUR DIALOGS SHARE THIS SCREEN: edit one, schedule one, bulk-edit the
+ * selection, and show the other platforms' fields. Which one is open is held
+ * here rather than by the caller, because only this screen knows which row was
+ * tapped.
+ */
+@Composable
+fun DraftsLibraryContent(
+    state: AutolisterViewModel.State,
+    actions: DraftsLibraryActions,
+    modifier: Modifier = Modifier,
+    draftEditor: @Composable (DraftListing, () -> Unit, (String, String) -> Unit) -> Unit =
+        { draft, onDismiss, onSave ->
+            DraftEditorDialog(draft, state.busy, onDismiss, onSave)
+        },
+) {
     var editing by remember { mutableStateOf<DraftListing?>(null) }
     var bulkOpen by remember { mutableStateOf(false) }
     var scheduling by remember { mutableStateOf<DraftListing?>(null) }
 
-    LaunchedEffect(Unit) { viewModel.loadDrafts() }
-
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.drafts_draft_listings), style = MaterialTheme.typography.titleLarge)
@@ -68,7 +134,7 @@ fun DraftsLibraryScreen(onClose: () -> Unit = {}, viewModel: AutolisterViewModel
         }
         state.banner?.let { InfoCard(stringResource(R.string.drafts_done), it, tone = InfoTone.Success) }
 
-        state.batch?.let { batch -> BatchPanel(batch, state, viewModel) }
+        state.batch?.let { batch -> BatchPanel(batch, state, actions) }
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -81,7 +147,7 @@ fun DraftsLibraryScreen(onClose: () -> Unit = {}, viewModel: AutolisterViewModel
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = viewModel::toggleAll) {
+            TextButton(onClick = actions.toggleAll) {
                 Text(
                     stringResource(
                         if (state.allSelected) {
@@ -109,12 +175,12 @@ fun DraftsLibraryScreen(onClose: () -> Unit = {}, viewModel: AutolisterViewModel
                         draft = draft,
                         selected = draft.id in state.selected,
                         busy = state.busy,
-                        onToggle = { viewModel.toggle(draft.id) },
+                        onToggle = { actions.toggle(draft.id) },
                         onEdit = { editing = draft },
-                        onDelete = { viewModel.deleteDraft(draft) },
+                        onDelete = { actions.deleteDraft(draft) },
                         onSchedule = { scheduling = draft },
-                        onClearSchedule = { viewModel.clearSchedule(draft) },
-                        onOtherPlatforms = { viewModel.loadPlatformFields(draft.inventoryItemId) },
+                        onClearSchedule = { actions.clearSchedule(draft) },
+                        onOtherPlatforms = { actions.loadPlatformFields(draft.inventoryItemId) },
                     )
                 }
             }
@@ -129,21 +195,24 @@ fun DraftsLibraryScreen(onClose: () -> Unit = {}, viewModel: AutolisterViewModel
         }
 
         BrandSecondaryButton(text = stringResource(R.string.drafts_back), modifier = Modifier.fillMaxWidth()) {
-            onClose()
+            actions.close()
         }
     }
 
+    // The editor is a SLOT because it resolves its own Hilt ViewModel for the
+    // description blocks, and the activity a screenshot test renders into is not
+    // a Hilt component. It defaults to the real dialog, so nothing ships
+    // differently.
     editing?.let { draft ->
-        DraftEditorDialog(
-            draft = draft,
-            busy = state.busy,
-            onDismiss = { editing = null },
+        draftEditor(
+            draft,
+            { editing = null },
             // US-2964: the description is NOT passed. It is rendered from the
             // blocks by the edge service, which writes `listing_description`
             // itself, so sending a string here would overwrite the render with
             // whatever the row was showing before the edit.
-            onSave = { title, price ->
-                viewModel.saveDraft(draft, title, null, price)
+            { title, price ->
+                actions.saveDraft(draft, title, null, price)
                 editing = null
             },
         )
@@ -152,7 +221,7 @@ fun DraftsLibraryScreen(onClose: () -> Unit = {}, viewModel: AutolisterViewModel
     // US-2408: the same draft as every other marketplace would take it,
     // filled by the server.
     state.platformFields?.let { fields ->
-        PlatformFieldsDialog(fields = fields, onDismiss = viewModel::dismissPlatformFields)
+        PlatformFieldsDialog(fields = fields, onDismiss = actions.dismissPlatformFields)
     }
 
     scheduling?.let { draft ->
@@ -161,7 +230,7 @@ fun DraftsLibraryScreen(onClose: () -> Unit = {}, viewModel: AutolisterViewModel
             busy = state.busy,
             onDismiss = { scheduling = null },
             onSchedule = { date, time ->
-                viewModel.schedule(draft, date, time)
+                actions.schedule(draft, date, time)
                 scheduling = null
             },
         )
@@ -172,11 +241,11 @@ fun DraftsLibraryScreen(onClose: () -> Unit = {}, viewModel: AutolisterViewModel
             state = state,
             onDismiss = { bulkOpen = false },
             onPrice = {
-                viewModel.bulkPrice(it)
+                actions.bulkPrice(it)
                 bulkOpen = false
             },
             onText = { title, description ->
-                viewModel.bulkText(title, description)
+                actions.bulkText(title, description)
                 bulkOpen = false
             },
         )
@@ -184,7 +253,7 @@ fun DraftsLibraryScreen(onClose: () -> Unit = {}, viewModel: AutolisterViewModel
 }
 
 @Composable
-private fun BatchPanel(batch: AutolisterBatch, state: AutolisterViewModel.State, viewModel: AutolisterViewModel) {
+private fun BatchPanel(batch: AutolisterBatch, state: AutolisterViewModel.State, actions: DraftsLibraryActions) {
     Column(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
@@ -208,7 +277,7 @@ private fun BatchPanel(batch: AutolisterBatch, state: AutolisterViewModel.State,
                 text = stringResource(R.string.drafts_resume),
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
-            ) { viewModel.resume() }
+            ) { actions.resume() }
         }
         if (state.failedJobs.isNotEmpty()) {
             val bulletPrefix = stringResource(R.string.drafts_bullet_prefix)
@@ -224,11 +293,12 @@ private fun BatchPanel(batch: AutolisterBatch, state: AutolisterViewModel.State,
                 text = pluralStringResource(R.plurals.drafts_retry_failed, batch.failedCount, batch.failedCount),
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
-            ) { viewModel.retryFailed() }
+            ) { actions.retryFailed() }
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DraftCard(
     draft: DraftListing,
@@ -254,7 +324,12 @@ private fun DraftCard(
                 modifier = Modifier.weight(1f),
             )
         }
-        Row {
+        // Spaced and baseline-aligned: unspaced these rendered as
+        // "$44.00estimated", with the tag riding above the price.
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xxs),
+            verticalAlignment = Alignment.Bottom,
+        ) {
             draft.listingPrice?.let {
                 Text(Money.format(it), style = MaterialTheme.typography.bodyMedium)
             }
@@ -281,7 +356,10 @@ private fun DraftCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        Row {
+        // A scheduled draft carries FIVE actions, and a fixed Row squeezed the
+        // last two off the card: "Other marketplaces" came out one letter per
+        // line and Delete never rendered at all. They wrap now.
+        FlowRow {
             TextButton(onClick = onEdit, enabled = !busy) { Text(stringResource(R.string.drafts_edit)) }
             TextButton(onClick = onSchedule, enabled = !busy) {
                 Text(
