@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
@@ -61,7 +62,49 @@ fun SupportScreen(onOpenTicket: (String) -> Unit, viewModel: SupportViewModel = 
         }
     }
 
-    Column(Modifier.fillMaxSize().padding(Spacing.md)) {
+    SupportContent(
+        state,
+        SupportActions(
+            load = viewModel::load,
+            openComposer = viewModel::openComposer,
+            closeComposer = viewModel::closeComposer,
+            setSubject = viewModel::setSubject,
+            setBody = viewModel::setBody,
+            send = viewModel::send,
+            openTicket = onOpenTicket,
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class SupportActions(
+    val load: () -> Unit = {},
+    val openComposer: () -> Unit = {},
+    val closeComposer: () -> Unit = {},
+    val setSubject: (String) -> Unit = {},
+    val setBody: (String) -> Unit = {},
+    val send: () -> Unit = {},
+    val openTicket: (String) -> Unit = {},
+)
+
+/**
+ * Support with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE VALIDATION IS PER FIELD AND ONLY APPEARS ONCE TYPING STARTS.
+ * subjectError and bodyError are null while a field is empty, so a seller who
+ * has not touched the form is not told off for it - and canSend is false
+ * regardless. A form that showed both errors on open would read as broken
+ * before anyone did anything.
+ *
+ * ⚠ AND AN EMPTY TICKET LIST IS THE ORDINARY CASE. Most people never open a
+ * ticket; that state must not look like a failed load, which is the state
+ * directly beside it.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SupportContent(state: SupportViewModel.State, actions: SupportActions, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxSize().padding(Spacing.md)) {
         Row(
             Modifier.fillMaxWidth().padding(bottom = Spacing.sm),
             verticalAlignment = Alignment.CenterVertically,
@@ -72,7 +115,7 @@ fun SupportScreen(onOpenTicket: (String) -> Unit, viewModel: SupportViewModel = 
                 modifier = Modifier.weight(1f),
             )
             BrandPrimaryButton(text = stringResource(R.string.support_new_request)) {
-                viewModel.openComposer()
+                actions.openComposer()
             }
         }
 
@@ -87,7 +130,7 @@ fun SupportScreen(onOpenTicket: (String) -> Unit, viewModel: SupportViewModel = 
                 BrandSecondaryButton(
                     text = stringResource(R.string.common_try_again),
                     modifier = Modifier.padding(top = Spacing.sm),
-                ) { viewModel.load() }
+                ) { actions.load() }
             }
 
             state.isEmpty -> Text(
@@ -99,15 +142,15 @@ fun SupportScreen(onOpenTicket: (String) -> Unit, viewModel: SupportViewModel = 
 
             else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 items(state.tickets, key = { it.id }) { ticket ->
-                    TicketRow(ticket) { onOpenTicket(ticket.id) }
+                    TicketRow(ticket) { actions.openTicket(ticket.id) }
                 }
             }
         }
     }
 
     if (state.composerOpen) {
-        ModalBottomSheet(onDismissRequest = viewModel::closeComposer) {
-            Composer(state, viewModel)
+        ModalBottomSheet(onDismissRequest = actions.closeComposer) {
+            Composer(state, actions)
         }
     }
 }
@@ -142,7 +185,7 @@ private fun TicketRow(ticket: SupportTicket, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Composer(state: SupportViewModel.State, viewModel: SupportViewModel) {
+private fun Composer(state: SupportViewModel.State, actions: SupportActions) {
     Column(
         Modifier
             .fillMaxWidth()
@@ -156,7 +199,7 @@ private fun Composer(state: SupportViewModel.State, viewModel: SupportViewModel)
         )
         OutlinedTextField(
             value = state.subject,
-            onValueChange = viewModel::setSubject,
+            onValueChange = actions.setSubject,
             label = { Text(stringResource(R.string.support_subject)) },
             singleLine = true,
             isError = state.subjectError != null,
@@ -165,7 +208,7 @@ private fun Composer(state: SupportViewModel.State, viewModel: SupportViewModel)
         )
         OutlinedTextField(
             value = state.body,
-            onValueChange = viewModel::setBody,
+            onValueChange = actions.setBody,
             label = { Text(stringResource(R.string.support_body_label)) },
             minLines = 4,
             isError = state.bodyError != null,
@@ -190,6 +233,6 @@ private fun Composer(state: SupportViewModel.State, viewModel: SupportViewModel)
             ),
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.md),
             enabled = state.canSend,
-        ) { viewModel.send() }
+        ) { actions.send() }
     }
 }
