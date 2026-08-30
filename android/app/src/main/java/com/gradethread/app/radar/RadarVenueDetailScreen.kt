@@ -16,6 +16,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
@@ -46,8 +47,38 @@ fun RadarVenueDetailScreen(
     val phase by viewModel.state.collectAsState()
     LaunchedEffect(venueId) { viewModel.load(venueId) }
 
+    RadarVenueDetailContent(
+        phase,
+        RadarVenueDetailActions(retry = { viewModel.load(venueId) }, close = onClose),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class RadarVenueDetailActions(val retry: () -> Unit = {}, val close: () -> Unit = {})
+
+/**
+ * One venue in the radar, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THREE REASONS FOR AN EMPTY SCREEN, AND ONLY ONE IS A FAULT.
+ *
+ *   NOTHING_TO_SAY  too few people have scanned here to say anything without
+ *                   identifying them - the k-floor doing its job
+ *   PLAN_GATED      a Free seller meeting a paid surface, which is a price
+ *   FAILED          it actually broke, and retrying is worth a try
+ *
+ * All three render a card with a sentence on it. Telling a seller something is
+ * broken when the truth is "nobody has been here yet" sends them to support
+ * over a working feature, and only FAILED should offer a retry.
+ */
+@Composable
+fun RadarVenueDetailContent(
+    phase: RadarVenueDetailViewModel.Phase,
+    actions: RadarVenueDetailActions,
+    modifier: Modifier = Modifier,
+) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Column(
@@ -62,7 +93,7 @@ fun RadarVenueDetailScreen(
                     ) { CircularProgressIndicator() }
 
                 is RadarVenueDetailViewModel.Phase.Withheld ->
-                    WithheldCard(current) { viewModel.load(venueId) }
+                    WithheldCard(current, actions.retry)
 
                 is RadarVenueDetailViewModel.Phase.Ready -> ReadyDetail(current.detail)
             }
@@ -71,7 +102,7 @@ fun RadarVenueDetailScreen(
         BrandSecondaryButton(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
-        ) { onClose() }
+        ) { actions.close() }
     }
 }
 
