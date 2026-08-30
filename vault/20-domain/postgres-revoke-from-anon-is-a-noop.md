@@ -10,7 +10,7 @@ code_refs:
   - supabase/migrations/00099_snap_quota.sql
   - supabase/migrations/00611_body_checks_for_ineffective_revokes.sql
   - supabase/migrations/00617_remaining_metered_function_guards.sql
-reviewed: 2026-08-23
+reviewed: 2026-08-29
 tags: [postgres, security, migrations, grants]
 summary: CREATE FUNCTION grants EXECUTE to PUBLIC and every role belongs to PUBLIC, so revoking a role by name removes a grant it never held alone. Thirteen migrations used that pattern; six secured nothing, for up to three years.
 ---

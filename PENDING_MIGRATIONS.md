@@ -1,5 +1,38 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ✅ APPLIED: 00692_keeping_leaves_inventory.sql (US-3007 — the status a seller already sets is what records the write-off; owner-confirmed applied 2026-08-29)
+
+**What it does.** A BEFORE INSERT/UPDATE trigger on `inventory_items` derives the
+write-off from `item_status`, so a seller does not have to say it twice. Plus a
+one-time backfill of items already sitting in `keeping`.
+
+**⚠ Only `keeping` leaves inventory, and the obvious mapping is wrong twice.**
+Owner's ruling 2026-08-29:
+
+| status | inventory | why |
+|---|---|---|
+| `keeping` | leaves | taken for personal use, reduces Schedule C line 36 |
+| `wearing` | STAYS | still stock — they are wearing it and will still sell it |
+| `returned` | STAYS | a buyer sent it back, so it returns to stock |
+| `archived` | STAYS | ambiguous, so the trigger will not guess |
+
+**⚠ The backfill writes real rows.** Every item in `keeping` with no reason gets
+`removed_on = updated_at::date` and `personal_use`. `updated_at` is when the row
+last changed for ANY reason, not necessarily when the item was taken — the owner
+chose it because nothing in the schema records the transition. Idempotent, and a
+hand-set reason is never overwritten.
+
+**Needs `NOTIFY pgrst, 'reload schema';`** — a new function, so the schema cache
+must be told.
+
+**Verified on the local stack.** Applied twice (idempotent, `UPDATE 0` /
+`INSERT 0 0` on the rerun). `scripts/check-inventory-writeoffs.mjs` now asserts
+all three statuses, that `keeping -> listed` puts the item back, and that a
+hand-set `lost` survives a status change. SABOTAGE-CHECKED by widening the
+trigger to include `wearing` — it went red naming the real risk ("wearing or
+returned was removed from inventory - both must STAY") and green on restore.
+
+
 ## HELD: 00691_facilitator_sales_tax.sql (US-2987)
 
 **Risk: MEDIUM, higher than the rest of this epic, and the reason is worth
@@ -70,7 +103,7 @@ table and two new RPCs.
 entries are not rewritten until `rebuild_my_ledger()` runs, which happens on the
 P&L page's Rebuild button or the first books screen on an empty ledger.
 
-## 🟠 PUSHED, NOT YET APPLIED: 00690_inventory_writeoffs.sql (US-3007 — an item that is lost, donated or kept never left inventory)
+## ✅ APPLIED: 00690_inventory_writeoffs.sql (owner-confirmed applied 2026-08-29) (US-3007 — an item that is lost, donated or kept never left inventory)
 
 **Risk: low-to-moderate.** Two new nullable columns and two CHECK constraints on
 `inventory_items`; two existing functions re-emitted. No data is rewritten and
