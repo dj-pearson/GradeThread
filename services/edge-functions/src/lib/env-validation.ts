@@ -133,6 +133,24 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
   // US-599: Shopify connector. Missing → the Shopify OAuth/list/sync/delist
   // paths return 503; the rest of FlipDesk is unaffected.
   { name: "shopify", vars: ["SHOPIFY_API_KEY", "SHOPIFY_API_SECRET", "SHOPIFY_REDIRECT_URI"] },
+  // US-2997: QuickBooks Online. Missing -> every /api/flipdesk/qbo path answers
+  // 503 and the card says the connector is off; nothing else is affected.
+  //
+  // It is HERE rather than nowhere because four variables were set on the
+  // server and there was no way to confirm the edge could see them without
+  // signing in and opening the card. Every other connector reports itself; this
+  // one silently did not, so "is QuickBooks configured" was a question only a
+  // seller could answer, by failing.
+  //
+  // QBO_ENVIRONMENT is deliberately NOT required: it defaults to production,
+  // and demanding it would report a correctly-configured live connector as
+  // broken.
+  //
+  // NO `alsoUnverifiable`, and that was a correction. The first version carried
+  // one about the redirect URI having to match the Intuit app exactly. It fails
+  // the second half of that field's own rule: a mismatch surfaces as a REFUSED
+  // CONSENT SCREEN, which is loud. The caveat is for things that fail silently.
+  { name: "quickbooks", vars: ["QBO_CLIENT_ID", "QBO_CLIENT_SECRET", "QBO_REDIRECT_URI"] },
   // Four variables being present is not the same as mail arriving, and the gap
   // between those two has an owner: US-2597 asks whether SES is out of sandbox,
   // and the edge-crash-loop note records grade-lifecycle mail failing gracefully

@@ -348,6 +348,9 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `QBO_CLIENT_SECRET` 🔒 | ⬜ Coolify edge | Intuit app client secret; sent as HTTP Basic on every token call. |
 | `QBO_REDIRECT_URI` | ⬜ Coolify edge | Must match the Intuit app EXACTLY, scheme and trailing slash included. Normally `https://functions.gradethread.com/api/flipdesk/qbo/oauth/callback`. |
 | `QBO_ENVIRONMENT` | ⬜ Coolify edge | `sandbox` or `production` (default). Picks the Intuit host AND is stored on the connection row -- they are different company files and nothing falls back between them. |
+
+The first three are a **feature group** (`quickbooks`) on `/health/ready`, so an operator can confirm the edge sees them without signing in. `QBO_ENVIRONMENT` is deliberately not in the group: it defaults to `production`, and requiring it would report a correct live connector as broken.
+
 | `CERT_SIGNING_KEY` 🔒 | ✅ Coolify edge (prod-fatal) | HMAC key signing certificate integrity records (`buildCertIntegrity`). Without it a cert can be minted but not proved untampered, which is the product's whole claim — hence boot-fatal rather than degraded. |
 | `API_KEY_PEPPER` 🔒 | ✅ Coolify edge (prod-fatal) | Server-side pepper hashed into stored public-API keys. |
 | `PASSPORT_LINKAGE_SALT` 🔒 | 🟡 Coolify edge | Salt for garment-passport owner-linkage hashing. |
