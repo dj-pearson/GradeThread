@@ -43,6 +43,7 @@ import {
 import { Form1099kBridge } from "@/components/finances/form-1099k-bridge";
 import { MileageLogCard } from "@/components/finances/mileage-log-card";
 import { HomeOfficeCard } from "@/components/finances/home-office-card";
+import { EstimatedTaxCard } from "@/components/finances/estimated-tax-card";
 
 // US-2982 — the tax setup screen.
 //
@@ -342,6 +343,12 @@ export function TaxSetupPage() {
           calendar-year surfaces: rates are published per calendar year and the
           Part IV questions are asked per calendar year, so a fiscal-year
           selector here would be actively wrong. */}
+      {/* US-2991 goes FIRST among these cards, ahead of mileage and the home
+          office, because it is the only one that changes what a seller does
+          TODAY. The others are worth money in April; this one is a figure to
+          move into a second account this week. */}
+      <EstimatedTaxCard />
+
       <MileageLogCard />
 
       {/* US-2990. Beside mileage because both are once-a-year deductions a

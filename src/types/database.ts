@@ -2229,6 +2229,53 @@ export type SavedViewUpdate = Partial<
 // readable by everyone, writable by nobody. The rate has not moved since 2013,
 // which is exactly why it is a table: a number that has not changed in a decade
 // is the one nobody thinks to check when it does.
+// US-2991 — dated self-employment tax data. Reference data with no user_id:
+// readable by everyone, writable by nobody.
+//
+// There are NO income-tax brackets here, deliberately. Income tax depends on the
+// seller's whole return -- a spouse's wages, a W-2 job, other deductions,
+// credits, state tax -- none of which this app sees. The seller picks a rate and
+// the screen names it as their assumption rather than presenting a confident
+// number built on inputs we do not have.
+export interface TaxRateYearRow {
+  id: string;
+  tax_year: number;
+  ss_wage_base_cents: number;
+  social_security_rate_bps: number;
+  medicare_rate_bps: number;
+  /** Net earnings are 92.35% of profit: the deduction for the employer half. */
+  se_income_factor_bps: number;
+  addl_medicare_rate_bps: number;
+  addl_medicare_threshold: Record<string, number>;
+  safe_harbour_high_agi_cents: number;
+  safe_harbour_low_bps: number;
+  safe_harbour_high_bps: number;
+  is_provisional: boolean;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// What the seller actually paid, per period. NEVER reaches the ledger:
+// estimated tax is personal, not a business expense, and deducting it would
+// understate their own profit.
+export interface EstimatedTaxPaymentRow {
+  id: string;
+  user_id: string;
+  tax_year: number;
+  /** 1 to 4. The periods are NOT even quarters, which is why they are numbered. */
+  quarter: number;
+  paid_cents: number;
+  paid_on: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export type EstimatedTaxPaymentInsert = Omit<
+  EstimatedTaxPaymentRow, "id" | "created_at" | "updated_at"
+> & Partial<Pick<EstimatedTaxPaymentRow, "id" | "created_at" | "updated_at">>;
+export type EstimatedTaxPaymentUpdate = Partial<EstimatedTaxPaymentInsert>;
+
 export interface HomeOfficeRateRow {
   id: string;
   effective_from: string;
@@ -2430,6 +2477,10 @@ export interface TaxProfileRow {
   business_started_on: string | null;
   has_ein: boolean;
   other_household_income_cents: number | null;
+  // US-2991. The income-tax rate the SELLER chose, in basis points, and last
+  // year's total tax for the safe harbour. Both null until they say.
+  income_tax_rate_bps: number | null;
+  last_year_total_tax_cents: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -4451,6 +4502,16 @@ export interface Database {
         Row: ExpenseRow;
         Insert: ExpenseInsert;
         Update: ExpenseUpdate;
+      };
+      tax_rate_years: {
+        Row: TaxRateYearRow;
+        Insert: never;
+        Update: never;
+      };
+      estimated_tax_payments: {
+        Row: EstimatedTaxPaymentRow;
+        Insert: EstimatedTaxPaymentInsert;
+        Update: EstimatedTaxPaymentUpdate;
       };
       home_office_rates: {
         Row: HomeOfficeRateRow;

@@ -105,6 +105,56 @@ trigger to include `wearing` — it went red naming the real risk ("wearing or
 returned was removed from inventory - both must STAY") and green on restore.
 
 
+## HELD: 00698_estimated_tax.sql (US-2991)
+
+**Risk: low.** Two new tables, two new nullable columns on `tax_profiles`. No
+existing table, function or policy is altered, and nothing runs on its own.
+
+**What it does.** Creates `tax_rate_years` (seeded 2024, 2025 and a PROVISIONAL
+2026) and `estimated_tax_payments`, and adds
+`tax_profiles.income_tax_rate_bps` and `tax_profiles.last_year_total_tax_cents`.
+
+> **⚠ TWO NEW COLUMNS ON `tax_profiles`.** Migration 00526 made
+> `public.users` self-updates deny-by-default; `tax_profiles` is a different
+> table with its own ordinary owner policies, so no allowlist restatement is
+> needed. Flagged because the shape looks similar and the failure mode there is
+> a SILENT no-op on save.
+
+**No ledger change.** `rebuild_ledger_for_user()` is untouched — estimated tax
+payments are PERSONAL, not a business expense, and a seller who deducted them
+would understate their own profit and overstate the deduction. The payments
+table is deliberately not wired into the ledger.
+
+**What it computes, and what it refuses to.** Self-employment tax is mechanical
+and is computed exactly: 15.3% on 92.35% of net profit, Social Security capped
+at the wage base, Medicare uncapped, plus the 0.9% surcharge. **Income tax is
+NOT computed from brackets.** It depends on the seller's whole return — a
+spouse's wages, a W-2 job, other deductions, credits, state tax — none of which
+this app sees. Shipping a bracket table would give a confident number built on
+inputs we do not have, so the seller picks a rate and the screen names it as
+their assumption.
+
+**The safe harbour needs no projection at all** and is offered beside the
+estimate: 100% of last year's tax, 110% above the AGI threshold, and no
+underpayment penalty however the year turns out.
+
+**The 2026 row is PROVISIONAL and UNDERSTATES.** The Social Security wage base
+is carried forward from 2025 because the 2026 figure was not published when this
+shipped, and it rises most years — so a high earner's Social Security portion
+comes out low. **Update that row when the SSA announces it.**
+
+**Verified.** Applied twice locally (second run clean); the three seeded years
+read back with the right wage bases and the provisional flag. 30 vitest cases
+cover the arithmetic, including the 92.35% factor, the wage-base cap, the 0.9%
+surcharge threshold per filing status, and that the surcharge is NOT halved into
+the deductible half (it has no employer match).
+
+**Apply order.** After 00697. Then `NOTIFY pgrst, 'reload schema';` — two new
+tables and two new columns.
+
+**Client-side read risk: LOW.** The card is inside Money -> Tax and its queries
+fail closed to a skeleton; the rest of the page is unaffected.
+
 ## ✅ APPLIED: 00697_home_office.sql (US-2990, applied 2026-08-29)
 
 > **Confirmed by READING production.** `home_office_rates` reads back through

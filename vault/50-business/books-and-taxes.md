@@ -29,6 +29,8 @@ code_refs:
   - supabase/migrations/00697_home_office.sql
   - src/lib/home-office.ts
   - scripts/check-home-office.mjs
+  - supabase/migrations/00698_estimated_tax.sql
+  - src/lib/estimated-tax.ts
   - supabase/migrations/00690_inventory_writeoffs.sql
   - scripts/check-inventory-writeoffs.mjs
   - supabase/migrations/00692_keeping_leaves_inventory.sql
@@ -733,6 +735,68 @@ mileage, home office — run in the `db-migrations` workflow and in
 > and never declared to the thing that enforces it is not a guard, and the
 > second time you write the same excuse is the signal.
 
+## Estimated tax
+
+`tax_rate_years` and `estimated_tax_payments` (migration 00698), computed in
+`src/lib/estimated-tax.ts`.
+
+### The split between computed and assumed is the whole design
+
+- **Self-employment tax is computed EXACTLY.** 15.3% on 92.35% of net profit,
+  Social Security capped at the year's wage base, Medicare uncapped, plus the
+  0.9% surcharge above a per-status threshold. The 92.35% factor is not a
+  rounding fudge -- it is the deduction for the employer half, and omitting it
+  overstates the bill by about 8%.
+- **Income tax is NOT computed from brackets, deliberately.** It depends on the
+  seller's whole return: a spouse's wages, a W-2 job, other deductions, credits,
+  state tax. None of that is visible here. A bracket table would produce a
+  confident number built on inputs we do not have, so the seller picks a rate
+  and the screen names it as **their** assumption.
+- **The safe harbour needs no projection at all.** 100% of last year's tax (110%
+  above the AGI threshold) and the underpayment penalty does not apply however
+  the year turns out. Offered beside the estimate, and the better target when
+  last year's figure is known.
+
+Where household income is unknown the **lower** safe-harbour multiplier is used:
+claiming 110% of a number we cannot justify would overstate what is owed.
+
+### Two details that are easy to get wrong
+
+- **The deductible half excludes the 0.9% surcharge.** That surcharge has no
+  employer match, so halving it into the income-tax deduction would overstate
+  the deduction.
+- **Income tax applies to profit LESS the deductible SE half.** It is the one
+  adjustment simple enough to make without seeing the whole return.
+
+### The four dates are not four quarters
+
+April 15, June 15, September 15, and **January 15 of the FOLLOWING year**. The
+second period covers two months and the fourth covers four. A seller who budgets
+four payments inside the calendar year is short one in January. The instalments
+are equal quarters of the year's tax; only the coverage is uneven, and
+conflating the two puts the wrong amount in at the wrong time. Instalments round
+UP, so paying the shown figure four times is never short.
+
+### Payments never reach the ledger
+
+Estimated tax is personal, not a business expense. A seller who deducted it
+would understate their own profit and overstate the deduction, so
+`estimated_tax_payments` is deliberately not wired into
+`rebuild_ledger_for_user()`.
+
+### The assumptions are part of the answer
+
+An unexplained figure here is worse than none: a seller who cannot see what it
+rests on cannot tell whether it applies to them, and will either over-save all
+year or find out in April that it did not. `estimateTax()` returns an
+`assumptions` array and the screen prints all of it -- which half is exact,
+which is their guess, whether other household income was given, whether Social
+Security has capped out, and whether the year's figures are provisional.
+
+> **The 2026 row is PROVISIONAL and UNDERSTATES.** The Social Security wage base
+> is carried forward from 2025 and rises most years, so a high earner's Social
+> Security portion comes out low. Update it when the SSA announces the figure.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -747,9 +811,10 @@ its contract into this note. Currently landed:
 - **US-2988** - the 1099-K bridge and its variance causes, above.
 - **US-2989** - mileage, dated rates and the per-trip rounding rule, above.
 - **US-2990** - the home office, line 30 and the double-count guard, above.
+- **US-2991** - estimated tax, and what it refuses to guess, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
 Still open, and each will add a section here rather than a new note: COGS and
 the ending-inventory snapshot (US-2986), facilitator sales tax (US-2987), 
-estimated tax (US-2991), period close (US-2995) and the QuickBooks account
+period close (US-2995) and the QuickBooks account
 mapping (US-2997, US-2998).
