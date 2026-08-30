@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -89,8 +90,74 @@ fun ProspectScreen(
         uri?.let { viewModel.addPhoto(stageProspectPhoto(context, it)) }
     }
 
+    ProspectContent(
+        state,
+        ProspectActions(
+            // Both photo routes stay in the wrapper: one needs a camera
+            // permission and a FileProvider grant, the other a photo picker.
+            // Neither exists in a screenshot test, and neither belongs in a
+            // body whose job is to lay out what has already been chosen.
+            takePhoto = {
+                haptics.light()
+                cameraDenied = false
+                val granted = ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.CAMERA,
+                ) == PackageManager.PERMISSION_GRANTED
+                if (granted) launchCamera() else requestCamera.launch(Manifest.permission.CAMERA)
+            },
+            pickPhoto = {
+                haptics.light()
+                pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            removePhoto = viewModel::removePhoto,
+            setCost = viewModel::setCost,
+            run = viewModel::run,
+            buy = viewModel::buy,
+            reset = viewModel::reset,
+            openItem = onOpenItem,
+            close = onClose,
+        ),
+        cameraDenied = cameraDenied,
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class ProspectActions(
+    val takePhoto: () -> Unit = {},
+    val pickPhoto: () -> Unit = {},
+    val removePhoto: (File) -> Unit = {},
+    val setCost: (String) -> Unit = {},
+    val run: () -> Unit = {},
+    val buy: () -> Unit = {},
+    val reset: () -> Unit = {},
+    val openItem: (String) -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * Prospect with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ A SELLER READS THIS STANDING IN A SHOP, DECIDING WHETHER TO BUY. The verdict
+ * and the estimated margin are the whole product, and the cost field is
+ * optional - so the same result renders with and without a number attached, and
+ * both are captured.
+ *
+ * ⚠ AND A PLAN WALL IS NOT AN ERROR. It renders as a WARNING with a different
+ * heading and it disables the check button, because the shell is already
+ * offering the upgrade and a second tap only hits the same wall. Both failures
+ * are captured side by side; the tone and the heading are the only difference.
+ */
+@Composable
+fun ProspectContent(
+    state: ProspectViewModel.State,
+    actions: ProspectActions,
+    modifier: Modifier = Modifier,
+    cameraDenied: Boolean = false,
+) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Spacing.md),
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
         Text(stringResource(R.string.prospect_prospect), style = MaterialTheme.typography.titleLarge)
@@ -113,27 +180,24 @@ fun ProspectScreen(
                     maxLines = 1,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { viewModel.removePhoto(photo) }) { Text(stringResource(R.string.prospect_remove)) }
+                TextButton(onClick = { actions.removePhoto(photo) }) {
+                    Text(stringResource(R.string.prospect_remove))
+                }
             }
         }
 
         if (state.canAddMorePhotos) {
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                BrandSecondaryButton(text = stringResource(R.string.prospect_take_photo), modifier = Modifier.weight(1f)) {
-                    haptics.light()
-                    cameraDenied = false
-                    val granted = ContextCompat.checkSelfPermission(
-                        context,
-                        Manifest.permission.CAMERA,
-                    ) == PackageManager.PERMISSION_GRANTED
-                    if (granted) launchCamera() else requestCamera.launch(Manifest.permission.CAMERA)
-                }
-                BrandSecondaryButton(text = stringResource(R.string.prospect_library), modifier = Modifier.weight(1f)) {
-                    haptics.light()
-                    pickPhoto.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                    )
-                }
+                BrandSecondaryButton(
+                    text = stringResource(R.string.prospect_take_photo),
+                    modifier = Modifier.weight(1f),
+                    onClick = actions.takePhoto,
+                )
+                BrandSecondaryButton(
+                    text = stringResource(R.string.prospect_library),
+                    modifier = Modifier.weight(1f),
+                    onClick = actions.pickPhoto,
+                )
             }
         }
         if (cameraDenied) {
@@ -146,7 +210,7 @@ fun ProspectScreen(
 
         OutlinedTextField(
             value = state.costText,
-            onValueChange = viewModel::setCost,
+            onValueChange = actions.setCost,
             label = { Text(stringResource(R.string.prospect_what_does_cost)) },
             prefix = { Text(stringResource(R.string.drafts_currency_prefix)) },
             supportingText = { Text(stringResource(R.string.prospect_optional_but_there_s_no)) },
@@ -169,11 +233,14 @@ fun ProspectScreen(
             )
         }
 
-        state.response?.let { response -> ResultCard(response, state, context) }
+        state.response?.let { response -> ResultCard(response, state) }
 
         state.boughtItemId?.let { itemId ->
-            BrandSecondaryButton(text = stringResource(R.string.prospect_open_inventory), modifier = Modifier.fillMaxWidth()) {
-                onOpenItem(itemId)
+            BrandSecondaryButton(
+                text = stringResource(R.string.prospect_open_inventory),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                actions.openItem(itemId)
             }
         }
 
@@ -185,7 +252,7 @@ fun ProspectScreen(
             // upgrade, and a second tap only hits the same wall.
             enabled = state.canRun && state.planWall == null,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.run() }
+        ) { actions.run() }
 
         if (state.canBuy) {
             BrandPrimaryButton(
@@ -194,22 +261,23 @@ fun ProspectScreen(
                 ),
                 enabled = !state.buying,
                 modifier = Modifier.fillMaxWidth(),
-            ) { viewModel.buy() }
+            ) { actions.buy() }
         }
 
         BrandSecondaryButton(text = stringResource(R.string.prospect_start_over), modifier = Modifier.fillMaxWidth()) {
-            viewModel.reset()
+            actions.reset()
         }
-        BrandSecondaryButton(text = stringResource(R.string.prospect_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.prospect_back), modifier = Modifier.fillMaxWidth()) {
+            actions.close()
+        }
     }
 }
 
 @Composable
-private fun ResultCard(
-    response: ProspectResponse,
-    state: ProspectViewModel.State,
-    context: android.content.Context,
-) {
+private fun ResultCard(response: ProspectResponse, state: ProspectViewModel.State) {
+    // Read here rather than passed in: a custom tab needs a real Context, and
+    // taking one as a parameter forced it through the whole screen body.
+    val context = LocalContext.current
     Column(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
