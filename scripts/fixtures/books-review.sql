@@ -53,6 +53,37 @@ insert into public.inventory_items (id, user_id, title, acquired_price, acquired
 values ('b0000000-0000-0000-0000-0000000000a1', 'a0000000-0000-0000-0000-0000000bee00',
         'No cost basis', null, '2025-04-01', 'sold')
 on conflict (id) do nothing;
+
+-- US-3007: archived with no reason recorded. One that FIRES, and two that must
+-- stay quiet - the whole point of the branch is that it asks only where the
+-- answer is genuinely unknown.
+insert into public.inventory_items
+  (id, user_id, title, acquired_price, acquired_date, status, removed_on, removed_reason)
+values
+  ('b0000000-0000-0000-0000-0000000000f1', 'a0000000-0000-0000-0000-0000000bee00',
+   'Archived, reason unknown', 55.00, '2025-03-01', 'archived', null, null),
+  -- already answered, so nothing to ask
+  ('b0000000-0000-0000-0000-0000000000f2', 'a0000000-0000-0000-0000-0000000bee00',
+   'Archived and donated', 55.00, '2025-03-01', 'archived', '2025-05-01', 'donated'),
+  -- archived AFTER selling: it left inventory by the route the snapshot already
+  -- understands, so asking why it was archived would be noise
+  ('b0000000-0000-0000-0000-0000000000f3', 'a0000000-0000-0000-0000-0000000bee00',
+   'Sold, then archived', 55.00, '2025-03-01', 'archived', null, null)
+on conflict (id) do nothing;
+
+insert into public.listings (id, inventory_item_id, platform, listing_price, listed_at)
+values ('d0000000-0000-0000-0000-0000000000f3', 'b0000000-0000-0000-0000-0000000000f3',
+        'ebay', 90.00, '2025-03-05')
+on conflict (id) do nothing;
+-- Fees are set DELIBERATELY. A sale with none trips the sale_without_fees
+-- branch, and this row exists only to prove an already-sold item is not asked
+-- about - it must not become a second issue of a different kind.
+insert into public.sales
+  (id, user_id, inventory_item_id, listing_id, sale_price, platform_fees, sale_date, status)
+values ('e0000000-0000-0000-0000-0000000000f3', 'a0000000-0000-0000-0000-0000000bee00',
+        'b0000000-0000-0000-0000-0000000000f3', 'd0000000-0000-0000-0000-0000000000f3',
+        90.00, 11.70, '2025-04-10', 'completed')
+on conflict (id) do nothing;
 insert into public.listings (id, inventory_item_id, platform, listing_price, listed_at)
 values ('d0000000-0000-0000-0000-0000000000a1', 'b0000000-0000-0000-0000-0000000000a1',
         'ebay', 200.00, '2025-04-05')

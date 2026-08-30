@@ -84,6 +84,7 @@ for (const kind of [
   "unmatched_payout",
   "missing_receipt",
   "no_inventory_snapshot",
+  "archived_no_reason",
 ]) {
   check(`${kind} is found`, of(kind).length >= 1, true);
 }
@@ -91,7 +92,7 @@ for (const kind of [
 console.log("\nTHE ONES THAT MUST STAY QUIET:");
 // Six seeded issues and nothing else. If a false positive crept in, this is
 // where it shows up as a seventh.
-check("exactly six issues, no more", queue.length, 6);
+check("exactly seven issues, no more", queue.length, 7);
 check(
   "a local cash sale with no fees is NOT flagged",
   of("sale_without_fees").length,
@@ -106,6 +107,21 @@ check(
   "the five items WITH a cost basis are NOT flagged",
   of("no_cost_basis").length,
   1,
+);
+// US-3007. Both negatives matter: an answered item is not a question, and an
+// item that SOLD left inventory by a route the snapshot already handles, so
+// asking why it was archived afterwards is noise. Without these the branch
+// would report every archived item for ever, which is how a review queue stops
+// being read.
+check(
+  "only the UNANSWERED archived item is flagged",
+  of("archived_no_reason").length,
+  1,
+);
+check(
+  "the archived item's impact is its own cost, exactly",
+  of("archived_no_reason")[0]?.impact_cents,
+  5500,
 );
 
 console.log("\nImpact is exact where it can be:");
@@ -128,9 +144,9 @@ check("severity ascending", JSON.stringify(severities), JSON.stringify(sorted));
 check("a missing cost basis is the most severe", queue[0]?.kind, "no_cost_basis");
 
 console.log("\nDismissing is reversible and recorded:");
-check("six before", val("count before dismiss"), 6);
-check("five after", val("count after dismiss"), 5);
-check("six again when undismissed", val("count after undismiss"), 6);
+check("seven before", val("count before dismiss"), 7);
+check("six after", val("count after dismiss"), 6);
+check("seven again when undismissed", val("count after undismiss"), 7);
 
 if (failures.length) {
   console.error(`\n✗ ${failures.length} check(s) failed:\n  - ${failures.join("\n  - ")}`);

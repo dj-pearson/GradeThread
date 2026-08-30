@@ -12,7 +12,8 @@ export type IssueKind =
   | "sale_without_fees"
   | "unmatched_payout"
   | "missing_receipt"
-  | "no_inventory_snapshot";
+  | "no_inventory_snapshot"
+  | "archived_no_reason";
 
 export interface ReviewIssue {
   kind: IssueKind;
@@ -120,6 +121,12 @@ interface IssueCopy {
 }
 
 const COPY: Record<IssueKind, IssueCopy> = {
+  archived_no_reason: {
+    heading: "Archived, but we do not know why",
+    consequence:
+      "An archived item still counts as stock you are holding, so your ending inventory is too high, your cost of goods sold is too low, and you are taxed on profit you did not make. The answer also decides where it goes: something you kept reduces purchases, something lost or donated reduces inventory.",
+    action: "Say what happened to it",
+  },
   no_cost_basis: {
     heading: "Sold, but we do not know what it cost you",
     consequence:
