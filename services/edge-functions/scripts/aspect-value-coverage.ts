@@ -389,6 +389,104 @@ if (wantCoverage) {
   }
   console.log();
 
+  // ── Per-vertical breakdown ────────────────────────────────────────
+  //
+  // Everything above aggregates over all 121 categories, which flatters the
+  // apparel case because most of them ARE apparel. The registry, the capture
+  // prompt and the family tables were all built for garments; a doll, an
+  // antique plate and a carved egg land in category trees nobody has looked
+  // at. Segment by eBay's own top-level breadcrumb so the gap is visible.
+  //
+  // The breadcrumb separator is U+203A, written as an escape so this file
+  // stays ASCII. It is load-bearing: category_name holds the full path.
+  const SEP = /\s*\u203A\s*/;
+  interface Segment {
+    cats: number;
+    aspects: number;
+    required: number;
+    unowned: number;
+    reach: number;
+    names: Map<string, number>;
+  }
+  const segments = new Map<string, Segment>();
+
+  for (const row of rows) {
+    const list = row.aspects?.aspects ?? [];
+    if (list.length === 0) continue;
+    const path = row.category_name ?? "(unnamed)";
+    const top = path.split(SEP)[0]?.trim() || "(unnamed)";
+
+    const specs = list.map((a) => ({
+      name: (a.localizedAspectName ?? "").trim(),
+      required: a.aspectConstraint?.aspectRequired === true,
+      mode: a.aspectConstraint?.aspectMode ?? "",
+    })).filter((x) => x.name.length > 0);
+
+    const registryAspects = specs.map((x) => ({
+      name: x.name,
+      mode: x.mode,
+      multi: false,
+      allowedValues: [] as string[],
+    }));
+    const owned = new Set<string>();
+    for (const vertical of VERTICALS) {
+      for (const entry of ASPECT_REGISTRY.entries) {
+        const n = ownedAspectName(entry, vertical, registryAspects);
+        if (n) owned.add(n);
+      }
+    }
+
+    const seg: Segment = segments.get(top) ??
+      { cats: 0, aspects: 0, required: 0, unowned: 0, reach: 0, names: new Map() };
+    seg.cats++;
+    seg.aspects += specs.length;
+    // Registry reach over EVERY aspect, not only the required ones — the
+    // optional ones are what make a listing findable.
+    seg.reach += owned.size;
+    for (const x of specs) {
+      if (!x.required) continue;
+      seg.required++;
+      if (!owned.has(x.name)) {
+        seg.unowned++;
+        seg.names.set(x.name, (seg.names.get(x.name) ?? 0) + 1);
+      }
+    }
+    segments.set(top, seg);
+  }
+
+  console.log("## Per-vertical: how much of each category tree we can fill");
+  console.log(
+    "vertical".padEnd(30) + "cats".padStart(5) + "aspects".padStart(9) +
+      "required filled".padStart(17) + "   registry reach",
+  );
+  const bySize = [...segments.entries()].sort((a, b) => b[1].cats - a[1].cats);
+  for (const [name, v] of bySize) {
+    const filled = v.required - v.unowned;
+    const pct = v.required === 0
+      ? "n/a"
+      : `${Math.round((filled / v.required) * 100)}%`;
+    console.log(
+      name.slice(0, 29).padEnd(30) +
+        String(v.cats).padStart(5) +
+        (v.aspects / v.cats).toFixed(1).padStart(9) +
+        `${filled}/${v.required} ${pct}`.padStart(17) +
+        `   ${(v.reach / v.cats).toFixed(1)} of ${(v.aspects / v.cats).toFixed(1)}`,
+    );
+  }
+  console.log();
+
+  console.log("## Required aspects we cannot fill, by vertical");
+  let anyMiss = false;
+  for (const [name, v] of bySize) {
+    if (v.names.size === 0) continue;
+    anyMiss = true;
+    console.log(`   ${name}:`);
+    for (const [a, n] of [...v.names.entries()].sort((x, y) => y[1] - x[1])) {
+      console.log(`     - ${a} (${n} categories)`);
+    }
+  }
+  if (!anyMiss) console.log("   (none)");
+  console.log();
   console.log("## Required aspects overall, by how many categories demand them");
   for (const [name, n] of top(requiredSeen, 25)) {
     const owned = requiredUnowned.has(name) ? "AI only" : "registry";
