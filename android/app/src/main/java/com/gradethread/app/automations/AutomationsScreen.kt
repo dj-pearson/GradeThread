@@ -20,6 +20,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,7 +36,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.components.LabeledDropdown
-import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.cardStyle
@@ -45,18 +45,81 @@ import com.gradethread.app.ui.theme.cardStyle
  * screen here leads with what would happen, not just what was configured.
  */
 @Composable
-fun AutomationsScreen(
-    onClose: () -> Unit = {},
-    viewModel: AutomationsViewModel = hiltViewModel(),
-) {
+fun AutomationsScreen(onClose: () -> Unit = {}, viewModel: AutomationsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     var editing by remember { mutableStateOf<AutomationDraft?>(null) }
     var deleting by remember { mutableStateOf<AutomationRule?>(null) }
 
     LaunchedEffect(Unit) { viewModel.load() }
 
+    AutomationsContent(
+        state,
+        AutomationsActions(
+            setActive = viewModel::setActive,
+            dryRun = viewModel::dryRun,
+            closeDryRun = viewModel::closeDryRun,
+            setEditing = { editing = it },
+            setDeleting = { deleting = it },
+            save = {
+                viewModel.save(it)
+                editing = null
+            },
+            confirmDelete = {
+                viewModel.delete(it)
+                deleting = null
+            },
+            runNow = viewModel::runNow,
+            close = onClose,
+        ),
+        editing = editing,
+        deleting = deleting,
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class AutomationsActions(
+    val setActive: (AutomationRule, Boolean) -> Unit = { _, _ -> },
+    val dryRun: (AutomationRule) -> Unit = {},
+    val closeDryRun: () -> Unit = {},
+    /** Open the rule editor on this draft, or close it with null. */
+    val setEditing: (AutomationDraft?) -> Unit = {},
+    /** Open the delete confirmation for this rule, or close it with null. */
+    val setDeleting: (AutomationRule?) -> Unit = {},
+    val save: (AutomationDraft) -> Unit = {},
+    val confirmDelete: (AutomationRule) -> Unit = {},
+    val runNow: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * Automations with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE DRY RUN IS THE SAFETY FEATURE, and it is a dialog, so only a capture
+ * can check it. These rules run on the SERVER on their own schedule - the
+ * screen's own subtitle says so - which means a seller cannot watch them work
+ * and cannot undo what they did. "What this rule would do" is the one chance to
+ * see the blast radius before switching it on.
+ *
+ * ⚠ AND IT NEVER TRUNCATES SILENTLY. Twenty matches are listed and the rest are
+ * counted in a line that says how many were hidden. A dry run that showed
+ * twenty of two hundred without saying so would be worse than no dry run: it
+ * would read as a small, safe rule.
+ *
+ * ⚠ THE DELETE DIALOG PROMISES THE SAME THING REPRICING'S DOES: changes already
+ * made stay made. A seller who reads "delete rule" as "undo it" deletes it and
+ * waits for prices to come back.
+ */
+@Composable
+fun AutomationsContent(
+    state: AutomationsViewModel.State,
+    actions: AutomationsActions,
+    modifier: Modifier = Modifier,
+    editing: AutomationDraft? = null,
+    deleting: AutomationRule? = null,
+) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.automations_automations), style = MaterialTheme.typography.titleLarge)
@@ -66,7 +129,9 @@ fun AutomationsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        state.errorMessage?.let { InfoCard(stringResource(R.string.automations_that_didn_t_work), it, tone = InfoTone.Error) }
+        state.errorMessage?.let {
+            InfoCard(stringResource(R.string.automations_that_didn_t_work), it, tone = InfoTone.Error)
+        }
         state.warning?.let { InfoCard(stringResource(R.string.automations_worth_knowing), it, tone = InfoTone.Warning) }
         state.banner?.let { InfoCard(stringResource(R.string.common_done), it, tone = InfoTone.Success) }
 
@@ -82,10 +147,10 @@ fun AutomationsScreen(
                     RuleCard(
                         rule = rule,
                         busy = state.busy,
-                        onToggle = { viewModel.setActive(rule, !rule.isActive) },
-                        onEdit = { editing = AutomationDraft.from(rule) },
-                        onDryRun = { viewModel.dryRun(rule) },
-                        onDelete = { deleting = rule },
+                        onToggle = { actions.setActive(rule, !rule.isActive) },
+                        onEdit = { actions.setEditing(AutomationDraft.from(rule)) },
+                        onDryRun = { actions.dryRun(rule) },
+                        onDelete = { actions.setDeleting(rule) },
                     )
                 }
             }
@@ -95,23 +160,23 @@ fun AutomationsScreen(
             text = stringResource(R.string.automations_new_rule),
             enabled = !state.busy,
             modifier = Modifier.fillMaxWidth(),
-        ) { editing = AutomationDraft() }
+        ) { actions.setEditing(AutomationDraft()) }
 
         BrandSecondaryButton(
             text = stringResource(R.string.automations_run_all_rules_now),
             enabled = !state.busy && state.rules.any { it.isActive },
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.runNow() }
+        ) { actions.runNow() }
 
         BrandSecondaryButton(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
-        ) { onClose() }
+        ) { actions.close() }
     }
 
     state.dryRun?.let { result ->
         AlertDialog(
-            onDismissRequest = viewModel::closeDryRun,
+            onDismissRequest = actions.closeDryRun,
             title = { Text(stringResource(R.string.automations_what_this_rule_would_do)) },
             text = {
                 Column(
@@ -142,7 +207,11 @@ fun AutomationsScreen(
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = viewModel::closeDryRun) { Text(stringResource(R.string.automations_close)) } },
+            confirmButton = {
+                TextButton(onClick = actions.closeDryRun) {
+                    Text(stringResource(R.string.automations_close))
+                }
+            },
         )
     }
 
@@ -150,26 +219,26 @@ fun AutomationsScreen(
         RuleEditorDialog(
             initial = draft,
             busy = state.busy,
-            onDismiss = { editing = null },
-            onSave = {
-                viewModel.save(it)
-                editing = null
-            },
+            onDismiss = { actions.setEditing(null) },
+            onSave = actions.save,
         )
     }
 
     deleting?.let { rule ->
         AlertDialog(
-            onDismissRequest = { deleting = null },
+            onDismissRequest = { actions.setDeleting(null) },
             title = { Text(stringResource(R.string.automations_delete_rule, rule.name)) },
             text = { Text(stringResource(R.string.automations_changes_already_made_stay_as)) },
             confirmButton = {
-                TextButton(onClick = {
-                    viewModel.delete(rule)
-                    deleting = null
-                }) { Text(stringResource(R.string.automations_delete)) }
+                TextButton(onClick = { actions.confirmDelete(rule) }) {
+                    Text(stringResource(R.string.automations_delete))
+                }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.automations_cancel)) } },
+            dismissButton = {
+                TextButton(onClick = { actions.setDeleting(null) }) {
+                    Text(stringResource(R.string.automations_cancel))
+                }
+            },
         )
     }
 }
@@ -385,11 +454,7 @@ private fun RuleEditorDialog(
 }
 
 @Composable
-private fun ScopeRuleRow(
-    rule: ScopeRuleDraft,
-    onChange: (ScopeRuleDraft) -> Unit,
-    onRemove: () -> Unit,
-) {
+private fun ScopeRuleRow(rule: ScopeRuleDraft, onChange: (ScopeRuleDraft) -> Unit, onRemove: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         LabeledDropdown(
             label = stringResource(R.string.automations_field),
