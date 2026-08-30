@@ -105,7 +105,48 @@ trigger to include `wearing` — it went red naming the real risk ("wearing or
 returned was removed from inventory - both must STAY") and green on restore.
 
 
-## HELD: 00698_estimated_tax.sql (US-2991)
+## ✅ APPLIED: 00699_books_review_queue.sql (US-2992, applied 2026-08-29)
+
+> **Confirmed by READING production.** `/rpc/books_review_queue`,
+> `/rpc/books_review_count` and `/books_review_dismissals` are all present in
+> the prod OpenAPI document. The owner separately ran the fixture and returned
+> `count after undismiss: 6`, matching local exactly.
+
+**What it does.** Creates `books_review_dismissals`, adds
+`median_cost_ratio_bps()`, `books_review_queue()` and `books_review_count()`.
+No existing table or function is altered and the ledger is untouched.
+
+**Six checks, and three deliberate silences.** It flags sold items with no cost
+basis, expenses that reach no Schedule C line, marketplace sales with zero fees,
+payouts matching no sale, expenses over $75 with no receipt, and a year boundary
+with no inventory snapshot. It stays QUIET on a local cash sale (Facebook and
+OfferUp genuinely charge nothing on a pickup), on expenses under the $75
+substantiation threshold, and on items that have a cost basis.
+
+> **The negative assertions are the ones that matter.** Anyone can make a queue
+> find problems. Sabotage-verified by removing both exemptions, which turns six
+> issues into nine and reddens three checks. A queue that cries wolf gets
+> ignored, and then the real issue in it goes unread too.
+
+**Where the impact is honestly unknown, it says so.** A sold item with no cost
+basis overstates profit by whatever it cost — which is precisely what nobody
+recorded. Rather than inventing a figure, the row carries an estimate derived
+from the seller's OWN median cost-to-price ratio, labelled as an estimate, and
+null under five priced sales because a ratio from two items is a guess dressed
+as a statistic. Exact and estimated totals are reported separately.
+
+**Dismissals require a reason and have no UPDATE policy.** A dismissal without
+one is indistinguishable from hiding the row, and editing a recorded reason
+later turns the record into whatever the last edit said. Undismiss and dismiss
+again.
+
+**Apply order.** After 00698. Then `NOTIFY pgrst, 'reload schema';` — one new
+table and three new RPCs.
+
+## ✅ APPLIED: 00698_estimated_tax.sql (US-2991, applied 2026-08-29)
+
+> **Confirmed by READING production.** `/tax_rate_years` and
+> `/estimated_tax_payments` are both in the prod PostgREST OpenAPI document.
 
 **Risk: low.** Two new tables, two new nullable columns on `tax_profiles`. No
 existing table, function or policy is altered, and nothing runs on its own.
