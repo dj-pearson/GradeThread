@@ -16,6 +16,54 @@ const sel = (name: string, allowedValues: string[]) => ({
   allowedValues,
 });
 
+
+describe("normalizeAspectValue family narrowing (US-3016)", () => {
+  const COLOR = [
+    "Beige",
+    "Black",
+    "Blue",
+    "Brown",
+    "Gold",
+    "Gray",
+    "Green",
+    "Ivory",
+    "Multicolor",
+    "Orange",
+    "Pink",
+    "Purple",
+    "Red",
+    "Silver",
+    "White",
+    "Yellow",
+  ];
+  const DRESS_LENGTH = ["Short", "Knee Length", "Midi", "Long", "Hi-Low", "Asymmetric"];
+
+  it("narrows a descriptive color onto eBay's coarse bucket", () => {
+    expect(normalizeAspectValue("Taupe", sel("Color", COLOR))).toBe("Beige");
+    expect(normalizeAspectValue("Sage Green", sel("Color", COLOR))).toBe("Green");
+    expect(normalizeAspectValue("Burgundy", sel("Color", COLOR))).toBe("Red");
+    expect(normalizeAspectValue("Heather Charcoal", sel("Color", COLOR))).toBe("Gray");
+  });
+
+  it("maps a hem length onto whichever vocabulary the category uses", () => {
+    expect(normalizeAspectValue("Mini", sel("Dress Length", DRESS_LENGTH))).toBe("Short");
+    expect(normalizeAspectValue("Mini", sel("Skirt Length", ["Mini", "Midi", "Maxi"]))).toBe(
+      "Mini",
+    );
+    expect(normalizeAspectValue("Tea Length", sel("Dress Length", DRESS_LENGTH))).toBe("Midi");
+  });
+
+  it("runs last, so an exactly-offered value is never coarsened", () => {
+    expect(normalizeAspectValue("Olive", sel("Color", ["Olive", "Green"]))).toBe("Olive");
+    expect(normalizeAspectValue("Navy Blue", sel("Color", ["Navy", "Blue"]))).toBe("Navy");
+  });
+
+  it("refuses when no bucket in the value's family is allowed", () => {
+    expect(normalizeAspectValue("Taupe", sel("Color", ["Red", "Blue"]))).toBeNull();
+    expect(normalizeAspectValue("Taupe", sel("Brand", ["Nike", "Adidas"]))).toBeNull();
+  });
+});
+
 describe("normalizeAspectValue (US-823)", () => {
   it("passes FREE_TEXT values through untouched", () => {
     expect(

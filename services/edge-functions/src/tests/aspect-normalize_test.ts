@@ -112,7 +112,11 @@ Deno.test("ambiguity: refuses when more than one allowed value contains the toke
 });
 
 Deno.test("null: no synonym, no token, no match → left for manual entry", () => {
-  assertEquals(normalizeAspectValue("Chartreuse", sel("Color", ["Red", "Blue", "Green"])), null);
+  // US-3016 changed this deliberately: Chartreuse IS a green, and eBay's Color
+  // list has no finer bucket to put it in, so narrowing beats an empty aspect.
+  assertEquals(normalizeAspectValue("Chartreuse", sel("Color", ["Red", "Blue", "Green"])), "Green");
+  // Still null when NO bucket in its family is offered by the category.
+  assertEquals(normalizeAspectValue("Chartreuse", sel("Color", ["Red", "Blue"])), null);
   // SELECTION_ONLY with empty allowed list → null (can't validate).
   assertEquals(normalizeAspectValue("Red", sel("Color", [])), null);
   // Plus-size numeric is deliberately NOT merged with alpha sizes (conservative).
@@ -123,4 +127,127 @@ Deno.test("never guesses across distinct semantic colors (Beige ≠ Tan)", () =>
   assertEquals(normalizeAspectValue("Beige", sel("Color", ["Tan", "Brown"])), null);
   // …but orthographic color variants do match (Grey → Gray).
   assertEquals(normalizeAspectValue("Grey", sel("Color", ["Gray", "Black"])), "Gray");
+});
+
+// ── US-3016: descriptive-value family narrowing ─────────────────────────────
+//
+// eBay's SELECTION_ONLY lists are coarse; the AI capture pass is not. These
+// cover the bridge between them. Fixtures are eBay's real apparel lists.
+
+const COLOR = [
+  "Beige",
+  "Black",
+  "Blue",
+  "Brown",
+  "Gold",
+  "Gray",
+  "Green",
+  "Ivory",
+  "Multicolor",
+  "Orange",
+  "Pink",
+  "Purple",
+  "Red",
+  "Silver",
+  "White",
+  "Yellow",
+];
+const DRESS_LENGTH = ["Short", "Knee Length", "Midi", "Long", "Hi-Low", "Asymmetric"];
+const SKIRT_LENGTH = ["Mini", "Midi", "Maxi"];
+const SLEEVE = ["Sleeveless", "Short Sleeve", "3/4 Sleeve", "Long Sleeve"];
+const NECKLINE = ["Crew Neck", "V-Neck", "Scoop Neck", "Collared", "Hooded", "Turtleneck"];
+const PATTERN = [
+  "Solid",
+  "Striped",
+  "Plaid",
+  "Floral",
+  "Animal Print",
+  "Graphic Print",
+  "Camouflage",
+];
+
+Deno.test("color: a single-word descriptive color narrows to its eBay bucket", () => {
+  assertEquals(normalizeAspectValue("Taupe", sel("Color", COLOR)), "Beige");
+  assertEquals(normalizeAspectValue("Burgundy", sel("Color", COLOR)), "Red");
+  assertEquals(normalizeAspectValue("Charcoal", sel("Color", COLOR)), "Gray");
+  assertEquals(normalizeAspectValue("Teal", sel("Color", COLOR)), "Blue");
+  assertEquals(normalizeAspectValue("Mustard", sel("Color", COLOR)), "Yellow");
+  assertEquals(normalizeAspectValue("Cream", sel("Color", COLOR)), "Ivory");
+  assertEquals(normalizeAspectValue("Lavender", sel("Color", COLOR)), "Purple");
+  assertEquals(normalizeAspectValue("Coral", sel("Color", COLOR)), "Pink");
+  assertEquals(normalizeAspectValue("Tie-Dye", sel("Color", COLOR)), "Multicolor");
+});
+
+Deno.test("color: a compound color reads right to left to find its base", () => {
+  assertEquals(normalizeAspectValue("Sage Green", sel("Color", COLOR)), "Green");
+  assertEquals(normalizeAspectValue("Light Blue", sel("Color", COLOR)), "Blue");
+  assertEquals(normalizeAspectValue("Dark Olive Green", sel("Color", COLOR)), "Green");
+  assertEquals(normalizeAspectValue("Heather Charcoal", sel("Color", COLOR)), "Gray");
+  assertEquals(normalizeAspectValue("Rose Gold", sel("Color", COLOR)), "Gold");
+});
+
+Deno.test("color: the fallback prefers the exact bucket when the category has it", () => {
+  // Navy is its own allowed value here, so step 3's equivalence group wins and
+  // the family never runs.
+  assertEquals(normalizeAspectValue("Navy Blue", sel("Color", ["Navy", "Blue"])), "Navy");
+  // Without Navy, the family lands it on Blue rather than dropping it.
+  assertEquals(normalizeAspectValue("Navy", sel("Color", COLOR)), "Blue");
+});
+
+Deno.test("length: the same value maps to whichever vocabulary the category uses", () => {
+  assertEquals(normalizeAspectValue("Mini", sel("Dress Length", DRESS_LENGTH)), "Short");
+  assertEquals(normalizeAspectValue("Mini", sel("Skirt Length", SKIRT_LENGTH)), "Mini");
+  assertEquals(normalizeAspectValue("Maxi", sel("Dress Length", DRESS_LENGTH)), "Long");
+  assertEquals(normalizeAspectValue("Maxi", sel("Skirt Length", SKIRT_LENGTH)), "Maxi");
+  assertEquals(
+    normalizeAspectValue("Above the Knee", sel("Dress Length", DRESS_LENGTH)),
+    "Short",
+  );
+  assertEquals(normalizeAspectValue("Tea Length", sel("Dress Length", DRESS_LENGTH)), "Midi");
+  assertEquals(normalizeAspectValue("High-Low", sel("Dress Length", DRESS_LENGTH)), "Hi-Low");
+  assertEquals(
+    normalizeAspectValue("Floor Length", sel("Dress Length", DRESS_LENGTH)),
+    "Long",
+  );
+});
+
+Deno.test("sleeve, neckline and pattern narrow the same way", () => {
+  assertEquals(normalizeAspectValue("Tank", sel("Sleeve Length", SLEEVE)), "Sleeveless");
+  assertEquals(normalizeAspectValue("Cap Sleeve", sel("Sleeve Length", SLEEVE)), "Short Sleeve");
+  assertEquals(normalizeAspectValue("Elbow", sel("Sleeve Length", SLEEVE)), "3/4 Sleeve");
+  assertEquals(normalizeAspectValue("Mock Neck", sel("Neckline", NECKLINE)), "Turtleneck");
+  assertEquals(normalizeAspectValue("Button-Down", sel("Neckline", NECKLINE)), "Collared");
+  assertEquals(normalizeAspectValue("Tartan", sel("Pattern", PATTERN)), "Plaid");
+  assertEquals(normalizeAspectValue("Leopard", sel("Pattern", PATTERN)), "Animal Print");
+  // ...and refused outright when the category offers no bucket for it.
+  assertEquals(normalizeAspectValue("Leopard", sel("Pattern", ["Solid", "Striped"])), null);
+  assertEquals(normalizeAspectValue("Camo", sel("Pattern", PATTERN)), "Camouflage");
+});
+
+Deno.test("family kind is picked by the most specific word in the aspect name", () => {
+  // "Sleeve Length" is a sleeve, not a hem.
+  assertEquals(normalizeAspectValue("Long", sel("Sleeve Length", SLEEVE)), "Long Sleeve");
+  assertEquals(normalizeAspectValue("Long", sel("Dress Length", DRESS_LENGTH)), "Long");
+  // "Hardware Color" is a color, not a piece of hardware.
+  assertEquals(
+    normalizeAspectValue("Gunmetal", sel("Hardware Color", ["Gold", "Silver", "Black"])),
+    "Silver",
+  );
+});
+
+Deno.test("family narrowing never fires on FREE_TEXT or an unmapped aspect", () => {
+  // FREE_TEXT still passes the seller's own words straight through.
+  assertEquals(
+    normalizeAspectValue("Sage Green", { name: "Color", mode: "FREE_TEXT", allowedValues: [] }),
+    "Sage Green",
+  );
+  // No family table for Brand, so an unknown value is still refused.
+  assertEquals(normalizeAspectValue("Taupe", sel("Brand", ["Nike", "Adidas"])), null);
+});
+
+Deno.test("family narrowing runs LAST, so exact and synonym matches still win", () => {
+  // Olive is offered outright — do not coarsen it to Green.
+  assertEquals(normalizeAspectValue("Olive", sel("Color", ["Olive", "Green"])), "Olive");
+  // Grey/Gray is an equivalence (step 3), not a family narrowing.
+  assertEquals(normalizeAspectValue("Grey", sel("Color", COLOR)), "Gray");
 });
