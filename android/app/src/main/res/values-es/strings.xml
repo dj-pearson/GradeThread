@@ -2034,4 +2034,27 @@
     <string name="feedback_error_too_long">Es más largo de lo que podemos enviar. Acórtalo e inténtalo de nuevo.</string>
     <string name="feedback_one_way_note">Los comentarios son de ida. Abre una solicitud de soporte si quieres una respuesta que puedas seguir.</string>
     <string name="feedback_sent">Enviado &#8212; gracias. Los leemos todos.</string>
+    <string name="verified_status_locked">Sin configurar</string>
+    <string name="verified_status_locked_detail">Reserva un identificador y activa tu perfil para conseguir la insignia.</string>
+    <string name="verified_status_handle_needed">Falta el identificador</string>
+    <string name="verified_status_handle_needed_detail">Tu perfil está activado, pero no tiene dirección hasta que reserves un identificador.</string>
+    <string name="verified_status_hidden">Listo, pero oculto</string>
+    <string name="verified_status_hidden_detail">Ya tienes identificador. Activa tu perfil público y la insignia se publica.</string>
+    <string name="verified_status_live">Publicado</string>
+    <string name="verified_status_live_detail">Los compradores pueden ver tu perfil verificado y tu historial de notas.</string>
+    <string name="verified_req_handle">Reserva tu identificador</string>
+    <string name="verified_req_handle_met">Eres @%1$s.</string>
+    <string name="verified_req_handle_todo">Esta será tu dirección pública.</string>
+    <string name="verified_req_graded">Certifica un artículo</string>
+    <string name="verified_req_graded_todo">Tu insignia muestra tu historial de notas, así que necesita al menos una.</string>
+    <string name="verified_req_public">Activa tu perfil público</string>
+    <string name="verified_req_public_met">Tu perfil es visible para los compradores.</string>
+    <string name="verified_req_public_todo">Nada es público hasta que actives esto.</string>
+    <string name="verified_req_embed">Muestra la insignia en tus anuncios</string>
+    <string name="verified_req_embed_met">Tus anuncios de eBay llevan tu historial de notas.</string>
+    <string name="verified_req_embed_todo">Opcional. Añade tu historial a los anuncios que publiques.</string>
+    <plurals name="verified_req_graded_met">
+        <item quantity="one">%1$d certificado hasta ahora.</item>
+        <item quantity="other">%1$d certificados hasta ahora.</item>
+    </plurals>
 </resources>

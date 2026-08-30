@@ -1,5 +1,7 @@
 package com.gradethread.app.verified
 
+import com.gradethread.app.R
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -77,12 +79,15 @@ class VerifiedBadgeTest {
     @Test
     fun `the checklist is in the order someone would do it`() {
         val requirements = VerifiedBadge.requirements(profile(), VerifiedStats())
+        // US-2976: resource ids, not English. Asserting the words here would
+        // have made this the second place the copy lives, and the one that
+        // silently disagrees with strings.xml.
         assertEquals(
             listOf(
-                "Claim your handle",
-                "Get an item certified",
-                "Turn your public profile on",
-                "Show the badge on your listings",
+                R.string.verified_req_handle,
+                R.string.verified_req_graded,
+                R.string.verified_req_public,
+                R.string.verified_req_embed,
             ),
             requirements.map { it.title },
         )
@@ -95,7 +100,10 @@ class VerifiedBadgeTest {
             .requirements(profile(handle = "flipqueen"), VerifiedStats())
             .first()
         assertTrue(requirement.met)
-        assertEquals("You're @flipqueen.", requirement.detail)
+        assertEquals(R.string.verified_req_handle_met, requirement.detail)
+        // The handle travels as the format ARGUMENT now, so this is the
+        // assertion that still says "shown back to the seller".
+        assertEquals("flipqueen", requirement.detailHandle)
     }
 
     @Test
@@ -107,7 +115,11 @@ class VerifiedBadgeTest {
 
         val one = VerifiedBadge.requirements(profile(), VerifiedStats(totalGraded = 1))[1]
         assertTrue(one.met)
-        assertEquals("1 certified so far.", one.detail)
+        assertEquals(R.plurals.verified_req_graded_met, one.detail)
+        // A PLURALS id, and the count travels with it - Spanish needs
+        // "1 certificado" and "2 certificados".
+        assertEquals(1, one.detailCount)
+        assertNull(none.detailCount)
     }
 
     // ── Progress and next step ───────────────────────────────────────────────
@@ -133,10 +145,10 @@ class VerifiedBadgeTest {
     @Test
     fun `the next step is the first thing undone, not a list of four`() {
         val fresh = VerifiedBadge.requirements(profile(), VerifiedStats())
-        assertEquals("Claim your handle", VerifiedBadge.nextStep(fresh)!!.title)
+        assertEquals(R.string.verified_req_handle, VerifiedBadge.nextStep(fresh)!!.title)
 
         val withHandle = VerifiedBadge.requirements(profile(handle = "abc"), VerifiedStats())
-        assertEquals("Get an item certified", VerifiedBadge.nextStep(withHandle)!!.title)
+        assertEquals(R.string.verified_req_graded, VerifiedBadge.nextStep(withHandle)!!.title)
     }
 
     @Test

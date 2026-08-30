@@ -2165,4 +2165,27 @@
     <string name="feedback_error_too_long">That\'s longer than we can send. Shorten it and try again.</string>
     <string name="feedback_one_way_note">Feedback is one-way. Open a support request if you\'d like a reply you can track.</string>
     <string name="feedback_sent">Sent &#8212; thanks. We read every one.</string>
+    <string name="verified_status_locked">Not set up</string>
+    <string name="verified_status_locked_detail">Claim a handle and turn your profile on to get a verified badge.</string>
+    <string name="verified_status_handle_needed">Needs a handle</string>
+    <string name="verified_status_handle_needed_detail">Your profile is switched on, but it has no address until you claim a handle.</string>
+    <string name="verified_status_hidden">Ready, but hidden</string>
+    <string name="verified_status_hidden_detail">You\'ve claimed a handle. Turn your public profile on and the badge goes live.</string>
+    <string name="verified_status_live">Live</string>
+    <string name="verified_status_live_detail">Buyers can see your verified profile and your grading record.</string>
+    <string name="verified_req_handle">Claim your handle</string>
+    <string name="verified_req_handle_met">You\'re @%1$s.</string>
+    <string name="verified_req_handle_todo">This becomes your public address.</string>
+    <string name="verified_req_graded">Get an item certified</string>
+    <string name="verified_req_graded_todo">Your badge shows your grading record, so it needs at least one.</string>
+    <string name="verified_req_public">Turn your public profile on</string>
+    <string name="verified_req_public_met">Your profile is visible to buyers.</string>
+    <string name="verified_req_public_todo">Nothing is public until you switch this on.</string>
+    <string name="verified_req_embed">Show the badge on your listings</string>
+    <string name="verified_req_embed_met">Your eBay listings carry your grading record.</string>
+    <string name="verified_req_embed_todo">Optional. Adds your record to the listings you publish.</string>
+    <plurals name="verified_req_graded_met">
+        <item quantity="one">%1$d certified so far.</item>
+        <item quantity="other">%1$d certified so far.</item>
+    </plurals>
 </resources>

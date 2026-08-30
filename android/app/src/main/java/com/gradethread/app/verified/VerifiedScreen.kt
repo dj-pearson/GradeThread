@@ -20,6 +20,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -394,7 +395,7 @@ fun VerifiedContent(state: VerifiedViewModel.State, actions: VerifiedActions, mo
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        status.label,
+                        stringResource(status.label),
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
@@ -406,7 +407,7 @@ fun VerifiedContent(state: VerifiedViewModel.State, actions: VerifiedActions, mo
                         )
                     }
                 }
-                Text(status.detail, style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(status.detail), style = MaterialTheme.typography.bodyMedium)
                 state.sinceLabel?.let {
                     Text(
                         it,
@@ -429,7 +430,10 @@ fun VerifiedContent(state: VerifiedViewModel.State, actions: VerifiedActions, mo
                     // One step, not four. A list of everything undone is a wall;
                     // the first thing is the only one that matters today.
                     Text(
-                        stringResource(R.string.verified_next_step, it.title.lowercase()),
+                        stringResource(
+                            R.string.verified_next_step,
+                            stringResource(it.title).lowercase(),
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -478,7 +482,7 @@ fun VerifiedContent(state: VerifiedViewModel.State, actions: VerifiedActions, mo
                 ) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            requirement.title,
+                            stringResource(requirement.title),
                             style = MaterialTheme.typography.bodyLarge,
                             modifier = Modifier.weight(1f),
                         )
@@ -497,7 +501,7 @@ fun VerifiedContent(state: VerifiedViewModel.State, actions: VerifiedActions, mo
                         )
                     }
                     Text(
-                        requirement.detail,
+                        requirementDetail(requirement),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -547,6 +551,27 @@ fun VerifiedContent(state: VerifiedViewModel.State, actions: VerifiedActions, mo
  * refuses to publish a profile with no handle, so offering the tap would be a
  * switch whose only outcome is a 400.
  */
+/**
+ * A requirement's detail line, resolved.
+ *
+ * Three cases and they are not interchangeable: a count goes through
+ * pluralStringResource because Spanish needs "1 certificado" and "2
+ * certificados"; a handle is a plain format argument; the rest take no
+ * argument at all. Kept in one function so the screen has one call rather than
+ * a conditional in the middle of a Column.
+ */
+@Composable
+private fun requirementDetail(requirement: VerifiedRequirement): String = when {
+    requirement.detailCount != null -> pluralStringResource(
+        requirement.detail,
+        requirement.detailCount,
+        requirement.detailCount,
+    )
+    requirement.detailHandle != null ->
+        stringResource(requirement.detail, requirement.detailHandle)
+    else -> stringResource(requirement.detail)
+}
+
 @Composable
 private fun VisibilitySwitches(state: VerifiedViewModel.State, actions: VerifiedActions) {
     // Same spacing as the parent column, so wrapping these three for the

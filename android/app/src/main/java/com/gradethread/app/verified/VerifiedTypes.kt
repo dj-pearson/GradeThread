@@ -1,5 +1,6 @@
 package com.gradethread.app.verified
 
+import androidx.annotation.StringRes
 import com.gradethread.app.R
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -114,30 +115,35 @@ object VerifiedHandleRules {
  * handle plus the public toggle. Naming the same three conditions here keeps
  * this screen honest about what actually turns the badge on.
  */
-enum class VerifiedStatus(val label: String, val detail: String) {
-    LOCKED(
-        "Not set up",
-        "Claim a handle and turn your profile on to get a verified badge.",
-    ),
+enum class VerifiedStatus(@StringRes val label: Int, @StringRes val detail: Int) {
+    LOCKED(R.string.verified_status_locked, R.string.verified_status_locked_detail),
     HANDLE_NEEDED(
-        "Needs a handle",
-        "Your profile is switched on, but it has no address until you claim a handle.",
+        R.string.verified_status_handle_needed,
+        R.string.verified_status_handle_needed_detail,
     ),
-    HIDDEN(
-        "Ready, but hidden",
-        "You've claimed a handle. Turn your public profile on and the badge goes live.",
-    ),
-    LIVE(
-        "Live",
-        "Buyers can see your verified profile and your grading record.",
-    ),
+    HIDDEN(R.string.verified_status_hidden, R.string.verified_status_hidden_detail),
+    LIVE(R.string.verified_status_live, R.string.verified_status_live_detail),
 }
 
-/** One thing standing between the seller and a working badge. */
+/**
+ * One thing standing between the seller and a working badge.
+ *
+ * US-2976: the strings are RESOURCES, and two of the four details carry a
+ * value, so the shape has to say which. [detailHandle] and [detailCount] are
+ * separate nullable fields rather than one `Any?` because the screen resolves
+ * them differently - a count goes through pluralStringResource and a handle
+ * does not, and a single untyped argument would have needed a cast at the one
+ * place that must not get this wrong.
+ */
 data class VerifiedRequirement(
-    val title: String,
-    val detail: String,
+    @StringRes val title: Int,
+    /** A string resource, or a PLURALS resource when [detailCount] is set. */
+    val detail: Int,
     val met: Boolean,
+    /** The seller's handle, for the one requirement that names it. */
+    val detailHandle: String? = null,
+    /** How many grades, for the one requirement that counts them. */
+    val detailCount: Int? = null,
 )
 
 object VerifiedBadge {
@@ -171,43 +177,46 @@ object VerifiedBadge {
      * Folding it in would tell a seller with a perfectly live badge that they
      * aren't verified.
      */
-    fun requirements(profile: VerifiedProfile, stats: VerifiedStats): List<VerifiedRequirement> =
-        listOf(
-            VerifiedRequirement(
-                title = "Claim your handle",
-                detail = profile.handle?.takeIf { it.isNotBlank() }
-                    ?.let { "You're @$it." }
-                    ?: "This becomes your public address.",
-                met = !profile.handle.isNullOrBlank(),
-            ),
-            VerifiedRequirement(
-                title = "Get an item certified",
-                detail = if (stats.totalGraded >= MIN_GRADES) {
-                    "${stats.totalGraded} certified so far."
-                } else {
-                    "Your badge shows your grading record, so it needs at least one."
-                },
-                met = stats.totalGraded >= MIN_GRADES,
-            ),
-            VerifiedRequirement(
-                title = "Turn your public profile on",
-                detail = if (profile.enabled) {
-                    "Your profile is visible to buyers."
-                } else {
-                    "Nothing is public until you switch this on."
-                },
-                met = profile.enabled,
-            ),
-            VerifiedRequirement(
-                title = "Show the badge on your listings",
-                detail = if (profile.embedInListings) {
-                    "Your eBay listings carry your grading record."
-                } else {
-                    "Optional. Adds your record to the listings you publish."
-                },
-                met = profile.embedInListings,
-            ),
-        )
+    fun requirements(profile: VerifiedProfile, stats: VerifiedStats): List<VerifiedRequirement> = listOf(
+        VerifiedRequirement(
+            title = R.string.verified_req_handle,
+            detail = if (profile.handle.isNullOrBlank()) {
+                R.string.verified_req_handle_todo
+            } else {
+                R.string.verified_req_handle_met
+            },
+            met = !profile.handle.isNullOrBlank(),
+            detailHandle = profile.handle?.takeIf { it.isNotBlank() },
+        ),
+        VerifiedRequirement(
+            title = R.string.verified_req_graded,
+            detail = if (stats.totalGraded >= MIN_GRADES) {
+                R.plurals.verified_req_graded_met
+            } else {
+                R.string.verified_req_graded_todo
+            },
+            met = stats.totalGraded >= MIN_GRADES,
+            detailCount = stats.totalGraded.takeIf { it >= MIN_GRADES },
+        ),
+        VerifiedRequirement(
+            title = R.string.verified_req_public,
+            detail = if (profile.enabled) {
+                R.string.verified_req_public_met
+            } else {
+                R.string.verified_req_public_todo
+            },
+            met = profile.enabled,
+        ),
+        VerifiedRequirement(
+            title = R.string.verified_req_embed,
+            detail = if (profile.embedInListings) {
+                R.string.verified_req_embed_met
+            } else {
+                R.string.verified_req_embed_todo
+            },
+            met = profile.embedInListings,
+        ),
+    )
 
     /** How far along, 0..1, over the requirements that actually gate the badge. */
     fun progress(requirements: List<VerifiedRequirement>): Float {
@@ -244,6 +253,6 @@ object VerifiedBadge {
         // Locale-fixed: a grade is a score on a 1-10 scale, not a quantity to
         // localize, and "8,4" would read as a different number entirely.
         val average = String.format(java.util.Locale.US, "%.1f", stats.averageGrade)
-        return "${stats.totalGraded} certified $items · ${average} average grade"
+        return "${stats.totalGraded} certified $items · $average average grade"
     }
 }
