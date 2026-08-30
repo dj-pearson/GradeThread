@@ -432,3 +432,105 @@ Deno.test("the guessy containment step stays off open lists", () => {
   // The same aspect as a closed list still resolves it.
   assertEquals(normalizeAspectValue("Golf", sel("Brand", brands)), "Nike Golf");
 });
+
+// ── US-3016 third pass: Pattern and Occasion, from the full prod lists ──────
+//
+// The first audit reported five Pattern values as dropped. Four were an
+// artifact of a fixture that held 14 of the aspect's 222 values; the real list
+// has Solid, Striped, Polka Dot and Tie Dye. Reading the whole thing back
+// found three genuine defects instead, none of which was visible from the
+// truncated sample.
+
+const PROD_PATTERN = [
+  "Solid", "Animal Print", "Camouflage", "Floral", "Geometric", "Paisley",
+  "Striped", "Polka Dot", "Argyle/Diamond", "Herringbone", "Plaid",
+  "Fair Isle", "Check", "Colorblock", "Houndstooth", "Chevron", "Batik",
+  "Patchwork", "Spotted", "Pinstripe", "Gingham", "Ombré", "Tie Dye", "Ikat",
+  "Flecked", "Graphic Print", "Checked", "Damask", "Novelty/Cartoon", "Toile",
+  "Abstract", "Logo", "Leopard Print", "Zebra Print", "Snakeskin Print",
+  "Cow Print", "Marbled",
+];
+// The reduced list a third of the Pattern categories actually carry.
+const PROD_PATTERN_SHORT = [
+  "Animal Print", "Argyle/Diamond", "Batik", "Camouflage", "Check", "Chevron",
+  "Colorblock", "Fair Isle", "Flecked", "Floral", "Geometric", "Gingham",
+  "Herringbone", "Houndstooth",
+];
+const PROD_OCCASION_FULL = [
+  "Casual", "Formal", "Business", "Wedding", "Activewear", "Travel",
+  "Workwear", "Party/Cocktail", "Christening", "Party", "Everyday",
+  "Clubwear", "Cocktail", "Little Black Dress", "Outdoor", "Safety",
+  "Special Occasion", "Summer/Beach", "Wear to Work", "Dressy", "Holiday",
+  "Day Dress", "Evening", "Holy Communion", "Prom",
+];
+
+Deno.test("an accented allowed value used to be unreachable, and now is not", () => {
+  // loose() strips to a-z0-9, so "Ombré" reduced to "ombr" while our own
+  // "Ombre" reduced to "ombre" — a miss no reader would ever have suspected,
+  // on a value that looks identical in the report. Folding fixes every
+  // accented value in the taxonomy, not just this one.
+  assertEquals(normalizeAspectValue("Ombre", open("Pattern", PROD_PATTERN)), "Ombré");
+});
+
+Deno.test("prod names the animal, so we should not settle for Animal Print", () => {
+  assertEquals(normalizeAspectValue("Leopard", open("Pattern", PROD_PATTERN)), "Leopard Print");
+  assertEquals(normalizeAspectValue("Zebra", open("Pattern", PROD_PATTERN)), "Zebra Print");
+  assertEquals(
+    normalizeAspectValue("Snakeskin", open("Pattern", PROD_PATTERN)),
+    "Snakeskin Print",
+  );
+  // Cheetah has no value of its own; Leopard Print is the bucket eBay puts it in.
+  assertEquals(normalizeAspectValue("Cheetah", open("Pattern", PROD_PATTERN)), "Leopard Print");
+  // …and the umbrella is still the fallback where the specific print is absent.
+  assertEquals(
+    normalizeAspectValue("Leopard", open("Pattern", PROD_PATTERN_SHORT)),
+    "Animal Print",
+  );
+});
+
+Deno.test("the rest of prod's Pattern vocabulary", () => {
+  assertEquals(normalizeAspectValue("Graphic", open("Pattern", PROD_PATTERN)), "Graphic Print");
+  assertEquals(normalizeAspectValue("Tie-Dye", open("Pattern", PROD_PATTERN)), "Tie Dye");
+  assertEquals(normalizeAspectValue("Camo", open("Pattern", PROD_PATTERN)), "Camouflage");
+  assertEquals(normalizeAspectValue("Tartan", open("Pattern", PROD_PATTERN)), "Plaid");
+  assertEquals(normalizeAspectValue("Novelty", open("Pattern", PROD_PATTERN)), "Novelty/Cartoon");
+  // Prod has no Heathered and no Marled. The cloth they describe is Flecked.
+  assertEquals(normalizeAspectValue("Heathered", open("Pattern", PROD_PATTERN)), "Flecked");
+  // A short list with no graphic bucket at all keeps the seller's word rather
+  // than inventing one.
+  assertEquals(normalizeAspectValue("Graphic", open("Pattern", PROD_PATTERN_SHORT)), "Graphic");
+});
+
+Deno.test("Occasion: prod's 25 values, and the short lists that lack the dressy half", () => {
+  assertEquals(normalizeAspectValue("Work", open("Occasion", PROD_OCCASION_FULL)), "Business");
+  assertEquals(
+    normalizeAspectValue("Athletic", open("Occasion", PROD_OCCASION_FULL)),
+    "Activewear",
+  );
+  assertEquals(
+    normalizeAspectValue("Beach", open("Occasion", PROD_OCCASION_FULL)),
+    "Summer/Beach",
+  );
+  assertEquals(normalizeAspectValue("Club", open("Occasion", PROD_OCCASION_FULL)), "Clubwear");
+  assertEquals(normalizeAspectValue("Vacation", open("Occasion", PROD_OCCASION_FULL)), "Travel");
+  // Prod carries Cocktail outright, so step 1 wins and nothing is coarsened.
+  assertEquals(normalizeAspectValue("Cocktail", open("Occasion", PROD_OCCASION_FULL)), "Cocktail");
+  // The categories that only carry the compound value still land on it.
+  assertEquals(
+    normalizeAspectValue("Cocktail", open("Occasion", ["Casual", "Formal", "Party/Cocktail"])),
+    "Party/Cocktail",
+  );
+
+  // Roughly a third of the Occasion categories carry a workwear-shaped list
+  // with no dressy value on it. "Work" still lands; "Formal" correctly does
+  // not, because there is nothing on the list that means it.
+  const short = ["Activewear", "Casual", "Everyday", "Outdoor", "Travel", "Workwear"];
+  assertEquals(normalizeAspectValue("Work", open("Occasion", short)), "Workwear");
+  assertEquals(normalizeAspectValue("Formal", open("Occasion", short)), "Formal");
+  assertEquals(normalizeAspectValue("Wedding", open("Occasion", short)), "Wedding");
+
+  // A dressy list without the exact word still has Special Occasion to reach.
+  const dressy = ["Casual", "Special Occasion", "Everyday", "Day Dress"];
+  assertEquals(normalizeAspectValue("Formal", open("Occasion", dressy)), "Special Occasion");
+  assertEquals(normalizeAspectValue("Prom", open("Occasion", dressy)), "Special Occasion");
+});

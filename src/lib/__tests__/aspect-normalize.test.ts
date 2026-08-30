@@ -17,6 +17,34 @@ const sel = (name: string, allowedValues: string[]) => ({
 });
 
 
+describe("normalizeAspectValue against prod's full lists (US-3016)", () => {
+  const open = (name: string, allowedValues: string[]) => ({
+    name,
+    mode: "FREE_TEXT",
+    allowedValues,
+  });
+  const PROD_PATTERN = [
+    "Solid", "Animal Print", "Camouflage", "Floral", "Striped", "Polka Dot",
+    "Plaid", "Check", "Houndstooth", "Ombré", "Tie Dye", "Flecked",
+    "Graphic Print", "Novelty/Cartoon", "Leopard Print", "Zebra Print",
+  ];
+
+  it("reaches an accented allowed value", () => {
+    expect(normalizeAspectValue("Ombre", open("Pattern", PROD_PATTERN))).toBe("Ombré");
+  });
+
+  it("prefers the named animal print over the umbrella", () => {
+    expect(normalizeAspectValue("Leopard", open("Pattern", PROD_PATTERN))).toBe("Leopard Print");
+    expect(normalizeAspectValue("Cheetah", open("Pattern", PROD_PATTERN))).toBe("Leopard Print");
+  });
+
+  it("maps the rest of prod's Pattern vocabulary", () => {
+    expect(normalizeAspectValue("Graphic", open("Pattern", PROD_PATTERN))).toBe("Graphic Print");
+    expect(normalizeAspectValue("Camo", open("Pattern", PROD_PATTERN))).toBe("Camouflage");
+    expect(normalizeAspectValue("Heathered", open("Pattern", PROD_PATTERN))).toBe("Flecked");
+  });
+});
+
 describe("normalizeAspectValue on eBay's OPEN lists (US-3016)", () => {
   const open = (name: string, allowedValues: string[]) => ({
     name,

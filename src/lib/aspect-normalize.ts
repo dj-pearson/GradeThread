@@ -92,8 +92,20 @@ const GROUPS_BY_KIND: Record<SynonymKind, string[][]> = {
 
 // Loose key used for synonym-group membership and exact comparison: lowercased,
 // punctuation/whitespace stripped. "Men's" → "mens", "X-Large" → "xlarge".
+//
+// DIACRITICS ARE FOLDED, NOT DROPPED, and the difference is not cosmetic. The
+// strip is a whitelist of a-z0-9, so an accented letter was being DELETED
+// rather than replaced: eBay's Pattern list ships "Ombré", which reduced to
+// "ombr" while our own "Ombre" reduced to "ombre", and the two never matched.
+// Folding to the base letter first makes both "ombre". Every accented value in
+// the taxonomy — and there are plenty in the designer-pattern names — had the
+// same silent miss.
 function loose(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 }
 
 // Comparison key for the legacy exact + plural-tolerant match: lowercased,
@@ -423,16 +435,24 @@ const PATTERN_FAMILY: FamilyTable = {
   polkadot: ["Polka Dot", "Polka Dots", "Dots"],
   dot: ["Polka Dot", "Polka Dots", "Dots"],
   dotted: ["Polka Dot", "Polka Dots", "Dots"],
+  // Prod carries both the specific print and the umbrella, so name the animal
+  // first and fall back to Animal Print in the categories that only have that.
   animal: ["Animal Print"],
-  leopard: ["Animal Print", "Leopard"],
-  cheetah: ["Animal Print", "Leopard"],
-  zebra: ["Animal Print", "Zebra"],
-  snakeskin: ["Animal Print", "Snakeskin"],
+  leopard: ["Leopard Print", "Animal Print", "Leopard"],
+  cheetah: ["Leopard Print", "Animal Print"],
+  zebra: ["Zebra Print", "Animal Print", "Zebra"],
+  tiger: ["Tiger Print", "Animal Print"],
+  giraffe: ["Giraffe Print", "Animal Print"],
+  cow: ["Cow Print", "Animal Print"],
+  dalmatian: ["Dalmation Print", "Animal Print"],
+  snakeskin: ["Snakeskin Print", "Animal Print", "Snakeskin"],
+  python: ["Snakeskin Print", "Animal Print"],
   camo: ["Camouflage"],
   camouflage: ["Camouflage"],
   graphic: ["Graphic Print", "Graphic", "Logo", "Novelty", "Print"],
   logo: ["Logo", "Graphic Print", "Graphic", "Novelty"],
-  novelty: ["Novelty", "Graphic Print", "Graphic"],
+  novelty: ["Novelty/Cartoon", "Novelty", "Graphic Print", "Graphic"],
+  cartoon: ["Character/Cartoon", "Novelty/Cartoon", "Graphic Print"],
   geometric: ["Geometric"],
   abstract: ["Abstract", "Geometric"],
   tiedye: ["Tie-Dye", "Tie Dye", "Abstract", "Graphic Print"],
@@ -440,9 +460,11 @@ const PATTERN_FAMILY: FamilyTable = {
   argyle: ["Argyle"],
   chevron: ["Chevron", "Geometric"],
   herringbone: ["Herringbone"],
-  marled: ["Heathered", "Marled"],
-  heather: ["Heathered", "Heather"],
-  heathered: ["Heathered", "Heather"],
+  marled: ["Marled", "Flecked", "Heathered"],
+  heather: ["Heathered", "Flecked", "Heather"],
+  heathered: ["Heathered", "Flecked", "Heather"],
+  speckled: ["Flecked", "Spotted"],
+  ombre: ["Ombré", "Ombre"],
   embroidered: ["Embroidered"],
   tropical: ["Tropical", "Floral"],
 };
@@ -518,29 +540,55 @@ const CLOSURE_FAMILY: FamilyTable = {
   magnetic: ["Magnetic"],
 };
 
+// Prod's Occasion vocabulary, across 80 categories, is 25 values: Casual,
+// Formal, Business, Wedding, Activewear, Travel, Workwear, Party/Cocktail,
+// Christening, Party, Everyday, Clubwear, Cocktail, Little Black Dress,
+// Outdoor, Safety, Special Occasion, Summer/Beach, Wear to Work, Dressy,
+// Holiday, Day Dress, Evening, Holy Communion, Prom. Roughly a third of those
+// categories carry a SHORT list with no Formal and no Wedding at all, which is
+// why the dressy values each need a Special Occasion fallback to land.
 const OCCASION_FAMILY: FamilyTable = {
   casual: ["Casual", "Everyday"],
-  everyday: ["Casual", "Everyday"],
-  work: ["Business", "Work", "Career"],
-  business: ["Business", "Work", "Career"],
-  office: ["Business", "Work", "Career"],
-  career: ["Career", "Business", "Work"],
-  formal: ["Formal", "Cocktail"],
-  blacktie: ["Formal"],
-  cocktail: ["Cocktail", "Party/Cocktail", "Formal"],
-  party: ["Party/Cocktail", "Cocktail", "Party"],
-  evening: ["Formal", "Cocktail", "Party/Cocktail"],
-  wedding: ["Wedding", "Formal"],
-  prom: ["Prom", "Formal"],
+  everyday: ["Everyday", "Casual"],
+  work: ["Business", "Workwear", "Wear to Work", "Work", "Career"],
+  business: ["Business", "Workwear", "Wear to Work", "Work"],
+  office: ["Business", "Workwear", "Wear to Work", "Work"],
+  career: ["Career", "Business", "Workwear", "Wear to Work"],
+  professional: ["Business", "Workwear", "Wear to Work"],
+  formal: ["Formal", "Special Occasion", "Dressy", "Evening"],
+  blacktie: ["Formal", "Special Occasion", "Evening"],
+  dressy: ["Dressy", "Special Occasion", "Formal"],
+  cocktail: ["Party/Cocktail", "Cocktail", "Special Occasion", "Formal"],
+  party: ["Party/Cocktail", "Party", "Cocktail", "Special Occasion"],
+  club: ["Clubwear", "Party/Cocktail", "Party"],
+  clubbing: ["Clubwear", "Party/Cocktail", "Party"],
+  nightout: ["Clubwear", "Party/Cocktail", "Evening"],
+  evening: ["Evening", "Formal", "Special Occasion", "Party/Cocktail"],
+  wedding: ["Wedding", "Special Occasion", "Formal", "Dressy"],
+  bridal: ["Wedding", "Special Occasion", "Formal"],
+  prom: ["Prom", "Special Occasion", "Formal"],
+  homecoming: ["Prom", "Special Occasion", "Formal"],
+  graduation: ["Special Occasion", "Formal"],
+  holiday: ["Holiday", "Special Occasion"],
+  christmas: ["Holiday", "Special Occasion"],
+  christening: ["Christening", "Holy Communion", "Special Occasion"],
+  communion: ["Holy Communion", "Christening", "Special Occasion"],
+  specialoccasion: ["Special Occasion", "Formal"],
   athletic: ["Activewear", "Athletic", "Sports"],
   gym: ["Activewear", "Athletic", "Sports"],
   workout: ["Activewear", "Athletic", "Sports"],
   sport: ["Sports", "Activewear", "Athletic"],
   outdoor: ["Outdoor", "Casual"],
-  beach: ["Beach", "Vacation", "Casual"],
-  travel: ["Travel", "Vacation", "Casual"],
-  lounge: ["Loungewear", "Casual"],
+  hiking: ["Outdoor", "Activewear"],
+  beach: ["Summer/Beach", "Beach", "Travel", "Casual"],
+  summer: ["Summer/Beach", "Casual"],
+  vacation: ["Travel", "Summer/Beach", "Casual"],
+  travel: ["Travel", "Summer/Beach", "Casual"],
+  lounge: ["Loungewear", "Casual", "Everyday"],
   sleep: ["Sleepwear", "Loungewear"],
+  daytime: ["Day Dress", "Everyday", "Casual"],
+  safety: ["Safety", "Workwear"],
+  hivis: ["Safety", "Workwear"],
 };
 
 const SEASON_FAMILY: FamilyTable = {
