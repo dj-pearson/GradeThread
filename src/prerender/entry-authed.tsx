@@ -25,10 +25,20 @@ import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { useAuthStore } from "@/stores/auth-store";
 import { MoneyOverviewPage } from "@/pages/flipdesk/money-overview";
 import { FlipdeskExpensesPage } from "@/pages/flipdesk/expenses";
+import { FinancesPage } from "@/pages/finances";
+import { FlipdeskReconcilePage } from "@/pages/flipdesk/reconcile";
+import { PnlPage } from "@/pages/flipdesk/pnl";
+import { DeductionsPage } from "@/pages/flipdesk/deductions";
+import { TaxSetupPage } from "@/pages/flipdesk/tax-setup";
 
 /**
  * One line per screen: a key for the CLI, the route it sits at, and the
  * component.
+ *
+ * All seven Money views (MONEY_VIEWS in @/pages/flipdesk/nav-tabs), which is
+ * AC4. The HOST is deliberately absent: it renders its views through
+ * React.lazy, and renderToStaticMarkup does not await, so scanning the host
+ * would scan a Suspense fallback and call it a screen.
  */
 export const SCREENS: {
   key: string;
@@ -41,9 +51,34 @@ export const SCREENS: {
     render: () => <MoneyOverviewPage />,
   },
   {
+    key: "finances",
+    path: "/dashboard/flipdesk/money?view=finances",
+    render: () => <FinancesPage />,
+  },
+  {
     key: "expenses",
     path: "/dashboard/flipdesk/money?view=expenses",
     render: () => <FlipdeskExpensesPage />,
+  },
+  {
+    key: "reconcile",
+    path: "/dashboard/flipdesk/money?view=reconcile",
+    render: () => <FlipdeskReconcilePage />,
+  },
+  {
+    key: "pnl",
+    path: "/dashboard/flipdesk/money?view=pnl",
+    render: () => <PnlPage />,
+  },
+  {
+    key: "deductions",
+    path: "/dashboard/flipdesk/money?view=deductions",
+    render: () => <DeductionsPage />,
+  },
+  {
+    key: "tax",
+    path: "/dashboard/flipdesk/money?view=tax",
+    render: () => <TaxSetupPage />,
   },
 ];
 
