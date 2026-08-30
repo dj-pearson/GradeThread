@@ -26,6 +26,7 @@ on:
       # vitest case can express.
       - "scripts/check-ledger-invariant.mjs"
       - "scripts/check-sale-pnl-invariant.mjs"
+      - "scripts/check-created-by.mjs"
       - "scripts/check-cogs-worksheet.mjs"
       - "scripts/check-facilitator-tax.mjs"
       - "scripts/check-1099k-bridge.mjs"
@@ -57,6 +58,7 @@ on:
       # vitest case can express.
       - "scripts/check-ledger-invariant.mjs"
       - "scripts/check-sale-pnl-invariant.mjs"
+      - "scripts/check-created-by.mjs"
       - "scripts/check-cogs-worksheet.mjs"
       - "scripts/check-facilitator-tax.mjs"
       - "scripts/check-1099k-bridge.mjs"
@@ -157,6 +159,13 @@ jobs:
       # shipments rows, which is to say the oldest ones.
       - name: sale_pnl equals finances_dashboard (US-3018)
         run: node scripts/check-sale-pnl-invariant.mjs
+      # US-3023: a CREATE TRIGGER that succeeds proves nothing about whether the
+      # trigger fires, what column it writes, or whether the next UPDATE undoes
+      # it. The fixture inserts as a workspace MEMBER of someone else's
+      # workspace, so a trigger writing user_id instead of auth.uid() fails here
+      # instead of looking identical.
+      - name: created_by is stamped and immutable (US-3023)
+        run: node scripts/check-created-by.mjs
       - name: COGS worksheet and its cross-check (US-2986)
         run: node scripts/check-cogs-worksheet.mjs
       # Net profit is IDENTICAL on both tax branches, so only gross receipts

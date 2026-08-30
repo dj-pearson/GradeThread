@@ -497,6 +497,13 @@ if (on("db")) {
     // of it -- so a view built by copying that column is correct except on
     // accounts with legacy shipments rows, which is to say the oldest ones.
     run("db: sale_pnl equals finances_dashboard (US-3018)", "node scripts/check-sale-pnl-invariant.mjs");
+    // US-3023: CREATE TRIGGER succeeding proves nothing. A trigger can install
+    // cleanly and never fire, fire and write the wrong column, or be undone by
+    // the next UPDATE -- and a source scan reads all three as correct, because
+    // the CREATE statement is right there in the file. This inserts as a
+    // workspace MEMBER of another owner's workspace, so writing user_id instead
+    // of auth.uid() is caught rather than looking identical.
+    run("db: created_by is stamped and immutable (US-3023)", "node scripts/check-created-by.mjs");
     run("db: COGS worksheet and its cross-check (US-2986)", "node scripts/check-cogs-worksheet.mjs");
     run("db: facilitator vs seller-collected sales tax (US-2987)", "node scripts/check-facilitator-tax.mjs");
     run("db: 1099-K gross is branch-independent (US-2988)", "node scripts/check-1099k-bridge.mjs");

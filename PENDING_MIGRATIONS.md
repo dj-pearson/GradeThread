@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ▶ OUTSTANDING RIGHT NOW — 00706
+## ▶ OUTSTANDING RIGHT NOW — 00706, 00707
 
 ### HELD: 00706_sale_pnl_view.sql (US-3018 — one per-sale profit row the team reports group by)
 
@@ -30,6 +30,56 @@ edge boot guard still expects `00706`, so keep the normal order.
 `finances_dashboard` agreeing at $164.84 with $0.00 variance. Both guards were
 sabotage-tested: dropping the legacy-shipments term fails at $5.95, and removing
 the case fold fails on `'Dan'`/`'dan'` not collapsing.
+
+### HELD: 00707_created_by_tracking.sql (US-3023 — who created an item or listing)
+
+**Risk: low-to-medium.** Two NEW columns, two indexes, two functions and FOUR
+triggers. No existing column, policy or row is changed, and nothing is
+backfilled — but it does add triggers to `inventory_items` and `listings`, which
+are the two hottest write paths in the product. If a trigger raised, every
+insert on those tables would fail. Neither can raise: `set_created_by` does one
+assignment, and `guard_created_by_immutable` pins a value and returns.
+
+**⚠ Needs `NOTIFY pgrst, 'reload schema';`** — two new columns, and PostgREST
+will not expose `created_by` until it is told.
+
+**Apply order: after 00706.** No dependency between them; this is just the
+number order.
+
+**What it does.**
+- `inventory_items.created_by` and `listings.created_by`, both
+  `uuid REFERENCES public.users(id) ON DELETE SET NULL`, with a
+  `(user_id, created_by)` index on each.
+- A BEFORE INSERT trigger stamps `coalesce(NEW.created_by, auth.uid())`, so
+  every client — web, iOS, Android, the extension — is captured with no app
+  changes. Service-role and job inserts leave it NULL, which is correct.
+- A BEFORE UPDATE trigger pins the value for authenticated sessions, silently.
+  Service-role can still correct a row.
+
+**Why the immutability trigger, when the story did not ask for one.** AC5 asked
+whether the `00526` deny-by-default column allowlist covers this column. It does
+not — that guard is on `public.users` alone, and `inventory_items` / `listings`
+carry plain row-level UPDATE policies with no column list. So nothing stopped a
+later UPDATE from rewriting the attribution. The realistic break is not a
+malicious teammate: it is a client that reads a whole row, changes one field and
+writes the object back, carrying an absent `created_by` with it.
+
+**Does client code read it before the apply?** NO. `src/types/database.ts` now
+declares the field, but no query selects it and no UI renders it. US-3024 is the
+first reader and is not written yet. A push before the apply breaks nothing.
+
+**⚠ THIS REPORTS FORWARD ONLY.** Existing rows are NOT backfilled and stay
+NULL, because nothing has ever recorded which member performed an insert. Any
+report on this column has to say so rather than showing an empty chart.
+
+**Verified locally 2026-08-30** against `supabase_db_gradethread`:
+`node scripts/check-created-by.mjs` passes all five cases, and the migration
+re-applies cleanly (every statement reports `already exists, skipping`). Four
+sabotages were run rather than assumed, each caught with exit 1:
+dropping the INSERT trigger; stamping `NEW.user_id` (the tenant) instead of
+`auth.uid()` (the actor), which the fixture catches only because it inserts as a
+MEMBER of someone else's workspace; dropping the immutability guard; and a guard
+that returns OLD and swallows the whole UPDATE rather than just the column.
 
 Production reported `applied: 00705` with no missing versions
 (`GET https://functions.gradethread.com/health/ready`, unauthenticated), and the

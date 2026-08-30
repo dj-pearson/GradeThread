@@ -1103,6 +1103,12 @@ export interface InventoryItemRow {
   style: string | null;
   description: string | null;
   sourced_by: string | null;
+  // US-3023 (00707): the workspace MEMBER whose session inserted the row, set
+  // by a trigger from auth.uid(). Different from user_id, which is the tenant.
+  // NULL for service-role and background-job inserts, and NULL for every row
+  // created before 00707 applied -- it is not backfilled. Set once: an
+  // authenticated UPDATE cannot change it.
+  created_by: string | null;
   comp_set: ItemComp[];
   // AI enrichment (US-158)
   ai_field_sources: Record<string, AiFieldSource>;
@@ -1299,6 +1305,9 @@ export interface ListingRow {
   // Denormalized owning tenant (= inventory_items.user_id), kept in sync by the
   // set_listings_tenant trigger (US-410, migration 00146).
   user_id: string;
+  // US-3023 (00707): the workspace MEMBER whose session inserted the row. See
+  // the note on InventoryItemRow.created_by -- same trigger, same caveats.
+  created_by: string | null;
   platform: ListingPlatform;
   platform_listing_id: string | null;
   listing_url: string | null;
