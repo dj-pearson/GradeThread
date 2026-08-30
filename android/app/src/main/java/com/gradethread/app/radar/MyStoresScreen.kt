@@ -14,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,15 +37,48 @@ import com.gradethread.app.ui.theme.cardStyle
  * give one shop two different numbers depending on which screen you opened.
  */
 @Composable
-fun MyStoresScreen(
-    onClose: () -> Unit = {},
-    viewModel: MyStoresViewModel = hiltViewModel(),
-) {
+fun MyStoresScreen(onClose: () -> Unit = {}, viewModel: MyStoresViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { viewModel.load() }
 
+    MyStoresContent(
+        state = state,
+        actions = MyStoresActions(
+            sortBy = viewModel::sortBy,
+            retry = viewModel::load,
+            close = onClose,
+        ),
+    )
+}
+
+/**
+ * Everything the stores list can do (US-2902 AC3).
+ *
+ * `retry` and the wrapper's LaunchedEffect are the same load(): it is both the
+ * entry fetch and the error state's retry. THIRD screen in this sweep with that
+ * shape, after ConsignmentReport and ListingPerformance, and all three were
+ * caught by asserting the extracted body names no ViewModel.
+ */
+@Immutable
+data class MyStoresActions(
+    val sortBy: (StoreSort) -> Unit = {},
+    val retry: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * Which sourcing stores actually pay, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THIS SCREEN TELLS A SELLER WHERE TO SPEND THEIR SATURDAY. The rows are
+ * ranked by what each store has returned, so a sort that silently stops applying
+ * does not look broken - it looks like a different answer, and they drive to the
+ * wrong shop. The sort chips and the row order are captured together for that
+ * reason.
+ */
+@Composable
+fun MyStoresContent(state: MyStoresViewModel.State, actions: MyStoresActions, modifier: Modifier = Modifier) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.stores_title), style = MaterialTheme.typography.titleLarge)
@@ -58,7 +92,7 @@ fun MyStoresScreen(
             for (sort in StoreSort.entries) {
                 FilterChip(
                     selected = state.sort == sort,
-                    onClick = { viewModel.sortBy(sort) },
+                    onClick = { actions.sortBy(sort) },
                     enabled = !state.loading,
                     label = { Text(sortLabel(sort)) },
                 )
@@ -72,7 +106,7 @@ fun MyStoresScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
-                TextButton(onClick = { viewModel.load() }) {
+                TextButton(onClick = { actions.retry() }) {
                     Text(stringResource(R.string.common_try_again))
                 }
             }
@@ -131,7 +165,7 @@ fun MyStoresScreen(
         BrandSecondaryButton(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
-        ) { onClose() }
+        ) { actions.close() }
     }
 }
 
