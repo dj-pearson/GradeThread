@@ -33,6 +33,7 @@ on:
       - "scripts/check-statement-import.mjs"
       - "scripts/check-period-close.mjs"
       - "scripts/check-books-review.mjs"
+      - "scripts/check-qbo-sync.mjs"
       - "scripts/check-statement-import.mjs"
       - "scripts/check-period-close.mjs"
       - "scripts/fixtures/**"
@@ -62,6 +63,7 @@ on:
       - "scripts/check-statement-import.mjs"
       - "scripts/check-period-close.mjs"
       - "scripts/check-books-review.mjs"
+      - "scripts/check-qbo-sync.mjs"
       - "scripts/check-statement-import.mjs"
       - "scripts/check-period-close.mjs"
       - "scripts/fixtures/**"
@@ -185,6 +187,13 @@ jobs:
       # work inside a closed year, or the lock gets switched off.
       - name: A closed period refuses the service role (US-2995)
         run: node scripts/check-period-close.mjs
+      # The grouping is the assertion a mock cannot make. Everything else about
+      # the QuickBooks push is unit-tested against an in-memory Intuit; whether
+      # a sale's five ledger entries become ONE document or five is decided in
+      # SQL, and five would appear in QuickBooks as five unrelated receipts for
+      # the same jacket. It also proves the SECURITY DEFINER tenant guard fires.
+      - name: One sale is ONE QuickBooks document (US-2998)
+        run: node scripts/check-qbo-sync.mjs
       - name: Denied-RPC crash check (advisory, US-2403)
         continue-on-error: true
         run: node scripts/db-denied-rpc-crash-check.mjs

@@ -1,5 +1,54 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🔴 HELD: 00705_quickbooks_sync_log.sql (US-2998 — the QuickBooks push, and running it twice safely)
+
+**Risk: low.** Two NEW tables and two NEW functions. No existing table, column,
+function, policy or row is touched.
+
+**⚠ Needs `NOTIFY pgrst, 'reload schema';`** — two tables and two RPCs are new,
+and PostgREST will 404 on all four until it is told.
+
+**Apply order: AFTER 00704**, which created `qbo_connections`. Both new tables
+have a foreign key to it, so 00705 on its own fails. Order against 00701, 00702
+and 00703 does not matter.
+
+**What it does.**
+- `qbo_sync_log` — one row per pushed object, keyed
+  `(user_id, object_kind, source_id)`. This is the idempotency memory: a re-run
+  reads it before it writes, so a source with a recorded QuickBooks id is
+  updated or skipped and only an unrecorded one is created.
+- `qbo_sync_runs` — the resume bookmark for a bounded backfill.
+- `qbo_pending_documents(uuid, date, date, date, int)` — groups ledger entries
+  by SOURCE so a sale's revenue, shipping, fees, label and cost of goods are one
+  document rather than five.
+- `qbo_payout_sales(uuid, uuid)` — which sales a payout paid for, via
+  `sales.payout_reference`.
+
+**Both functions are SECURITY DEFINER and take a user id, with an in-body
+guard.** They have to: the caller is the edge, which uses the service-role
+client where `auth.uid()` is NULL, so a function keyed on `auth.uid()` alone
+would return nothing there and read as "no sales to push" rather than as a bug.
+A signed-in browser caller can only ever ask for themselves — naming anyone else
+raises 42501. **No REVOKE** (US-2403): the refusal is raised in the body.
+
+**Frontend dependency, and it is safe in both directions.** The sync card ships
+in the same commit but renders nothing until there is a QuickBooks connection,
+and every read goes through the edge rather than PostgREST. With the Intuit env
+vars unset — which is today — the routes answer 503 and the card never appears.
+
+**Verified on the local stack.** Applied twice, idempotent.
+`node scripts/check-qbo-sync.mjs` passes 16 assertions against real rows: one
+sale is one document carrying all six accounts, the facilitator tax is out of
+the total (10952) and reported beside it (1487), the payout link resolves to the
+right seller's sale, the cursor and the limit both bound the batch, and both
+functions refuse another tenant with 42501. **The sabotage was run**: adding
+`source_kind` to the GROUP BY turns three documents into six and the check fails
+seven assertions.
+
+The check is registered in `scripts/verify.mjs`,
+`.github/workflows/db-migrations.yml` and `package.json` in the same commit.
+
+
 ## 🔴 HELD: 00704_quickbooks_connection.sql (US-2997 — the QuickBooks Online connection and its account mapping)
 
 **Risk: low.** Three NEW tables and nothing else. No existing table, column,

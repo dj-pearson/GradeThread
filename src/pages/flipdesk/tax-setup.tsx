@@ -47,6 +47,7 @@ import { EstimatedTaxCard } from "@/components/finances/estimated-tax-card";
 import { PeriodCloseCard } from "@/components/finances/period-close-card";
 import { TaxPacketCard } from "@/components/finances/tax-packet-card";
 import { QuickBooksCard } from "@/components/finances/quickbooks-card";
+import { QuickBooksSyncCard } from "@/components/finances/quickbooks-sync-card";
 
 // US-2982 — the tax setup screen.
 //
@@ -373,6 +374,11 @@ export function TaxSetupPage() {
           packet needs nothing here, and a seller who keeps QuickBooks wants it
           set up once and then forgotten. */}
       <QuickBooksCard />
+
+      {/* US-2998. Directly under the mapping, and it renders nothing at all
+          until there is a connection: an empty sync card above an unconnected
+          one is a button with nowhere to send anything. */}
+      <QuickBooksSyncCard />
 
       <PeriodCloseCard />
 

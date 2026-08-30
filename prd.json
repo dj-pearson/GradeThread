@@ -2741,23 +2741,6 @@
       "priority": 30
     },
     {
-      "id": "US-2998",
-      "passes": false,
-      "title": "Push to QuickBooks Online: sales, fees, expenses, payouts and COGS, and run it twice safely",
-      "description": "The transactions half. The hard requirement is idempotency: a sync that runs twice and creates two of everything is worse than no sync, because the seller now has to find and delete the duplicates inside QuickBooks. The eBay side of this codebase already learned that lesson (the recurrence slot index in migration 00565 is the same shape of fix). Every pushed object carries a stable external id and the push checks before it creates.",
-      "acceptanceCriteria": [
-        "Sales push as sales receipts with the platform fee, shipping cost and sales tax as their own lines, matching how the ledger books them, so QBO and GradeThread do not disagree on gross.",
-        "Operating expenses push as purchases against the mapped account, with the receipt attached where one exists.",
-        "Payouts push as deposits that reference their constituent sales, which is the shape that lets an accountant reconcile the bank line.",
-        "COGS posts on the sale, not on the purchase, so gross profit in QBO matches gross profit here.",
-        "Every pushed object carries a stable external id derived from the ledger entry, and a re-run updates or skips rather than creating. Proven by a test that runs the same push twice against a mock and asserts one object.",
-        "A sync log with per-object status and the QBO error text on failure. 'Sync failed' with no object named is not a usable error.",
-        "Backfill is bounded and resumable: a seller connecting with three years of history does not hit the QBO rate limit and lose the run.",
-        "Sync direction is one-way, GradeThread to QuickBooks, and the UI says so. Two-way is a much larger problem and pretending to do it is how books get corrupted."
-      ],
-      "priority": 47
-    },
-    {
       "id": "US-2999",
       "passes": false,
       "title": "Money, rebuilt around the books",

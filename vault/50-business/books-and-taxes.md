@@ -20,6 +20,10 @@ code_refs:
   - scripts/check-cogs-worksheet.mjs
   - src/lib/tax-packet.ts
   - supabase/migrations/00704_quickbooks_connection.sql
+  - supabase/migrations/00705_quickbooks_sync_log.sql
+  - services/edge-functions/src/lib/qbo-documents.ts
+  - services/edge-functions/src/lib/qbo-sync.ts
+  - scripts/check-qbo-sync.mjs
   - src/lib/qbo-mapping.ts
   - services/edge-functions/src/lib/qbo-client.ts
   - services/edge-functions/src/routes/qbo.ts
@@ -1251,6 +1255,84 @@ replaced the session. That sabotage was run and came back green. It now
 iterates every exemption and requires a mechanism to be visible in the handler,
 with a self-check proving an ordinary route shows none.
 
+## Pushing to QuickBooks
+
+US-2998. One way, GradeThread to QuickBooks, and the screen says so twice.
+
+### The ledger is the source, not the sales table
+
+`qbo_pending_documents()` groups `ledger_entries` by `source_id`, which puts a
+sale's revenue, shipping income, fees, label, grading and cost of goods into
+ONE document. Grouping by anything else -- `source_kind`, say -- produces five
+unrelated receipts in QuickBooks for the same jacket, and no test that mocks the
+database would notice. That is what `scripts/check-qbo-sync.mjs` exists for, and
+the sabotage was run: adding `source_kind` to the GROUP BY turns three documents
+into six and the check fails on seven assertions at once.
+
+Reading the ledger rather than the sales table is also what keeps QuickBooks and
+the P&L from disagreeing about what a sale was worth. There is one set of
+numbers.
+
+**Cost of goods rides on the sale (AC4).** It is already dated at the sale in the
+ledger, so this falls out for free -- but it is the reason gross profit in
+QuickBooks equals gross profit here. Push it at purchase time and the two move a
+month apart and never reconcile.
+
+**Facilitator sales tax is out of the total and named in the note.** It was never
+the seller's money, so booking it as income overstates revenue; leaving it out
+entirely leaves an accountant staring at a $180 receipt against a 1099-K showing
+$194.87. The RPC returns it as `excluded_tax_cents` and the document carries a
+sentence saying what the gap is.
+
+### Idempotency, and the four ways it breaks
+
+The rule is READ THE LOG, THEN WRITE. `qbo_sync_log` holds one row per pushed
+object keyed on `(user_id, object_kind, source_id)`, with the QuickBooks id it
+became and a hash of the payload as last accepted.
+
+- **Keyed on the SOURCE, never on a ledger entry.**
+  `rebuild_ledger_for_user()` deletes and re-inserts every entry, so an entry id
+  changes on every rebuild. A key built on one would duplicate the seller's
+  entire history the first time they rebuilt.
+- **A lost log asks before it creates.** The DocNumber is deterministic
+  (`GT-S` + the first 16 hex digits of the source id, which fits QuickBooks' 21
+  character cap), so a restored backup queries for the document and finds it.
+  Without that branch, one database restore duplicates everything.
+- **A failed push KEEPS the id.** Clearing it on failure is how one bad night
+  becomes permanent duplication.
+- **An unchanged payload is skipped, not re-sent.** That is what makes a nightly
+  re-run of three years cost a query per document instead of a write.
+
+`qbo-sync_test.ts` runs the same push twice against an in-memory QuickBooks and
+counts the objects, which is AC5 stated as a test rather than as a claim. The
+other four cases above each have their own.
+
+### Bounded and resumable
+
+Forty documents a batch, with `qbo_sync_runs.cursor_date` as the bookmark; the
+browser loops while `done` is false. The cursor resumes ON its date rather than
+after it, because several documents can share a date -- and an overlapping
+resume is free, since the log turns a repeat into a skip. A bookmark slightly
+behind costs a few skips; one slightly ahead would lose a sale.
+
+### What blocks, and what does not
+
+An unmapped account blocks its own documents and nothing else, and the log row
+says which account. One failed document does not stop the ones behind it -- a
+run that abandons everything after the first rejection turns one bad sale into a
+year of missing books. A receipt that will not attach does not fail its expense:
+an expense in QuickBooks without its receipt is a correct expense, and a push
+that aborts on a 10MB image is a lost one.
+
+### The sync token is a feature
+
+QuickBooks rejects an update carrying a stale `SyncToken` rather than
+overwriting. That is the behaviour we want: a token we no longer hold means
+somebody edited the document inside QuickBooks, and this sync is one way. The
+failure is recorded with QuickBooks' own words, which name the field -- AC6 is
+about that sentence, because "sync failed" with no object named is not something
+anyone can act on.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -1272,9 +1354,10 @@ its contract into this note. Currently landed:
 - **US-2995** - period close, and why the lock is a trigger, above.
 - **US-2996** - the year-end packet, its receipts-not-links answer and its exclusions, above.
 - **US-2997** - the QuickBooks connection, the realm rule and the mapping, above.
+- **US-2998** - the push, its four idempotency failure modes and the bookmark, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
-Still open, and each will add a section here rather than a new note: the
-QuickBooks transaction push (US-2998), the rebuilt Money navigation
+Still open, and each will add a section here rather than a new note: the rebuilt
+Money navigation
 (US-2999), mileage and receipts on mobile (US-3000), and matching a receipt's
 line items back to inventory (US-3012).

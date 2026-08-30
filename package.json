@@ -51,6 +51,7 @@
     "check:review": "node scripts/check-books-review.mjs",
     "check:statements": "node scripts/check-statement-import.mjs",
     "check:close": "node scripts/check-period-close.mjs",
+    "check:qbo": "node scripts/check-qbo-sync.mjs",
     "verify:security": "node scripts/verify.mjs --security",
     "verify:android": "node scripts/verify.mjs --android",
     "android:doctor": "node android/scripts/doctor.mjs --fix",

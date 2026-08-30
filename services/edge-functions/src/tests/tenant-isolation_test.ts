@@ -7403,3 +7403,44 @@ Deno.test({
     assertEquals(res.status, 401, "qbo oauth/refresh must be job-secret only");
   },
 });
+
+Deno.test({
+  // US-2998: the push routes. /sync takes a run_id in its BODY, which is the
+  // one attacker-controlled id in this module -- it is loaded .eq("user_id")
+  // before anything else touches it, so a foreign run is a 404 rather than a
+  // resumed sync into another tenant's QuickBooks. The log and run listings are
+  // owner-scoped reads that must never carry another tenant's rows.
+  name: "B cannot resume another workspace's QuickBooks sync or read its log",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const resume = await fetch(`${BASE}/api/flipdesk/qbo/sync`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        period_start: "2025-01-01",
+        period_end: "2026-01-01",
+        run_id: SPOOF_ID,
+      }),
+    });
+    await resume.body?.cancel();
+    assert(
+      resume.status !== 200 && [400, 401, 403, 404, 503].includes(resume.status),
+      `qbo sync resume: expected 400/401/403/404/503 but got ${resume.status}`,
+    );
+
+    for (const path of ["/api/flipdesk/qbo/sync/log", "/api/flipdesk/qbo/sync/runs"]) {
+      const res = await fetch(`${BASE}${path}`, { headers: authHeaders(B_JWT!) });
+      if (res.status === 200) {
+        const body = await res.json();
+        const rows = body?.entries ?? body?.runs ?? [];
+        assert(Array.isArray(rows), `${path} did not return a list`);
+        // B has no QuickBooks connection in the fixture, so their own log is
+        // empty. A non-empty one here would be somebody else's.
+        assertEquals(rows.length, 0, `${path} returned rows for a tenant with no connection`);
+      } else {
+        await res.body?.cancel();
+        assertDenied(res.status, path);
+      }
+    }
+  },
+});

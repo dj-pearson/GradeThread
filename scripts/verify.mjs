@@ -499,6 +499,7 @@ if (on("db")) {
     run("db: books review queue and its false positives (US-2992)", "node scripts/check-books-review.mjs");
     run("db: statement import does not duplicate or double-match (US-2994)", "node scripts/check-statement-import.mjs");
     run("db: a closed period refuses the SERVICE ROLE (US-2995)", "node scripts/check-period-close.mjs");
+    run("db: one sale is ONE QuickBooks document (US-2998)", "node scripts/check-qbo-sync.mjs");
     // US-2403: a denied function call SEGFAULTs the Supabase Postgres image and
     // restarts the whole database. ADVISORY, not a gate, and deliberately so:
     // the stock image is vulnerable today, so gating here would be red on every

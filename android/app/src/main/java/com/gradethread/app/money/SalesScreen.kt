@@ -17,6 +17,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +63,49 @@ fun SalesScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val refreshError by viewModel.refreshError.collectAsStateWithLifecycle()
+
+    SalesContent(
+        state = state,
+        refreshing = refreshing,
+        refreshError = refreshError,
+        actions = SalesActions(
+            refresh = viewModel::refresh,
+            dismissRefreshError = viewModel::dismissRefreshError,
+            openItem = onOpenItem,
+        ),
+        modifier = modifier,
+    )
+}
+
+/** Everything the sales list can do. Defaults are no-ops, so a golden passes none. */
+@Immutable
+data class SalesActions(
+    val refresh: () -> Unit = {},
+    val dismissRefreshError: () -> Unit = {},
+    val openItem: (String) -> Unit = {},
+)
+
+/**
+ * The sales list with no ViewModel attached (US-2902 AC3).
+ *
+ * `refreshing` and `refreshError` stay separate parameters rather than being
+ * folded into a wrapper state: SalesViewModel.State is already a state object,
+ * and nesting one inside another buys nothing but a longer path at every read
+ * site in the body below.
+ *
+ * The layout is unchanged from the version inside SalesScreen - `summarySpoken`
+ * moved in with it because pluralStringResource needs a composable scope - so
+ * the extraction cannot have altered what a golden records.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SalesContent(
+    state: SalesSummary,
+    refreshing: Boolean,
+    refreshError: String?,
+    actions: SalesActions,
+    modifier: Modifier = Modifier,
+) {
     // Hoisted: `semantics { }` is not a composable scope. Spelled out for
     // TalkBack, since the visible line leans on separators to carry meaning.
     val summarySpoken = pluralStringResource(
@@ -82,7 +126,7 @@ fun SalesScreen(
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = viewModel::refresh, enabled = !refreshing) {
+            TextButton(onClick = actions.refresh, enabled = !refreshing) {
                 Text(
                     if (refreshing) {
                         stringResource(R.string.common_refreshing)
@@ -133,7 +177,7 @@ fun SalesScreen(
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = viewModel::dismissRefreshError) {
+                TextButton(onClick = actions.dismissRefreshError) {
                     Text(stringResource(R.string.common_dismiss))
                 }
             }
@@ -155,7 +199,7 @@ fun SalesScreen(
         // want to know whether that is the truth or the network.
         PullToRefreshBox(
             isRefreshing = refreshing,
-            onRefresh = viewModel::refresh,
+            onRefresh = actions.refresh,
             modifier = Modifier.weight(1f),
         ) {
             if (state.rows.isEmpty()) {
@@ -176,7 +220,7 @@ fun SalesScreen(
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
                     items(state.rows, key = { it.saleId }) { row ->
-                        SaleRowView(row) { onOpenItem(row.itemId) }
+                        SaleRowView(row) { actions.openItem(row.itemId) }
                         HorizontalDivider()
                     }
                 }

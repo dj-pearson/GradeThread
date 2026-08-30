@@ -6,6 +6,18 @@ import { roleAtLeast, type WorkspaceRole } from "../lib/workspace-roles.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { decryptToken } from "../lib/crypto-aes.ts";
 import {
+  qboErrorText,
+  type AccountMap,
+  type PendingDocument,
+} from "../lib/qbo-documents.ts";
+import {
+  pushDocuments,
+  type QboRef,
+  type QboTransport,
+  type SyncLogRow,
+  type SyncLogStore,
+} from "../lib/qbo-sync.ts";
+import {
   buildQboConsentUrl,
   exchangeQboCode,
   fetchQboChartOfAccounts,
@@ -17,17 +29,21 @@ import {
   markQboReconnect,
   qboConfigured,
   qboEnvironment,
+  qboFetch,
   QBO_RECONNECT_MESSAGE,
   revokeQboToken,
   upsertQboConnection,
+  type QboAuth,
   type QboEnvironment,
 } from "../lib/qbo-client.ts";
 
-// US-2997 — connect QuickBooks Online, and map the accounts.
+// US-2997 and US-2998 — connect QuickBooks Online, map the accounts, push.
 //
-// NO TRANSACTIONS MOVE HERE. That is US-2998, and the split is deliberate: a
-// sale pushed into the wrong QBO account is a mess an accountant unpicks by
-// hand, with no undo, so the mapping gets its own story and its own screen.
+// The mapping came first and shipped on its own, because a sale pushed into the
+// wrong QBO account is a mess an accountant unpicks by hand with no undo. The
+// push below only ever runs against a mapping the seller has already seen and
+// saved, and an account they never mapped blocks its own documents and nothing
+// else.
 //
 // TENANCY (US-268). The service-role client bypasses RLS, so every query below
 // is scoped by `workspaceOwnerId ?? userId` -- a member acting inside a
@@ -393,4 +409,311 @@ qboRoutes.post("/oauth/refresh", async (c) => {
     ok: true,
     summary: { scanned: rows.length, refreshed, reconnect_needed: reconnectNeeded, failed },
   });
+});
+
+// ---------------------------------------------------------------------------
+// The push. US-2998.
+//
+// ONE WAY ONLY, GradeThread to QuickBooks. Nothing below reads a QuickBooks
+// edit back, and the UI says so. Two-way is a much larger problem and
+// pretending to do it is how books get corrupted.
+// ---------------------------------------------------------------------------
+
+/** A bounded batch. AC7: three years of history must not be one request. */
+const SYNC_BATCH = 40;
+
+const ENTITY_QUERY_NAME: Record<string, string> = {
+  salesreceipt: "SalesReceipt",
+  purchase: "Purchase",
+  deposit: "Deposit",
+};
+
+function refFrom(entity: string, text: string): QboRef {
+  const json = JSON.parse(text) as Record<string, { Id?: string; SyncToken?: string }>;
+  const body = json[ENTITY_QUERY_NAME[entity] ?? entity];
+  if (!body?.Id) throw new Error("QuickBooks accepted the document but returned no id.");
+  return { id: body.Id, syncToken: body.SyncToken ?? "0" };
+}
+
+/** The live QuickBooks transport, built per request from the tenant's tokens. */
+function transportFor(auth: QboAuth): QboTransport {
+  return {
+    async find(entity, docNumber) {
+      // The entity name inside a query is PascalCase; the REST path is lower.
+      // The doc number is ours and matches /^GT-[SED][0-9a-f]{16}$/, but it is
+      // stripped of quotes anyway: a value interpolated into a query string is
+      // a value interpolated into a query string.
+      const table = ENTITY_QUERY_NAME[entity] ?? entity;
+      const safe = docNumber.replace(/[^A-Za-z0-9-]/g, "");
+      const q = `select * from ${table} where DocNumber = '${safe}'`;
+      const res = await qboFetch(auth, `/query?query=${encodeURIComponent(q)}`, {
+        method: "GET",
+      });
+      if (!res.ok) {
+        await res.body?.cancel();
+        return null;
+      }
+      const json = (await res.json()) as {
+        QueryResponse?: Record<string, { Id: string; SyncToken: string }[]>;
+      };
+      const rows = json.QueryResponse?.[table] ?? [];
+      const hit = rows[0];
+      return hit ? { id: hit.Id, syncToken: hit.SyncToken } : null;
+    },
+
+    async create(entity, payload) {
+      const res = await qboFetch(auth, `/${entity}`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(qboErrorText(res.status, text));
+      return refFrom(entity, text);
+    },
+
+    async update(entity, payload, ref) {
+      // QuickBooks needs the Id and the CURRENT SyncToken on every update and
+      // rejects a stale one rather than overwriting. That is the behaviour we
+      // want: a token we no longer hold means somebody edited the document
+      // inside QuickBooks, and this sync is one way.
+      const res = await qboFetch(auth, `/${entity}?operation=update`, {
+        method: "POST",
+        body: JSON.stringify({
+          ...payload,
+          Id: ref.id,
+          SyncToken: ref.syncToken,
+          sparse: true,
+        }),
+      });
+      const text = await res.text();
+      if (!res.ok) throw new Error(qboErrorText(res.status, text));
+      return refFrom(entity, text);
+    },
+  };
+}
+
+function isYmd(v: unknown): v is string {
+  return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+}
+
+function mergeCounts(
+  prev: Record<string, number>,
+  r: {
+    created: number;
+    updated: number;
+    skipped: number;
+    failed: number;
+    blocked: number;
+    attached: number;
+  },
+): Record<string, number> {
+  return {
+    created: (prev.created ?? 0) + r.created,
+    updated: (prev.updated ?? 0) + r.updated,
+    skipped: (prev.skipped ?? 0) + r.skipped,
+    failed: (prev.failed ?? 0) + r.failed,
+    blocked: (prev.blocked ?? 0) + r.blocked,
+    attached: (prev.attached ?? 0) + r.attached,
+  };
+}
+
+/**
+ * The log, tenant-scoped at every call. The service-role client bypasses RLS,
+ * so the user id is on the WRITE as well as on the read that found the row.
+ */
+function syncLogStore(userId: string, connectionId: string): SyncLogStore {
+  return {
+    async get(kind, sourceId) {
+      const { data } = await supabaseAdmin
+        .from("qbo_sync_log")
+        .select(
+          "object_kind, source_id, doc_number, qbo_id, qbo_sync_token, payload_hash, status",
+        )
+        .eq("user_id", userId)
+        .eq("object_kind", kind)
+        .eq("source_id", sourceId)
+        .maybeSingle();
+      return (data ?? null) as SyncLogRow | null;
+    },
+    async put(row) {
+      await supabaseAdmin.from("qbo_sync_log").upsert(
+        {
+          user_id: userId,
+          connection_id: connectionId,
+          object_kind: row.object_kind,
+          source_id: row.source_id,
+          doc_number: row.doc_number,
+          qbo_id: row.qbo_id,
+          qbo_sync_token: row.qbo_sync_token,
+          payload_hash: row.payload_hash,
+          status: row.status,
+          error_text: row.error_text,
+          pushed_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id,object_kind,source_id" },
+      );
+    },
+  };
+}
+
+qboRoutes.post("/sync", async (c) => {
+  const userId = ownerOf(c);
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+  if (!qboConfigured()) return c.json(notConfigured(), 503);
+
+  const body = (await c.req.json().catch(() => null)) as
+    | { period_start?: string; period_end?: string; run_id?: string }
+    | null;
+  const from = isYmd(body?.period_start) ? body!.period_start! : null;
+  const to = isYmd(body?.period_end) ? body!.period_end! : null;
+  if (!from || !to || from >= to) {
+    return c.json({ error: "Send a period_start and a period_end, end exclusive." }, 400);
+  }
+
+  const conn = await getQboConnection(userId);
+  if (!conn) return c.json({ error: "QuickBooks is not connected." }, 400);
+
+  let auth: QboAuth;
+  try {
+    auth = await getQboAccessToken(userId);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Couldn't reach QuickBooks.";
+    if (msg === QBO_RECONNECT_MESSAGE) return c.json({ error: msg, reconnect: true }, 409);
+    return c.json({ error: msg }, 502);
+  }
+
+  // The mapping, owner-scoped. An account with no row is unmapped, which blocks
+  // its own documents and nothing else.
+  const { data: mapRows } = await supabaseAdmin
+    .from("qbo_account_mappings")
+    .select("account_code, qbo_account_id")
+    .eq("user_id", userId)
+    .eq("connection_id", conn.id);
+  const map: AccountMap = {};
+  for (const m of (mapRows ?? []) as { account_code: string; qbo_account_id: string }[]) {
+    map[m.account_code] = m.qbo_account_id;
+  }
+
+  // Resume, or start. A run id from the body is verified against the tenant
+  // before it is used: an id in a request is attacker-controlled input.
+  type RunRow = { id: string; cursor_date: string | null; counts: Record<string, number> };
+  let run: RunRow | null = null;
+  if (body?.run_id) {
+    const { data } = await supabaseAdmin
+      .from("qbo_sync_runs")
+      .select("id, cursor_date, counts")
+      .eq("id", body.run_id)
+      .eq("user_id", userId)
+      .maybeSingle();
+    run = (data ?? null) as RunRow | null;
+    if (!run) return c.json({ error: "No such sync run." }, 404);
+  }
+  if (!run) {
+    const { data, error } = await supabaseAdmin
+      .from("qbo_sync_runs")
+      .insert({
+        user_id: userId,
+        connection_id: conn.id,
+        period_start: from,
+        period_end: to,
+        status: "running",
+      })
+      .select("id, cursor_date, counts")
+      .single();
+    if (error) return c.json({ error: "Couldn't start the sync." }, 500);
+    run = data as unknown as RunRow;
+  }
+
+  const { data: pending, error: pendingError } = await supabaseAdmin.rpc(
+    "qbo_pending_documents",
+    {
+      p_user_id: userId,
+      p_from: from,
+      p_to: to,
+      p_after: run.cursor_date,
+      p_limit: SYNC_BATCH,
+    },
+  );
+  if (pendingError) return c.json({ error: "Couldn't read your books." }, 500);
+  const docs = (pending ?? []) as PendingDocument[];
+
+  const result = await pushDocuments(docs, {
+    transport: transportFor(auth),
+    map,
+    bankAccountId: map.cash_payout,
+    log: syncLogStore(userId, conn.id),
+    payoutSales: async (sourceId) => {
+      const { data } = await supabaseAdmin.rpc("qbo_payout_sales", {
+        p_user_id: userId,
+        p_payout_id: sourceId,
+      });
+      return (data ?? []) as { sale_id: string; sale_date: string; title: string }[];
+    },
+    hasReceipt: async (sourceId) => {
+      const { data } = await supabaseAdmin
+        .from("flipdesk_expenses")
+        .select("receipt_path")
+        .eq("id", sourceId)
+        .eq("user_id", userId)
+        .maybeSingle();
+      return Boolean((data as { receipt_path: string | null } | null)?.receipt_path);
+    },
+  });
+
+  // The bookmark. A batch shorter than the cap means there was nothing behind
+  // it, so the run is done; otherwise the next call resumes AT the last date
+  // seen rather than after it, because several documents can share a date and
+  // the log turns the repeats into skips.
+  const lastDate = docs.length > 0 ? docs[docs.length - 1]!.doc_date : null;
+  const done = docs.length < SYNC_BATCH;
+  const counts = mergeCounts(run.counts ?? {}, result);
+
+  await supabaseAdmin
+    .from("qbo_sync_runs")
+    .update({
+      cursor_date: done ? null : lastDate,
+      status: done ? "done" : "paused",
+      counts,
+      last_error: result.entries.find((e) => e.status === "failed")?.error ?? null,
+      ...(done ? { finished_at: new Date().toISOString() } : {}),
+    })
+    .eq("id", run.id)
+    .eq("user_id", userId);
+
+  return c.json({
+    run_id: run.id,
+    done,
+    batch: result,
+    counts,
+    // AC8, in the response as well as on the screen.
+    direction: "GradeThread to QuickBooks only",
+  });
+});
+
+qboRoutes.get("/sync/log", async (c) => {
+  const userId = ownerOf(c);
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+
+  const { data } = await supabaseAdmin
+    .from("qbo_sync_log")
+    .select("object_kind, source_id, doc_number, qbo_id, status, error_text, updated_at")
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false })
+    .limit(200);
+  return c.json({ entries: data ?? [] });
+});
+
+qboRoutes.get("/sync/runs", async (c) => {
+  const userId = ownerOf(c);
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+
+  const { data } = await supabaseAdmin
+    .from("qbo_sync_runs")
+    .select(
+      "id, period_start, period_end, cursor_date, status, counts, last_error, started_at, finished_at",
+    )
+    .eq("user_id", userId)
+    .order("started_at", { ascending: false })
+    .limit(10);
+  return c.json({ runs: data ?? [] });
 });

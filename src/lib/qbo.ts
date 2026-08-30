@@ -101,3 +101,69 @@ export async function saveQboMappings(
   });
   if (!res.ok) throw new Error(await errorFrom(res, "Couldn't save the mapping."));
 }
+
+// --- US-2998: the push -------------------------------------------------------
+
+export interface SyncBatchEntry {
+  kind: "sales_receipt" | "purchase" | "deposit";
+  sourceId: string;
+  docNumber: string;
+  status: "created" | "updated" | "skipped" | "failed" | "blocked";
+  error: string | null;
+}
+
+export interface SyncCounts {
+  created: number;
+  updated: number;
+  skipped: number;
+  failed: number;
+  blocked: number;
+  attached: number;
+}
+
+export interface SyncResponse {
+  run_id: string;
+  done: boolean;
+  batch: SyncCounts & { entries: SyncBatchEntry[] };
+  counts: SyncCounts;
+  direction: string;
+}
+
+export interface SyncLogEntry {
+  object_kind: string;
+  source_id: string;
+  doc_number: string;
+  qbo_id: string | null;
+  status: string;
+  error_text: string | null;
+  updated_at: string;
+}
+
+/**
+ * One BOUNDED batch. The caller loops while `done` is false, carrying `run_id`
+ * back, which is what keeps three years of history off a single request and
+ * away from Intuit's rate limit.
+ */
+export async function runQboSync(args: {
+  periodStart: string;
+  periodEnd: string;
+  runId?: string;
+}): Promise<SyncResponse> {
+  const res = await edgeFetch("/api/flipdesk/qbo/sync", {
+    method: "POST",
+    json: {
+      period_start: args.periodStart,
+      period_end: args.periodEnd,
+      ...(args.runId ? { run_id: args.runId } : {}),
+    },
+  });
+  if (!res.ok) throw new Error(await errorFrom(res, "The sync couldn't run."));
+  return (await res.json()) as SyncResponse;
+}
+
+export async function fetchQboSyncLog(): Promise<SyncLogEntry[]> {
+  const res = await edgeFetch("/api/flipdesk/qbo/sync/log");
+  if (!res.ok) throw new Error(await errorFrom(res, "Couldn't read the sync log."));
+  const body = (await res.json()) as { entries?: SyncLogEntry[] };
+  return body.entries ?? [];
+}
