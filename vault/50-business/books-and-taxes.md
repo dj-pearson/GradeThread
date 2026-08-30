@@ -39,6 +39,9 @@ code_refs:
   - supabase/migrations/00701_bank_statement_import.sql
   - src/lib/statement-import.ts
   - scripts/check-statement-import.mjs
+  - supabase/migrations/00702_period_close.sql
+  - src/lib/period-close.ts
+  - scripts/check-period-close.mjs
   - supabase/migrations/00690_inventory_writeoffs.sql
   - scripts/check-inventory-writeoffs.mjs
   - supabase/migrations/00692_keeping_leaves_inventory.sql
@@ -1002,6 +1005,61 @@ Amounts stay SIGNED as the statement had them. A refund on a card statement is a
 real positive row, and flattening it to a magnitude would make a return look
 like a purchase.
 
+## Closing a period
+
+`closed_periods` (migration 00702). Once a return is filed, that year's figures
+are a matter of record; before this, editing an item's cost silently rewrote a
+P&L for a year already reported and nothing said so.
+
+### Triggers, not RLS, and that is the whole difficulty
+
+The edge uses the **service-role client, which bypasses RLS**. A policy-based
+lock holds against the browser and lets every route, job and webhook straight
+through -- and those are precisely the paths that rewrite history unwatched. The
+guard is a `BEFORE` trigger, which fires for the service role too.
+
+**Every refusal in `check-period-close.mjs` is tested as `postgres`**, the most
+privileged role available. A guard that only stops the browser stops nothing
+that matters.
+
+### What is NOT locked matters as much
+
+Shipping, tracking, delivery, status, titles, photos, measurements, listings.
+A buyer can open a return in February on a December sale, and refusing that
+write would break the marketplace sync rather than protect the books. **A lock
+that blocks real work is a lock that gets switched off**, so only the columns
+that move a filed number are frozen:
+
+- an expense's amount or date, and deleting one, and backdating a new one in
+- a mileage trip
+- a sale's price, fees, shipping, tax, date or status
+- an item's `acquired_price` **if it sold in a closed period** -- an unsold
+  item's cost has reached no return yet
+
+### Closing takes the snapshot, in that order
+
+`close_period` calls `take_inventory_snapshot` **first**, while writes are still
+allowed. Closing before snapshotting would lock the very table the snapshot
+reads and leave the period closed with no Part III figures -- the exact state
+US-2986 exists to prevent.
+
+It also records `closing_figures`: the ledger reconciliation and COGS worksheet
+as they stood, so a later recomputation can be COMPARED against what was filed
+rather than silently replacing it.
+
+### Reopening keeps the row
+
+`reopened_at` is set; the row is never deleted. **A period closed and reopened is
+a different fact from one never closed**, and that difference is what an
+accountant asks about. A reason is required by a CHECK constraint, so it cannot
+be skipped by any caller.
+
+> **A design bug caught by running it, not by reading it.** Both functions were
+> SECURITY INVOKER first, so their INSERT hit a table with no INSERT policy and
+> closing could never have worked. The fixture failed immediately with
+> `new row violates row-level security policy`. They are SECURITY DEFINER with
+> in-body auth checks now -- the same shape as 00686, and with no REVOKE.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -1020,6 +1078,7 @@ its contract into this note. Currently landed:
 - **US-2992** - books health, and the three things it stays quiet about, above.
 - **US-2993** - receipt extraction, its confidence rules and its staging boundary, above.
 - **US-2994** - the bank CSV import and its two idempotency rules, above.
+- **US-2995** - period close, and why the lock is a trigger, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
 Still open, and each will add a section here rather than a new note: COGS and

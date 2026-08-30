@@ -2249,6 +2249,31 @@ export type SavedViewUpdate = Partial<
 // US-2994 — one bank or card the seller imports from. Holds the COLUMN MAP so
 // it is chosen once and remembered; every bank's CSV is differently shaped and
 // re-mapping on every import is the friction that stops anyone doing it.
+// US-2995 — a filed period. Reopening SETS reopened_at rather than deleting the
+// row: a period closed and reopened is a different fact from one never closed,
+// and that difference is what an accountant asks about.
+//
+// There is no Insert or Update type. The table has SELECT policy only; closing
+// and reopening go through SECURITY DEFINER functions that snapshot the figures
+// and record who acted. A close a user could hand-write is not a close, and a
+// delete would erase the audit trail.
+export interface ClosedPeriodRow {
+  id: string;
+  user_id: string;
+  period_start: string;
+  /** EXCLUSIVE, like every range in this epic. */
+  period_end: string;
+  label: string;
+  closing_figures: Record<string, unknown>;
+  closed_at: string;
+  closed_by: string | null;
+  reopened_at: string | null;
+  reopened_by: string | null;
+  reopen_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface StatementSourceRow {
   id: string;
   user_id: string;
@@ -4565,6 +4590,11 @@ export interface Database {
         Row: ExpenseRow;
         Insert: ExpenseInsert;
         Update: ExpenseUpdate;
+      };
+      closed_periods: {
+        Row: ClosedPeriodRow;
+        Insert: never;
+        Update: never;
       };
       statement_sources: {
         Row: StatementSourceRow;

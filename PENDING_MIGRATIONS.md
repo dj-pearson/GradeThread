@@ -105,6 +105,53 @@ trigger to include `wearing` — it went red naming the real risk ("wearing or
 returned was removed from inventory - both must STAY") and green on restore.
 
 
+## HELD: 00702_period_close.sql (US-2995)
+
+**Risk: MEDIUM, and the highest in this epic so far.** It installs BEFORE
+triggers on four tables that the whole product writes to: `flipdesk_expenses`,
+`mileage_trips`, `sales` and `inventory_items`. They are inert until a seller
+closes a period -- `is_period_closed` returns false for everyone with no
+`closed_periods` row -- but the trigger fires on every write regardless, so the
+cost is one indexed lookup per row.
+
+**What it does.** Creates `closed_periods`, `is_period_closed(uuid, date)`,
+three trigger functions, `close_period(date, date, text)` and
+`reopen_period(uuid, text)`.
+
+**WHY TRIGGERS AND NOT RLS.** The edge service uses the service-role client,
+which BYPASSES RLS. A policy-based lock would hold against the browser and let
+every edge route, job and webhook straight through -- and those are exactly the
+paths that rewrite history with nobody watching. **Every refusal in the check is
+tested as `postgres`.**
+
+**What is deliberately NOT locked**, because a lock that blocks ordinary work
+gets switched off: shipping, tracking, delivery, status, titles, photos,
+measurements, listings. A buyer can open a return in February on a December
+sale, and refusing that write would break the marketplace sync rather than
+protect the books. Only the columns that move a filed NUMBER are frozen.
+
+**`close_period` and `reopen_period` are SECURITY DEFINER with in-body auth.**
+The table has a SELECT policy only -- a close a user could hand-write is not a
+close, and a DELETE would erase the audit trail AC4 exists for. **NO REVOKE
+anywhere** (US-2403).
+
+> **A design bug caught by running it.** Both functions were SECURITY INVOKER
+> first, so the INSERT hit a table with no INSERT policy and closing could never
+> have worked at all. The fixture failed on the first run with
+> `new row violates row-level security policy`.
+
+**Verified against real Postgres.** Applied twice (second run clean).
+`npm run check:close` runs 17 assertions: six refusals as `postgres`, four
+ordinary writes that must still succeed, the snapshot taken by the close, the
+figures recorded, a blank reopen reason refused, and writes working again after
+a reopen. Sabotage-verified by dropping the expense trigger, which reddens six.
+
+**Apply order.** After 00701. No `NOTIFY` strictly needed for the triggers, but
+send it anyway for the new table and two RPCs.
+
+**Nothing is locked until a seller closes something.** Applying this changes no
+existing behaviour.
+
 ## HELD: 00701_bank_statement_import.sql (US-2994)
 
 **Risk: low.** Two new tables, two new functions. Nothing existing is altered

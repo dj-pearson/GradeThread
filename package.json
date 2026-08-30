@@ -50,6 +50,7 @@
     "check:homeoffice": "node scripts/check-home-office.mjs",
     "check:review": "node scripts/check-books-review.mjs",
     "check:statements": "node scripts/check-statement-import.mjs",
+    "check:close": "node scripts/check-period-close.mjs",
     "verify:security": "node scripts/verify.mjs --security",
     "verify:android": "node scripts/verify.mjs --android",
     "android:doctor": "node android/scripts/doctor.mjs --fix",

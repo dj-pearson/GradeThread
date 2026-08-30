@@ -2741,20 +2741,6 @@
       "priority": 30
     },
     {
-      "id": "US-2995",
-      "passes": false,
-      "title": "Close a period, and the numbers stop moving",
-      "description": "Once a return is filed, last year's figures are a matter of record. Today, editing an item's acquired_price silently rewrites a P&L for a year that has already been reported, and nothing anywhere says it happened. That is how a seller ends up unable to reproduce the numbers they filed. Closing a period is the mechanism every real bookkeeping system has and this one does not.",
-      "acceptanceCriteria": [
-        "A fiscal period can be closed, with the closing figures snapshotted at the moment of close.",
-        "A write that would change a closed period is refused at the database level, not merely hidden in the UI. A service-role client bypasses RLS, so a UI-only guard is not a guard.",
-        "The correct escape hatch exists and is an adjusting entry into the open period, dated and reasoned, rather than an edit to history.",
-        "Reopening a closed period is possible, requires a reason, and is recorded in an audit trail with who and when.",
-        "The inventory snapshot from the COGS story is taken at close, so closing a year and valuing its inventory are one action."
-      ],
-      "priority": 44
-    },
-    {
       "id": "US-2996",
       "passes": false,
       "title": "The year-end tax packet: one download an accountant can work from without asking a question",

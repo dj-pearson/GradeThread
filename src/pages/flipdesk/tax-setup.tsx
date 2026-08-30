@@ -44,6 +44,7 @@ import { Form1099kBridge } from "@/components/finances/form-1099k-bridge";
 import { MileageLogCard } from "@/components/finances/mileage-log-card";
 import { HomeOfficeCard } from "@/components/finances/home-office-card";
 import { EstimatedTaxCard } from "@/components/finances/estimated-tax-card";
+import { PeriodCloseCard } from "@/components/finances/period-close-card";
 
 // US-2982 — the tax setup screen.
 //
@@ -357,6 +358,11 @@ export function TaxSetupPage() {
       <HomeOfficeCard />
 
       <Form1099kBridge />
+
+      {/* US-2995. Last of the tax cards, because closing is what a seller does
+          AFTER everything above is settled. Higher up it would invite closing a
+          year that still has a review queue. */}
+      <PeriodCloseCard />
 
       <div className="flex items-center gap-3">
         <Button onClick={save} disabled={saving || !user}>

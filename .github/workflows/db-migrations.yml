@@ -31,8 +31,10 @@ on:
       - "scripts/check-mileage-log.mjs"
       - "scripts/check-home-office.mjs"
       - "scripts/check-statement-import.mjs"
+      - "scripts/check-period-close.mjs"
       - "scripts/check-books-review.mjs"
       - "scripts/check-statement-import.mjs"
+      - "scripts/check-period-close.mjs"
       - "scripts/fixtures/**"
   push:
     branches: [main]
@@ -58,8 +60,10 @@ on:
       - "scripts/check-mileage-log.mjs"
       - "scripts/check-home-office.mjs"
       - "scripts/check-statement-import.mjs"
+      - "scripts/check-period-close.mjs"
       - "scripts/check-books-review.mjs"
       - "scripts/check-statement-import.mjs"
+      - "scripts/check-period-close.mjs"
       - "scripts/fixtures/**"
 
 concurrency:
@@ -174,6 +178,13 @@ jobs:
       # import exists to catch.
       - name: Statement import does not duplicate or double-match (US-2994)
         run: node scripts/check-statement-import.mjs
+      # Every refusal is tested as `postgres`. The lock is a trigger rather than
+      # an RLS policy precisely because the edge uses the service-role client,
+      # which bypasses RLS -- a guard that only stops the browser stops nothing
+      # that matters. The negative half counts too: shipping and renaming still
+      # work inside a closed year, or the lock gets switched off.
+      - name: A closed period refuses the service role (US-2995)
+        run: node scripts/check-period-close.mjs
       - name: Denied-RPC crash check (advisory, US-2403)
         continue-on-error: true
         run: node scripts/db-denied-rpc-crash-check.mjs
