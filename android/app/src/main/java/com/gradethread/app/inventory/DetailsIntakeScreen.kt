@@ -11,9 +11,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
+import com.gradethread.app.capture.DetailsIntakeState
 import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -35,6 +37,76 @@ import com.gradethread.app.ui.theme.Spacing
 @Composable
 fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+
+    DetailsIntakeContent(
+        state,
+        DetailsIntakeActions(
+            update = viewModel::update,
+            resumeDraft = viewModel::resumeDraft,
+            discardDraft = viewModel::discardDraft,
+            toggleMergeChoice = viewModel::toggleMergeChoice,
+            confirmMerge = { viewModel.confirmMerge() },
+            cancelMerge = viewModel::cancelMerge,
+            addSourcer = viewModel::addSourcer,
+            save = { addAnother -> viewModel.save(addAnother) },
+        ),
+        modifier = modifier,
+        notesField = { value, onValueChange ->
+            NotesFieldWithDictation(
+                value = value,
+                onValueChange = onValueChange,
+                dictation = DictationCallbacks(
+                    begin = viewModel::beginDictation,
+                    end = viewModel::endDictation,
+                    transcript = viewModel::onDictationTranscript,
+                    error = viewModel::showDictationError,
+                ),
+            )
+        },
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class DetailsIntakeActions(
+    /**
+     * Edit the form in place. One transform rather than a setter per field:
+     * this screen has fourteen inputs and a callback each would be an actions
+     * record longer than the form it describes.
+     */
+    val update: ((DetailsIntakeState) -> DetailsIntakeState) -> Unit = {},
+    val resumeDraft: () -> Unit = {},
+    val discardDraft: () -> Unit = {},
+    val toggleMergeChoice: (ItemMergePlan.Field, Boolean) -> Unit = { _, _ -> },
+    val confirmMerge: () -> Unit = {},
+    val cancelMerge: () -> Unit = {},
+    val addSourcer: (String, (String?) -> Unit) -> Unit = { _, _ -> },
+    val save: (Boolean) -> Unit = {},
+)
+
+/**
+ * Cataloguing one item, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE MERGE PROMPT DECIDES WHOSE DATA SURVIVES. When an intake matches an
+ * item already in inventory, this screen asks field by field which copy to
+ * keep - and whatever is not kept is gone. A prompt that rendered the wrong
+ * side, or lost a conflict row, silently overwrites something the seller typed
+ * weeks ago.
+ *
+ * ⚠ AND `showValidation` EXISTS SO THE FORM IS NOT RED ON OPEN. Errors appear
+ * only after a save attempt. A blank form scolding someone before they have
+ * typed anything is the fastest way to make them close it.
+ *
+ * ⚠ THE NOTES FIELD IS A SLOT. It owns a DictationController built from a
+ * Context, which a screenshot test does not have.
+ */
+@Composable
+fun DetailsIntakeContent(
+    state: DetailsIntakeViewModel.UiState,
+    actions: DetailsIntakeActions,
+    modifier: Modifier = Modifier,
+    notesField: @Composable (String, (String) -> Unit) -> Unit = { _, _ -> },
+) {
     val form = state.form
 
     // The validation message and its announcement share one source, so they
@@ -49,16 +121,16 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
         // An explicit prompt, never a silent restore: silently repopulating an
         // abandoned form is how duplicate items get created.
         AlertDialog(
-            onDismissRequest = viewModel::discardDraft,
+            onDismissRequest = actions.discardDraft,
             title = { Text(stringResource(R.string.intake_resume_unsaved_item)) },
             text = {
                 Text(draft.title.ifBlank { stringResource(R.string.intake_unsaved_draft) })
             },
             confirmButton = {
-                TextButton(onClick = viewModel::resumeDraft) { Text(stringResource(R.string.intake_resume)) }
+                TextButton(onClick = actions.resumeDraft) { Text(stringResource(R.string.intake_resume)) }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::discardDraft) { Text(stringResource(R.string.intake_discard)) }
+                TextButton(onClick = actions.discardDraft) { Text(stringResource(R.string.intake_discard)) }
             },
         )
     }
@@ -66,9 +138,9 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
     state.merge?.let { merge ->
         MergeSkuDialog(
             prompt = merge,
-            onToggle = viewModel::toggleMergeChoice,
-            onConfirm = { viewModel.confirmMerge() },
-            onCancel = viewModel::cancelMerge,
+            onToggle = actions.toggleMergeChoice,
+            onConfirm = actions.confirmMerge,
+            onCancel = actions.cancelMerge,
         )
     }
 
@@ -93,7 +165,7 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
         item {
             ValidatedTextField(
                 value = form.title,
-                onValueChange = { v -> viewModel.update { it.copy(title = v) } },
+                onValueChange = { v -> actions.update { it.copy(title = v) } },
                 label = stringResource(R.string.intake_title),
                 errorMessage = titleError,
                 modifier = Modifier.fillMaxWidth(),
@@ -102,13 +174,13 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
         item {
             SkuFieldWithScanner(
                 value = form.sku,
-                onValueChange = { v -> viewModel.update { it.copy(sku = v) } },
+                onValueChange = { v -> actions.update { it.copy(sku = v) } },
             )
         }
         item {
             ValidatedTextField(
                 value = form.brand,
-                onValueChange = { v -> viewModel.update { it.copy(brand = v) } },
+                onValueChange = { v -> actions.update { it.copy(brand = v) } },
                 label = stringResource(R.string.intake_brand),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -116,7 +188,7 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
         item {
             ValidatedTextField(
                 value = form.style,
-                onValueChange = { v -> viewModel.update { it.copy(style = v) } },
+                onValueChange = { v -> actions.update { it.copy(style = v) } },
                 label = stringResource(R.string.intake_style),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -124,7 +196,7 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
         item {
             ValidatedTextField(
                 value = form.size,
-                onValueChange = { v -> viewModel.update { it.copy(size = v) } },
+                onValueChange = { v -> actions.update { it.copy(size = v) } },
                 label = stringResource(R.string.intake_size),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -132,7 +204,7 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
         item {
             ValidatedTextField(
                 value = form.color,
-                onValueChange = { v -> viewModel.update { it.copy(color = v) } },
+                onValueChange = { v -> actions.update { it.copy(color = v) } },
                 label = stringResource(R.string.intake_color),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -140,7 +212,7 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
         item {
             ValidatedTextField(
                 value = form.material,
-                onValueChange = { v -> viewModel.update { it.copy(material = v) } },
+                onValueChange = { v -> actions.update { it.copy(material = v) } },
                 label = stringResource(R.string.intake_material),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -151,7 +223,7 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
                 selected = FlipdeskCategory.from(form.category),
                 options = FlipdeskCategory.entries,
                 optionLabel = { it.label },
-                onSelect = { c -> viewModel.update { it.copy(category = c.wire) } },
+                onSelect = { c -> actions.update { it.copy(category = c.wire) } },
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -161,7 +233,7 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
                 selected = IntakeStatus.from(form.status),
                 options = IntakeStatus.entries,
                 optionLabel = { it.label },
-                onSelect = { s -> viewModel.update { it.copy(status = s.wire) } },
+                onSelect = { s -> actions.update { it.copy(status = s.wire) } },
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -171,7 +243,7 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
                 selected = state.sources.firstOrNull { it.id == form.sourceId },
                 options = state.sources,
                 optionLabel = { it.name },
-                onSelect = { s -> viewModel.update { it.copy(sourceId = s.id) } },
+                onSelect = { s -> actions.update { it.copy(sourceId = s.id) } },
                 placeholder = stringResource(R.string.intake_no_source),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -179,7 +251,7 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
         item {
             ValidatedTextField(
                 value = form.container,
-                onValueChange = { v -> viewModel.update { it.copy(container = v) } },
+                onValueChange = { v -> actions.update { it.copy(container = v) } },
                 label = stringResource(R.string.intake_container),
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -189,26 +261,22 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
             SourcedByPicker(
                 label = stringResource(R.string.intake_sourced_by),
                 value = form.sourcedBy,
-                onValueChange = { v -> viewModel.update { it.copy(sourcedBy = v) } },
+                onValueChange = { v -> actions.update { it.copy(sourcedBy = v) } },
                 sourcers = SourcerRoster(state.sourcerRoster),
-                onAddPerson = viewModel::addSourcer,
+                onAddPerson = actions.addSourcer,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
         item {
             ValidatedTextField(
                 value = form.purchasePriceText,
-                onValueChange = { v -> viewModel.update { it.copy(purchasePriceText = v) } },
+                onValueChange = { v -> actions.update { it.copy(purchasePriceText = v) } },
                 label = stringResource(R.string.intake_purchase_price),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
         item {
-            NotesFieldWithDictation(
-                value = form.notes,
-                onValueChange = { v -> viewModel.update { it.copy(notes = v) } },
-                viewModel = viewModel,
-            )
+            notesField(form.notes) { v -> actions.update { it.copy(notes = v) } }
         }
 
         item {
@@ -222,13 +290,13 @@ fun DetailsIntakeScreen(modifier: Modifier = Modifier, viewModel: DetailsIntakeV
                         if (state.saving) R.string.templates_saving else R.string.common_save,
                     ),
                     enabled = !state.saving,
-                    onClick = { viewModel.save() },
+                    onClick = { actions.save(false) },
                     modifier = Modifier.weight(1f),
                 )
                 BrandSecondaryButton(
                     text = stringResource(R.string.intake_save_add_another),
                     enabled = !state.saving,
-                    onClick = { viewModel.save(addAnother = true) },
+                    onClick = { actions.save(true) },
                     modifier = Modifier.weight(1f),
                 )
             }

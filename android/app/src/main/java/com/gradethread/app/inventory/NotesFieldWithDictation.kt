@@ -45,7 +45,7 @@ import com.gradethread.app.ui.theme.Spacing
 fun NotesFieldWithDictation(
     value: String,
     onValueChange: (String) -> Unit,
-    viewModel: DetailsIntakeViewModel,
+    dictation: DictationCallbacks,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -68,7 +68,7 @@ fun NotesFieldWithDictation(
     // no-ops when dictation wasn't running.
     DisposableEffect(controller) {
         onDispose {
-            viewModel.endDictation()
+            dictation.end()
             controller.reset()
         }
     }
@@ -79,11 +79,11 @@ fun NotesFieldWithDictation(
         when (val s = dictationState) {
             is DictationController.State.Listening ->
                 if (s.transcript.isNotEmpty()) {
-                    viewModel.onDictationTranscript(s.transcript, isFinal = false)
+                    dictation.transcript(s.transcript, false)
                 }
             is DictationController.State.Failed -> {
-                viewModel.showDictationError(s.error.message)
-                viewModel.endDictation()
+                dictation.error(s.error.message)
+                dictation.end()
             }
             DictationController.State.Idle -> Unit
         }
@@ -93,7 +93,7 @@ fun NotesFieldWithDictation(
     // handled on its own channel rather than behind an is-listening guard.
     LaunchedEffect(finalTranscript) {
         finalTranscript?.let {
-            viewModel.onDictationTranscript(it, isFinal = true)
+            dictation.transcript(it, true)
             controller.consumeFinal()
         }
     }
@@ -102,7 +102,7 @@ fun NotesFieldWithDictation(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
-            viewModel.beginDictation()
+            dictation.begin()
             controller.start()
         } else {
             controller.permissionDenied()
@@ -126,14 +126,14 @@ fun NotesFieldWithDictation(
                     onClick = {
                         if (listening) {
                             controller.stop()
-                            viewModel.endDictation()
+                            dictation.end()
                         } else {
                             val granted = ContextCompat.checkSelfPermission(
                                 context,
                                 Manifest.permission.RECORD_AUDIO,
                             ) == PackageManager.PERMISSION_GRANTED
                             if (granted) {
-                                viewModel.beginDictation()
+                                dictation.begin()
                                 controller.start()
                             } else {
                                 permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
