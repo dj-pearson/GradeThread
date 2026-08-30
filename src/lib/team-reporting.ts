@@ -668,6 +668,177 @@ export async function fetchMissReport(
 }
 
 // ══════════════════════════════════════════════════════════
+// PERSON x SHOP (US-3022)
+// ══════════════════════════════════════════════════════════
+
+export type CrosstabMetric = "net" | "count" | "avgNet";
+
+export const CROSSTAB_METRICS: Array<{ id: CrosstabMetric; label: string }> = [
+  { id: "net", label: "Net profit" },
+  { id: "count", label: "Items sold" },
+  { id: "avgNet", label: "Avg net per item" },
+];
+
+/** How many shops get their own column before the rest are folded together. */
+export const MAX_SHOP_COLUMNS = 12;
+
+/** The column every shop past the cap is folded into. */
+export const OTHER_SHOPS = "Other shops";
+
+export interface CrosstabCell {
+  net: number;
+  count: number;
+}
+
+export interface CrosstabRow {
+  key: string;
+  person: string;
+  /** Keyed by column label. A missing key means no sales there, not zero. */
+  cells: Map<string, CrosstabCell>;
+  total: CrosstabCell;
+}
+
+export interface Crosstab {
+  /** Column labels in display order, 'Other shops' last when present. */
+  columns: string[];
+  rows: CrosstabRow[];
+  columnTotals: Map<string, CrosstabCell>;
+  grandTotal: CrosstabCell;
+  /** How many real shops went into 'Other shops'. 0 when nothing was folded. */
+  foldedShops: number;
+}
+
+/**
+ * The value a cell shows for a metric.
+ *
+ * `avgNet` is deliberately derived from the cell's OWN net and count rather
+ * than averaged from anything upstream. An average of averages is not an
+ * average, and it would make the 'Other shops' column and every total quietly
+ * wrong in a way that looks plausible.
+ */
+export function crosstabValue(
+  cell: CrosstabCell | undefined,
+  metric: CrosstabMetric,
+): number | null {
+  if (!cell || cell.count === 0) return null;
+  if (metric === "count") return cell.count;
+  if (metric === "net") return cell.net;
+  return cell.net / cell.count;
+}
+
+function addTo(target: Map<string, CrosstabCell>, key: string, net: number) {
+  const cell = target.get(key) ?? { net: 0, count: 0 };
+  cell.net += net;
+  cell.count += 1;
+  target.set(key, cell);
+}
+
+/**
+ * Net profit by person and by shop.
+ *
+ * Columns are chosen by ABSOLUTE net, so the shop that lost the most money is
+ * as likely to earn a column as the one that made the most. Ranking by net
+ * alone would fold a disaster into 'Other shops' and hide the single thing on
+ * the page worth acting on.
+ */
+export function buildCrosstab(
+  sales: SalePnlRow[],
+  maxColumns: number = MAX_SHOP_COLUMNS,
+): Crosstab {
+  // Pass 1: how much each shop is worth, so the columns can be chosen.
+  const shopTotals = new Map<string, CrosstabCell>();
+  for (const s of sales) addTo(shopTotals, s.source_key, money(s.net));
+
+  const ranked = [...shopTotals.entries()].sort(
+    (a, b) =>
+      Math.abs(b[1].net) - Math.abs(a[1].net) ||
+      b[1].count - a[1].count ||
+      a[0].localeCompare(b[0]),
+  );
+  const kept = new Set(ranked.slice(0, maxColumns).map(([name]) => name));
+  const foldedShops = Math.max(0, ranked.length - kept.size);
+
+  const columnOf = (shop: string) => (kept.has(shop) ? shop : OTHER_SHOPS);
+
+  // Pass 2: the grid itself.
+  const byKey = new Map<string, CrosstabRow>();
+  const columnTotals = new Map<string, CrosstabCell>();
+  const grandTotal: CrosstabCell = { net: 0, count: 0 };
+
+  for (const s of sales) {
+    const key = sourcerKey(s.sourcer_name);
+    let row = byKey.get(key);
+    if (!row) {
+      row = {
+        key,
+        person: sourcerLabel(s.sourcer_name),
+        cells: new Map(),
+        total: { net: 0, count: 0 },
+      };
+      byKey.set(key, row);
+    }
+    const net = money(s.net);
+    const column = columnOf(s.source_key);
+
+    addTo(row.cells, column, net);
+    addTo(columnTotals, column, net);
+    row.total.net += net;
+    row.total.count += 1;
+    grandTotal.net += net;
+    grandTotal.count += 1;
+  }
+
+  // 'Other shops' always sorts last: it is a bucket, not a place, and letting
+  // it rank among real shops implies it is one.
+  const columns = ranked
+    .slice(0, maxColumns)
+    .map(([name]) => name)
+    .filter((name) => columnTotals.has(name));
+  if (columnTotals.has(OTHER_SHOPS)) columns.push(OTHER_SHOPS);
+
+  const rows = [...byKey.values()].sort(
+    (a, b) => b.total.net - a.total.net || a.person.localeCompare(b.person),
+  );
+
+  return { columns, rows, columnTotals, grandTotal, foldedShops };
+}
+
+export const EMPTY_CROSSTAB: Crosstab = {
+  columns: [],
+  rows: [],
+  columnTotals: new Map(),
+  grandTotal: { net: 0, count: 0 },
+  foldedShops: 0,
+};
+
+/**
+ * The largest absolute cell value for a metric, for scaling the shading.
+ *
+ * Totals are excluded on purpose: they dwarf every cell, and scaling to them
+ * would wash the whole grid out to one flat tint.
+ */
+export function crosstabScale(grid: Crosstab, metric: CrosstabMetric): number {
+  let max = 0;
+  for (const row of grid.rows) {
+    for (const column of grid.columns) {
+      const v = crosstabValue(row.cells.get(column), metric);
+      if (v !== null) max = Math.max(max, Math.abs(v));
+    }
+  }
+  return max;
+}
+
+export async function fetchCrosstab(
+  ownerId: string,
+  from: string | null,
+  to: string | null = null,
+  maxColumns: number = MAX_SHOP_COLUMNS,
+): Promise<Crosstab> {
+  const sales = await fetchSalePnl(ownerId, from, to);
+  return buildCrosstab(sales, maxColumns);
+}
+
+// ══════════════════════════════════════════════════════════
 // FETCHERS
 // ══════════════════════════════════════════════════════════
 

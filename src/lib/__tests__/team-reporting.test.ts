@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  OTHER_SHOPS,
   ageBucket,
+  buildCrosstab,
   buildDeadCapital,
   buildMissReport,
   buildScorecard,
   classifyMiss,
+  crosstabScale,
+  crosstabValue,
   daysHeld,
   money,
   sortScorecard,
@@ -752,5 +756,210 @@ describe("buildMissReport", () => {
     // 40 short and 30 short.
     expect(r.shortfall).toBe(70);
     expect(r.count).toBe(2);
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// PERSON x SHOP (US-3022)
+// ══════════════════════════════════════════════════════════
+
+describe("crosstabValue", () => {
+  it("reads net and count straight off the cell", () => {
+    expect(crosstabValue({ net: 90, count: 3 }, "net")).toBe(90);
+    expect(crosstabValue({ net: 90, count: 3 }, "count")).toBe(3);
+  });
+
+  it("derives the average from the cell's own net and count", () => {
+    expect(crosstabValue({ net: 90, count: 3 }, "avgNet")).toBe(30);
+  });
+
+  it("returns null for a cell with no sales, so it renders empty not $0.00", () => {
+    expect(crosstabValue(undefined, "net")).toBeNull();
+    expect(crosstabValue({ net: 0, count: 0 }, "net")).toBeNull();
+    expect(crosstabValue({ net: 0, count: 0 }, "avgNet")).toBeNull();
+  });
+
+  it("shows a real zero when there were sales that netted nothing", () => {
+    // Different from "no sales here". One is a fact, the other is an absence.
+    expect(crosstabValue({ net: 0, count: 2 }, "net")).toBe(0);
+  });
+});
+
+describe("buildCrosstab", () => {
+  function s(
+    person: string,
+    shop: string,
+    net: string,
+    id = `${person}-${shop}-${net}`,
+  ): SalePnlRow {
+    return sale({
+      sale_id: id,
+      sourcer_name: person,
+      source_key: shop,
+      net,
+    });
+  }
+
+  it("puts net profit in the person-by-shop cell", () => {
+    const g = buildCrosstab([
+      s("Dan", "Goodwill", "10.00"),
+      s("Dan", "Goodwill", "5.00", "b"),
+      s("Dan", "Estate", "20.00"),
+      s("Sam", "Goodwill", "7.00"),
+    ]);
+    const dan = g.rows.find((r) => r.key === "dan")!;
+    expect(dan.cells.get("Goodwill")).toEqual({ net: 15, count: 2 });
+    expect(dan.cells.get("Estate")).toEqual({ net: 20, count: 1 });
+    const sam = g.rows.find((r) => r.key === "sam")!;
+    expect(sam.cells.get("Estate")).toBeUndefined();
+  });
+
+  it("leaves 12 shops alone and folds nothing", () => {
+    const sales = Array.from({ length: 12 }, (_, i) =>
+      s("Dan", `Shop${i}`, String((i + 1) * 10)),
+    );
+    const g = buildCrosstab(sales);
+    expect(g.columns).toHaveLength(12);
+    expect(g.columns).not.toContain(OTHER_SHOPS);
+    expect(g.foldedShops).toBe(0);
+  });
+
+  it("folds the 13th shop into Other shops", () => {
+    const sales = Array.from({ length: 13 }, (_, i) =>
+      s("Dan", `Shop${i}`, String((i + 1) * 10)),
+    );
+    const g = buildCrosstab(sales);
+    expect(g.columns).toHaveLength(13);
+    expect(g.columns).toContain(OTHER_SHOPS);
+    expect(g.foldedShops).toBe(1);
+    // Shop0 is the smallest at $10, so it is the one folded.
+    expect(g.columns).not.toContain("Shop0");
+    expect(g.rows[0]!.cells.get(OTHER_SHOPS)).toEqual({ net: 10, count: 1 });
+  });
+
+  it("puts Other shops last, after every real shop", () => {
+    const sales = Array.from({ length: 20 }, (_, i) =>
+      s("Dan", `Shop${i}`, String((i + 1) * 10)),
+    );
+    const g = buildCrosstab(sales);
+    expect(g.columns[g.columns.length - 1]).toBe(OTHER_SHOPS);
+    expect(g.foldedShops).toBe(8);
+  });
+
+  it("ranks columns by ABSOLUTE net, so a disaster keeps its column", () => {
+    // A shop that lost $900 is the single most useful thing on the page.
+    // Ranking by net alone would fold it away as the lowest value.
+    const sales = [
+      s("Dan", "Disaster", "-900.00"),
+      ...Array.from({ length: 12 }, (_, i) =>
+        s("Dan", `Shop${i}`, String((i + 1) * 10)),
+      ),
+    ];
+    const g = buildCrosstab(sales);
+    expect(g.columns).toContain("Disaster");
+    expect(g.columns[0]).toBe("Disaster");
+  });
+
+  it("keeps a sale with no known shop under Unknown", () => {
+    const g = buildCrosstab([
+      s("Dan", "Unknown", "12.00"),
+      s("Dan", "Goodwill", "3.00"),
+    ]);
+    expect(g.columns).toContain("Unknown");
+    expect(g.rows[0]!.cells.get("Unknown")).toEqual({ net: 12, count: 1 });
+  });
+
+  it("makes row totals, column totals and the grand total agree", () => {
+    const sales = [
+      s("Dan", "Goodwill", "10.00"),
+      s("Dan", "Estate", "20.00"),
+      s("Sam", "Goodwill", "5.00"),
+      s("Sam", "Estate", "-2.00"),
+      s("Ana", "Unknown", "7.00"),
+    ];
+    const g = buildCrosstab(sales);
+
+    const rowSum = g.rows.reduce((n, r) => n + r.total.net, 0);
+    const colSum = [...g.columnTotals.values()].reduce((n, c) => n + c.net, 0);
+    expect(rowSum).toBeCloseTo(40, 10);
+    expect(colSum).toBeCloseTo(40, 10);
+    expect(g.grandTotal.net).toBeCloseTo(40, 10);
+    expect(g.grandTotal.count).toBe(5);
+
+    // And per row, the cells add up to that row's total.
+    for (const row of g.rows) {
+      const cells = [...row.cells.values()].reduce((n, c) => n + c.net, 0);
+      expect(cells).toBeCloseTo(row.total.net, 10);
+    }
+  });
+
+  it("keeps the totals right when shops were folded", () => {
+    const sales = Array.from({ length: 30 }, (_, i) =>
+      s("Dan", `Shop${i}`, "10.00"),
+    );
+    const g = buildCrosstab(sales);
+    const colSum = [...g.columnTotals.values()].reduce((n, c) => n + c.net, 0);
+    expect(colSum).toBeCloseTo(300, 10);
+    expect(g.grandTotal.net).toBeCloseTo(300, 10);
+    expect(g.grandTotal.count).toBe(30);
+    // Nothing was dropped on the way into the fold.
+    expect(g.columnTotals.get(OTHER_SHOPS)!.count).toBe(18);
+  });
+
+  it("averages the folded column from its own totals, not from averages", () => {
+    // Shop A: one sale of $100. Shop B: three sales of $10 each.
+    // Averaging the two shop averages gives (100 + 10) / 2 = $55.
+    // The right answer is 130 / 4 = $32.50.
+    const sales = [
+      s("Dan", "A", "100.00"),
+      s("Dan", "B", "10.00", "b1"),
+      s("Dan", "B", "10.00", "b2"),
+      s("Dan", "B", "10.00", "b3"),
+    ];
+    const g = buildCrosstab(sales, 0);
+    const other = g.rows[0]!.cells.get(OTHER_SHOPS)!;
+    expect(crosstabValue(other, "avgNet")).toBeCloseTo(32.5, 10);
+  });
+
+  it("merges the same person written two ways", () => {
+    const g = buildCrosstab([
+      s("Dan", "Goodwill", "10.00"),
+      s("dan", "Goodwill", "10.00", "b"),
+    ]);
+    expect(g.rows).toHaveLength(1);
+    expect(g.rows[0]!.cells.get("Goodwill")).toEqual({ net: 20, count: 2 });
+  });
+
+  it("is empty for an empty period rather than throwing", () => {
+    const g = buildCrosstab([]);
+    expect(g.columns).toEqual([]);
+    expect(g.rows).toEqual([]);
+    expect(g.grandTotal).toEqual({ net: 0, count: 0 });
+    expect(g.foldedShops).toBe(0);
+  });
+});
+
+describe("crosstabScale", () => {
+  it("scales to the biggest cell, ignoring the totals that dwarf them", () => {
+    const g = buildCrosstab([
+      sale({ sale_id: "a", sourcer_name: "Dan", source_key: "X", net: "10.00" }),
+      sale({ sale_id: "b", sourcer_name: "Dan", source_key: "Y", net: "40.00" }),
+      sale({ sale_id: "c", sourcer_name: "Sam", source_key: "X", net: "20.00" }),
+    ]);
+    // Row total for Dan is 50 and the grand total is 70; neither may set the
+    // scale, or every cell washes out to one flat tint.
+    expect(crosstabScale(g, "net")).toBe(40);
+  });
+
+  it("scales on magnitude, so a big loss sets the range", () => {
+    const g = buildCrosstab([
+      sale({ sale_id: "a", sourcer_name: "Dan", source_key: "X", net: "-90.00" }),
+      sale({ sale_id: "b", sourcer_name: "Dan", source_key: "Y", net: "10.00" }),
+    ]);
+    expect(crosstabScale(g, "net")).toBe(90);
+  });
+
+  it("is zero for an empty grid instead of dividing by nothing later", () => {
+    expect(crosstabScale(buildCrosstab([]), "net")).toBe(0);
   });
 });

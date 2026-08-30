@@ -6,6 +6,7 @@ import {
   ArrowUp,
   ChevronRight,
   Download,
+  Grid3x3,
   Hourglass,
   TrendingDown,
   Users,
@@ -20,6 +21,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
@@ -36,15 +44,23 @@ import { downloadCsv } from "@/lib/csv-export";
 import { useWorkspace } from "@/hooks/use-workspace";
 import {
   AGE_BUCKETS,
+  CROSSTAB_METRICS,
   DEFAULT_TARGET_MARGIN,
+  EMPTY_CROSSTAB,
   EMPTY_DEAD_CAPITAL,
   EMPTY_MISS_REPORT,
   EMPTY_SCORECARD,
   OLDEST_SHOWN,
+  OTHER_SHOPS,
+  crosstabScale,
+  crosstabValue,
+  fetchCrosstab,
   fetchDeadCapital,
   fetchMissReport,
   fetchScorecard,
   sortScorecard,
+  type Crosstab,
+  type CrosstabMetric,
   type DeadCapital,
   type MissReason,
   type MissReport,
@@ -395,7 +411,264 @@ export function TeamReportPage({
           the opposite of what was asked. */}
       <DeadCapitalCard />
       <OverpayCard periodStart={periodStart} />
+      <PersonBySourceCard periodStart={periodStart} />
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════
+// PERSON x SHOP (US-3022)
+// ══════════════════════════════════════════════════════════
+
+function useMetricParam(): [CrosstabMetric, (m: CrosstabMetric) => void] {
+  const [sp, setSp] = useSearchParams();
+  const raw = sp.get("metric");
+  const metric: CrosstabMetric =
+    raw === "count" || raw === "avgNet" ? raw : "net";
+
+  const setMetric = (next: CrosstabMetric) =>
+    setSp(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        if (next === "net") p.delete("metric");
+        else p.set("metric", next);
+        return p;
+      },
+      { replace: true },
+    );
+
+  return [metric, setMetric];
+}
+
+/**
+ * The fill for a cell, as a solid tint of a brand token.
+ *
+ * Mixed against `--card` rather than `transparent` on purpose. `--primary`
+ * flips to near-white in dark mode (src/index.css), so a fill built from it
+ * over a transparent background turns a dark cell white and takes the text
+ * with it. Mixing into the card keeps the tint anchored to whatever surface
+ * the theme is actually using, in both directions.
+ *
+ * A solid tint, not a gradient: intensity carries the magnitude and nothing
+ * else has to.
+ */
+function cellTint(value: number | null, scale: number): string | undefined {
+  if (value === null || scale <= 0 || value === 0) return undefined;
+  const share = Math.min(1, Math.abs(value) / scale);
+  // Floor at 6% so the smallest non-zero cell is still visibly not empty, and
+  // cap at 42% so text keeps its contrast against the strongest one.
+  const pct = (6 + share * 36).toFixed(1);
+  const token = value < 0 ? "--destructive" : "--primary";
+  return `color-mix(in oklab, var(${token}) ${pct}%, var(--card))`;
+}
+
+export function PersonBySourceCard({
+  periodStart,
+}: {
+  periodStart: string | null;
+}) {
+  const { workspaceOwnerId } = useWorkspace();
+  const [metric, setMetric] = useMetricParam();
+
+  const {
+    data = EMPTY_CROSSTAB,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<Crosstab>({
+    queryKey: ["team-report", "crosstab", workspaceOwnerId, periodStart],
+    enabled: !!workspaceOwnerId,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchCrosstab(workspaceOwnerId as string, periodStart),
+  });
+
+  const scale = useMemo(() => crosstabScale(data, metric), [data, metric]);
+
+  const format = (v: number | null): string => {
+    if (v === null) return "";
+    return metric === "count" ? String(v) : usd(v);
+  };
+
+  function exportCsv() {
+    downloadCsv(
+      `flipdesk-person-by-shop-${csvDate()}.csv`,
+      ["Person", ...data.columns, "Total"],
+      [
+        ...data.rows.map((r) => [
+          r.person,
+          ...data.columns.map((c) => {
+            const v = crosstabValue(r.cells.get(c), metric);
+            return v === null ? "" : v.toFixed(metric === "count" ? 0 : 2);
+          }),
+          (crosstabValue(r.total, metric) ?? 0).toFixed(
+            metric === "count" ? 0 : 2,
+          ),
+        ]),
+        [
+          "All people",
+          ...data.columns.map((c) => {
+            const v = crosstabValue(data.columnTotals.get(c), metric);
+            return v === null ? "" : v.toFixed(metric === "count" ? 0 : 2);
+          }),
+          (crosstabValue(data.grandTotal, metric) ?? 0).toFixed(
+            metric === "count" ? 0 : 2,
+          ),
+        ],
+      ],
+    );
+  }
+
+  if (error) {
+    return (
+      <ErrorState
+        title="Could not load the person by shop grid"
+        description={error instanceof Error ? error.message : String(error)}
+        onRetry={() => void refetch()}
+      />
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Grid3x3 className="h-4 w-4" />
+              Person by shop
+            </CardTitle>
+            <CardDescription>
+              Who buys well where. Read across a row to see one person&rsquo;s
+              venues; read down a column to see who does best at one shop.
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="crosstab-metric" className="text-sm">
+                Show
+              </Label>
+              <Select
+                value={metric}
+                onValueChange={(v) => setMetric(v as CrosstabMetric)}
+              >
+                <SelectTrigger id="crosstab-metric" className="w-[180px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {CROSSTAB_METRICS.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {data.rows.length > 0 && (
+              <Button variant="outline" size="sm" onClick={exportCsv}>
+                <Download className="mr-2 h-4 w-4" />
+                CSV
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {isLoading ? (
+          <TableLoadingSkeleton rows={4} columns={6} />
+        ) : data.rows.length === 0 ? (
+          <EmptyState
+            icon={Grid3x3}
+            title="No sales to lay out yet"
+            description="This grid fills in once you have completed sales on items that carry a Sourced by name."
+          />
+        ) : (
+          <>
+            {/* The grid scrolls inside here; the page body never does. */}
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="sticky left-0 bg-card">
+                      Person
+                    </TableHead>
+                    {data.columns.map((c) => (
+                      <TableHead key={c} className="text-right">
+                        {c}
+                      </TableHead>
+                    ))}
+                    <TableHead className="text-right">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.rows.map((r) => (
+                    <TableRow key={r.key}>
+                      <TableCell className="sticky left-0 bg-card font-medium">
+                        {r.person}
+                      </TableCell>
+                      {data.columns.map((c) => {
+                        const v = crosstabValue(r.cells.get(c), metric);
+                        return (
+                          <TableCell
+                            key={c}
+                            className="text-right tabular-nums"
+                            style={{ backgroundColor: cellTint(v, scale) }}
+                          >
+                            {/* Empty, not $0.00. "No sales here" and "sales
+                                that netted nothing" are different facts. */}
+                            {format(v)}
+                          </TableCell>
+                        );
+                      })}
+                      <TableCell className="text-right font-medium tabular-nums">
+                        {format(crosstabValue(r.total, metric))}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+
+                  <TableRow className="border-t-2 font-medium">
+                    <TableCell className="sticky left-0 bg-card">
+                      All people
+                    </TableCell>
+                    {data.columns.map((c) => (
+                      <TableCell key={c} className="text-right tabular-nums">
+                        {format(crosstabValue(data.columnTotals.get(c), metric))}
+                      </TableCell>
+                    ))}
+                    <TableCell className="text-right tabular-nums">
+                      {format(crosstabValue(data.grandTotal, metric))}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                Scale:
+                <span
+                  className="inline-block h-3 w-6 rounded-sm border"
+                  style={{ backgroundColor: cellTint(-scale, scale) }}
+                />
+                {usd(-scale)} loss
+                <span
+                  className="inline-block h-3 w-6 rounded-sm border"
+                  style={{ backgroundColor: cellTint(scale, scale) }}
+                />
+                {metric === "count" ? String(scale) : usd(scale)} best
+              </span>
+              <span>An empty cell means no sales there.</span>
+              {data.foldedShops > 0 && (
+                <span>
+                  {data.foldedShops} smaller{" "}
+                  {data.foldedShops === 1 ? "shop is" : "shops are"} folded into{" "}
+                  {OTHER_SHOPS}.
+                </span>
+              )}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
