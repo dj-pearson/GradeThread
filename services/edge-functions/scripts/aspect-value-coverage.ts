@@ -16,6 +16,14 @@
 //   --modes       every aspect name, how many categories carry it, and which
 //                 aspectMode(s) eBay gives it. Run this FIRST: whether an aspect
 //                 is SELECTION_ONLY or SUGGESTED decides what "dropped" means.
+//   --coverage    a different question from the rest of this script, and the one
+//                 that decides whether a listing is findable: not "is the value
+//                 we send usable" but "do we fill the field at all". Reports the
+//                 three ways a field goes unfilled by construction — an aspect
+//                 past the MAX_AI_ASPECTS cap is never shown to the model; a
+//                 SELECTION_ONLY list past MAX_ALLOWED_VALUES_PER_ASPECT has
+//                 values the model literally cannot pick; and a required aspect
+//                 no registry entry owns depends entirely on the AI pass.
 //   --reference   the union of allowed values per aspect name. The one big
 //                 reference, harvested rather than researched.
 //   (default)     the coverage audit — every value our prompt hints can produce,
@@ -31,6 +39,11 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { normalizeAspectValue } from "../src/lib/aspect-normalize.ts";
+import {
+  MAX_AI_ASPECTS,
+  MAX_ALLOWED_VALUES_PER_ASPECT,
+} from "../src/lib/aspect-priority.ts";
+import { ASPECT_REGISTRY, ownedAspectName } from "../src/lib/aspect-registry.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -42,6 +55,7 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
 const args = Deno.args;
 const wantReference = args.includes("--reference");
 const wantModes = args.includes("--modes");
+const wantCoverage = args.includes("--coverage");
 const aspectFilterIdx = args.indexOf("--aspect");
 const aspectFilter = aspectFilterIdx >= 0 ? args[aspectFilterIdx + 1] ?? null : null;
 
@@ -158,11 +172,13 @@ interface EbayAspectConstraint {
   aspectMode?: string;
   itemToAspectCardinality?: string;
   aspectRequired?: boolean;
+  aspectUsage?: string;
 }
 interface EbayAspect {
   localizedAspectName?: string;
   aspectConstraint?: EbayAspectConstraint;
   aspectValues?: EbayAspectValue[];
+  relevanceIndicator?: { searchCount?: number };
 }
 interface CacheRow {
   category_id: string;
@@ -242,6 +258,144 @@ const aspectNames = [...perAspect.keys()].sort(
 );
 
 console.log(`# ebay_category_aspects: ${rows.length} cached categories\n`);
+
+// ── --coverage ────────────────────────────────────────────────────────
+//
+// The rest of this script asks whether the value we send is one eBay lists.
+// This asks the prior question: does the field get filled at all? A blank
+// specific costs a buyer filter just as completely as a wrong one, and there
+// are exactly three ways one goes blank BY CONSTRUCTION rather than because
+// the garment did not answer it.
+if (wantCoverage) {
+  // Which item_category the registry is evaluated for. byCategory candidates
+  // extend the defaults per vertical, so shoes reach "US Shoe Size" and
+  // clothing does not.
+  const VERTICALS = ["clothing", "shoes", "bags", "accessories"];
+
+  let overCap = 0;
+  let totalAspects = 0;
+  let totalRequired = 0;
+  const truncated = new Map<string, { cats: number; worst: number }>();
+  const droppedTail = new Map<string, number>();
+  const requiredUnowned = new Map<string, number>();
+  const requiredSeen = new Map<string, number>();
+
+  for (const row of rows) {
+    const list = row.aspects?.aspects ?? [];
+    if (list.length === 0) continue;
+    totalAspects += list.length;
+
+    const specs = list.map((a) => ({
+      name: (a.localizedAspectName ?? "").trim(),
+      required: a.aspectConstraint?.aspectRequired === true,
+      searchCount: a.relevanceIndicator?.searchCount ?? 0,
+      usage: a.aspectConstraint?.aspectUsage ?? "OPTIONAL",
+      mode: a.aspectConstraint?.aspectMode ?? "",
+      values: (a.aspectValues ?? []).length,
+    })).filter((x) => x.name.length > 0);
+
+    const req = specs.filter((x) => x.required);
+    totalRequired += req.length;
+    for (const r of req) requiredSeen.set(r.name, (requiredSeen.get(r.name) ?? 0) + 1);
+
+    // 1. Past the cap — never shown to the model. Mirror prioritizeByDemand:
+    //    required first in eBay's order, then searchCount desc, then
+    //    RECOMMENDED before OPTIONAL, then name.
+    if (specs.length > MAX_AI_ASPECTS) {
+      overCap++;
+      const rest = specs.filter((x) => !x.required).sort((a, b) =>
+        b.searchCount - a.searchCount ||
+        (a.usage === b.usage ? 0 : a.usage === "RECOMMENDED" ? -1 : 1) ||
+        a.name.localeCompare(b.name)
+      );
+      const room = Math.max(0, MAX_AI_ASPECTS - req.length);
+      for (const cut of rest.slice(room)) {
+        droppedTail.set(cut.name, (droppedTail.get(cut.name) ?? 0) + 1);
+      }
+    }
+
+    // 2. A SELECTION_ONLY list longer than the enum cap has values the model
+    //    cannot choose, because they are not in the schema it is given.
+    for (const x of specs) {
+      if (x.mode !== "SELECTION_ONLY") continue;
+      if (x.values <= MAX_ALLOWED_VALUES_PER_ASPECT) continue;
+      const prev = truncated.get(x.name) ?? { cats: 0, worst: 0 };
+      truncated.set(x.name, {
+        cats: prev.cats + 1,
+        worst: Math.max(prev.worst, x.values),
+      });
+    }
+
+    // 3. A required aspect no registry entry owns is filled only if the AI
+    //    refine pass answers it. Deterministic coverage is the safer half.
+    const registryAspects = specs.map((x) => ({
+      name: x.name,
+      mode: x.mode,
+      multi: false,
+      allowedValues: [],
+    }));
+    const owned = new Set<string>();
+    for (const vertical of VERTICALS) {
+      for (const entry of ASPECT_REGISTRY.entries) {
+        const n = ownedAspectName(entry, vertical, registryAspects);
+        if (n) owned.add(n);
+      }
+    }
+    for (const r of req) {
+      if (!owned.has(r.name)) {
+        requiredUnowned.set(r.name, (requiredUnowned.get(r.name) ?? 0) + 1);
+      }
+    }
+  }
+
+  const top = (m: Map<string, number>, n: number) =>
+    [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, n);
+
+  console.log(
+    `${totalAspects} aspects across ${rows.length} categories ` +
+      `(${(totalAspects / rows.length).toFixed(1)} each), ` +
+      `${totalRequired} required (${(totalRequired / rows.length).toFixed(1)} each).\n`,
+  );
+
+  console.log(`## 1. Past the MAX_AI_ASPECTS cap of ${MAX_AI_ASPECTS}`);
+  console.log(
+    `${overCap}/${rows.length} categories have more aspects than the cap, so their`,
+  );
+  console.log("tail is never shown to the model. Most often dropped:");
+  if (droppedTail.size === 0) console.log("   (none)");
+  for (const [name, n] of top(droppedTail, 20)) {
+    console.log(`   - ${name} — cut in ${n} categories`);
+  }
+  console.log();
+
+  console.log(
+    `## 2. SELECTION_ONLY lists past the ${MAX_ALLOWED_VALUES_PER_ASPECT}-value enum cap`,
+  );
+  console.log("The model is handed an enum, so a value past the cut CANNOT be chosen.");
+  if (truncated.size === 0) console.log("   (none)");
+  for (const [name, v] of [...truncated.entries()].sort((a, b) => b[1].cats - a[1].cats)) {
+    console.log(
+      `   - ${name} — ${v.cats} categories, worst list ${v.worst} values ` +
+        `(${v.worst - MAX_ALLOWED_VALUES_PER_ASPECT} unpickable)`,
+    );
+  }
+  console.log();
+
+  console.log("## 3. Required aspects no registry entry owns");
+  console.log("These are filled only if the AI refine pass answers them.");
+  if (requiredUnowned.size === 0) console.log("   (none)");
+  for (const [name, n] of top(requiredUnowned, 25)) {
+    console.log(`   - ${name} — required in ${n} categories`);
+  }
+  console.log();
+
+  console.log("## Required aspects overall, by how many categories demand them");
+  for (const [name, n] of top(requiredSeen, 25)) {
+    const owned = requiredUnowned.has(name) ? "AI only" : "registry";
+    console.log(`   - ${name.padEnd(32)} ${String(n).padStart(4)}  ${owned}`);
+  }
+  Deno.exit(0);
+}
 
 // ── --modes ───────────────────────────────────────────────────────────
 if (wantModes) {

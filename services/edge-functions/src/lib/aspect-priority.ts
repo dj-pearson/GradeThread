@@ -44,8 +44,25 @@ export const MAX_AI_ASPECTS = 45;
  * final safety net. Truncating too hard silently makes a legitimate value
  * unpickable (eBay returns them in its own order, not by popularity), so this
  * sits well above the old 80.
+ *
+ * RAISED FROM 150 TO 300 (US-3016), on a count rather than a hunch. Reading
+ * the 121 cached categories back, exactly three SELECTION_ONLY aspects run
+ * past 150: Country of Origin at 244 values in ALL 121 of them, Year
+ * Manufactured at 159 in one, and Silhouette at 7,286 in two. The first is
+ * the one that mattered. eBay returns countries in its own order, so a
+ * 150-value cut removed most of the late alphabet — Vietnam, Thailand,
+ * Turkey, Taiwan, Sri Lanka, Portugal, Philippines, Pakistan, Romania,
+ * Tunisia, United States — which between them account for most of what a
+ * resale seller actually holds. The model was being asked where a garment
+ * was made and handed a menu with the answer missing.
+ *
+ * 300 clears Country of Origin and Year Manufactured outright. Silhouette
+ * stays capped and always will: 7,286 values is not an enum anyone can send,
+ * and it appears in two categories. The cost is ~94 extra short strings on
+ * the categories carrying Country of Origin, a few hundred tokens beside a
+ * request that already carries photos.
  */
-export const MAX_ALLOWED_VALUES_PER_ASPECT = 150;
+export const MAX_ALLOWED_VALUES_PER_ASPECT = 300;
 
 /** The fields of eBay's raw aspect payload this module ranks on. */
 export interface RankableRawAspect {

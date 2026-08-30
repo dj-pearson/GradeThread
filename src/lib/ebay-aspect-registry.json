@@ -65,6 +65,15 @@
       ]
     },
     {
+      "key": "product_type",
+      "source": "attribute",
+      "attribute": "product_type",
+      "multi": false,
+      "aspects": [
+        "Type"
+      ]
+    },
+    {
       "key": "department",
       "source": "attribute",
       "attribute": "department",

@@ -834,3 +834,77 @@ Deno.test("US-2422: a new key never overwrites a value already on the draft", ()
     {},
   );
 });
+
+// ── US-3016: eBay's Type aspect ─────────────────────────────────────────────
+//
+// Type is REQUIRED in 36 of the 121 categories in the prod aspect cache, and
+// in 33 of them nothing could fill it. The style COLUMN lists Type as a
+// fallback candidate, but ownedAspectName gives each entry exactly ONE aspect
+// and Style wins wherever both names exist — deliberately, since one column
+// writing two aspects is the bug that made Type uneditable. So Type sat empty
+// on a required field, and a required field left empty blocks the publish.
+
+Deno.test("US-3016: product_type fills Type when the style column owns Style", () => {
+  const aspects = [
+    { name: "Style", mode: "FREE_TEXT" },
+    { name: "Type", mode: "FREE_TEXT" },
+  ];
+  const out = resolveItemAspects(
+    {
+      item_category: "clothing",
+      style: "Sheath",
+      attributes: { product_type: "Blouse" },
+    },
+    aspects,
+    {},
+  );
+  assertEquals(out["Type"], ["Blouse"]);
+});
+
+Deno.test("US-3016: Type normalizes onto the category's own vocabulary", () => {
+  const aspects = [
+    { name: "Style", mode: "FREE_TEXT" },
+    {
+      name: "Type",
+      mode: "SELECTION_ONLY",
+      allowedValues: ["Blouse", "T-Shirt", "Tank Top", "Sweater"],
+    },
+  ];
+  // The capture writes lowercase; a SELECTION_ONLY Type takes eBay's casing.
+  const out = resolveItemAspects(
+    { item_category: "clothing", attributes: { product_type: "t-shirt" } },
+    aspects,
+    {},
+  );
+  assertEquals(out["Type"], ["T-Shirt"]);
+});
+
+Deno.test("US-3016: product_type stands down where the style column owns Type", () => {
+  // A category exposing Type but no Style: the column still owns it, and
+  // columnAspectProjection re-asserts the column authoritatively anyway, so
+  // this entry must not race it.
+  const aspects = [{ name: "Type", mode: "FREE_TEXT" }];
+  const out = resolveItemAspects(
+    {
+      item_category: "clothing",
+      style: "Trucker",
+      attributes: { product_type: "Blouse" },
+    },
+    aspects,
+    {},
+  );
+  assertEquals(out["Type"], ["Trucker"]);
+});
+
+Deno.test("US-3016: a user-set Type is never overwritten by product_type", () => {
+  const aspects = [
+    { name: "Style", mode: "FREE_TEXT" },
+    { name: "Type", mode: "FREE_TEXT" },
+  ];
+  const out = resolveItemAspects(
+    { item_category: "clothing", attributes: { product_type: "Blouse" } },
+    aspects,
+    { Type: ["Tunic"] },
+  );
+  assertEquals(out["Type"], undefined);
+});

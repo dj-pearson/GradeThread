@@ -102,6 +102,20 @@ export const ASPECT_REGISTRY: AspectRegistry = {
     },
     { key: "style", source: "column", column: "style", multi: false, aspects: ["Style", "Type"] },
     // ── US-821 canonical attributes ──
+    // Placed after the style COLUMN entry deliberately. In a category exposing
+    // both "Style" and "Type", the style column owns Style and this owns Type,
+    // which is the split the aspect list is asking for. In the few categories
+    // exposing Type but no Style, the style column still owns Type and
+    // columnAspectProjection re-asserts it authoritatively — unchanged
+    // behaviour, and the out[name] guard in resolveItemAspects means this
+    // entry stands down there rather than fighting it.
+    {
+      key: "product_type",
+      source: "attribute",
+      attribute: "product_type",
+      multi: false,
+      aspects: ["Type"],
+    },
     {
       key: "department",
       source: "attribute",

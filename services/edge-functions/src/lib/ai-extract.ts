@@ -210,6 +210,15 @@ interface CanonicalAttributeSpec {
 }
 
 export const CANONICAL_ATTRIBUTES: CanonicalAttributeSpec[] = [
+  // US-3016: eBay's "Type" is a REQUIRED aspect in 36 of the 121 categories
+  // we have cached, and in 33 of those no registry entry could fill it. The
+  // style column owns "Style" wherever both names exist and only reaches
+  // "Type" in the few categories that lack Style, so nothing we captured
+  // answered the question eBay is actually asking: what KIND of garment is
+  // this. The style field holds a marketing style name (Sheath, Trucker) and
+  // product_line holds the family (501, Dri-FIT); neither is a Blouse or a
+  // Hoodie. This key is that, in eBay's own vocabulary.
+  { key: "product_type", multi: false, description: "What KIND of item this is, in the words an eBay category would list under 'Type' — e.g. Blouse, T-Shirt, Hoodie, Cargo Pants, Ankle Boot, Tote, Baseball Cap. Name the garment itself, NOT its brand style name (that is style), NOT the product family (that is product_line), and NOT a broad bucket like 'Clothing' or 'Other'. Omit it rather than guessing a generic word." },
   { key: "department", multi: false, description: "Target department — e.g. Men, Women, Unisex Adult, Boys, Girls, Baby" },
   { key: "size_type", multi: false, description: "Size type — e.g. Regular, Plus, Petite, Big & Tall, Juniors, Maternity, Tall" },
   { key: "sleeve_length", multi: false, description: "Sleeve length — e.g. Short Sleeve, Long Sleeve, 3/4 Sleeve, Sleeveless" },
