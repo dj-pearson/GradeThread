@@ -33,7 +33,7 @@ trigger to include `wearing` — it went red naming the real risk ("wearing or
 returned was removed from inventory - both must STAY") and green on restore.
 
 
-## HELD: 00691_facilitator_sales_tax.sql (US-2987)
+## ✅ APPLIED: 00691_facilitator_sales_tax.sql (US-2987, applied 2026-08-29 — owner-confirmed "all migrations have been applied up to 692")
 
 **Risk: MEDIUM, higher than the rest of this epic, and the reason is worth
 reading.** It is the first migration here that CHANGES an existing derivation
