@@ -195,6 +195,231 @@ export function buildScorecard(
 }
 
 // ══════════════════════════════════════════════════════════
+// DEAD CAPITAL (US-3020)
+// ══════════════════════════════════════════════════════════
+
+/**
+ * Age buckets for unsold stock, in days held.
+ *
+ * `null` on `maxDays` is the open-ended top bucket. "unknown" is not an age at
+ * all -- it is the item with no purchase date, which must be visible rather
+ * than dropped or silently treated as bought today.
+ */
+export const AGE_BUCKETS = [
+  { id: "0-30", label: "0-30 days", maxDays: 30 },
+  { id: "31-60", label: "31-60 days", maxDays: 60 },
+  { id: "61-90", label: "61-90 days", maxDays: 90 },
+  { id: "91-180", label: "91-180 days", maxDays: 180 },
+  { id: "180+", label: "180+ days", maxDays: null },
+  { id: "unknown", label: "Unknown age", maxDays: null },
+] as const;
+
+export type AgeBucketId = (typeof AGE_BUCKETS)[number]["id"];
+
+/** The buckets that count toward "older than 90 days". */
+const STALE_BUCKETS: AgeBucketId[] = ["91-180", "180+"];
+
+/**
+ * Whole days between a purchase date and `now`, floored, never negative.
+ *
+ * A future acquired_date (a typo, or a timezone slip on an import) would give a
+ * negative age and land in no bucket at all, so it is clamped to 0 rather than
+ * dropped.
+ */
+export function daysHeld(
+  acquiredDate: string | null | undefined,
+  now: Date = new Date(),
+): number | null {
+  if (!acquiredDate) return null;
+  const then = new Date(acquiredDate);
+  if (Number.isNaN(then.getTime())) return null;
+  const ms = now.getTime() - then.getTime();
+  return Math.max(0, Math.floor(ms / 86_400_000));
+}
+
+/**
+ * Which bucket an age falls in.
+ *
+ * The boundaries are INCLUSIVE at the top: 30 days is "0-30" and 31 days is
+ * "31-60", which is what the labels say and is the half of this that a test
+ * has to pin. Off-by-one here moves money between columns on a page whose
+ * whole job is telling someone their money is stuck.
+ */
+export function ageBucket(days: number | null): AgeBucketId {
+  if (days === null) return "unknown";
+  if (days <= 30) return "0-30";
+  if (days <= 60) return "31-60";
+  if (days <= 90) return "61-90";
+  if (days <= 180) return "91-180";
+  return "180+";
+}
+
+/** One unsold item, as the dead-capital card needs it. */
+export interface DeadItem {
+  id: string;
+  title: string;
+  acquiredDate: string | null;
+  acquiredPrice: number;
+  days: number | null;
+  bucket: AgeBucketId;
+}
+
+export interface DeadCapitalRow {
+  key: string;
+  person: string;
+  /** Dollars per bucket. Every bucket id is present, so columns line up. */
+  buckets: Record<AgeBucketId, number>;
+  counts: Record<AgeBucketId, number>;
+  total: number;
+  count: number;
+  /** Dollars in items held longer than 90 days. The number to act on. */
+  stale: number;
+  /** The five oldest, newest-last. Items with no date sort after dated ones. */
+  oldest: DeadItem[];
+}
+
+export interface DeadCapital {
+  rows: DeadCapitalRow[];
+  totals: Record<AgeBucketId, number>;
+  grandTotal: number;
+  staleTotal: number;
+}
+
+function emptyBuckets(): Record<AgeBucketId, number> {
+  const out = {} as Record<AgeBucketId, number>;
+  for (const b of AGE_BUCKETS) out[b.id] = 0;
+  return out;
+}
+
+/** How many of the oldest items each row names. */
+export const OLDEST_SHOWN = 5;
+
+/**
+ * Group unsold stock by the person who bought it.
+ *
+ * `items` must already be filtered to the UNSOLD ones (see fetchDeadCapital) --
+ * this function does not know what a sale is, which keeps it testable with
+ * nothing but rows.
+ */
+export function buildDeadCapital(
+  items: TeamItemRow[],
+  titleById: Map<string, string>,
+  now: Date = new Date(),
+): DeadCapital {
+  const byKey = new Map<string, DeadCapitalRow>();
+
+  for (const it of items) {
+    const key = sourcerKey(it.sourced_by);
+    let row = byKey.get(key);
+    if (!row) {
+      row = {
+        key,
+        person: sourcerLabel(it.sourced_by),
+        buckets: emptyBuckets(),
+        counts: emptyBuckets(),
+        total: 0,
+        count: 0,
+        stale: 0,
+        oldest: [],
+      };
+      byKey.set(key, row);
+    }
+    const days = daysHeld(it.acquired_date, now);
+    const bucket = ageBucket(days);
+    const price = money(it.acquired_price);
+
+    row.buckets[bucket] += price;
+    row.counts[bucket] += 1;
+    row.total += price;
+    row.count += 1;
+    if (STALE_BUCKETS.includes(bucket)) row.stale += price;
+
+    row.oldest.push({
+      id: it.id,
+      title: titleById.get(it.id) ?? "Untitled item",
+      acquiredDate: it.acquired_date,
+      acquiredPrice: price,
+      days,
+      bucket,
+    });
+  }
+
+  const totals = emptyBuckets();
+  let grandTotal = 0;
+  let staleTotal = 0;
+
+  for (const row of byKey.values()) {
+    // Oldest first. An item with no date has no place on an age ladder, so it
+    // sorts to the end rather than to either extreme.
+    row.oldest.sort((a, b) => {
+      if (a.days === null && b.days === null) return 0;
+      if (a.days === null) return 1;
+      if (b.days === null) return -1;
+      return b.days - a.days;
+    });
+    row.oldest = row.oldest.slice(0, OLDEST_SHOWN);
+
+    for (const b of AGE_BUCKETS) totals[b.id] += row.buckets[b.id];
+    grandTotal += row.total;
+    staleTotal += row.stale;
+  }
+
+  // Worst first: the person with the most money stuck past 90 days is the one
+  // this card exists to surface, so they lead regardless of headline total.
+  const rows = [...byKey.values()].sort(
+    (a, b) => b.stale - a.stale || b.total - a.total,
+  );
+
+  return { rows, totals, grandTotal, staleTotal };
+}
+
+export const EMPTY_DEAD_CAPITAL: DeadCapital = {
+  rows: [],
+  totals: emptyBuckets(),
+  grandTotal: 0,
+  staleTotal: 0,
+};
+
+/**
+ * Every unsold item in the workspace, grouped by who bought it.
+ *
+ * Deliberately NOT windowed by the page's period. Dead capital is a question
+ * about right now -- "what is stuck" -- and hiding a two-year-old item because
+ * the picker says "last 30 days" would answer the opposite of what was asked.
+ *
+ * Unsold is BOTH tests, not either: status is not a terminal one, AND there is
+ * no completed sale. Status alone is unreliable (an item can sell while its
+ * row still says 'listed'); the sale alone would keep an archived write-off on
+ * the books as live capital, which is exactly the overstatement US-3007 fixed
+ * for the tax side.
+ */
+export async function fetchDeadCapital(
+  ownerId: string,
+  now: Date = new Date(),
+): Promise<DeadCapital> {
+  const { data, error } = await supabase
+    .from("inventory_items")
+    .select("id, title, sourced_by, acquired_price, acquired_date, status")
+    .eq("user_id", ownerId)
+    .not("status", "in", "(sold,archived)");
+  if (error) throw error;
+  const rows = (data ?? []) as unknown as Array<
+    Omit<TeamItemRow, "sold"> & { title: string | null }
+  >;
+
+  const soldIds = await fetchSoldItemIds(ownerId);
+  const titleById = new Map<string, string>();
+  const unsold: TeamItemRow[] = [];
+  for (const r of rows) {
+    if (soldIds.has(r.id)) continue;
+    titleById.set(r.id, (r.title ?? "").trim() || "Untitled item");
+    unsold.push({ ...r, sold: false });
+  }
+
+  return buildDeadCapital(unsold, titleById, now);
+}
+
+// ══════════════════════════════════════════════════════════
 // FETCHERS
 // ══════════════════════════════════════════════════════════
 

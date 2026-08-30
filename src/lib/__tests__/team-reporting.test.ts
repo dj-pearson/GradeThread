@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  ageBucket,
+  buildDeadCapital,
   buildScorecard,
+  daysHeld,
   money,
   sortScorecard,
   sourcerKey,
@@ -302,5 +305,213 @@ describe("sortScorecard", () => {
     const before = rows.map((r) => r.person);
     sortScorecard(rows, "net", "asc");
     expect(rows.map((r) => r.person)).toEqual(before);
+  });
+});
+
+// ══════════════════════════════════════════════════════════
+// DEAD CAPITAL (US-3020)
+// ══════════════════════════════════════════════════════════
+
+const NOW = new Date("2026-08-30T12:00:00.000Z");
+
+/** An item bought `days` before NOW, so the boundaries can be pinned exactly. */
+function agedItem(days: number | null, over: Partial<TeamItemRow> = {}): TeamItemRow {
+  const acquired =
+    days === null
+      ? null
+      : new Date(NOW.getTime() - days * 86_400_000).toISOString();
+  return {
+    id: `i-${days ?? "null"}-${over.id ?? ""}`,
+    sourced_by: "Dan",
+    acquired_price: "100.00",
+    acquired_date: acquired,
+    status: "listed",
+    sold: false,
+    ...over,
+  };
+}
+
+describe("daysHeld", () => {
+  it("counts whole days from the purchase date", () => {
+    expect(daysHeld(new Date(NOW.getTime() - 45 * 86_400_000).toISOString(), NOW))
+      .toBe(45);
+  });
+
+  it("returns null for a missing or unparseable date", () => {
+    expect(daysHeld(null, NOW)).toBeNull();
+    expect(daysHeld(undefined, NOW)).toBeNull();
+    expect(daysHeld("", NOW)).toBeNull();
+    expect(daysHeld("not a date", NOW)).toBeNull();
+  });
+
+  it("clamps a future purchase date to zero rather than going negative", () => {
+    // A typo or a timezone slip on an import. A negative age would land in no
+    // bucket at all and the money would silently leave the page.
+    const future = new Date(NOW.getTime() + 10 * 86_400_000).toISOString();
+    expect(daysHeld(future, NOW)).toBe(0);
+  });
+});
+
+describe("ageBucket", () => {
+  it("puts each boundary in the bucket its label claims", () => {
+    expect(ageBucket(0)).toBe("0-30");
+    expect(ageBucket(30)).toBe("0-30");
+    expect(ageBucket(31)).toBe("31-60");
+    expect(ageBucket(60)).toBe("31-60");
+    expect(ageBucket(61)).toBe("61-90");
+    expect(ageBucket(90)).toBe("61-90");
+    expect(ageBucket(91)).toBe("91-180");
+    expect(ageBucket(180)).toBe("91-180");
+    expect(ageBucket(181)).toBe("180+");
+    expect(ageBucket(5000)).toBe("180+");
+  });
+
+  it("gives a missing date its own bucket instead of calling it new", () => {
+    expect(ageBucket(null)).toBe("unknown");
+  });
+});
+
+describe("buildDeadCapital", () => {
+  const titles = new Map<string, string>();
+
+  it("splits one person's stock across the buckets by age", () => {
+    const dc = buildDeadCapital(
+      [
+        agedItem(10, { id: "a" }),
+        agedItem(45, { id: "b" }),
+        agedItem(200, { id: "c" }),
+      ],
+      titles,
+      NOW,
+    );
+    expect(dc.rows).toHaveLength(1);
+    const row = dc.rows[0]!;
+    expect(row.buckets["0-30"]).toBe(100);
+    expect(row.buckets["31-60"]).toBe(100);
+    expect(row.buckets["180+"]).toBe(100);
+    expect(row.total).toBe(300);
+    expect(row.count).toBe(3);
+  });
+
+  it("counts only past-90-day money as stale", () => {
+    const dc = buildDeadCapital(
+      [
+        agedItem(90, { id: "fresh", acquired_price: "10.00" }),
+        agedItem(91, { id: "stale1", acquired_price: "20.00" }),
+        agedItem(400, { id: "stale2", acquired_price: "30.00" }),
+      ],
+      titles,
+      NOW,
+    );
+    expect(dc.rows[0]!.stale).toBe(50);
+    expect(dc.staleTotal).toBe(50);
+    expect(dc.grandTotal).toBe(60);
+  });
+
+  it("keeps an item with no purchase date visible under Unknown age", () => {
+    const dc = buildDeadCapital(
+      [agedItem(null, { id: "x", acquired_price: "75.00" })],
+      titles,
+      NOW,
+    );
+    expect(dc.rows[0]!.buckets.unknown).toBe(75);
+    expect(dc.rows[0]!.total).toBe(75);
+    // Not counted as brand new, and not counted as stale either.
+    expect(dc.rows[0]!.buckets["0-30"]).toBe(0);
+    expect(dc.rows[0]!.stale).toBe(0);
+  });
+
+  it("counts an item with no price as a held item worth nothing", () => {
+    const dc = buildDeadCapital(
+      [agedItem(200, { id: "free", acquired_price: null })],
+      titles,
+      NOW,
+    );
+    expect(dc.rows[0]!.count).toBe(1);
+    expect(dc.rows[0]!.counts["180+"]).toBe(1);
+    expect(dc.rows[0]!.total).toBe(0);
+    expect(Number.isFinite(dc.grandTotal)).toBe(true);
+  });
+
+  it("merges the same person written two ways", () => {
+    const dc = buildDeadCapital(
+      [
+        agedItem(10, { id: "a", sourced_by: "Dan" }),
+        agedItem(10, { id: "b", sourced_by: "dan" }),
+      ],
+      titles,
+      NOW,
+    );
+    expect(dc.rows).toHaveLength(1);
+    expect(dc.rows[0]!.count).toBe(2);
+  });
+
+  it("names the five oldest, oldest first, with the dateless ones last", () => {
+    const dc = buildDeadCapital(
+      [
+        agedItem(10, { id: "a" }),
+        agedItem(300, { id: "b" }),
+        agedItem(100, { id: "c" }),
+        agedItem(null, { id: "d" }),
+        agedItem(50, { id: "e" }),
+        agedItem(200, { id: "f" }),
+        agedItem(20, { id: "g" }),
+      ],
+      titles,
+      NOW,
+    );
+    const oldest = dc.rows[0]!.oldest;
+    expect(oldest).toHaveLength(5);
+    expect(oldest.map((o) => o.days)).toEqual([300, 200, 100, 50, 20]);
+    // The dateless one did not jump to the front by sorting as a huge age.
+    expect(oldest.some((o) => o.days === null)).toBe(false);
+  });
+
+  it("leads with the person who has the most money stuck past 90 days", () => {
+    const dc = buildDeadCapital(
+      [
+        // Big total, all of it fresh.
+        agedItem(5, { id: "p1", sourced_by: "Fresh", acquired_price: "900.00" }),
+        // Small total, all of it stuck.
+        agedItem(300, { id: "p2", sourced_by: "Stuck", acquired_price: "100.00" }),
+      ],
+      titles,
+      NOW,
+    );
+    expect(dc.rows[0]!.person).toBe("Stuck");
+  });
+
+  it("totals every bucket across people", () => {
+    const dc = buildDeadCapital(
+      [
+        agedItem(10, { id: "a", sourced_by: "Dan", acquired_price: "10.00" }),
+        agedItem(10, { id: "b", sourced_by: "Sam", acquired_price: "5.00" }),
+        agedItem(200, { id: "c", sourced_by: "Sam", acquired_price: "20.00" }),
+      ],
+      titles,
+      NOW,
+    );
+    expect(dc.totals["0-30"]).toBe(15);
+    expect(dc.totals["180+"]).toBe(20);
+    expect(dc.grandTotal).toBe(35);
+  });
+
+  it("uses the title map, falling back to a name rather than a blank cell", () => {
+    const withTitle = new Map([["a", "Carhartt Jacket"]]);
+    const dc = buildDeadCapital(
+      [agedItem(10, { id: "a" }), agedItem(10, { id: "b" })],
+      withTitle,
+      NOW,
+    );
+    const byId = new Map(dc.rows[0]!.oldest.map((o) => [o.id, o.title]));
+    expect(byId.get("a")).toBe("Carhartt Jacket");
+    expect(byId.get("b")).toBe("Untitled item");
+  });
+
+  it("is empty for an empty workspace rather than throwing", () => {
+    const dc = buildDeadCapital([], titles, NOW);
+    expect(dc.rows).toEqual([]);
+    expect(dc.grandTotal).toBe(0);
+    expect(dc.staleTotal).toBe(0);
   });
 });

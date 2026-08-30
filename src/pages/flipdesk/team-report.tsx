@@ -1,6 +1,14 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
+import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Download, Users } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronRight,
+  Download,
+  Hourglass,
+  Users,
+} from "lucide-react";
 import {
   Card,
   CardContent,
@@ -24,9 +32,14 @@ import { cn } from "@/lib/utils";
 import { downloadCsv } from "@/lib/csv-export";
 import { useWorkspace } from "@/hooks/use-workspace";
 import {
+  AGE_BUCKETS,
+  EMPTY_DEAD_CAPITAL,
   EMPTY_SCORECARD,
+  OLDEST_SHOWN,
+  fetchDeadCapital,
   fetchScorecard,
   sortScorecard,
+  type DeadCapital,
   type Scorecard,
   type ScorecardRow,
   type ScorecardSortKey,
@@ -369,6 +382,240 @@ export function TeamReportPage({
   return (
     <div className="space-y-6">
       <TeamScorecardCard periodStart={periodStart} />
+      {/* No periodStart: dead capital is a question about right now. Hiding a
+          two-year-old item because the picker says "last 30 days" would answer
+          the opposite of what was asked. */}
+      <DeadCapitalCard />
     </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════
+// DEAD CAPITAL (US-3020)
+// ══════════════════════════════════════════════════════════
+
+export function DeadCapitalCard() {
+  const { workspaceOwnerId } = useWorkspace();
+  const [openRow, setOpenRow] = useState<string | null>(null);
+
+  const {
+    data = EMPTY_DEAD_CAPITAL,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<DeadCapital>({
+    queryKey: ["team-report", "dead-capital", workspaceOwnerId],
+    enabled: !!workspaceOwnerId,
+    staleTime: 5 * 60 * 1000,
+    queryFn: () => fetchDeadCapital(workspaceOwnerId as string),
+  });
+
+  function exportCsv() {
+    downloadCsv(
+      `flipdesk-dead-capital-${csvDate()}.csv`,
+      [
+        "Person",
+        ...AGE_BUCKETS.map((b) => b.label),
+        "Total",
+        "Items",
+        "Over 90 days",
+      ],
+      [
+        ...data.rows.map((r) => [
+          r.person,
+          ...AGE_BUCKETS.map((b) => r.buckets[b.id].toFixed(2)),
+          r.total.toFixed(2),
+          r.count,
+          r.stale.toFixed(2),
+        ]),
+        [
+          "Everyone",
+          ...AGE_BUCKETS.map((b) => data.totals[b.id].toFixed(2)),
+          data.grandTotal.toFixed(2),
+          data.rows.reduce((n, r) => n + r.count, 0),
+          data.staleTotal.toFixed(2),
+        ],
+      ],
+    );
+  }
+
+  if (error) {
+    return (
+      <ErrorState
+        title="Could not load dead capital"
+        description={error instanceof Error ? error.message : String(error)}
+        onRetry={() => void refetch()}
+      />
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Hourglass className="h-4 w-4" />
+              Dead capital by person
+            </CardTitle>
+            <CardDescription>
+              Money sitting in things that have not sold. This one ignores the
+              date range above, because what is stuck is stuck.
+            </CardDescription>
+          </div>
+          {data.rows.length > 0 && (
+            <Button variant="outline" size="sm" onClick={exportCsv}>
+              <Download className="mr-2 h-4 w-4" />
+              CSV
+            </Button>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <TableLoadingSkeleton rows={4} columns={7} />
+        ) : data.rows.length === 0 ? (
+          <EmptyState
+            icon={Hourglass}
+            title="Nothing is sitting"
+            description="Every item you have bought has sold, or none of them carry a Sourced by name yet."
+          />
+        ) : (
+          <>
+            {/* The one number a manager acts on, said once and said plainly. */}
+            <p className="text-sm">
+              <span className="text-2xl font-semibold tabular-nums">
+                {usd(data.staleTotal)}
+              </span>{" "}
+              <span className="text-muted-foreground">
+                is tied up in items bought more than 90 days ago, out of{" "}
+                {usd(data.grandTotal)} unsold in total.
+              </span>
+            </p>
+
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Person</TableHead>
+                    {AGE_BUCKETS.map((b) => (
+                      <TableHead key={b.id} className="text-right">
+                        {b.label}
+                      </TableHead>
+                    ))}
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Over 90 days</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.rows.map((r) => {
+                    const open = openRow === r.key;
+                    return (
+                      // Fragment, not the shorthand, so the key sits on the
+                      // outermost returned element. On the shorthand it cannot,
+                      // and React re-keys the whole body on every expand.
+                      <Fragment key={r.key}>
+                        <TableRow
+                          className="cursor-pointer hover:bg-muted/30"
+                          onClick={() => setOpenRow(open ? null : r.key)}
+                        >
+                          <TableCell className="font-medium">
+                            <span className="flex items-center gap-1.5">
+                              <ChevronRight
+                                className={cn(
+                                  "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+                                  open && "rotate-90",
+                                )}
+                              />
+                              {r.person}
+                              <span className="text-xs font-normal text-muted-foreground">
+                                {r.count} item{r.count === 1 ? "" : "s"}
+                              </span>
+                            </span>
+                          </TableCell>
+                          {AGE_BUCKETS.map((b) => (
+                            <TableCell
+                              key={b.id}
+                              className="text-right tabular-nums"
+                            >
+                              {r.counts[b.id] === 0 ? "—" : usd(r.buckets[b.id])}
+                            </TableCell>
+                          ))}
+                          <TableCell className="text-right font-medium tabular-nums">
+                            {usd(r.total)}
+                          </TableCell>
+                          <TableCell
+                            className={cn(
+                              "text-right tabular-nums",
+                              r.stale > 0 && "text-destructive",
+                            )}
+                          >
+                            {usd(r.stale)}
+                          </TableCell>
+                        </TableRow>
+
+                        {open && (
+                          <TableRow className="bg-muted/20 hover:bg-muted/20">
+                            <TableCell colSpan={AGE_BUCKETS.length + 3}>
+                              <p className="mb-2 text-xs text-muted-foreground">
+                                The {Math.min(OLDEST_SHOWN, r.oldest.length)}{" "}
+                                oldest of {r.person}&rsquo;s unsold items
+                              </p>
+                              <ul className="space-y-1 text-sm">
+                                {r.oldest.map((o) => (
+                                  <li
+                                    key={o.id}
+                                    className="flex flex-wrap items-baseline gap-x-3"
+                                  >
+                                    <Link
+                                      to={`/dashboard/flipdesk/items/${o.id}`}
+                                      className="font-medium hover:underline"
+                                    >
+                                      {o.title}
+                                    </Link>
+                                    <span className="tabular-nums text-muted-foreground">
+                                      {usd(o.acquiredPrice)}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">
+                                      {o.acquiredDate
+                                        ? `bought ${o.acquiredDate.slice(0, 10)}`
+                                        : "no purchase date"}
+                                    </span>
+                                    <span className="text-xs tabular-nums text-muted-foreground">
+                                      {o.days === null
+                                        ? "age unknown"
+                                        : `${o.days} days held`}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+
+                  <TableRow className="border-t-2 font-medium">
+                    <TableCell>Everyone</TableCell>
+                    {AGE_BUCKETS.map((b) => (
+                      <TableCell key={b.id} className="text-right tabular-nums">
+                        {usd(data.totals[b.id])}
+                      </TableCell>
+                    ))}
+                    <TableCell className="text-right tabular-nums">
+                      {usd(data.grandTotal)}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {usd(data.staleTotal)}
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
