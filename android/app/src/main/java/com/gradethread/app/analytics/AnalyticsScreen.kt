@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,15 +61,80 @@ fun AnalyticsScreen(
     val narrative by viewModel.narrative.collectAsState()
     var customOpen by remember { mutableStateOf(false) }
 
+    AnalyticsContent(
+        AnalyticsUiState(state, narrative),
+        AnalyticsActions(
+            setRange = viewModel::setRange,
+            setCustomOpen = { customOpen = it },
+            setCustomRange = {
+                customOpen = false
+                viewModel.setCustomRange(it)
+            },
+            generateNarrative = viewModel::generateNarrative,
+            openListingPerformance = onOpenListingPerformance,
+            openCommunity = onOpenCommunity,
+            close = onClose,
+        ),
+        customOpen = customOpen,
+    )
+}
+
+/**
+ * The two flows this screen reads, in one place (US-2902 AC3).
+ *
+ * The narrative is a SEPARATE flow because it is generated on demand and fails
+ * on its own: the charts stay correct when the write-up cannot be produced, and
+ * merging the two would let one failure blank the other.
+ */
+@Immutable
+data class AnalyticsUiState(
+    val state: AnalyticsViewModel.State = AnalyticsViewModel.State(),
+    val narrative: AnalyticsViewModel.NarrativeState = AnalyticsViewModel.NarrativeState(),
+)
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class AnalyticsActions(
+    val setRange: (AnalyticsRange) -> Unit = {},
+    val setCustomOpen: (Boolean) -> Unit = {},
+    val setCustomRange: (Int) -> Unit = {},
+    val generateNarrative: () -> Unit = {},
+    val openListingPerformance: () -> Unit = {},
+    val openCommunity: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * Analytics with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ EVERY NUMBER HERE IS SCOPED TO THE RANGE PICKER, and the picker is one row
+ * at the top that scrolls nowhere. A seller reading "$4,120 profit" without
+ * seeing which window it covers will read it as all-time. The range chip and
+ * the figures are captured together for that reason.
+ *
+ * ⚠ AND AN EMPTY ACCOUNT IS NOT A BROKEN ONE. The hasAnything flag gates a card
+ * explaining there is nothing to measure yet, which is the ordinary state for
+ * anyone in their first week.
+ */
+@Composable
+fun AnalyticsContent(
+    ui: AnalyticsUiState,
+    actions: AnalyticsActions,
+    modifier: Modifier = Modifier,
+    customOpen: Boolean = false,
+) {
+    val state = ui.state
+    val narrative = ui.narrative
+
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.analytics_analytics), style = MaterialTheme.typography.titleLarge)
         RangePicker(
             selected = state.range,
-            onPick = viewModel::setRange,
-            onCustom = { customOpen = true },
+            onPick = actions.setRange,
+            onCustom = { actions.setCustomOpen(true) },
         )
 
         LazyColumn(
@@ -85,7 +151,7 @@ fun AnalyticsScreen(
             }
 
             item { PeriodCard(state) }
-            item { NarrativeCard(narrative, onGenerate = viewModel::generateNarrative) }
+            item { NarrativeCard(narrative, onGenerate = actions.generateNarrative) }
 
             if (state.gradeDistribution.isNotEmpty()) {
                 item {
@@ -217,28 +283,25 @@ fun AnalyticsScreen(
                 BrandSecondaryButton(
                     text = stringResource(R.string.analytics_listing_performance),
                     modifier = Modifier.fillMaxWidth(),
-                ) { onOpenListingPerformance() }
+                ) { actions.openListingPerformance() }
             }
             item {
                 BrandSecondaryButton(
                     text = stringResource(R.string.analytics_community_benchmarks),
                     modifier = Modifier.fillMaxWidth(),
-                ) { onOpenCommunity() }
+                ) { actions.openCommunity() }
             }
         }
 
         BrandSecondaryButton(text = stringResource(R.string.analytics_back), modifier = Modifier.fillMaxWidth()) {
-            onClose()
+            actions.close()
         }
     }
 
     if (customOpen) {
         CustomRangeDialog(
-            onDismiss = { customOpen = false },
-            onConfirm = { days ->
-                customOpen = false
-                viewModel.setCustomRange(days)
-            },
+            onDismiss = { actions.setCustomOpen(false) },
+            onConfirm = actions.setCustomRange,
         )
     }
 }
