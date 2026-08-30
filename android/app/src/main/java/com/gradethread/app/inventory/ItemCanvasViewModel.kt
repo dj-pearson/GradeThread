@@ -128,6 +128,21 @@ class ItemCanvasViewModel @Inject constructor(
 
         val isDirty: Boolean get() = ItemPatch.isDirty(original, draft)
 
+        /**
+         * US-2921: labelled size versus what was actually measured.
+         *
+         * A property on the state rather than a ViewModel call, because the
+         * screen renders it and the screen has no ViewModel. Every input is
+         * already here; [ItemCanvasViewModel.sizeVerdict] just reads it.
+         */
+        val sizeVerdict: SizeCheck.Verdict
+            get() = SizeCheck.check(
+                rows = sizeBands.rows,
+                rowIndex = SizeCheck.resolveRow(sizeBands.rows, draft.size),
+                measurements = draft.measurements,
+                tier = sizeBands.tier,
+            )
+
         /** A blank title can't be saved: the column is NOT NULL. */
         val canSave: Boolean get() = isDirty && !saving && draft.title.isNotBlank()
     }
@@ -290,16 +305,7 @@ class ItemCanvasViewModel @Inject constructor(
     }
 
     /** Does the size on the label agree with what this item measures? */
-    fun sizeVerdict(): SizeCheck.Verdict {
-        val state = _state.value
-        val rows = state.sizeBands.rows
-        return SizeCheck.check(
-            rows = rows,
-            rowIndex = SizeCheck.resolveRow(rows, state.draft.size),
-            measurements = state.draft.measurements,
-            tier = state.sizeBands.tier,
-        )
-    }
+    fun sizeVerdict(): SizeCheck.Verdict = _state.value.sizeVerdict
 
     /** US-2921: the one-click fix behind the size-versus-measurements note. */
     fun applyCheckedSize(size: String) {
