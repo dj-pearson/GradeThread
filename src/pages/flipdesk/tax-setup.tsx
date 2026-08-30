@@ -45,6 +45,7 @@ import { MileageLogCard } from "@/components/finances/mileage-log-card";
 import { HomeOfficeCard } from "@/components/finances/home-office-card";
 import { EstimatedTaxCard } from "@/components/finances/estimated-tax-card";
 import { PeriodCloseCard } from "@/components/finances/period-close-card";
+import { TaxPacketCard } from "@/components/finances/tax-packet-card";
 
 // US-2982 — the tax setup screen.
 //
@@ -362,6 +363,11 @@ export function TaxSetupPage() {
       {/* US-2995. Last of the tax cards, because closing is what a seller does
           AFTER everything above is settled. Higher up it would invite closing a
           year that still has a review queue. */}
+      {/* US-2996. The packet goes ABOVE the close, because building it is what
+          shows a seller whether the year is ready to close -- the caveats on
+          its cover page are the same list they would want cleared first. */}
+      <TaxPacketCard />
+
       <PeriodCloseCard />
 
       <div className="flex items-center gap-3">

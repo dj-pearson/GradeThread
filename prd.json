@@ -2741,21 +2741,6 @@
       "priority": 30
     },
     {
-      "id": "US-2996",
-      "passes": false,
-      "title": "The year-end tax packet: one download an accountant can work from without asking a question",
-      "description": "This is the payoff for the whole epic. A reseller's actual March task is assembling a pile of numbers from four places and emailing it to someone who bills by the hour for every follow-up question. One export, complete and self-explaining, is worth more than every chart on the finances page.",
-      "acceptanceCriteria": [
-        "A single download for a tax year containing: a Schedule C worksheet with the line numbers, the COGS worksheet, the 1099-K reconciliation, the mileage log, the home office computation, expense detail by account, and the inventory snapshot.",
-        "Both formats, because accountants differ: a PDF to read and a CSV or workbook to import.",
-        "Receipts included or linked, with the link surviving longer than the 900-second signed URL. A packet whose evidence links are dead by the time it is opened is not a packet.",
-        "A cover page stating the accounting method, the fiscal year, what is included, what is NOT included, and the not-tax-advice framing.",
-        "Any figure the books flagged as unreliable appears in the packet as flagged, not silently averaged in. The accountant needs to know which numbers to ask about.",
-        "Generating the packet for a year with obvious gaps warns first and still produces the packet, because a partial packet delivered is worth more than a perfect one blocked."
-      ],
-      "priority": 45
-    },
-    {
       "id": "US-2997",
       "passes": false,
       "title": "Connect QuickBooks Online: OAuth, account mapping, and a connection that survives a token expiry",

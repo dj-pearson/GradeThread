@@ -18,6 +18,8 @@ code_refs:
   - supabase/migrations/00688_inventory_snapshots.sql
   - src/lib/cogs.ts
   - scripts/check-cogs-worksheet.mjs
+  - src/lib/tax-packet.ts
+  - src/components/finances/tax-packet-card.tsx
   - supabase/migrations/00691_facilitator_sales_tax.sql
   - scripts/check-facilitator-tax.mjs
   - supabase/migrations/00693_form_1099k.sql
@@ -45,7 +47,7 @@ code_refs:
   - supabase/migrations/00690_inventory_writeoffs.sql
   - scripts/check-inventory-writeoffs.mjs
   - supabase/migrations/00692_keeping_leaves_inventory.sql
-reviewed: 2026-08-29
+reviewed: 2026-08-30
 tags: [finance, tax, flipdesk, money]
 summary: The rules the Books and Taxes epic (US-2981) obeys - what each stored figure means, which form line it feeds, and the four things the app deliberately refuses to do.
 ---
@@ -1060,6 +1062,81 @@ be skipped by any caller.
 > `new row violates row-level security policy`. They are SECURITY DEFINER with
 > in-body auth checks now -- the same shape as 00686, and with no REVOKE.
 
+## The year-end packet
+
+US-2996. One download, and the seller stops assembling a pile of numbers from
+four screens in March. `src/lib/tax-packet.ts` is the whole thing and it is
+pure: `packetWarnings()`, `scheduleCRows()`, `buildPacketCsv()` and
+`PACKET_EXCLUSIONS`. The card (`src/components/finances/tax-packet-card.tsx`)
+fetches, the library formats, and 22 tests cover the formatting without a
+database.
+
+**It re-derives nothing.** Every figure comes from the statement, the COGS
+worksheet, the bridge, the mileage summary and the home office computation as
+they already exist. `scheduleCRows()` reads `statement.netProfitCents` rather
+than adding the rows back up. A packet that recomputed anything would be a
+fifth place a number could disagree with itself, which is exactly what US-2984
+existed to stop.
+
+**Zero detail lines are dropped; zero SUBTOTALS are not.** An expense account
+with no activity is noise. "Line 2, returns and allowances, 0.00" is not: leave
+it out and line 3 appears to come from nowhere, and the accountant has to work
+out whether a line was omitted or a number was lost.
+
+**Costs print positive under a subtracted heading.** The form asks for `2,340`
+on line 10, not `-2,340`. Income keeps its sign; every expense row is
+`Math.abs()`. This is a presentation rule, not a maths one, and it lives in
+`scheduleCRows()` so nothing downstream has to know it.
+
+### AC3 asked for something that cannot exist
+
+> "Receipts included or linked, with the link surviving longer than the
+> 900-second signed URL."
+
+It cannot. `submission-images` and the receipts bucket are PRIVATE under US-276,
+signed URLs are capped at 900 seconds, and a test fails closed on anything
+longer. Raising the cap to serve a tax packet would trade a real security
+property for a convenience.
+
+So **the packet contains the receipt files, not links to them.** Each receipt
+gets a fresh signed URL, is fetched immediately, and the bytes go into the zip
+under `receipts/{date}_{description}_{amount}.{ext}`. The URL never leaves the
+function. A file in a folder outlives any URL, which is what the requirement
+was actually asking for.
+
+One unreadable receipt does not lose the packet -- the loop swallows the error
+and the cover states how many were expected, so a shortfall is visible rather
+than silent.
+
+### The PDF is a print, not a generator
+
+AC2 wants "a PDF to read". There is no PDF library in this bundle and adding
+one to lay out a table would cost a few hundred KB for something the browser
+already does. The packet writes a print-styled HTML page (`buildPacketHtml`,
+inline CSS, `@media print`) into the zip AND offers a button that opens it and
+calls `window.print()`. Every browser writes that to PDF. This is the repo's
+existing answer -- `cert-share-actions.tsx` prints the certificate the same way.
+
+### Warn, then produce it anyway
+
+AC6, and it is the rule that makes the feature usable. A packet built on a year
+with gaps still ships; the caveats go on the **cover**, ahead of the numbers,
+because an accountant who reads the figures first has already believed them.
+`packetWarnings()` returns every warning at once rather than the first, and the
+caveat block is omitted entirely when there is nothing to say -- a "no issues"
+banner on a clean year trains people to skip the block on a bad one.
+
+A missing 1099-K is deliberately **not** a warning. It is not a discrepancy, and
+warning about it would teach the seller to ignore the warnings that matter.
+
+### What it says it does not contain
+
+`PACKET_EXCLUSIONS` is on the card, in the CSV and in the HTML. State tax,
+self-employment tax, depreciation and Form 4562, Form 8829 (only the simplified
+home office is computed), and the honest one: **anything never recorded in
+GradeThread is not here.** An accountant who assumes state tax is in the packet
+finds out late; naming the gap is worth more than another number.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -1079,9 +1156,10 @@ its contract into this note. Currently landed:
 - **US-2993** - receipt extraction, its confidence rules and its staging boundary, above.
 - **US-2994** - the bank CSV import and its two idempotency rules, above.
 - **US-2995** - period close, and why the lock is a trigger, above.
+- **US-2996** - the year-end packet, its receipts-not-links answer and its exclusions, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
-Still open, and each will add a section here rather than a new note: COGS and
-the ending-inventory snapshot (US-2986), facilitator sales tax (US-2987), 
-period close (US-2995) and the QuickBooks account
-mapping (US-2997, US-2998).
+Still open, and each will add a section here rather than a new note: the
+QuickBooks connection and push (US-2997, US-2998), the rebuilt Money navigation
+(US-2999), mileage and receipts on mobile (US-3000), and matching a receipt's
+line items back to inventory (US-3012).
