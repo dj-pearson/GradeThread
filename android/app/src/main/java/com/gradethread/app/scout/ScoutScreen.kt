@@ -3,6 +3,7 @@ package com.gradethread.app.scout
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,6 +19,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
@@ -47,8 +49,61 @@ fun ScoutScreen(
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
 
+    ScoutContent(
+        state,
+        ScoutActions(
+            setKeyword = viewModel::setKeyword,
+            setBrand = viewModel::setBrand,
+            setSort = viewModel::setSort,
+            toggleActionableOnly = viewModel::toggleActionableOnly,
+            scan = viewModel::scan,
+            // The Context stays in the wrapper. A custom tab needs a real one,
+            // and a screenshot test has no browser to hand it to.
+            openCandidate = { url -> CustomTabsLauncher.open(context, url) },
+            openProspect = onOpenProspect,
+            close = onClose,
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class ScoutActions(
+    val setKeyword: (String) -> Unit = {},
+    val setBrand: (String) -> Unit = {},
+    val setSort: (ScoutSort) -> Unit = {},
+    val toggleActionableOnly: () -> Unit = {},
+    val scan: () -> Unit = {},
+    val openCandidate: (String) -> Unit = {},
+    val openProspect: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * Scout with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE TRIP LOGGER COMES IN AS A SLOT, and it is the reason this screen could
+ * not be captured before. TripQuickLogButton resolves its own ViewModel through
+ * Hilt, and RoborazziActivity is not a Hilt component, so any capture reaching
+ * it dies on "does not implement GeneratedComponentManager" - the same trap
+ * ReceiptScanButton set in MoneyContent, and this one sits ABOVE the fold, so
+ * it would have taken every Scout golden rather than two of them.
+ *
+ * ⚠ AND `planWall` IS NOT AN ERROR, whatever it looks like. A plan wall means
+ * the shell is already showing an upgrade dialog, so this screen hides its
+ * retry: offering "try again" for a limit that will not move is a button that
+ * cannot work. A failure that IS retryable and one that is not render as two
+ * different screens, and only a capture can tell them apart.
+ */
+@Composable
+fun ScoutContent(
+    state: ScoutViewModel.State,
+    actions: ScoutActions,
+    modifier: Modifier = Modifier,
+    tripQuickLog: @Composable () -> Unit = { TripQuickLogButton() },
+) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.scout_scout), style = MaterialTheme.typography.titleLarge)
@@ -62,11 +117,14 @@ fun ScoutScreen(
         // and this is where the drive they just made is still in mind. Tap the
         // button, tap Save. Anything further away does not get logged, and an
         // unlogged trip is worth nothing in April.
-        TripQuickLogButton(modifier = Modifier.align(Alignment.Start))
+        // Wrapped rather than aligned inside the slot: Modifier.align needs a
+        // ColumnScope, and a slot that only composes inside one is a slot a
+        // screenshot test cannot fill.
+        Box(Modifier.align(Alignment.Start)) { tripQuickLog() }
 
         OutlinedTextField(
             value = state.keyword,
-            onValueChange = viewModel::setKeyword,
+            onValueChange = actions.setKeyword,
             label = { Text(stringResource(R.string.scout_keyword)) },
             singleLine = true,
             enabled = !state.scanning,
@@ -74,7 +132,7 @@ fun ScoutScreen(
         )
         OutlinedTextField(
             value = state.brand,
-            onValueChange = viewModel::setBrand,
+            onValueChange = actions.setBrand,
             label = { Text(stringResource(R.string.scout_brand_optional)) },
             singleLine = true,
             enabled = !state.scanning,
@@ -110,13 +168,13 @@ fun ScoutScreen(
             ScoutSort.entries.forEach { option ->
                 FilterChip(
                     selected = option == state.sort,
-                    onClick = { viewModel.setSort(option) },
+                    onClick = { actions.setSort(option) },
                     label = { Text(option.label) },
                 )
             }
             FilterChip(
                 selected = state.actionableOnly,
-                onClick = viewModel::toggleActionableOnly,
+                onClick = actions.toggleActionableOnly,
                 label = { Text(stringResource(R.string.scout_worth_buying)) },
             )
         }
@@ -129,7 +187,7 @@ fun ScoutScreen(
         ) {
             items(state.candidates, key = { it.itemId }) { candidate ->
                 CandidateCard(candidate) {
-                    candidate.itemWebUrl?.let { CustomTabsLauncher.open(context, it) }
+                    candidate.itemWebUrl?.let(actions.openCandidate)
                 }
             }
             state.response?.disclaimer?.let { disclaimer ->
@@ -151,12 +209,12 @@ fun ScoutScreen(
             ),
             enabled = state.canScan && state.planWall == null,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.scan() }
+        ) { actions.scan() }
         BrandSecondaryButton(text = stringResource(R.string.scout_prospect_store), modifier = Modifier.fillMaxWidth()) {
-            onOpenProspect()
+            actions.openProspect()
         }
         BrandSecondaryButton(text = stringResource(R.string.scout_back), modifier = Modifier.fillMaxWidth()) {
-            onClose()
+            actions.close()
         }
     }
 }
