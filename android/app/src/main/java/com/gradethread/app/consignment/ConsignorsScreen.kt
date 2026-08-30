@@ -20,6 +20,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
@@ -48,8 +49,61 @@ fun ConsignorsScreen(
     val state by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { viewModel.load() }
 
+    ConsignorsContent(
+        state,
+        ConsignorsActions(
+            startCreate = viewModel::startCreate,
+            startEdit = viewModel::startEdit,
+            confirmDelete = viewModel::confirmDelete,
+            cancelDelete = viewModel::cancelDelete,
+            delete = viewModel::delete,
+            editDraft = viewModel::editDraft,
+            save = viewModel::save,
+            cancelEdit = viewModel::cancelEdit,
+            openReport = onOpenReport,
+            close = onClose,
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class ConsignorsActions(
+    val startCreate: () -> Unit = {},
+    val startEdit: (Consignor) -> Unit = {},
+    val confirmDelete: (Consignor) -> Unit = {},
+    val cancelDelete: () -> Unit = {},
+    val delete: () -> Unit = {},
+    /**
+     * Edit the draft in place. A transform rather than one setter per field:
+     * the sheet has five inputs and a callback each would be longer than the
+     * form it describes.
+     */
+    val editDraft: ((ConsignorDraft) -> ConsignorDraft) -> Unit = {},
+    val save: () -> Unit = {},
+    val cancelEdit: () -> Unit = {},
+    val openReport: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * Consignors with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE SPLIT IS SOMEBODY ELSE'S MONEY. Every row carries the percentage that
+ * decides what a consignor is owed on each sale, so a card that renders the
+ * wrong number, or renders it where the name should be, is a payout dispute
+ * rather than a cosmetic bug.
+ *
+ * ⚠ AND THE DELETE DIALOG SAYS WHAT DOES NOT HAPPEN. Sellers hesitate because
+ * removing a consignor looks like it might take their sales history with it.
+ * That sentence exists only in the dialog, so only a capture can check it is
+ * still there.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ConsignorsContent(state: ConsignorsViewModel.State, actions: ConsignorsActions, modifier: Modifier = Modifier) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.consignors_consignors), style = MaterialTheme.typography.titleLarge)
@@ -59,7 +113,9 @@ fun ConsignorsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        state.errorMessage?.let { InfoCard(stringResource(R.string.consignors_that_didn_t_work), it, tone = InfoTone.Error) }
+        state.errorMessage?.let {
+            InfoCard(stringResource(R.string.consignors_that_didn_t_work), it, tone = InfoTone.Error)
+        }
 
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f),
@@ -76,8 +132,8 @@ fun ConsignorsScreen(
             items(state.consignors, key = { it.id }) { consignor ->
                 ConsignorCard(
                     consignor = consignor,
-                    onEdit = { viewModel.startEdit(consignor) },
-                    onDelete = { viewModel.confirmDelete(consignor) },
+                    onEdit = { actions.startEdit(consignor) },
+                    onDelete = { actions.confirmDelete(consignor) },
                 )
             }
         }
@@ -86,26 +142,32 @@ fun ConsignorsScreen(
             text = stringResource(R.string.consignors_add_consignor),
             enabled = !state.saving,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.startCreate() }
-        BrandSecondaryButton(text = stringResource(R.string.consignors_payout_report), modifier = Modifier.fillMaxWidth()) {
-            onOpenReport()
-        }
-        BrandSecondaryButton(text = stringResource(R.string.consignors_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+        ) { actions.startCreate() }
+        BrandSecondaryButton(
+            text = stringResource(R.string.consignors_payout_report),
+            modifier = Modifier.fillMaxWidth(),
+            onClick = actions.openReport,
+        )
+        BrandSecondaryButton(
+            text = stringResource(R.string.consignors_back),
+            modifier = Modifier.fillMaxWidth(),
+            onClick = actions.close,
+        )
     }
 
     if (state.sheetOpen) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
-            onDismissRequest = viewModel::cancelEdit,
+            onDismissRequest = actions.cancelEdit,
             sheetState = sheetState,
         ) {
-            EditSheet(state, viewModel)
+            EditSheet(state, actions)
         }
     }
 
     state.deleting?.let { target ->
         AlertDialog(
-            onDismissRequest = viewModel::cancelDelete,
+            onDismissRequest = actions.cancelDelete,
             title = { Text(stringResource(R.string.consignors_remove_title, target.name)) },
             text = {
                 Text(
@@ -116,21 +178,17 @@ fun ConsignorsScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = viewModel::delete) { Text(stringResource(R.string.consignors_remove)) }
+                TextButton(onClick = actions.delete) { Text(stringResource(R.string.consignors_remove)) }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::cancelDelete) { Text(stringResource(R.string.consignors_keep)) }
+                TextButton(onClick = actions.cancelDelete) { Text(stringResource(R.string.consignors_keep)) }
             },
         )
     }
 }
 
 @Composable
-private fun ConsignorCard(
-    consignor: Consignor,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-) {
+private fun ConsignorCard(consignor: Consignor, onEdit: () -> Unit, onDelete: () -> Unit) {
     Column(
         Modifier.fillMaxWidth().clickable { onEdit() }.cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
@@ -174,7 +232,7 @@ private fun ConsignorCard(
 }
 
 @Composable
-private fun EditSheet(state: ConsignorsViewModel.State, viewModel: ConsignorsViewModel) {
+private fun EditSheet(state: ConsignorsViewModel.State, actions: ConsignorsActions) {
     val draft = state.editing ?: return
     Column(
         Modifier.fillMaxWidth().padding(Spacing.md),
@@ -192,14 +250,14 @@ private fun EditSheet(state: ConsignorsViewModel.State, viewModel: ConsignorsVie
         )
         OutlinedTextField(
             value = draft.name,
-            onValueChange = { v -> viewModel.editDraft { it.copy(name = v) } },
+            onValueChange = { v -> actions.editDraft { it.copy(name = v) } },
             label = { Text(stringResource(R.string.consignors_name)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = draft.splitText,
-            onValueChange = { v -> viewModel.editDraft { it.copy(splitText = v) } },
+            onValueChange = { v -> actions.editDraft { it.copy(splitText = v) } },
             label = { Text(stringResource(R.string.consignors_default_split)) },
             singleLine = true,
             isError = draft.splitText.isNotBlank() && !draft.splitInRange,
@@ -208,7 +266,7 @@ private fun EditSheet(state: ConsignorsViewModel.State, viewModel: ConsignorsVie
         )
         OutlinedTextField(
             value = draft.contactEmail,
-            onValueChange = { v -> viewModel.editDraft { it.copy(contactEmail = v) } },
+            onValueChange = { v -> actions.editDraft { it.copy(contactEmail = v) } },
             label = { Text(stringResource(R.string.consignors_email_optional)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
@@ -216,7 +274,7 @@ private fun EditSheet(state: ConsignorsViewModel.State, viewModel: ConsignorsVie
         )
         OutlinedTextField(
             value = draft.contactPhone,
-            onValueChange = { v -> viewModel.editDraft { it.copy(contactPhone = v) } },
+            onValueChange = { v -> actions.editDraft { it.copy(contactPhone = v) } },
             label = { Text(stringResource(R.string.consignors_phone_optional)) },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
@@ -224,7 +282,7 @@ private fun EditSheet(state: ConsignorsViewModel.State, viewModel: ConsignorsVie
         )
         OutlinedTextField(
             value = draft.notes,
-            onValueChange = { v -> viewModel.editDraft { it.copy(notes = v) } },
+            onValueChange = { v -> actions.editDraft { it.copy(notes = v) } },
             label = { Text(stringResource(R.string.consignors_notes_optional)) },
             minLines = 2,
             modifier = Modifier.fillMaxWidth(),
@@ -251,9 +309,9 @@ private fun EditSheet(state: ConsignorsViewModel.State, viewModel: ConsignorsVie
             ),
             enabled = state.canSave,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.save() }
+        ) { actions.save() }
         BrandSecondaryButton(text = stringResource(R.string.consignors_cancel), modifier = Modifier.fillMaxWidth()) {
-            viewModel.cancelEdit()
+            actions.cancelEdit()
         }
     }
 }
