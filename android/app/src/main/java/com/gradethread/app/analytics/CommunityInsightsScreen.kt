@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.pluralStringResource
@@ -45,8 +46,46 @@ fun CommunityInsightsScreen(
     val state by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { viewModel.refresh() }
 
+    CommunityInsightsContent(
+        state,
+        CommunityInsightsActions(
+            refresh = viewModel::refresh,
+            // openBrand needs the navigation callback the wrapper was given, so
+            // the binding stays here rather than in the body.
+            openBrand = { brand -> viewModel.openBrand(brand, onOpenInventory) },
+            close = onClose,
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class CommunityInsightsActions(
+    val refresh: () -> Unit = {},
+    val openBrand: (String) -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * Community benchmarks with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ "NOTHING WORTH ACTING ON" AND "NOT ENOUGH DATA" ARE DIFFERENT SENTENCES,
+ * and the ViewModel says so in as many words. Rows exist but none clear the
+ * action thresholds is a finished answer; not enough community data is a reason
+ * to come back later. Showing the second when the first is true tells a seller
+ * to wait for something that has already arrived.
+ *
+ * ⚠ AND A LOCKED SCREEN IS NOT A FAILED ONE. Locked is a plan boundary carrying
+ * the server own sentence; Failed is a fault with a retry. Both render a card.
+ */
+@Composable
+fun CommunityInsightsContent(
+    state: CommunityInsightsViewModel.State,
+    actions: CommunityInsightsActions,
+    modifier: Modifier = Modifier,
+) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.community_community_insights), style = MaterialTheme.typography.titleLarge)
@@ -75,7 +114,7 @@ fun CommunityInsightsScreen(
             is CommunityInsightsViewModel.Phase.Ready -> Ready(
                 state = state,
                 data = phase.data,
-                onOpenBrand = { brand -> viewModel.openBrand(brand, onOpenInventory) },
+                onOpenBrand = actions.openBrand,
             )
         }
 
@@ -83,12 +122,16 @@ fun CommunityInsightsScreen(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
-            BrandSecondaryButton(text = stringResource(R.string.community_refresh), modifier = Modifier.weight(1f)) {
-                viewModel.refresh()
-            }
-            BrandSecondaryButton(text = stringResource(R.string.community_back), modifier = Modifier.weight(1f)) {
-                onClose()
-            }
+            BrandSecondaryButton(
+                text = stringResource(R.string.community_refresh),
+                modifier = Modifier.weight(1f),
+                onClick = actions.refresh,
+            )
+            BrandSecondaryButton(
+                text = stringResource(R.string.community_back),
+                modifier = Modifier.weight(1f),
+                onClick = actions.close,
+            )
         }
     }
 }
