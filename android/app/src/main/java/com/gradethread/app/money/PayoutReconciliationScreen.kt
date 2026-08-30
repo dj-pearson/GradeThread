@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,8 +53,65 @@ fun PayoutReconciliationScreen(
         androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let(viewModel::importCsv) }
 
+    PayoutReconciliationContent(
+        state,
+        PayoutReconciliationActions(
+            openItem = onOpenItem,
+            // The picker stays in the wrapper. It needs an Activity result
+            // registry, which a preview and a screenshot test do not have, so
+            // the body only ever sees "the seller asked to import".
+            pickCsv = { picker.launch(arrayOf("*/*")) },
+            loadQueue = viewModel::loadQueue,
+            runMatcher = viewModel::runMatcher,
+            matchPayout = viewModel::matchPayout,
+            dismissPayout = viewModel::dismissPayout,
+            dismissSweep = viewModel::dismissSweep,
+            dismissImportResult = viewModel::dismissImportResult,
+            syncAndRefresh = viewModel::syncAndRefresh,
+            close = onClose,
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class PayoutReconciliationActions(
+    val openItem: (String) -> Unit = {},
+    val pickCsv: () -> Unit = {},
+    val loadQueue: () -> Unit = {},
+    val runMatcher: () -> Unit = {},
+    val matchPayout: (String, String) -> Unit = { _, _ -> },
+    val dismissPayout: (String) -> Unit = {},
+    val dismissSweep: () -> Unit = {},
+    val dismissImportResult: () -> Unit = {},
+    val syncAndRefresh: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * The reconciliation screen with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE FOUR BUCKETS ARE FOUR DIFFERENT ANSWERS ABOUT A SELLER'S MONEY, and
+ * three of them are not a problem:
+ *
+ *   mismatches     eBay paid a different amount than the books expected
+ *   awaitingPayout sold, not paid yet - eBay holds it, nothing is wrong
+ *   unknownPayout  paid, but the deposit has not synced to THIS device
+ *   matched        agreed
+ *
+ * A bucket that renders under the wrong heading turns "eBay has not paid out
+ * yet" into "money is missing", which is a support ticket and a bad afternoon.
+ * The headings are part of the layout, so only a capture can see them.
+ */
+@Composable
+fun PayoutReconciliationContent(
+    state: PayoutReconciliationViewModel.State,
+    actions: PayoutReconciliationActions,
+    modifier: Modifier = Modifier,
+) {
+    val onOpenItem = actions.openItem
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.payouts_title), style = MaterialTheme.typography.titleLarge)
@@ -156,7 +214,7 @@ fun PayoutReconciliationScreen(
                 text = stringResource(R.string.payouts_matcher_load),
                 enabled = !state.queueBusy,
                 modifier = Modifier.fillMaxWidth(),
-            ) { viewModel.loadQueue() }
+            ) { actions.loadQueue() }
         } else {
             Text(
                 if (queue.hasMore) {
@@ -172,9 +230,9 @@ fun PayoutReconciliationScreen(
                 text = stringResource(R.string.payouts_matcher_run),
                 enabled = !state.queueBusy,
                 modifier = Modifier.fillMaxWidth(),
-            ) { viewModel.runMatcher() }
+            ) { actions.runMatcher() }
             for (entry in queue.queue) {
-                QueuedPayoutCard(entry, state.queueBusy, viewModel)
+                QueuedPayoutCard(entry, state.queueBusy, actions.matchPayout, actions.dismissPayout)
             }
         }
 
@@ -189,7 +247,7 @@ fun PayoutReconciliationScreen(
                     ),
                     style = MaterialTheme.typography.bodySmall,
                 )
-                TextButton(onClick = viewModel::dismissSweep) {
+                TextButton(onClick = actions.dismissSweep) {
                     Text(stringResource(R.string.common_dismiss))
                 }
             }
@@ -205,7 +263,7 @@ fun PayoutReconciliationScreen(
             },
             enabled = !state.importing,
             modifier = Modifier.fillMaxWidth(),
-        ) { picker.launch(arrayOf("*/*")) }
+        ) { actions.pickCsv() }
 
         state.importResult?.let { result ->
             Column(Modifier.fillMaxWidth()) {
@@ -221,7 +279,7 @@ fun PayoutReconciliationScreen(
                     ),
                     style = MaterialTheme.typography.bodySmall,
                 )
-                TextButton(onClick = viewModel::dismissImportResult) {
+                TextButton(onClick = actions.dismissImportResult) {
                     Text(stringResource(R.string.common_dismiss))
                 }
             }
@@ -235,12 +293,12 @@ fun PayoutReconciliationScreen(
             },
             enabled = !state.refreshing,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.syncAndRefresh() }
+        ) { actions.syncAndRefresh() }
 
         BrandSecondaryButton(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
-        ) { onClose() }
+        ) { actions.close() }
     }
 }
 
@@ -252,7 +310,12 @@ fun PayoutReconciliationScreen(
  * seller cannot check against anything.
  */
 @Composable
-private fun QueuedPayoutCard(entry: PayoutQueueEntry, busy: Boolean, viewModel: PayoutReconciliationViewModel) {
+private fun QueuedPayoutCard(
+    entry: PayoutQueueEntry,
+    busy: Boolean,
+    onMatch: (String, String) -> Unit,
+    onDismiss: (String) -> Unit,
+) {
     Column(Modifier.fillMaxWidth().cardStyle()) {
         Text(
             entry.payout.amount?.let(Money::format)
@@ -288,14 +351,14 @@ private fun QueuedPayoutCard(entry: PayoutQueueEntry, busy: Boolean, viewModel: 
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 TextButton(
-                    onClick = { viewModel.matchPayout(entry.payout.id, candidate.saleId) },
+                    onClick = { onMatch(entry.payout.id, candidate.saleId) },
                     enabled = !busy,
                 ) { Text(stringResource(R.string.payouts_match_this)) }
             }
         }
 
         TextButton(
-            onClick = { viewModel.dismissPayout(entry.payout.id) },
+            onClick = { onDismiss(entry.payout.id) },
             enabled = !busy,
         ) { Text(stringResource(R.string.payouts_not_a_sale)) }
     }
