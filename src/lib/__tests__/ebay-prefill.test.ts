@@ -183,16 +183,36 @@ describe("projectColumnAspectsForSpec (composer, spec-aware)", () => {
   });
 
   it("keeps the existing value when the column is not expressible here", () => {
-    // "Chartreuse" matches nothing in the allowed list. Clearing a good value
-    // on the strength of an unusable one would be the worse outcome.
+    // Nothing in the allowed list can carry "Iridescent". Clearing a good
+    // value on the strength of an unusable one would be the worse outcome.
+    //
+    // US-3016 note: this case used to use "Chartreuse", which the family
+    // tables now resolve to Green. A fixture chosen BECAUSE it was unmappable
+    // stops testing what it was written for the moment the mapping improves,
+    // and it then fails looking like a regression rather than a stale fixture.
     const { aspects, sources } = projectColumnAspectsForSpec(
-      cols({ color: "Chartreuse" }),
+      cols({ color: "Iridescent" }),
       [sel("Color", ["Black", "Blue", "Green"])],
       { Color: ["Green"] },
       { Color: "manual" },
     );
     expect(aspects).toEqual({ Color: ["Green"] });
     expect(sources.Color).toBe("manual");
+  });
+
+  it("a column value the family tables CAN express overwrites, by design", () => {
+    // These five aspects are column-owned: the item column is the source of
+    // truth, so an expressible value re-asserts itself and the provenance
+    // follows it. Before US-3016 "Chartreuse" was inexpressible, so a manual
+    // value survived here by accident rather than by rule.
+    const { aspects, sources } = projectColumnAspectsForSpec(
+      cols({ color: "Chartreuse" }),
+      [sel("Color", ["Black", "Blue", "Green"])],
+      { Color: ["Blue"] },
+      { Color: "manual" },
+    );
+    expect(aspects).toEqual({ Color: ["Green"] });
+    expect(sources.Color).toBe("inventory_derived");
   });
 
   // This projection is OVERWRITE-ONLY. It used to delete the aspect here, which

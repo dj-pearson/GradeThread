@@ -691,8 +691,8 @@ const SHAFT_FAMILY: FamilyTable = {
 const STRAP_FAMILY: FamilyTable = {
   shoulder: ["Shoulder Strap", "Shoulder"],
   shoulderstrap: ["Shoulder Strap", "Shoulder"],
-  crossbody: ["Crossbody", "Cross Body", "Shoulder Strap"],
-  sling: ["Crossbody", "Cross Body"],
+  crossbody: ["Crossbody Strap", "Crossbody", "Cross Body", "Shoulder Strap"],
+  sling: ["Crossbody Strap", "Crossbody", "Cross Body"],
   tophandle: ["Top Handle", "Handle"],
   handle: ["Handle", "Top Handle"],
   handheld: ["Handle", "Top Handle"],

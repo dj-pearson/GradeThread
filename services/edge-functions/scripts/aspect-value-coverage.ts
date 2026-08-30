@@ -82,9 +82,7 @@ const PROMPT_VOCABULARY: Record<string, string[]> = {
   "Boot Shaft Height": [
     "Ankle", "Mid-Calf", "Knee High", "Over the Knee", "Bootie", "Thigh High",
   ],
-  "Strap Type": [
-    "Halter", "Racerback", "Spaghetti", "Strapless", "Wide Strap", "Adjustable",
-  ],
+  "Strap Type": ["Halter", "Racerback", "Spaghetti", "Strapless", "Wide Strap"],
   "Handle Style": [
     "Shoulder Strap", "Crossbody", "Top Handle", "Adjustable", "Detachable",
     "Chain", "Wristlet",

@@ -256,7 +256,11 @@ export const CANONICAL_ATTRIBUTES: CanonicalAttributeSpec[] = [
   // Use case — what a buyer filters on when shopping by need.
   { key: "occasion", multi: false, description: "Intended occasion — e.g. Casual, Formal, Business/Work, Party/Cocktail, Wedding, Travel, Outdoor" },
   { key: "activity", multi: false, description: "Sport or activity the item is built for — e.g. Running, Yoga, Hiking, Golf, Basketball, Ski/Snowboard, Cycling, Swimming" },
-  { key: "season", multi: false, description: "Season the item is made for — e.g. Spring, Summer, Fall, Winter, All Seasons" },
+  // eBay Season is Spring / Summer / Fall / Winter and nothing else, in all 70
+  // categories that carry it. The hint used to offer "All Seasons", which the
+  // model duly returned and which was then dropped every single time. Omitting
+  // a year-round garment is the correct answer, so ask for that instead.
+  { key: "season", multi: false, description: "Season the garment is made for, as one of exactly: Spring, Summer, Fall, Winter. Omit it for anything year-round rather than inventing an all-season value." },
   { key: "era", multi: false, description: "Decade or era of manufacture when the tag/styling supports it — e.g. 1970s, 1980s, 1990s, 2000s. Only when there is real evidence (tag design, union label, single-stitch, copyright date)." },
 
   // Shoes — the aspects eBay's footwear leaves require or rank highly.
