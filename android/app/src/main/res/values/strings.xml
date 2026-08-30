@@ -554,6 +554,7 @@
     <string name="templates_listing_templates">Listing templates</string>
     <string name="templates_pick_one_publish_screen_fill">Pick one in the publish screen to fill in the parts you type every time.</string>
     <string name="templates_that_didn_t_work">That didn\'t work</string>
+    <string name="templates_loading">Loading your templates\u2026</string>
     <string name="templates_no_templates_yet">No templates yet</string>
     <string name="templates_new_template">New template</string>
     <string name="templates_back">Back</string>

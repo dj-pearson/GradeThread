@@ -24,6 +24,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,15 +46,63 @@ import com.gradethread.app.ui.theme.cardStyle
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TemplatesScreen(
-    onClose: () -> Unit = {},
-    viewModel: TemplatesViewModel = hiltViewModel(),
-) {
+fun TemplatesScreen(onClose: () -> Unit = {}, viewModel: TemplatesViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { viewModel.load() }
 
+    TemplatesContent(
+        state,
+        TemplatesActions(
+            startCreate = viewModel::startCreate,
+            startEdit = viewModel::startEdit,
+            confirmDelete = viewModel::confirmDelete,
+            cancelDelete = viewModel::cancelDelete,
+            delete = viewModel::delete,
+            editDraft = viewModel::editDraft,
+            save = viewModel::save,
+            cancelEdit = viewModel::cancelEdit,
+            close = onClose,
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class TemplatesActions(
+    val startCreate: () -> Unit = {},
+    val startEdit: (ListingTemplate) -> Unit = {},
+    val confirmDelete: (ListingTemplate) -> Unit = {},
+    val cancelDelete: () -> Unit = {},
+    val delete: () -> Unit = {},
+    /**
+     * Edit the draft in place. A transform rather than a field-per-callback:
+     * the editor has fourteen inputs plus a specifics map, and one setter each
+     * would be an actions record longer than the form.
+     */
+    val editDraft: ((TemplateDraft) -> TemplateDraft) -> Unit = {},
+    val save: () -> Unit = {},
+    val cancelEdit: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * Listing templates with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ A TEMPLATE IS PREFILL, NOT A LINK, and the delete dialog is where that gets
+ * said. Sellers hesitate over deleting one because they assume old listings
+ * point at it; they do not. That sentence only exists in the dialog, so a
+ * capture is the only thing that can check it is still there.
+ *
+ * ⚠ AND THE EMPTY STATE IS GATED ON `loaded`, NOT ON THE LIST BEING EMPTY. The
+ * list is empty for the whole first frame of every visit, so keying the "no
+ * templates yet" card on emptiness alone would flash it at every seller who has
+ * templates. Both states are captured.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TemplatesContent(state: TemplatesViewModel.State, actions: TemplatesActions, modifier: Modifier = Modifier) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.templates_listing_templates), style = MaterialTheme.typography.titleLarge)
@@ -63,12 +112,28 @@ fun TemplatesScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
-        state.errorMessage?.let { InfoCard(stringResource(R.string.templates_that_didn_t_work), it, tone = InfoTone.Error) }
+        state.errorMessage?.let {
+            InfoCard(stringResource(R.string.templates_that_didn_t_work), it, tone = InfoTone.Error)
+        }
 
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f),
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
+            // ⚠ LOADING IS NOT EMPTY. Before US-2902's golden this branch did
+            // not exist, so the first frame of every visit was a blank page
+            // with a New template button on it: no list, no message, nothing
+            // saying the app was working. The empty CARD was already correctly
+            // gated on the loaded flag; what was missing is the state before it.
+            if (state.templates.isEmpty() && !state.loaded) {
+                item {
+                    Text(
+                        stringResource(R.string.templates_loading),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             if (state.templates.isEmpty() && state.loaded) {
                 item {
                     InfoCard(
@@ -80,8 +145,8 @@ fun TemplatesScreen(
             items(state.templates, key = { it.id }) { template ->
                 TemplateCard(
                     template = template,
-                    onEdit = { viewModel.startEdit(template) },
-                    onDelete = { viewModel.confirmDelete(template) },
+                    onEdit = { actions.startEdit(template) },
+                    onDelete = { actions.confirmDelete(template) },
                 )
             }
         }
@@ -90,20 +155,22 @@ fun TemplatesScreen(
             text = stringResource(R.string.templates_new_template),
             enabled = !state.saving,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.startCreate() }
-        BrandSecondaryButton(text = stringResource(R.string.templates_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+        ) { actions.startCreate() }
+        BrandSecondaryButton(text = stringResource(R.string.templates_back), modifier = Modifier.fillMaxWidth()) {
+            actions.close()
+        }
     }
 
     if (state.sheetOpen) {
         val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(onDismissRequest = viewModel::cancelEdit, sheetState = sheetState) {
-            EditorSheet(state, viewModel)
+        ModalBottomSheet(onDismissRequest = actions.cancelEdit, sheetState = sheetState) {
+            EditorSheet(state, actions)
         }
     }
 
     state.deleting?.let { target ->
         AlertDialog(
-            onDismissRequest = viewModel::cancelDelete,
+            onDismissRequest = actions.cancelDelete,
             title = { Text(stringResource(R.string.templates_delete_title, target.name)) },
             text = {
                 Text(
@@ -112,18 +179,18 @@ fun TemplatesScreen(
                     stringResource(R.string.templates_delete_body),
                 )
             },
-            confirmButton = { TextButton(onClick = viewModel::delete) { Text(stringResource(R.string.templates_delete)) } },
-            dismissButton = { TextButton(onClick = viewModel::cancelDelete) { Text(stringResource(R.string.templates_keep)) } },
+            confirmButton = {
+                TextButton(onClick = actions.delete) { Text(stringResource(R.string.templates_delete)) }
+            },
+            dismissButton = {
+                TextButton(onClick = actions.cancelDelete) { Text(stringResource(R.string.templates_keep)) }
+            },
         )
     }
 }
 
 @Composable
-private fun TemplateCard(
-    template: ListingTemplate,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-) {
+private fun TemplateCard(template: ListingTemplate, onEdit: () -> Unit, onDelete: () -> Unit) {
     Column(
         Modifier.fillMaxWidth().clickable { onEdit() }.cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
@@ -151,7 +218,7 @@ private fun TemplateCard(
 }
 
 @Composable
-private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesViewModel) {
+private fun EditorSheet(state: TemplatesViewModel.State, actions: TemplatesActions) {
     val draft = state.editing ?: return
     var newAspect by remember { mutableStateOf("") }
     var newValue by remember { mutableStateOf("") }
@@ -176,14 +243,14 @@ private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesVie
 
         OutlinedTextField(
             value = draft.name,
-            onValueChange = { v -> viewModel.editDraft { it.copy(name = v) } },
+            onValueChange = { v -> actions.editDraft { it.copy(name = v) } },
             label = { Text(stringResource(R.string.templates_name)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = draft.descriptionTemplate,
-            onValueChange = { v -> viewModel.editDraft { it.copy(descriptionTemplate = v) } },
+            onValueChange = { v -> actions.editDraft { it.copy(descriptionTemplate = v) } },
             label = { Text(stringResource(R.string.templates_description_block)) },
             supportingText = { Text(stringResource(R.string.templates_added_under_listing_s_own)) },
             minLines = 3,
@@ -191,7 +258,7 @@ private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesVie
         )
         OutlinedTextField(
             value = draft.ebayCondition,
-            onValueChange = { v -> viewModel.editDraft { it.copy(ebayCondition = v.uppercase()) } },
+            onValueChange = { v -> actions.editDraft { it.copy(ebayCondition = v.uppercase()) } },
             label = { Text(stringResource(R.string.templates_ebay_condition)) },
             supportingText = { Text(stringResource(R.string.templates_example_used_excellent_leave_blank)) },
             singleLine = true,
@@ -199,7 +266,7 @@ private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesVie
         )
         OutlinedTextField(
             value = draft.conditionDescription,
-            onValueChange = { v -> viewModel.editDraft { it.copy(conditionDescription = v) } },
+            onValueChange = { v -> actions.editDraft { it.copy(conditionDescription = v) } },
             label = { Text(stringResource(R.string.templates_condition_notes)) },
             minLines = 2,
             modifier = Modifier.fillMaxWidth(),
@@ -222,11 +289,11 @@ private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesVie
                 Text(aspect, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
                 OutlinedTextField(
                     value = value,
-                    onValueChange = { v -> viewModel.editDraft { it.withSpecific(aspect, v) } },
+                    onValueChange = { v -> actions.editDraft { it.withSpecific(aspect, v) } },
                     singleLine = true,
                     modifier = Modifier.weight(1.2f),
                 )
-                TextButton(onClick = { viewModel.editDraft { it.withoutSpecific(aspect) } }) {
+                TextButton(onClick = { actions.editDraft { it.withoutSpecific(aspect) } }) {
                     Text(stringResource(R.string.templates_remove))
                 }
             }
@@ -253,7 +320,7 @@ private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesVie
             TextButton(
                 enabled = newAspect.isNotBlank() && newValue.isNotBlank(),
                 onClick = {
-                    viewModel.editDraft { it.withSpecific(newAspect.trim(), newValue.trim()) }
+                    actions.editDraft { it.withSpecific(newAspect.trim(), newValue.trim()) }
                     newAspect = ""
                     newValue = ""
                 },
@@ -263,28 +330,28 @@ private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesVie
         Text(stringResource(R.string.templates_ebay_policies), style = MaterialTheme.typography.titleSmall)
         OutlinedTextField(
             value = draft.ebayCategoryId,
-            onValueChange = { v -> viewModel.editDraft { it.copy(ebayCategoryId = v) } },
+            onValueChange = { v -> actions.editDraft { it.copy(ebayCategoryId = v) } },
             label = { Text(stringResource(R.string.templates_category_id)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = draft.shippingPolicyId,
-            onValueChange = { v -> viewModel.editDraft { it.copy(shippingPolicyId = v) } },
+            onValueChange = { v -> actions.editDraft { it.copy(shippingPolicyId = v) } },
             label = { Text(stringResource(R.string.templates_shipping_policy_id)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = draft.returnPolicyId,
-            onValueChange = { v -> viewModel.editDraft { it.copy(returnPolicyId = v) } },
+            onValueChange = { v -> actions.editDraft { it.copy(returnPolicyId = v) } },
             label = { Text(stringResource(R.string.templates_return_policy_id)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
             value = draft.paymentPolicyId,
-            onValueChange = { v -> viewModel.editDraft { it.copy(paymentPolicyId = v) } },
+            onValueChange = { v -> actions.editDraft { it.copy(paymentPolicyId = v) } },
             label = { Text(stringResource(R.string.templates_payment_policy_id)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -301,7 +368,7 @@ private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesVie
             }
             Switch(
                 checked = draft.isDefault,
-                onCheckedChange = { v -> viewModel.editDraft { it.copy(isDefault = v) } },
+                onCheckedChange = { v -> actions.editDraft { it.copy(isDefault = v) } },
             )
         }
 
@@ -318,9 +385,9 @@ private fun EditorSheet(state: TemplatesViewModel.State, viewModel: TemplatesVie
             ),
             enabled = state.canSave,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.save() }
+        ) { actions.save() }
         BrandSecondaryButton(text = stringResource(R.string.templates_cancel), modifier = Modifier.fillMaxWidth()) {
-            viewModel.cancelEdit()
+            actions.cancelEdit()
         }
     }
 }
