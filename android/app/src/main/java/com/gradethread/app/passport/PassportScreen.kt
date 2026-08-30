@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -167,8 +168,39 @@ fun PassportScreen(itemId: String, onClose: () -> Unit = {}, viewModel: Passport
     val state by viewModel.state.collectAsState()
     LaunchedEffect(itemId) { viewModel.load(itemId) }
 
+    PassportContent(
+        state,
+        PassportActions(mintClaimLink = viewModel::mintClaimLink, close = onClose),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class PassportActions(val mintClaimLink: () -> Unit = {}, val close: () -> Unit = {})
+
+/**
+ * The garment passport with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THREE STATES LOOK LIKE AN EMPTY SCREEN AND MEAN DIFFERENT THINGS:
+ *
+ *   loading           we are still asking
+ *   noPassport        this item has never been graded, which is ORDINARY
+ *   emptyChain        a passport exists and nothing has happened on it yet
+ *
+ * The middle one is deliberately not an error. Most of an inventory is
+ * ungraded, so a red banner on the ordinary case would train sellers to ignore
+ * the banner. All three are captured, because the only difference between them
+ * is the words.
+ *
+ * ⚠ AND THE CLAIM LINK IS SHOWN ONCE. The server keeps a hash, so the copy on
+ * this screen is the only copy there will ever be - it is never written to
+ * DataStore, Room or SavedStateHandle. A golden of that section is a golden of
+ * the one moment it is readable.
+ */
+@Composable
+fun PassportContent(state: PassportViewModel.State, actions: PassportActions, modifier: Modifier = Modifier) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.passport_title), style = MaterialTheme.typography.titleLarge)
@@ -247,12 +279,12 @@ fun PassportScreen(itemId: String, onClose: () -> Unit = {}, viewModel: Passport
         // US-2494: only once the owner-scoped resolve found the garment. On any
         // other item this is not a section to explain — there is nothing to
         // hand off.
-        state.garmentId?.let { HandoffSection(state, viewModel::mintClaimLink) }
+        state.garmentId?.let { HandoffSection(state, actions.mintClaimLink) }
 
         BrandSecondaryButton(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
-        ) { onClose() }
+        ) { actions.close() }
     }
 }
 
