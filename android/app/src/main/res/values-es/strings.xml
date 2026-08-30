@@ -1960,4 +1960,13 @@
     <string name="inventory_sort_highest_comp">Precio comparable más alto</string>
     <string name="inventory_sort_highest_grade">Nota más alta</string>
     <string name="inventory_sort_sku">SKU</string>
+    <string name="inventory_stage_all">Todo</string>
+    <string name="inventory_stage_to_list">Por publicar</string>
+    <string name="inventory_stage_drafts">Borradores</string>
+    <string name="inventory_stage_active">Publicados</string>
+    <string name="inventory_stage_sold">Vendidos</string>
+    <string name="inventory_stage_shipped">Enviados</string>
+    <string name="inventory_stage_returned">Devueltos</string>
+    <string name="billing_period_monthly">Mensual</string>
+    <string name="billing_period_yearly">Anual</string>
 </resources>

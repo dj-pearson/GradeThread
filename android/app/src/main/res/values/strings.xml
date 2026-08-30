@@ -2091,4 +2091,13 @@
     <string name="inventory_sort_highest_comp">Highest comp</string>
     <string name="inventory_sort_highest_grade">Highest grade</string>
     <string name="inventory_sort_sku">SKU</string>
+    <string name="inventory_stage_all">All</string>
+    <string name="inventory_stage_to_list">To list</string>
+    <string name="inventory_stage_drafts">Drafts</string>
+    <string name="inventory_stage_active">Listed</string>
+    <string name="inventory_stage_sold">Sold</string>
+    <string name="inventory_stage_shipped">Shipped</string>
+    <string name="inventory_stage_returned">Returned</string>
+    <string name="billing_period_monthly">Monthly</string>
+    <string name="billing_period_yearly">Yearly</string>
 </resources>

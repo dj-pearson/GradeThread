@@ -74,7 +74,19 @@ MACHINE_LINE = re.compile(r"@SerialName|@Named|@Query|@ColumnInfo|^\s*import\s|R
 # a word another company did. These entries are that judgement, written down.
 # STALENESS IS CHECKED below: an entry naming a file the rule finds nothing in
 # fails, so a reason cannot outlive the thing it excuses.
+# A value is either a string (the whole file is excluded) or a (reason, values)
+# pair, which excludes only those values. The pair form exists because a file
+# can hold both: SubscriptionCatalog.kt carries the names of things we SELL and
+# the words "Monthly" and "Yearly" in adjacent enums, and excluding the file
+# would have quietly kept the second pair in English.
 LABEL_VOCABULARY = {
+    "billing/SubscriptionCatalog.kt": (
+        "Product names, not words. A seller who reads about Pro in a Spanish "
+        "support thread has to find Pro on the paywall. The billing PERIODS in "
+        "the same file are translated, which is why this is a value list and "
+        "not the whole file.",
+        ["Starter", "Pro", "Business"],
+    ),
     "marketplaces/publish/EbayCondition.kt": (
         "eBay's own condition vocabulary. Note the reason is NOT the one "
         "US-2976 AC5 gives: [wire] carries the API value, so translating "
@@ -178,17 +190,21 @@ def scan():
             # sentences; this finds the Title Case and single words a person
             # reads off a tab bar, which are invisible to a sentence detector
             # by construction.
-            if rel not in LABEL_VOCABULARY:
+            excluded = LABEL_VOCABULARY.get(rel)
+            if not isinstance(excluded, str):
                 # NOT_COPY again, and it is load-bearing rather than tidy. The
                 # positional rule merges the display indexes of every class in
                 # a file, so an unrelated call putting a wire value at the same
                 # index is read as a label: without this, ItemDraft.kt reported
                 # `acquired_price`, `sku` and `sold`, and a baseline full of
                 # column names is exactly the place things go to be forgotten.
+                by_value = set(excluded[1]) if excluded else set()
                 found[rel] |= {
                     value
                     for value in label_rule.labels_in(stripped)
-                    if not NOT_COPY.match(value) and re.search(r"[A-Za-z]", value)
+                    if value not in by_value
+                    and not NOT_COPY.match(value)
+                    and re.search(r"[A-Za-z]", value)
                 }
     return {k: sorted(v) for k, v in found.items() if v}
 
@@ -207,8 +223,15 @@ def vocabulary_is_current():
             stale.append(f"{rel}: no such file")
             continue
         with open(path, encoding="utf-8") as fh:
-            if not label_rule.labels_in(strip_comments(fh.read())):
-                stale.append(f"{rel}: the label rule finds nothing to exclude")
+            labels = label_rule.labels_in(strip_comments(fh.read()))
+        if not labels:
+            stale.append(f"{rel}: the label rule finds nothing to exclude")
+            continue
+        entry = LABEL_VOCABULARY[rel]
+        if not isinstance(entry, str):
+            missing = sorted(set(entry[1]) - labels)
+            if missing:
+                stale.append(f"{rel}: no longer carries {', '.join(repr(m) for m in missing)}")
     return stale
 
 

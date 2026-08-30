@@ -1,5 +1,8 @@
 package com.gradethread.app.billing
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 /**
  * US-1366: the FlipDesk subscription products, keyed by their PLAY CONSOLE id.
  *
@@ -20,14 +23,20 @@ enum class PlanTier(val slug: String, val label: String) {
     ;
 
     companion object {
-        fun fromSlug(slug: String?): PlanTier? =
-            entries.firstOrNull { it.slug.equals(slug, ignoreCase = true) }
+        fun fromSlug(slug: String?): PlanTier? = entries.firstOrNull { it.slug.equals(slug, ignoreCase = true) }
     }
 }
 
-enum class SubscriptionInterval(val slug: String, val label: String) {
-    MONTHLY("monthly", "Monthly"),
-    YEARLY("yearly", "Yearly"),
+/**
+ * US-2976: [label] is a string RESOURCE here and a plain String on [PlanTier]
+ * one class up, and the difference is deliberate. "Monthly" and "Yearly" are
+ * words; "Starter", "Pro" and "Business" are the names of things we sell, and a
+ * seller who reads about Pro in a Spanish support thread has to find Pro on the
+ * paywall.
+ */
+enum class SubscriptionInterval(val slug: String, @StringRes val label: Int) {
+    MONTHLY("monthly", R.string.billing_period_monthly),
+    YEARLY("yearly", R.string.billing_period_yearly),
 }
 
 enum class SubscriptionProduct(
@@ -56,8 +65,7 @@ enum class SubscriptionProduct(
     companion object {
         val productIds: List<String> = entries.map { it.productId }
 
-        fun fromProductId(productId: String?): SubscriptionProduct? =
-            entries.firstOrNull { it.productId == productId }
+        fun fromProductId(productId: String?): SubscriptionProduct? = entries.firstOrNull { it.productId == productId }
 
         fun of(plan: PlanTier, interval: SubscriptionInterval): SubscriptionProduct =
             entries.first { it.plan == plan && it.interval == interval }

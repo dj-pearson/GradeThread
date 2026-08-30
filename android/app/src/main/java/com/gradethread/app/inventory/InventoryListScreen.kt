@@ -360,7 +360,7 @@ internal fun InventoryListContent(
                             Text(
                                 stringResource(
                                     R.string.inventorylist_label_count,
-                                    candidate.label,
+                                    stringResource(candidate.label),
                                     counts[candidate] ?: 0,
                                 ),
                             )

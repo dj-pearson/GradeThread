@@ -1,5 +1,8 @@
 package com.gradethread.app.inventory
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 /**
  * US-1342: the inventory stage tabs (iOS `InventoryStage`).
  *
@@ -8,15 +11,19 @@ package com.gradethread.app.inventory
  * story ports. There are SEVEN stages, "listed" is named `ACTIVE`, and there
  * is no "unsold" stage at all. Parity with iOS is the story's stated purpose,
  * so the iOS set is what's implemented here.
+ *
+ * US-2976: [wire] is the persisted tab choice and must not change; [label]
+ * is a string RESOURCE. They were both plain Strings, which is how the seven
+ * tab names along the top of the inventory stayed English in a Spanish app.
  */
-enum class InventoryStage(val wire: String, val label: String) {
-    ALL("all", "All"),
-    TO_LIST("to_list", "To list"),
-    DRAFTS("drafts", "Drafts"),
-    ACTIVE("active", "Listed"),
-    SOLD("sold", "Sold"),
-    SHIPPED("shipped", "Shipped"),
-    RETURNED("returned", "Returned"),
+enum class InventoryStage(val wire: String, @StringRes val label: Int) {
+    ALL("all", R.string.inventory_stage_all),
+    TO_LIST("to_list", R.string.inventory_stage_to_list),
+    DRAFTS("drafts", R.string.inventory_stage_drafts),
+    ACTIVE("active", R.string.inventory_stage_active),
+    SOLD("sold", R.string.inventory_stage_sold),
+    SHIPPED("shipped", R.string.inventory_stage_shipped),
+    RETURNED("returned", R.string.inventory_stage_returned),
     ;
 
     /** The statuses this stage admits. */
@@ -24,8 +31,13 @@ enum class InventoryStage(val wire: String, val label: String) {
         get() = when (this) {
             ALL -> allKnownStatuses
             TO_LIST -> setOf(
-                "sourced", "acquired", "cataloged", "measured",
-                "photographed", "graded", "comped",
+                "sourced",
+                "acquired",
+                "cataloged",
+                "measured",
+                "photographed",
+                "graded",
+                "comped",
             )
             DRAFTS -> setOf("drafted")
             ACTIVE -> setOf("listed")
@@ -51,7 +63,13 @@ enum class InventoryStage(val wire: String, val label: String) {
 
         /** Tab order. */
         val userFacing: List<InventoryStage> = listOf(
-            ALL, TO_LIST, DRAFTS, ACTIVE, SOLD, SHIPPED, RETURNED,
+            ALL,
+            TO_LIST,
+            DRAFTS,
+            ACTIVE,
+            SOLD,
+            SHIPPED,
+            RETURNED,
         )
 
         /**

@@ -227,7 +227,7 @@ private fun IntervalToggle(state: PaywallViewModel.State, onPick: (SubscriptionI
             FilterChip(
                 selected = option == state.interval,
                 onClick = { onPick(option) },
-                label = { Text(option.label) },
+                label = { Text(stringResource(option.label)) },
             )
         }
         state.yearlyPitch?.let {
