@@ -82,6 +82,48 @@ export async function dismissIssue(
   if (error) throw error;
 }
 
+/**
+ * Why an item left inventory without being sold (US-3007).
+ *
+ * The order is deliberate: the two that reduce ENDING INVENTORY and flow
+ * through line 42 come first, then the one that reduces PURCHASES on line 36,
+ * then the two that are neither. A seller picking down the list is going from
+ * commonest to rarest, not from cheapest to dearest - nothing here is ranked by
+ * what it saves them, because that is the accountant's call and not ours.
+ */
+export const REMOVAL_REASONS = [
+  { value: "lost", label: "Lost or misplaced" },
+  { value: "damaged", label: "Damaged beyond selling" },
+  { value: "donated", label: "Donated" },
+  { value: "personal_use", label: "Kept for myself" },
+  { value: "returned_to_consignor", label: "Given back to the consignor" },
+] as const;
+
+export type RemovalReason = (typeof REMOVAL_REASONS)[number]["value"];
+
+/**
+ * Record why an item left, and when.
+ *
+ * ⚠ THIS DOES NOT CLAIM A DEDUCTION and must not be presented as one. Personal
+ * use is not deductible at all; a donation and a casualty loss go on different
+ * forms. All this writes is what happened and the date, which is what decides
+ * WHERE the cost goes - not whether the seller may take it.
+ *
+ * No edge route: inventory_items carries no column allowlist on UPDATE, so the
+ * write goes through RLS like any other field the seller owns.
+ */
+export async function recordRemoval(
+  itemId: string,
+  reason: RemovalReason,
+  removedOn: string,
+): Promise<void> {
+  const { error } = await supabase
+    .from("inventory_items")
+    .update({ removed_reason: reason, removed_on: removedOn } as never)
+    .eq("id", itemId);
+  if (error) throw error;
+}
+
 export async function undismissIssue(
   kind: IssueKind,
   subjectId: string,

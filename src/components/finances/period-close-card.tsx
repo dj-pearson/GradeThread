@@ -212,6 +212,7 @@ export function PeriodCloseCard() {
                   <Button
                     size="sm"
                     variant="ghost"
+                    aria-label={`Reopen ${p.label}`}
                     onClick={() => {
                       setReopening(p);
                       setReason("");

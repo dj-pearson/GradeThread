@@ -8,6 +8,13 @@ import { toastError } from "@/lib/toast-error";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -27,8 +34,11 @@ import {
   impactExplanation,
   impactLabel,
   issueCopy,
+  recordRemoval,
+  REMOVAL_REASONS,
   totalImpact,
   undismissIssue,
+  type RemovalReason,
   type ReviewIssue,
 } from "@/lib/books-review";
 
@@ -195,9 +205,53 @@ export function BooksReviewCard({
                     )}
 
                     <div className="mt-3 flex flex-wrap gap-2">
-                      <Button size="sm" asChild>
-                        <Link to={fixHref(issue)}>{copy.action}</Link>
-                      </Button>
+                      {/* US-3007. The archived question is answered HERE rather
+                          than on the item page, because this is where it is
+                          asked and a round trip to answer one dropdown is how a
+                          queue stops getting worked through. Every other kind
+                          needs a record edited, so it still links out. */}
+                      {issue.kind === "archived_no_reason" ? (
+                        <Select
+                          onValueChange={(v) => {
+                            void (async () => {
+                              try {
+                                await recordRemoval(
+                                  issue.subject_id,
+                                  v as RemovalReason,
+                                  issue.happened_on,
+                                );
+                                toast.success("Recorded what happened to it");
+                                await qc.invalidateQueries({ queryKey: ["books-review"] });
+                                // The COUNT too, matching the dismiss handlers.
+                                // The badge is the hook this feature turns on -
+                                // a queue that empties while the badge still
+                                // says 7 teaches people to ignore the badge.
+                                await qc.invalidateQueries({ queryKey: ["books-review-count"] });
+                              } catch (e) {
+                                toastError(e, "Could not record it");
+                              }
+                            })();
+                          }}
+                        >
+                          <SelectTrigger
+                            className="h-8 w-56"
+                            aria-label={`What happened to ${issue.title}`}
+                          >
+                            <SelectValue placeholder={copy.action} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {REMOVAL_REASONS.map((r) => (
+                              <SelectItem key={r.value} value={r.value}>
+                                {r.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <Button size="sm" asChild>
+                          <Link to={fixHref(issue)}>{copy.action}</Link>
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="ghost"
