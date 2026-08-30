@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -37,6 +38,11 @@ import type { ItemFullRow } from "@/types/database";
 // Typing a tracking number by hand stays available underneath for postage bought
 // elsewhere. The buy path is hidden entirely when the capability is off, rather
 // than shown and then failing at checkout.
+//
+// US-3011: with ONE exception. `plan_locked` means the seller's plan doesn't
+// include label buying, which is the only unavailable state they can fix, so it
+// shows an upgrade prompt instead of hiding. Hiding it would be the same
+// mistake in reverse — a Pro feature nobody on Starter ever discovers.
 const CARRIERS = ["USPS", "UPS", "FedEx", "DHL", "Other"] as const;
 
 function money(cents: number | null | undefined, currency: string | null): string {
@@ -69,6 +75,10 @@ export function ShipOrderDialog({
   // ── US-2160: buy-a-label ──────────────────────────────────────
   const capability = useEbayLogisticsCapability(!!item);
   const canBuyLabels = capability.data?.labelPurchaseAvailable === true;
+  // Only `plan_locked` gets a prompt. `feature_unavailable` and
+  // `reconnect_required` are not things an upgrade fixes, and offering to sell
+  // Pro for either would be a lie.
+  const labelsPlanLocked = capability.data?.code === "plan_locked";
   const rates = useEbayShippingRates();
   const buyLabel = useEbayBuyLabel();
   const reprint = useEbayReprintLabel();
@@ -275,6 +285,22 @@ export function ShipOrderDialog({
           {/* US-2160: buy the postage here. Hidden entirely when the
               deployment/connection can't — an entry point that always fails is
               worse than none. */}
+          {labelsPlanLocked && (
+            <div className="space-y-2 rounded-lg bg-muted/50 p-3">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <Tag className="h-4 w-4" />
+                Buy labels here on Pro
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {capability.data?.detail ??
+                  "Buying shipping labels here is part of Pro."}{" "}
+                Postage is eBay's own rate. We don't add anything to it.
+              </p>
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/pricing">See plans</Link>
+              </Button>
+            </div>
+          )}
           {canBuyLabels && (
             <div className="space-y-3 rounded-lg bg-muted/50 p-3">
               <div className="flex items-center gap-2 text-sm font-medium">

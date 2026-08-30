@@ -74,6 +74,8 @@ export const GATE_FEATURE_COPY: Record<keyof FlipdeskGateFlags, string> = {
   reconciliation:
     "Match what the marketplace paid you against what you sold, and see the fees in between.",
   prioritySupport: "Your support messages go to the front of the queue.",
+  shippingLabels:
+    "Buy the postage for a sold item right here. The label cost lands in your books by itself, and you pay eBay's rate, not ours.",
 };
 
 /** Everything a locked surface needs to explain itself, or null when ungated. */

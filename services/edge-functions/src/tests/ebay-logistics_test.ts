@@ -207,6 +207,48 @@ Deno.test("US-2160: scope present and no denial → available, no copy", () => {
   });
 });
 
+// ── the Pro gate (US-3011) ──────────────────────────────────────────
+
+Deno.test("US-3011: a plan without shippingLabels is plan_locked, and says so", () => {
+  const cap = logisticsCapability(true, false, false);
+  assertEquals(cap.label_purchase_available, false);
+  assertEquals(cap.code, "plan_locked");
+  assert(cap.detail && /Pro/.test(cap.detail), cap.detail ?? "");
+  // It must name the workaround too — a seller on Starter can still buy the
+  // label in eBay, and an upsell that hides that is a worse product.
+  assert(cap.detail && /eBay/.test(cap.detail), cap.detail ?? "");
+});
+
+Deno.test("US-3011: an unlicensed deployment outranks the plan lock", () => {
+  // The order is the whole point: selling Pro for a capability THIS DEPLOYMENT
+  // cannot perform for anyone is the failure this ordering exists to prevent.
+  // While sell.logistics is ungranted (US-2380), every seller lands here.
+  assertEquals(logisticsCapability(false, false, false).code, "feature_unavailable");
+  assertEquals(logisticsCapability(false, true, false).code, "feature_unavailable");
+});
+
+Deno.test("US-3011: the plan lock outranks the reconnect prompt", () => {
+  // Asking someone to re-consent for a feature their plan excludes is wasted
+  // effort on their part; the upgrade is the only thing that would help.
+  assertEquals(logisticsCapability(true, true, false).code, "plan_locked");
+});
+
+Deno.test("US-3011: planAllows defaults true so pre-existing callers are unchanged", () => {
+  // logisticsFailure() calls the two-arg form on the 403 path, where the plan
+  // has ALREADY let the seller through — defaulting to false there would
+  // relabel a scope error as an upsell.
+  assertEquals(logisticsCapability(true, false), logisticsCapability(true, false, true));
+  assertEquals(logisticsCapability(true, true).code, "reconnect_required");
+});
+
+Deno.test("US-3011: on a licensed deployment, Pro + healthy token still buys", () => {
+  assertEquals(logisticsCapability(true, false, true), {
+    label_purchase_available: true,
+    code: null,
+    detail: null,
+  });
+});
+
 // ── parseParcel ─────────────────────────────────────────────────────
 
 Deno.test("US-2160: a parcel needs a real weight", () => {

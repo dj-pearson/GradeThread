@@ -3158,7 +3158,13 @@ export function useSetEbayProgram() {
 
 export interface EbayLogisticsCapability {
   labelPurchaseAvailable: boolean;
-  code: "feature_unavailable" | "reconnect_required" | null;
+  /**
+   * US-3011: `plan_locked` is the one unavailable state the seller can fix by
+   * spending money with us, so it is the one the UI must NOT treat as "hide the
+   * button" — it gets an upgrade prompt instead. The other two are dead ends
+   * for this seller today.
+   */
+  code: "feature_unavailable" | "plan_locked" | "reconnect_required" | null;
   detail: string | null;
 }
 

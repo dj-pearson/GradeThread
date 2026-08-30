@@ -178,6 +178,19 @@ export interface FlipdeskGateFlags {
   prioritySupport: boolean;
   /** AI AutoLister — bulk photos → generated eBay listings (US-323). Premium. */
   autolister: boolean;
+  /**
+   * US-3011: buy an eBay shipping label inside the ship step. Pro and up.
+   *
+   * The postage is passed through at eBay's own rate with no markup — the
+   * subscription is the whole money model. eBay's built-in label flow and
+   * Pirate Ship are both free and give the same commercial rates, so a margin
+   * on postage would be found by a seller comparing receipts within a day.
+   *
+   * LOCKSTEP with GateFlags in services/edge-functions/src/lib/pricing-config.ts
+   * AND with the pricing_plans rows (00696). The DB row is canonical once it
+   * exists, so a flag added here and there but not seeded is off everywhere.
+   */
+  shippingLabels: boolean;
 }
 
 export interface FlipdeskPlanConfig {
@@ -228,6 +241,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       reconciliation: false,
       prioritySupport: false,
       autolister: false,
+      shippingLabels: false,
     },
   },
   starter: {
@@ -258,6 +272,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       reconciliation: false,
       prioritySupport: false,
       autolister: false,
+      shippingLabels: false,
     },
   },
   pro: {
@@ -280,6 +295,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       "AI AutoLister — bulk photos to eBay listings",
       "AI comp pulls",
       "Auto-relist",
+      "Buy eBay shipping labels in the app - postage at eBay's rate, no markup",
     ],
     gateFlags: {
       bulkActions: true,
@@ -292,6 +308,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       reconciliation: false,
       prioritySupport: false,
       autolister: true,
+      shippingLabels: true,
     },
   },
   business: {
@@ -313,6 +330,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       "AI AutoLister — bulk photos to eBay listings",
       "Sub-accounts (team seats)",
       "Programmatic API access",
+      "Buy eBay shipping labels in the app - postage at eBay's rate, no markup",
       "Payout reconciliation",
       "Priority support",
     ],
@@ -327,6 +345,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       reconciliation: true,
       prioritySupport: true,
       autolister: true,
+      shippingLabels: true,
     },
   },
 } as const;

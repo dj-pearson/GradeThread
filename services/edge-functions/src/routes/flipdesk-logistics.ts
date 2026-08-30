@@ -24,6 +24,7 @@ import {
 } from "../lib/ebay-logistics.ts";
 import { createShippingFulfillment } from "../lib/ebay-client.ts";
 import { decryptBusinessPhone, decryptShipFrom } from "../lib/user-shipping-pii.ts";
+import { featureAllowedForUser } from "../lib/plan-gate.ts";
 
 // eBay shipping labels inside FlipDesk (US-2160).
 //
@@ -43,6 +44,15 @@ import { decryptBusinessPhone, decryptShipFrom } from "../lib/user-shipping-pii.
 // touches eBay or writes anything — a saleId from the request body is never
 // trusted on its own.
 //
+// PLAN (US-3011): label buying is a Pro capability — the `shippingLabels` gate
+// flag. The postage itself is passed through at eBay's rate with no markup, so
+// the subscription is the entire money model; eBay's own label flow and Pirate
+// Ship are both free, and a margin on postage would be found and resented.
+// The gate covers the two routes that SPEND money (rates and buy). Reprint and
+// void stay open on every plan on purpose: a seller who downgrades after buying
+// a label must still be able to print it and to claim the refund. Locking a
+// void would strand their money behind an upsell.
+//
 // CAPABILITY (AC5, mirroring US-1967): sell.logistics is a limited-release
 // scope granted per keyset, so it is absent from the default consent list —
 // requesting an unlicensed scope fails the WHOLE consent screen. Clients ask
@@ -58,7 +68,7 @@ export const flipdeskLogisticsRoutes = new Hono<{
 export interface LogisticsCapability {
   label_purchase_available: boolean;
   /** Machine-readable reason when unavailable; null when it works. */
-  code: "feature_unavailable" | "reconnect_required" | null;
+  code: "feature_unavailable" | "plan_locked" | "reconnect_required" | null;
   /** Honest, seller-facing copy for the disabled state; null when available. */
   detail: string | null;
 }
@@ -67,6 +77,12 @@ const LOGISTICS_UNAVAILABLE = {
   code: "feature_unavailable" as const,
   detail:
     "Buying shipping labels in GradeThread isn't switched on for this server yet. Buy your label in eBay and paste the tracking number here.",
+};
+
+const LOGISTICS_PLAN_LOCKED = {
+  code: "plan_locked" as const,
+  detail:
+    "Buying shipping labels here is part of Pro. Upgrade to buy postage in the app, or buy your label in eBay and paste the tracking number here.",
 };
 
 const LOGISTICS_RECONNECT = {
@@ -79,18 +95,35 @@ const LOGISTICS_RECONNECT = {
  * Pure capability resolution — exported for tests.
  * - deployment lacks the scope → permanently unavailable for everyone, so the
  *   copy must NOT suggest reconnecting; nothing the seller does can fix it.
+ * - plan doesn't include it → an upgrade fixes it, and only then.
  * - deployment has it but THIS token 403'd → the token predates the grant, and
  *   a re-consent genuinely fixes it.
+ *
+ * THE ORDER IS THE POINT (US-3011). Deployment scope is checked before the plan
+ * so that a Free seller on a deployment eBay has not granted is told the truth —
+ * "not switched on here" — rather than being sold an upgrade that would buy them
+ * nothing. Selling Pro for a feature no plan can currently reach is the one
+ * failure mode this function exists to prevent. Plan is then checked before the
+ * reconnect prompt, because asking someone to re-consent for a capability their
+ * plan excludes is wasted effort on their part.
  */
 export function logisticsCapability(
   deploymentHasScope: boolean,
   connectionDenied: boolean,
+  planAllows = true,
 ): LogisticsCapability {
   if (!deploymentHasScope) {
     return {
       label_purchase_available: false,
       code: LOGISTICS_UNAVAILABLE.code,
       detail: LOGISTICS_UNAVAILABLE.detail,
+    };
+  }
+  if (!planAllows) {
+    return {
+      label_purchase_available: false,
+      code: LOGISTICS_PLAN_LOCKED.code,
+      detail: LOGISTICS_PLAN_LOCKED.detail,
     };
   }
   if (connectionDenied) {
@@ -170,8 +203,15 @@ flipdeskLogisticsRoutes.get("/capabilities", async (c) => {
     return c.json({ error: "eBay is not configured on this server." }, 503);
   }
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const denied = await readLogisticsDenied(ownerId);
-  return c.json(logisticsCapability(isLogisticsScopeAvailable(), denied));
+  // The plan is resolved on the OWNER, not the acting member, so a team seat
+  // inherits the workspace's plan rather than their own (which is Free).
+  const [denied, planAllows] = await Promise.all([
+    readLogisticsDenied(ownerId),
+    featureAllowedForUser(ownerId, "shippingLabels"),
+  ]);
+  return c.json(
+    logisticsCapability(isLogisticsScopeAvailable(), denied, planAllows),
+  );
 });
 
 /**
@@ -470,13 +510,24 @@ async function logisticsFailure(
   };
 }
 
-/** Shared preflight: capability + eBay config + owned sale with an order id. */
+/**
+ * Shared preflight: capability + eBay config + owned sale with an order id.
+ *
+ * `spendsMoney` (US-3011) selects whether the Pro gate applies. True on the two
+ * routes that buy postage; false on reprint and void, which a downgraded seller
+ * must keep — see the PLAN note at the top of this file.
+ */
 async function preflight(
   ownerId: string,
   saleId: string,
+  spendsMoney = true,
 ): Promise<
   | { ok: true; sale: SaleRow; orderId: string }
-  | { ok: false; status: 404 | 409 | 501 | 503; body: Record<string, unknown> }
+  | {
+    ok: false;
+    status: 402 | 404 | 409 | 501 | 503;
+    body: Record<string, unknown>;
+  }
 > {
   if (!isEbayConfigured()) {
     return {
@@ -485,12 +536,19 @@ async function preflight(
       body: { error: "eBay is not configured on this server." },
     };
   }
+  const planAllows = spendsMoney
+    ? await featureAllowedForUser(ownerId, "shippingLabels")
+    : true;
   const cap = logisticsCapability(
     isLogisticsScopeAvailable(),
     await readLogisticsDenied(ownerId),
+    planAllows,
   );
   if (!cap.label_purchase_available) {
-    return { ok: false, status: 501, body: { error: cap.detail, code: cap.code } };
+    // 402 for the plan lock, so a client can tell "upgrade and this works" from
+    // "this server can never do it" (501) without string-matching the copy.
+    const status = cap.code === "plan_locked" ? 402 as const : 501 as const;
+    return { ok: false, status, body: { error: cap.detail, code: cap.code } };
   }
   const sale = await loadOwnedSale(ownerId, saleId);
   if (!sale) return { ok: false, status: 404, body: { error: "Sale not found." } };
@@ -780,7 +838,9 @@ flipdeskLogisticsRoutes.post("/sales/:saleId/label", async (c) => {
 flipdeskLogisticsRoutes.get("/sales/:saleId/label", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const saleId = c.req.param("saleId");
-  const pre = await preflight(ownerId, saleId);
+  // spendsMoney=false: reprinting a label already paid for is not a purchase,
+  // and a downgrade must not take away a label the seller owns.
+  const pre = await preflight(ownerId, saleId, false);
   if (!pre.ok) return c.json(pre.body, pre.status);
   const shipmentId = pre.sale.ebay_shipment_id;
   if (!shipmentId) {
@@ -814,7 +874,9 @@ flipdeskLogisticsRoutes.get("/sales/:saleId/label", async (c) => {
 flipdeskLogisticsRoutes.post("/sales/:saleId/label/void", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const saleId = c.req.param("saleId");
-  const pre = await preflight(ownerId, saleId);
+  // spendsMoney=false: a void RETURNS money. Gating it behind a plan would
+  // strand a downgraded seller's postage refund behind an upsell.
+  const pre = await preflight(ownerId, saleId, false);
   if (!pre.ok) return c.json(pre.body, pre.status);
   const shipmentId = pre.sale.ebay_shipment_id;
   if (!shipmentId) {

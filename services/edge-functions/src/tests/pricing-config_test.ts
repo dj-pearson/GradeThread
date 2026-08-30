@@ -63,11 +63,19 @@ Deno.test("FALLBACK_MATRIX covers all four tiers with the full gate-flag shape",
       assertEquals(typeof cfg.gateFlags[k], "boolean", `${plan}.${k} missing`);
     }
   }
-  // US-9101 added connectorAccess as the tenth. The count is pinned rather than
-  // derived on purpose: a flag added to the type and forgotten in
-  // GATE_FLAG_KEYS would silently never be read from the DB row, which reads as
-  // "that plan does not have the feature" rather than as a bug.
-  assertEquals(GATE_FLAG_KEYS.length, 10);
+  // US-9101 added connectorAccess as the tenth, US-3011 shippingLabels as the
+  // eleventh. The count is pinned rather than derived on purpose: a flag added
+  // to the type and forgotten in GATE_FLAG_KEYS would silently never be read
+  // from the DB row, which reads as "that plan does not have the feature"
+  // rather than as a bug.
+  assertEquals(GATE_FLAG_KEYS.length, 11);
+});
+
+Deno.test("US-3011: shippingLabels is pro and up", () => {
+  assertEquals(FALLBACK_MATRIX.free.gateFlags.shippingLabels, false);
+  assertEquals(FALLBACK_MATRIX.starter.gateFlags.shippingLabels, false);
+  assertEquals(FALLBACK_MATRIX.pro.gateFlags.shippingLabels, true);
+  assertEquals(FALLBACK_MATRIX.business.gateFlags.shippingLabels, true);
 });
 
 Deno.test("US-9101: connectorAccess is pro and business, and apiAccess is unchanged", () => {

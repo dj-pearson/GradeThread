@@ -45,6 +45,21 @@ export interface GateFlags {
   prioritySupport: boolean;
   /** AI AutoLister — bulk photos → generated eBay listings (US-323). Premium. */
   autolister: boolean;
+  /**
+   * US-3011: buying an eBay shipping label from inside the ship step.
+   *
+   * Pro and up. The postage itself is passed through at eBay's rate with no
+   * markup — the subscription is the whole money model — because eBay's own
+   * label flow and Pirate Ship are both free, and a seller who price-checks
+   * would find any margin within a day.
+   *
+   * NOTE for whoever adds the NEXT flag: a key missing from a pricing_plans
+   * row's gate_flags resolves to false in rowToConfig, and the DB row wins over
+   * FALLBACK_MATRIX whenever it exists. So adding a flag here without the
+   * matching migration ships a feature that is off for everyone, on every plan,
+   * with no error anywhere.
+   */
+  shippingLabels: boolean;
 }
 
 export interface PlanConfig {
@@ -77,6 +92,7 @@ export const GATE_FLAG_KEYS: (keyof GateFlags)[] = [
   "reconciliation",
   "prioritySupport",
   "autolister",
+  "shippingLabels",
 ];
 
 // ── Hardcoded fallback (pre-US-587 values; mirror of src/lib/constants.ts) ──
@@ -96,6 +112,7 @@ export const FALLBACK_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
       autoRelist: false, subAccounts: false, apiAccess: false,
       connectorAccess: false,
       reconciliation: false, prioritySupport: false, autolister: false,
+      shippingLabels: false,
     },
   },
   starter: {
@@ -110,6 +127,7 @@ export const FALLBACK_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
       autoRelist: false, subAccounts: false, apiAccess: false,
       connectorAccess: false,
       reconciliation: false, prioritySupport: false, autolister: false,
+      shippingLabels: false,
     },
   },
   pro: {
@@ -124,6 +142,7 @@ export const FALLBACK_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
       autoRelist: true, subAccounts: false, apiAccess: false,
       connectorAccess: true,
       reconciliation: false, prioritySupport: false, autolister: true,
+      shippingLabels: true,
     },
   },
   business: {
@@ -138,6 +157,7 @@ export const FALLBACK_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
       autoRelist: true, subAccounts: true, apiAccess: true,
       connectorAccess: true,
       reconciliation: true, prioritySupport: true, autolister: true,
+      shippingLabels: true,
     },
   },
 };
