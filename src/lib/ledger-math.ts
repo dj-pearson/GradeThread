@@ -21,7 +21,8 @@ export type EntryAccountCode =
   | "shipping_postage"
   | "cogs_other"
   | "purchases"
-  | "cash_payout";
+  | "cash_payout"
+  | "sales_tax_remitted";
 
 export type SourceKind =
   | "sale"
@@ -92,8 +93,14 @@ export interface SaleMoney {
  *
  * Kept as its own function rather than inlined, so the test below can assert
  * the entry derivation reproduces it. Note what is ABSENT: `tax` appears
- * nowhere. Facilitator sales tax was never the seller's income and has never
- * been in this formula.
+ * nowhere, and it takes NO facilitator flag.
+ *
+ * That is correct on BOTH branches and is worth stating, because it looks like
+ * an omission. Facilitator tax is excluded outright. Seller-collected tax is
+ * booked as income AND as an equal deduction, so it nets to zero. Net profit is
+ * identical either way -- which is exactly why the branch needs a test rather
+ * than an eyeball. GROSS RECEIPTS is the figure that differs, and it is the one
+ * a 1099-K is compared against.
  */
 export function saleNetCents(
   sale: SaleMoney,
@@ -118,14 +125,21 @@ export function saleNetCents(
 /**
  * The entries one completed sale becomes.
  *
- * Mirrors rebuild_ledger_for_user() in migration 00685. Zero-valued components
- * produce no entry: a books screen full of $0.00 rows is noise a seller has to
- * read past to find the row that matters.
+ * Mirrors rebuild_ledger_for_user() in migration 00691.
+ *
+ * `facilitatorCollected` has NO DEFAULT, deliberately. It decides whether the
+ * sales tax was ever the seller's income, and a default would pick that branch
+ * for a caller who never thought about it -- which is the whole class of bug
+ * US-2987 exists to close. Every call site has to answer.
+ *
+ * Zero-valued components produce no entry: a books screen full of $0.00 rows is
+ * noise a seller reads past to find the row that matters.
  */
 export function saleEntries(
   sale: SaleMoney,
   acquiredPrice: number | string | null,
   legacyShipTotal: number | string | null,
+  facilitatorCollected: boolean,
 ): LedgerEntryDraft[] {
   const out: LedgerEntryDraft[] = [];
   const push = (
@@ -139,7 +153,19 @@ export function saleEntries(
 
   push("sales_revenue", toCents(sale.sale_price), "sale", "price");
   push("shipping_income", toCents(sale.shipping_collected), "sale", "shipping");
-  push("sales_tax_collected", toCents(sale.tax), "sale", "tax");
+
+  if (facilitatorCollected) {
+    // The marketplace collected and remitted it. Never the seller's income, so
+    // it reaches no Schedule C line -- but it IS inside the 1099-K gross, which
+    // is why it is recorded rather than dropped.
+    push("sales_tax_collected", toCents(sale.tax), "sale", "tax");
+  } else {
+    // The SELLER is the retailer. The tax is part of gross receipts (line 1)
+    // and the remittance is a deduction (line 23). Two entries netting to zero:
+    // one figure alone would put the tax on the wrong side of the return.
+    push("sales_revenue", toCents(sale.tax), "sale", "tax");
+    push("sales_tax_remitted", -toCents(sale.tax), "sale", "tax_remitted");
+  }
   push(
     "platform_fees",
     -(toCents(sale.platform_fees) + toCents(sale.payment_processing_fees)),

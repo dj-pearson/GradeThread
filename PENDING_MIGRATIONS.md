@@ -1,5 +1,75 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## HELD: 00691_facilitator_sales_tax.sql (US-2987)
+
+**Risk: MEDIUM, higher than the rest of this epic, and the reason is worth
+reading.** It is the first migration here that CHANGES an existing derivation
+rather than adding one. `rebuild_ledger_for_user()` is replaced, and after the
+next rebuild a seller on a non-facilitator channel sees different GROSS RECEIPTS
+than before. Net profit does not move on any branch.
+
+**Numbered 00691, not 00689.** It was written as 00689 while 00690 was landing
+in parallel, and 00690 reached origin/main first. A migration numbered BELOW an
+already-pushed one is not untidy, it is invisible:
+`apply-prod-migrations.sh` skips by MAXIMUM recorded version, so a hole below
+the maximum is never applied — which is how `listings.draft_id` from 00134 sat
+missing in production for months (US-2726). Renumbered before anything was
+committed. 00690 replaces `take_inventory_snapshot()` and `cogs_worksheet()`;
+this replaces `rebuild_ledger_for_user()`, so there was no overlap to rebase.
+
+**What it does.** Creates `public.marketplace_facilitator_rules` (12 seeded
+rules with effective dates), adds the `sales_tax_remitted` account to the chart,
+adds `is_facilitator_collected(platform, date)` and `sale_platform(uuid)`, and
+replaces `rebuild_ledger_for_user()` so the single unconditional tax entry
+becomes two mutually exclusive branches.
+
+**Why.** Since 00685 every sale's `tax` went to the excluded account
+unconditionally. Right for eBay, Poshmark, Mercari and the rest. WRONG for a
+seller running their own storefront with nexus: there the seller is the
+retailer, the tax is part of gross receipts (line 1) and the remittance is a
+deduction (line 23). Booking it as excluded understates income, which
+understates tax — the direction that gets a seller in trouble rather than the
+direction that costs them money.
+
+**The unknown-platform fallback is SELLER-COLLECTED, on purpose.**
+`sales.listing_id` is `ON DELETE SET NULL`, so a sale can outlive its listing.
+Overstating income is a number the seller can dispute; understating it is one
+the IRS disputes.
+
+**NO REVOKE.** The `GRANT EXECUTE ... TO public` from 00686 is re-issued after
+the `CREATE OR REPLACE`, and the in-body authorization check from US-3002 is
+carried forward verbatim. Do not drop either: on this image a denied EXECUTE
+restarts the database.
+
+**Verified against real Postgres.** Applied twice (second run clean), on a local
+stack that already had 00690. `npm run check:tax` runs 13 assertions on a
+three-sale fixture — same price, same tax, different platform. All three
+database checks (`check:ledger`, `check:cogs`, `check:tax`) pass against the
+current schema.
+
+> **Why this one needed a test rather than an eyeball.** NET PROFIT IS IDENTICAL
+> on both branches — $67.00 for all three fixture sales — because facilitator
+> tax is excluded outright and seller-collected tax is booked as income AND as
+> an equal deduction. The bottom line cannot tell you the branch was chosen
+> correctly. GROSS RECEIPTS can: $100.00 on eBay against $108.25 on Shopify.
+> That is the figure a 1099-K is compared against. Sabotage-verified by flipping
+> the fallback to facilitator, which turns 3 checks red while every net stays
+> $67.00.
+
+**One coarseness, recorded rather than hidden.** A single national
+`2021-07-01` start date is coarser than the law, which arrived state by state
+between 2018 and 2023. A 2019 sale in a state without a law yet would be
+mis-booked. Fifty rows per platform would claim a precision `sales` cannot
+support, since it carries no buyer state — so the `state` column exists, is
+nullable, and is seeded empty.
+
+**Apply order.** After 00690. Then `NOTIFY pgrst, 'reload schema';` — one new
+table and two new RPCs.
+
+**After applying, a rebuild is needed before anything changes.** Existing ledger
+entries are not rewritten until `rebuild_my_ledger()` runs, which happens on the
+P&L page's Rebuild button or the first books screen on an empty ledger.
+
 ## 🟠 PUSHED, NOT YET APPLIED: 00690_inventory_writeoffs.sql (US-3007 — an item that is lost, donated or kept never left inventory)
 
 **Risk: low-to-moderate.** Two new nullable columns and two CHECK constraints on

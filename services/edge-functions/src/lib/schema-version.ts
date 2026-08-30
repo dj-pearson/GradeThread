@@ -57,7 +57,7 @@ import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 // git history, no branch). Reusing that number would let the boot guard read
 // "match" off prod's pre-existing row even if this migration never applied —
 // exactly the failure the guard exists to catch. See PENDING_MIGRATIONS.md.
-export const EXPECTED_SCHEMA_VERSION = "00690";
+export const EXPECTED_SCHEMA_VERSION = "00692";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

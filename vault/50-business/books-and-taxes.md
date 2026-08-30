@@ -18,8 +18,11 @@ code_refs:
   - supabase/migrations/00688_inventory_snapshots.sql
   - src/lib/cogs.ts
   - scripts/check-cogs-worksheet.mjs
+  - supabase/migrations/00691_facilitator_sales_tax.sql
+  - scripts/check-facilitator-tax.mjs
   - supabase/migrations/00690_inventory_writeoffs.sql
   - scripts/check-inventory-writeoffs.mjs
+  - supabase/migrations/00692_keeping_leaves_inventory.sql
 reviewed: 2026-08-29
 tags: [finance, tax, flipdesk, money]
 summary: The rules the Books and Taxes epic (US-2981) obeys - what each stored figure means, which form line it feeds, and the four things the app deliberately refuses to do.
@@ -463,9 +466,89 @@ now on. Rows already taken record what was believed at the time; US-2995 (period
 close) is the mechanism for correcting a closed year, with an adjusting entry in
 the open period rather than an edit to history.
 
-⚠ **Nothing writes these columns yet.** The accounting is correct and proven by
-`scripts/check-inventory-writeoffs.mjs`, but no screen or route sets
-`removed_on`, so no seller can record a write-off. US-3007 stays open on that.
+**The status a seller already sets is what records it (00692).** `item_status`
+carried `keeping`, `wearing`, `returned` and `archived` all along, and
+`constants.ts` even calls two of them "personal-use statuses" - they were
+filtered out of the Kanban and not out of the books. A trigger derives the
+withdrawal instead of asking the seller to say it twice.
+
+**Only `keeping` leaves, and the obvious mapping is wrong in two places:**
+
+| status | inventory | why |
+|---|---|---|
+| `keeping` | **leaves** | taken for personal use, so it reduces line 36 |
+| `wearing` | **stays** | still stock; they are wearing it and will still sell it |
+| `returned` | **stays** | a buyer sent it back, so it returns to stock |
+| `archived` | **stays** | ambiguous - lost, damaged, donated or sold elsewhere - so the trigger will not guess |
+
+⚠ **`item_status 'returned'` is not `removed_reason 'returned_to_consignor'`.**
+They read alike and mean opposite things: the status is a buyer return (stock
+comes back), the reason is goods handed back to a consignor (stock leaves).
+
+A hand-set reason always wins. The trigger fills only a NULL reason and clears
+only the `personal_use` it set itself, so an item recorded as lost stays lost
+whatever its status does afterwards.
+
+**The backfill dates existing `keeping` items from `updated_at`** - the owner's
+call, because nothing in the schema records the transition itself. That is an
+approximate date inside a tax figure, which is why it is said out loud here.
+
+⚠ **`archived` still has no way in.** It is the one status the trigger cannot
+resolve, so recording *lost* versus *donated* versus *sold elsewhere* needs a
+prompt that does not exist yet. US-3007 stays open on that.
+
+## Sales tax: two branches, and why net profit cannot tell them apart
+
+`public.marketplace_facilitator_rules` (migration 00691) decides whether a
+sale's tax was ever the seller's income.
+
+- **Facilitator** (eBay, Poshmark, Mercari, Depop, Grailed, Etsy, Facebook,
+  OfferUp, Whatnot, Vinted). The platform collected and remitted it. Booked to
+  the excluded account, reaches no Schedule C line, still recorded because it is
+  inside the 1099-K gross.
+- **Seller-collected** (Shopify, and anything unknown). The seller IS the
+  retailer. The tax is part of gross receipts (line 1) AND the remittance is a
+  deduction (line 23). Two entries netting to zero — one figure alone would put
+  the tax on the wrong side of the return.
+
+> **NET PROFIT IS IDENTICAL ON BOTH BRANCHES.** $67.00 for every sale in the
+> fixture. The bottom line cannot tell you the branch was chosen correctly.
+> **Gross receipts can**: $100.00 on eBay against $108.25 on Shopify, and gross
+> receipts is the figure a 1099-K is compared against. That is why this has a
+> database check rather than an eyeball, and why the sabotage run flips 3 checks
+> red while every net stays $67.00.
+
+### The unknown-platform fallback is deliberate
+
+No rule for a platform on a date means **seller-collected**. `sales.listing_id`
+is `ON DELETE SET NULL`, so a sale can outlive its listing and have no platform
+at all. Overstating income is a number the seller can dispute; understating it
+is one the IRS disputes.
+
+### It is a table because the answer changes
+
+Facilitator law arrived state by state between 2018 and 2023, and platforms
+change their handling. `is_facilitator_collected('ebay', '2019-06-01')` returns
+false, which is the effective date doing its job.
+
+**One recorded coarseness:** a single national `2021-07-01` start date is
+coarser than the law. Fifty rows per platform would claim a precision `sales`
+cannot support, since it carries no buyer state. The `state` column exists, is
+nullable, and is seeded empty.
+
+### `saleEntries()` takes no default for the branch
+
+`facilitatorCollected` is a required parameter in `src/lib/ledger-math.ts`. A
+default would pick the branch for a caller who never thought about it, which is
+the whole class of bug this closes.
+
+### The ledger fixture carries eBay listings on purpose
+
+`scripts/fixtures/ledger-invariant.sql` gives its sales a listing. Without one
+they take the conservative branch, the tax moves out of the excluded account,
+and the fixture silently stops exercising the facilitator path it was written
+for — while still reporting `variance 0`, because net does not move. Caught when
+`excluded (sales tax)` dropped from $17.34 to $0.00 after 00691 landed.
 
 ## Where the rest of the epic is written down
 
@@ -477,6 +560,7 @@ its contract into this note. Currently landed:
 - **US-2984** - the ledger, its limits and its invariant, above.
 - **US-2985** - the P&L statement and the half-open period rules, above.
 - **US-2986** - COGS, the inventory snapshot and its two signals, above.
+- **US-2987** - the two sales-tax branches and the facilitator registry, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
 Still open, and each will add a section here rather than a new note: COGS and

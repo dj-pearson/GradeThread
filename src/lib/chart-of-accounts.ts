@@ -277,6 +277,16 @@ export const SYSTEM_ACCOUNTS: readonly LedgerAccount[] = [
     sort_order: 420,
   },
   {
+    code: "sales_tax_remitted",
+    name: "Sales tax you collected and paid over",
+    flow: "expense",
+    schedule_c_part: "II",
+    schedule_c_line: "23",
+    schedule_c_label: "Taxes and licenses",
+    no_line_reason: null,
+    sort_order: 425,
+  },
+  {
     code: "travel",
     name: "Travel away from home",
     flow: "expense",

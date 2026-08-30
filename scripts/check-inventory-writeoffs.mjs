@@ -122,6 +122,46 @@ begin
     raise notice 'WRITEOFF_FAIL|removed_on with no reason was ACCEPTED, the pair constraint is gone';
   end if;
 
+  -- 5. (00692) the status trigger, and ONLY for 'keeping'.
+  --
+  -- The owner's ruling, and the obvious-looking mapping is wrong in two places:
+  -- keeping LEAVES (taken for personal use), while wearing STAYS (still stock,
+  -- they just have it on) and returned STAYS (a buyer sent it back, so it
+  -- returns to inventory). Asserting all three because getting wearing or
+  -- returned wrong would quietly delete real inventory from the books.
+  insert into public.inventory_items (user_id, title, status, acquired_date, acquired_price)
+  values ('${PROBE_ID}', 'trg keeping',  'keeping',  '2025-01-15', 100),
+         ('${PROBE_ID}', 'trg wearing',  'wearing',  '2025-01-15', 100),
+         ('${PROBE_ID}', 'trg returned', 'returned', '2025-01-15', 100);
+
+  if not exists (select 1 from public.inventory_items
+                  where title = 'trg keeping' and removed_reason = 'personal_use'
+                    and removed_on is not null) then
+    raise notice 'WRITEOFF_FAIL|keeping did NOT become a personal-use withdrawal';
+  end if;
+  if exists (select 1 from public.inventory_items
+              where title in ('trg wearing', 'trg returned') and removed_on is not null) then
+    raise notice 'WRITEOFF_FAIL|wearing or returned was removed from inventory - both must STAY';
+  end if;
+
+  -- coming back out of keeping returns it to stock
+  update public.inventory_items set status = 'listed' where title = 'trg keeping';
+  if exists (select 1 from public.inventory_items
+              where title = 'trg keeping' and removed_on is not null) then
+    raise notice 'WRITEOFF_FAIL|keeping -> listed left the item written off';
+  end if;
+
+  -- but a HAND-SET reason is never clobbered by a status change
+  update public.inventory_items
+     set removed_on = '2025-03-01', removed_reason = 'lost' where title = 'trg wearing';
+  update public.inventory_items set status = 'keeping' where title = 'trg wearing';
+  update public.inventory_items set status = 'listed'  where title = 'trg wearing';
+  if not exists (select 1 from public.inventory_items
+                  where title = 'trg wearing' and removed_reason = 'lost'
+                    and removed_on = '2025-03-01') then
+    raise notice 'WRITEOFF_FAIL|a hand-set write-off was overwritten by the status trigger';
+  end if;
+
   raise notice 'WRITEOFF_OK|ending=% items / % cents, line36=%, writeoffs=%, residual=%',
     ending_cnt, ending_cost, w->>'line_36_purchases_cents',
     w->>'writeoffs_cents', w->>'variance_after_writeoffs_cents';

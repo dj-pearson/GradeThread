@@ -32,7 +32,7 @@ function fromSale(
   sale: SaleMoney = SALE,
   basis: string | null = "42.00",
 ): StatementEntry[] {
-  return saleEntries(sale, basis, null).map((e) => ({
+  return saleEntries(sale, basis, null, true).map((e) => ({
     account: e.account,
     amount_cents: e.amount_cents,
   }));
@@ -45,7 +45,7 @@ describe("the statement agrees with the ledger", () => {
     // a number.
     const entries = fromSale();
     expect(buildStatement(entries).netProfitCents).toBe(
-      ledgerNetCents(saleEntries(SALE, "42.00", null)),
+      ledgerNetCents(saleEntries(SALE, "42.00", null, true)),
     );
   });
 

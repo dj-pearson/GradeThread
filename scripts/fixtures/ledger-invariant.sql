@@ -27,11 +27,25 @@ values ('bbbbbbbb-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-0000000
         'Carhartt Detroit Jacket', 42.00, now() - interval '90 days', 'sold')
 on conflict (id) do nothing;
 
+-- US-2987: the sales carry an eBay LISTING now, and that is load-bearing rather
+-- than decorative. The tax branch is chosen from the platform, and a sale with
+-- no listing takes the conservative seller-collected branch -- which would move
+-- this fixture's tax out of the excluded account and into gross receipts, and
+-- silently stop it exercising the facilitator path it was written for.
+-- Each listing goes in AFTER its own item. listings.user_id is NOT NULL and is
+-- filled by the set_tenant_from_inventory_item trigger, so a listing inserted
+-- before its item cannot resolve a tenant and the insert fails.
+insert into public.listings (id, inventory_item_id, platform, listing_price, listed_at)
+values ('11111111-0000-0000-0000-000000000001', 'bbbbbbbb-0000-0000-0000-000000000001',
+        'ebay', 195.00, now() - interval '60 days')
+on conflict (id) do nothing;
+
 insert into public.sales
-  (id, user_id, inventory_item_id, sale_price, platform_fees, payment_processing_fees,
+  (id, user_id, inventory_item_id, listing_id, sale_price, platform_fees,
+   payment_processing_fees,
    shipping_collected, shipping_cost, grading_cost, other_costs, tax, sale_date, status)
 values ('cccccccc-0000-0000-0000-000000000001', 'aaaaaaaa-0000-0000-0000-000000000001',
-        'bbbbbbbb-0000-0000-0000-000000000001',
+        'bbbbbbbb-0000-0000-0000-000000000001', '11111111-0000-0000-0000-000000000001',
         180.00, 23.40, 5.22, 12.99, 9.85, 3.00, 1.15, 14.87,
         now() - interval '10 days', 'completed')
 on conflict (id) do nothing;
@@ -43,11 +57,17 @@ values ('bbbbbbbb-0000-0000-0000-000000000002', 'aaaaaaaa-0000-0000-0000-0000000
         'Unknown-cost tee', null, 'sold')
 on conflict (id) do nothing;
 
+insert into public.listings (id, inventory_item_id, platform, listing_price, listed_at)
+values ('11111111-0000-0000-0000-000000000002', 'bbbbbbbb-0000-0000-0000-000000000002',
+        'ebay', 34.99, now() - interval '30 days')
+on conflict (id) do nothing;
+
 insert into public.sales
-  (id, user_id, inventory_item_id, sale_price, platform_fees, payment_processing_fees,
+  (id, user_id, inventory_item_id, listing_id, sale_price, platform_fees,
+   payment_processing_fees,
    shipping_collected, shipping_cost, grading_cost, other_costs, tax, sale_date, status)
 values ('cccccccc-0000-0000-0000-000000000002', 'aaaaaaaa-0000-0000-0000-000000000001',
-        'bbbbbbbb-0000-0000-0000-000000000002',
+        'bbbbbbbb-0000-0000-0000-000000000002', '11111111-0000-0000-0000-000000000002',
         29.99, 3.90, 0.87, 0, 0, 0, 0, 2.47,
         now() - interval '5 days', 'completed')
 on conflict (id) do nothing;

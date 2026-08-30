@@ -66,6 +66,14 @@ export const KNOWN_GAPS = new Map([
   ["00014", "never authored — no file in any commit."],
   ["00479", "never authored — no file in any commit."],
   [
+    "00689",
+    "never authored — two agents working the same tree on 2026-08-29 both "
+      + "claimed it within a few minutes (US-3007 inventory write-offs and "
+      + "US-2987 facilitator sales tax). Both renamed away rather than one "
+      + "overwriting the other, to 00690 and 00691, so the number was used by "
+      + "nobody. Renumbering either one back would only move the hole.",
+  ],
+  [
     "00636",
     "authored, APPLIED to production, then withdrawn. 00636/00637 created a " +
       "lulufanatics.com crawler; the owner had it removed because that site's " +

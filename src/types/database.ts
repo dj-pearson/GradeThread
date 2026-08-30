@@ -2208,6 +2208,29 @@ export type SavedViewUpdate = Partial<
 // There is no Insert type on purpose: the table has no INSERT policy. Snapshots
 // are created only by take_my_inventory_snapshot(), which counts the items
 // itself. A record a user can hand-write is not a record.
+// US-2987 — which platforms collect and remit sales tax as a marketplace
+// facilitator, with effective dates.
+//
+// A table rather than a constant because facilitator law arrived state by state
+// between 2018 and 2021 and platforms change their handling. NO rule for a
+// platform on a date means SELLER-COLLECTED, which is the conservative answer:
+// it books the tax INTO income rather than out of it, so a mistake overstates
+// income rather than understating it.
+//
+// Reference data with no user_id: readable by everyone, writable by nobody.
+export interface MarketplaceFacilitatorRuleRow {
+  id: string;
+  platform: string;
+  /** NULL means everywhere. No state rule is seeded: `sales` carries no buyer state. */
+  state: string | null;
+  effective_from: string;
+  effective_to: string | null;
+  is_facilitator: boolean;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface InventorySnapshotRow {
   id: string;
   user_id: string;
@@ -4318,6 +4341,11 @@ export interface Database {
         Row: ExpenseRow;
         Insert: ExpenseInsert;
         Update: ExpenseUpdate;
+      };
+      marketplace_facilitator_rules: {
+        Row: MarketplaceFacilitatorRuleRow;
+        Insert: never;
+        Update: never;
       };
       inventory_snapshots: {
         Row: InventorySnapshotRow;

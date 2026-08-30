@@ -81,12 +81,12 @@ describe("formatCents", () => {
 describe("the entries reproduce the dashboard formula", () => {
   it("agrees to the cent on an ordinary sale", () => {
     // The claim the whole epic rests on, in its CI-runnable form.
-    const entries = saleEntries(SALE, "42.00", null);
+    const entries = saleEntries(SALE, "42.00", null, true);
     expect(ledgerNetCents(entries)).toBe(saleNetCents(SALE, "42.00", null));
   });
 
   it("agrees when the item has no cost basis at all", () => {
-    const entries = saleEntries(SALE, null, null);
+    const entries = saleEntries(SALE, null, null, true);
     expect(ledgerNetCents(entries)).toBe(saleNetCents(SALE, null, null));
   });
 
@@ -108,7 +108,7 @@ describe("the entries reproduce the dashboard formula", () => {
       };
       const basis = i % 5 === 0 ? null : money();
       const legacy = i % 2 === 0 ? money() : null;
-      expect(ledgerNetCents(saleEntries(sale, basis, legacy))).toBe(
+      expect(ledgerNetCents(saleEntries(sale, basis, legacy, true))).toBe(
         saleNetCents(sale, basis, legacy),
       );
     }
@@ -117,8 +117,8 @@ describe("the entries reproduce the dashboard formula", () => {
 
 describe("what the entries deliberately leave out of profit", () => {
   it("records sales tax and keeps it out of net", () => {
-    const withTax = saleEntries(SALE, "42.00", null);
-    const noTax = saleEntries({ ...SALE, tax: "0.00" }, "42.00", null);
+    const withTax = saleEntries(SALE, "42.00", null, true);
+    const noTax = saleEntries({ ...SALE, tax: "0.00" }, "42.00", null, true);
     // Recorded...
     expect(withTax.some((e) => e.account === "sales_tax_collected")).toBe(true);
     expect(noTax.some((e) => e.account === "sales_tax_collected")).toBe(false);
@@ -127,7 +127,7 @@ describe("what the entries deliberately leave out of profit", () => {
   });
 
   it("keeps a payout out of net, because the sale was already counted", () => {
-    const base = saleEntries(SALE, "42.00", null);
+    const base = saleEntries(SALE, "42.00", null, true);
     const withPayout = [
       ...base,
       {
@@ -153,8 +153,8 @@ describe("the legacy shipments double-count guard", () => {
   // shipping label is deducted twice, once from sales.shipping_cost and once
   // from the shipments row.
   it("ignores a shipments row when the sale carries its own shipping", () => {
-    const withLegacy = saleEntries(SALE, "42.00", "9.85");
-    const without = saleEntries(SALE, "42.00", null);
+    const withLegacy = saleEntries(SALE, "42.00", "9.85", true);
+    const without = saleEntries(SALE, "42.00", null, true);
     expect(ledgerNetCents(withLegacy)).toBe(ledgerNetCents(without));
     expect(withLegacy.some((e) => e.source_detail === "legacy_shipment")).toBe(
       false,
@@ -163,7 +163,7 @@ describe("the legacy shipments double-count guard", () => {
 
   it("uses the shipments row when the sale carries no shipping", () => {
     const sale = { ...SALE, shipping_cost: "0.00" };
-    const entries = saleEntries(sale, "42.00", "5.95");
+    const entries = saleEntries(sale, "42.00", "5.95", true);
     const legacy = entries.find((e) => e.source_detail === "legacy_shipment");
     expect(legacy?.amount_cents).toBe(-595);
     expect(ledgerNetCents(entries)).toBe(saleNetCents(sale, "42.00", "5.95"));
@@ -184,7 +184,7 @@ describe("entry shape", () => {
       other_costs: "0",
       tax: "0",
     };
-    const entries = saleEntries(bare, null, null);
+    const entries = saleEntries(bare, null, null, true);
     expect(entries).toHaveLength(1);
     expect(entries[0]?.account).toBe("sales_revenue");
     expect(entries.every((e) => e.amount_cents !== 0)).toBe(true);
@@ -194,13 +194,13 @@ describe("entry shape", () => {
     // The unique index is (user_id, source_kind, source_id, source_detail), so
     // two entries from one sale sharing a (kind, detail) pair would silently
     // drop one on insert.
-    const entries = saleEntries(SALE, "42.00", null);
+    const entries = saleEntries(SALE, "42.00", null, true);
     const keys = entries.map((e) => `${e.source_kind}:${e.source_detail}`);
     expect(new Set(keys).size).toBe(keys.length);
   });
 
   it("makes every cost negative and every income positive", () => {
-    const entries = saleEntries(SALE, "42.00", null);
+    const entries = saleEntries(SALE, "42.00", null, true);
     for (const e of entries) {
       const isIncome =
         e.account === "sales_revenue" ||
@@ -210,6 +210,56 @@ describe("entry shape", () => {
         isIncome ? e.amount_cents > 0 : e.amount_cents < 0,
         `${e.account} had the wrong sign`,
       ).toBe(true);
+    }
+  });
+});
+
+describe("the two sales-tax branches (US-2987)", () => {
+  it("excludes facilitator tax from gross receipts", () => {
+    const e = saleEntries(SALE, "42.00", null, true);
+    const revenue = e
+      .filter((x) => x.account === "sales_revenue")
+      .reduce((s, x) => s + x.amount_cents, 0);
+    expect(revenue).toBe(18000);
+    expect(e.some((x) => x.account === "sales_tax_collected")).toBe(true);
+    expect(e.some((x) => x.account === "sales_tax_remitted")).toBe(false);
+  });
+
+  it("puts seller-collected tax INTO gross receipts and deducts the remittance", () => {
+    const e = saleEntries(SALE, "42.00", null, false);
+    const revenue = e
+      .filter((x) => x.account === "sales_revenue")
+      .reduce((s, x) => s + x.amount_cents, 0);
+    // 180.00 + 14.87 of tax the seller is the retailer for.
+    expect(revenue).toBe(19487);
+    expect(
+      e.find((x) => x.account === "sales_tax_remitted")?.amount_cents,
+    ).toBe(-1487);
+    expect(e.some((x) => x.account === "sales_tax_collected")).toBe(false);
+  });
+
+  it("nets to the SAME profit either way, which is why this needs a test", () => {
+    // The bottom line cannot tell you the branch was chosen correctly. Gross
+    // receipts can, and that is the figure a 1099-K is compared against.
+    const facilitator = ledgerNetCents(saleEntries(SALE, "42.00", null, true));
+    const seller = ledgerNetCents(saleEntries(SALE, "42.00", null, false));
+    expect(facilitator).toBe(seller);
+    expect(facilitator).toBe(saleNetCents(SALE, "42.00", null));
+  });
+
+  it("keeps the natural keys distinct on the seller-collected branch too", () => {
+    // Both tax entries come from the same sale, so they must differ on
+    // source_detail or the unique index silently drops one.
+    const e = saleEntries(SALE, "42.00", null, false);
+    const keys = e.map((x) => `${x.source_kind}:${x.source_detail}`);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("emits no tax entry at all on either branch when the tax is zero", () => {
+    const zero = { ...SALE, tax: "0.00" };
+    for (const facilitator of [true, false]) {
+      const e = saleEntries(zero, "42.00", null, facilitator);
+      expect(e.some((x) => x.source_detail.startsWith("tax"))).toBe(false);
     }
   });
 });

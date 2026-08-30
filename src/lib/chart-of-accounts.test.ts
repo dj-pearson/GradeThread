@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import {
   SYSTEM_ACCOUNTS,
   CATEGORY_DEFAULT_ACCOUNT,
@@ -24,12 +24,39 @@ import { EXPENSE_CATEGORIES } from "@/lib/constants";
 // and RELATIVE on Linux, which is a green-here red-in-CI trap this repo has
 // been bitten by before.
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const MIGRATION = join(
-  REPO_ROOT,
-  "supabase",
-  "migrations",
-  "00684_ledger_accounts.sql",
-);
+const MIGRATIONS_DIR = join(REPO_ROOT, "supabase", "migrations");
+
+/**
+ * EVERY migration that seeds the chart, in apply order.
+ *
+ * Not a fixed filename. 00684 seeded the chart and 00691 added an account to it
+ * -- 00684 is applied in production and therefore immutable, so extending the
+ * chart means a later migration, and the seed is an upsert keyed on `code`
+ * precisely so that works. A guard pinned to one filename would have kept
+ * passing while silently covering less of the chart with every addition, which
+ * is the failure mode where a guard becomes decoration.
+ */
+function chartMigrations(): string[] {
+  return readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith(".sql"))
+    .sort()
+    .map((f) => join(MIGRATIONS_DIR, f))
+    .filter((p) =>
+      readFileSync(p, "utf8").includes("INSERT INTO public.ledger_accounts"),
+    );
+}
+
+/** The chart as the migrations leave it: later rows upsert over earlier ones. */
+function seededChart(): LedgerAccount[] {
+  const byCode = new Map<string, LedgerAccount>();
+  for (const file of chartMigrations()) {
+    for (const row of parseSeededAccounts(readFileSync(file, "utf8"))) {
+      byCode.set(row.code, row);
+    }
+  }
+  // The database orders by sort_order; so does SYSTEM_ACCOUNTS.
+  return [...byCode.values()].sort((a, b) => a.sort_order - b.sort_order);
+}
 
 /**
  * Pull the seeded rows out of the migration's INSERT ... VALUES block.
@@ -119,7 +146,15 @@ function parseSeededAccounts(sql: string): LedgerAccount[] {
 }
 
 describe("the TypeScript chart matches the seeded one", () => {
-  const seeded = parseSeededAccounts(readFileSync(MIGRATION, "utf8"));
+  const seeded = seededChart();
+
+  it("reads every migration that seeds the chart, not just the first", () => {
+    // 00684 seeds it and 00691 extends it. If this ever drops back to one file,
+    // the guard is covering less of the chart than it claims to.
+    const files = chartMigrations().map((p) => basename(p));
+    expect(files.length).toBeGreaterThanOrEqual(2);
+    expect(files[0]).toMatch(/^00684_/);
+  });
 
   it("parses a plausible number of rows, so a broken parse cannot pass quietly", () => {
     // The failure mode this guards: a parser that returns [] compares two empty
@@ -143,7 +178,7 @@ describe("the TypeScript chart matches the seeded one", () => {
   });
 
   it("agrees on the category defaults with the SQL function", () => {
-    const sql = readFileSync(MIGRATION, "utf8");
+    const sql = readFileSync(join(MIGRATIONS_DIR, "00684_ledger_accounts.sql"), "utf8");
     const fn = sql.slice(sql.indexOf("default_account_for_category"));
     for (const [category, code] of Object.entries(CATEGORY_DEFAULT_ACCOUNT)) {
       expect(
