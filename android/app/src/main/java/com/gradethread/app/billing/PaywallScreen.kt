@@ -17,6 +17,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,17 +42,68 @@ import com.gradethread.app.ui.theme.cardStyle
  * list with a spinner on it.
  */
 @Composable
-fun PaywallScreen(
-    onClose: () -> Unit = {},
-    viewModel: PaywallViewModel = hiltViewModel(),
-) {
+fun PaywallScreen(onClose: () -> Unit = {}, viewModel: PaywallViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
     val activity = context as? Activity
     LaunchedEffect(Unit) { viewModel.load() }
 
+    PaywallContent(
+        state,
+        PaywallActions(
+            setInterval = viewModel::setInterval,
+            // The Activity and the Context both stay in the wrapper. Play
+            // billing needs a real Activity to launch its flow, and a
+            // screenshot test has neither.
+            subscribe = { row -> activity?.let { viewModel.subscribe(it, row) } },
+            buyCredits = { pack -> activity?.let { viewModel.buyCredits(it, pack) } },
+            openWebBilling = { CustomTabsLauncher.open(context, viewModel.webBillingUrl()) },
+            manageSubscription = {
+                CustomTabsLauncher.open(context, PaywallViewModel.MANAGE_SUBSCRIPTIONS_URL)
+            },
+            restore = viewModel::restore,
+            close = onClose,
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class PaywallActions(
+    val setInterval: (SubscriptionInterval) -> Unit = {},
+    val subscribe: (PaywallPricing.TierRow) -> Unit = {},
+    val buyCredits: (CreditPack) -> Unit = {},
+    val openWebBilling: () -> Unit = {},
+    /**
+     * Deep-links to THIS app subscription entry rather than the account-wide
+     * Play list: "find it in the Play Store" is not a route.
+     */
+    val manageSubscription: () -> Unit = {},
+    val restore: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * The paywall with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE AUTO-RENEWAL DISCLOSURE HAS A POSITION, NOT JUST A PRESENCE. US-2126
+ * put it directly under the tiers and above the credit packs, because it has to
+ * sit where the subscribing happens rather than at the bottom of a scroll. A
+ * capture is the only thing that can check where a paragraph ended up.
+ *
+ * ⚠ AND A CONFLICT REPLACES THE ERROR, on purpose. When Play reports an
+ * existing subscription the screen shows a WARNING with the conflict message
+ * and suppresses the ordinary error - two red cards about the same thing would
+ * read as two separate problems.
+ *
+ * ⚠ THE RESTORE BUTTON IS THE RECOVERY PATH for a purchase that was paid for
+ * and never landed. Without it that money is invisible and the seller has no
+ * move, so it renders in every state including the failures.
+ */
+@Composable
+fun PaywallContent(state: PaywallViewModel.State, actions: PaywallActions, modifier: Modifier = Modifier) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.paywall_title), style = MaterialTheme.typography.titleLarge)
@@ -73,7 +125,7 @@ fun PaywallScreen(
                 BrandSecondaryButton(
                     text = stringResource(R.string.paywall_open_web_billing),
                     modifier = Modifier.fillMaxWidth(),
-                ) { CustomTabsLauncher.open(context, viewModel.webBillingUrl()) }
+                ) { actions.openWebBilling() }
             }
         }
         if (state.conflict == null) {
@@ -82,7 +134,7 @@ fun PaywallScreen(
             }
         }
 
-        IntervalToggle(state, viewModel::setInterval)
+        IntervalToggle(state, actions.setInterval)
 
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f),
@@ -92,7 +144,7 @@ fun PaywallScreen(
                 TierCard(
                     row = row,
                     busy = state.purchasing,
-                    onSubscribe = { activity?.let { viewModel.subscribe(it, row) } },
+                    onSubscribe = { actions.subscribe(row) },
                 )
             }
 
@@ -121,9 +173,7 @@ fun PaywallScreen(
                 // in the Play Store" is not a route. Deep-links to this app's own
                 // subscription entry rather than the account-wide list.
                 TextButton(
-                    onClick = {
-                        CustomTabsLauncher.open(context, PaywallViewModel.MANAGE_SUBSCRIPTIONS_URL)
-                    },
+                    onClick = actions.manageSubscription,
                 ) {
                     Text(stringResource(R.string.paywall_manage_subscription))
                 }
@@ -148,7 +198,7 @@ fun PaywallScreen(
             items(state.creditPacks, key = { it.pack.productId }) { offer ->
                 CreditRow(
                     offer = offer,
-                    onBuy = { activity?.let { viewModel.buyCredits(it, offer.pack) } },
+                    onBuy = { actions.buyCredits(offer.pack) },
                 )
             }
         }
@@ -158,19 +208,16 @@ fun PaywallScreen(
         BrandSecondaryButton(
             text = stringResource(R.string.paywall_already_paid),
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.restore() }
+        ) { actions.restore() }
         BrandSecondaryButton(
             text = stringResource(R.string.common_close),
             modifier = Modifier.fillMaxWidth(),
-        ) { onClose() }
+        ) { actions.close() }
     }
 }
 
 @Composable
-private fun IntervalToggle(
-    state: PaywallViewModel.State,
-    onPick: (SubscriptionInterval) -> Unit,
-) {
+private fun IntervalToggle(state: PaywallViewModel.State, onPick: (SubscriptionInterval) -> Unit) {
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
@@ -195,11 +242,7 @@ private fun IntervalToggle(
 }
 
 @Composable
-private fun TierCard(
-    row: PaywallPricing.TierRow,
-    busy: Boolean,
-    onSubscribe: () -> Unit,
-) {
+private fun TierCard(row: PaywallPricing.TierRow, busy: Boolean, onSubscribe: () -> Unit) {
     Column(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
