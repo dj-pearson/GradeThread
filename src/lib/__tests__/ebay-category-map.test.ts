@@ -92,11 +92,86 @@ describe("ebayPathToItemCategory", () => {
     });
   });
 
-  it("returns null for a non-fashion / unknown vertical", () => {
+  it("returns null only for genuinely unknown input now", () => {
+    // US-3016 changed the electronics case deliberately. This asserted null
+    // for every non-fashion vertical, which is what made the composer's own
+    // helper text ("Picking an eBay category above keeps this in sync") false
+    // for anything that is not a garment.
     expect(
       ebayPathToItemCategory("Cell Phones & Accessories › Cell Phones & Smartphones"),
-    ).toBeNull();
+    ).toBe("electronics");
     expect(ebayPathToItemCategory(null)).toBeNull();
     expect(ebayPathToItemCategory("")).toBeNull();
+    expect(ebayPathToItemCategory("Everything Else › Weird Stuff")).toBeNull();
+  });
+
+  // ── US-3016: the non-apparel roots ───────────────────────────────────────
+  //
+  // FlipDesk lists anything eBay lists. These are the three the owner was
+  // actually holding when this came up, plus the roots around them.
+  describe("non-apparel verticals", () => {
+    it("maps a doll, a plate and a carved egg to collectibles", () => {
+      expect(
+        ebayPathToItemCategory("Toys & Hobbies › Dolls & Bears › Dolls › Barbie"),
+      ).toBe("collectibles");
+      expect(
+        ebayPathToItemCategory(
+          "Antiques › Decorative Arts › Ceramics & Porcelain › Plates",
+        ),
+      ).toBe("collectibles");
+      expect(
+        ebayPathToItemCategory("Collectibles › Cultures & Ethnicities › Asian › Japanese"),
+      ).toBe("collectibles");
+      expect(ebayPathToItemCategory("Pottery & Glass › Pottery & China")).toBe(
+        "collectibles",
+      );
+      expect(ebayPathToItemCategory("Coins & Paper Money › Coins: US")).toBe(
+        "collectibles",
+      );
+    });
+
+    it("reads the ROOT, not the descendants, outside apparel", () => {
+      // This is the whole point of the inversion. Both of these paths end in a
+      // word the apparel branches would match, and both would have been
+      // classified as footwear or an accessory by reading the tail.
+      expect(
+        ebayPathToItemCategory("Collectibles › Advertising › Merchandise & Memorabilia › Shoes"),
+      ).toBe("collectibles");
+      expect(
+        ebayPathToItemCategory("Toys & Hobbies › Action Figures › Accessories"),
+      ).toBe("collectibles");
+    });
+
+    it("splits the two roots that straddle our values", () => {
+      expect(
+        ebayPathToItemCategory("Sports Mem, Cards & Fan Shop › Sports Trading Cards › Singles"),
+      ).toBe("sports_cards");
+      expect(
+        ebayPathToItemCategory("Sports Mem, Cards & Fan Shop › Autographs-Original › Baseball"),
+      ).toBe("collectibles");
+      // eBay's newer standalone root covers Pokemon and Magic too; our enum
+      // has one card bucket and it picks the rubric, so they share it.
+      expect(
+        ebayPathToItemCategory("Trading Cards › Collectible Card Games › CCG Individual Cards"),
+      ).toBe("sports_cards");
+    });
+
+    it("still lets the apparel root fall through to the descendants", () => {
+      // The apparel root names three verticals at once, so it must NOT be
+      // root-classified. Regression guard on the inversion above.
+      expect(
+        ebayPathToItemCategory(`${ROOT} › Men › Men's Shoes › Athletic Shoes`),
+      ).toBe("shoes");
+      expect(
+        ebayPathToItemCategory(`${ROOT} › Women › Women's Clothing › Dresses`),
+      ).toBe("clothing");
+    });
+
+    it("declines a path whose first segment is not a marketplace root", () => {
+      // category_name in the aspect cache is not always a full breadcrumb —
+      // plenty of cached rows start at "Pants" or "Sweaters". Those must reach
+      // the descendant logic, not be mistaken for an unknown root.
+      expect(ebayPathToItemCategory("Pants")).toBe("clothing");
+    });
   });
 });
