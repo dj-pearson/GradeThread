@@ -15,6 +15,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,8 +45,54 @@ fun ListingPerformanceScreen(
     val state by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { viewModel.load() }
 
+    ListingPerformanceContent(
+        state = state,
+        actions = ListingPerformanceActions(
+            setSort = viewModel::setSort,
+            toggleNoViewFilter = viewModel::toggleNoViewFilter,
+            retry = viewModel::load,
+            openItem = onOpenItem,
+            close = onClose,
+        ),
+    )
+}
+
+/**
+ * Everything the performance list can do (US-2902 AC3).
+ *
+ * `retry` and the wrapper's LaunchedEffect are the SAME function: load() is both
+ * the entry fetch and the error state's retry button. Leaving it with the
+ * wrapper would have made that button dead in every capture - the second time
+ * this sweep has hit that, after ConsignmentReport, and both were caught by an
+ * assertion that the extracted body names no ViewModel.
+ */
+@Immutable
+data class ListingPerformanceActions(
+    val setSort: (ListingPerformanceSort) -> Unit = {},
+    val toggleNoViewFilter: (Int) -> Unit = {},
+    val retry: () -> Unit = {},
+    val openItem: (String) -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * Which listings are being seen, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ `analyticsDenied` IS THE STATE WORTH CAPTURING. It is a tri-state Boolean?
+ * on purpose: null means nobody has asked the marketplace yet, false means it
+ * answered, and true means it refused. A screen that collapses "we have not
+ * looked" into "you have no views" tells a seller their listings are dead when
+ * the truth is that we were not allowed to look - and both render as an empty
+ * table.
+ */
+@Composable
+fun ListingPerformanceContent(
+    state: ListingPerformanceViewModel.State,
+    actions: ListingPerformanceActions,
+    modifier: Modifier = Modifier,
+) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(
@@ -83,7 +130,7 @@ fun ListingPerformanceScreen(
             ListingPerformanceSort.entries.forEach { option ->
                 FilterChip(
                     selected = option == state.sort,
-                    onClick = { viewModel.setSort(option) },
+                    onClick = { actions.setSort(option) },
                     label = {
                         Text(
                             if (option == state.sort) {
@@ -114,7 +161,7 @@ fun ListingPerformanceScreen(
             ListingPerformance.noViewWindows.forEach { days ->
                 FilterChip(
                     selected = state.noViewDays == days,
-                    onClick = { viewModel.toggleNoViewFilter(days) },
+                    onClick = { actions.toggleNoViewFilter(days) },
                     label = { Text("${days}d") },
                 )
             }
@@ -125,7 +172,7 @@ fun ListingPerformanceScreen(
             verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             items(state.visible, key = { it.id }) { row ->
-                PerformanceCard(row, state.nowMs, onOpenItem)
+                PerformanceCard(row, state.nowMs, actions.openItem)
             }
             if (state.visible.isEmpty() && state.loaded) {
                 item {
@@ -159,20 +206,16 @@ fun ListingPerformanceScreen(
             },
             enabled = !state.loading,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.load() }
+        ) { actions.retry() }
         BrandSecondaryButton(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
-        ) { onClose() }
+        ) { actions.close() }
     }
 }
 
 @Composable
-private fun PerformanceCard(
-    row: ListingPerformanceRow,
-    nowMs: Long,
-    onOpenItem: (String) -> Unit,
-) {
+private fun PerformanceCard(row: ListingPerformanceRow, nowMs: Long, onOpenItem: (String) -> Unit) {
     val stale = ListingPerformance.isStale(row, nowMs)
     Column(
         Modifier
