@@ -1,0 +1,44 @@
+-- Remove the phantom 00689 row, following the precedent 00638 set.
+--
+-- WHAT HAPPENED, 2026-08-29. Two agents working the same tree both claimed
+-- 00689 within a few minutes: the inventory write-offs of US-3007 and the
+-- facilitator sales tax of US-2987. The write-offs file was APPLIED to
+-- production while it still carried that name, so its self-record footer wrote
+-- '00689'. Both files were then renamed away from the contested number, to
+-- 00690 and 00691, leaving production holding a version whose file no longer
+-- exists under any name.
+--
+-- /health/ready reported it as `unexpected: ["00689"]`.
+--
+-- THE SCHEMA WAS NEVER IN DOUBT, which is what makes this bookkeeping rather
+-- than an incident. 00692 applied cleanly and references removed_on and
+-- removed_reason fourteen times, so 00690's columns were demonstrably already
+-- there. 00690 was then re-run to record its own version and `missing` went
+-- empty. Only the discarded label survived.
+--
+-- WHY DELETE THE ROW RATHER THAN LIST THE PHANTOM. Both were available and the
+-- repo has already chosen: schema-version.ts says of 00636/00637 that "00638
+-- drops what they built AND removes their applied_migrations rows, so the
+-- applied set matches the shipped set exactly and the phantom list below does
+-- not have to grow". KNOWN_PHANTOM_VERSIONS is guarded by a test asserting it
+-- may only SHRINK ("the phantom list stays a list, not a habit"), because a
+-- field that is never empty is a field nobody reads. Adding an entry would have
+-- meant editing that test to permit growth, which is the guard working exactly
+-- as intended and me arguing with it.
+--
+-- NOTHING TRUE IS LOST. The row asserted "version 00689 was applied". There is
+-- no migration 00689 in this repo and there never will be - the number is
+-- annotated in migrations-lint's KNOWN_GAPS as claimed by two agents and used
+-- by neither. The content that actually ran is recorded under 00690, which is
+-- its real name. This deletes a duplicate record filed under a discarded label,
+-- not a record of work.
+--
+-- ⚠ SCOPED TO ONE VERSION, and deliberately not written as a range or a NOT IN
+-- against the manifest. A tidier query over "every version with no file" would
+-- also delete 00479 - a phantom that predates this repo's records and is
+-- deliberately kept, since reusing that number must never satisfy the boot
+-- guard off a stale row. One number, named, with its reason.
+
+DELETE FROM public.applied_migrations WHERE version = '00689';
+
+insert into public.applied_migrations (version) values ('00694') on conflict do nothing;

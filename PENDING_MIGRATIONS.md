@@ -1,5 +1,36 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🟠 PUSHED, NOT YET APPLIED: 00694_drop_phantom_00689.sql (removes a stale applied_migrations row)
+
+**Risk: very low.** One `DELETE` of a single row from `public.applied_migrations`.
+No table, column, function, policy or piece of seller data is touched.
+
+**No `NOTIFY pgrst` needed** — nothing in the schema changes.
+
+**What it does.** `DELETE FROM public.applied_migrations WHERE version = '00689';`
+
+**Why.** Two agents claimed 00689 within minutes on 2026-08-29. The US-3007
+write-offs migration was applied to prod while still carrying that name, so its
+footer recorded `'00689'`; both files were then renamed away (00690 and 00691)
+and the number ended up belonging to nobody. `/health/ready` reported
+`unexpected: ["00689"]`.
+
+**The schema was never wrong.** 00692 applied cleanly and references
+`removed_on`/`removed_reason` fourteen times, so 00690's columns were already
+there; re-running 00690 recorded its own version and `missing` went empty. Only
+the discarded label survived.
+
+**Precedent, not invention.** `schema-version.ts` records that 00638 removed the
+00636/00637 rows for the same reason, "so the applied set matches the shipped set
+exactly and the phantom list below does not have to grow" — and that list is
+guarded by a test asserting it may only shrink. Listing 00689 instead would have
+meant editing that test to permit growth.
+
+**Nothing true is lost.** The row claimed version 00689 was applied; no such
+migration exists in this repo and none ever will — the number is annotated in
+`migrations-lint`'s `KNOWN_GAPS`. What actually ran is recorded under 00690.
+
+
 ## ✅ APPLIED: 00692_keeping_leaves_inventory.sql (US-3007 — the status a seller already sets is what records the write-off; owner-confirmed applied 2026-08-29)
 
 **What it does.** A BEFORE INSERT/UPDATE trigger on `inventory_items` derives the
