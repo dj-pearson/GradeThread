@@ -45,6 +45,7 @@
     "check:ledger": "node scripts/check-ledger-invariant.mjs",
     "check:cogs": "node scripts/check-cogs-worksheet.mjs",
     "check:tax": "node scripts/check-facilitator-tax.mjs",
+    "check:1099k": "node scripts/check-1099k-bridge.mjs",
     "verify:security": "node scripts/verify.mjs --security",
     "verify:android": "node scripts/verify.mjs --android",
     "android:doctor": "node android/scripts/doctor.mjs --fix",

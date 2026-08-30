@@ -2218,6 +2218,28 @@ export type SavedViewUpdate = Partial<
 // income rather than understating it.
 //
 // Reference data with no user_id: readable by everyone, writable by nobody.
+// US-2988 — a 1099-K the seller received. One per platform per CALENDAR year;
+// a 1099-K never follows a fiscal year.
+export interface Form1099kRow {
+  id: string;
+  user_id: string;
+  platform: string;
+  tax_year: number;
+  gross_cents: number;
+  payer_name: string | null;
+  // LAST FOUR DIGITS ONLY, enforced by a CHECK constraint. A payer's full TIN
+  // is a federal identifier this app has no use for.
+  payer_tin_last4: string | null;
+  transaction_count: number | null;
+  received_on: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export type Form1099kInsert = Omit<Form1099kRow, "id" | "created_at" | "updated_at"> &
+  Partial<Pick<Form1099kRow, "id" | "created_at" | "updated_at">>;
+export type Form1099kUpdate = Partial<Form1099kInsert>;
+
 export interface MarketplaceFacilitatorRuleRow {
   id: string;
   platform: string;
@@ -4341,6 +4363,11 @@ export interface Database {
         Row: ExpenseRow;
         Insert: ExpenseInsert;
         Update: ExpenseUpdate;
+      };
+      form_1099k: {
+        Row: Form1099kRow;
+        Insert: Form1099kInsert;
+        Update: Form1099kUpdate;
       };
       marketplace_facilitator_rules: {
         Row: MarketplaceFacilitatorRuleRow;

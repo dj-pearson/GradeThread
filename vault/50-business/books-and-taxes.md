@@ -20,6 +20,9 @@ code_refs:
   - scripts/check-cogs-worksheet.mjs
   - supabase/migrations/00691_facilitator_sales_tax.sql
   - scripts/check-facilitator-tax.mjs
+  - supabase/migrations/00693_form_1099k.sql
+  - src/lib/form-1099k.ts
+  - scripts/check-1099k-bridge.mjs
   - supabase/migrations/00690_inventory_writeoffs.sql
   - scripts/check-inventory-writeoffs.mjs
   - supabase/migrations/00692_keeping_leaves_inventory.sql
@@ -550,6 +553,58 @@ and the fixture silently stops exercising the facilitator path it was written
 for — while still reporting `variance 0`, because net does not move. Caught when
 `excluded (sales tax)` dropped from $17.34 to $0.00 after 00691 landed.
 
+## The 1099-K bridge
+
+`public.form_1099k` holds what the seller received; `form_1099k_bridge(platform,
+year)` walks from that number down to what the sales left them.
+
+### Two things it gets right that are easy to get wrong
+
+**A 1099-K is ALWAYS a calendar year.** It has nothing to do with the seller's
+fiscal year. The function takes a YEAR and builds January-to-January bounds
+itself. Comparing a calendar-year form against fiscal-year totals produces a
+variance that is pure artefact, and a seller told to go and find it will not
+find it.
+
+**Computed gross is identical on both US-2987 tax branches.** A 1099-K counts
+the buyer's payment, so it includes sales tax whether the marketplace collected
+it (excluded account) or the seller did (inside `sales_revenue`). The function
+adds the excluded account back in.
+
+> **The sabotage is the clearest statement of why.** Removing the add-back drops
+> eBay's gross from $118.24 to $109.99 while Shopify's stays at $118.24, so the
+> variance reads **$13.25 — exactly the sales tax**. That looks like a real
+> finding and would send every marketplace seller hunting for sales that were
+> never missing. Seven checks catch it.
+
+### The statement starts where the seller is
+
+`bridgeRows()` begins at the figure on the form, not at our own total. Someone
+opening this screen has the 1099-K in their hand and it is the number
+frightening them. Every row names its source; `bridgeAddsUp()` checks the
+visible arithmetic reaches the stated total before the screen asks anyone to
+trust it, because a bridge that fails a calculator check destroys confidence in
+every other number in the app.
+
+**Overheads are deliberately absent.** They are business-wide and not
+attributable to one platform. Splitting them here would invent a number, so the
+final row says "before business-wide running costs" and points at the P&L.
+
+### The variance gets named causes, and the sign changes them
+
+A seller told only "there is a $412 difference" has no next action. `varianceCauses()`
+gives a different list depending on which side is higher — missing sales and
+cancelled-but-counted orders when the FORM is higher, hand-entered or duplicated
+sales when OUR figure is. When the form's transaction count disagrees with the
+sale count, that leads, because it settles instantly whether the gap is missing
+sales or wrong amounts.
+
+### The TIN is four digits, enforced
+
+`payer_tin_last4` carries a CHECK for exactly four digits. A payer's full TIN is
+a federal identifier this app has no use for, and a free-text field is how one
+ends up in the database despite the column name.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -561,10 +616,10 @@ its contract into this note. Currently landed:
 - **US-2985** - the P&L statement and the half-open period rules, above.
 - **US-2986** - COGS, the inventory snapshot and its two signals, above.
 - **US-2987** - the two sales-tax branches and the facilitator registry, above.
+- **US-2988** - the 1099-K bridge and its variance causes, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
 Still open, and each will add a section here rather than a new note: COGS and
-the ending-inventory snapshot (US-2986), facilitator sales tax (US-2987), the 1099-K bridge
-(US-2988), the dated mileage and home-office rates (US-2989, US-2990),
+the ending-inventory snapshot (US-2986), facilitator sales tax (US-2987), the dated mileage and home-office rates (US-2989, US-2990),
 estimated tax (US-2991), period close (US-2995) and the QuickBooks account
 mapping (US-2997, US-2998).

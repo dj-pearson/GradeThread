@@ -33,7 +33,69 @@ trigger to include `wearing` — it went red naming the real risk ("wearing or
 returned was removed from inventory - both must STAY") and green on restore.
 
 
-## ✅ APPLIED: 00691_facilitator_sales_tax.sql (US-2987, applied 2026-08-29 — owner-confirmed "all migrations have been applied up to 692")
+## ✅ APPLIED: 00693_form_1099k.sql (US-2988, applied 2026-08-29)
+
+> **Confirmed by READING production, not by trust.** `/form_1099k` and
+> `/rpc/form_1099k_bridge` are both present in the prod PostgREST OpenAPI
+> document, fetched with the public anon key. PostgREST only exposes what exists
+> in the schema cache, so their presence proves the SQL landed AND that
+> `NOTIFY pgrst` ran.
+
+**Risk: low.** One new table, two new functions. Nothing existing is altered and
+nothing runs on its own — the bridge is a read, and the table is empty until a
+seller types a form in.
+
+**What it does.** Creates `public.form_1099k` (one form per platform per
+calendar year), `form_1099k_bridge(platform, year)` and
+`platforms_with_sales(year)`.
+
+**Two correctness points worth reading before applying.**
+
+1. **A 1099-K is ALWAYS a calendar year.** It has nothing to do with the
+   seller's fiscal year. The function takes a YEAR and builds January-to-January
+   bounds itself, so a seller on a July year start cannot accidentally compare a
+   calendar-year form against fiscal-year totals and see a variance that is pure
+   artefact.
+2. **Computed gross must be identical on both US-2987 tax branches.** A 1099-K
+   counts the buyer's payment, so it includes sales tax whether the marketplace
+   collected it (excluded account) or the seller did (inside `sales_revenue`).
+   The function adds the excluded account back in for exactly this reason.
+
+> **Sabotage-verified, and the failure is the instructive part.** Removing the
+> add-back turns 7 checks red and drops eBay's gross from $118.24 to $109.99
+> while Shopify's stays at $118.24 — so the variance would have read $13.25,
+> which is exactly the sales tax. That looks like a real finding and would send
+> every marketplace seller hunting for sales that were never missing.
+
+**The TIN column is `payer_tin_last4` and a CHECK enforces four digits.** A
+payer's full TIN is a federal identifier this app has no use for, and a
+free-text field is how one ends up in the database despite the column name.
+
+**Verified against real Postgres.** Applied twice (second run clean), on a stack
+already carrying 00690, 00691 and 00692. `npm run check:1099k` runs 19
+assertions: both tax branches, the calendar-year boundary (a 2026-12-28 sale and
+a 2027-01-03 sale land in different forms), a cancelled sale in neither the
+gross nor the count, cross-platform isolation, and a $5.00 variance that fires.
+
+**Apply order.** After 00691. Then `NOTIFY pgrst, 'reload schema';` — one new
+table and two new RPCs.
+
+**Client-side read risk: LOW.** The bridge is a card inside Money -> Tax.
+Without the migration its queries fail and the card shows its loading state; the
+tax-profile form above it is unaffected.
+
+## ✅ APPLIED: 00691_facilitator_sales_tax.sql (US-2987, applied 2026-08-29)
+
+> **Confirmed by READING production.** `/marketplace_facilitator_rules`,
+> `/rpc/is_facilitator_collected` and `/rpc/sale_platform` are all present in
+> the prod OpenAPI document, and the data reads back correctly: **12 rules, 10
+> facilitators, `other` and `shopify` not**, and the `sales_tax_remitted`
+> account present on Schedule C line 23. That is the seed, not just the table.
+>
+> **The gate caught this the right way round.** It reported 00691 as ALREADY ON
+> origin/main while still marked HELD — the push happened before the heading was
+> flipped. Nothing broke, because the SQL had in fact been applied first, but
+> the ordering is the thing the rule protects and it was not followed here.
 
 **Risk: MEDIUM, higher than the rest of this epic, and the reason is worth
 reading.** It is the first migration here that CHANGES an existing derivation

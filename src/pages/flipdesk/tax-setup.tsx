@@ -40,6 +40,7 @@ import {
   dollarInputToCents,
   type TaxProfileDefaults,
 } from "@/lib/tax-profile";
+import { Form1099kBridge } from "@/components/finances/form-1099k-bridge";
 
 // US-2982 — the tax setup screen.
 //
@@ -329,6 +330,13 @@ export function TaxSetupPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* US-2988. The bridge lives under Tax rather than on the P&L because it
+          answers a once-a-year question against a CALENDAR year, while the P&L
+          follows the seller's fiscal year. Putting a calendar-year figure on a
+          fiscal-year page is how a variance that is pure artefact gets read as
+          a finding. */}
+      <Form1099kBridge />
 
       <div className="flex items-center gap-3">
         <Button onClick={save} disabled={saving || !user}>

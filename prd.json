@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3011",
+  "nextId": "US-3012",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2741,20 +2741,6 @@
       "priority": 30
     },
     {
-      "id": "US-2988",
-      "passes": false,
-      "title": "1099-K reconciliation: the bridge from the scary platform number to your actual profit",
-      "description": "Every January a reseller gets a 1099-K reporting gross payments — sale price plus shipping plus sales tax, before a single fee — and their bank shows a fraction of it. The IRS has the same form. Reconciling the two is the highest-anxiety task in reseller bookkeeping and it is entirely mechanical: gross reported, minus facilitator sales tax, minus platform fees, minus refunds, minus shipping cost, minus cost of goods, equals profit. GradeThread already holds every one of those numbers.",
-      "acceptanceCriteria": [
-        "The seller enters each 1099-K they received: platform, tax year, gross amount, and the payer name and TIN-last-four for their own records.",
-        "The app produces the bridge as a statement: reported gross at the top, each subtraction as its own line naming where the number came from, profit at the bottom.",
-        "An unexplained variance between reported gross and the app's own computed gross is shown as a number with a reason, and the likely causes are named: sales the app never saw, cancelled orders the platform still counted, a date-boundary difference between order date and payout date.",
-        "It reads the ledger, so a correction anywhere upstream flows through without re-entry.",
-        "Exports as a one-page PDF an accountant can read without opening the app."
-      ],
-      "priority": 37
-    },
-    {
       "id": "US-2989",
       "passes": false,
       "title": "Mileage log the IRS would accept, not an expense category called mileage",
@@ -2965,6 +2951,29 @@
         "ANDROID IS MISSING DARK AND HIGH-CONTRAST VARIANTS for the three non-navy bands. iOS defines four variants per colour (light, light high-contrast, dark, dark high-contrast); BrandPalette has a single fixed value for Emerald and Amber. Navy already resolves per theme via colorScheme.primary and red now via colorScheme.error, so only emerald and amber remain fixed."
       ],
       "priority": 6
+    },
+    {
+      "id": "US-3011",
+      "passes": false,
+      "title": "Shipping labels for every sale, not just eBay orders - an EasyPost path bundled into Pro",
+      "description": "As a Pro seller, I want to buy a shipping label for any sold item from inside FlipDesk and have the postage land in my books by itself, so the ship step never leaves the app even when the sale did not come from eBay. US-2160 built the whole label slice against eBay Sell Logistics, and it is dark: the scope is limited-release and US-2380 is still waiting on eBay. That path also only ever covers eBay orders, so a Shopify sale or an extension-listed Poshmark sale has no label path at all. This story adds a carrier aggregator (EasyPost) as the second provider behind the same route surface, funds it with a prepaid postage wallet, charges carrier reweigh adjustments back to that wallet with a receipt, and posts every one of those amounts to the shipping_postage account so the P&L is right without the seller typing anything. Postage is passed through at cost. The money model is the Pro subscription, not a markup on the rate, because eBay labels and Pirate Ship are both free and resellers price-check to the cent.",
+      "acceptanceCriteria": [
+        "A services/edge-functions/src/lib/easypost.ts wraps rate shopping, label buy, label refund/void and shipment read-back, mirroring the exported shape of the existing lib/ebay-logistics.ts so one route surface can serve both.",
+        "routes/flipdesk-logistics.ts chooses the provider per sale: an eBay order on a connection holding the sell.logistics grant keeps the existing eBay path; every other sale (Shopify, extension-listed, manual) goes through EasyPost. The rates response names the provider it used.",
+        "An EasyPost purchase writes the same sales columns the eBay path writes at flipdesk-logistics.ts:711 - shipping_cost, tracking_number, carrier, label_purchased_at - and never overwrites a real cost with 0.",
+        "For an eBay-sourced sale whose label was bought through EasyPost, the tracking number still reaches eBay through the existing createShippingFulfillment call, not a second implementation, and a fulfillment failure is logged without reporting the purchase as failed.",
+        "Label buying is gated by a new shippingLabels flag in gateFlags on FLIPDESK_PLANS (src/lib/constants.ts): false on free and starter, true on pro and business. The edge route enforces it through featureAllowedForUser and returns FEATURE_LOCKED, not a bare 403.",
+        "A migration adds postage_wallets and postage_transactions. A label buy debits the wallet, and a buy with insufficient balance returns 402 insufficient_postage_balance BEFORE any carrier call is made.",
+        "The wallet is topped up through Stripe, and a top-up is credited exactly once for a given Stripe event id (replaying the webhook does not double-credit).",
+        "Carrier adjustments are ingested from EasyPost and debit the same wallet as a distinct postage_transactions row of kind 'adjustment' carrying the carrier's reason, the original shipment id and the delta in cents; the sale detail surface shows it against the sale it belongs to.",
+        "Every label charge, refund and adjustment posts to the shipping_postage account defined in src/lib/chart-of-accounts.ts, so the P&L shows postage with no manual expense entry, and a voided label reverses its own posting.",
+        "A label purchase is never automatically retried (the US-2380 rule: no idempotency key means a retried 5xx buys and bills twice). A 5xx leaves the purchase in an unresolved state that is settled by reading the shipment back from EasyPost, never by re-posting.",
+        "Every new route is tenant-scoped per US-268 - user_id equality on every postage_wallets and postage_transactions write - and each new route has a case in tenant-isolation_test.ts; both new tables are registered with the rls-guard.",
+        "The migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, and the self-record footer. It contains no REVOKE.",
+        "EASYPOST_API_KEY is documented in vault/10-ops/env-reference.md and services/edge-functions/.env.example. With the key absent the rates route returns the same capability-gated shape the eBay path returns, not a 500.",
+        "The pricing page and FLIPDESK_PLANS.pro.features state that labels are included and that postage is passed through at cost with no markup; no code path adds a percentage or per-label fee on top of the carrier rate."
+      ],
+      "priority": 45
     }
   ]
 }
