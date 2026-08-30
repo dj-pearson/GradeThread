@@ -13,6 +13,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -155,8 +156,63 @@ fun FulfillmentScreen(
     val state by viewModel.state.collectAsState()
     val tracking by viewModel.tracking.collectAsState()
 
+    FulfillmentContent(
+        FulfillmentUiState(state, tracking),
+        FulfillmentActions(
+            setTracking = viewModel::setTracking,
+            ship = viewModel::markShipped,
+            openItem = onOpenItem,
+            refresh = viewModel::refresh,
+            close = onClose,
+        ),
+    )
+}
+
+/**
+ * The two flows this screen reads, in one place (US-2902 AC3).
+ *
+ * `tracking` is a bare Map, and Compose cannot infer stability for a Map passed
+ * as a parameter. Inside an @Immutable holder it can, which is why this type
+ * exists rather than a second parameter on the body.
+ */
+@Immutable
+data class FulfillmentUiState(
+    val orders: FulfillmentViewModel.State = FulfillmentViewModel.State(),
+    /** Per-order tracking text, so two rows cannot share one field. */
+    val tracking: Map<String, String> = emptyMap(),
+)
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class FulfillmentActions(
+    val setTracking: (String, String) -> Unit = { _, _ -> },
+    val ship: (FulfillmentOrder) -> Unit = {},
+    val openItem: (String) -> Unit = {},
+    val refresh: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * The packing queue with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE TRACKING FIELD IS PER ORDER, AND THAT IS THE BUG THIS GUARDS. One
+ * shared field across the rows would put the wrong number on the wrong parcel,
+ * which is a buyer watching a stranger's package cross the country and a case
+ * opened a week later. The map is keyed by sale id for that reason, and the
+ * golden types into the second row and leaves the first one empty so a field
+ * that started sharing shows up as two rows carrying the same text.
+ *
+ * ⚠ AND "DAYS WAITING" IS MEASURED FROM ONE STAMP. `nowMs` is taken once per
+ * recomputation so every row is counted against the same instant; a row that
+ * read the clock itself would drift against its neighbours.
+ */
+@Composable
+fun FulfillmentContent(uiState: FulfillmentUiState, actions: FulfillmentActions, modifier: Modifier = Modifier) {
+    val state = uiState.orders
+    val tracking = uiState.tracking
+
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(
@@ -189,9 +245,9 @@ fun FulfillmentScreen(
                     nowMs = state.nowMs,
                     trackingText = tracking[order.id].orEmpty(),
                     busy = state.busyId == order.id,
-                    onTracking = { viewModel.setTracking(order.id, it) },
-                    onShip = { viewModel.markShipped(order) },
-                    onOpenItem = { onOpenItem(order.sale.inventoryItemId) },
+                    onTracking = { actions.setTracking(order.id, it) },
+                    onShip = { actions.ship(order) },
+                    onOpenItem = { actions.openItem(order.sale.inventoryItemId) },
                 )
             }
 
@@ -204,7 +260,7 @@ fun FulfillmentScreen(
                     )
                 }
                 items(state.shipped, key = { "done-${it.id}" }) { order ->
-                    ShippedRow(order) { onOpenItem(order.sale.inventoryItemId) }
+                    ShippedRow(order) { actions.openItem(order.sale.inventoryItemId) }
                 }
             }
         }
@@ -217,11 +273,11 @@ fun FulfillmentScreen(
             },
             enabled = !state.refreshing,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.refresh() }
+        ) { actions.refresh() }
         BrandSecondaryButton(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
-        ) { onClose() }
+        ) { actions.close() }
     }
 }
 
@@ -282,10 +338,10 @@ private fun QueueCard(
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             BrandPrimaryButton(
                 text = if (busy) {
-                stringResource(R.string.common_saving)
-            } else {
-                stringResource(R.string.fulfillment_mark_shipped)
-            },
+                    stringResource(R.string.common_saving)
+                } else {
+                    stringResource(R.string.fulfillment_mark_shipped)
+                },
                 enabled = !busy,
                 modifier = Modifier.weight(1f),
             ) { onShip() }
@@ -306,7 +362,7 @@ private fun ShippedRow(order: FulfillmentOrder, onOpenItem: () -> Unit) {
             Text(order.displayTitle, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
             Text(
                 order.existingTracking?.let { stringResource(R.string.fulfillment_tracking, it) }
-                ?: stringResource(R.string.fulfillment_no_tracking),
+                    ?: stringResource(R.string.fulfillment_no_tracking),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
