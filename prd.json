@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3014",
+  "nextId": "US-3015",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2752,7 +2752,13 @@
         "Trip entry is two taps from the sourcing screen, because a feature that takes longer than the trip is a feature nobody uses.",
         "Parity is verified with the parity-auditor rather than asserted."
       ],
-      "priority": 49
+      "priority": 49,
+      "notes": [
+        {
+          "at": "2026-08-30",
+          "body": "ANDROID IS COMPLETE. Three commits: the data layer (Room table, version-9\nmigration, offline queue wiring, repository), the trip UI reachable in two\ntaps from Scout, and receipt capture through the shared edge extraction.\nVerified on the Windows box: compileDebugKotlin clean, spotless and detekt\nclean, 159 of 160 money unit tests passing. The one failure is\nTabletLayoutScreenshotTest, which needs Java 21 for Robolectric and fails\nidentically on a pristine checkout.\n\nAC3 is met and then some: the date rule now lives in ONE place\n(CalendarDateField) with ExpenseDraft delegating to it, so trip_date cannot\nrepeat US-2339. CalendarDateFieldTest drives three round trips through six\nzones either side of Greenwich and asserts the defect itself so the fix is\nnot a coincidence. It also caught a live residual: the add-expense button\nseeded System.currentTimeMillis(), so an 8pm entry in Chicago pre-filled\ntomorrow. Fixed.\n\nAC5 was met with the parity-auditor rather than asserted, and the audit is\nwhat produced US-3014.\n\niOS IS NOT STARTED and is now US-3014. It has NEITHER feature - audited,\nnot assumed. Swift cannot be compiled on this machine, so writing it here\nwould put code on main that nobody has ever seen build, and this repo does\nnot push, so CI would not catch it either.\n\nA split was proposed to the owner four times across five loop iterations\nwith no answer. Filing US-3014 rather than closing this story: declaring\nUS-3000 done while iOS has nothing would be false, and narrowing its scope\nis the owner call. This story stays open and points at US-3014."
+        }
+      ]
     },
     {
       "id": "US-3010",
@@ -2806,6 +2812,23 @@
         "No finding may come from a utility definition the page does not use. The three false positives measured in US-2999 (gradient-text, bounce-easing, dark-glow, all from src/index.css) must not appear.",
         "At least the Money views are covered, and adding a screen is one line.",
         "Report-only first, with the enforce flag and the CI wiring left to a follow-up once the baseline is known."
+      ]
+    },
+    {
+      "id": "US-3014",
+      "passes": false,
+      "priority": 50,
+      "title": "iOS: a mileage log and receipt capture, neither of which exists today",
+      "description": "The iOS half of US-3000, split out because it could not be verified on the Windows dev box and was blocking that story from closing. Android shipped complete over three commits (data layer, trip UI reachable in two taps from Scout, receipt capture through the shared edge extraction). iOS has NEITHER feature and the absence was audited rather than assumed: rg -i mileage ios/ returns three files and all three are the expense CATEGORY enum; TripDraft/MileageView/MileageStore/VehicleUse return zero; mileage_trips/mileage_rates/vehicle_use_years/mileage_summary appear in no Swift file. For receipts, every -i receipt hit in ios/ is a different meaning (the App Store receipt in DiagnosticsSection.swift, a comment about the internal photo slot, and plain English in AutoListerView); flipdesk/expenses appears in no Swift file; VNDocumentCamera and VisionKit are absent. ExpenseFormSheet.swift has no photo, camera or image control at all. WHAT ALREADY EXISTS TO BUILD ON: the offline mutation queue Android was ported FROM (ios/GradeThread/Persistence/OfflineMutationQueue.swift, PendingMutationActor.swift, SyncEngine.swift), and ExpenseStore.swift already returns .savedOffline. Persistence is SwiftData, so a trip needs a new @Model plus a schema-version entry - and note the duplicate-checksum launch crash trap in this repo memory. Swift cannot be compiled on the Windows box; iOS CI on macOS runners is the only safety net, and this repo does not push, so nothing verifies until the owner does.",
+      "acceptanceCriteria": [
+        "A trip log on iOS: date, miles, purpose, optional from/to, round trip. Offline-tolerant through the existing OfflineMutationQueue, returning the same three-way saved / queued / failed the expense store already returns.",
+        "The date rule is NOT reimplemented. trip_date is a DATE column and US-1494 already settled this on iOS with ExpenseStore.bucketingCalendar, a UTC calendar. Parsing, formatting and bucketing happen in one zone, in one named place, exactly as Android now does in CalendarDateField.",
+        "Receipt capture on iOS calls the SAME edge extraction (POST /api/flipdesk/expenses/extract, then /adopt-staged). One prompt and one set of results, never a second implementation that drifts. Android does this in ReceiptScanService.kt and is the model to copy.",
+        "The model proposes and the seller confirms: the scan opens the ordinary expense form pre-filled and never writes a row.",
+        "Save then attach, and the attach is best effort. An expense with no receipt is a correct expense; a receipt with no expense is a file nobody finds.",
+        "Trip entry is two taps from a screen the seller is already on when they arrive at a shop. Android put it on Scout; iOS has SourcesView, ScoutView and ProspectView, and which one is a design call to make rather than to assume.",
+        "Parity is verified with the parity-auditor against the shipped Android surface, not asserted.",
+        "It compiles. Nothing here can be verified on the Windows dev box, so the owner runs iOS CI before this closes."
       ]
     }
   ]
