@@ -242,12 +242,6 @@ class MarketplacesScreenshotTest {
         )
     }
 
-    /** Stands in for PromotionSheet, which cannot compose without Hilt. */
-    @Composable
-    private fun PromotionStandIn() {
-        Text("Promotion sheet")
-    }
-
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
             GradeThreadTheme(darkTheme = dark) {
@@ -255,4 +249,16 @@ class MarketplacesScreenshotTest {
             }
         }
     }
+}
+
+/**
+ * ⚠ TOP LEVEL, NOT A METHOD ON THE TEST CLASS. A composable declared as an
+ * instance function has the class as its receiver, and Android lint's
+ * ComposeUnstableReceiver fails the build for it: an unstable receiver means
+ * the function recomposes every time. The other screenshot files already put
+ * their helpers here for the same reason.
+ */
+@Composable
+private fun PromotionStandIn() {
+    Text("Promotion sheet")
 }

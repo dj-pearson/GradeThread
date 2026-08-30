@@ -182,12 +182,6 @@ class BulkGradeScreenshotTest {
         )
     }
 
-    /** Stands in for CreditPackSheet, which cannot compose without Hilt. */
-    @Composable
-    private fun CreditStandIn() {
-        Text("Top up credits")
-    }
-
     private fun capture(name: String, dark: Boolean = false, content: @Composable () -> Unit) {
         captureRoboImage("src/test/screenshots/$name.png") {
             GradeThreadTheme(darkTheme = dark) {
@@ -195,4 +189,16 @@ class BulkGradeScreenshotTest {
             }
         }
     }
+}
+
+/**
+ * ⚠ TOP LEVEL, NOT A METHOD ON THE TEST CLASS. A composable declared as an
+ * instance function has the class as its receiver, and Android lint's
+ * ComposeUnstableReceiver fails the build for it: an unstable receiver means
+ * the function recomposes every time. The other screenshot files already put
+ * their helpers here for the same reason.
+ */
+@Composable
+private fun CreditStandIn() {
+    Text("Top up credits")
 }
