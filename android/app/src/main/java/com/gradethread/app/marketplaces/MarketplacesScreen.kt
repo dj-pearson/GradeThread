@@ -3,6 +3,7 @@ package com.gradethread.app.marketplaces
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +20,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,15 +89,149 @@ fun MarketplacesScreen(
     // US-2490: the listing whose price/edit/end sheet is open.
     var editing by remember { mutableStateOf<ListingCardModel?>(null) }
 
+    MarketplacesContent(
+        MarketplacesUiState(state, listings),
+        MarketplacesActions(
+            dismissMessages = viewModel::dismissMessages,
+            setPrimary = viewModel::setPrimary,
+            openRename = { renaming = it },
+            rename = { id, label ->
+                viewModel.rename(id, label)
+                renaming = null
+            },
+            openDisconnect = { disconnecting = it },
+            disconnect = {
+                viewModel.disconnect(it)
+                disconnecting = null
+            },
+            connect = viewModel::connect,
+            syncListings = viewModel::syncListings,
+            refresh = viewModel::load,
+            queueDelist = viewModel::queueDelist,
+            markDelistDone = viewModel::markDelistDone,
+            cancelQueued = viewModel::cancelQueued,
+            // A Custom Tab needs a real Context, and a screenshot test has
+            // nowhere to send one.
+            openExternal = { url -> CustomTabsLauncher.open(context, url) },
+            openPromote = { promoting = it },
+            openEdit = { editing = it },
+            reprice = { id, price ->
+                viewModel.repriceListing(id, price)
+                editing = null
+            },
+            revise = {
+                viewModel.reviseListing(it)
+                editing = null
+            },
+            endListing = {
+                viewModel.endListing(it)
+                editing = null
+            },
+            openNegotiation = onOpenNegotiation,
+            openBulkPricing = onOpenBulkPricing,
+            openPostSale = onOpenPostSale,
+            openRepricing = onOpenRepricing,
+            openDrafts = onOpenDrafts,
+            openAutomations = onOpenAutomations,
+        ),
+        modifier = modifier,
+        renaming = renaming,
+        disconnecting = disconnecting,
+        promoting = promoting,
+        editing = editing,
+    )
+}
+
+/** The two flows this screen reads, in one place (US-2902 AC3). */
+@Immutable
+data class MarketplacesUiState(
+    val state: MarketplacesViewModel.State = MarketplacesViewModel.State(),
+    val listings: List<ListingCardModel> = emptyList(),
+)
+
+/**
+ * Everything this screen can be asked to do (US-2902 AC3).
+ *
+ * Long because this screen IS the marketplace surface: it owns the connection,
+ * the listings on it, the extension queue behind it and the six other screens
+ * that hang off it. Splitting the record would group by nothing.
+ */
+@Suppress("LongParameterList")
+@Immutable
+data class MarketplacesActions(
+    val dismissMessages: () -> Unit = {},
+    val setPrimary: (String) -> Unit = {},
+    val openRename: (MarketplaceConnection?) -> Unit = {},
+    val rename: (String, String) -> Unit = { _, _ -> },
+    val openDisconnect: (MarketplaceConnection?) -> Unit = {},
+    val disconnect: (String) -> Unit = {},
+    val connect: () -> Unit = {},
+    val syncListings: () -> Unit = {},
+    val refresh: () -> Unit = {},
+    val queueDelist: (PendingDelist) -> Unit = {},
+    val markDelistDone: (PendingDelist) -> Unit = {},
+    val cancelQueued: (String) -> Unit = {},
+    val openExternal: (String) -> Unit = {},
+    val openPromote: (ListingCardModel?) -> Unit = {},
+    val openEdit: (ListingCardModel?) -> Unit = {},
+    val reprice: (String, Double) -> Unit = { _, _ -> },
+    val revise: (String) -> Unit = {},
+    val endListing: (String) -> Unit = {},
+    val openNegotiation: () -> Unit = {},
+    val openBulkPricing: () -> Unit = {},
+    val openPostSale: () -> Unit = {},
+    val openRepricing: () -> Unit = {},
+    val openDrafts: () -> Unit = {},
+    val openAutomations: () -> Unit = {},
+)
+
+/**
+ * The eBay account surface with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE PROMOTION SHEET IS A SLOT. PromotionSheet resolves its own ViewModel
+ * through Hilt, and RoborazziActivity is not a Hilt component, so composing the
+ * real one here would kill any capture that reached it.
+ *
+ * ⚠ AN IMPORTED LISTING GETS NEITHER PROMOTE NOR EDIT, and the buttons are
+ * absent rather than disabled. eBay authored those listings and owns their
+ * lifecycle, so a greyed Edit would read as one tap from working. The fixture
+ * carries one imported listing beside one of ours for exactly that comparison.
+ *
+ * ⚠ AND THE DELIST QUEUE'S BUTTON ORDER IS AN ARGUMENT. "Queue for my desktop"
+ * comes first because it is the one that actually ends the listing; "I ended it
+ * myself" second, because it clears the stamp without the extension - and a
+ * stamp cleared on a listing that is still live IS the double sale this whole
+ * queue exists to prevent.
+ */
+@Composable
+fun MarketplacesContent(
+    ui: MarketplacesUiState,
+    actions: MarketplacesActions,
+    modifier: Modifier = Modifier,
+    renaming: MarketplaceConnection? = null,
+    disconnecting: MarketplaceConnection? = null,
+    promoting: ListingCardModel? = null,
+    editing: ListingCardModel? = null,
+    promotionSheet: @Composable (ListingCardModel) -> Unit = { listing ->
+        com.gradethread.app.marketplaces.promotions.PromotionSheet(
+            listingId = listing.id,
+            listingTitle = listing.platformLabel + " · " + listing.priceText,
+            onDismiss = { actions.openPromote(null) },
+        )
+    },
+) {
+    val state = ui.state
+    val listings = ui.listings
+
     Column(
         modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.marketplaces_ebay_accounts), style = MaterialTheme.typography.titleLarge)
 
-        state.errorMessage?.let { Banner(it, MaterialTheme.colorScheme.error, viewModel::dismissMessages) }
+        state.errorMessage?.let { Banner(it, MaterialTheme.colorScheme.error, actions.dismissMessages) }
         state.message?.let {
-            Banner(it, MaterialTheme.colorScheme.onSurfaceVariant, viewModel::dismissMessages)
+            Banner(it, MaterialTheme.colorScheme.onSurfaceVariant, actions.dismissMessages)
         }
 
         when {
@@ -114,9 +250,9 @@ fun MarketplacesScreen(
             else -> state.connections.forEach { connection ->
                 ConnectionRow(
                     connection = connection,
-                    onRename = { renaming = connection },
-                    onSetPrimary = { viewModel.setPrimary(connection.id) },
-                    onDisconnect = { disconnecting = connection },
+                    onRename = { actions.openRename(connection) },
+                    onSetPrimary = { actions.setPrimary(connection.id) },
+                    onDisconnect = { actions.openDisconnect(connection) },
                 )
             }
         }
@@ -139,7 +275,7 @@ fun MarketplacesScreen(
             ),
             enabled = !state.connecting && !state.confirming,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.connect() }
+        ) { actions.connect() }
 
         if (state.canSync) {
             BrandSecondaryButton(
@@ -152,159 +288,41 @@ fun MarketplacesScreen(
                 ),
                 enabled = !state.syncing,
                 modifier = Modifier.fillMaxWidth(),
-            ) { viewModel.syncListings() }
+            ) { actions.syncListings() }
         }
 
         if (state.canSync) {
             BrandSecondaryButton(
                 text = stringResource(R.string.marketplaces_offers_messages),
                 modifier = Modifier.fillMaxWidth(),
-            ) { onOpenNegotiation() }
+            ) { actions.openNegotiation() }
             BrandSecondaryButton(
                 text = stringResource(R.string.marketplaces_bulk_pricing),
                 modifier = Modifier.fillMaxWidth(),
-            ) { onOpenBulkPricing() }
+            ) { actions.openBulkPricing() }
             BrandSecondaryButton(
                 text = stringResource(R.string.marketplaces_after_sale),
                 modifier = Modifier.fillMaxWidth(),
-            ) { onOpenPostSale() }
+            ) { actions.openPostSale() }
             BrandSecondaryButton(
                 text = stringResource(R.string.marketplaces_repricing),
                 modifier = Modifier.fillMaxWidth(),
-            ) { onOpenRepricing() }
+            ) { actions.openRepricing() }
             BrandSecondaryButton(
                 text = stringResource(R.string.marketplaces_draft_listings),
                 modifier = Modifier.fillMaxWidth(),
-            ) { onOpenDrafts() }
+            ) { actions.openDrafts() }
             BrandSecondaryButton(
                 text = stringResource(R.string.marketplaces_automations),
                 modifier = Modifier.fillMaxWidth(),
-            ) { onOpenAutomations() }
+            ) { actions.openAutomations() }
         }
 
         BrandSecondaryButton(text = stringResource(R.string.marketplaces_refresh), modifier = Modifier.fillMaxWidth()) {
-            viewModel.load()
+            actions.refresh()
         }
 
-        // US-2481 AC1: sold elsewhere, still live here.
-        //
-        // ABOVE the queue section, because a listing that is still taking money
-        // outranks the record of work already queued. The button order is the
-        // argument: "Queue for my desktop" first, because it is the one that
-        // actually ends the listing; "I ended it myself" second, because it is
-        // the only thing that clears the stamp without the extension and a
-        // stamp cleared on a live listing is the double sale itself.
-        if (state.pendingDelists.isNotEmpty()) {
-            Text(
-                stringResource(R.string.marketplaces_pending_delists_title),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = Spacing.sm),
-            )
-            Text(
-                stringResource(R.string.marketplaces_pending_delists_body),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            state.pendingDelists.forEach { row ->
-                val blocked = pendingDelistBlockedReason(row)
-                Column(Modifier.fillMaxWidth().padding(top = Spacing.xs)) {
-                    Text(
-                        describePendingDelist(row),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Text(
-                        blocked ?: QUEUED_NOTICE,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (blocked == null) {
-                            TextButton(
-                                onClick = { viewModel.queueDelist(row) },
-                                enabled = state.delistBusyId == null,
-                            ) {
-                                Text(stringResource(R.string.marketplaces_delist_queue))
-                            }
-                        }
-                        TextButton(
-                            onClick = { viewModel.markDelistDone(row) },
-                            enabled = state.delistBusyId == null,
-                        ) {
-                            Text(stringResource(R.string.marketplaces_delist_did_it_myself))
-                        }
-                    }
-                }
-            }
-            state.delistMessage?.let { message ->
-                Text(
-                    message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        // US-2481: extension work this phone queued that the desktop has not
-        // run yet. Placed above the listings because it answers the question a
-        // seller actually opens this screen with after queuing something at a
-        // thrift store — "did that happen?" — and the honest answer is "not
-        // until your browser opens."
-        if (state.queuePending.isNotEmpty() || state.queueNeedsAttention.isNotEmpty()) {
-            Text(
-                stringResource(R.string.marketplaces_queued_for_desktop),
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(top = Spacing.sm),
-            )
-            if (state.queuePending.isNotEmpty()) {
-                // The sentence comes from the repository layer, shared verbatim
-                // with web and iOS, so no platform can soften it into something
-                // that reads like the work is already done.
-                Text(
-                    QUEUED_NOTICE,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                state.queuePending.forEach { job ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(top = Spacing.xs),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            viewModel.describeQueued(job),
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        TextButton(onClick = { viewModel.cancelQueued(job.id) }) {
-                            Text(stringResource(R.string.marketplaces_cancel))
-                        }
-                    }
-                }
-            }
-            if (state.queueNeedsAttention.isNotEmpty()) {
-                Text(
-                    stringResource(R.string.marketplaces_queue_didnt_run),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = Spacing.xs),
-                )
-                state.queueNeedsAttention.forEach { job ->
-                    Text(
-                        "• " + viewModel.describeQueued(job),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-
-        // US-1351: the listings the pull merged. Weighted + lazy so a seller
-        // with a few hundred live listings scrolls them instead of composing
-        // every card into a Column that can't scroll.
-        Text(
-            stringResource(R.string.marketplaces_listings),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(top = Spacing.sm),
-        )
+        DelistAndQueueSections(state, actions)
         if (listings.isEmpty()) {
             Text(
                 stringResource(R.string.marketplaces_no_listings_cached_yet_sync),
@@ -319,16 +337,20 @@ fun MarketplacesScreen(
                 items(listings, key = { it.id }) { listing ->
                     ListingCard(
                         listing,
-                        onOpenExternal = { url -> CustomTabsLauncher.open(context, url) },
+                        onOpenExternal = actions.openExternal,
                         // Promotions only apply to listings GradeThread
                         // published — an imported one has no offer to advertise.
-                        onPromote = if (listing.isImported) null else {
-                            { promoting = listing }
+                        onPromote = if (listing.isImported) {
+                            null
+                        } else {
+                            { actions.openPromote(listing) }
                         },
                         // Same rule as promotions, for the same reason: eBay
                         // authored an imported listing and owns its lifecycle.
-                        onEdit = if (listing.isImported) null else {
-                            { editing = listing }
+                        onEdit = if (listing.isImported) {
+                            null
+                        } else {
+                            { actions.openEdit(listing) }
                         },
                     )
                 }
@@ -336,38 +358,183 @@ fun MarketplacesScreen(
         }
     }
 
+    MarketplacesDialogs(
+        actions = actions,
+        busyListingId = state.editingListingId,
+        renaming = renaming,
+        disconnecting = disconnecting,
+        promoting = promoting,
+        editing = editing,
+        promotionSheet = promotionSheet,
+    )
+}
+
+/**
+ * The delist queue and the extension work behind it (US-2902 AC3).
+ *
+ * Split out of MarketplacesContent because inlined it took that body to a
+ * cyclomatic complexity of 31 against a ceiling of 20. The sections belong
+ * together: all three are about work that has left this phone and not yet
+ * landed anywhere.
+ */
+@Composable
+private fun ColumnScope.DelistAndQueueSections(state: MarketplacesViewModel.State, actions: MarketplacesActions) {
+    // US-2481 AC1: sold elsewhere, still live here.
+    //
+    // ABOVE the queue section, because a listing that is still taking money
+    // outranks the record of work already queued. The button order is the
+    // argument: "Queue for my desktop" first, because it is the one that
+    // actually ends the listing; "I ended it myself" second, because it is
+    // the only thing that clears the stamp without the extension and a
+    // stamp cleared on a live listing is the double sale itself.
+    if (state.pendingDelists.isNotEmpty()) {
+        Text(
+            stringResource(R.string.marketplaces_pending_delists_title),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = Spacing.sm),
+        )
+        Text(
+            stringResource(R.string.marketplaces_pending_delists_body),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        state.pendingDelists.forEach { row ->
+            val blocked = pendingDelistBlockedReason(row)
+            Column(Modifier.fillMaxWidth().padding(top = Spacing.xs)) {
+                Text(
+                    describePendingDelist(row),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    blocked ?: QUEUED_NOTICE,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (blocked == null) {
+                        TextButton(
+                            onClick = { actions.queueDelist(row) },
+                            enabled = state.delistBusyId == null,
+                        ) {
+                            Text(stringResource(R.string.marketplaces_delist_queue))
+                        }
+                    }
+                    TextButton(
+                        onClick = { actions.markDelistDone(row) },
+                        enabled = state.delistBusyId == null,
+                    ) {
+                        Text(stringResource(R.string.marketplaces_delist_did_it_myself))
+                    }
+                }
+            }
+        }
+        state.delistMessage?.let { message ->
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+
+    // US-2481: extension work this phone queued that the desktop has not
+    // run yet. Placed above the listings because it answers the question a
+    // seller actually opens this screen with after queuing something at a
+    // thrift store — "did that happen?" — and the honest answer is "not
+    // until your browser opens."
+    if (state.queuePending.isNotEmpty() || state.queueNeedsAttention.isNotEmpty()) {
+        Text(
+            stringResource(R.string.marketplaces_queued_for_desktop),
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.padding(top = Spacing.sm),
+        )
+        if (state.queuePending.isNotEmpty()) {
+            // The sentence comes from the repository layer, shared verbatim
+            // with web and iOS, so no platform can soften it into something
+            // that reads like the work is already done.
+            Text(
+                QUEUED_NOTICE,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            state.queuePending.forEach { job ->
+                Row(
+                    Modifier.fillMaxWidth().padding(top = Spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        describeQueuedWork(job),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { actions.cancelQueued(job.id) }) {
+                        Text(stringResource(R.string.marketplaces_cancel))
+                    }
+                }
+            }
+        }
+        if (state.queueNeedsAttention.isNotEmpty()) {
+            Text(
+                stringResource(R.string.marketplaces_queue_didnt_run),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = Spacing.xs),
+            )
+            state.queueNeedsAttention.forEach { job ->
+                Text(
+                    "• " + describeQueuedWork(job),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+
+    // US-1351: the listings the pull merged. Weighted + lazy so a seller
+    // with a few hundred live listings scrolls them instead of composing
+    // every card into a Column that can't scroll.
+    Text(
+        stringResource(R.string.marketplaces_listings),
+        style = MaterialTheme.typography.titleMedium,
+        modifier = Modifier.padding(top = Spacing.sm),
+    )
+}
+
+/**
+ * The four things this screen can open over itself (US-2902 AC3).
+ *
+ * Together rather than inline for the same reason as the queue sections: the
+ * body was over detekt's complexity ceiling. They are also the part a golden
+ * most needs to reach, which is why every one of them is driven by a
+ * parameter rather than by a remember.
+ */
+@Composable
+private fun MarketplacesDialogs(
+    actions: MarketplacesActions,
+    busyListingId: String?,
+    renaming: MarketplaceConnection?,
+    disconnecting: MarketplaceConnection?,
+    promoting: ListingCardModel?,
+    editing: ListingCardModel?,
+    promotionSheet: @Composable (ListingCardModel) -> Unit,
+) {
     editing?.let { listing ->
         ListingEditSheet(
             listing = listing,
-            busy = state.editingListingId == listing.id,
-            onDismiss = { editing = null },
-            onReprice = { price ->
-                viewModel.repriceListing(listing.id, price)
-                editing = null
-            },
-            onRevise = {
-                viewModel.reviseListing(listing.id)
-                editing = null
-            },
-            onEnd = {
-                viewModel.endListing(listing.id)
-                editing = null
-            },
+            busy = busyListingId == listing.id,
+            onDismiss = { actions.openEdit(null) },
+            onReprice = { price -> actions.reprice(listing.id, price) },
+            onRevise = { actions.revise(listing.id) },
+            onEnd = { actions.endListing(listing.id) },
         )
     }
 
-    promoting?.let { listing ->
-        com.gradethread.app.marketplaces.promotions.PromotionSheet(
-            listingId = listing.id,
-            listingTitle = listing.platformLabel + " · " + listing.priceText,
-            onDismiss = { promoting = null },
-        )
-    }
+    promoting?.let { listing -> promotionSheet(listing) }
 
     renaming?.let { connection ->
         var label by remember(connection.id) { mutableStateOf(connection.label.orEmpty()) }
         AlertDialog(
-            onDismissRequest = { renaming = null },
+            onDismissRequest = { actions.openRename(null) },
             title = { Text(stringResource(R.string.marketplaces_rename_this_account)) },
             text = {
                 OutlinedTextField(
@@ -378,17 +545,21 @@ fun MarketplacesScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.rename(connection.id, label); renaming = null }) {
+                TextButton(onClick = { actions.rename(connection.id, label) }) {
                     Text(stringResource(R.string.marketplaces_save))
                 }
             },
-            dismissButton = { TextButton(onClick = { renaming = null }) { Text(stringResource(R.string.marketplaces_cancel)) } },
+            dismissButton = {
+                TextButton(onClick = { actions.openRename(null) }) {
+                    Text(stringResource(R.string.marketplaces_cancel))
+                }
+            },
         )
     }
 
     disconnecting?.let { connection ->
         AlertDialog(
-            onDismissRequest = { disconnecting = null },
+            onDismissRequest = { actions.openDisconnect(null) },
             title = {
                 Text(stringResource(R.string.marketplaces_disconnect_title, connection.displayName))
             },
@@ -399,11 +570,13 @@ fun MarketplacesScreen(
             },
             confirmButton = {
                 TextButton(
-                    onClick = { viewModel.disconnect(connection.id); disconnecting = null },
+                    onClick = { actions.disconnect(connection.id) },
                 ) { Text(stringResource(R.string.marketplaces_disconnect)) }
             },
             dismissButton = {
-                TextButton(onClick = { disconnecting = null }) { Text(stringResource(R.string.marketplaces_cancel)) }
+                TextButton(onClick = { actions.openDisconnect(null) }) {
+                    Text(stringResource(R.string.marketplaces_cancel))
+                }
             },
         )
     }
@@ -456,11 +629,7 @@ private fun ConnectionRow(
 }
 
 @Composable
-private fun Banner(
-    message: String,
-    tone: androidx.compose.ui.graphics.Color,
-    onDismiss: () -> Unit,
-) {
+private fun Banner(message: String, tone: androidx.compose.ui.graphics.Color, onDismiss: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
