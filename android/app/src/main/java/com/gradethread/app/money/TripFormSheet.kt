@@ -68,6 +68,10 @@ fun TripFormSheet(
     }
     val validation = draft.validate()
 
+    // Resolved here, where a Context is in scope. optionLabel below is a plain
+    // (String) -> String and cannot call stringResource inside itself.
+    val purposeLabels = TripDraft.PURPOSES.associate { (wire, res) -> wire to stringResource(res) }
+
     ModalBottomSheet(onDismissRequest = onDismiss, modifier = modifier) {
         Column(
             Modifier
@@ -96,7 +100,10 @@ fun TripFormSheet(
                 label = stringResource(R.string.trip_form_purpose),
                 selected = draft.purpose,
                 options = TripDraft.PURPOSES.map { it.first },
-                optionLabel = { TripDraft.label(it) },
+                // Resolved OUTSIDE the lambda: optionLabel is a plain
+                // (String) -> String, not a composable slot, so stringResource
+                // cannot be called inside it.
+                optionLabel = { wire -> purposeLabels[wire] ?: wire },
                 onSelect = { draft = draft.copy(purpose = it) },
                 modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xs),
             )
@@ -153,7 +160,7 @@ fun TripFormSheet(
 
             validation?.takeIf { draft.milesText.isNotBlank() }?.let { message ->
                 Text(
-                    message,
+                    stringResource(message),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(bottom = Spacing.xs),

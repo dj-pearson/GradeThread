@@ -40,24 +40,25 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class TripQuickLogViewModel @Inject constructor(private val mileage: MileageRepository) : ViewModel() {
 
-    private val _notice = MutableStateFlow<String?>(null)
-    val notice: StateFlow<String?> = _notice.asStateFlow()
+    private val _notice = MutableStateFlow<UiMessage?>(null)
+    val notice: StateFlow<UiMessage?> = _notice.asStateFlow()
 
     fun save(draft: TripDraft, onSaved: () -> Unit) {
         viewModelScope.launch {
             when (val outcome = mileage.save(draft)) {
                 is MileageRepository.Outcome.Saved -> {
-                    _notice.value = "Trip logged."
+                    _notice.value = UiMessage(R.string.money_trip_logged)
                     onSaved()
                 }
                 is MileageRepository.Outcome.Queued -> {
                     // The expected outcome in a thrift-store car park, not the
                     // exceptional one. Saying "failed" here would send a seller
                     // away to re-enter a trip that is already recorded.
-                    _notice.value = "Logged offline — it'll sync when you're back online."
+                    _notice.value = UiMessage(R.string.money_logged_offline)
                     onSaved()
                 }
-                is MileageRepository.Outcome.Failed -> _notice.value = outcome.message
+                is MileageRepository.Outcome.Failed ->
+                    _notice.value = UiMessage(outcome.messageRes, outcome.detail)
             }
         }
     }
@@ -86,8 +87,12 @@ fun TripQuickLogButton(
     var draft by remember { mutableStateOf<TripDraft?>(null) }
     val notice by viewModel.notice.collectAsState()
 
-    LaunchedEffect(notice) {
-        val message = notice ?: return@LaunchedEffect
+    // Resolved outside the effect: showSnackbar is suspend and not composable,
+    // so the sentence has to be built while a Context is still in scope.
+    val noticeText = notice?.let { it.detail ?: stringResource(it.res) }
+
+    LaunchedEffect(noticeText) {
+        val message = noticeText ?: return@LaunchedEffect
         snackbarHostState?.showSnackbar(message)
         viewModel.clearNotice()
     }

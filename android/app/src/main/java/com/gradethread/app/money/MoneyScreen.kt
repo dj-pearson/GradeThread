@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -124,8 +125,8 @@ data class MoneyUiState(
     val state: MoneyViewModel.State,
     val sort: ItemProfitSort,
     val refreshing: Boolean,
-    val refreshError: String?,
-    val notice: String?,
+    val refreshError: UiMessage?,
+    val notice: UiMessage?,
     val equity: EquitySummary?,
     val equityTrend: EquityTrend?,
     val equityLoading: Boolean,
@@ -244,12 +245,7 @@ internal fun MoneyContent(
                 }
             }
 
-            refreshError?.let { message ->
-                item { Banner(message, onDismiss = actions.onDismissRefreshError) }
-            }
-            notice?.let { message ->
-                item { Banner(message, onDismiss = actions.onDismissNotice) }
-            }
+            messageBanners(refreshError, notice, actions)
 
             // ── KPI row ──────────────────────────────────────────────────────────
             item {
@@ -616,6 +612,37 @@ private fun EmptyState() {
     }
 }
 
+/**
+ * The two message banners, as their own function.
+ *
+ * Split out because inlining the resolve took MoneyContent to a cyclomatic
+ * complexity of exactly 20, the configured ceiling.
+ *
+ * ⚠ SERVER SENTENCE FIRST, OUR COPY SECOND. UiMessage carries both because
+ * only one of them is ours to translate: `detail` is what the server said and
+ * cannot be localized, `res` is what we wrote and must be. Showing the resource
+ * when there is a detail would throw away the only text that says what actually
+ * went wrong.
+ */
+private fun LazyListScope.messageBanners(refreshError: UiMessage?, notice: UiMessage?, actions: MoneyActions) {
+    refreshError?.let { message ->
+        item {
+            Banner(
+                message.detail ?: stringResource(message.res),
+                onDismiss = actions.onDismissRefreshError,
+            )
+        }
+    }
+    notice?.let { message ->
+        item {
+            Banner(
+                message.detail ?: stringResource(message.res),
+                onDismiss = actions.onDismissNotice,
+            )
+        }
+    }
+}
+
 @Composable
 private fun Banner(message: String, onDismiss: () -> Unit) {
     Row(
@@ -828,7 +855,9 @@ private fun TripRowView(
     ) {
         Column(Modifier.weight(1f)) {
             Text(
-                TripDraft.label(trip.purpose),
+                // The wire value when the seller typed their own purpose:
+                // labelRes only knows the ones the picker offers.
+                TripDraft.labelRes(trip.purpose)?.let { stringResource(it) } ?: trip.purpose,
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(

@@ -2053,4 +2053,31 @@
     <string name="trip_form_round_trip">Round trip</string>
     <string name="trip_form_save">Save</string>
     <string name="trip_form_cancel">Cancel</string>
+
+    <!-- US-3000: mileage validation and trip purposes. -->
+    <string name="trip_invalid_no_miles">Enter the miles.</string>
+    <string name="trip_invalid_zero_miles">A trip has to be more than zero miles.</string>
+    <string name="trip_invalid_too_many_miles">That is more miles than a trip can be.</string>
+    <string name="trip_invalid_no_purpose">Say what the trip was for.</string>
+    <string name="trip_purpose_sourcing">Sourcing trip</string>
+    <string name="trip_purpose_post_office">Post office</string>
+    <string name="trip_purpose_supplies">Buying supplies</string>
+    <string name="trip_purpose_consignor">Consignor pickup or drop-off</string>
+    <string name="trip_purpose_other">Something else</string>
+
+    <!-- US-3000: mileage repository outcomes. -->
+    <string name="money_signed_out_save">You\'re signed out — sign in to save this.</string>
+    <string name="money_signed_out_action">You\'re signed out — sign in to do that.</string>
+    <string name="mileage_save_failed">Couldn\'t save that trip.</string>
+
+    <!-- US-3000: money notices. -->
+    <string name="money_expense_saved">Expense saved.</string>
+    <string name="money_expense_removed">Expense removed.</string>
+    <string name="money_trip_logged">Trip logged.</string>
+    <string name="money_trip_removed">Trip removed.</string>
+    <string name="money_saved_offline">Saved offline — it\'ll sync when you\'re back online.</string>
+    <string name="money_logged_offline">Logged offline — it\'ll sync when you\'re back online.</string>
+    <string name="money_removed_offline">Removed — the change will sync when you\'re back online.</string>
+    <string name="money_refresh_failed">Couldn\'t refresh your finances.</string>
+    <string name="money_action_failed">That didn\'t work.</string>
 </resources>

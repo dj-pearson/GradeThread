@@ -1,5 +1,6 @@
 package com.gradethread.app.money
 
+import com.gradethread.app.R
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.sync.SyncTrigger
@@ -61,12 +62,12 @@ class MoneyViewModel @Inject constructor(
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
 
-    private val _refreshError = MutableStateFlow<String?>(null)
-    val refreshError: StateFlow<String?> = _refreshError.asStateFlow()
+    private val _refreshError = MutableStateFlow<UiMessage?>(null)
+    val refreshError: StateFlow<UiMessage?> = _refreshError.asStateFlow()
 
     /** One-shot feedback for the expense sheet (saved / queued / failed). */
-    private val _notice = MutableStateFlow<String?>(null)
-    val notice: StateFlow<String?> = _notice.asStateFlow()
+    private val _notice = MutableStateFlow<UiMessage?>(null)
+    val notice: StateFlow<UiMessage?> = _notice.asStateFlow()
 
     /**
      * US-2491: the equity card.
@@ -168,7 +169,7 @@ class MoneyViewModel @Inject constructor(
             runCatching { syncTrigger.refresh() }.onFailure { error ->
                 // A banner, never an emptied screen: the cached figures are
                 // still the truth we last knew.
-                _refreshError.value = error.message ?: "Couldn't refresh your finances."
+                _refreshError.value = UiMessage(R.string.money_refresh_failed, error.message)
             }
             _refreshing.value = false
         }
@@ -187,17 +188,18 @@ class MoneyViewModel @Inject constructor(
         viewModelScope.launch {
             when (val outcome = expenses.save(draft)) {
                 is ExpenseRepository.Outcome.Saved -> {
-                    _notice.value = "Expense saved."
+                    _notice.value = UiMessage(R.string.money_expense_saved)
                     onSaved()
                 }
                 is ExpenseRepository.Outcome.Queued -> {
                     // Truthful: it IS in their ledger, and the queue will send
                     // it. Saying "saved" alone would be a half-truth; saying
                     // "failed" would be wrong.
-                    _notice.value = "Saved offline — it'll sync when you're back online."
+                    _notice.value = UiMessage(R.string.money_saved_offline)
                     onSaved()
                 }
-                is ExpenseRepository.Outcome.Failed -> _notice.value = outcome.message
+                is ExpenseRepository.Outcome.Failed ->
+                    _notice.value = UiMessage(R.string.money_action_failed, outcome.message)
             }
         }
     }
@@ -207,7 +209,7 @@ class MoneyViewModel @Inject constructor(
         viewModelScope.launch {
             when (val outcome = mileage.save(draft)) {
                 is MileageRepository.Outcome.Saved -> {
-                    _notice.value = "Trip logged."
+                    _notice.value = UiMessage(R.string.money_trip_logged)
                     onSaved()
                 }
                 is MileageRepository.Outcome.Queued -> {
@@ -215,10 +217,11 @@ class MoneyViewModel @Inject constructor(
                     // car park, so "saved offline" is the NORMAL outcome, not the
                     // exceptional one -- and saying "failed" would send the
                     // seller away to re-enter something already recorded.
-                    _notice.value = "Logged offline — it'll sync when you're back online."
+                    _notice.value = UiMessage(R.string.money_logged_offline)
                     onSaved()
                 }
-                is MileageRepository.Outcome.Failed -> _notice.value = outcome.message
+                is MileageRepository.Outcome.Failed ->
+                    _notice.value = UiMessage(outcome.messageRes, outcome.detail)
             }
         }
     }
@@ -226,10 +229,11 @@ class MoneyViewModel @Inject constructor(
     fun deleteTrip(id: String) {
         viewModelScope.launch {
             when (val outcome = mileage.delete(id)) {
-                is MileageRepository.Outcome.Failed -> _notice.value = outcome.message
+                is MileageRepository.Outcome.Failed ->
+                    _notice.value = UiMessage(outcome.messageRes, outcome.detail)
                 is MileageRepository.Outcome.Queued ->
-                    _notice.value = "Removed — the change will sync when you're back online."
-                is MileageRepository.Outcome.Saved -> _notice.value = "Trip removed."
+                    _notice.value = UiMessage(R.string.money_removed_offline)
+                is MileageRepository.Outcome.Saved -> _notice.value = UiMessage(R.string.money_trip_removed)
             }
         }
     }
@@ -237,10 +241,11 @@ class MoneyViewModel @Inject constructor(
     fun deleteExpense(id: String) {
         viewModelScope.launch {
             when (val outcome = expenses.delete(id)) {
-                is ExpenseRepository.Outcome.Failed -> _notice.value = outcome.message
+                is ExpenseRepository.Outcome.Failed ->
+                    _notice.value = UiMessage(R.string.money_action_failed, outcome.message)
                 is ExpenseRepository.Outcome.Queued ->
-                    _notice.value = "Removed — the change will sync when you're back online."
-                is ExpenseRepository.Outcome.Saved -> _notice.value = "Expense removed."
+                    _notice.value = UiMessage(R.string.money_removed_offline)
+                is ExpenseRepository.Outcome.Saved -> _notice.value = UiMessage(R.string.money_expense_removed)
             }
         }
     }

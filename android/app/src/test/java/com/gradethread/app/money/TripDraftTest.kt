@@ -1,5 +1,6 @@
 package com.gradethread.app.money
 
+import com.gradethread.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -61,27 +62,32 @@ class TripDraftTest {
 
     @Test
     fun whatCannotBeSaved() {
-        assertEquals("Enter the miles.", draft("").validate())
-        assertEquals("Enter the miles.", draft("abc").validate())
-        assertEquals("Enter the miles.", draft("1.2.3").validate())
-        assertEquals("A trip has to be more than zero miles.", draft("0").validate())
-        assertEquals("A trip has to be more than zero miles.", draft("0.0").validate())
+        assertEquals(R.string.trip_invalid_no_miles, draft("").validate())
+        assertEquals(R.string.trip_invalid_no_miles, draft("abc").validate())
+        assertEquals(R.string.trip_invalid_no_miles, draft("1.2.3").validate())
+        assertEquals(R.string.trip_invalid_zero_miles, draft("0").validate())
+        assertEquals(R.string.trip_invalid_zero_miles, draft("0.0").validate())
         // The server's CHECK is miles < 100000. Rejecting here keeps a row
         // Postgres will never accept out of the offline queue, where it would
         // retry for ever.
-        assertEquals("That is more miles than a trip can be.", draft("100000").validate())
+        assertEquals(R.string.trip_invalid_too_many_miles, draft("100000").validate())
         assertNull(draft("99999.9").validate())
     }
 
     @Test
     fun aPurposeIsRequiredAndDefaultsToSourcing() {
         assertEquals("sourcing", TripDraft.today().purpose)
-        assertEquals("Say what the trip was for.", draft("10").copy(purpose = "  ").validate())
-        // The picker's wire values all resolve to a label; anything else falls
-        // back to itself, because `purpose` is free text on the server and a
-        // seller's own word must not render as blank.
-        assertEquals("Post office", TripDraft.label("post_office"))
-        assertEquals("dog walking", TripDraft.label("dog walking"))
+        // ⚠ RESOURCE IDS, NOT SENTENCES. validate() and labelRes() return
+        // @StringRes ints so a Spanish seller does not read English: this class
+        // is plain Kotlin and cannot reach a Context. Asserting the id is the
+        // whole point - asserting a sentence here would only be possible again
+        // if the localization regressed.
+        assertEquals(R.string.trip_invalid_no_purpose, draft("10").copy(purpose = "  ").validate())
+        // The picker's wire values all resolve to a label; anything else
+        // resolves to null, because `purpose` is free text on the server and
+        // the CALLER falls back to the seller's own word.
+        assertEquals(R.string.trip_purpose_post_office, TripDraft.labelRes("post_office"))
+        assertNull(TripDraft.labelRes("dog walking"))
     }
 
     @Test

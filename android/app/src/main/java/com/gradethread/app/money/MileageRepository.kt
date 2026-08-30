@@ -1,5 +1,7 @@
 package com.gradethread.app.money
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
 import com.gradethread.app.platform.workspace.WorkspaceScope
 import com.gradethread.app.sync.MutationKind
 import com.gradethread.app.sync.OfflineMutationQueue
@@ -44,7 +46,17 @@ class MileageRepository @Inject constructor(
 
         /** Stored locally and queued — a truthful "saved, will sync" state. */
         data class Queued(val id: String) : Outcome
-        data class Failed(val message: String) : Outcome
+
+        /**
+         * ⚠ TWO KINDS OF FAILURE, AND ONLY ONE CAN BE TRANSLATED.
+         *
+         * [messageRes] is our own copy and is a resource id, because this class
+         * is plain Kotlin and cannot reach a Context - English returned from
+         * here reaches a Spanish seller untranslated. [detail] is the SERVER's
+         * sentence, which we did not write and cannot localize; it is shown as
+         * received when present. The caller renders detail ?: messageRes.
+         */
+        data class Failed(@StringRes val messageRes: Int, val detail: String? = null) : Outcome
     }
 
     private fun ownerId(): String? = client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
@@ -52,7 +64,7 @@ class MileageRepository @Inject constructor(
     fun observeTrips() = db.mileageTrips().observeAll()
 
     suspend fun save(draft: TripDraft): Outcome {
-        val owner = ownerId() ?: return Outcome.Failed("You're signed out — sign in to save this.")
+        val owner = ownerId() ?: return Outcome.Failed(R.string.money_signed_out_save)
         val validation = draft.validate()
         if (validation != null) return Outcome.Failed(validation)
 
@@ -85,14 +97,14 @@ class MileageRepository @Inject constructor(
                     } else {
                         db.mileageTrips().deleteByIds(listOf(id))
                     }
-                    Outcome.Failed(message(error))
+                    Outcome.Failed(R.string.mileage_save_failed, message(error))
                 }
             },
         )
     }
 
     suspend fun delete(id: String): Outcome {
-        val owner = ownerId() ?: return Outcome.Failed("You're signed out — sign in to do that.")
+        val owner = ownerId() ?: return Outcome.Failed(R.string.money_signed_out_action)
         val previous = db.mileageTrips().byId(id)
         db.mileageTrips().deleteByIds(listOf(id))
 
@@ -120,7 +132,7 @@ class MileageRepository @Inject constructor(
                     Outcome.Queued(id)
                 } else {
                     if (previous != null) db.mileageTrips().upsert(listOf(previous))
-                    Outcome.Failed(message(error))
+                    Outcome.Failed(R.string.mileage_save_failed, message(error))
                 }
             },
         )
@@ -151,7 +163,11 @@ class MileageRepository @Inject constructor(
         },
     )
 
-    private fun message(error: Throwable): String = error.message ?: "Couldn't save that trip."
+    /**
+     * The server sentence when there is one. Null lets the caller fall back to
+     * [R.string.mileage_save_failed], which is ours and therefore translatable.
+     */
+    private fun message(error: Throwable): String? = error.message
 
     companion object {
         const val TABLE = "mileage_trips"

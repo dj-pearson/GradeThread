@@ -1900,4 +1900,31 @@
     <string name="push_action_shipped">Marcar como enviado</string>
     <string name="push_action_shipped_hint">Número de seguimiento (opcional)</string>
     <string name="push_action_reconnect">Reconectar</string>
+
+    <!-- US-3000: viajes en coche. -->
+    <string name="trip_invalid_no_miles">Escribe las millas.</string>
+    <string name="trip_invalid_zero_miles">Un viaje tiene que ser de más de cero millas.</string>
+    <string name="trip_invalid_too_many_miles">Son más millas de las que puede tener un viaje.</string>
+    <string name="trip_invalid_no_purpose">Di para qué fue el viaje.</string>
+    <string name="trip_purpose_sourcing">Viaje de compra</string>
+    <string name="trip_purpose_post_office">Oficina de correos</string>
+    <string name="trip_purpose_supplies">Compra de materiales</string>
+    <string name="trip_purpose_consignor">Recogida o entrega de consignación</string>
+    <string name="trip_purpose_other">Otra cosa</string>
+
+    <!-- US-3000: resultados del repositorio de viajes. -->
+    <string name="money_signed_out_save">Has cerrado sesión. Inicia sesión para guardar esto.</string>
+    <string name="money_signed_out_action">Has cerrado sesión. Inicia sesión para hacer eso.</string>
+    <string name="mileage_save_failed">No se pudo guardar ese viaje.</string>
+
+    <!-- US-3000: avisos de finanzas. -->
+    <string name="money_expense_saved">Gasto guardado.</string>
+    <string name="money_expense_removed">Gasto eliminado.</string>
+    <string name="money_trip_logged">Viaje registrado.</string>
+    <string name="money_trip_removed">Viaje eliminado.</string>
+    <string name="money_saved_offline">Guardado sin conexión. Se sincronizará cuando vuelvas a estar en línea.</string>
+    <string name="money_logged_offline">Registrado sin conexión. Se sincronizará cuando vuelvas a estar en línea.</string>
+    <string name="money_removed_offline">Eliminado. El cambio se sincronizará cuando vuelvas a estar en línea.</string>
+    <string name="money_refresh_failed">No se pudieron actualizar tus finanzas.</string>
+    <string name="money_action_failed">Eso no funcionó.</string>
 </resources>

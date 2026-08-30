@@ -15,7 +15,9 @@ import com.gradethread.app.money.ItemProfitSort
 import com.gradethread.app.money.MoneyActions
 import com.gradethread.app.money.MoneyContent
 import com.gradethread.app.money.MoneyMetrics
+import com.gradethread.app.R
 import com.gradethread.app.money.MoneyUiState
+import com.gradethread.app.money.UiMessage
 import com.gradethread.app.money.ReceiptScanTrigger
 import com.gradethread.app.money.MoneyViewModel
 import com.gradethread.app.money.SourceRoiRow
@@ -169,8 +171,8 @@ class MoneyScreenshotTest {
 
     private fun ui(
         state: MoneyViewModel.State = this.state,
-        refreshError: String? = null,
-        notice: String? = null,
+        refreshError: UiMessage? = null,
+        notice: UiMessage? = null,
         equity: EquitySummary? = this.equity,
         equityTrend: EquityTrend? = this.trend,
         equityLoading: Boolean = false,
@@ -229,8 +231,16 @@ class MoneyScreenshotTest {
     fun banners_light() = capture("screen-money-banners-light") {
         Content(
             ui(
-                refreshError = "We couldn't reach the server. Showing what's on this device.",
-                notice = "Synced 14 sales.",
+                // ⚠ THE SERVER SENTENCE, carried as UiMessage.detail. A banner
+                // shows detail when there is one and the resource otherwise,
+                // because only our own copy can be translated - and throwing
+                // the server text away would drop the only line that says what
+                // actually happened.
+                refreshError = UiMessage(
+                    R.string.money_refresh_failed,
+                    "We couldn't reach the server. Showing what's on this device.",
+                ),
+                notice = UiMessage(R.string.money_expense_saved, "Synced 14 sales."),
             ),
         )
     }

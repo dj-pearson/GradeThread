@@ -108,7 +108,6 @@
     "money/EquityService.kt": 2,
     "money/ExpenseDraft.kt": 2,
     "money/ExpenseRepository.kt": 3,
-    "money/MoneyViewModel.kt": 3,
     "money/PayoutImportService.kt": 1,
     "money/PayoutQueueService.kt": 1,
     "money/PayoutReconciliation.kt": 4,

@@ -1,5 +1,7 @@
 package com.gradethread.app.money
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
 import com.gradethread.app.sync.db.MileageTripEntity
 import java.time.LocalDate
 
@@ -54,16 +56,24 @@ data class TripDraft(
 
     val miles: Double? get() = tenthsOfMile?.let { it / 10.0 }
 
-    /** @return the reason this can't be saved, or null when it's valid. */
-    fun validate(): String? = when {
-        tenthsOfMile == null -> "Enter the miles."
+    /**
+     * @return the reason this can't be saved, or null when it's valid.
+     *
+     * A resource id rather than a sentence: this class is plain Kotlin and
+     * cannot reach a Context, so English returned from here reaches a Spanish
+     * seller untranslated. TwoFactorPolicy.message is the same pattern, and
+     * android/scripts/no-unlocalized-copy.py is what enforces it.
+     */
+    @StringRes
+    fun validate(): Int? = when {
+        tenthsOfMile == null -> R.string.trip_invalid_no_miles
         // The server's CHECK is (miles > 0 AND miles < 100000). Rejecting here
         // rather than letting Postgres do it keeps the message in the seller's
         // words, and keeps an invalid row out of the offline queue where it
         // would retry for ever.
-        tenthsOfMile == 0L -> "A trip has to be more than zero miles."
-        tenthsOfMile!! >= MAX_TENTHS -> "That is more miles than a trip can be."
-        purpose.isBlank() -> "Say what the trip was for."
+        tenthsOfMile == 0L -> R.string.trip_invalid_zero_miles
+        tenthsOfMile!! >= MAX_TENTHS -> R.string.trip_invalid_too_many_miles
+        purpose.isBlank() -> R.string.trip_invalid_no_purpose
         else -> null
     }
 
@@ -101,15 +111,23 @@ data class TripDraft(
          * in the `purpose` column, which is free text on the server -- these are
          * the ones the picker offers, and the seller can still type their own.
          */
-        val PURPOSES: List<Pair<String, String>> = listOf(
-            "sourcing" to "Sourcing trip",
-            "post_office" to "Post office",
-            "supplies" to "Buying supplies",
-            "consignor" to "Consignor pickup or drop-off",
-            "other" to "Something else",
+        val PURPOSES: List<Pair<String, Int>> = listOf(
+            "sourcing" to R.string.trip_purpose_sourcing,
+            "post_office" to R.string.trip_purpose_post_office,
+            "supplies" to R.string.trip_purpose_supplies,
+            "consignor" to R.string.trip_purpose_consignor,
+            "other" to R.string.trip_purpose_other,
         )
 
-        fun label(wire: String): String = PURPOSES.firstOrNull { it.first == wire }?.second ?: wire
+        /**
+         * The label for a wire value, or null when the seller typed their own.
+         *
+         * Null rather than the raw wire string: the caller has a Context and
+         * can fall back, and returning the wire value from here would put
+         * "post_office" on screen the day a label id goes missing.
+         */
+        @StringRes
+        fun labelRes(wire: String): Int? = PURPOSES.firstOrNull { it.first == wire }?.second
 
         /** A new trip for today, in the date field's own zone. */
         fun today(sourceId: String? = null): TripDraft = TripDraft(

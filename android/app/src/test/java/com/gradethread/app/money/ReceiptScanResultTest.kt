@@ -17,10 +17,8 @@ import java.time.LocalDate
  */
 class ReceiptScanResultTest {
 
-    private fun result(
-        draft: ScannedDraft? = null,
-        staging: String = "u/_staging/receipt_1.jpg",
-    ) = ScanResult(stagingPath = staging, draft = draft)
+    private fun result(draft: ScannedDraft? = null, staging: String = "u/_staging/receipt_1.jpg") =
+        ScanResult(stagingPath = staging, draft = draft)
 
     @Test
     fun theServersDateBecomesAUtcAnchor() {
