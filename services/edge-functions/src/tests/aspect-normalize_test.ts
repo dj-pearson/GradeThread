@@ -235,14 +235,19 @@ Deno.test("family kind is picked by the most specific word in the aspect name", 
   );
 });
 
-Deno.test("family narrowing never fires on FREE_TEXT or an unmapped aspect", () => {
-  // FREE_TEXT still passes the seller's own words straight through.
+Deno.test("no allowed values: an open list keeps the seller's words, a closed one refuses", () => {
   assertEquals(
     normalizeAspectValue("Sage Green", { name: "Color", mode: "FREE_TEXT", allowedValues: [] }),
     "Sage Green",
   );
-  // No family table for Brand, so an unknown value is still refused.
+  assertEquals(normalizeAspectValue("Sage Green", sel("Color", [])), null);
+  // No family table for Brand, so an unknown value is still refused on a
+  // closed list — and kept verbatim on an open one.
   assertEquals(normalizeAspectValue("Taupe", sel("Brand", ["Nike", "Adidas"])), null);
+  assertEquals(
+    normalizeAspectValue("Taupe", { name: "Brand", mode: "FREE_TEXT", allowedValues: ["Nike"] }),
+    "Taupe",
+  );
 });
 
 Deno.test("family narrowing runs LAST, so exact and synonym matches still win", () => {
@@ -250,4 +255,180 @@ Deno.test("family narrowing runs LAST, so exact and synonym matches still win", 
   assertEquals(normalizeAspectValue("Olive", sel("Color", ["Olive", "Green"])), "Olive");
   // Grey/Gray is an equivalence (step 3), not a family narrowing.
   assertEquals(normalizeAspectValue("Grey", sel("Color", COLOR)), "Gray");
+});
+
+// ── US-3016 second pass: eBay's OPEN lists (measured against prod) ──────────
+//
+// The first cut of this feature only ran on SELECTION_ONLY aspects, on the
+// reasoning that an open list has nothing to match against. Reading the prod
+// cache back settled it the other way: across 121 cached categories Color is
+// FREE_TEXT in 107 of them and still ships 25 allowed values, Pattern is
+// FREE_TEXT in 82 with 222, Neckline FREE_TEXT in 26 with 16. FREE_TEXT means
+// eBay will ACCEPT an unlisted value, not that it published none — and its
+// buyer filters are built from the list. So "Taupe" was never being dropped;
+// it was going live and sitting outside every Beige search.
+//
+// Every fixture below is verbatim from that cache, mode included.
+
+const PROD_COLOR = [
+  "Beige", "Black", "Blue", "Brown", "Clear", "Gold", "Gray", "Green", "Ivory",
+  "Multicolor", "Orange", "Pink", "Purple", "Red", "Silver", "Tan", "White",
+  "Yellow",
+];
+const PROD_RISE = [
+  "Ultra Low (Less than 8 in)",
+  "Low (8-10 in)",
+  "Mid (10-12 in)",
+  "High (Greater than 12 in)",
+];
+const PROD_HEEL_HEIGHT = [
+  "Flat (Under 1 in)",
+  "Low (1-1.9 in)",
+  "Mid (2-2.9 in)",
+  "High (3-3.9 in)",
+  "Ultra High (4 in & Higher)",
+];
+const PROD_HEEL_STYLE = ["Block", "Cone", "Cuban", "Flat", "Kitten", "Spool", "Stiletto", "Wedge"];
+const PROD_TOE = [
+  "Almond Toe", "Closed Toe", "Open Toe", "Peep Toe", "Pointed Toe",
+  "Round Toe", "Square Toe",
+];
+const PROD_CLOSURE = [
+  "Buckle", "Button", "Drawstring", "Hook & Eye", "Hook & Loop", "Lace Up",
+  "Magnetic", "Pull On", "Slip On", "Snap", "Tie", "Zip",
+];
+const PROD_FIT = ["Athletic", "Classic", "Extra-Slim", "Regular", "Relaxed", "Slim"];
+const PROD_NECKLINE = [
+  "Boat Neck", "Collared", "Cowl Neck", "Crew Neck", "High Neck", "Mock Neck",
+  "Round Neck", "Scoop Neck", "Square Neck", "Turtleneck", "V-Neck",
+];
+const PROD_SLEEVE = ["Sleeveless", "Short Sleeve", "3/4 Sleeve", "Long Sleeve"];
+const PROD_DRESS_LENGTH = ["Short", "Knee Length", "Midi", "Long", "Hi-Low", "Asymmetric"];
+const PROD_OCCASION = [
+  "Activewear", "Business", "Casual", "Christening", "Formal",
+  "Party/Cocktail", "Travel", "Wedding", "Workwear",
+];
+const PROD_HARDWARE_COLOR = [
+  "Beige", "Black", "Blue", "Brown", "Gold", "Gray", "Gunmetal", "Multicolor",
+  "Pink", "Purple", "Red", "Silver", "White", "Yellow",
+];
+
+/** A FREE_TEXT aspect that still carries an allowed list — prod's normal case. */
+const open = (name: string, allowedValues: string[]): AspectValueSpec => ({
+  name,
+  mode: "FREE_TEXT",
+  allowedValues,
+});
+
+Deno.test("open list: the reported Color bug, against prod's real Color list", () => {
+  assertEquals(normalizeAspectValue("Taupe", open("Color", PROD_COLOR)), "Beige");
+  assertEquals(normalizeAspectValue("Sage Green", open("Color", PROD_COLOR)), "Green");
+  assertEquals(normalizeAspectValue("Burgundy", open("Color", PROD_COLOR)), "Red");
+  assertEquals(normalizeAspectValue("Charcoal", open("Color", PROD_COLOR)), "Gray");
+  assertEquals(normalizeAspectValue("Cream", open("Color", PROD_COLOR)), "Ivory");
+  assertEquals(normalizeAspectValue("Heather Gray", open("Color", PROD_COLOR)), "Gray");
+  assertEquals(normalizeAspectValue("Off-White", open("Color", PROD_COLOR)), "Ivory");
+  // Tan IS on this list, so it is returned outright rather than coarsened.
+  assertEquals(normalizeAspectValue("Tan", open("Color", PROD_COLOR)), "Tan");
+});
+
+Deno.test("open list: a value in no family keeps the seller's own words", () => {
+  // Nothing is ever LOST on an open list — worst case it ships as written,
+  // exactly as it did before US-3016.
+  assertEquals(
+    normalizeAspectValue("Iridescent Oil-Slick", open("Color", PROD_COLOR)),
+    "Iridescent Oil-Slick",
+  );
+});
+
+Deno.test("prod states Rise and Heel Height as a measured range", () => {
+  assertEquals(
+    normalizeAspectValue("High Rise", open("Rise", PROD_RISE)),
+    "High (Greater than 12 in)",
+  );
+  assertEquals(normalizeAspectValue("Mid Rise", open("Rise", PROD_RISE)), "Mid (10-12 in)");
+  assertEquals(normalizeAspectValue("Low Rise", open("Rise", PROD_RISE)), "Low (8-10 in)");
+  assertEquals(
+    normalizeAspectValue("High-Waisted", open("Rise", PROD_RISE)),
+    "High (Greater than 12 in)",
+  );
+  assertEquals(
+    normalizeAspectValue("Flat", open("Heel Height", PROD_HEEL_HEIGHT)),
+    "Flat (Under 1 in)",
+  );
+  // "Low" must not be able to pick "Ultra Low (Less than 8 in)" by accident.
+  assertEquals(normalizeAspectValue("Low", open("Rise", PROD_RISE)), "Low (8-10 in)");
+});
+
+Deno.test("Heel Height and Heel Style take different answers", () => {
+  // A stiletto is reliably a high heel, so the height question can take it.
+  assertEquals(
+    normalizeAspectValue("Stiletto", open("Heel Height", PROD_HEEL_HEIGHT)),
+    "High (3-3.9 in)",
+  );
+  // A wedge or a block heel comes in every height there is. Refusing to guess
+  // one is the point; it ships as written instead.
+  assertEquals(normalizeAspectValue("Wedge", open("Heel Height", PROD_HEEL_HEIGHT)), "Wedge");
+  // The style question takes the shape and not the height.
+  assertEquals(normalizeAspectValue("Wedge", open("Heel Style", PROD_HEEL_STYLE)), "Wedge");
+  assertEquals(normalizeAspectValue("Chunky", open("Heel Style", PROD_HEEL_STYLE)), "Block");
+  assertEquals(normalizeAspectValue("High", open("Heel Style", PROD_HEEL_STYLE)), "High");
+});
+
+Deno.test("open list: shoes, closures, fit and necklines against prod", () => {
+  assertEquals(normalizeAspectValue("Round", open("Toe Shape", PROD_TOE)), "Round Toe");
+  assertEquals(normalizeAspectValue("Peep", open("Toe Shape", PROD_TOE)), "Peep Toe");
+  assertEquals(normalizeAspectValue("Elastic", open("Closure", PROD_CLOSURE)), "Pull On");
+  assertEquals(normalizeAspectValue("Pullover", open("Closure", PROD_CLOSURE)), "Pull On");
+  assertEquals(normalizeAspectValue("Skinny", open("Fit", PROD_FIT)), "Slim");
+  assertEquals(normalizeAspectValue("Oversized", open("Fit", PROD_FIT)), "Relaxed");
+  assertEquals(normalizeAspectValue("Wide Leg", open("Fit", PROD_FIT)), "Relaxed");
+  // Bootcut is a leg SHAPE; prod's Fit list holds only widths, so it is left
+  // alone rather than guessed onto Regular.
+  assertEquals(normalizeAspectValue("Bootcut", open("Fit", PROD_FIT)), "Bootcut");
+  assertEquals(normalizeAspectValue("Henley", open("Neckline", PROD_NECKLINE)), "Crew Neck");
+  assertEquals(normalizeAspectValue("Button-Down", open("Neckline", PROD_NECKLINE)), "Collared");
+  // eBay's Neckline list has no hood, and inventing one would misdescribe it.
+  assertEquals(normalizeAspectValue("Hooded", open("Neckline", PROD_NECKLINE)), "Hooded");
+  assertEquals(normalizeAspectValue("Tank", open("Sleeve Length", PROD_SLEEVE)), "Sleeveless");
+  assertEquals(
+    normalizeAspectValue("Cap Sleeve", open("Sleeve Length", PROD_SLEEVE)),
+    "Short Sleeve",
+  );
+});
+
+Deno.test("open list: hem length, occasion and hardware tone against prod", () => {
+  assertEquals(normalizeAspectValue("Mini", open("Dress Length", PROD_DRESS_LENGTH)), "Short");
+  assertEquals(normalizeAspectValue("Maxi", open("Dress Length", PROD_DRESS_LENGTH)), "Long");
+  assertEquals(
+    normalizeAspectValue("Asymmetrical", open("Dress Length", PROD_DRESS_LENGTH)),
+    "Asymmetric",
+  );
+  assertEquals(normalizeAspectValue("Work", open("Occasion", PROD_OCCASION)), "Business");
+  assertEquals(
+    normalizeAspectValue("Cocktail", open("Occasion", PROD_OCCASION)),
+    "Party/Cocktail",
+  );
+  assertEquals(normalizeAspectValue("Athletic", open("Occasion", PROD_OCCASION)), "Activewear");
+  assertEquals(
+    normalizeAspectValue("Gold-Tone", open("Hardware Color", PROD_HARDWARE_COLOR)),
+    "Gold",
+  );
+  assertEquals(
+    normalizeAspectValue("Gunmetal", open("Hardware Color", PROD_HARDWARE_COLOR)),
+    "Gunmetal",
+  );
+});
+
+Deno.test("the guessy containment step stays off open lists", () => {
+  // Prod ships Brand as FREE_TEXT with 27,421 values. A lone containment hit
+  // in a list that size is coincidence far more often than intent, so step 5
+  // is closed-list only and the value ships as the seller wrote it.
+  const brands = ["Nike Golf", "Adidas Originals", "Puma"];
+  assertEquals(
+    normalizeAspectValue("Golf", { name: "Brand", mode: "FREE_TEXT", allowedValues: brands }),
+    "Golf",
+  );
+  // The same aspect as a closed list still resolves it.
+  assertEquals(normalizeAspectValue("Golf", sel("Brand", brands)), "Nike Golf");
 });

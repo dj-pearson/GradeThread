@@ -17,6 +17,44 @@ const sel = (name: string, allowedValues: string[]) => ({
 });
 
 
+describe("normalizeAspectValue on eBay's OPEN lists (US-3016)", () => {
+  const open = (name: string, allowedValues: string[]) => ({
+    name,
+    mode: "FREE_TEXT",
+    allowedValues,
+  });
+  const PROD_COLOR = [
+    "Beige", "Black", "Blue", "Brown", "Clear", "Gold", "Gray", "Green",
+    "Ivory", "Multicolor", "Orange", "Pink", "Purple", "Red", "Silver", "Tan",
+    "White", "Yellow",
+  ];
+  const PROD_RISE = [
+    "Ultra Low (Less than 8 in)",
+    "Low (8-10 in)",
+    "Mid (10-12 in)",
+    "High (Greater than 12 in)",
+  ];
+
+  it("narrows a FREE_TEXT Color, which is 107 of prod's 121 cached categories", () => {
+    expect(normalizeAspectValue("Taupe", open("Color", PROD_COLOR))).toBe("Beige");
+    expect(normalizeAspectValue("Sage Green", open("Color", PROD_COLOR))).toBe("Green");
+    expect(normalizeAspectValue("Charcoal", open("Color", PROD_COLOR))).toBe("Gray");
+  });
+
+  it("reaches the label half of a measured range", () => {
+    expect(normalizeAspectValue("High Rise", open("Rise", PROD_RISE))).toBe(
+      "High (Greater than 12 in)",
+    );
+    expect(normalizeAspectValue("Low", open("Rise", PROD_RISE))).toBe("Low (8-10 in)");
+  });
+
+  it("keeps the seller's own words when nothing on the list fits", () => {
+    expect(normalizeAspectValue("Iridescent Oil-Slick", open("Color", PROD_COLOR))).toBe(
+      "Iridescent Oil-Slick",
+    );
+  });
+});
+
 describe("normalizeAspectValue family narrowing (US-3016)", () => {
   const COLOR = [
     "Beige",

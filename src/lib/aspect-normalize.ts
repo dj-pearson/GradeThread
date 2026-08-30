@@ -165,7 +165,9 @@ type FamilyKind =
   | "closure"
   | "occasion"
   | "season"
-  | "heel"
+  | "heelHeight"
+  | "heelStyle"
+  | "legStyle"
   | "toe"
   | "shaft"
   | "strap";
@@ -289,6 +291,8 @@ const COLOR_FAMILY: FamilyTable = {
   pumpkin: ["Orange"],
   burntorange: ["Orange"],
   // Metallics
+  goldtone: ["Gold"],
+  silvertone: ["Silver"],
   champagne: ["Gold", "Beige"],
   rosegold: ["Gold", "Pink"],
   brass: ["Gold"],
@@ -426,8 +430,9 @@ const PATTERN_FAMILY: FamilyTable = {
   snakeskin: ["Animal Print", "Snakeskin"],
   camo: ["Camouflage"],
   camouflage: ["Camouflage"],
-  graphic: ["Graphic Print", "Graphic", "Logo"],
-  logo: ["Logo", "Graphic Print", "Graphic"],
+  graphic: ["Graphic Print", "Graphic", "Logo", "Novelty", "Print"],
+  logo: ["Logo", "Graphic Print", "Graphic", "Novelty"],
+  novelty: ["Novelty", "Graphic Print", "Graphic"],
   geometric: ["Geometric"],
   abstract: ["Abstract", "Geometric"],
   tiedye: ["Tie-Dye", "Tie Dye", "Abstract", "Graphic Print"],
@@ -458,25 +463,34 @@ const FIT_FAMILY: FamilyTable = {
   oversized: ["Oversized", "Loose", "Relaxed"],
   boxy: ["Oversized", "Relaxed"],
   boyfriend: ["Boyfriend", "Relaxed"],
+  // Leg shapes reach eBay's Fit list only through the widths it does offer;
+  // the shape itself belongs to Leg Style. Ordering the real value first means
+  // a category that DOES list Bootcut still gets Bootcut.
   bootcut: ["Bootcut", "Boot Cut"],
   flare: ["Flare", "Flared", "Bootcut"],
   flared: ["Flare", "Flared", "Bootcut"],
-  wideleg: ["Wide Leg", "Loose"],
+  wideleg: ["Wide Leg", "Relaxed", "Loose"],
   tapered: ["Tapered", "Slim"],
-  jogger: ["Jogger", "Tapered"],
+  jogger: ["Jogger", "Tapered", "Slim"],
+  extraslim: ["Extra-Slim", "Slim"],
 };
 
+// Prod ships Rise as a measured range: "Ultra Low (Less than 8 in)", "Low
+// (8-10 in)", "Mid (10-12 in)", "High (Greater than 12 in)". Every bucket
+// therefore ends with the bare label, which matchFamily compares against the
+// part before the parenthesis.
 const RISE_FAMILY: FamilyTable = {
-  high: ["High Rise", "High-Rise", "High Waist"],
-  highrise: ["High Rise", "High-Rise", "High Waist"],
-  highwaist: ["High Rise", "High Waist", "High-Rise"],
-  highwaisted: ["High Rise", "High Waist", "High-Rise"],
-  ultrahigh: ["High Rise", "High Waist"],
-  mid: ["Mid Rise", "Mid-Rise", "Regular Rise"],
-  midrise: ["Mid Rise", "Mid-Rise", "Regular Rise"],
-  regular: ["Regular Rise", "Mid Rise", "Mid-Rise"],
-  low: ["Low Rise", "Low-Rise"],
-  lowrise: ["Low Rise", "Low-Rise"],
+  high: ["High Rise", "High-Rise", "High Waist", "High"],
+  highrise: ["High Rise", "High-Rise", "High Waist", "High"],
+  highwaist: ["High Rise", "High Waist", "High-Rise", "High"],
+  highwaisted: ["High Rise", "High Waist", "High-Rise", "High"],
+  ultrahigh: ["Ultra High", "High Rise", "High"],
+  mid: ["Mid Rise", "Mid-Rise", "Regular Rise", "Mid"],
+  midrise: ["Mid Rise", "Mid-Rise", "Regular Rise", "Mid"],
+  regular: ["Regular Rise", "Mid Rise", "Mid-Rise", "Mid"],
+  low: ["Low Rise", "Low-Rise", "Low"],
+  lowrise: ["Low Rise", "Low-Rise", "Low"],
+  ultralow: ["Ultra Low", "Low Rise", "Low"],
 };
 
 const CLOSURE_FAMILY: FamilyTable = {
@@ -542,21 +556,59 @@ const SEASON_FAMILY: FamilyTable = {
   yearround: ["All Seasons", "All Season"],
 };
 
-const HEEL_FAMILY: FamilyTable = {
-  flat: ["Flat", "No Heel", "Flat (0 to 1/2 in.)"],
+// eBay asks TWO heel questions and they take different answers. Heel Height
+// is a measured range ("Flat (Under 1 in)", "Mid (2-2.9 in)", "Ultra High
+// (4 in & Higher)"); Heel Style is a shape (Block, Cone, Cuban, Flat, Kitten,
+// Spool, Stiletto, Wedge). Stiletto is not a height and Mid is not a shape, so
+// one table answering both put a wrong value in one of them every time.
+const HEEL_HEIGHT_FAMILY: FamilyTable = {
+  flat: ["Flat", "No Heel"],
   noheel: ["No Heel", "Flat"],
-  low: ["Low (3/4 to 1 1/2 in.)", "Low"],
-  kitten: ["Low (3/4 to 1 1/2 in.)", "Low", "Kitten"],
-  mid: ["Mid (1 1/2 to 3 in.)", "Medium", "Mid"],
-  medium: ["Med (1 3/4 to 2 3/4 in.)", "Medium", "Mid"],
-  high: ["High (3 to 4 1/2 in.)", "High"],
-  veryhigh: ["Very High (greater than 4 1/2 in.)", "High"],
-  stiletto: ["Stiletto", "High (3 to 4 1/2 in.)", "High"],
-  block: ["Block", "Block Heel"],
+  low: ["Low"],
+  kitten: ["Low"],
+  mid: ["Mid", "Medium"],
+  medium: ["Mid", "Medium"],
+  high: ["High"],
+  veryhigh: ["Ultra High", "Very High", "High"],
+  ultrahigh: ["Ultra High", "Very High", "High"],
+  // Shapes that imply a height, for the category that asks only for height.
+  stiletto: ["High"],
+};
+
+const HEEL_STYLE_FAMILY: FamilyTable = {
+  stiletto: ["Stiletto"],
+  block: ["Block", "Chunky"],
+  chunky: ["Block", "Chunky"],
   wedge: ["Wedge"],
   platform: ["Platform"],
-  chunky: ["Block", "Chunky"],
+  kitten: ["Kitten"],
   cone: ["Cone"],
+  spool: ["Spool"],
+  cuban: ["Cuban", "Block"],
+  flat: ["Flat"],
+  noheel: ["Flat"],
+};
+
+// Leg shape is its own eBay aspect. It used to live in FIT_FAMILY, which was
+// wrong in both directions: prod's Fit list is Athletic / Classic / Extra-Slim
+// / Regular / Relaxed / Slim, so Bootcut and Wide Leg could never land there,
+// and Leg Style never got a table of its own.
+const LEG_STYLE_FAMILY: FamilyTable = {
+  skinny: ["Skinny", "Slim"],
+  slim: ["Slim", "Skinny", "Straight Leg"],
+  straight: ["Straight Leg", "Straight", "Regular"],
+  regular: ["Straight Leg", "Straight", "Regular"],
+  bootcut: ["Bootcut", "Boot Cut", "Flare"],
+  flare: ["Flare", "Flared", "Bootcut"],
+  flared: ["Flare", "Flared", "Bootcut"],
+  wideleg: ["Wide Leg", "Wide-Leg", "Relaxed"],
+  wide: ["Wide Leg", "Wide-Leg", "Relaxed"],
+  tapered: ["Tapered", "Slim"],
+  jogger: ["Jogger", "Tapered"],
+  cargo: ["Cargo"],
+  cropped: ["Cropped", "Capri"],
+  capri: ["Capri", "Cropped"],
+  baggy: ["Wide Leg", "Relaxed"],
 };
 
 const TOE_FAMILY: FamilyTable = {
@@ -619,7 +671,9 @@ const FAMILIES_BY_KIND: Record<FamilyKind, FamilyTable> = {
   closure: CLOSURE_FAMILY,
   occasion: OCCASION_FAMILY,
   season: SEASON_FAMILY,
-  heel: HEEL_FAMILY,
+  heelHeight: HEEL_HEIGHT_FAMILY,
+  heelStyle: HEEL_STYLE_FAMILY,
+  legStyle: LEG_STYLE_FAMILY,
   toe: TOE_FAMILY,
   shaft: SHAFT_FAMILY,
   strap: STRAP_FAMILY,
@@ -656,8 +710,11 @@ function familyKind(name: string | undefined): FamilyKind | null {
   if (n.includes("sleeve")) return "sleeve";
   if (n.includes("neck") || n.includes("collar")) return "neckline";
   if (n.includes("shaft") || n.includes("boot height")) return "shaft";
-  if (n.includes("heel")) return "heel";
+  if (n.includes("heel")) {
+    return n.includes("height") || n.includes("drop") ? "heelHeight" : "heelStyle";
+  }
   if (n.includes("toe")) return "toe";
+  if (n.includes("leg style") || n.includes("leg cut")) return "legStyle";
   if (n.includes("strap") || n.includes("handle")) return "strap";
   if (n.includes("closure") || n.includes("fastening")) return "closure";
   if (n.includes("rise") || n.includes("waist height")) return "rise";
@@ -714,8 +771,21 @@ function matchFamily(
     const bl = loose(bucket);
     const hit = allowed.find((a) => loose(a) === bl);
     if (hit) return hit;
+    // eBay states several vocabularies as a label plus a measured range:
+    // Rise is "High (Greater than 12 in)", Heel Height "Mid (2-2.9 in)".
+    // The bucket names the label, so compare against the label alone. Only
+    // when exactly one allowed value carries it, so "Low" cannot pick between
+    // "Low (1-1.9 in)" and "Ultra Low (Less than 8 in)" by accident.
+    const labelled = allowed.filter((a) => loose(labelOf(a)) === bl);
+    if (labelled.length === 1) return labelled[0]!;
   }
   return null;
+}
+
+/** "High (Greater than 12 in)" -> "High"; anything else unchanged. */
+function labelOf(allowedValue: string): string {
+  const m = allowedValue.match(/^(.+?)\s*\([^)]*\)\s*$/);
+  return m ? m[1]!.trim() : allowedValue;
 }
 
 /**
@@ -738,11 +808,29 @@ export function normalizeAspectValue(
 ): string | null {
   const raw = (value ?? "").trim();
   if (!raw) return null;
-  // FREE_TEXT / SUGGESTED / anything that isn't a closed list: never normalize.
-  if ((spec.mode ?? "") !== "SELECTION_ONLY") return raw;
+
+  // WHO GETS NORMALIZED, corrected 2026-08-30 by measuring prod rather than
+  // reasoning about it. This used to return `raw` untouched for anything that
+  // was not SELECTION_ONLY, on the assumption that a non-closed list has
+  // nothing to match against. eBay disagrees: across 121 cached categories,
+  // Color is FREE_TEXT in 107 of them AND ships 25 allowed values, Pattern is
+  // FREE_TEXT in 82 with 222, Neckline FREE_TEXT in 26 with 16. FREE_TEXT there
+  // means "we will accept a value we did not list", not "we listed none".
+  //
+  // The list is the one eBay's own buyer filters are built from, so a garment
+  // sent as "Taupe" publishes fine and then sits outside every Beige search.
+  // That is the failure the seller actually sees, and the early return meant
+  // NONE of the matching below ever ran for the fields they complained about.
+  //
+  // What changes for a non-closed list: we try to land on a listed value, and
+  // fall back to the seller's own words when we cannot. Nothing is ever
+  // dropped that was not dropped before.
+  const selection = (spec.mode ?? "") === "SELECTION_ONLY";
+  /** Non-closed lists keep the original value; a closed list must refuse. */
+  const noMatch = selection ? null : raw;
 
   const allowed = (spec.allowedValues ?? []).filter((v) => v && v.trim().length > 0);
-  if (allowed.length === 0) return null;
+  if (allowed.length === 0) return noMatch;
 
   // 1. exact (case-insensitive, trimmed)
   const lc = raw.toLowerCase();
@@ -778,7 +866,12 @@ export function normalizeAspectValue(
   // 5. whole-word containment, only for a multi-word allowed value and a
   // sufficiently specific (≥3 char) single-token value, and only when exactly
   // one allowed value contains it as a standalone word.
-  if (raw.length >= 3 && !/\s/.test(raw)) {
+  //
+  // CLOSED LISTS ONLY. On an open list this is the step most likely to be
+  // wrong, and it has the least to gain: the lists that are open are also the
+  // enormous ones (Brand ships 27,421 values, Model 17,374, Character 13,713),
+  // where a lone containment hit is coincidence far more often than intent.
+  if (selection && raw.length >= 3 && !/\s/.test(raw)) {
     const wordRe = new RegExp(`\\b${raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
     const wordHits = allowed.filter((a) => /\s/.test(a) && wordRe.test(a));
     if (wordHits.length === 1) return wordHits[0]!;
@@ -789,5 +882,5 @@ export function normalizeAspectValue(
   const family = matchFamily(raw, spec, allowed);
   if (family) return family;
 
-  return null;
+  return noMatch;
 }
