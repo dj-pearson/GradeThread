@@ -13,6 +13,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,8 +40,50 @@ fun DisclosureScreen(itemId: String, onClose: () -> Unit = {}, viewModel: Disclo
     val state by viewModel.state.collectAsState()
     LaunchedEffect(itemId) { viewModel.bind(itemId) }
 
+    DisclosureContent(
+        state = state,
+        actions = DisclosureActions(
+            select = viewModel::select,
+            saveAnnotated = viewModel::saveAnnotated,
+            applyToListing = viewModel::applyToListing,
+            close = onClose,
+        ),
+    )
+}
+
+/**
+ * Everything the disclosure screen can do (US-2902 AC3).
+ *
+ * `bind` is NOT here on purpose. It is a LaunchedEffect keyed on itemId - a
+ * lifecycle concern belonging to the wrapper, not an action a person takes -
+ * and putting it in this record would invite a golden to call it and load
+ * nothing.
+ */
+@Immutable
+data class DisclosureActions(
+    val select: (DisclosurePhoto) -> Unit = {},
+    val saveAnnotated: () -> Unit = {},
+    val applyToListing: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * The condition-disclosure screen with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ WORTH CAPTURING BECAUSE OF WHAT IT IS. This is the screen that decides what
+ * a BUYER is told about a garment's flaws. A layout regression here does not
+ * cost a seller a click - it changes what was disclosed, on the record, for an
+ * item someone has already bought. Nothing else in the app has that property.
+ *
+ * The layout is unchanged from the version inside DisclosureScreen; only the
+ * callbacks are rebound.
+ */
+@Composable
+fun DisclosureContent(state: DisclosureViewModel.State, actions: DisclosureActions, modifier: Modifier = Modifier) {
     Column(
-        Modifier
+        // Default is Modifier, so the chain is identical to the pre-extraction
+        // one and the goldens recorded against it cannot have moved.
+        modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(Spacing.md),
@@ -88,7 +131,7 @@ fun DisclosureScreen(itemId: String, onClose: () -> Unit = {}, viewModel: Disclo
                         state.annotatable.forEach { photo ->
                             FilterChip(
                                 selected = state.selected?.id == photo.id,
-                                onClick = { viewModel.select(photo) },
+                                onClick = { actions.select(photo) },
                                 label = {
                                     Text(
                                         stringResource(
@@ -120,7 +163,7 @@ fun DisclosureScreen(itemId: String, onClose: () -> Unit = {}, viewModel: Disclo
                         text = stringResource(R.string.disclosure_save_this_annotated_photo),
                         enabled = state.preview != null && !state.busy,
                         modifier = Modifier.fillMaxWidth(),
-                    ) { viewModel.saveAnnotated() }
+                    ) { actions.saveAnnotated() }
                 }
 
                 BrandPrimaryButton(
@@ -133,13 +176,13 @@ fun DisclosureScreen(itemId: String, onClose: () -> Unit = {}, viewModel: Disclo
                     ),
                     enabled = !state.busy,
                     modifier = Modifier.fillMaxWidth(),
-                ) { viewModel.applyToListing() }
+                ) { actions.applyToListing() }
                 Hint(stringResource(R.string.disclosure_edits_description))
             }
         }
 
         BrandSecondaryButton(text = stringResource(R.string.disclosure_back), modifier = Modifier.fillMaxWidth()) {
-            onClose()
+            actions.close()
         }
     }
 }
