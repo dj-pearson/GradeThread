@@ -2,7 +2,6 @@ package com.gradethread.app.importer
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
+import com.gradethread.app.money.Money
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -56,7 +57,54 @@ fun ImportScreen(onDone: () -> Unit, viewModel: ImportViewModel = hiltViewModel(
         ActivityResultContracts.OpenDocument(),
     ) { uri -> uri?.let(viewModel::load) }
 
-    Column(Modifier.fillMaxSize().padding(Spacing.md)) {
+    ImportContent(
+        state,
+        ImportActions(
+            // The picker stays in the wrapper: it needs an Activity result
+            // registry, which a screenshot test does not have.
+            pickFile = { picker.launch(arrayOf("*/*")) },
+            setSheetUrl = viewModel::setSheetUrl,
+            loadFromSheet = viewModel::loadFromSheet,
+            setMapping = viewModel::setMapping,
+            preview = viewModel::preview,
+            backToMapping = viewModel::backToMapping,
+            commit = viewModel::commit,
+            startOver = viewModel::startOver,
+            done = onDone,
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class ImportActions(
+    val pickFile: () -> Unit = {},
+    val setSheetUrl: (String) -> Unit = {},
+    val loadFromSheet: () -> Unit = {},
+    val setMapping: (Int, ImportField) -> Unit = { _, _ -> },
+    val preview: () -> Unit = {},
+    val backToMapping: () -> Unit = {},
+    val commit: () -> Unit = {},
+    val startOver: () -> Unit = {},
+    val done: () -> Unit = {},
+)
+
+/**
+ * The CSV importer with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ FOUR STEPS, ONE SCREEN, AND THE ONLY THING THAT SAYS WHICH IS THE LAYOUT.
+ * Pick, map, preview, done are the same Column with different children, so a
+ * step that renders the wrong body is not a crash - it is a seller pressing
+ * Import on a mapping they have not checked.
+ *
+ * ⚠ AND THE PREVIEW IS WHERE REJECTED ROWS GET NAMED. An import that quietly
+ * dropped the rows it could not read would put a smaller inventory on screen
+ * than the file held, with nothing saying which rows went missing. The failures
+ * list is captured for that reason.
+ */
+@Composable
+fun ImportContent(state: ImportViewModel.State, actions: ImportActions, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxSize().padding(Spacing.md)) {
         Text(
             stringResource(R.string.import_title),
             style = MaterialTheme.typography.headlineMedium,
@@ -75,21 +123,16 @@ fun ImportScreen(onDone: () -> Unit, viewModel: ImportViewModel = hiltViewModel(
         }
 
         when (state.step) {
-            ImportViewModel.Step.PICK ->
-                PickStep(state, viewModel) { picker.launch(arrayOf("*/*")) }
-            ImportViewModel.Step.MAP -> MapStep(state, viewModel)
-            ImportViewModel.Step.PREVIEW -> PreviewStep(state, viewModel)
-            ImportViewModel.Step.DONE -> DoneStep(state, viewModel, onDone)
+            ImportViewModel.Step.PICK -> PickStep(state, actions)
+            ImportViewModel.Step.MAP -> MapStep(state, actions)
+            ImportViewModel.Step.PREVIEW -> PreviewStep(state, actions)
+            ImportViewModel.Step.DONE -> DoneStep(state, actions)
         }
     }
 }
 
 @Composable
-private fun PickStep(
-    state: ImportViewModel.State,
-    viewModel: ImportViewModel,
-    onPick: () -> Unit,
-) {
+private fun PickStep(state: ImportViewModel.State, actions: ImportActions) {
     Column(Modifier.fillMaxWidth().padding(top = Spacing.sm)) {
         Text(
             stringResource(R.string.import_intro),
@@ -99,7 +142,7 @@ private fun PickStep(
         BrandPrimaryButton(
             text = stringResource(R.string.import_choose_file),
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.md),
-        ) { onPick() }
+        ) { actions.pickFile() }
 
         // US-2410: the sheet goes to the server, which fetches it and hands
         // back CSV — from here on it is the same import as a picked file.
@@ -115,7 +158,7 @@ private fun PickStep(
         )
         OutlinedTextField(
             value = state.sheetUrl,
-            onValueChange = viewModel::setSheetUrl,
+            onValueChange = actions.setSheetUrl,
             label = { Text(stringResource(R.string.import_sheet_link)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.xs),
@@ -124,12 +167,12 @@ private fun PickStep(
             text = stringResource(R.string.import_sheet_fetch),
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.xs),
             enabled = state.canFetchSheet,
-        ) { viewModel.loadFromSheet() }
+        ) { actions.loadFromSheet() }
     }
 }
 
 @Composable
-private fun MapStep(state: ImportViewModel.State, viewModel: ImportViewModel) {
+private fun MapStep(state: ImportViewModel.State, actions: ImportActions) {
     val sheet = state.sheet ?: return
     Column(Modifier.fillMaxWidth()) {
         Text(
@@ -157,7 +200,7 @@ private fun MapStep(state: ImportViewModel.State, viewModel: ImportViewModel) {
                     // real data rather than a header they may have forgotten.
                     sample = sheet.rows.firstOrNull()?.getOrNull(column).orEmpty(),
                     field = state.mapping.getOrElse(column) { ImportField.SKIP },
-                    onPick = { viewModel.setMapping(column, it) },
+                    onPick = { actions.setMapping(column, it) },
                 )
             }
         }
@@ -166,17 +209,12 @@ private fun MapStep(state: ImportViewModel.State, viewModel: ImportViewModel) {
             text = stringResource(R.string.import_preview),
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
             enabled = state.canPreview,
-        ) { viewModel.preview() }
+        ) { actions.preview() }
     }
 }
 
 @Composable
-private fun ColumnRow(
-    header: String,
-    sample: String,
-    field: ImportField,
-    onPick: (ImportField) -> Unit,
-) {
+private fun ColumnRow(header: String, sample: String, field: ImportField, onPick: (ImportField) -> Unit) {
     var open by remember { mutableIntStateOf(0) }
     Column(Modifier.fillMaxWidth().cardStyle()) {
         Text(
@@ -206,7 +244,7 @@ private fun ColumnRow(
 }
 
 @Composable
-private fun PreviewStep(state: ImportViewModel.State, viewModel: ImportViewModel) {
+private fun PreviewStep(state: ImportViewModel.State, actions: ImportActions) {
     val plan = state.plan ?: return
     Column(Modifier.fillMaxWidth()) {
         state.summary?.let {
@@ -226,11 +264,15 @@ private fun PreviewStep(state: ImportViewModel.State, viewModel: ImportViewModel
                                 draft.sku?.let { stringResource(R.string.import_sku, it) },
                                 draft.brand,
                                 draft.size,
+                                // Money.format, not the raw Double. Both strings
+                                // take %1$s, so a Double landed as "cost 24.0"
+                                // on the one screen where a seller is checking
+                                // their own figures against a spreadsheet.
                                 draft.acquiredPrice?.let {
-                                    stringResource(R.string.import_cost, it)
+                                    stringResource(R.string.import_cost, Money.format(it))
                                 },
                                 draft.targetPrice?.let {
-                                    stringResource(R.string.import_list, it)
+                                    stringResource(R.string.import_list, Money.format(it))
                                 },
                                 draft.status,
                             ).joinToString(" · "),
@@ -261,23 +303,19 @@ private fun PreviewStep(state: ImportViewModel.State, viewModel: ImportViewModel
                 text = stringResource(R.string.common_back),
                 modifier = Modifier.width(120.dp),
             ) {
-                viewModel.backToMapping()
+                actions.backToMapping()
             }
             BrandPrimaryButton(
                 text = stringResource(R.string.import_commit, plan.ready.size),
                 modifier = Modifier.weight(1f).padding(start = Spacing.xs),
                 enabled = state.canCommit,
-            ) { viewModel.commit() }
+            ) { actions.commit() }
         }
     }
 }
 
 @Composable
-private fun DoneStep(
-    state: ImportViewModel.State,
-    viewModel: ImportViewModel,
-    onDone: () -> Unit,
-) {
+private fun DoneStep(state: ImportViewModel.State, actions: ImportActions) {
     Column(Modifier.fillMaxWidth()) {
         state.outcome?.let {
             Text(it, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
@@ -297,12 +335,12 @@ private fun DoneStep(
                 text = stringResource(R.string.import_another),
                 modifier = Modifier.weight(1f),
             ) {
-                viewModel.startOver()
+                actions.startOver()
             }
             BrandPrimaryButton(
                 text = stringResource(R.string.common_done),
                 modifier = Modifier.weight(1f).padding(start = Spacing.xs),
-            ) { onDone() }
+            ) { actions.done() }
         }
     }
 }
