@@ -14,6 +14,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -35,17 +36,53 @@ fun GlobalSearchScreen(
     viewModel: GlobalSearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+
+    GlobalSearchContent(
+        state = state,
+        actions = GlobalSearchActions(
+            setQuery = viewModel::setQuery,
+            clear = viewModel::clear,
+            open = onOpen,
+        ),
+        modifier = modifier,
+    )
+}
+
+/** Everything search can do (US-2902 AC3). */
+@Immutable
+data class GlobalSearchActions(
+    val setQuery: (String) -> Unit = {},
+    val clear: () -> Unit = {},
+    val open: (String) -> Unit = {},
+)
+
+/**
+ * Search across everything, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THREE EMPTY-LOOKING STATES MEAN DIFFERENT THINGS, and the state class keeps
+ * them apart on purpose: `tooShort` (the query is not long enough to run),
+ * `hasSearched` false (nothing has been asked yet), and `hasSearched` true with
+ * no results (we looked and there is nothing). All three render a screen with no
+ * rows on it, and telling a seller "no matches" when the truth is "type another
+ * letter" is the one that wastes their time.
+ */
+@Composable
+fun GlobalSearchContent(
+    state: GlobalSearchViewModel.State,
+    actions: GlobalSearchActions,
+    modifier: Modifier = Modifier,
+) {
     val results = state.results
 
     Column(modifier.fillMaxSize().padding(Spacing.md)) {
         OutlinedTextField(
             value = state.query,
-            onValueChange = viewModel::setQuery,
+            onValueChange = actions.setQuery,
             label = { Text(stringResource(R.string.search_search_inventory_listings_sales_sources)) },
             singleLine = true,
             trailingIcon = {
                 if (state.query.isNotEmpty()) {
-                    TextButton(onClick = viewModel::clear) { Text(stringResource(R.string.search_clear)) }
+                    TextButton(onClick = actions.clear) { Text(stringResource(R.string.search_clear)) }
                 }
             },
             modifier = Modifier.fillMaxWidth(),
@@ -77,7 +114,7 @@ fun GlobalSearchScreen(
                                 .joinToString(" · ")
                                 .ifEmpty { item.status },
                         ) {
-                            onOpen(GlobalSearch.routeFor(GlobalSearch.Kind.ITEM, item.id))
+                            actions.open(GlobalSearch.routeFor(GlobalSearch.Kind.ITEM, item.id))
                         }
                     }
                 }
@@ -96,7 +133,7 @@ fun GlobalSearchScreen(
                                 money(hit.listing.listingPrice),
                             ),
                         ) {
-                            onOpen(GlobalSearch.routeFor(GlobalSearch.Kind.LISTING, hit.item.id))
+                            actions.open(GlobalSearch.routeFor(GlobalSearch.Kind.LISTING, hit.item.id))
                         }
                     }
                 }
@@ -113,7 +150,7 @@ fun GlobalSearchScreen(
                                 money(hit.sale.salePrice),
                             ).joinToString(" · "),
                         ) {
-                            onOpen(GlobalSearch.routeFor(GlobalSearch.Kind.SALE, hit.item.id))
+                            actions.open(GlobalSearch.routeFor(GlobalSearch.Kind.SALE, hit.item.id))
                         }
                     }
                 }
@@ -129,7 +166,7 @@ fun GlobalSearchScreen(
                                 .filter { it.isNotBlank() }
                                 .joinToString(" · "),
                         ) {
-                            onOpen(GlobalSearch.routeFor(GlobalSearch.Kind.SOURCE, source.id))
+                            actions.open(GlobalSearch.routeFor(GlobalSearch.Kind.SOURCE, source.id))
                         }
                     }
                 }
@@ -180,5 +217,4 @@ private fun Hint(text: String) {
     }
 }
 
-private fun money(value: Double): String =
-    CurrencyAmount.SYMBOL + CurrencyAmount.formatRaw(Math.round(value * 100))
+private fun money(value: Double): String = CurrencyAmount.SYMBOL + CurrencyAmount.formatRaw(Math.round(value * 100))
