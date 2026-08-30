@@ -226,19 +226,27 @@ Deno.test("US-2421: every widened key is a registered canonical attribute", () =
   }
 });
 
-Deno.test("US-2421: the capture holds 42 named attributes plus the catch-all", () => {
+Deno.test("US-2421: the capture holds 50 named attributes plus the catch-all", () => {
   // 40 -> 41 on 2026-08-23: US-2796 added `shoe_size_scale`.
   // 41 -> 42 on 2026-08-30: US-3016 added `product_type`, because eBay's Type
   // aspect is REQUIRED in 36 of the 121 cached categories and 33 of those had
-  // no field that could fill it. Bumped the way this comment asks: the
-  // truncation canary below was run first and still passes.
+  // no field that could fill it.
+  // 42 -> 50 on 2026-08-30: US-3016 added the non-apparel set (maker, subject,
+  // franchise, production_technique, year_manufactured,
+  // original_or_reproduction, signed, number_of_pieces). FlipDesk lists
+  // everything eBay lists and every key before them describes a garment, so
+  // the registry reached 3.8 of 18.8 aspects in Collectibles against 20.7 of
+  // 31.0 in Clothing. Each one says OMIT for apparel in its description, so
+  // the cost on a garment run is schema width and not output.
+  // Both bumps were made the way this comment asks: the two full-fill canaries
+  // below were run first and still pass at the wider count.
   // The number is not the point of this case - the TRUNCATION CANARY below is,
   // and it is why the count is pinned at all. Every added slot widens the
   // tool-call JSON, and max_tokens was already raised to 4096 when this went
   // from 16 to 40 to stop it truncating mid-string. Bump this deliberately,
   // after checking the canary still passes, rather than to make a red test green.
   const named = CANONICAL_ATTRIBUTES.filter((a) => a.key !== "observations");
-  assertEquals(named.length, 42);
+  assertEquals(named.length, 50);
   assertEquals(
     CANONICAL_ATTRIBUTES.some((a) => a.key === "observations" && a.multi),
     true,

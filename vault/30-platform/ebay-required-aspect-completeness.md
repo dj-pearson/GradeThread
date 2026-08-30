@@ -11,7 +11,7 @@ code_refs:
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-08-28
+reviewed: 2026-08-30
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
@@ -227,6 +227,58 @@ fix it, relist. That path failed too, and reported success while doing it — se
 knowing together, because it is what a seller reaches for when this section's
 bridge lets them down.
 
+## Two required aspects had no field behind them (US-3016, 2026-08-30)
+
+Measured rather than reasoned about: `scripts/aspect-value-coverage.ts
+--coverage` reads `ebay_category_aspects` back and asks, per aspect, whether
+any registry entry can fill it. Across 121 cached categories it found 468
+required aspects, and two of the gaps were structural rather than incidental.
+
+**`Type`, required in 36 categories, was unfillable in 33 of them.** Not an
+oversight. The style column lists `["Style", "Type"]` and `ownedAspectName`
+binds each entry to exactly ONE aspect — deliberately, because one column
+writing two aspects is the defect that made Type uneditable on Women's Tops.
+So wherever a category exposes both names, Style wins and Type is left to the
+refine pass, on a field whose absence blocks the publish outright.
+
+Nothing captured answered it either: `style` is the marketing style name
+(Sheath, Trucker), `product_line` is the family (501, Dri-FIT). Neither is a
+Blouse. The `product_type` canonical key is that missing answer, mapped to
+`["Type"]`. It is ATTRIBUTE-sourced on purpose — `garment_category` is a
+Postgres enum column, and a column entry would reach `reverseColumnAspects`,
+so a seller typing "Cardigan" into that specific would write an out-of-enum
+value and 500 the save.
+
+This is also what the re-categorisation section above is describing when it
+says *"the live item has no `Type` (required on Tops)"*. That bridge is still
+needed — it solves a live-listing ordering problem, not a fill problem — but
+the underlying blank it was routing around is now filled at source.
+
+**`Country of Origin` was mapped to two names that exist nowhere.** The
+`country_of_manufacture` entry targeted "Country/Region of Manufacture" and
+"Country of Manufacture". Neither appears in ANY of the 121 cached
+categories. eBay calls it **Country of Origin**, present in all 121 and
+SELECTION_ONLY. A value read verbatim off the care label had no aspect to
+land on, on every listing ever published, and nothing reported it because a
+candidate matching no aspect is indistinguishable from a category that does
+not have the field. The real names now lead the list; the old spellings are
+kept behind them for other marketplaces.
+
+> [!note] The same run corrected a value-side cap, see [[ebay-aspect-value-limit]]
+> Country of Origin ships 244 allowed values against a 150-value enum cap, so
+> the model was handed a menu missing most of the late alphabet — Vietnam,
+> Thailand, Turkey, Taiwan, Sri Lanka, Portugal, Philippines, Pakistan,
+> Romania, Tunisia, United States. Raised to 300. Fixing the name without the
+> cap would have landed the aspect on a list that could not hold the answer.
+
+**The remaining six are genuinely thin, not structural**: Outer Shell Material
+(6 categories), Insect Repellent Treated (3), Inseam (2), Exterior Color (1),
+Exterior Material (1), Game (1). Each is reachable by the refine pass, which
+is always asked about every required aspect, so "no registry entry" is not
+the same as "ships empty". What would settle it is a fill-rate query over
+live `inventory_items.ebay_aspects`, which has not been run.
+
+Scope for non-apparel categories is [[adr-flipdesk-universal-gradethread-garments]].
 ## Related
 
 - [[sync-source-of-truth]] — which field owns which specific

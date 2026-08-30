@@ -65,6 +65,87 @@
       ]
     },
     {
+      "key": "maker",
+      "source": "attribute",
+      "attribute": "maker",
+      "multi": false,
+      "aspects": [
+        "Maker",
+        "Manufacturer"
+      ]
+    },
+    {
+      "key": "subject",
+      "source": "attribute",
+      "attribute": "subject",
+      "multi": false,
+      "aspects": [
+        "Subject"
+      ]
+    },
+    {
+      "key": "franchise",
+      "source": "attribute",
+      "attribute": "franchise",
+      "multi": false,
+      "aspects": [
+        "Franchise",
+        "Universe"
+      ]
+    },
+    {
+      "key": "production_technique",
+      "source": "attribute",
+      "attribute": "production_technique",
+      "multi": false,
+      "aspects": [
+        "Production Technique"
+      ]
+    },
+    {
+      "key": "year_manufactured",
+      "source": "attribute",
+      "attribute": "year_manufactured",
+      "multi": false,
+      "aspects": [
+        "Year Manufactured",
+        "Year of Production",
+        "Date of Creation",
+        "Publication Year"
+      ]
+    },
+    {
+      "key": "original_or_reproduction",
+      "source": "attribute",
+      "attribute": "original_or_reproduction",
+      "multi": false,
+      "aspects": [
+        "Original/Reproduction",
+        "Original/Licensed Reprint"
+      ]
+    },
+    {
+      "key": "signed",
+      "source": "attribute",
+      "attribute": "signed",
+      "multi": false,
+      "aspects": [
+        "Signed",
+        "Autographed",
+        "Inscribed"
+      ]
+    },
+    {
+      "key": "number_of_pieces",
+      "source": "attribute",
+      "attribute": "number_of_pieces",
+      "multi": false,
+      "aspects": [
+        "Number of Pieces",
+        "Number in Pack"
+      ]
+    },
+    {
       "key": "product_type",
       "source": "attribute",
       "attribute": "product_type",
@@ -166,6 +247,8 @@
       "attribute": "country_of_manufacture",
       "multi": false,
       "aspects": [
+        "Country of Origin",
+        "Country/Region of Origin",
         "Country/Region of Manufacture",
         "Country of Manufacture"
       ]
@@ -365,7 +448,8 @@
       "multi": false,
       "aspects": [
         "Era",
-        "Decade"
+        "Decade",
+        "Time Period Manufactured"
       ]
     },
     {

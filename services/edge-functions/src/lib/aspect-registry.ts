@@ -109,6 +109,70 @@ export const ASPECT_REGISTRY: AspectRegistry = {
     // columnAspectProjection re-asserts it authoritatively — unchanged
     // behaviour, and the out[name] guard in resolveItemAspects means this
     // entry stands down there rather than fighting it.
+    // ── Non-apparel (US-3016) ──
+    // FlipDesk lists everything eBay lists; GradeThread still grades garments
+    // and accessories only. Measured 2026-08-30, the registry reached 20.7 of
+    // 31.0 aspects in Clothing but 3.8 of 18.8 in Collectibles, 4.0 of 24.0 in
+    // Toys & Hobbies and 3.0 of 11.0 in Antiques — because every canonical
+    // field was written for a garment. These eight are the non-apparel
+    // equivalents, and every candidate name below is one that actually appears
+    // in the cached category payloads rather than a guess at eBay's wording.
+    {
+      key: "maker",
+      source: "attribute",
+      attribute: "maker",
+      multi: false,
+      aspects: ["Maker", "Manufacturer"],
+    },
+    {
+      key: "subject",
+      source: "attribute",
+      attribute: "subject",
+      multi: false,
+      aspects: ["Subject"],
+    },
+    {
+      key: "franchise",
+      source: "attribute",
+      attribute: "franchise",
+      multi: false,
+      aspects: ["Franchise", "Universe"],
+    },
+    {
+      key: "production_technique",
+      source: "attribute",
+      attribute: "production_technique",
+      multi: false,
+      aspects: ["Production Technique"],
+    },
+    {
+      key: "year_manufactured",
+      source: "attribute",
+      attribute: "year_manufactured",
+      multi: false,
+      aspects: ["Year Manufactured", "Year of Production", "Date of Creation", "Publication Year"],
+    },
+    {
+      key: "original_or_reproduction",
+      source: "attribute",
+      attribute: "original_or_reproduction",
+      multi: false,
+      aspects: ["Original/Reproduction", "Original/Licensed Reprint"],
+    },
+    {
+      key: "signed",
+      source: "attribute",
+      attribute: "signed",
+      multi: false,
+      aspects: ["Signed", "Autographed", "Inscribed"],
+    },
+    {
+      key: "number_of_pieces",
+      source: "attribute",
+      attribute: "number_of_pieces",
+      multi: false,
+      aspects: ["Number of Pieces", "Number in Pack"],
+    },
     {
       key: "product_type",
       source: "attribute",
@@ -152,11 +216,22 @@ export const ASPECT_REGISTRY: AspectRegistry = {
       aspects: ["Garment Care", "Care Instructions"],
     },
     {
+    // The two names this listed until 2026-08-30 appear in ZERO of the 121
+    // cached categories. eBay calls it "Country of Origin" — SELECTION_ONLY,
+    // 244 values, present in ALL 121 — so a field we read verbatim off the
+    // care label had no aspect to land on anywhere, on every listing we have
+    // ever published. Kept the old spellings behind the real ones rather than
+    // deleting them: they cost nothing and other marketplaces use them.
       key: "country_of_manufacture",
       source: "attribute",
       attribute: "country_of_manufacture",
       multi: false,
-      aspects: ["Country/Region of Manufacture", "Country of Manufacture"],
+      aspects: [
+        "Country of Origin",
+        "Country/Region of Origin",
+        "Country/Region of Manufacture",
+        "Country of Manufacture",
+      ],
     },
     { key: "vintage", source: "attribute", attribute: "vintage", multi: false, aspects: ["Vintage"] },
     {
@@ -280,7 +355,7 @@ export const ASPECT_REGISTRY: AspectRegistry = {
       aspects: ["Activity", "Sport", "Sport/Activity"],
     },
     { key: "season", source: "attribute", attribute: "season", multi: false, aspects: ["Season"] },
-    { key: "era", source: "attribute", attribute: "era", multi: false, aspects: ["Era", "Decade"] },
+    { key: "era", source: "attribute", attribute: "era", multi: false, aspects: ["Era", "Decade", "Time Period Manufactured"] },
 
     // Footwear. The default names are the generic ones; the shoes vertical adds
     // the leaf-specific spellings ahead of them.

@@ -908,3 +908,114 @@ Deno.test("US-3016: a user-set Type is never overwritten by product_type", () =>
   );
   assertEquals(out["Type"], undefined);
 });
+
+// ── US-3016: non-apparel ────────────────────────────────────────────────────
+//
+// FlipDesk lists everything eBay lists; GradeThread grades garments and
+// accessories only. Measured against the 121 cached categories on 2026-08-30,
+// the registry reached 20.7 of 31.0 aspects in Clothing and 3.8 of 18.8 in
+// Collectibles, because every canonical field had been written for a garment.
+
+Deno.test("US-3016: Country of Origin is the name prod actually uses", () => {
+  // The two names this entry carried until 2026-08-30 appear in ZERO of the
+  // 121 cached categories. eBay calls it "Country of Origin", and it is
+  // present in ALL of them, so a value read straight off the care label had
+  // nowhere to land on any listing we have ever published.
+  const out = resolveItemAspects(
+    {
+      item_category: "clothing",
+      attributes: { country_of_manufacture: "Vietnam" },
+    },
+    [{ name: "Country of Origin", mode: "FREE_TEXT" }],
+    {},
+  );
+  assertEquals(out["Country of Origin"], ["Vietnam"]);
+});
+
+Deno.test("US-3016: the old origin spellings still resolve", () => {
+  // Kept behind the real names rather than deleted — they cost nothing and
+  // other marketplaces use them.
+  const out = resolveItemAspects(
+    { item_category: "clothing", attributes: { country_of_manufacture: "Peru" } },
+    [{ name: "Country/Region of Manufacture", mode: "FREE_TEXT" }],
+    {},
+  );
+  assertEquals(out["Country/Region of Manufacture"], ["Peru"]);
+});
+
+Deno.test("US-3016: a collectible fills the aspects its own category asks for", () => {
+  // A Barbie in Toys & Hobbies. None of these aspects existed in any
+  // canonical field before this story.
+  const aspects = [
+    { name: "Brand", mode: "FREE_TEXT" },
+    { name: "Franchise", mode: "FREE_TEXT" },
+    { name: "Character", mode: "FREE_TEXT" },
+    { name: "Year Manufactured", mode: "FREE_TEXT" },
+    { name: "Original/Reproduction", mode: "SELECTION_ONLY", allowedValues: ["Original", "Reproduction"] },
+    { name: "Number of Pieces", mode: "FREE_TEXT" },
+  ];
+  const out = resolveItemAspects(
+    {
+      item_category: "collectibles",
+      brand: "Mattel",
+      attributes: {
+        franchise: "Barbie",
+        theme: "Ken",
+        year_manufactured: "1978",
+        original_or_reproduction: "Original",
+        number_of_pieces: "1",
+      },
+    },
+    aspects,
+    {},
+  );
+  assertEquals(out["Franchise"], ["Barbie"]);
+  assertEquals(out["Character"], ["Ken"]);
+  assertEquals(out["Year Manufactured"], ["1978"]);
+  assertEquals(out["Original/Reproduction"], ["Original"]);
+  assertEquals(out["Number of Pieces"], ["1"]);
+});
+
+Deno.test("US-3016: an antique plate fills maker, technique and era", () => {
+  const aspects = [
+    { name: "Maker", mode: "FREE_TEXT" },
+    { name: "Production Technique", mode: "FREE_TEXT" },
+    { name: "Subject", mode: "FREE_TEXT" },
+    { name: "Time Period Manufactured", mode: "FREE_TEXT" },
+    { name: "Material", mode: "FREE_TEXT" },
+  ];
+  const out = resolveItemAspects(
+    {
+      item_category: "collectibles",
+      material: "Porcelain",
+      attributes: {
+        maker: "Wedgwood",
+        production_technique: "Transferware",
+        subject: "Landscape",
+        era: "Victorian",
+      },
+    },
+    aspects,
+    {},
+  );
+  assertEquals(out["Maker"], ["Wedgwood"]);
+  assertEquals(out["Production Technique"], ["Transferware"]);
+  assertEquals(out["Subject"], ["Landscape"]);
+  assertEquals(out["Time Period Manufactured"], ["Victorian"]);
+});
+
+Deno.test("US-3016: the non-apparel keys stay out of a garment listing", () => {
+  // A shirt category exposes none of these names, so nothing is invented.
+  const out = resolveItemAspects(
+    {
+      item_category: "clothing",
+      brand: "Levi's",
+      attributes: { maker: "should not appear", franchise: "should not appear" },
+    },
+    [{ name: "Brand", mode: "FREE_TEXT" }, { name: "Style", mode: "FREE_TEXT" }],
+    {},
+  );
+  assertEquals(out["Maker"], undefined);
+  assertEquals(out["Franchise"], undefined);
+  assertEquals(out["Brand"], ["Levi's"]);
+});

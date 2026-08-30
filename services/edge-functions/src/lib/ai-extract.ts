@@ -218,6 +218,21 @@ export const CANONICAL_ATTRIBUTES: CanonicalAttributeSpec[] = [
   // this. The style field holds a marketing style name (Sheath, Trucker) and
   // product_line holds the family (501, Dri-FIT); neither is a Blouse or a
   // Hoodie. This key is that, in eBay's own vocabulary.
+  // ── Non-apparel (US-3016) ──
+  // FlipDesk lists everything eBay lists. Every key above this block describes
+  // a garment, so a doll, a plate or a carved egg arrived with nothing prepared
+  // for it and leaned entirely on the refine pass reading photos cold. Each of
+  // these says OMIT for clothing, shoes and bags, the same way garment_type
+  // does: the slot costs schema width on every call, but no output tokens and
+  // no attention on a run where it does not apply.
+  { key: "maker", multi: false, description: "The maker, manufacturer, pottery, studio or artist behind a NON-APPAREL item, read from a mark, backstamp, base or signature — e.g. Wedgwood, Mattel, Royal Doulton, Lladro. This is the maker of an object, not a fashion label; for clothing, shoes and bags use brand and OMIT this." },
+  { key: "subject", multi: false, description: "What a NON-APPAREL item depicts or is about — e.g. Landscape, Floral, Horse, Ship, Portrait, Christmas. Omit for clothing, shoes and bags, and omit when the item depicts nothing in particular." },
+  { key: "franchise", multi: false, description: "The property, universe or line a collectible belongs to — e.g. Barbie, Star Wars, Pokemon, Hot Wheels, Precious Moments. Distinct from character (character is who is depicted) and from brand (brand is who sold it). Omit unless the item genuinely belongs to a named property." },
+  { key: "production_technique", multi: false, description: "How a NON-APPAREL item was physically made, when the item or its mark says so — e.g. Hand Painted, Cast, Blown Glass, Lithograph, Transferware, Cloisonne, Carved. Omit for clothing and omit when you cannot tell from the photos." },
+  { key: "year_manufactured", multi: false, description: "The year or year range the item was made, ONLY when it is stated on the item, its mark, its box or its copyright line — e.g. 1966, 1978, c. 1950. Read it; never estimate an age from how old something looks." },
+  { key: "original_or_reproduction", multi: false, description: "Whether a collectible or antique is an original or a later reproduction, as one of exactly: Original, Reproduction, Unknown. Answer Unknown unless a mark, a copyright line or an obvious modern manufacturing tell settles it — guessing this one wrong misdescribes the item." },
+  { key: "signed", multi: false, description: "Whether the item carries a signature or autograph, as one of exactly: Yes, No. Yes only when a signature is actually visible in a photo. This is a signature ON the item, not a maker mark or a printed logo." },
+  { key: "number_of_pieces", multi: false, description: "How many physical pieces the lot contains, as a bare number, when the listing is a set rather than a single item — e.g. 4 for a set of four plates, 12 for a card lot. Omit for a single item." },
   { key: "product_type", multi: false, description: "What KIND of item this is, in the words an eBay category would list under 'Type' — e.g. Blouse, T-Shirt, Hoodie, Cargo Pants, Ankle Boot, Tote, Baseball Cap. Name the garment itself, NOT its brand style name (that is style), NOT the product family (that is product_line), and NOT a broad bucket like 'Clothing' or 'Other'. Omit it rather than guessing a generic word." },
   { key: "department", multi: false, description: "Target department — e.g. Men, Women, Unisex Adult, Boys, Girls, Baby" },
   { key: "size_type", multi: false, description: "Size type — e.g. Regular, Plus, Petite, Big & Tall, Juniors, Maternity, Tall" },
