@@ -32,7 +32,7 @@ import kotlinx.coroutines.flow.StateFlow
  * A const keeps the property the test wanted: the version is declared once and
  * the annotation and the migration test cannot disagree about it.
  */
-internal const val GRADETHREAD_DB_VERSION = 8
+internal const val GRADETHREAD_DB_VERSION = 9
 
 @Database(
     entities = [
@@ -48,6 +48,7 @@ internal const val GRADETHREAD_DB_VERSION = 8
         CaptureDraftEntity::class,
         IntakeBatchEntity::class,
         AutolisterSessionEntity::class,
+        MileageTripEntity::class,
     ],
     version = GRADETHREAD_DB_VERSION,
     exportSchema = true,
@@ -57,6 +58,7 @@ abstract class GradeThreadDb : RoomDatabase() {
     abstract fun photos(): PhotoDao
     abstract fun sales(): SaleDao
     abstract fun expenses(): ExpenseDao
+    abstract fun mileageTrips(): MileageTripDao
     abstract fun listings(): ListingDao
     abstract fun sources(): SourceDao
     abstract fun sourcers(): SourcerDao
@@ -367,6 +369,37 @@ object DatabaseProvider {
     }
 
     /**
+     * US-3000: mileage trips, logged on the phone.
+     *
+     * A new table, so nothing existing is rewritten and no cached row becomes
+     * incomplete -- which is why [WATERMARK_SCHEMA_VERSION] does NOT move. The
+     * table starts with no sync cursor, so its first pull is a full backfill by
+     * construction rather than by a forced one.
+     */
+    internal val MIGRATION_8_9 = object : androidx.room.migration.Migration(8, 9) {
+        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS mileage_trips (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    tripDate INTEGER NOT NULL,
+                    miles REAL NOT NULL,
+                    purpose TEXT NOT NULL,
+                    startLocation TEXT,
+                    endLocation TEXT,
+                    roundTrip INTEGER NOT NULL,
+                    sourceId TEXT,
+                    createdAt INTEGER NOT NULL
+                )
+                """.trimIndent(),
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_mileage_trips_tripDate ON mileage_trips (tripDate)",
+            )
+        }
+    }
+
+    /**
      * Every migration, in order, declared ONCE.
      *
      * US-2502: [build] used to list them inline and the instrumented migration
@@ -387,5 +420,6 @@ object DatabaseProvider {
         MIGRATION_5_6,
         MIGRATION_6_7,
         MIGRATION_7_8,
+        MIGRATION_8_9,
     )
 }

@@ -189,6 +189,31 @@ interface ExpenseDao {
 }
 
 @Dao
+interface MileageTripDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(trips: List<MileageTripEntity>)
+
+    @Query("SELECT * FROM mileage_trips ORDER BY tripDate DESC")
+    suspend fun all(): List<MileageTripEntity>
+
+    /** US-3000: reactive backing for the trip list on the money screen. */
+    @Query("SELECT * FROM mileage_trips ORDER BY tripDate DESC")
+    fun observeAll(): kotlinx.coroutines.flow.Flow<List<MileageTripEntity>>
+
+    @Query("SELECT * FROM mileage_trips WHERE id = :id")
+    suspend fun byId(id: String): MileageTripEntity?
+
+    @Query("SELECT id FROM mileage_trips")
+    suspend fun allIds(): List<String>
+
+    @Query("DELETE FROM mileage_trips WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
+
+    @Query("DELETE FROM mileage_trips")
+    suspend fun clearAll()
+}
+
+@Dao
 interface ListingDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(listings: List<ListingEntity>)

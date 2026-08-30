@@ -51,8 +51,7 @@ class MutationReplayer @Inject constructor(
 ) {
 
     /** Active workspace, else self — matching every other tenant-scoped write. */
-    private fun ownerId(): String? =
-        client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
+    private fun ownerId(): String? = client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
 
     /**
      * Drain the queue once.
@@ -143,6 +142,8 @@ class MutationReplayer @Inject constructor(
             MutationKind.DELETE_INVENTORY_ITEM.wire -> db.items().delete(id)
             MutationKind.DELETE_PHOTO.wire -> db.photos().delete(id)
             MutationKind.DELETE_EXPENSE.wire -> db.expenses().deleteByIds(listOf(id))
+            MutationKind.DELETE_MILEAGE_TRIP.wire ->
+                db.mileageTrips().deleteByIds(listOf(id))
 
             // US-1377: the sale is no longer ahead of the server, so clearing
             // the dirty flag lets a later pull correct it if eBay disagreed.
@@ -170,6 +171,7 @@ object MutationReplayPlan {
 
     /** The SERVER table is `flipdesk_expenses`; Room's local one is `expenses`. */
     const val EXPENSES = "flipdesk_expenses"
+    const val MILEAGE_TRIPS = "mileage_trips"
 
     const val SALES = "sales"
 
@@ -190,12 +192,7 @@ object MutationReplayPlan {
         data class Upsert(val table: String, val body: JsonObject) : Write
 
         /** @param userId null = the table has no tenant column (`item_photos`). */
-        data class Update(
-            val table: String,
-            val id: String,
-            val patch: JsonObject,
-            val userId: String?,
-        ) : Write
+        data class Update(val table: String, val id: String, val patch: JsonObject, val userId: String?) : Write
 
         data class Delete(val table: String, val id: String, val userId: String?) : Write
 
@@ -218,75 +215,88 @@ object MutationReplayPlan {
         val bytes: Int?,
     )
 
-    fun plan(
-        mutation: PendingMutationEntity,
-        owner: String,
-        photoHints: PhotoHints? = null,
-    ): Write = when (mutation.kind) {
-        MutationKind.CREATE_INVENTORY_ITEM.wire -> {
-            // The payload IS the original insert body (`CapturePublisher` /
-            // `IntakeRepository`), so it already carries id and user_id.
-            val body = decode(mutation)
-            requireId(body, mutation, "item create")
-            // Re-stamp the tenant rather than trust the payload's: a queued row
-            // may predate a workspace switch, and replaying yesterday's edit
-            // into today's tenant is the one unrecoverable outcome here.
-            Write.Upsert(ITEMS, JsonObject(body + ("user_id" to JsonPrimitive(owner))))
+    fun plan(mutation: PendingMutationEntity, owner: String, photoHints: PhotoHints? = null): Write =
+        when (mutation.kind) {
+            MutationKind.CREATE_INVENTORY_ITEM.wire -> {
+                // The payload IS the original insert body (`CapturePublisher` /
+                // `IntakeRepository`), so it already carries id and user_id.
+                val body = decode(mutation)
+                requireId(body, mutation, "item create")
+                // Re-stamp the tenant rather than trust the payload's: a queued row
+                // may predate a workspace switch, and replaying yesterday's edit
+                // into today's tenant is the one unrecoverable outcome here.
+                Write.Upsert(ITEMS, JsonObject(body + ("user_id" to JsonPrimitive(owner))))
+            }
+
+            MutationKind.UPDATE_INVENTORY_ITEM.wire -> {
+                // Payload shape: {"id": "...", "patch": { … }} (ItemCanvasViewModel).
+                val body = decode(mutation)
+                val patch = body["patch"] as? JsonObject
+                    ?: terminal("Queued item update has no patch object")
+                Write.Update(ITEMS, requireId(body, mutation, "item update"), patch, owner)
+            }
+
+            MutationKind.DELETE_INVENTORY_ITEM.wire ->
+                Write.Delete(ITEMS, requireId(decode(mutation), mutation, "item delete"), owner)
+
+            MutationKind.UPLOAD_PHOTO.wire -> Write.Upsert(PHOTOS, photoRow(mutation, photoHints))
+
+            MutationKind.DELETE_PHOTO.wire ->
+                Write.Delete(
+                    PHOTOS,
+                    decode(mutation).string("photo_id")
+                        ?: mutation.targetId
+                        ?: terminal("Queued photo delete has no photo_id"),
+                    // item_photos carries no user_id — ownership is via the parent
+                    // item and RLS enforces it through that FK, so there is no
+                    // tenant column to filter on.
+                    userId = null,
+                )
+
+            MutationKind.CREATE_EXPENSE.wire -> {
+                val body = decode(mutation)
+                requireId(body, mutation, "expense create")
+                Write.Upsert(EXPENSES, JsonObject(body + ("user_id" to JsonPrimitive(owner))))
+            }
+
+            MutationKind.DELETE_EXPENSE.wire ->
+                Write.Delete(EXPENSES, requireId(decode(mutation), mutation, "expense delete"), owner)
+
+            // US-3000. Same two shapes as expenses: an upsert body with the tenant
+            // re-stamped from the CURRENT session rather than trusted from the
+            // payload, and a delete by id scoped to the owner.
+            MutationKind.CREATE_MILEAGE_TRIP.wire -> {
+                val body = decode(mutation)
+                requireId(body, mutation, "mileage trip create")
+                Write.Upsert(MILEAGE_TRIPS, JsonObject(body + ("user_id" to JsonPrimitive(owner))))
+            }
+
+            MutationKind.DELETE_MILEAGE_TRIP.wire ->
+                Write.Delete(
+                    MILEAGE_TRIPS,
+                    requireId(decode(mutation), mutation, "mileage trip delete"),
+                    owner,
+                )
+
+            // US-1377: a parcel marked shipped with no signal. Same
+            // {"id","patch"} shape as an item edit, so the same Update write
+            // applies — and the same re-stamped tenant scope.
+            MutationKind.MARK_SHIPPED.wire -> {
+                val body = decode(mutation)
+                val patch = body["patch"] as? JsonObject
+                    ?: terminal("Queued mark-shipped has no patch object")
+                Write.Update(SALES, requireId(body, mutation, "mark shipped"), patch, owner)
+            }
+
+            MutationKind.EBAY_ASPECT_WRITE_BACK.wire ->
+                Write.EdgePost(ASPECT_WRITE_BACK_PATH, decode(mutation))
+
+            // CREATE_SALE / CREATE_LISTING / REVISE_LISTING have no enqueue site yet
+            // (no Android surface creates them). Terminal rather than retried:
+            // nothing about a later attempt changes the fact that this build cannot
+            // perform it, so it belongs in the inspector immediately.
+            else -> terminal("No replay handler for mutation kind '${mutation.kind}'")
         }
-
-        MutationKind.UPDATE_INVENTORY_ITEM.wire -> {
-            // Payload shape: {"id": "...", "patch": { … }} (ItemCanvasViewModel).
-            val body = decode(mutation)
-            val patch = body["patch"] as? JsonObject
-                ?: terminal("Queued item update has no patch object")
-            Write.Update(ITEMS, requireId(body, mutation, "item update"), patch, owner)
-        }
-
-        MutationKind.DELETE_INVENTORY_ITEM.wire ->
-            Write.Delete(ITEMS, requireId(decode(mutation), mutation, "item delete"), owner)
-
-        MutationKind.UPLOAD_PHOTO.wire -> Write.Upsert(PHOTOS, photoRow(mutation, photoHints))
-
-        MutationKind.DELETE_PHOTO.wire ->
-            Write.Delete(
-                PHOTOS,
-                decode(mutation).string("photo_id")
-                    ?: mutation.targetId
-                    ?: terminal("Queued photo delete has no photo_id"),
-                // item_photos carries no user_id — ownership is via the parent
-                // item and RLS enforces it through that FK, so there is no
-                // tenant column to filter on.
-                userId = null,
-            )
-
-        MutationKind.CREATE_EXPENSE.wire -> {
-            val body = decode(mutation)
-            requireId(body, mutation, "expense create")
-            Write.Upsert(EXPENSES, JsonObject(body + ("user_id" to JsonPrimitive(owner))))
-        }
-
-        MutationKind.DELETE_EXPENSE.wire ->
-            Write.Delete(EXPENSES, requireId(decode(mutation), mutation, "expense delete"), owner)
-
-        // US-1377: a parcel marked shipped with no signal. Same
-        // {"id","patch"} shape as an item edit, so the same Update write
-        // applies — and the same re-stamped tenant scope.
-        MutationKind.MARK_SHIPPED.wire -> {
-            val body = decode(mutation)
-            val patch = body["patch"] as? JsonObject
-                ?: terminal("Queued mark-shipped has no patch object")
-            Write.Update(SALES, requireId(body, mutation, "mark shipped"), patch, owner)
-        }
-
-        MutationKind.EBAY_ASPECT_WRITE_BACK.wire ->
-            Write.EdgePost(ASPECT_WRITE_BACK_PATH, decode(mutation))
-
-        // CREATE_SALE / CREATE_LISTING / REVISE_LISTING have no enqueue site yet
-        // (no Android surface creates them). Terminal rather than retried:
-        // nothing about a later attempt changes the fact that this build cannot
-        // perform it, so it belongs in the inspector immediately.
-        else -> terminal("No replay handler for mutation kind '${mutation.kind}'")
-    }
 
     /**
      * The `item_photos` row an upload produced.
@@ -339,24 +349,22 @@ object MutationReplayPlan {
         } ?: mutation.targetId
     }.getOrElse { mutation.targetId }
 
-    private fun requireId(
-        body: JsonObject,
-        mutation: PendingMutationEntity,
-        what: String,
-    ): String = body.string("id")
+    private fun requireId(body: JsonObject, mutation: PendingMutationEntity, what: String): String = body.string("id")
         ?: mutation.targetId
         ?: terminal("Queued $what has no id")
 
-    private fun decode(mutation: PendingMutationEntity): JsonObject =
-        runCatching {
-            json.parseToJsonElement(mutation.payload.decodeToString()).jsonObject
-        }.getOrElse {
-            terminal("Queued ${mutation.kind} payload is not a valid JSON object")
-        }
+    private fun decode(mutation: PendingMutationEntity): JsonObject = runCatching {
+        json.parseToJsonElement(mutation.payload.decodeToString()).jsonObject
+    }.getOrElse {
+        terminal("Queued ${mutation.kind} payload is not a valid JSON object")
+    }
 
     private fun terminal(message: String): Nothing = throw EdgeApiError.BadRequest(message)
 
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
     /** A JSON null, a blank string or a non-primitive all read as absent. */
     private fun JsonObject.string(key: String): String? =

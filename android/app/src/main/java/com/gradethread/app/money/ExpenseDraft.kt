@@ -2,9 +2,7 @@ package com.gradethread.app.money
 
 import com.gradethread.app.capture.CurrencyAmount
 import com.gradethread.app.sync.db.ExpenseEntity
-import java.time.Instant
 import java.time.ZoneId
-import java.time.ZoneOffset
 
 /**
  * US-1364: the expense form's state and its validation — pure, so the rules are
@@ -84,7 +82,11 @@ data class ExpenseDraft(
          * format, and month bucketing. A device-zone read of any one of them
          * re-opens the drift.
          */
-        val EXPENSE_ZONE: ZoneId = ZoneOffset.UTC
+        // US-3000 moved the rule ITSELF to CalendarDateField, because trip_date
+        // is the same shape of field and two implementations of "format a date
+        // for the wire" is exactly how this bug comes back. The alias stays so
+        // every existing caller and every word above still reads true.
+        val EXPENSE_ZONE: ZoneId = CalendarDateField.ZONE
 
         /**
          * `YYYY-MM-DD` for the server's `spent_on` DATE column.
@@ -95,12 +97,10 @@ data class ExpenseDraft(
          * moves an evening expense to the next day east of Greenwich and to the
          * previous day west of it.
          */
-        fun isoDate(epochMs: Long, zone: ZoneId = EXPENSE_ZONE): String =
-            Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate().toString()
+        fun isoDate(epochMs: Long, zone: ZoneId = EXPENSE_ZONE): String = CalendarDateField.iso(epochMs, zone)
 
         /** The epoch-ms anchor for a calendar date, in [EXPENSE_ZONE]. */
-        fun startOfDayMs(date: java.time.LocalDate): Long =
-            date.atStartOfDay(EXPENSE_ZONE).toInstant().toEpochMilli()
+        fun startOfDayMs(date: java.time.LocalDate): Long = CalendarDateField.startOfDayMs(date)
 
         /**
          * Expense categories, mirroring the iOS `ExpenseTypes` picker.
@@ -119,11 +119,10 @@ data class ExpenseDraft(
             "other" to "Other",
         )
 
-        fun labelFor(category: String): String =
-            CATEGORIES.firstOrNull { it.first == category }?.second
-                // A category the server knows and this build doesn't is shown as
-                // itself rather than silently relabeled "Other".
-                ?: category.replaceFirstChar { it.uppercase() }
+        fun labelFor(category: String): String = CATEGORIES.firstOrNull { it.first == category }?.second
+            // A category the server knows and this build doesn't is shown as
+            // itself rather than silently relabeled "Other".
+            ?: category.replaceFirstChar { it.uppercase() }
 
         /** Editing seeds the form from the stored row. */
         fun from(entity: ExpenseEntity): ExpenseDraft = ExpenseDraft(

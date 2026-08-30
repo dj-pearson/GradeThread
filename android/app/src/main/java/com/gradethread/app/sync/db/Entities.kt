@@ -199,6 +199,35 @@ data class ExpenseEntity(
     val createdAt: Long,
 )
 
+/**
+ * US-3000: a mileage trip, logged on the phone at the store.
+ *
+ * `tripDate` is an epoch-ms ANCHOR for a calendar date, not a moment. Every
+ * read and write of it goes through CalendarDateField, because `trip_date` is
+ * the same shape of column as `spent_on` and US-2339 walked that one back a day
+ * per edit cycle when the parse and the format disagreed about the zone.
+ *
+ * `miles` is a Double holding an exact 1-dp value, converted from integer
+ * tenths at the boundary in TripDraft -- the server column is numeric(8,1), and
+ * a log that records 12.299999999999999 miles produces a deduction the seller
+ * cannot reconcile against their own arithmetic.
+ */
+@Entity(
+    tableName = "mileage_trips",
+    indices = [Index("tripDate")],
+)
+data class MileageTripEntity(
+    @PrimaryKey val id: String,
+    val tripDate: Long,
+    val miles: Double,
+    val purpose: String,
+    val startLocation: String?,
+    val endLocation: String?,
+    val roundTrip: Boolean,
+    val sourceId: String?,
+    val createdAt: Long,
+)
+
 @Entity(
     tableName = "listings",
     indices = [Index("listingStatus"), Index("inventoryItemId")],

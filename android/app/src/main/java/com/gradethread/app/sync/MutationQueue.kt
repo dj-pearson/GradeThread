@@ -28,10 +28,7 @@ import java.util.UUID
  *    bump the retry count. Stuck rows are skipped by the drain and surface
  *    in the inspector (US-641) for manual retry/discard.
  */
-class OfflineMutationQueue(
-    private val db: GradeThreadDb,
-    private val clock: () -> Long = System::currentTimeMillis,
-) {
+class OfflineMutationQueue(private val db: GradeThreadDb, private val clock: () -> Long = System::currentTimeMillis) {
 
     companion object {
         /** The auto-retry budget; retryCount >= this = stuck. */
@@ -56,28 +53,22 @@ class OfflineMutationQueue(
             queue.filter { isCreateKind(it.kind) }.mapNotNull { it.targetId }.toSet()
 
         /** US-1495: items with queued create/update edits stay dirty + protected. */
-        fun itemIdsWithPendingEdits(queue: List<PendingMutationEntity>): Set<String> =
-            queue
-                .filter {
-                    it.kind == MutationKind.CREATE_INVENTORY_ITEM.wire ||
-                        it.kind == MutationKind.UPDATE_INVENTORY_ITEM.wire
-                }
-                .mapNotNull { it.targetId }
-                .toSet()
+        fun itemIdsWithPendingEdits(queue: List<PendingMutationEntity>): Set<String> = queue
+            .filter {
+                it.kind == MutationKind.CREATE_INVENTORY_ITEM.wire ||
+                    it.kind == MutationKind.UPDATE_INVENTORY_ITEM.wire
+            }
+            .mapNotNull { it.targetId }
+            .toSet()
 
-        fun shouldDeferDependent(
-            mutation: PendingMutationEntity,
-            unconfirmedCreateIds: Set<String>,
-        ): Boolean {
+        fun shouldDeferDependent(mutation: PendingMutationEntity, unconfirmedCreateIds: Set<String>): Boolean {
             if (!isDependentEdit(mutation.kind)) return false
             val target = mutation.targetId ?: return false
             return target in unconfirmedCreateIds
         }
 
-        fun shouldHoldForBlockedTarget(
-            mutation: PendingMutationEntity,
-            blockedTargetIds: Set<String>,
-        ): Boolean = mutation.targetId?.let { it in blockedTargetIds } == true
+        fun shouldHoldForBlockedTarget(mutation: PendingMutationEntity, blockedTargetIds: Set<String>): Boolean =
+            mutation.targetId?.let { it in blockedTargetIds } == true
 
         /**
          * Only GENUINE connectivity failures enqueue for later; a 4xx /
@@ -180,7 +171,10 @@ class OfflineMutationQueue(
                 if (isTerminal(error)) {
                     stuck += 1
                     db.pendingMutations().markAttempt(
-                        mutation.id, MAX_RETRIES, message, clock(),
+                        mutation.id,
+                        MAX_RETRIES,
+                        message,
+                        clock(),
                     )
                     Telemetry.breadcrumb(
                         "Mutation replay terminal (${mutation.kind}): $message — now stuck",
@@ -225,6 +219,10 @@ enum class MutationKind(val wire: String) {
     CREATE_SALE("createSale"),
     CREATE_EXPENSE("createExpense"),
     DELETE_EXPENSE("deleteExpense"),
+
+    /** US-3000: a mileage trip logged in a car park with no signal. */
+    CREATE_MILEAGE_TRIP("createMileageTrip"),
+    DELETE_MILEAGE_TRIP("deleteMileageTrip"),
     REVISE_LISTING("reviseListing"),
 
     /** US-1377: `shipped_at` (+ tracking) stamped on a sale while offline. */
