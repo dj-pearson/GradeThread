@@ -30,7 +30,9 @@ on:
       - "scripts/check-1099k-bridge.mjs"
       - "scripts/check-mileage-log.mjs"
       - "scripts/check-home-office.mjs"
+      - "scripts/check-statement-import.mjs"
       - "scripts/check-books-review.mjs"
+      - "scripts/check-statement-import.mjs"
       - "scripts/fixtures/**"
   push:
     branches: [main]
@@ -55,7 +57,9 @@ on:
       - "scripts/check-1099k-bridge.mjs"
       - "scripts/check-mileage-log.mjs"
       - "scripts/check-home-office.mjs"
+      - "scripts/check-statement-import.mjs"
       - "scripts/check-books-review.mjs"
+      - "scripts/check-statement-import.mjs"
       - "scripts/fixtures/**"
 
 concurrency:
@@ -154,11 +158,22 @@ jobs:
       # order gives $1,000 where the right one gives $750.
       - name: Home office caps before prorating (US-2990)
         run: node scripts/check-home-office.mjs
+      # Matching a bank line to an expense is a claim about two records being
+      # the same event. Its own header says it is registered in the db lane
+      # with the rest, and it was not - guard-lane-parity caught that.
+      - name: Bank statement matching (US-2994)
+        run: node scripts/check-statement-import.mjs
       # The negative assertions are the point here: a local cash sale genuinely
       # has no fees and a $12 expense is under the substantiation threshold. A
       # queue that cries wolf gets ignored, and the real issue in it goes unread.
       - name: Books review queue and its false positives (US-2992)
         run: node scripts/check-books-review.mjs
+      # Two assertions: a re-imported overlapping range must not duplicate, and
+      # an expense already matched to one statement row must not be offered to
+      # another -- two lines for one expense IS the double payment a bank
+      # import exists to catch.
+      - name: Statement import does not duplicate or double-match (US-2994)
+        run: node scripts/check-statement-import.mjs
       - name: Denied-RPC crash check (advisory, US-2403)
         continue-on-error: true
         run: node scripts/db-denied-rpc-crash-check.mjs

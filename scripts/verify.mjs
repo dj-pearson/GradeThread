@@ -495,7 +495,9 @@ if (on("db")) {
     run("db: 1099-K gross is branch-independent (US-2988)", "node scripts/check-1099k-bridge.mjs");
     run("db: mileage ledger equals the summary (US-2989)", "node scripts/check-mileage-log.mjs");
     run("db: home office caps before prorating (US-2990)", "node scripts/check-home-office.mjs");
+    run("db: bank statement matching (US-2994)", "node scripts/check-statement-import.mjs");
     run("db: books review queue and its false positives (US-2992)", "node scripts/check-books-review.mjs");
+    run("db: statement import does not duplicate or double-match (US-2994)", "node scripts/check-statement-import.mjs");
     // US-2403: a denied function call SEGFAULTs the Supabase Postgres image and
     // restarts the whole database. ADVISORY, not a gate, and deliberately so:
     // the stock image is vulnerable today, so gating here would be red on every
