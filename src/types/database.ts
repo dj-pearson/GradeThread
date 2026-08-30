@@ -1668,6 +1668,35 @@ export interface SourcerRow {
   updated_at: string;
 }
 
+// US-3018 (00706): one row per COMPLETED sale, carrying the profit
+// finances_dashboard already computes plus the keys the team reports group by.
+//
+// The money columns arrive as STRINGS -- PostgREST serialises `numeric` that
+// way, and the view's arithmetic is numeric because the underlying columns are.
+// Read them through `money()` in src/lib/team-reporting.ts rather than trusting
+// the type; a bare `+` on two of these concatenates.
+export interface SalePnlRow {
+  sale_id: string;
+  user_id: string;
+  inventory_item_id: string | null;
+  sale_date: string;
+  /** The name as typed, or 'Unassigned'. */
+  sourcer_name: string;
+  /** lower(sourcer_name), so 'Dan' and 'dan' are one person. */
+  sourcer_key: string;
+  /** sources.name, else inventory_items.acquired_source, else 'Unknown'. */
+  source_key: string;
+  brand_key: string;
+  category_key: string;
+  revenue: number | string;
+  fees: number | string;
+  costs: number | string;
+  cost_basis: number | string;
+  net: number | string;
+  days_to_sell: number | string | null;
+  days_on_market: number | string | null;
+}
+
 // US-600: consignment mode. Base table from 00107 (US-676); the status /
 // Stripe-Connect / intake columns are added in 00171.
 export interface ConsignorRow {

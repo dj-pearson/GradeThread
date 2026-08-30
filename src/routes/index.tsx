@@ -625,6 +625,9 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/analytics/returns", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/analytics/price-curve", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/analytics/performance", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
+              // US-3019: the sourcing team's scorecard. Same host as every other
+              // analytics tab, which reads the tab off the pathname.
+              { path: "/dashboard/flipdesk/analytics/team", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
               // US-2161: Community Insights is an Analytics tab now; the old path keeps
               // working via the analytics host, which reads the tab off the pathname.
               { path: "/dashboard/flipdesk/community", element: <Navigate to="/dashboard/flipdesk/analytics/community" replace /> },

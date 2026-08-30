@@ -149,6 +149,13 @@ const DefectCostSection = lazy(() =>
     default: m.DefectCostSection,
   })),
 );
+// US-3019: the sourcing team's scorecard, on its own tab. Lazy because it is
+// the only view that reads sale_pnl, and the other five tabs have no use for it.
+const TeamReportPage = lazy(() =>
+  import("@/pages/flipdesk/team-report").then((m) => ({
+    default: m.TeamReportPage,
+  })),
+);
 
 const usd = (n: number | null | undefined): string =>
   n == null || !Number.isFinite(n) ? "—" : `$${n.toFixed(2)}`;
@@ -224,6 +231,9 @@ const RANGE_TABS = new Set([
   "grading-roi",
   "price-curve",
   "returns",
+  // US-3019: the Team tab windows on the same preset as everything else, so it
+  // reads the shared control rather than drawing a sixth copy of it.
+  "team",
 ]);
 
 function RangeSelect() {
@@ -259,7 +269,9 @@ export function FlipdeskAnalyticsPage() {
           ? "performance"
           : location.pathname.endsWith("/community")
             ? "community"
-            : "sell-through";
+            : location.pathname.endsWith("/team")
+              ? "team"
+              : "sell-through";
 
   return (
     <div className="space-y-6">
@@ -292,7 +304,9 @@ export function FlipdeskAnalyticsPage() {
                     ? "/dashboard/flipdesk/analytics/performance"
                     : v === "community"
                       ? "/dashboard/flipdesk/analytics/community"
-                      : "/dashboard/flipdesk/analytics") + location.search,
+                      : v === "team"
+                        ? "/dashboard/flipdesk/analytics/team"
+                        : "/dashboard/flipdesk/analytics") + location.search,
           )
         }
       >
@@ -303,6 +317,7 @@ export function FlipdeskAnalyticsPage() {
           <TabsTrigger value="returns">Return reduction</TabsTrigger>
           <TabsTrigger value="performance">Listing performance</TabsTrigger>
           <TabsTrigger value="community">Community</TabsTrigger>
+          <TabsTrigger value="team">Team</TabsTrigger>
         </TabsList>
 
         <TabsContent value="sell-through" className="mt-6">
@@ -346,6 +361,16 @@ export function FlipdeskAnalyticsPage() {
             </Suspense>
           )}
         </TabsContent>
+        {/* US-3019: lazy and mounted only when active. It reads sale_pnl plus
+            the whole inventory table, which is a cost no other tab should pay
+            just because a seller opened Analytics. */}
+        <TabsContent value="team" className="mt-6">
+          {tab === "team" && (
+            <Suspense fallback={<Loading />}>
+              <TeamReportHost />
+            </Suspense>
+          )}
+        </TabsContent>
       </Tabs>
     </div>
   );
@@ -353,6 +378,14 @@ export function FlipdeskAnalyticsPage() {
 
 // The range preset lives in the URL and is read by every tab that windows its
 // data; the curve reads it here so its module never has to know about presets.
+// US-3019: same trick as ScorecardHost -- the Team tab reads the shared preset
+// here so its own module never has to know what a preset is.
+function TeamReportHost() {
+  const [preset] = usePresetParam();
+  const periodStart = useMemo(() => presetStart(preset), [preset]);
+  return <TeamReportPage periodStart={periodStart} />;
+}
+
 // Reads the shared range preset so the scorecard windows with everything else.
 function ScorecardHost() {
   const [preset] = usePresetParam();
