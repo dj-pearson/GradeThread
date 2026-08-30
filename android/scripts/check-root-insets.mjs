@@ -60,6 +60,14 @@ const NOT_A_SCREEN = new Set([
   "Unit", // the empty arm while the splash is up
   "SystemClock", // used for the splash-hold clock
   "WindowWidthSizeClass", // size-class comparison
+  // US-3003: a Material 3 background + contentColor wrapper, not a screen.
+  // It composes no layout of its own and passes its constraints straight
+  // through, so it neither needs insets nor hides a screen that does - the
+  // screens BELOW it are still checked individually by this guard. It is
+  // there because setContent had no Surface, which left LocalContentColor
+  // at Compose's default BLACK and made the sign-in headline invisible on a
+  // dark-mode phone.
+  "Surface",
 ]);
 
 /** Any one of these means the composable has taken responsibility for insets. */
