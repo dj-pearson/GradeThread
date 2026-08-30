@@ -6,7 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-08-29
+reviewed: 2026-08-30
 tags: [security, rls, tenant-isolation, contract]
 summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration.
 ---
@@ -26,6 +26,16 @@ delete from anon, authenticated`, and zero policies.
 > This note is about TABLES. For `SECURITY DEFINER` functions the edge calls,
 > see [[admin-rpc-guards]] — `is_admin()` is always false for the service role,
 > so a bare `is_admin()` guard rejects every call the edge makes.
+
+> **Re-reviewed 2026-08-30.** Drift flagged `rls-guard_test.ts` again. The
+> change is one new entry, `qbo_oauth_states` (US-2997, migration 00704), and
+> it is the rules below working rather than bending: the OAuth CSRF state is
+> single-use, self-expiring, deleted-and-returned in one statement at the
+> callback, and the SPA never reads it. The connection and account-mapping
+> tables beside it are ORDINARY tenant tables with per-user policies, because
+> the status card reads them straight through PostgREST - only the state
+> belongs behind the service role. Registering all three would have claimed the
+> excuse for two tables that do not need it.
 
 > **Re-reviewed 2026-08-21.** Drift flagged `rls-guard_test.ts`. The change is
 > one new entry in `SERVICE_ROLE_ONLY` — `identification_provenance` (US-2774,

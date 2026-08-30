@@ -5,11 +5,12 @@ type: contract
 status: current
 source_of_truth: code
 code_refs:
+  - android/app/src/main/java/com/gradethread/app/money/CalendarDateField.kt
   - android/app/src/main/java/com/gradethread/app/money/ExpenseDraft.kt
   - ios/GradeThread/Money/ExpenseStore.swift
   - services/edge-functions/src/lib/expense-recurrence.ts
   - scripts/audit-expense-date-drift.mjs
-reviewed: 2026-08-22
+reviewed: 2026-08-30
 tags: [money, flipdesk, timezone, contract]
 summary: flipdesk_expenses.spent_on is a date-only column, so every client reads and writes it in UTC — a device-zone read of any one surface walks the date backwards one day per save, and it has shipped that way on both mobile platforms.
 ---
@@ -85,6 +86,19 @@ a threshold.
 ⚠ **The fix is client-side, so it lands per seller as they update the app.** A
 device on an older build keeps drifting. Run the audit after the release has had
 time to roll out, and run it more than once.
+
+## The rule moved, and is now shared (US-3000, 2026-08-30)
+
+`ExpenseDraft` no longer owns the conversion. It lives in `CalendarDateField`,
+because `trip_date` on the mileage log is the same shape of field and two
+implementations of "format a date for the wire" is exactly how this bug returns.
+`ExpenseDraft.EXPENSE_ZONE` is kept as an alias to `CalendarDateField.ZONE`, so
+every caller and every sentence above still reads true.
+
+⚠ **The audit script still points at expenses only.** A trip logged at 8pm west
+of Greenwich has the same failure mode, and `scripts/audit-expense-date-drift.mjs`
+would not see it. Sharing the implementation makes the bug less likely; it does
+not extend the detection.
 
 ## Related
 

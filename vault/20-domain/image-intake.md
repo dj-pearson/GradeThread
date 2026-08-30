@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/lib/upload-validation.ts
   - services/edge-functions/src/routes/flipdesk-expenses.ts
   - src/lib/media-intake.ts
-reviewed: 2026-08-09
+reviewed: 2026-08-30
 tags: [grading, uploads, images, gotcha]
 summary: A file's extension and its bytes disagree often enough to break grading — sniff the bytes on the way in and on the way out.
 ---
@@ -107,6 +107,20 @@ The two server-side controls, in the order they fire:
    `stripImageMetadata()` drops EXIF/GPS before `storage.upload()` (US-276).
    `expense-receipts`: `validateReceiptUpload()` does the same, with one
    deliberate exception — see below (US-2228).
+
+> [!note] There are TWO ways into `expense-receipts`, and they validate
+> differently (US-2993, 2026-08-29)
+> The upload above takes a receipt the seller already has. **Receipt SCANNING**
+> (`POST /api/flipdesk/expenses/scan`) takes a photo and reads the amount and
+> date off it, and it uses `validateImageUpload()` with
+> `allow: ["jpeg", "png", "webp"]` — **not** `validateReceiptUpload()`, because
+> there is nothing to read off a PDF with a vision model and admitting one would
+> mean a scan path that accepts a file it cannot use.
+>
+> The order is the interesting part: the image is validated, stripped and
+> **parked in storage BEFORE extraction runs**. Extracting first and uploading
+> after would save the seller nothing when the extraction fails — they would
+> have lost both the reading and the receipt.
 
 > [!warning] `item-photos` has NEITHER control today, and Android proves it
 > The list above is exhaustive on purpose. `item-photos` is the public seller

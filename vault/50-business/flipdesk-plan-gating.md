@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/active-listings.ts
   - services/edge-functions/src/tests/plan-gate-coverage_test.ts
   - src/lib/constants.ts
-reviewed: 2026-08-25
+reviewed: 2026-08-30
 tags: [flipdesk, plans, billing, contract]
 summary: Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 ---

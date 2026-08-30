@@ -60,6 +60,10 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
     sourceNote: "vault/10-ops/deploy.md",
+    // Re-read 2026-08-30. NOTHING to carry, a SEVENTH consecutive time and for
+    // the identical reason: US-2997 added qbo-token-refresh, moving the count
+    // 83 -> 84 and adding one generated table row. This copy names no count.
+    //
     // Re-read 2026-08-28. NOTHING to carry, and it is the same reason a SIXTH
     // consecutive time: US-2972 added the rewards-sweep job, moving the count
     // 82 -> 83 and adding one generated table row. This copy names no count.
@@ -108,7 +112,7 @@ export const RUNBOOKS: Runbook[] = [
     // (it cannot know which line changed) and the phrasing doing its job. If a
     // future copy is ever tempted to name the number, this is the four-check
     // record of why not.
-    reviewed: "2026-08-28",
+    reviewed: "2026-08-30",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -409,6 +413,11 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "launch-readiness",
     sourceNote: "vault/10-ops/launch-checklist.md",
+    // Re-read 2026-08-30. Nothing to carry: US-2997's qbo-token-refresh row and
+    // the count line 83 -> 84. Refreshing a QuickBooks token hourly is
+    // housekeeping for an integration a seller opts into, not a launch gate,
+    // and §2 here still names no number.
+    //
     // Re-read 2026-08-28. Nothing to carry: US-2972's rewards-sweep row and the
     // count line 82 -> 83. It is a nightly XP backfill behind the existing
     // rewards machinery, not a launch gate, and §2 here still names no number -
@@ -458,7 +467,7 @@ export const RUNBOOKS: Runbook[] = [
     // `VITE_*` set in Cloudflare Pages" — so the retired row was never here to
     // remove. The generic line is why, and it is the same instinct that keeps
     // the cron count out of §2: name the class, let the source hold the list.
-    reviewed: "2026-08-28",
+    reviewed: "2026-08-30",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:

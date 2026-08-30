@@ -9,7 +9,7 @@ code_refs:
   - scripts/setup-stripe-pricing.mjs
   - src/pages/legal/refund.tsx
   - src/pages/legal/terms.tsx
-reviewed: 2026-08-25
+reviewed: 2026-08-30
 tags: [pricing, billing, stripe, contract]
 summary: The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
 ---
@@ -100,9 +100,18 @@ a tier may open; it is not a count of every channel a seller can list to:
 | subAccounts | ✗ | ✗ | ✗ | ✓ |
 | apiAccess | ✗ | ✗ | ✗ | ✓ |
 | connectorAccess | ✗ | ✗ | ✓ | ✓ |
+| shippingLabels | ✗ | ✗ | ✓ | ✓ |
 | reconciliation | ✗ | ✗ | ✗ | ✓ |
 | prioritySupport | ✗ | ✗ | ✗ | ✓ |
 
+> **`shippingLabels` charges nothing on top of postage** (US-3011,
+> 2026-08-29). Buying an eBay label inside the ship step is Pro and up, and
+> the postage passes through at eBay's own rate with no markup. A margin was
+> the obvious model and is the wrong one: eBay's built-in label flow and
+> Pirate Ship are both free at the same commercial rates, so a seller
+> comparing two receipts would find the difference within a day. The
+> subscription is the whole money model.
+>
 > **`connectorAccess` is not `apiAccess`, and the difference is the point**
 > (US-9101, owner's decision 2026-08-19). `apiAccess` is raw `/api/v1` and stays
 > Business-only. The Claude connector opens at **Pro**, because it is the
