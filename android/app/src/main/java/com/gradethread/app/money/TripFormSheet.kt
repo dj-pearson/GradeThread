@@ -44,7 +44,12 @@ import java.util.Locale
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TripFormSheet(initial: TripDraft, onDismiss: () -> Unit, onSave: (TripDraft) -> Unit) {
+fun TripFormSheet(
+    initial: TripDraft,
+    onDismiss: () -> Unit,
+    onSave: (TripDraft) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     // Keyed on the row being edited so reopening the sheet for a DIFFERENT trip
     // reseeds the fields; keying on the whole draft would discard the seller's
     // typing on every keystroke.
@@ -61,7 +66,7 @@ fun TripFormSheet(initial: TripDraft, onDismiss: () -> Unit, onSave: (TripDraft)
     }
     val validation = draft.validate()
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(onDismissRequest = onDismiss, modifier = modifier) {
         Column(
             Modifier
                 .padding(horizontal = Spacing.md)
