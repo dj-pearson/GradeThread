@@ -506,6 +506,10 @@ internal fun MoneyContent(
                             sheetDraft = ExpenseDraft(spentOnMs = CalendarDateField.todayMs())
                         },
                     ) { Text(stringResource(R.string.money_add)) }
+                    // US-3000: the receipt is in a pocket, and the photo of it
+                    // is on the phone. Uploading it from a computer later is
+                    // the step people skip, and the expense goes with it.
+                    ReceiptScanButton()
                 }
             }
             if (state.expenses.isEmpty()) {
