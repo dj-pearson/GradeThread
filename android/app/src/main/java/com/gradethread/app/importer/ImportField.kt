@@ -1,5 +1,8 @@
 package com.gradethread.app.importer
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 import com.gradethread.app.capture.FlipdeskCategory
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -9,21 +12,26 @@ import java.util.Locale
  * US-1389 (iOS `ImportField`, web `src/lib/import-mapping.ts`): the fields a
  * spreadsheet column can map to.
  */
-enum class ImportField(val label: String) {
-    SKIP("— Skip —"),
-    SKU("Item # (SKU)"),
-    TITLE("Item title"),
-    BRAND("Brand"),
-    STYLE("Style"),
-    SIZE("Size"),
-    COLOR("Color"),
-    MATERIAL("Material"),
-    CONDITION_NOTES("Notes"),
-    CATEGORY("Category"),
-    PURCHASE_PRICE("Purchase price"),
-    LIST_PRICE("List price"),
-    PURCHASE_DATE("Purchase date"),
-    STATUS("Status"),
+/**
+ * US-2976: [label] is a string RESOURCE. These are the column choices in the
+ * CSV importer's mapping step, so a seller matching their own spreadsheet to
+ * our fields was reading fourteen English words to do it.
+ */
+enum class ImportField(@StringRes val label: Int) {
+    SKIP(R.string.import_field_skip),
+    SKU(R.string.import_field_sku),
+    TITLE(R.string.import_field_title),
+    BRAND(R.string.import_field_brand),
+    STYLE(R.string.import_field_style),
+    SIZE(R.string.import_field_size),
+    COLOR(R.string.import_field_color),
+    MATERIAL(R.string.import_field_material),
+    CONDITION_NOTES(R.string.import_field_condition_notes),
+    CATEGORY(R.string.import_field_category),
+    PURCHASE_PRICE(R.string.import_field_purchase_price),
+    LIST_PRICE(R.string.import_field_list_price),
+    PURCHASE_DATE(R.string.import_field_purchase_date),
+    STATUS(R.string.import_field_status),
     ;
 
     /** Title is the only required field — a row without one cannot be inserted. */
@@ -150,7 +158,12 @@ object ImportValue {
     }
 
     private val FORMATS = listOf(
-        "yyyy-MM-dd", "MM/dd/yyyy", "M/d/yyyy", "MM/dd/yy", "M/d/yy", "yyyy/MM/dd",
+        "yyyy-MM-dd",
+        "MM/dd/yyyy",
+        "M/d/yyyy",
+        "MM/dd/yy",
+        "M/d/yy",
+        "yyyy/MM/dd",
     )
 
     private val STATUSES = mapOf(

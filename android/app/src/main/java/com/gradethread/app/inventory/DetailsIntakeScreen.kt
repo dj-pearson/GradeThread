@@ -328,7 +328,10 @@ private fun MergeSkuDialog(
                 prompt.conflicts.forEach { conflict ->
                     val keepExisting = conflict.field in prompt.keepExisting
                     Column(Modifier.padding(top = Spacing.xs)) {
-                        Text(conflict.field.label, style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            stringResource(conflict.field.label),
+                            style = MaterialTheme.typography.labelMedium,
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                             TextButton(onClick = { onToggle(conflict.field, false) }) {
                                 Text(

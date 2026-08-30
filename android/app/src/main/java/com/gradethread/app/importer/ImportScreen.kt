@@ -228,11 +228,11 @@ private fun ColumnRow(header: String, sample: String, field: ImportField, onPick
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        TextButton(onClick = { open = 1 }) { Text(field.label) }
+        TextButton(onClick = { open = 1 }) { Text(stringResource(field.label)) }
         DropdownMenu(expanded = open == 1, onDismissRequest = { open = 0 }) {
             ImportField.entries.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text(option.label) },
+                    text = { Text(stringResource(option.label)) },
                     onClick = {
                         onPick(option)
                         open = 0

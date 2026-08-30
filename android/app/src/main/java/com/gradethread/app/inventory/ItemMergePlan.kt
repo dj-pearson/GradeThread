@@ -1,5 +1,8 @@
 package com.gradethread.app.inventory
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 import com.gradethread.app.capture.CurrencyAmount
 
 /**
@@ -13,20 +16,25 @@ import com.gradethread.app.capture.CurrencyAmount
  */
 object ItemMergePlan {
 
-    enum class Field(val label: String) {
-        TITLE("Title"),
-        BRAND("Brand"),
-        STYLE("Style"),
-        SIZE("Size"),
-        COLOR("Color"),
-        MATERIAL("Material"),
-        CATEGORY("Category"),
-        STATUS("Status"),
-        CONTAINER("Container"),
-        SOURCED_BY("Sourced by"),
-        ACQUIRED_DATE("Purchase date"),
-        ACQUIRED_PRICE("Purchase price"),
-        DESCRIPTION("Notes"),
+    /**
+     * US-2976: [label] is a string RESOURCE. These are the field names in
+     * the merge sheet - the screen that asks a seller which of two values
+     * to keep - so reading them is the whole task, and they were English.
+     */
+    enum class Field(@StringRes val label: Int) {
+        TITLE(R.string.merge_field_title),
+        BRAND(R.string.merge_field_brand),
+        STYLE(R.string.merge_field_style),
+        SIZE(R.string.merge_field_size),
+        COLOR(R.string.merge_field_color),
+        MATERIAL(R.string.merge_field_material),
+        CATEGORY(R.string.merge_field_category),
+        STATUS(R.string.merge_field_status),
+        CONTAINER(R.string.merge_field_container),
+        SOURCED_BY(R.string.merge_field_sourced_by),
+        ACQUIRED_DATE(R.string.merge_field_acquired_date),
+        ACQUIRED_PRICE(R.string.merge_field_acquired_price),
+        DESCRIPTION(R.string.merge_field_description),
     }
 
     /**
@@ -66,18 +74,16 @@ object ItemMergePlan {
     )
 
     /** Every field a merge can reconcile, in the order the sheet shows them. */
-    fun conflicts(
-        current: Map<Field, Value>,
-        existing: Map<Field, Value>,
-    ): List<Conflict> = Field.entries.mapNotNull { field ->
-        val cur = current[field] ?: Value.text(null)
-        val ex = existing[field] ?: Value.text(null)
-        // Nothing to reconcile if the existing row is blank on a field the
-        // form also left blank, or if the two already agree.
-        if (ex.isEmpty && cur.isEmpty) return@mapNotNull null
-        if (cur.normalized == ex.normalized) return@mapNotNull null
-        Conflict(field, cur, ex, bothFilled = !cur.isEmpty && !ex.isEmpty)
-    }
+    fun conflicts(current: Map<Field, Value>, existing: Map<Field, Value>): List<Conflict> =
+        Field.entries.mapNotNull { field ->
+            val cur = current[field] ?: Value.text(null)
+            val ex = existing[field] ?: Value.text(null)
+            // Nothing to reconcile if the existing row is blank on a field the
+            // form also left blank, or if the two already agree.
+            if (ex.isEmpty && cur.isEmpty) return@mapNotNull null
+            if (cur.normalized == ex.normalized) return@mapNotNull null
+            Conflict(field, cur, ex, bothFilled = !cur.isEmpty && !ex.isEmpty)
+        }
 
     /**
      * The default selection, identical to web: a REAL conflict keeps the value
