@@ -12,6 +12,20 @@ object BrandPalette {
     // Web-canonical seeds (light).
     val Navy = Color(0xFF0F3460)
     val Red = Color(0xFFE94560)
+
+    /**
+     * US-3009: brand red that is legible AS TEXT.
+     *
+     * `Red` (#E94560) is the SURFACE red and measures 3.83:1 against white -
+     * below WCAG AA for text. The web established this under US-2334 and ships
+     * `--brand-red-text: #cc1f3d` (5.56:1) for red copy, keeping #E94560 for
+     * fills. This is the same value, so a status chip reads the same on both
+     * clients and passes the same audit.
+     *
+     * Dark mode already had it right: `RedDark` (#FB5E78) is byte-identical to
+     * the web's dark `--brand-red-text`. Only the light side was wrong.
+     */
+    val RedText = Color(0xFFCC1F3D)
     val Night = Color(0xFF1A1A2E)
     val SoftGray = Color(0xFFF5F5F5)
 

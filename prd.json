@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3009",
+  "nextId": "US-3010",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2988,6 +2988,22 @@
       ],
       "priority": 2,
       "notes": "AC2 IS MISSING A CLAUSE — the shell ate a backticked fragment when this story\nwas filed. It should read:\n\n  THE GRANT LOOKS LIKE A RESTRICTION AND IS NOT. CREATE FUNCTION grants\n  EXECUTE to PUBLIC by default; the file's\n\n      grant execute on function public.take_inventory_snapshot(...)\n        to service_role;\n\n  ADDS a grant rather than removing that default. Only a REVOKE removes it,\n  and a REVOKE is precisely what must not be written on this image (US-2403).\n  So the function was reachable by any authenticated caller with any user id.\n\nTHE FIX IS IN, in 00688 itself. take_inventory_snapshot now opens with a body\nguard permitting the service role, or a caller acting on their own id, and\nraising 42501 otherwise — the same shape 00686 uses.\n\n⚠ WHY THIS ONE IS DIFFERENT FROM US-3002 AND US-3005: those were found by a\nguard failing a push, AFTER the migrations were applied to production. This\nwas found by reading the file before it was applied anywhere, because the\nprevious two taught me what to grep for. The cost of the same class of defect\nfell from an emergency migration to an edit."
+    },
+    {
+      "id": "US-3009",
+      "passes": false,
+      "title": "Android's light-mode error red is the surface red at 3.83:1, the exact colour the web forbids as text",
+      "description": "As a seller reading a warning on a phone in light mode, I want the red text to meet contrast, so that the words telling me something is wrong are legible.",
+      "acceptanceCriteria": [
+        "FOUND 2026-08-29 by sweeping the Android sources for brand colour literals after US-3004. LightColors.error was BrandPalette.Red (#E94560), and SalesScreen.StatusChip passed that same hex directly as a Text colour for Refunded and Cancelled.",
+        "THE WEB ALREADY DID THIS ANALYSIS. US-2334 measured #E94560 at 3.83:1 against white - below WCAG AA for text - and src/index.css now ships --brand-red-text (#cc1f3d, 5.56:1) for copy while keeping #E94560 for fills. Its guard, src/test/red-text-contrast.test.ts, fails any source using text-brand-red as a text colour. Android had no equivalent and used the failing value.",
+        "DARK MODE WAS ALREADY CORRECT, which is what makes the light side unambiguous rather than a matter of taste: BrandPalette.RedDark is #FB5E78, byte-identical to the web's dark --brand-red-text. One half of the pair had been ported and the other had not.",
+        "FIXED: BrandPalette.RedText (#CC1F3D) added to mirror the web token, and LightColors.error points at it. Material 3 treats error as a FOREGROUND role - 89 of this app's 107 uses pass it as a color argument - and surfaces take errorContainer, which is untouched. So one token fixes 89 text usages. SalesScreen no longer hardcodes the hex.",
+        "PROVEN BY THE GOLDENS, which is the useful part: 14 LIGHT captures changed and ZERO dark ones. That is exactly the shape the diagnosis predicts, and it would have been the first thing to look wrong if the diagnosis were incorrect.",
+        "NOT DONE, and worth its own decision: Android has no equivalent of red-text-contrast.test.ts. The literal is gone from the sources today, but nothing stops the next one. A guard banning brand colour literals outside ui/theme would start green - the sweep found exactly one offender and it is now fixed.",
+        "SEEN IN PASSING: touching the palette file made spotless enforce a latent ktlint rule (a file with one top-level declaration must be named after it), so Color.kt is now BrandPalette.kt. That rename then broke LaunchWindowThemeTest, which reads the palette BY PATH - the same class of failure as the comment-path check earlier the same day. A test that names a source file by path is a rename away from red."
+      ],
+      "priority": 6
     }
   ]
 }

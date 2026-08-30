@@ -25,7 +25,11 @@ private val LightColors = lightColorScheme(
     onSecondaryContainer = Color(0xFF8E1F35),
     tertiary = BrandPalette.Night,
     onTertiary = Color.White,
-    error = BrandPalette.Red,
+    // US-3009: the TEXT-safe red, not the surface red. Material 3 uses `error`
+    // as a foreground role - 89 of this app's 107 uses pass it as `color =` -
+    // and #E94560 is 3.83:1, below AA. Surfaces take `errorContainer`, which is
+    // unchanged. Dark mode already used the correct value.
+    error = BrandPalette.RedText,
     onError = Color.White,
     background = BrandPalette.SoftGray,
     onBackground = BrandPalette.Night,
@@ -59,10 +63,7 @@ private val DarkColors = darkColorScheme(
 )
 
 @Composable
-fun GradeThreadTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit,
-) {
+fun GradeThreadTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
         typography = GradeThreadTypography,

@@ -118,7 +118,7 @@ class LaunchWindowThemeTest {
             "DarkColors.background is no longer BrandPalette.Night — update both colors.xml",
             composeTheme.contains("background = BrandPalette.Night"),
         )
-        val palette = source("src/main/java/com/gradethread/app/ui/theme/Color.kt")
+        val palette = source("src/main/java/com/gradethread/app/ui/theme/BrandPalette.kt")
         assertTrue("SoftGray moved off #F5F5F5", palette.contains("SoftGray = Color(0xFFF5F5F5)"))
         assertTrue("Night moved off #1A1A2E", palette.contains("Night = Color(0xFF1A1A2E)"))
     }

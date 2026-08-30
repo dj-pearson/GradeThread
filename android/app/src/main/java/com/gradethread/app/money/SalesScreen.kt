@@ -237,7 +237,7 @@ private fun SaleRowView(row: SaleRow, onClick: () -> Unit) {
 @Composable
 private fun StatusChip(text: String) {
     val tone = when (text) {
-        "Refunded", "Cancelled" -> Color(0xFFE94560)
+        "Refunded", "Cancelled" -> MaterialTheme.colorScheme.error
         "Pending" -> Color(0xFFF59E0B)
         else -> Color(0xFF6B7280)
     }
