@@ -1,34 +1,23 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ▶ OUTSTANDING RIGHT NOW — apply in this order
+## ▶ OUTSTANDING RIGHT NOW — none
 
-Production reports `applied: 00700` (`GET https://functions.gradethread.com/health/ready`,
-unauthenticated). Five migrations are on local `main` and not in the database:
+Production reports `applied: 00705` with no missing versions
+(`GET https://functions.gradethread.com/health/ready`, unauthenticated), and the
+owner confirmed the apply on 2026-08-30. Nothing on local `main` is ahead of the
+database.
 
-| # | file | story | needs `NOTIFY pgrst`? |
-|---|---|---|---|
-| 1 | `00701_bank_statement_import.sql` | US-2994 bank/card CSV import | yes |
-| 2 | `00702_period_close.sql` | US-2995 close a period | yes |
-| 3 | `00703_archived_needs_a_reason.sql` | US-3007 archived items reach the review queue | yes |
-| 4 | `00704_quickbooks_connection.sql` | US-2997 QuickBooks connection | yes |
-| 5 | `00705_quickbooks_sync_log.sql` | US-2998 QuickBooks push | yes |
+`unexpected` currently lists 00700-00705. That is the DEPLOYED EDGE CONTAINER
+reporting versions its own shipped manifest predates, not a problem with the
+database, and it clears on the next Coolify deploy.
 
-Then `NOTIFY pgrst, 'reload schema';` once at the end — every one of them adds or
-changes something PostgREST has to be told about.
-
-⚠ **READ THE ORDER FROM THIS TABLE, NOT FROM THE PAGE.** The detailed entries
-below are newest-first, so 00701 and 00702 sit near the BOTTOM of this file,
-under a block of already-applied ones. Scanning top-down gets you three of the
-five, in reverse.
-
-⚠ **AND FLIP EACH HEADING TO `## ✅ APPLIED:` AS YOU GO.** The pre-push gate
+⚠ **FLIP EACH HEADING TO `## ✅ APPLIED <date>:` AS YOU GO.** The pre-push gate
 blocks on the marker, not on the database, so a migration that is applied but
-still marked HELD blocks *the next person's* push rather than the author's. That
+still marked HELD blocks *the next person* push rather than the author. That
 happened three times on 2026-08-29 (00691, 00696, 00698) and cost a full push
-cycle each time.
+cycle each time, and again on 2026-08-30 when five sat marked while applied.
 
-
-## 🔴 HELD: 00705_quickbooks_sync_log.sql (US-2998 — the QuickBooks push, and running it twice safely)
+## ✅ APPLIED 2026-08-30: 00705_quickbooks_sync_log.sql (US-2998 — the QuickBooks push, and running it twice safely)
 
 **Risk: low.** Two NEW tables and two NEW functions. No existing table, column,
 function, policy or row is touched.
@@ -77,7 +66,7 @@ The check is registered in `scripts/verify.mjs`,
 `.github/workflows/db-migrations.yml` and `package.json` in the same commit.
 
 
-## 🔴 HELD: 00704_quickbooks_connection.sql (US-2997 — the QuickBooks Online connection and its account mapping)
+## ✅ APPLIED 2026-08-30: 00704_quickbooks_connection.sql (US-2997 — the QuickBooks Online connection and its account mapping)
 
 **Risk: low.** Three NEW tables and nothing else. No existing table, column,
 function, policy or row is touched, so an unapplied state is invisible to every
@@ -125,7 +114,7 @@ prove idempotency; the second run is clean. `migrations-lint` passes,
 9130 passed / 0 failed.
 
 
-## 🔴 HELD: 00703_archived_needs_a_reason.sql (US-3007 — archived items with no reason reach the review queue)
+## ✅ APPLIED 2026-08-30: 00703_archived_needs_a_reason.sql (US-3007 — archived items with no reason reach the review queue)
 
 **Risk: low.** Re-emits `public.books_review_queue(date, date)` with one extra
 branch. No table, column, policy or row is touched, and nothing else changes.
@@ -264,7 +253,7 @@ trigger to include `wearing` — it went red naming the real risk ("wearing or
 returned was removed from inventory - both must STAY") and green on restore.
 
 
-## HELD: 00702_period_close.sql (US-2995)
+## ✅ APPLIED 2026-08-30: 00702_period_close.sql (US-2995)
 
 **Risk: MEDIUM, and the highest in this epic so far.** It installs BEFORE
 triggers on four tables that the whole product writes to: `flipdesk_expenses`,
@@ -311,7 +300,7 @@ send it anyway for the new table and two RPCs.
 **Nothing is locked until a seller closes something.** Applying this changes no
 existing behaviour.
 
-## HELD: 00701_bank_statement_import.sql (US-2994)
+## ✅ APPLIED 2026-08-30: 00701_bank_statement_import.sql (US-2994)
 
 **Risk: low.** Two new tables, two new functions. Nothing existing is altered
 and nothing runs until a seller uploads a CSV.
