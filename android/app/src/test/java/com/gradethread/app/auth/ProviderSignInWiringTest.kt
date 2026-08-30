@@ -24,6 +24,20 @@ class ProviderSignInWiringTest {
     fun theScreenOffersTheProviders() {
         val screen = source("auth/AuthScreen.kt")
         assertTrue("nothing renders provider buttons", screen.contains("ProviderSignIn("))
+        // ⚠ THREE LINKS, NOT TWO (US-2902 AC3). AuthScreen was split into a
+        // stateful wrapper and a stateless AuthContent, so the button no longer
+        // calls the ViewModel directly. The chain is now: the call site passes
+        // actions.signInWithProvider, the actions record carries it, and the
+        // wrapper binds it to the ViewModel with the Activity context.
+        //
+        // Asserting only the first and last would pass while the MIDDLE was
+        // cut - the buttons would render, the wrapper would still bind, and
+        // pressing a provider would do nothing. That is the failure this test
+        // exists to catch, and the extraction opened the gap.
+        assertTrue(
+            "the buttons no longer pass their provider to the actions record",
+            screen.contains("ProviderSignIn(onProvider = { actions.signInWithProvider(it) })"),
+        )
         assertTrue(
             "the buttons no longer reach the ViewModel",
             screen.contains("viewModel.signInWithProvider(context, it)"),
