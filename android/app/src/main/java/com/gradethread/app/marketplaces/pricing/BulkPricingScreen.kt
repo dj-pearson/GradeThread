@@ -15,6 +15,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,41 +40,66 @@ import com.gradethread.app.ui.theme.cardStyle
  * price on every row before anything is pushed.
  */
 @Composable
-fun BulkPricingScreen(
-    onClose: () -> Unit = {},
-    viewModel: BulkPricingViewModel = hiltViewModel(),
-) {
+fun BulkPricingScreen(onClose: () -> Unit = {}, viewModel: BulkPricingViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
-    val primaryStoreFallback = stringResource(R.string.bulkpricing_primary_store_fallback)
     LaunchedEffect(Unit) { viewModel.load() }
 
+    BulkPricingContent(
+        state = state,
+        actions = BulkPricingActions(
+            setMode = viewModel::setMode,
+            setInput = viewModel::setInput,
+            toggle = viewModel::toggle,
+            toggleAll = viewModel::toggleAll,
+            apply = viewModel::apply,
+            close = onClose,
+        ),
+    )
+}
+
+/**
+ * Everything bulk pricing can do (US-2902 AC3).
+ *
+ * `load` stays with the wrapper: it is a LaunchedEffect on entry, not a control.
+ */
+@Immutable
+data class BulkPricingActions(
+    val setMode: (BulkPricing.Mode) -> Unit = {},
+    val setInput: (String) -> Unit = {},
+    val toggle: (String) -> Unit = {},
+    val toggleAll: () -> Unit = {},
+    val apply: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * Repricing many listings at once, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE PREVIEW IS THE SAFETY FEATURE. Every other screen in this sweep shows a
+ * seller what already happened; this one shows what is ABOUT to happen to a
+ * whole page of live prices, and then does it in one press. The per-row new
+ * price and the rowErrors beside it are the only thing between a mistyped
+ * percentage and every listing being repriced wrongly at once.
+ *
+ * So the captures include a row that FAILED validation next to rows that
+ * passed. A screen that quietly stopped rendering rowErrors would look
+ * completely normal.
+ */
+@Composable
+fun BulkPricingContent(state: BulkPricingViewModel.State, actions: BulkPricingActions, modifier: Modifier = Modifier) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.bulkpricing_bulk_pricing), style = MaterialTheme.typography.titleLarge)
 
-        if (state.multiStore) {
-            // Every push routes through the primary store's token, and the
-            // listing rows don't record which store they belong to — so name it
-            // rather than let a two-store seller assume otherwise.
-            InfoCard(
-                stringResource(
-                    R.string.bulkpricing_pushing_through,
-                    state.primaryStoreName ?: primaryStoreFallback,
-                ),
-                stringResource(R.string.bulkpricing_multi_account),
-            )
-        }
-
-        state.errorMessage?.let { InfoCard(stringResource(R.string.bulkpricing_that_didn_t_work), it, tone = InfoTone.Error) }
-        state.banner?.let { InfoCard(stringResource(R.string.bulkpricing_pushed), it, tone = InfoTone.Success) }
+        BulkPricingNotices(state)
 
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
             BulkPricing.Mode.entries.forEach { mode ->
                 FilterChip(
                     selected = state.mode == mode,
-                    onClick = { viewModel.setMode(mode) },
+                    onClick = { actions.setMode(mode) },
                     label = { Text(mode.label) },
                 )
             }
@@ -82,7 +108,7 @@ fun BulkPricingScreen(
         if (state.mode != BulkPricing.Mode.NONE) {
             OutlinedTextField(
                 value = state.inputText,
-                onValueChange = viewModel::setInput,
+                onValueChange = actions.setInput,
                 label = {
                     Text(
                         stringResource(
@@ -130,7 +156,7 @@ fun BulkPricingScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = viewModel::toggleAll) {
+            TextButton(onClick = actions.toggleAll) {
                 Text(
                     stringResource(
                         if (state.allSelected) {
@@ -166,7 +192,7 @@ fun BulkPricingScreen(
                         selected = listing.id in state.selected,
                         target = state.target(listing),
                         rowError = state.rowErrors[listing.id],
-                        onToggle = { viewModel.toggle(listing.id) },
+                        onToggle = { actions.toggle(listing.id) },
                     )
                 }
             }
@@ -184,9 +210,11 @@ fun BulkPricingScreen(
             },
             enabled = state.canApply,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.apply() }
+        ) { actions.apply() }
 
-        BrandSecondaryButton(text = stringResource(R.string.bulkpricing_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.bulkpricing_back), modifier = Modifier.fillMaxWidth()) {
+            actions.close()
+        }
     }
 }
 
@@ -250,5 +278,40 @@ private fun ListingRow(
                 color = MaterialTheme.colorScheme.error,
             )
         }
+    }
+}
+
+/**
+ * The three banners above the editor, lifted out of BulkPricingContent.
+ *
+ * Not a style choice: with them inline the content function sat AT detekt's
+ * cyclomatic ceiling of 20 and the build failed. AuthScreen's SignUpCaptcha was
+ * carved off for the same reason and its comment says so - holding a condition
+ * beside the thing it decides keeps the caller a plain call.
+ *
+ * ⚠ THE MULTI-STORE ONE IS NOT COSMETIC (US-1216). Every push routes through
+ * the PRIMARY store's token and the listing rows record no store of their own,
+ * so a two-store seller who does not see this line reprices the wrong shop with
+ * nothing on screen to say so.
+ */
+@Composable
+private fun BulkPricingNotices(state: BulkPricingViewModel.State) {
+    val primaryStoreFallback = stringResource(R.string.bulkpricing_primary_store_fallback)
+
+    if (state.multiStore) {
+        InfoCard(
+            stringResource(
+                R.string.bulkpricing_pushing_through,
+                state.primaryStoreName ?: primaryStoreFallback,
+            ),
+            stringResource(R.string.bulkpricing_multi_account),
+        )
+    }
+
+    state.errorMessage?.let {
+        InfoCard(stringResource(R.string.bulkpricing_that_didn_t_work), it, tone = InfoTone.Error)
+    }
+    state.banner?.let {
+        InfoCard(stringResource(R.string.bulkpricing_pushed), it, tone = InfoTone.Success)
     }
 }
