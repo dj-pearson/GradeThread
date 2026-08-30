@@ -105,6 +105,44 @@ trigger to include `wearing` — it went red naming the real risk ("wearing or
 returned was removed from inventory - both must STAY") and green on restore.
 
 
+## HELD: 00701_bank_statement_import.sql (US-2994)
+
+**Risk: low.** Two new tables, two new functions. Nothing existing is altered
+and nothing runs until a seller uploads a CSV.
+
+**What it does.** Creates `statement_sources` (one per bank or card, holding the
+COLUMN MAP so it is chosen once and remembered) and `statement_rows` (a line
+from the CSV, kept as its own record), plus `match_statement_row(uuid)` and
+`statement_import_summary(uuid)`.
+
+**The statement row NEVER mutates an expense.** `matched_expense_id` is a LINK,
+recorded and reversible. An import that rewrites an amount a seller typed is how
+a bookkeeping tool silently disagrees with the person using it, and the person
+always loses because they do not know it happened.
+
+**Idempotency keys off the ROW, not the import run.** The unique index on
+`(user_id, source_id, row_fingerprint)` is the whole of AC3. Re-exporting an
+overlapping date range is the NORMAL case -- sellers widen the range when they
+think something is missing -- so keying off the run would duplicate every
+overlapping row, and keying off a line number would break the moment the bank
+reorders.
+
+**A CHECK keeps `status` and `matched_expense_id` honest**: matched implies a
+link and unmatched implies none. Without it the two drift and "matched" stops
+meaning anything.
+
+**Verified against real Postgres.** Applied twice (second run clean).
+`npm run check:statements` runs 15 assertions.
+
+> **Sabotage-verified on the assertion that matters.** Removing the
+> already-matched exclusion from `match_statement_row` reddens three checks: an
+> expense linked to one statement row gets offered to a second. Two lines for
+> one expense IS the double payment a bank import exists to catch, so offering
+> it would hide the thing the feature was built to find.
+
+**Apply order.** After 00700. Then `NOTIFY pgrst, 'reload schema';` — two new
+tables and two new RPCs.
+
 ## ✅ APPLIED: 00700_receipt_extraction.sql (US-2993, applied 2026-08-29 — owner-confirmed)
 
 **What it does.** Adds four extraction-provenance columns to

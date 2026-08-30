@@ -36,6 +36,9 @@ code_refs:
   - scripts/check-books-review.mjs
   - supabase/migrations/00700_receipt_extraction.sql
   - services/edge-functions/src/lib/receipt-extract.ts
+  - supabase/migrations/00701_bank_statement_import.sql
+  - src/lib/statement-import.ts
+  - scripts/check-statement-import.mjs
   - supabase/migrations/00690_inventory_writeoffs.sql
   - scripts/check-inventory-writeoffs.mjs
   - supabase/migrations/00692_keeping_leaves_inventory.sql
@@ -938,6 +941,67 @@ wrapper in `ai-config.ts` records model, tokens, latency and cost to
 `ai_usage_events` from there, so it appears in admin-ai-spend with no per-call
 bookkeeping.
 
+## Bank and card CSV import
+
+`statement_sources` and `statement_rows` (migration 00701), parsed by
+`src/lib/statement-import.ts`.
+
+**No live feed.** That means Plaid, a paid dependency and a decision this story
+does not get to make. A CSV is most of the value: every bank exports one.
+
+### The statement row never mutates an expense
+
+`matched_expense_id` is a LINK, recorded and reversible. Matching writes to the
+STATEMENT ROW only -- not even to correct an amount that differs. An import that
+rewrites a figure the seller typed is how a bookkeeping tool silently disagrees
+with the person using it, and the person always loses, because they do not know
+it happened. Where the two disagree the screen asks.
+
+### Idempotency keys off the ROW
+
+`row_fingerprint` is date + amount + normalised description: the three things
+that do not change between two exports of the same period. NOT the line number,
+which shifts the moment the bank reorders. NOT the import run, which would
+duplicate every overlapping row.
+
+**Re-exporting an overlapping range is the NORMAL case** -- sellers widen the
+range when they think something is missing -- so it has to be a no-op rather
+than an error.
+
+### One expense cannot satisfy two statement lines
+
+`match_statement_row` excludes any expense already linked to another row.
+
+> Sabotage-verified: removing that exclusion offers a matched expense to a
+> second statement line. **Two lines for one expense IS the double payment a
+> bank import exists to catch**, so offering it would hide the thing the feature
+> was built to find.
+
+### Parsing is pure, and the failure modes are all in it
+
+Every bank exports a differently shaped file, so `splitCsvLine`, `parseMoney`,
+`parseStatementDate` and `parseStatementCsv` take strings and return values, with
+25 cases over the shapes that actually arrive: quoted descriptions full of
+commas, `(24.99)` accounting notation for a negative, `$1,234.56`, separate
+Debit and Credit columns, CRLF, day-first dates.
+
+**A malformed line is SKIPPED WITH A REASON**, not dropped and not imported as
+zero. A silent drop is how an import misses the one transaction the seller was
+looking for, with no way for them to know.
+
+> **A float bug I had already fixed once and reintroduced.** `parseMoney` first
+> used `Math.round(n * 100)`, which is wrong on exactly the values that look
+> safest: `1.005 * 100` is `100.49999999999999`, so it rounds DOWN and loses a
+> cent. `toCents()` in `ledger-math.ts` exists precisely to avoid that, written
+> for US-2984. The test caught it. **One converter, not three** -- `parseMoney`
+> now delegates.
+
+### Only money leaving is an expense candidate
+
+Amounts stay SIGNED as the statement had them. A refund on a card statement is a
+real positive row, and flattening it to a magnitude would make a return look
+like a purchase.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -955,6 +1019,7 @@ its contract into this note. Currently landed:
 - **US-2991** - estimated tax, and what it refuses to guess, above.
 - **US-2992** - books health, and the three things it stays quiet about, above.
 - **US-2993** - receipt extraction, its confidence rules and its staging boundary, above.
+- **US-2994** - the bank CSV import and its two idempotency rules, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
 Still open, and each will add a section here rather than a new note: COGS and

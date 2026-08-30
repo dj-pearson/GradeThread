@@ -2741,21 +2741,6 @@
       "priority": 30
     },
     {
-      "id": "US-2994",
-      "passes": false,
-      "title": "Bank and card CSV import, matched against what the books already know",
-      "description": "The gap a reseller notices between GradeThread and QuickBooks is the bank feed. A live feed means Plaid, which is a paid dependency and a decision that is not this story's to make. A CSV import is most of the value: every bank and card exports one, and matching those rows against existing expenses catches both the expense that was logged twice and the one that was never logged at all. The eBay payout CSV importer (payout_imports) is the pattern to follow, including its column mapping.",
-      "acceptanceCriteria": [
-        "Upload a CSV, map its columns once per account, and have that mapping remembered for the next import from the same source.",
-        "Imported rows match against existing expenses on amount, date proximity and vendor, and unmatched rows become one-click expense entries.",
-        "Re-importing an overlapping date range does not duplicate. Idempotency keys off the source row, not off the import run.",
-        "The seller sees three counts after an import: matched, new, and ignored, and can act on each.",
-        "Statement rows are stored as their own record and never mutate a matched expense silently; the link is recorded and reversible.",
-        "The import never becomes a source of truth for an amount the seller already entered. Where they disagree, the screen asks."
-      ],
-      "priority": 43
-    },
-    {
       "id": "US-2995",
       "passes": false,
       "title": "Close a period, and the numbers stop moving",

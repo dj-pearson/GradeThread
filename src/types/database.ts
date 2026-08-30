@@ -2246,6 +2246,48 @@ export type SavedViewUpdate = Partial<
 //
 // There is no Update type: the table has no UPDATE policy. Editing a recorded
 // reason after the fact turns the record into whatever the last edit said.
+// US-2994 — one bank or card the seller imports from. Holds the COLUMN MAP so
+// it is chosen once and remembered; every bank's CSV is differently shaped and
+// re-mapping on every import is the friction that stops anyone doing it.
+export interface StatementSourceRow {
+  id: string;
+  user_id: string;
+  name: string;
+  column_map: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+export type StatementSourceInsert = Omit<StatementSourceRow, "id" | "created_at" | "updated_at"> &
+  Partial<Pick<StatementSourceRow, "id" | "created_at" | "updated_at">>;
+export type StatementSourceUpdate = Partial<StatementSourceInsert>;
+
+// A line from a bank CSV, kept as its OWN record. `matched_expense_id` is a
+// LINK and never mutates the expense: an import that rewrites an amount the
+// seller typed is how a bookkeeping tool silently disagrees with the person
+// using it, and the person always loses because they do not know it happened.
+export interface StatementRowRow {
+  id: string;
+  user_id: string;
+  source_id: string;
+  posted_on: string;
+  /** SIGNED cents as it appeared: negative is money leaving. A refund on a card
+   * statement is a real positive row and flattening it would make a return look
+   * like a purchase. */
+  amount_cents: number;
+  description: string;
+  /** Keyed off the ROW, not the import run, so re-importing an overlapping
+   * range is the normal case rather than a duplicate. */
+  row_fingerprint: string;
+  matched_expense_id: string | null;
+  status: string;
+  ignored_reason: string | null;
+  imported_at: string;
+  updated_at: string;
+}
+export type StatementRowInsert = Omit<StatementRowRow, "id" | "imported_at" | "updated_at" | "status" | "matched_expense_id" | "ignored_reason"> &
+  Partial<StatementRowRow>;
+export type StatementRowUpdate = Partial<StatementRowInsert>;
+
 export interface BooksReviewDismissalRow {
   id: string;
   user_id: string;
@@ -4523,6 +4565,16 @@ export interface Database {
         Row: ExpenseRow;
         Insert: ExpenseInsert;
         Update: ExpenseUpdate;
+      };
+      statement_sources: {
+        Row: StatementSourceRow;
+        Insert: StatementSourceInsert;
+        Update: StatementSourceUpdate;
+      };
+      statement_rows: {
+        Row: StatementRowRow;
+        Insert: StatementRowInsert;
+        Update: StatementRowUpdate;
       };
       books_review_dismissals: {
         Row: BooksReviewDismissalRow;

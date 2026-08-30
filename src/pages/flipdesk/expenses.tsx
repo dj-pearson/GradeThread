@@ -13,6 +13,7 @@ import {
 // US-2993: read the receipt so the seller confirms four fields instead of
 // typing them. The model never writes the row -- it proposes, and the seller
 // confirms, because a wrong number nobody looked at is worse than no number.
+import { StatementImportCard } from "@/components/finances/statement-import-card";
 import {
   adoptStagedReceipt,
   confidenceHint,
@@ -512,6 +513,11 @@ export function FlipdeskExpensesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* US-2994. The import lives with Expenses rather than on its own tab:
+          everything it produces IS an expense, and a separate destination would
+          make a seller navigate between the list and the thing that fills it. */}
+      <StatementImportCard />
 
       <ExpenseDialog
         open={dialogOpen}
