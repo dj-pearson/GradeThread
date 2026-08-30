@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
@@ -97,6 +98,113 @@ fun SettingsScreen(
 
     LaunchedEffect(Unit) { viewModel.loadProfile() }
 
+    SettingsContent(
+        state = state,
+        actions = SettingsActions(
+            dismissNotice = viewModel::dismissNotice,
+            openTeam = onOpenTeam,
+            openPlans = onOpenPlans,
+            openCredits = onOpenCredits,
+            openMarketplaces = onOpenMarketplaces,
+            openSupport = onOpenSupport,
+            openFeedback = feedbackViewModel::open,
+            setShowCostOnRows = viewModel::setShowCostOnRows,
+            setConfirmBulkActions = viewModel::setConfirmBulkActions,
+            setHapticsEnabled = viewModel::setHapticsEnabled,
+            setBackgroundRefreshEnabled = viewModel::setBackgroundRefreshEnabled,
+            setAnalyticsEnabled = viewModel::setAnalyticsEnabled,
+            changePassword = viewModel::changePassword,
+            openLanguagePicker = { languagePickerOpen = true },
+            exportAccount = viewModel::exportAccount,
+            openTwoFactor = { twoFactorOpen = true },
+            askSignOut = { viewModel.ask(SettingsViewModel.Confirm.SIGN_OUT) },
+            askDeleteAccount = { viewModel.ask(SettingsViewModel.Confirm.DELETE_ACCOUNT) },
+            cancelConfirm = viewModel::cancelConfirm,
+            confirmSignOut = viewModel::confirmSignOut,
+            deleteConfirmTextChanged = viewModel::deleteConfirmTextChanged,
+            deletePasswordChanged = viewModel::deletePasswordChanged,
+            cancelDelete = viewModel::cancelDelete,
+            confirmDeleteAccount = viewModel::confirmDeleteAccount,
+        ),
+        modifier = modifier,
+        // US-1387: the sheet's ViewModel is hoisted to THIS screen, so closing
+        // the sheet to check a version number does not throw away what was
+        // typed. It stays a slot for the same reason the switcher does - both
+        // resolve their own Hilt ViewModel, and RoborazziActivity is not a Hilt
+        // component.
+        feedbackSheet = {
+            com.gradethread.app.feedback.FeedbackSheet(
+                onOpenSupport = onOpenSupport,
+                viewModel = feedbackViewModel,
+            )
+        },
+    )
+
+    // US-2685: renders nothing until opened.
+    if (twoFactorOpen) {
+        TwoFactorDialog(onDismiss = { twoFactorOpen = false })
+    }
+
+    if (languagePickerOpen) {
+        com.gradethread.app.platform.locale.LanguagePicker(
+            onDismiss = { languagePickerOpen = false },
+        )
+    }
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Suppress("LongParameterList")
+@Immutable
+data class SettingsActions(
+    val dismissNotice: () -> Unit = {},
+    val openTeam: () -> Unit = {},
+    val openPlans: () -> Unit = {},
+    val openCredits: () -> Unit = {},
+    val openMarketplaces: () -> Unit = {},
+    val openSupport: () -> Unit = {},
+    val openFeedback: () -> Unit = {},
+    val setShowCostOnRows: (Boolean) -> Unit = {},
+    val setConfirmBulkActions: (Boolean) -> Unit = {},
+    val setHapticsEnabled: (Boolean) -> Unit = {},
+    val setBackgroundRefreshEnabled: (Boolean) -> Unit = {},
+    val setAnalyticsEnabled: (Boolean) -> Unit = {},
+    val changePassword: () -> Unit = {},
+    val openLanguagePicker: () -> Unit = {},
+    val exportAccount: () -> Unit = {},
+    val openTwoFactor: () -> Unit = {},
+    val askSignOut: () -> Unit = {},
+    val askDeleteAccount: () -> Unit = {},
+    val cancelConfirm: () -> Unit = {},
+    val confirmSignOut: () -> Unit = {},
+    val deleteConfirmTextChanged: (String) -> Unit = {},
+    val deletePasswordChanged: (String) -> Unit = {},
+    val cancelDelete: () -> Unit = {},
+    val confirmDeleteAccount: () -> Unit = {},
+)
+
+/**
+ * The settings list, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ TWO SLOTS, AND BOTH FOR THE SAME REASON. [workspaceSwitcher] and
+ * [feedbackSheet] each resolve their own Hilt ViewModel, and the activity a
+ * screenshot test renders into is not a Hilt component - composing either one
+ * for real dies before it draws. They default to the real thing, so the shipped
+ * screen is unchanged.
+ *
+ * ⚠ AND A MISSING PLAN IS NOT THE FREE PLAN. When the profile fails to load the
+ * plan section says it does not know, because telling a paying seller they are
+ * on Free is a worse lie than admitting the request failed.
+ */
+@Composable
+fun SettingsContent(
+    state: SettingsViewModel.State,
+    actions: SettingsActions,
+    modifier: Modifier = Modifier,
+    workspaceSwitcher: @Composable () -> Unit = {
+        com.gradethread.app.workspace.WorkspaceSwitcherRow()
+    },
+    feedbackSheet: @Composable () -> Unit = {},
+) {
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Text(
             stringResource(R.string.settings_title),
@@ -114,7 +222,7 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = viewModel::dismissNotice) { Text(stringResource(R.string.settings_ok)) }
+                TextButton(onClick = actions.dismissNotice) { Text(stringResource(R.string.settings_ok)) }
             }
         }
 
@@ -140,14 +248,14 @@ fun SettingsScreen(
         }
 
         // US-1388: which workspace this session is scoped to, and the switch.
-        com.gradethread.app.workspace.WorkspaceSwitcherRow()
+        workspaceSwitcher()
 
         // US-2407: directly under the switcher, because "which workspace" and
         // "who is in it" are the same question asked twice.
         SettingRow(
             title = stringResource(R.string.settings_team),
             subtitle = stringResource(R.string.settings_team_subtitle),
-            onClick = onOpenTeam,
+            onClick = actions.openTeam,
         )
 
         // ── Plan & credits ───────────────────────────────────────────────────
@@ -176,7 +284,7 @@ fun SettingsScreen(
                 subtitle = profile.plan.replaceFirstChar { it.uppercase() },
                 // US-1367: the plan row is where someone looks when they want to
                 // change it, so it opens the paywall rather than just reporting.
-                onClick = onOpenPlans,
+                onClick = actions.openPlans,
             )
             SettingRow(
                 title = stringResource(R.string.settings_grading_credits),
@@ -185,7 +293,7 @@ fun SettingsScreen(
                     profile.creditBalance,
                     profile.gradesUsedThisMonth,
                 ),
-                onClick = onOpenCredits,
+                onClick = actions.openCredits,
             )
         }
 
@@ -194,7 +302,7 @@ fun SettingsScreen(
         SettingRow(
             title = stringResource(R.string.settings_ebay),
             subtitle = stringResource(R.string.settings_ebay_subtitle),
-            onClick = onOpenMarketplaces,
+            onClick = actions.openMarketplaces,
         )
 
         // ── Preferences ──────────────────────────────────────────────────────
@@ -203,25 +311,25 @@ fun SettingsScreen(
             title = stringResource(R.string.settings_show_cost),
             subtitle = stringResource(R.string.settings_show_cost_subtitle),
             checked = state.showCostOnRows,
-            onChange = viewModel::setShowCostOnRows,
+            onChange = actions.setShowCostOnRows,
         )
         ToggleRow(
             title = stringResource(R.string.settings_confirm_bulk),
             subtitle = stringResource(R.string.settings_confirm_bulk_subtitle),
             checked = state.confirmBulkActions,
-            onChange = viewModel::setConfirmBulkActions,
+            onChange = actions.setConfirmBulkActions,
         )
         ToggleRow(
             title = stringResource(R.string.settings_haptics),
             subtitle = stringResource(R.string.settings_haptics_subtitle),
             checked = state.hapticsEnabled,
-            onChange = viewModel::setHapticsEnabled,
+            onChange = actions.setHapticsEnabled,
         )
         ToggleRow(
             title = stringResource(R.string.settings_background_refresh),
             subtitle = stringResource(R.string.settings_background_refresh_subtitle),
             checked = state.backgroundRefreshEnabled,
-            onChange = viewModel::setBackgroundRefreshEnabled,
+            onChange = actions.setBackgroundRefreshEnabled,
         )
         ToggleRow(
             title = stringResource(R.string.settings_analytics),
@@ -230,7 +338,7 @@ fun SettingsScreen(
             // opting out of product analytics feel riskier than it is.
             subtitle = stringResource(R.string.settings_analytics_subtitle),
             checked = state.analyticsEnabled,
-            onChange = viewModel::setAnalyticsEnabled,
+            onChange = actions.setAnalyticsEnabled,
         )
 
         // ── Security ─────────────────────────────────────────────────────────
@@ -239,7 +347,7 @@ fun SettingsScreen(
             title = stringResource(R.string.settings_change_password),
             subtitle = stringResource(R.string.settings_change_password_subtitle),
             enabled = !state.busy,
-            onClick = viewModel::changePassword,
+            onClick = actions.changePassword,
         )
 
         // US-1393: the in-app language override. Hidden while only one
@@ -252,7 +360,7 @@ fun SettingsScreen(
                     com.gradethread.app.platform.locale.AppLocale.current(),
                     stringResource(R.string.settings_language_system),
                 ),
-                onClick = { languagePickerOpen = true },
+                onClick = actions.openLanguagePicker,
             )
         }
 
@@ -265,7 +373,7 @@ fun SettingsScreen(
                 stringResource(R.string.settings_export_subtitle)
             },
             enabled = !state.exporting,
-            onClick = viewModel::exportAccount,
+            onClick = actions.exportAccount,
         )
         state.exportError?.let { message ->
             Text(
@@ -280,7 +388,7 @@ fun SettingsScreen(
         SettingRow(
             title = stringResource(R.string.settings_support),
             subtitle = stringResource(R.string.settings_support_subtitle),
-            onClick = onOpenSupport,
+            onClick = actions.openSupport,
         )
         // US-1387: the sheet's ViewModel is hoisted to THIS screen, so closing
         // the sheet to go and check a version number does not throw away what
@@ -288,7 +396,7 @@ fun SettingsScreen(
         SettingRow(
             title = stringResource(R.string.settings_feedback),
             subtitle = stringResource(R.string.settings_feedback_subtitle),
-            onClick = feedbackViewModel::open,
+            onClick = actions.openFeedback,
         )
 
         // ── Diagnostics ──────────────────────────────────────────────────────
@@ -318,7 +426,7 @@ fun SettingsScreen(
         SectionHeader(stringResource(R.string.settings_section_security))
         Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
             TextButton(
-                onClick = { twoFactorOpen = true },
+                onClick = actions.openTwoFactor,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.settings_two_factor)) }
         }
@@ -330,35 +438,21 @@ fun SettingsScreen(
                 text = stringResource(R.string.settings_sign_out),
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xs),
-            ) { viewModel.ask(SettingsViewModel.Confirm.SIGN_OUT) }
+            ) { actions.askSignOut() }
             TextButton(
-                onClick = { viewModel.ask(SettingsViewModel.Confirm.DELETE_ACCOUNT) },
+                onClick = actions.askDeleteAccount,
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.settings_delete_account)) }
         }
     }
 
-    // US-2685: renders nothing until opened.
-    if (twoFactorOpen) {
-        TwoFactorDialog(onDismiss = { twoFactorOpen = false })
-    }
-
-    if (languagePickerOpen) {
-        com.gradethread.app.platform.locale.LanguagePicker(
-            onDismiss = { languagePickerOpen = false },
-        )
-    }
-
     // US-1387: renders nothing until opened.
-    com.gradethread.app.feedback.FeedbackSheet(
-        onOpenSupport = onOpenSupport,
-        viewModel = feedbackViewModel,
-    )
+    feedbackSheet()
 
     state.pendingConfirm?.let { confirm ->
         when (confirm) {
             SettingsViewModel.Confirm.SIGN_OUT -> AlertDialog(
-                onDismissRequest = viewModel::cancelConfirm,
+                onDismissRequest = actions.cancelConfirm,
                 title = { Text(stringResource(R.string.settings_sign_out_2)) },
                 text = {
                     Text(
@@ -369,19 +463,19 @@ fun SettingsScreen(
                     )
                 },
                 confirmButton = {
-                    TextButton(onClick = viewModel::confirmSignOut) { Text(stringResource(R.string.settings_sign_out)) }
+                    TextButton(onClick = actions.confirmSignOut) { Text(stringResource(R.string.settings_sign_out)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = viewModel::cancelConfirm) { Text(stringResource(R.string.settings_cancel)) }
+                    TextButton(onClick = actions.cancelConfirm) { Text(stringResource(R.string.settings_cancel)) }
                 },
             )
 
             SettingsViewModel.Confirm.DELETE_ACCOUNT -> DeleteAccountDialog(
                 state = state,
-                onConfirmTextChange = viewModel::deleteConfirmTextChanged,
-                onPasswordChange = viewModel::deletePasswordChanged,
-                onCancel = viewModel::cancelDelete,
-                onDelete = viewModel::confirmDeleteAccount,
+                onConfirmTextChange = actions.deleteConfirmTextChanged,
+                onPasswordChange = actions.deletePasswordChanged,
+                onCancel = actions.cancelDelete,
+                onDelete = actions.confirmDeleteAccount,
             )
         }
     }
