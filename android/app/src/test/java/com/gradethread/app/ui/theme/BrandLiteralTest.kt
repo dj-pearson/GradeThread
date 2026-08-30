@@ -35,6 +35,21 @@ import java.io.File
  *
  * It starts green: the sweep behind US-3009 found exactly one offender in the
  * whole app and it is fixed.
+ *
+ * ⚠ THE BLIND SPOT, AND IT HAS ALREADY COST SOMETHING (US-3010).
+ * This scan EXCLUDES ui/theme, and it has to - the palette is defined there, so
+ * scanning it would fail on every token. But that is also the one directory
+ * where colour decisions are made, and the exclusion is invisible in a green
+ * result.
+ *
+ * GradeColor.kt sat inside it holding three raw literals. Two duplicated tokens
+ * declared twenty lines away in BrandPalette (Emerald, Amber). The third was
+ * #E94560 - the SURFACE red - returned as the colour of a FAILING GRADE, which
+ * this function's callers draw as text at 3.83:1. That is precisely the defect
+ * named at the top of this file, in the only place this file cannot look.
+ *
+ * So a green run here means "no brand literal OUTSIDE ui/theme", never "the
+ * theme is correct". Anything added under ui/theme still needs reading.
  */
 class BrandLiteralTest {
 

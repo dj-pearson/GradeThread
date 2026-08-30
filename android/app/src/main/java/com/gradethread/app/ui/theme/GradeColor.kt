@@ -22,13 +22,36 @@ import androidx.compose.ui.graphics.Color
  * `BrandPalette.NavyDark` in dark, which is the blue the primary buttons already
  * use, so the grade now matches the rest of the theme rather than fighting it.
  *
- * ⚠ THE OTHER THREE STAY LITERAL, deliberately. Green, amber and red are
- * mid-tone hues that carry on both surfaces - checked on the dark golden, where
- * "Certificate verified" green and the amber band both read clearly - and they
- * are SEMANTIC rather than brand: a 9.5 is green because green means good, not
- * because green is ours. Mapping them onto scheme roles would tie a grade's
- * meaning to a palette decision. Navy was the odd one out precisely because it
- * IS the brand colour, and so collides with the brand surface.
+ * ⚠ US-3010 CORRECTS THE PARAGRAPH THAT USED TO SIT HERE. It said green, amber
+ * and red "stay literal, deliberately", because they are mid-tone hues that
+ * carry on both surfaces. The first half is now wrong and the second half is
+ * still right, and the two need separating.
+ *
+ * STILL RIGHT: on the DARK surface all three do carry - emerald 6.72:1, amber
+ * 7.94:1, red 4.46:1 against BrandPalette.Night. Navy was 1.36:1, which is why
+ * navy was the one US-3004 had to fix and these were not.
+ *
+ * NOW WRONG: being correct was no reason to stay LITERAL. Emerald and Amber were
+ * already named in BrandPalette twenty lines away, so two of the three literals
+ * were duplicates of tokens that existed. They are byte-identical swaps.
+ *
+ * AND THE RED WAS NOT MERELY DUPLICATED, IT WAS THE WRONG VALUE. #E94560 is the
+ * SURFACE red. This function returns a TEXT colour in five of its six call sites,
+ * and constants.ts:1045 states the rule for the web in as many words: "for red
+ * TEXT use the theme-inverting text-brand-red-text utility - never this hex as a
+ * text color on a light surface." #E94560 is 3.83:1 on white; colorScheme.error
+ * is #CC1F3D light (5.48:1) and #FB5E78 dark (5.66:1), so it clears AA on both.
+ *
+ * ⚠ THAT ALIGNS ANDROID WITH THE WEB AND NOT WITH THE SPEC, on purpose.
+ * brand-design-system.md §3B names Crimson Red #F03D5F for this band, which iOS
+ * uses exactly - and which is 3.79:1, the value US-439 deepened to #cc1f3d
+ * precisely because the vibrant red fails AA as text. Following the spec here
+ * would re-introduce the defect the spec's own consumer already fixed.
+ *
+ * The SEMANTIC argument survives untouched: a 9.5 is green because green means
+ * good, not because green is ours. That is why emerald and amber map to palette
+ * tokens rather than to scheme roles, while the red maps to `error` - the red
+ * IS the brand colour, and `error` is the role that already carries it.
  *
  * ⚠ AND IT WAS COPIED FIVE TIMES: GradeReportScreen, GradeRequestScreen,
  * GradesListScreen, InventoryListScreen and SnapScreen each had their own
@@ -39,10 +62,10 @@ import androidx.compose.ui.graphics.Color
 @Composable
 @ReadOnlyComposable
 fun gradeColor(value: Double): Color = when {
-    value >= GRADE_EXCELLENT -> Color(0xFF10B981)
+    value >= GRADE_EXCELLENT -> BrandPalette.Emerald
     value >= GRADE_GOOD -> MaterialTheme.colorScheme.primary
-    value >= GRADE_FAIR -> Color(0xFFF59E0B)
-    else -> Color(0xFFE94560)
+    value >= GRADE_FAIR -> BrandPalette.Amber
+    else -> MaterialTheme.colorScheme.error
 }
 
 private const val GRADE_EXCELLENT = 9.5

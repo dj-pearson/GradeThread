@@ -111,10 +111,18 @@ class GradeReportScreenshotTest {
      * US-3004: the AMBER band, in DARK, and it exists to make a claim true.
      *
      * GradeColor.kt argues that green, amber and red stay literal because they
-     * carry on both surfaces - and when that was written, green had been checked
-     * on a dark golden and amber had NOT. Nothing in the repo rendered a 5.0-6.9
-     * grade in dark: this fixture is 8.5 and the AI-fill fixtures are both under
-     * 0.5, so they draw red.
+     * carry on both surfaces - and when that was written, amber had not been
+     * checked on a dark golden. Nothing in the repo rendered a 5.0-6.9 grade in
+     * dark: this fixture is 8.5 and the AI-fill fixtures are both under 0.5, so
+     * they draw red.
+     *
+     * ⚠ US-3010 CORRECTS THIS COMMENT, which used to add "green had been checked
+     * on a dark golden". A green had been. Not THIS green: the one that was
+     * checked is the "Certificate verified" badge, a different element with a
+     * different value. gradeColor's own emerald band appeared in no capture at
+     * all until poorGrade/pristineGrade below. The sentence was true of a green
+     * and read as though it settled the grade ladder, which is the same failure
+     * it was written to fix.
      *
      * A comment asserting something no capture shows is the same failure as a
      * golden nobody opens. This is the capture.
@@ -128,6 +136,86 @@ class GradeReportScreenshotTest {
             ),
         )
     }
+
+    /**
+     * US-3010: the POOR band, which no capture in this repo had ever shown.
+     *
+     * gradeColor has four bands and only two were rendered anywhere: 8.5 and 7.0
+     * are Steel Navy, 6.0 is Amber. Emerald (>= 9.5) and Crimson (< 5.0) were in
+     * NO golden, light or dark, across every screenshot test. That is why the
+     * wrong red survived in GradeColor.kt - US-3004 caught the navy band because
+     * a dark golden had been showing it, and this band had nothing to show.
+     *
+     * The factor scores move with the overall score deliberately. A 3.5 report
+     * with 8.5 fabric condition is incoherent, and an incoherent fixture invites
+     * the next reader to file it as a bug rather than read it as a fixture.
+     */
+    @Test
+    fun poorGrade_light() = capture("screen-gradereport-poor-light") {
+        Content(state().copy(loaded = poor()))
+    }
+
+    @Test
+    fun poorGrade_dark() = capture("screen-gradereport-poor-dark", dark = true) {
+        Content(state().copy(loaded = poor()))
+    }
+
+    /** US-3010: the PRISTINE band, likewise never captured before now. */
+    @Test
+    fun pristineGrade_light() = capture("screen-gradereport-pristine-light") {
+        Content(state().copy(loaded = pristine()))
+    }
+
+    @Test
+    fun pristineGrade_dark() = capture("screen-gradereport-pristine-dark", dark = true) {
+        Content(state().copy(loaded = pristine()))
+    }
+
+    private fun poor() = loaded("https://gradethread.com/verify/GT-FIXTURE-0001")
+        .copy(
+            report = report.copy(
+                overallScore = 3.5,
+                gradeTier = "Poor",
+                fabricConditionScore = 3.5,
+                structuralIntegrityScore = 4.0,
+                cosmeticAppearanceScore = 3.0,
+                functionalElementsScore = 4.0,
+                odorCleanlinessScore = 3.5,
+                aiSummary = "Heavy fading throughout with a split seam at the left " +
+                    "underarm and a persistent musty odor. Wearable, but the damage " +
+                    "is structural rather than cosmetic.",
+            ),
+            defects = listOf(
+                GradeDefect(
+                    defect = "Split seam",
+                    severity = "major",
+                    location = "Left underarm",
+                    impactOnGrade = "Structural",
+                ),
+                GradeDefect(
+                    defect = "Persistent odor",
+                    severity = "major",
+                    location = "Throughout",
+                    impactOnGrade = "Requires cleaning",
+                ),
+            ),
+        )
+
+    private fun pristine() = loaded("https://gradethread.com/verify/GT-FIXTURE-0001")
+        .copy(
+            report = report.copy(
+                overallScore = 9.8,
+                gradeTier = "Pristine",
+                fabricConditionScore = 10.0,
+                structuralIntegrityScore = 9.5,
+                cosmeticAppearanceScore = 9.5,
+                functionalElementsScore = 10.0,
+                odorCleanlinessScore = 10.0,
+                aiSummary = "No wear detected. Original hem intact, hardware " +
+                    "unmarked, and no odor. Presents as unworn.",
+            ),
+            defects = emptyList(),
+        )
 
     /**
      * No certificate and a confidence under the review threshold. The share CTA
