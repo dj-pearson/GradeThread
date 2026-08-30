@@ -16,6 +16,7 @@ import com.gradethread.app.money.MoneyActions
 import com.gradethread.app.money.MoneyContent
 import com.gradethread.app.money.MoneyMetrics
 import com.gradethread.app.money.MoneyUiState
+import com.gradethread.app.money.ReceiptScanTrigger
 import com.gradethread.app.money.MoneyViewModel
 import com.gradethread.app.money.SourceRoiRow
 import com.gradethread.app.money.TimeOnMarketBucket
@@ -284,6 +285,16 @@ class MoneyScreenshotTest {
 /**
  * Top level for the same reason the other screenshot files' helpers are: an
  * instance composable on a test class trips ComposeUnstableReceiver.
+ *
+ * ⚠ THE RECEIPT SCANNER COMES IN AS A SLOT, and that is not a convenience.
+ * ReceiptScanButton resolves its own ViewModel through Hilt, and RoborazziActivity
+ * is not a Hilt component - so composing it here dies with "does not implement
+ * GeneratedComponentManager". It went unnoticed when it landed because LazyColumn
+ * only composes what is on screen: every capture stayed green except the two
+ * equity ones, which empty the panels above and so reach the expenses row.
+ *
+ * ReceiptScanTrigger is the button's own visible half, so the golden shows the
+ * real widget rather than a look-alike written here that could drift from it.
  */
 @Composable
 private fun Content(ui: MoneyUiState) {
@@ -292,5 +303,8 @@ private fun Content(ui: MoneyUiState) {
         actions = MoneyActions(),
         onOpenSales = {},
         onOpenPayouts = {},
+        receiptScan = {
+            ReceiptScanTrigger(label = "Scan a receipt", scanning = false, onClick = {})
+        },
     )
 }

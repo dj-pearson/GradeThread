@@ -189,17 +189,16 @@ fun ReceiptScanButton(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri -> if (uri != null) viewModel.scan(uri) }
 
-    TextButton(
+    ReceiptScanTrigger(
+        label = label,
+        scanning = state.scanning,
+        modifier = modifier,
         onClick = {
             picker.launch(
                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
             )
         },
-        enabled = !state.scanning,
-        modifier = modifier,
-    ) {
-        Text(if (state.scanning) "Reading it" else label)
-    }
+    )
 
     state.notice?.let { message ->
         onNotice(message)
@@ -212,5 +211,22 @@ fun ReceiptScanButton(
             onDismiss = { viewModel.dismiss() },
             onSave = { edited -> viewModel.confirm(edited) { viewModel.dismiss() } },
         )
+    }
+}
+
+/**
+ * The visible half of [ReceiptScanButton], with nothing behind it.
+ *
+ * ⚠ THIS EXISTS SO A GOLDEN CAN SHOW THE REAL WIDGET. MoneyContent takes the
+ * scanner as a slot, because a Hilt-backed composable inside that body kills
+ * any screenshot test that composes far enough down to reach it. A slot fed
+ * with an empty lambda would leave the expenses row a button short of the
+ * truth, and one hand-rolled TextButton in the test would be a second
+ * definition of this widget that could drift from the first.
+ */
+@Composable
+fun ReceiptScanTrigger(label: String, scanning: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    TextButton(onClick = onClick, enabled = !scanning, modifier = modifier) {
+        Text(if (scanning) "Reading it" else label)
     }
 }

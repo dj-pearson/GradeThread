@@ -164,6 +164,23 @@ internal fun MoneyContent(
     onOpenSales: () -> Unit,
     onOpenPayouts: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * The receipt scanner, as a SLOT rather than a call (US-2902 AC3).
+     *
+     * ⚠ THIS BODY MUST STAY VIEWMODEL-FREE, and a Hilt-backed composable
+     * dropped into it is not visible as a violation - it compiles, it runs on a
+     * device, and MoneyScreenshotTest's other captures stay green because
+     * LazyColumn only composes what is on screen. The two equity captures empty
+     * the panels above to lift equity into the viewport, which brought the
+     * expenses row into composition, and they died on
+     * "RoborazziActivity does not implement GeneratedComponentManager".
+     *
+     * ReceiptScanButton is deliberately self-contained - it owns its picker,
+     * its ViewModel and its form - so hoisting its state would be the wrong
+     * fix. A slot keeps it self-contained AND keeps this body renderable
+     * without a Hilt graph.
+     */
+    receiptScan: @Composable () -> Unit = { ReceiptScanButton() },
 ) {
     val state = ui.state
     val sort = ui.sort
@@ -509,7 +526,7 @@ internal fun MoneyContent(
                     // US-3000: the receipt is in a pocket, and the photo of it
                     // is on the phone. Uploading it from a computer later is
                     // the step people skip, and the expense goes with it.
-                    ReceiptScanButton()
+                    receiptScan()
                 }
             }
             if (state.expenses.isEmpty()) {

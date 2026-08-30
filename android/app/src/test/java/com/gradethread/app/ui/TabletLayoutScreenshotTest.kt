@@ -14,6 +14,7 @@ import com.gradethread.app.money.AgingBracket
 import com.gradethread.app.money.ItemProfitSort
 import com.gradethread.app.money.MoneyActions
 import com.gradethread.app.money.MoneyContent
+import com.gradethread.app.money.ReceiptScanTrigger
 import com.gradethread.app.money.MoneyMetrics
 import com.gradethread.app.money.MoneyUiState
 import com.gradethread.app.money.MoneyViewModel
@@ -143,6 +144,12 @@ class TabletLayoutScreenshotTest {
             actions = MoneyActions(),
             onOpenSales = {},
             onOpenPayouts = {},
+            // The scanner owns a Hilt ViewModel and RoborazziActivity is not a
+            // Hilt component; the slot exists for exactly this. See the note on
+            // MoneyScreenshotTest.Content.
+            receiptScan = {
+                ReceiptScanTrigger(label = "Scan a receipt", scanning = false, onClick = {})
+            },
         )
     }
 
