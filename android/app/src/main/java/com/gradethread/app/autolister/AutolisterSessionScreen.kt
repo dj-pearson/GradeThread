@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,8 +64,77 @@ fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionVie
         ActivityResultContracts.PickMultipleVisualMedia(AutolisterGroups.MAX_PHOTOS),
     ) { uris -> viewModel.importPhotos(uris) }
 
+    AutolisterSessionContent(
+        state,
+        AutolisterSessionActions(
+            // The picker needs an Activity result registry; a screenshot test
+            // has none, and choosing photos is not layout.
+            addPhotos = {
+                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            removePhoto = viewModel::removePhoto,
+            groupSelected = viewModel::groupSelected,
+            proposeGroups = viewModel::proposeGroups,
+            verifyGroups = viewModel::verifyGroups,
+            applySuggestion = viewModel::applySuggestion,
+            dismissSuggestion = viewModel::dismissSuggestion,
+            sendToDesktop = viewModel::sendToDesktop,
+            setCover = viewModel::setCover,
+            splitFromGroup = viewModel::splitFromGroup,
+            moveToGroup = viewModel::moveToGroup,
+            ungroup = viewModel::ungroup,
+            discardWaiting = viewModel::discardWaiting,
+            dismissError = viewModel::dismissError,
+            close = onClose,
+        ),
+        selected = selected,
+        onSelectionChange = { selected = it },
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Suppress("LongParameterList")
+@Immutable
+data class AutolisterSessionActions(
+    val addPhotos: () -> Unit = {},
+    val removePhoto: (String) -> Unit = {},
+    val groupSelected: (List<String>) -> Unit = {},
+    val proposeGroups: () -> Unit = {},
+    val verifyGroups: () -> Unit = {},
+    val applySuggestion: (GroupSuggestion) -> Unit = {},
+    val dismissSuggestion: (GroupSuggestion) -> Unit = {},
+    val sendToDesktop: () -> Unit = {},
+    val setCover: (String, String) -> Unit = { _, _ -> },
+    val splitFromGroup: (String, List<String>) -> Unit = { _, _ -> },
+    val moveToGroup: (List<String>, String) -> Unit = { _, _ -> },
+    val ungroup: (String) -> Unit = {},
+    val discardWaiting: (String) -> Unit = {},
+    val dismissError: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * One autolister batch, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE WHOLE POINT IS WHICH PHOTOS BELONG TO WHICH ITEM. A group holds every
+ * photo of one garment, and a photo in the wrong group means a listing shows
+ * somebody else's jacket. Selection is therefore visible state, and the goldens
+ * capture a selection mid-flight rather than only the tidy before and after.
+ *
+ * ⚠ AND A BATCH ON THE SHELF IS NOT A FAILURE. `waiting` is work already sent,
+ * parked until a desktop with the extension opens. A seller who reads that as
+ * "nothing happened" sends it again and gets two of everything.
+ */
+@Composable
+fun AutolisterSessionContent(
+    state: AutolisterSessionViewModel.State,
+    actions: AutolisterSessionActions,
+    modifier: Modifier = Modifier,
+    selected: Set<String> = emptySet(),
+    onSelectionChange: (Set<String>) -> Unit = {},
+) {
     if (state.loading) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             CircularProgressIndicator()
         }
         return
@@ -84,11 +154,8 @@ fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionVie
                 BrandPrimaryButton(
                     text = stringResource(R.string.autolister_add_photos),
                     enabled = state.busy == null && state.remainingCapacity > 0,
-                ) {
-                    picker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                    )
-                }
+                    onClick = actions.addPhotos,
+                )
             }
         }
 
@@ -102,7 +169,7 @@ fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionVie
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )
-                    TextButton(onClick = viewModel::dismissError) {
+                    TextButton(onClick = actions.dismissError) {
                         Text(stringResource(R.string.common_dismiss))
                     }
                 }
@@ -116,7 +183,7 @@ fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionVie
                         pluralStringResource(R.plurals.autolister_sent, count, count),
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    TextButton(onClick = viewModel::dismissError) {
+                    TextButton(onClick = actions.dismissError) {
                         Text(stringResource(R.string.common_dismiss))
                     }
                 }
@@ -146,21 +213,21 @@ fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionVie
                             state.proposeWindows,
                         ),
                         enabled = state.canPropose,
-                    ) { viewModel.proposeGroups() }
+                    ) { actions.proposeGroups() }
                     BrandSecondaryButton(
                         text = stringResource(R.string.autolister_verify),
                         enabled = state.canVerify,
-                    ) { viewModel.verifyGroups() }
+                    ) { actions.verifyGroups() }
                 }
             }
         }
 
         items(state.session.suggestions, key = { it.type + it.groupIds.joinToString() }) { s ->
-            SuggestionCard(s, viewModel)
+            SuggestionCard(s, actions)
         }
 
         items(state.groups, key = { it.id }) { group ->
-            GroupCard(group, state, selected, viewModel) { selected = it }
+            GroupCard(group, state, selected, actions, onSelectionChange)
         }
 
         if (state.ungrouped.isNotEmpty()) {
@@ -177,7 +244,7 @@ fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionVie
                     photos = state.ungrouped,
                     selected = selected,
                     coverId = null,
-                    onTap = { id -> selected = selected.toggle(id) },
+                    onTap = { id -> onSelectionChange(selected.toggle(id)) },
                 )
             }
             item {
@@ -186,13 +253,13 @@ fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionVie
                         text = stringResource(R.string.autolister_group_selected),
                         enabled = selected.isNotEmpty(),
                     ) {
-                        viewModel.groupSelected(selected.toList())
-                        selected = emptySet()
+                        actions.groupSelected(selected.toList())
+                        onSelectionChange(emptySet())
                     }
                     if (selected.isNotEmpty()) {
                         BrandSecondaryButton(text = stringResource(R.string.autolister_remove)) {
-                            selected.forEach(viewModel::removePhoto)
-                            selected = emptySet()
+                            selected.forEach(actions.removePhoto)
+                            onSelectionChange(emptySet())
                         }
                     }
                 }
@@ -205,7 +272,7 @@ fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionVie
                     text = stringResource(R.string.autolister_send),
                     modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
                     enabled = state.canSend,
-                ) { viewModel.sendToDesktop() }
+                ) { actions.sendToDesktop() }
             }
             item {
                 Text(
@@ -235,7 +302,7 @@ fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionVie
                         ),
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                    TextButton(onClick = { viewModel.discardWaiting(waiting.id) }) {
+                    TextButton(onClick = { actions.discardWaiting(waiting.id) }) {
                         Text(stringResource(R.string.autolister_discard))
                     }
                 }
@@ -246,7 +313,7 @@ fun AutolisterSessionScreen(onClose: () -> Unit, viewModel: AutolisterSessionVie
             BrandSecondaryButton(
                 text = stringResource(R.string.common_back),
                 modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
-            ) { onClose() }
+            ) { actions.close() }
         }
     }
 }
@@ -286,17 +353,17 @@ private fun BusyBanner(busy: AutolisterSessionViewModel.Busy, state: AutolisterS
 }
 
 @Composable
-private fun SuggestionCard(suggestion: GroupSuggestion, viewModel: AutolisterSessionViewModel) {
+private fun SuggestionCard(suggestion: GroupSuggestion, actions: AutolisterSessionActions) {
     Column(Modifier.fillMaxWidth().cardStyle()) {
         Text(
             suggestion.reason.ifBlank { stringResource(R.string.autolister_suggestion_fallback) },
             style = MaterialTheme.typography.bodyMedium,
         )
         Row {
-            TextButton(onClick = { viewModel.applySuggestion(suggestion) }) {
+            TextButton(onClick = { actions.applySuggestion(suggestion) }) {
                 Text(stringResource(R.string.autolister_apply))
             }
-            TextButton(onClick = { viewModel.dismissSuggestion(suggestion) }) {
+            TextButton(onClick = { actions.dismissSuggestion(suggestion) }) {
                 Text(stringResource(R.string.common_dismiss))
             }
         }
@@ -308,7 +375,7 @@ private fun GroupCard(
     group: SessionGroup,
     state: AutolisterSessionViewModel.State,
     selected: Set<String>,
-    viewModel: AutolisterSessionViewModel,
+    actions: AutolisterSessionActions,
     onSelected: (Set<String>) -> Unit,
 ) {
     val photos = state.session.photosOf(group.id)
@@ -328,13 +395,13 @@ private fun GroupCard(
             val inThisGroup = selected.filter { id -> photos.any { it.id == id } }
             if (inThisGroup.size == 1) {
                 TextButton(onClick = {
-                    viewModel.setCover(group.id, inThisGroup.first())
+                    actions.setCover(group.id, inThisGroup.first())
                     onSelected(emptySet())
                 }) { Text(stringResource(R.string.autolister_set_cover)) }
             }
             if (inThisGroup.isNotEmpty() && inThisGroup.size < photos.size) {
                 TextButton(onClick = {
-                    viewModel.splitFromGroup(group.id, inThisGroup)
+                    actions.splitFromGroup(group.id, inThisGroup)
                     onSelected(emptySet())
                 }) { Text(stringResource(R.string.autolister_split)) }
             }
@@ -344,11 +411,11 @@ private fun GroupCard(
             val fromElsewhere = selected.filterNot { id -> photos.any { it.id == id } }
             if (fromElsewhere.isNotEmpty()) {
                 TextButton(onClick = {
-                    viewModel.moveToGroup(fromElsewhere, group.id)
+                    actions.moveToGroup(fromElsewhere, group.id)
                     onSelected(emptySet())
                 }) { Text(stringResource(R.string.autolister_move_here)) }
             }
-            TextButton(onClick = { viewModel.ungroup(group.id) }) {
+            TextButton(onClick = { actions.ungroup(group.id) }) {
                 Text(stringResource(R.string.autolister_ungroup))
             }
         }
