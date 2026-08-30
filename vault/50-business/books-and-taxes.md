@@ -18,6 +18,8 @@ code_refs:
   - supabase/migrations/00688_inventory_snapshots.sql
   - src/lib/cogs.ts
   - scripts/check-cogs-worksheet.mjs
+  - supabase/migrations/00690_inventory_writeoffs.sql
+  - scripts/check-inventory-writeoffs.mjs
 reviewed: 2026-08-29
 tags: [finance, tax, flipdesk, money]
 summary: The rules the Books and Taxes epic (US-2981) obeys - what each stored figure means, which form line it feeds, and the four things the app deliberately refuses to do.
@@ -423,12 +425,47 @@ turns seven checks red.
 
 ### A limit, recorded rather than discovered
 
-An item that is lost, donated or written off **never leaves inventory**, because
-the predicate only removes items that were SOLD. It will sit in ending inventory
-for ever, overstating line 41 and therefore understating COGS. There is no
-write-off path in the schema today. Filed as **US-3007**, including the
-reason a status flag alone cannot fix it: the predicate is date-based, and
-`archived` carries no date saying when it happened.
+### Leaving inventory without selling (US-3007)
+
+A completed sale used to be the **only** exit. An item that was lost, damaged
+beyond selling, donated, returned to a consignor or taken for personal use sat
+in ending inventory for ever, overstating line 41, understating line 42 COGS,
+and so overstating the profit the seller pays tax on. It is the rare bug that
+costs the user money in the government's favour.
+
+`00690` adds `inventory_items.removed_on` and `.removed_reason`. The **date** is
+the load-bearing half: the snapshot predicate is date-based on purpose, so a
+status flag alone cannot fix this - `archived` and `returned` already existed and
+neither records *when*. A pair constraint refuses one without the other, because
+a date with no reason cannot be routed to a line of the form and a reason with no
+date cannot be read historically.
+
+**Personal use takes a different route from the other four, and the form says
+so.** Schedule C Part III line 36 reads *"Purchases less cost of items withdrawn
+for personal use"*, so a withdrawal reduces **purchases**, in the period it was
+withdrawn - which need not be the period it was acquired. The other four reasons
+reduce **ending inventory** and flow through line 42.
+
+**A write-off books nothing, and that is the decision.** No ledger entry is
+written. Removing an item from ending inventory raises `variance_cents` by its
+cost with no offsetting entry, so the worksheet reports `writeoffs_cents`
+separately and adds `variance_after_writeoffs_cents`. **That** residual is the
+figure that should read zero; `variance_cents` will not once anything has been
+written off, and that is correct rather than a fault.
+
+The alternative - booking an entry so the variance returns to zero - was
+rejected because it makes the app decide a deduction. Personal use is not
+deductible at all; a donation and a casualty loss go on different forms. Record
+the reason, name what it feeds, and stop there.
+
+**History is not rewritten.** The predicate change affects snapshots taken from
+now on. Rows already taken record what was believed at the time; US-2995 (period
+close) is the mechanism for correcting a closed year, with an adjusting entry in
+the open period rather than an edit to history.
+
+⚠ **Nothing writes these columns yet.** The accounting is correct and proven by
+`scripts/check-inventory-writeoffs.mjs`, but no screen or route sets
+`removed_on`, so no seller can record a write-off. US-3007 stays open on that.
 
 ## Where the rest of the epic is written down
 
@@ -440,6 +477,7 @@ its contract into this note. Currently landed:
 - **US-2984** - the ledger, its limits and its invariant, above.
 - **US-2985** - the P&L statement and the half-open period rules, above.
 - **US-2986** - COGS, the inventory snapshot and its two signals, above.
+- **US-3007** - leaving inventory without selling, above (data layer only).
 
 Still open, and each will add a section here rather than a new note: COGS and
 the ending-inventory snapshot (US-2986), facilitator sales tax (US-2987), the 1099-K bridge

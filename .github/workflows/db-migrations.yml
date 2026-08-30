@@ -19,6 +19,7 @@ on:
       - "scripts/db-rls-initplan-check.mjs"
       - "scripts/check-rpc-column-refs.mjs"
       - "scripts/check-session-revocation.mjs"
+      - "scripts/check-inventory-writeoffs.mjs"
       - "scripts/db-denied-rpc-crash-check.mjs"
   push:
     branches: [main]
@@ -32,6 +33,7 @@ on:
       - "scripts/db-rls-initplan-check.mjs"
       - "scripts/check-rpc-column-refs.mjs"
       - "scripts/check-session-revocation.mjs"
+      - "scripts/check-inventory-writeoffs.mjs"
       - "scripts/db-denied-rpc-crash-check.mjs"
 
 concurrency:
@@ -87,6 +89,14 @@ jobs:
       # seeds a session, revokes it, and fails if the rows survive.
       - name: Session revocation actually revokes (US-2662)
         run: node scripts/check-session-revocation.mjs
+      # US-3007: a completed sale was the ONLY exit from inventory, so an item
+      # that was lost, donated or taken for personal use sat in ending inventory
+      # for ever. That overstates Schedule C line 41, understates line 42 COGS,
+      # and overstates the tax the seller owes - a bug that costs the user money
+      # in the government's favour. Seeds three items, writes two off by
+      # different routes, and asserts the resulting figures.
+      - name: Written-off inventory leaves the books (US-3007)
+        run: node scripts/check-inventory-writeoffs.mjs
       # US-2403: a permission-denied FUNCTION call SEGFAULTs the Supabase
       # Postgres image and takes the whole database down with it — reachable by
       # anyone holding the public anon key. continue-on-error because the stock

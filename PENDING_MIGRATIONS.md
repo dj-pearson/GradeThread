@@ -1,5 +1,49 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🟠 PUSHED, NOT YET APPLIED: 00690_inventory_writeoffs.sql (US-3007 — an item that is lost, donated or kept never left inventory)
+
+**Risk: low-to-moderate.** Two new nullable columns and two CHECK constraints on
+`inventory_items`; two existing functions re-emitted. No data is rewritten and
+no existing row is touched — every current row has `removed_on IS NULL`, which
+is the "still held" case and is exactly today's behaviour.
+
+**⚠ NEEDS `NOTIFY pgrst, 'reload schema';`** — two columns are added and two
+function bodies change, so PostgREST must be told or the new fields are invisible
+to the API and `cogs_worksheet` keeps returning the old JSON shape.
+
+**What it does.** Adds `inventory_items.removed_on` (date) and `.removed_reason`
+(text, CHECK: lost / damaged / donated / personal_use / returned_to_consignor).
+`take_inventory_snapshot` gains ONE clause so an item that left before `as_of`
+drops out of ending inventory. `cogs_worksheet` nets personal-use withdrawals off
+Schedule C line 36 and reports `writeoffs_cents` plus
+`variance_after_writeoffs_cents`.
+
+**Why it matters.** A completed sale used to be the only exit from inventory, so
+an item that was lost, donated or taken for personal use sat in ending inventory
+for ever — overstating line 41, understating line 42 COGS, and overstating the
+tax the seller owes. It is the rare bug that costs the user money in the
+government's favour.
+
+**Ordering.** Apply AFTER 00688 and alongside 00689 (it re-emits two functions 00688 created). No
+frontend dependency: nothing in the client reads the new columns or the new JSON
+keys yet, so there is no window where a deployed frontend breaks against the old
+schema. The reverse is also true — applying it changes no behaviour a seller can
+see until something writes `removed_on`, and nothing does yet.
+
+**The US-3008 guard is carried forward BY HAND.** `take_inventory_snapshot` is
+re-emitted whole (a plpgsql body cannot be patched), so its authorization check
+had to be copied. `definer-user-id-guard_test.ts` scans migrations above 00640
+for the shape that results if it is dropped, so this is checked rather than
+trusted.
+
+**Verified on the local stack, not by inspection.** Applied twice (idempotent),
+then `scripts/check-inventory-writeoffs.mjs` seeded three items, wrote two off by
+different routes, and asserted the figures: ending 1 item / 10000 cents,
+line 36 net 20000 of 30000 gross, writeoffs 10000, residual 0. Sabotage-checked
+by restoring 00688's predicate — three assertions went red naming the real defect
+(all three items still in ending inventory), and green again on restore.
+
+
 ## ✅ APPLIED: 00688_inventory_snapshots.sql (US-2986 + US-3008, applied 2026-08-29 — owner-confirmed; /health/ready reports applied 00688. Carries the US-3008 body guard on take_inventory_snapshot, which was added before the file was applied anywhere.)
 
 **Risk: low.** Two new tables, four new functions. No existing table, column,

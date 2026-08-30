@@ -466,6 +466,14 @@ if (on("db")) {
     // the call, which was true the entire time the feature did nothing. This one
     // seeds a session, revokes it, and fails if the rows are still there.
     run("db: session revocation revokes (US-2662)", "node scripts/check-session-revocation.mjs");
+    // US-3007: a completed sale used to be the ONLY exit from inventory, so an
+    // item that was lost, donated or taken for personal use sat in ending
+    // inventory for ever - overstating Schedule C line 41, understating line 42
+    // COGS, and overstating the tax the seller owes. Source-scanning cannot see
+    // this: the defect was a missing clause in a WHERE and the arithmetic that
+    // replaced it spans two functions. This seeds three items, writes two off
+    // different ways, and fails on the numbers.
+    run("db: written-off inventory leaves the books (US-3007)", "node scripts/check-inventory-writeoffs.mjs");
     // US-2403: a denied function call SEGFAULTs the Supabase Postgres image and
     // restarts the whole database. ADVISORY, not a gate, and deliberately so:
     // the stock image is vulnerable today, so gating here would be red on every
