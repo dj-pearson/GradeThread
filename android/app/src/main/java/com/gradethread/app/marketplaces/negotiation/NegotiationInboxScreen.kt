@@ -19,6 +19,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -57,8 +58,114 @@ fun NegotiationInboxScreen(
 
     LaunchedEffect(filterItemId) { viewModel.bind(filterItemId) }
 
+    NegotiationInboxContent(
+        state,
+        NegotiationInboxActions(
+            clearFilter = viewModel::clearFilter,
+            setTab = { tab = it },
+            accept = viewModel::accept,
+            decline = viewModel::decline,
+            // Every dialog opens on a CLEARED draft. The AI draft is held in
+            // one slot on the state, so reopening a form without clearing it
+            // would prefill this buyer's counter with the last buyer's words.
+            openCounter = {
+                viewModel.clearDraft()
+                countering = it
+            },
+            closeCounter = {
+                countering = null
+                viewModel.clearDraft()
+            },
+            draftCounter = viewModel::draftCounter,
+            sendCounter = { offer, price, note ->
+                viewModel.counter(offer, price, note)
+                countering = null
+                viewModel.clearDraft()
+            },
+            openReply = {
+                viewModel.clearDraft()
+                replyingTo = it
+            },
+            closeReply = {
+                replyingTo = null
+                viewModel.clearDraft()
+            },
+            draftReply = viewModel::draftReply,
+            sendReply = { message, body ->
+                viewModel.reply(message, body)
+                replyingTo = null
+                viewModel.clearDraft()
+            },
+            openSendOffer = {
+                sendOfferOpen = true
+                viewModel.loadEligible()
+            },
+            closeSendOffer = { sendOfferOpen = false },
+            sendOffer = { discount, note ->
+                viewModel.sendOffer(state.eligible.map { it.listingId }, discount, note)
+                sendOfferOpen = false
+            },
+            close = onClose,
+        ),
+        tab = tab,
+        countering = countering,
+        replyingTo = replyingTo,
+        sendOfferOpen = sendOfferOpen,
+    )
+}
+
+/**
+ * Everything this screen can be asked to do (US-2902 AC3).
+ *
+ * ⚠ EVERY OPEN CLEARS THE DRAFT. There is ONE draft slot on the state, so a
+ * form reopened without clearing it prefills this buyer's counter with the last
+ * buyer's words - and the seller is one tap from sending it.
+ */
+@Suppress("LongParameterList")
+@Immutable
+data class NegotiationInboxActions(
+    val clearFilter: () -> Unit = {},
+    val setTab: (Int) -> Unit = {},
+    val accept: (BestOffer) -> Unit = {},
+    val decline: (BestOffer) -> Unit = {},
+    val openCounter: (BestOffer) -> Unit = {},
+    val closeCounter: () -> Unit = {},
+    val draftCounter: (BestOffer, String) -> Unit = { _, _ -> },
+    val sendCounter: (BestOffer, String, String?) -> Unit = { _, _, _ -> },
+    val openReply: (BuyerMessage) -> Unit = {},
+    val closeReply: () -> Unit = {},
+    val draftReply: (BuyerMessage) -> Unit = {},
+    val sendReply: (BuyerMessage, String) -> Unit = { _, _ -> },
+    val openSendOffer: () -> Unit = {},
+    val closeSendOffer: () -> Unit = {},
+    val sendOffer: (Int, String?) -> Unit = { _, _ -> },
+    val close: () -> Unit = {},
+)
+
+/**
+ * The offers and messages inbox with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ A FILTERED INBOX LOOKS LIKE AN EMPTY ONE. A deep link scopes this to a
+ * single listing, and without the banner saying so an empty result reads as "no
+ * offers at all" - which is a seller concluding nobody wants their stock. The
+ * banner and its way out are part of the layout, so only a capture sees them.
+ *
+ * ⚠ AND `capability` IS A THREE-WAY. Null means the probe has not answered and
+ * we assume it works; the alternative is a screen that hides real buttons on a
+ * guess. Its states render differently and are captured separately.
+ */
+@Composable
+fun NegotiationInboxContent(
+    state: NegotiationInboxViewModel.State,
+    actions: NegotiationInboxActions,
+    modifier: Modifier = Modifier,
+    tab: Int = 0,
+    countering: BestOffer? = null,
+    replyingTo: BuyerMessage? = null,
+    sendOfferOpen: Boolean = false,
+) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.negotiation_offers_messages), style = MaterialTheme.typography.titleLarge)
@@ -73,7 +180,9 @@ fun NegotiationInboxScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = viewModel::clearFilter) { Text(stringResource(R.string.negotiation_show_all)) }
+                TextButton(onClick = actions.clearFilter) {
+                    Text(stringResource(R.string.negotiation_show_all))
+                }
             }
         }
 
@@ -83,19 +192,24 @@ fun NegotiationInboxScreen(
         state.banner?.let { InfoCard(stringResource(R.string.negotiation_done), it, tone = InfoTone.Success) }
 
         TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.negotiation_offers)) })
-            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.negotiation_messages)) })
+            Tab(
+                selected = tab == 0,
+                onClick = { actions.setTab(0) },
+                text = { Text(stringResource(R.string.negotiation_offers)) },
+            )
+            Tab(
+                selected = tab == 1,
+                onClick = { actions.setTab(1) },
+                text = { Text(stringResource(R.string.negotiation_messages)) },
+            )
         }
 
         if (tab == 0) {
             OffersTab(
                 state = state,
-                onAccept = viewModel::accept,
-                onDecline = viewModel::decline,
-                onCounter = {
-                    viewModel.clearDraft()
-                    countering = it
-                },
+                onAccept = actions.accept,
+                onDecline = actions.decline,
+                onCounter = actions.openCounter,
                 modifier = Modifier.weight(1f),
             )
             if (state.showSendOffer) {
@@ -103,39 +217,31 @@ fun NegotiationInboxScreen(
                     text = stringResource(R.string.negotiation_send_offer_interested_buyers),
                     enabled = !state.working,
                     modifier = Modifier.fillMaxWidth(),
-                ) {
-                    sendOfferOpen = true
-                    viewModel.loadEligible()
-                }
+                    onClick = actions.openSendOffer,
+                )
             }
         } else {
             MessagesTab(
                 state = state,
-                onReply = {
-                    viewModel.clearDraft()
-                    replyingTo = it
-                },
+                onReply = actions.openReply,
                 modifier = Modifier.weight(1f),
             )
         }
 
-        BrandSecondaryButton(text = stringResource(R.string.negotiation_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(
+            text = stringResource(R.string.negotiation_back),
+            modifier = Modifier.fillMaxWidth(),
+            onClick = actions.close,
+        )
     }
 
     countering?.let { offer ->
         CounterDialog(
             offer = offer,
             state = state,
-            onDismiss = {
-                countering = null
-                viewModel.clearDraft()
-            },
-            onDraft = { typedPrice -> viewModel.draftCounter(offer, typedPrice) },
-            onSend = { price, note ->
-                viewModel.counter(offer, price, note)
-                countering = null
-                viewModel.clearDraft()
-            },
+            onDismiss = actions.closeCounter,
+            onDraft = { typedPrice -> actions.draftCounter(offer, typedPrice) },
+            onSend = { price, note -> actions.sendCounter(offer, price, note) },
         )
     }
 
@@ -143,27 +249,17 @@ fun NegotiationInboxScreen(
         ReplyDialog(
             message = message,
             state = state,
-            onDismiss = {
-                replyingTo = null
-                viewModel.clearDraft()
-            },
-            onDraft = { viewModel.draftReply(message) },
-            onSend = { body ->
-                viewModel.reply(message, body)
-                replyingTo = null
-                viewModel.clearDraft()
-            },
+            onDismiss = actions.closeReply,
+            onDraft = { actions.draftReply(message) },
+            onSend = { body -> actions.sendReply(message, body) },
         )
     }
 
     if (sendOfferOpen) {
         SendOfferDialog(
             state = state,
-            onDismiss = { sendOfferOpen = false },
-            onSend = { discount, note ->
-                viewModel.sendOffer(state.eligible.map { it.listingId }, discount, note)
-                sendOfferOpen = false
-            },
+            onDismiss = actions.closeSendOffer,
+            onSend = actions.sendOffer,
         )
     }
 }
@@ -479,10 +575,7 @@ private fun ReplyDialog(
  * named on the button rather than discovered afterwards on the usage screen.
  */
 @Composable
-private fun DraftRow(
-    state: NegotiationInboxViewModel.State,
-    onDraft: () -> Unit,
-) {
+private fun DraftRow(state: NegotiationInboxViewModel.State, onDraft: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
         BrandSecondaryButton(
             text = if (state.drafting) {
@@ -535,23 +628,28 @@ private fun SendOfferDialog(
                         style = MaterialTheme.typography.bodyMedium,
                     )
 
-                    state.loadingEligible -> Text(stringResource(R.string.negotiation_checking_which_listings_are_eligible))
+                    state.loadingEligible -> {
+                        // Braced so ktlint cannot rejoin it: on one line this
+                        // branch is 124 characters, four over the limit.
+                        Text(stringResource(R.string.negotiation_checking_which_listings_are_eligible))
+                    }
                     count == 0 -> Text(stringResource(R.string.negotiation_no_listings_are_eligible_offer))
                     else -> {
                         Text(stringResource(R.string.negotiation_discount, discount))
+                        // Pulled out of the Slider call because ktlint rejoins
+                        // a wrapped range expression and the joined line is 128
+                        // characters. Naming the bounds is shorter than
+                        // fighting the formatter, and reads better.
+                        val minPct = NegotiationRules.MIN_DISCOUNT_PCT
+                        val maxPct = NegotiationRules.MAX_DISCOUNT_PCT
+                        val stepCount = ((maxPct - minPct) / NegotiationRules.DISCOUNT_STEP) - 1
                         Slider(
                             value = discount.toFloat(),
                             onValueChange = {
                                 discount = NegotiationRules.discountPercent(it.roundToInt())
                             },
-                            valueRange = NegotiationRules.MIN_DISCOUNT_PCT.toFloat()..
-                                NegotiationRules.MAX_DISCOUNT_PCT.toFloat(),
-                            steps = (
-                                (
-                                    NegotiationRules.MAX_DISCOUNT_PCT -
-                                        NegotiationRules.MIN_DISCOUNT_PCT
-                                    ) / NegotiationRules.DISCOUNT_STEP
-                                ) - 1,
+                            valueRange = minPct.toFloat()..maxPct.toFloat(),
+                            steps = stepCount,
                         )
                         OutlinedTextField(
                             value = note,
