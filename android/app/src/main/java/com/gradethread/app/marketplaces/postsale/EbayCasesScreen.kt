@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -21,6 +22,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,8 +68,95 @@ fun EbayCasesScreen(onClose: () -> Unit = {}, viewModel: EbayCasesViewModel = hi
 
     LaunchedEffect(Unit) { viewModel.load() }
 
+    EbayCasesContent(
+        state,
+        EbayCasesActions(
+            selectTab = viewModel::selectTab,
+            retryEvidence = viewModel::retryEvidence,
+            dropPendingEvidence = viewModel::dropPendingEvidence,
+            dismissMessages = viewModel::dismissMessages,
+            toggleClosed = viewModel::toggleClosed,
+            acceptDispute = viewModel::acceptDispute,
+            decideReturn = viewModel::decideReturn,
+            refundReturn = viewModel::refundReturn,
+            decideCancellation = viewModel::decideCancellation,
+            setContesting = { contesting = it },
+            contestDispute = { dispute, note ->
+                viewModel.contestDispute(dispute, note)
+                contesting = null
+            },
+            // The picker and the Context stay in the wrapper: reading the bytes
+            // needs a ContentResolver, and a screenshot test has neither.
+            pickEvidence = { disputeId ->
+                evidenceFor = disputeId
+                picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            },
+            close = onClose,
+        ),
+        contesting = contesting,
+    )
+}
+
+/**
+ * Everything this screen can be asked to do (US-2902 AC3).
+ *
+ * ⚠ THIRTEEN, AND MOST OF THEM MOVE MONEY OR A DEADLINE. Splitting the record
+ * up would group by nothing: a dispute, a return and a cancellation are three
+ * eBay concepts that share one screen because a seller meets them in one place,
+ * not because they nest.
+ */
+@Suppress("LongParameterList")
+@Immutable
+data class EbayCasesActions(
+    val selectTab: (EbayCasesViewModel.Tab) -> Unit = {},
+    val retryEvidence: () -> Unit = {},
+    val dropPendingEvidence: () -> Unit = {},
+    val dismissMessages: () -> Unit = {},
+    val toggleClosed: () -> Unit = {},
+    val acceptDispute: (EbayPaymentDispute) -> Unit = {},
+    val decideReturn: (EbayReturn, String) -> Unit = { _, _ -> },
+    val refundReturn: (EbayReturn) -> Unit = {},
+    val decideCancellation: (EbayCancellation, String) -> Unit = { _, _ -> },
+    /** Open the contest dialog on this dispute, or close it with null. */
+    val setContesting: (EbayPaymentDispute?) -> Unit = {},
+    val contestDispute: (EbayPaymentDispute, String) -> Unit = { _, _ -> },
+    val pickEvidence: (String) -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * The eBay case desk with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ `busyIds` IS PER CASE AND MUST STAY THAT WAY. These buttons issue refunds.
+ * A second tap on a row whose refund is still travelling would send it twice,
+ * and one global busy flag would freeze every other case while one waited. The
+ * goldens capture a screen with one row in flight and its neighbours live.
+ *
+ * ⚠ AND A CLOSED CASE IS NOT A DISABLED CASE. Closed rows render through the
+ * same cards with `closed = true` and no action buttons at all, not greyed
+ * ones. A greyed Refund on a case eBay has already settled is a button that
+ * looks like it is one tap from working.
+ */
+@Composable
+fun EbayCasesContent(
+    state: EbayCasesViewModel.State,
+    actions: EbayCasesActions,
+    modifier: Modifier = Modifier,
+    contesting: EbayPaymentDispute? = null,
+    /**
+     * The instant every "respond within N days" is measured against.
+     *
+     * ⚠ IT IS A PARAMETER BECAUSE DisputeCard USED TO READ THE CLOCK ITSELF.
+     * A card calling System.currentTimeMillis() renders a different number
+     * every day, which makes a golden of it expire rather than fail - it goes
+     * red on a Tuesday for no reason anybody changed. Stamping it once here
+     * also means every row on screen counts against the same instant instead
+     * of each drifting a few milliseconds apart.
+     */
+    nowMs: Long = System.currentTimeMillis(),
+) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(
@@ -79,7 +168,7 @@ fun EbayCasesScreen(onClose: () -> Unit = {}, viewModel: EbayCasesViewModel = hi
             for (tab in EbayCasesViewModel.Tab.entries) {
                 FilterChip(
                     selected = state.tab == tab,
-                    onClick = { viewModel.selectTab(tab) },
+                    onClick = { actions.selectTab(tab) },
                     label = { Text(tabLabel(tab, state.openCount(tab))) },
                 )
             }
@@ -97,14 +186,14 @@ fun EbayCasesScreen(onClose: () -> Unit = {}, viewModel: EbayCasesViewModel = hi
                     // idempotent, so it is never retried behind the seller's
                     // back — only here, once, knowingly.
                     if (state.pendingEvidence != null) {
-                        TextButton(onClick = viewModel::retryEvidence) {
+                        TextButton(onClick = actions.retryEvidence) {
                             Text(stringResource(R.string.common_try_again))
                         }
-                        TextButton(onClick = viewModel::dropPendingEvidence) {
+                        TextButton(onClick = actions.dropPendingEvidence) {
                             Text(stringResource(R.string.cases_give_up))
                         }
                     }
-                    TextButton(onClick = viewModel::dismissMessages) {
+                    TextButton(onClick = actions.dismissMessages) {
                         Text(stringResource(R.string.common_dismiss))
                     }
                 }
@@ -137,52 +226,9 @@ fun EbayCasesScreen(onClose: () -> Unit = {}, viewModel: EbayCasesViewModel = hi
             verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
             when (state.tab) {
-                EbayCasesViewModel.Tab.DISPUTES -> {
-                    items(state.openDisputes, key = { it.paymentDisputeId }) { dispute ->
-                        DisputeCard(
-                            dispute = dispute,
-                            state = state,
-                            viewModel = viewModel,
-                            closed = false,
-                            onContest = { contesting = dispute },
-                            onEvidence = {
-                                evidenceFor = dispute.paymentDisputeId
-                                picker.launch(
-                                    PickVisualMediaRequest(
-                                        ActivityResultContracts.PickVisualMedia.ImageOnly,
-                                    ),
-                                )
-                            },
-                        )
-                    }
-                    if (state.showClosed) {
-                        items(state.closedDisputes, key = { it.paymentDisputeId }) { dispute ->
-                            DisputeCard(dispute, state, viewModel, closed = true, onContest = {}, onEvidence = {})
-                        }
-                    }
-                }
-
-                EbayCasesViewModel.Tab.RETURNS -> {
-                    items(state.openReturns, key = { it.returnId }) { case ->
-                        ReturnCard(case, state, viewModel, closed = false)
-                    }
-                    if (state.showClosed) {
-                        items(state.closedReturns, key = { it.returnId }) { case ->
-                            ReturnCard(case, state, viewModel, closed = true)
-                        }
-                    }
-                }
-
-                EbayCasesViewModel.Tab.CANCELLATIONS -> {
-                    items(state.openCancellations, key = { it.cancelId }) { case ->
-                        CancellationCard(case, state, viewModel, closed = false)
-                    }
-                    if (state.showClosed) {
-                        items(state.closedCancellations, key = { it.cancelId }) { case ->
-                            CancellationCard(case, state, viewModel, closed = true)
-                        }
-                    }
-                }
+                EbayCasesViewModel.Tab.DISPUTES -> disputeRows(state, actions, nowMs)
+                EbayCasesViewModel.Tab.RETURNS -> returnRows(state, actions)
+                EbayCasesViewModel.Tab.CANCELLATIONS -> cancellationRows(state, actions)
             }
 
             if (state.openCount(state.tab) == 0 && !state.loading) {
@@ -198,7 +244,7 @@ fun EbayCasesScreen(onClose: () -> Unit = {}, viewModel: EbayCasesViewModel = hi
         }
 
         if (closedCount > 0) {
-            TextButton(onClick = viewModel::toggleClosed) {
+            TextButton(onClick = actions.toggleClosed) {
                 Text(
                     stringResource(
                         if (state.showClosed) R.string.cases_hide_closed else R.string.cases_show_closed,
@@ -211,18 +257,69 @@ fun EbayCasesScreen(onClose: () -> Unit = {}, viewModel: EbayCasesViewModel = hi
         BrandSecondaryButton(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
-        ) { onClose() }
+        ) { actions.close() }
     }
 
     contesting?.let { dispute ->
         ContestDialog(
             busy = state.isBusy(dispute.paymentDisputeId),
-            onDismiss = { contesting = null },
-            onContest = { note ->
-                viewModel.contestDispute(dispute, note)
-                contesting = null
-            },
+            onDismiss = { actions.setContesting(null) },
+            onContest = { note -> actions.contestDispute(dispute, note) },
         )
+    }
+}
+
+/**
+ * The three tab bodies, one per eBay concept.
+ *
+ * ⚠ THEY ARE SEPARATE FUNCTIONS BECAUSE DETEKT SAID SO, and the ceiling was
+ * right. Inlined, EbayCasesContent came to a cyclomatic complexity of exactly
+ * 20 - the configured limit - for a body that decides refunds. Each of these
+ * follows the same shape: the open rows, then the closed ones behind
+ * `showClosed`.
+ *
+ * ⚠ CLOSED ROWS PASS `closed = true` AND GET NO BUTTONS. Not disabled buttons -
+ * none. A greyed Refund on a case eBay has already settled reads as one tap
+ * away from working.
+ */
+private fun LazyListScope.disputeRows(state: EbayCasesViewModel.State, actions: EbayCasesActions, nowMs: Long) {
+    items(state.openDisputes, key = { it.paymentDisputeId }) { dispute ->
+        DisputeCard(
+            dispute = dispute,
+            state = state,
+            actions = actions,
+            nowMs = nowMs,
+            closed = false,
+            onContest = { actions.setContesting(dispute) },
+            onEvidence = { actions.pickEvidence(dispute.paymentDisputeId) },
+        )
+    }
+    if (state.showClosed) {
+        items(state.closedDisputes, key = { it.paymentDisputeId }) { dispute ->
+            DisputeCard(dispute, state, actions, nowMs, closed = true, onContest = {}, onEvidence = {})
+        }
+    }
+}
+
+private fun LazyListScope.returnRows(state: EbayCasesViewModel.State, actions: EbayCasesActions) {
+    items(state.openReturns, key = { it.returnId }) { case ->
+        ReturnCard(case, state, actions, closed = false)
+    }
+    if (state.showClosed) {
+        items(state.closedReturns, key = { it.returnId }) { case ->
+            ReturnCard(case, state, actions, closed = true)
+        }
+    }
+}
+
+private fun LazyListScope.cancellationRows(state: EbayCasesViewModel.State, actions: EbayCasesActions) {
+    items(state.openCancellations, key = { it.cancelId }) { case ->
+        CancellationCard(case, state, actions, closed = false)
+    }
+    if (state.showClosed) {
+        items(state.closedCancellations, key = { it.cancelId }) { case ->
+            CancellationCard(case, state, actions, closed = true)
+        }
     }
 }
 
@@ -242,13 +339,13 @@ private fun tabLabel(tab: EbayCasesViewModel.Tab, openCount: Int): String {
 private fun DisputeCard(
     dispute: EbayPaymentDispute,
     state: EbayCasesViewModel.State,
-    viewModel: EbayCasesViewModel,
+    actions: EbayCasesActions,
+    nowMs: Long,
     closed: Boolean,
     onContest: () -> Unit,
     onEvidence: () -> Unit,
 ) {
-    val now = System.currentTimeMillis()
-    val days = EbayCases.daysUntil(dispute.respondByDate, now)
+    val days = EbayCases.daysUntil(dispute.respondByDate, nowMs)
     Column(Modifier.fillMaxWidth().cardStyle()) {
         Text(
             dispute.reason ?: stringResource(R.string.cases_dispute),
@@ -264,7 +361,14 @@ private fun DisputeCard(
         }
         // The deadline is the whole reason this screen exists on a phone: eBay
         // decides the case against the seller when it runs out.
-        if (days != null) {
+        //
+        // ⚠ NOT ON A CLOSED CASE. eBay keeps returning respondByDate after it
+        // settles a dispute, so a closed row was rendering "Respond within 3
+        // days" under a case with no buttons and nothing left to answer - an
+        // instruction to act on something already decided, next to no way to
+        // act on it. Found in the US-2902 golden, which is the only place the
+        // two lines appear together.
+        if (!closed && days != null) {
             Text(
                 if (days < 0) {
                     stringResource(R.string.cases_overdue)
@@ -291,7 +395,7 @@ private fun DisputeCard(
                     enabled = !state.isBusy(dispute.paymentDisputeId),
                 ) { Text(stringResource(R.string.cases_contest)) }
                 TextButton(
-                    onClick = { viewModel.acceptDispute(dispute) },
+                    onClick = { actions.acceptDispute(dispute) },
                     enabled = !state.isBusy(dispute.paymentDisputeId),
                 ) {
                     Text(
@@ -305,12 +409,7 @@ private fun DisputeCard(
 }
 
 @Composable
-private fun ReturnCard(
-    case: EbayReturn,
-    state: EbayCasesViewModel.State,
-    viewModel: EbayCasesViewModel,
-    closed: Boolean,
-) {
+private fun ReturnCard(case: EbayReturn, state: EbayCasesViewModel.State, actions: EbayCasesActions, closed: Boolean) {
     Column(Modifier.fillMaxWidth().cardStyle()) {
         Text(
             case.reason ?: stringResource(R.string.cases_return),
@@ -325,15 +424,15 @@ private fun ReturnCard(
         if (!closed) {
             Row {
                 TextButton(
-                    onClick = { viewModel.decideReturn(case, "decline") },
+                    onClick = { actions.decideReturn(case, "decline") },
                     enabled = !state.isBusy(case.returnId),
                 ) { Text(stringResource(R.string.cases_decline)) }
                 TextButton(
-                    onClick = { viewModel.decideReturn(case, "approve") },
+                    onClick = { actions.decideReturn(case, "approve") },
                     enabled = !state.isBusy(case.returnId),
                 ) { Text(stringResource(R.string.cases_approve)) }
                 TextButton(
-                    onClick = { viewModel.refundReturn(case) },
+                    onClick = { actions.refundReturn(case) },
                     enabled = !state.isBusy(case.returnId),
                 ) {
                     Text(
@@ -350,7 +449,7 @@ private fun ReturnCard(
 private fun CancellationCard(
     case: EbayCancellation,
     state: EbayCasesViewModel.State,
-    viewModel: EbayCasesViewModel,
+    actions: EbayCasesActions,
     closed: Boolean,
 ) {
     Column(Modifier.fillMaxWidth().cardStyle()) {
@@ -367,11 +466,11 @@ private fun CancellationCard(
         if (!closed) {
             Row {
                 TextButton(
-                    onClick = { viewModel.decideCancellation(case, "reject") },
+                    onClick = { actions.decideCancellation(case, "reject") },
                     enabled = !state.isBusy(case.cancelId),
                 ) { Text(stringResource(R.string.cases_reject)) }
                 TextButton(
-                    onClick = { viewModel.decideCancellation(case, "approve") },
+                    onClick = { actions.decideCancellation(case, "approve") },
                     enabled = !state.isBusy(case.cancelId),
                 ) {
                     Text(
