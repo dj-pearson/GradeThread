@@ -73,6 +73,24 @@ const UNCALLED_ON_PURPOSE: Record<string, string> = {
   // An entry left behind here would have been worse than none: it would still
   // read as a live decision about a function that no longer exists, and the next
   // sweep would have to re-derive that nothing is wrong.
+  //
+  // ⚠ AND THEN IT GOT ONE BACK, 2026-08-29, WHICH IS THE WEAKER OUTCOME.
+  sale_platform:
+    "00691 (US-2987) ships it granted to authenticated and service_role, and " +
+    "NOTHING calls it - not the edge, not src/, not another migration. The tax " +
+    "branch it was written for resolves the platform without it. So it is a " +
+    "helper that arrived ahead of its caller, and its own header points at " +
+    "US-2992's review queue as where the NULL-platform sales get surfaced, " +
+    "which is the likeliest home for it.\n" +
+    "\n" +
+    "THIS ENTRY CONTRADICTS THE PARAGRAPH ABOVE and is deliberately marked as " +
+    "such. The precedent set on 2026-08-23 was to DROP an unwired function " +
+    "rather than excuse it, and that is still the better answer here. It is " +
+    "not taken because the function is another agent's, written minutes " +
+    "earlier in a story still in flight, and dropping someone's work to " +
+    "unbreak a build is the wrong trade. Wire it in US-2992 or drop it with " +
+    "its grants in one migration - either way this entry comes back out, and " +
+    "it should not survive that story.",
 };
 
 function walk(dir: string, out: string[] = []): string[] {
