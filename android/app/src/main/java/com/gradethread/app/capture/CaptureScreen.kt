@@ -36,6 +36,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
@@ -242,11 +243,86 @@ fun CaptureScreen(
         )
     }
 
-    Column(Modifier.fillMaxSize()) {
-        // US-1382: what the last share drain did, when it needs saying. Shown
-        // HERE because this is where the shared photos landed — a toast fired
-        // from a background drain would be gone before anyone looked.
-        val shareNotice by com.gradethread.app.intake.IntakeDrainer.lastMessage.collectAsState()
+    // US-1382: what the last share drain did, when it needs saying. Read HERE
+    // because this is where the shared photos landed - a toast fired from a
+    // background drain would be gone before anyone looked.
+    val shareNotice by com.gradethread.app.intake.IntakeDrainer.lastMessage.collectAsState()
+
+    CaptureContent(
+        intake = intake,
+        publish = publish,
+        actions = CaptureActions(
+            // The camera, the picker and Room all need a real Context, and a
+            // golden has none of the three.
+            shutter = ::capture,
+            importFromLibrary = {
+                pickerLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                )
+            },
+            setActiveSlot = { slot ->
+                haptics.light()
+                intake.setActiveSlot(slot)
+                scope.launch { intake.persist(db) }
+            },
+            revealSlot = { slot ->
+                intake.reveal(slot)
+                scope.launch { intake.persist(db) }
+            },
+            publish = { if (!publish.publishing) publishViewModel.publish(state, profile) },
+            dismissShareNotice = com.gradethread.app.intake.IntakeDrainer::clearMessage,
+            dismissCaptureError = { captureError = false },
+        ),
+        shareNotice = shareNotice,
+        captureError = captureError,
+    ) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx -> PreviewView(ctx).apply { this.controller = controller } },
+        )
+    }
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class CaptureActions(
+    val shutter: () -> Unit = {},
+    val importFromLibrary: () -> Unit = {},
+    val setActiveSlot: (CaptureSlot) -> Unit = {},
+    val revealSlot: (CaptureSlot) -> Unit = {},
+    val publish: () -> Unit = {},
+    val dismissShareNotice: () -> Unit = {},
+    val dismissCaptureError: () -> Unit = {},
+)
+
+/**
+ * The capture surface, with no camera and no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE PREVIEW IS A SLOT because a CameraX `PreviewView` needs a bound
+ * lifecycle and a real device camera, neither of which a screenshot test has.
+ * Everything around it - the slot strip, the two dismissable banners, the
+ * publish button - is the part that can actually be wrong, so that is the part
+ * held still by a golden.
+ *
+ * ⚠ AND [intake] IS PASSED WHOLE rather than picked apart. `visibleSlots`,
+ * `hiddenExtraSlots` and `allRequiredFilled` are derived from the profile AND
+ * the captured photos together, and a caller that recomputed them would be a
+ * second answer to the question of which slots exist.
+ */
+@Composable
+fun CaptureContent(
+    intake: PhotoIntakeStore,
+    publish: CapturePublishViewModel.State,
+    actions: CaptureActions,
+    modifier: Modifier = Modifier,
+    shareNotice: String? = null,
+    captureError: Boolean = false,
+    preview: @Composable () -> Unit = {},
+) {
+    val state by intake.state.collectAsState()
+    val profile by intake.profile.collectAsState()
+
+    Column(modifier.fillMaxSize()) {
         shareNotice?.let { notice ->
             Text(
                 notice,
@@ -256,7 +332,7 @@ fun CaptureScreen(
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.errorContainer)
                     .padding(horizontal = Spacing.md, vertical = Spacing.xs)
-                    .clickable { com.gradethread.app.intake.IntakeDrainer.clearMessage() },
+                    .clickable(onClick = actions.dismissShareNotice),
             )
         }
 
@@ -272,7 +348,7 @@ fun CaptureScreen(
                     .fillMaxWidth()
                     .background(MaterialTheme.colorScheme.errorContainer)
                     .padding(horizontal = Spacing.md, vertical = Spacing.xs)
-                    .clickable { captureError = false },
+                    .clickable(onClick = actions.dismissCaptureError),
             )
         }
 
@@ -305,11 +381,7 @@ fun CaptureScreen(
             items(intake.visibleSlots, key = { it.storageKey }) { slot ->
                 FilterChip(
                     selected = slot == state.activeCaptureSlot,
-                    onClick = {
-                        haptics.light()
-                        intake.setActiveSlot(slot)
-                        scope.launch { intake.persist(db) }
-                    },
+                    onClick = { actions.setActiveSlot(slot) },
                     label = {
                         Text(
                             if (state.photoFor(slot) != null) {
@@ -322,13 +394,7 @@ fun CaptureScreen(
                 )
             }
             item {
-                IconButton(onClick = {
-                    pickerLauncher.launch(
-                        PickVisualMediaRequest(
-                            ActivityResultContracts.PickVisualMedia.ImageOnly,
-                        ),
-                    )
-                }) {
+                IconButton(onClick = actions.importFromLibrary) {
                     Icon(
                         Icons.Outlined.Menu,
                         contentDescription = stringResource(R.string.capture_import_from_library),
@@ -349,8 +415,7 @@ fun CaptureScreen(
                                 text = { Text(slot.label) },
                                 onClick = {
                                     addMenuOpen = false
-                                    intake.reveal(slot)
-                                    scope.launch { intake.persist(db) }
+                                    actions.revealSlot(slot)
                                 },
                             )
                         }
@@ -361,12 +426,7 @@ fun CaptureScreen(
 
         // Live preview.
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    PreviewView(ctx).apply { this.controller = controller }
-                },
-            )
+            preview()
             // Shutter.
             Box(
                 modifier = Modifier
@@ -375,7 +435,7 @@ fun CaptureScreen(
                     .size(72.dp)
                     .background(MaterialTheme.colorScheme.primary, CircleShape),
             ) {
-                IconButton(onClick = ::capture, modifier = Modifier.fillMaxSize()) {
+                IconButton(onClick = actions.shutter, modifier = Modifier.fillMaxSize()) {
                     Box(
                         Modifier
                             .size(56.dp)
@@ -403,7 +463,7 @@ fun CaptureScreen(
                     stringResource(R.string.common_continue)
                 },
                 modifier = Modifier.fillMaxWidth().padding(Spacing.md),
-            ) { if (!publish.publishing) publishViewModel.publish(state, profile) }
+            ) { actions.publish() }
         }
     }
 }
