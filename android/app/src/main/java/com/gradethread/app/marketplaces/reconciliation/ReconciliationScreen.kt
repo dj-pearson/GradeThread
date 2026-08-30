@@ -17,6 +17,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,8 +51,85 @@ fun ReconciliationScreen(onClose: () -> Unit = {}, viewModel: ReconciliationView
 
     LaunchedEffect(Unit) { viewModel.load() }
 
+    ReconciliationContent(
+        state,
+        ReconciliationActions(
+            // Opening the link sheet has a SIDE EFFECT - it fetches the
+            // candidates - so the wrapper does both. A body that only set the
+            // sheet open would show an empty candidate list every time.
+            openLink = {
+                viewModel.loadLinkCandidates()
+                linking = it
+            },
+            setCreating = { creating = it },
+            setLinking = { linking = it },
+            setConfirmCreateAll = { confirmCreateAll = it },
+            ignore = viewModel::ignore,
+            createItem = { orphan, title, sku, price ->
+                viewModel.createItem(orphan, title, sku, price)
+                creating = null
+            },
+            link = { orphan, itemId ->
+                viewModel.link(orphan, itemId)
+                linking = null
+            },
+            createAll = {
+                viewModel.createAll()
+                confirmCreateAll = false
+            },
+            close = onClose,
+        ),
+        creating = creating,
+        linking = linking,
+        confirmCreateAll = confirmCreateAll,
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class ReconciliationActions(
+    val openLink: (OrphanEbayListing) -> Unit = {},
+    val setCreating: (OrphanEbayListing?) -> Unit = {},
+    /**
+     * Close the link sheet, or open it WITHOUT refetching. Distinct from
+     * [openLink], which fetches: dismissing through openLink would reopen the
+     * sheet it was asked to close.
+     */
+    val setLinking: (OrphanEbayListing?) -> Unit = {},
+    val setConfirmCreateAll: (Boolean) -> Unit = {},
+    val ignore: (OrphanEbayListing) -> Unit = {},
+    val createItem: (OrphanEbayListing, String?, String?, Double?) -> Unit = { _, _, _, _ -> },
+    val link: (OrphanEbayListing, String) -> Unit = { _, _ -> },
+    val createAll: () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * Reconciliation with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ CREATE-ALL IS THE ONE THAT CANNOT BE UNDONE. Every other action on this
+ * screen touches one listing; that button mints an inventory item for every
+ * orphan at once, which is why it is behind a confirmation and why the
+ * confirmation is captured. A dialog that stopped rendering would turn a
+ * two-step decision into a single press on a bulk write.
+ *
+ * ⚠ AND `rowErrors` IS PER ROW FOR A REASON. A create-all that half worked
+ * leaves some rows done and some refused, and the only report of which is which
+ * is the message under each card. Collapsing that into one banner would tell a
+ * seller "something failed" about a screen where the useful answer is "these
+ * three did".
+ */
+@Composable
+fun ReconciliationContent(
+    state: ReconciliationViewModel.State,
+    actions: ReconciliationActions,
+    modifier: Modifier = Modifier,
+    creating: OrphanEbayListing? = null,
+    linking: OrphanEbayListing? = null,
+    confirmCreateAll: Boolean = false,
+) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(
@@ -97,12 +175,9 @@ fun ReconciliationScreen(onClose: () -> Unit = {}, viewModel: ReconciliationView
                         orphan = orphan,
                         rowError = state.rowErrors[orphan.id],
                         busy = state.busy,
-                        onCreate = { creating = orphan },
-                        onLink = {
-                            viewModel.loadLinkCandidates()
-                            linking = orphan
-                        },
-                        onIgnore = { viewModel.ignore(orphan) },
+                        onCreate = { actions.setCreating(orphan) },
+                        onLink = { actions.openLink(orphan) },
+                        onIgnore = { actions.ignore(orphan) },
                     )
                 }
             }
@@ -113,11 +188,11 @@ fun ReconciliationScreen(onClose: () -> Unit = {}, viewModel: ReconciliationView
                 text = stringResource(R.string.reconciliation_create_all, state.orphans.size),
                 enabled = !state.busy,
                 modifier = Modifier.fillMaxWidth(),
-            ) { confirmCreateAll = true }
+            ) { actions.setConfirmCreateAll(true) }
         }
 
         BrandSecondaryButton(text = stringResource(R.string.reconciliation_back), modifier = Modifier.fillMaxWidth()) {
-            onClose()
+            actions.close()
         }
     }
 
@@ -125,11 +200,8 @@ fun ReconciliationScreen(onClose: () -> Unit = {}, viewModel: ReconciliationView
         CreateItemDialog(
             orphan = orphan,
             busy = state.busy,
-            onDismiss = { creating = null },
-            onCreate = { title, sku, price ->
-                viewModel.createItem(orphan, title, sku, price)
-                creating = null
-            },
+            onDismiss = { actions.setCreating(null) },
+            onCreate = { title, sku, price -> actions.createItem(orphan, title, sku, price) },
         )
     }
 
@@ -137,17 +209,14 @@ fun ReconciliationScreen(onClose: () -> Unit = {}, viewModel: ReconciliationView
         LinkItemDialog(
             orphan = orphan,
             candidates = state.linkCandidates,
-            onDismiss = { linking = null },
-            onLink = { itemId ->
-                viewModel.link(orphan, itemId)
-                linking = null
-            },
+            onDismiss = { actions.setLinking(null) },
+            onLink = { itemId -> actions.link(orphan, itemId) },
         )
     }
 
     if (confirmCreateAll) {
         AlertDialog(
-            onDismissRequest = { confirmCreateAll = false },
+            onDismissRequest = { actions.setConfirmCreateAll(false) },
             title = {
                 Text(
                     pluralStringResource(R.plurals.reconciliation_create_title, state.orphans.size, state.orphans.size),
@@ -159,15 +228,14 @@ fun ReconciliationScreen(onClose: () -> Unit = {}, viewModel: ReconciliationView
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
-                    viewModel.createAll()
-                    confirmCreateAll = false
-                }) { Text(stringResource(R.string.reconciliation_create_them)) }
+                TextButton(onClick = actions.createAll) {
+                    Text(stringResource(R.string.reconciliation_create_them))
+                }
             },
             dismissButton = {
-                TextButton(onClick = {
-                    confirmCreateAll = false
-                }) { Text(stringResource(R.string.reconciliation_cancel)) }
+                TextButton(onClick = { actions.setConfirmCreateAll(false) }) {
+                    Text(stringResource(R.string.reconciliation_cancel))
+                }
             },
         )
     }
