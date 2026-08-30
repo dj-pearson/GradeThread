@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 // US-2987 — the two sales-tax branches, against a real Postgres.
 //
-// Third of the database-backed checks, alongside check-ledger-invariant and
-// check-cogs-worksheet, and gated the same way: it needs Postgres, so it is not
-// in `npm run verify`. A lane that skips silently when the stack is down
-// teaches everyone to ignore it.
+// ⚠ THIS NOW RUNS IN CI. The header below used to argue it was deliberately
+// kept out of `npm run verify` because "a lane that skips silently when the
+// stack is down teaches everyone to ignore it". That argument was wrong, and
+// six scripts repeated it before anyone noticed: check-session-revocation and
+// check-inventory-writeoffs have always been db-backed, in the db lane, and
+// skipped cleanly by the same Docker gate. All six moved into that lane, and
+// six hand-written exemptions came out of guard-lane-parity.test.ts.
 //
 // WHY THIS ONE CANNOT BE EYEBALLED. Net profit is IDENTICAL on both branches:
 // facilitator tax is excluded outright, and seller-collected tax is booked as

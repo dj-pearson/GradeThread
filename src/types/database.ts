@@ -2225,6 +2225,38 @@ export type SavedViewUpdate = Partial<
 // column cannot hold them. Dated ranges, because the rate has changed MID-year.
 //
 // Reference data with no user_id: readable by everyone, writable by nobody.
+// US-2990 — the simplified home-office method. Reference data with no user_id:
+// readable by everyone, writable by nobody. The rate has not moved since 2013,
+// which is exactly why it is a table: a number that has not changed in a decade
+// is the one nobody thinks to check when it does.
+export interface HomeOfficeRateRow {
+  id: string;
+  effective_from: string;
+  effective_to: string | null;
+  cents_per_sq_ft: number;
+  max_sq_ft: number;
+  is_provisional: boolean;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
+// Feeds Schedule C LINE 30, which the form keeps separate from line 28. Only
+// the 'simplified' method produces a ledger entry; 'actual' needs Form 8829.
+export interface HomeOfficeYearRow {
+  id: string;
+  user_id: string;
+  tax_year: number;
+  square_feet: number;
+  months_used: number;
+  method: string;
+  created_at: string;
+  updated_at: string;
+}
+export type HomeOfficeYearInsert = Omit<HomeOfficeYearRow, "id" | "created_at" | "updated_at"> &
+  Partial<Pick<HomeOfficeYearRow, "id" | "created_at" | "updated_at">>;
+export type HomeOfficeYearUpdate = Partial<HomeOfficeYearInsert>;
+
 export interface MileageRateRow {
   id: string;
   effective_from: string;
@@ -4419,6 +4451,16 @@ export interface Database {
         Row: ExpenseRow;
         Insert: ExpenseInsert;
         Update: ExpenseUpdate;
+      };
+      home_office_rates: {
+        Row: HomeOfficeRateRow;
+        Insert: never;
+        Update: never;
+      };
+      home_office_years: {
+        Row: HomeOfficeYearRow;
+        Insert: HomeOfficeYearInsert;
+        Update: HomeOfficeYearUpdate;
       };
       mileage_rates: {
         Row: MileageRateRow;

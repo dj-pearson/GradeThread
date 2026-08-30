@@ -2741,20 +2741,6 @@
       "priority": 30
     },
     {
-      "id": "US-2990",
-      "passes": false,
-      "title": "Home office and storage space, simplified method, computed once and carried into the packet",
-      "description": "A reseller storing inventory in a spare room or a rented unit has a deduction most of them never take, because the rules read as complicated and the arithmetic is annoying. The simplified method is square footage times a rate with a cap, which the app can do in one screen. Storage unit rent already lands in flipdesk_expenses under 'storage', so the risk here is double-counting, and the story has to handle that rather than ignore it.",
-      "acceptanceCriteria": [
-        "A one-screen setup: square footage used regularly and exclusively for the business, months used, and the resulting deduction under the simplified method.",
-        "The cap and the rate are dated data, not constants, matching the mileage-rate treatment.",
-        "Double-count guard: a seller claiming a home office AND expensing rent, or claiming square footage they are also billing as a storage unit, is warned with both figures shown side by side.",
-        "The deduction appears in the P&L and the tax packet as its own line naming the form it feeds, and is excluded from the ordinary operating-expense total so it is not counted twice.",
-        "The screen says plainly what regularly and exclusively means, in a sentence, without pretending to be tax advice."
-      ],
-      "priority": 39
-    },
-    {
       "id": "US-2991",
       "passes": false,
       "title": "Quarterly estimated tax: what to set aside, and the date it is due",

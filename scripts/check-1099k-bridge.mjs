@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 // US-2988 — the 1099-K bridge, against a real Postgres.
 //
-// Fourth of the database-backed checks, gated like the others: it needs
-// Postgres, so it is not in `npm run verify`. A lane that skips silently when
-// the stack is down teaches everyone to ignore it.
+// ⚠ THIS NOW RUNS IN CI. The header below used to argue it was deliberately
+// kept out of `npm run verify` because "a lane that skips silently when the
+// stack is down teaches everyone to ignore it". That argument was wrong, and
+// six scripts repeated it before anyone noticed: check-session-revocation and
+// check-inventory-writeoffs have always been db-backed, in the db lane, and
+// skipped cleanly by the same Docker gate. All six moved into that lane, and
+// six hand-written exemptions came out of guard-lane-parity.test.ts.
 //
 // THE ASSERTION THIS EXISTS FOR: computed gross is IDENTICAL on both US-2987
 // tax branches. A 1099-K counts the buyer's payment, so it includes sales tax

@@ -1,17 +1,19 @@
 #!/usr/bin/env node
 // US-2984 AC4 — run the ledger invariant against a real Postgres.
 //
+// ⚠ THIS NOW RUNS IN CI. The header below used to argue it was deliberately
+// kept out of `npm run verify` because "a lane that skips silently when the
+// stack is down teaches everyone to ignore it". That argument was wrong, and
+// six scripts repeated it before anyone noticed: check-session-revocation and
+// check-inventory-writeoffs have always been db-backed, in the db lane, and
+// skipped cleanly by the same Docker gate. All six moved into that lane, and
+// six hand-written exemptions came out of guard-lane-parity.test.ts.
+//
 // The claim this checks is the one the whole Books and Taxes epic rests on:
 // ONE NUMBER IS ONE NUMBER. public.ledger_entries and public.finances_dashboard
 // derive profit by completely different routes, and if they disagree by a cent
 // the ledger is wrong -- the dashboard is what sellers have been reading for
 // months.
-//
-// It cannot be a vitest case, because it needs Postgres. It is deliberately NOT
-// in `npm run verify` for the same reason `verify:db` is gated on Docker: a lane
-// that skips silently when the stack is down teaches everyone to ignore it. Run
-// it by hand after touching the ledger derivation or finances_dashboard, and
-// the story note records the result.
 //
 // Usage:
 //   node scripts/check-ledger-invariant.mjs            # local supabase container

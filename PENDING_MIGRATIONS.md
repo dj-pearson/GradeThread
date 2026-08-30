@@ -105,6 +105,44 @@ trigger to include `wearing` — it went red naming the real risk ("wearing or
 returned was removed from inventory - both must STAY") and green on restore.
 
 
+## ✅ APPLIED: 00697_home_office.sql (US-2990, applied 2026-08-29)
+
+> **Confirmed by READING production.** `home_office_rates` reads back through
+> the anon key as $5.00 a square foot, capped at 300 square feet, so a $1,500
+> maximum. The owner separately ran the fixture and returned an overlap result
+> matching local exactly: `overlaps: true`, $600 home office beside $400 rent.
+
+**What it does.** Creates `home_office_rates` and `home_office_years`, adds
+`home_office_deduction_cents()` and `home_office_overlap()`, and replaces
+`rebuild_ledger_for_user()` so the deduction becomes a ledger entry dated at the
+end of the tax year.
+
+**THE CAP APPLIES TO THE FOOTAGE, THEN THE MONTHS ARE PRORATED.** 400 sq ft for
+six months is 300 capped and then halved: **$750**. Prorating first and capping
+after gives **$1,000**. Both look plausible on a screen and only one is right.
+`npm run check:homeoffice` asserts it, and the sabotage swaps the order and
+turns that check red.
+
+**It is Schedule C LINE 30, which is not line 28.** The form keeps the home
+office out of total expenses: 28 is expenses, 29 is profit before it, 30 is the
+home office, 31 is what you are taxed on. **The P&L was folding it into line 28
+until this story** — a seller transcribing that subtotal would have overstated
+it by the whole deduction. `pnl-statement.ts` now gives it its own section and
+shows lines 29 and 30 only when there is one.
+
+**The double-count guard reports, it does not decide.** The simplified method
+already covers rent and utilities for that space, so claiming it alongside rent
+expensed separately deducts the same room twice — and neither figure looks wrong
+alone. A genuinely separate storage unit is fine and the app cannot tell the
+difference, so it puts both numbers side by side and says only the seller can.
+
+**Actual expenses produce NO entry.** Form 8829 needs mortgage interest,
+insurance, utilities and a basis calculation this app does not do. The card says
+so rather than showing a figure that does not apply.
+
+**Apply order.** After 00695. Then `NOTIFY pgrst, 'reload schema';` — two new
+tables and two new RPCs.
+
 ## ✅ APPLIED: 00695_mileage_log.sql (US-2989, applied 2026-08-29)
 
 > **Confirmed by READING production.** All seven `mileage_rates` rows are live

@@ -67,8 +67,11 @@ describe("the statement agrees with the ledger", () => {
     const s = buildStatement(fromSale());
     expect(s.netRevenueCents).toBe(s.grossReceiptsCents + s.returnsCents);
     expect(s.grossProfitCents).toBe(s.netRevenueCents + s.cogsCents);
-    expect(s.netProfitCents).toBe(
+    expect(s.tentativeProfitCents).toBe(
       s.grossProfitCents + s.operatingExpensesCents,
+    );
+    expect(s.netProfitCents).toBe(
+      s.tentativeProfitCents + s.homeOfficeCents,
     );
   });
 });
@@ -100,6 +103,7 @@ describe("row order", () => {
       "returns",
       "cogs",
       "expenses",
+      "home_office",
       "excluded",
     ]);
   });
@@ -319,5 +323,70 @@ describe("the statement matches what the database produced", () => {
     const s = buildStatement(FIXTURE);
     expect(s.excludedCents).toBe(15234 + 1734);
     expect(s.netProfitCents).toBe(9165);
+  });
+});
+
+describe("the home office is Schedule C line 30, not line 28 (US-2990)", () => {
+  const withOffice: StatementEntry[] = [
+    ...fromSale(),
+    { account: "home_office", amount_cents: -150000 },
+  ];
+
+  it("keeps it OUT of running costs", () => {
+    // The form keeps line 30 out of line 28. A seller transcribing line 28 off
+    // this statement would otherwise overstate it by the whole deduction.
+    const bare = buildStatement(fromSale());
+    const office = buildStatement(withOffice);
+    expect(office.operatingExpensesCents).toBe(bare.operatingExpensesCents);
+    expect(office.homeOfficeCents).toBe(-150000);
+  });
+
+  it("still takes it off the bottom line", () => {
+    const bare = buildStatement(fromSale());
+    const office = buildStatement(withOffice);
+    expect(office.netProfitCents).toBe(bare.netProfitCents - 150000);
+  });
+
+  it("gives it its own section rather than burying it in expenses", () => {
+    const s = buildStatement(withOffice);
+    const expenses = s.sections.find((x) => x.key === "expenses");
+    expect(expenses?.lines.map((l) => l.code)).not.toContain("home_office");
+    expect(
+      s.sections.find((x) => x.key === "home_office")?.lines[0]?.scheduleCLine,
+    ).toBe("30");
+  });
+
+  it("shows lines 29 and 30 only when there IS a home office", () => {
+    // On a statement with none, tentative profit and net profit are the same
+    // number, and printing both invites a seller to wonder which one they are
+    // taxed on.
+    const bare = statementTotals(buildStatement(fromSale())).map((r) => r.key);
+    expect(bare).not.toContain("tentative_profit");
+    expect(bare).not.toContain("home_office");
+
+    const office = statementTotals(buildStatement(withOffice)).map((r) => r.key);
+    expect(office).toContain("tentative_profit");
+    expect(office).toContain("home_office");
+  });
+
+  it("keeps the subtotal rows in form order", () => {
+    const keys = statementTotals(buildStatement(withOffice)).map((r) => r.key);
+    expect(keys).toEqual([
+      "gross_receipts",
+      "returns",
+      "net_revenue",
+      "cogs",
+      "gross_profit",
+      "operating_expenses",
+      "tentative_profit",
+      "home_office",
+      "net_profit",
+    ]);
+  });
+
+  it("names line 29 and line 30 on the rows that carry them", () => {
+    const rows = statementTotals(buildStatement(withOffice));
+    expect(rows.find((r) => r.key === "tentative_profit")?.hint).toMatch(/line 29/);
+    expect(rows.find((r) => r.key === "home_office")?.hint).toMatch(/line 30/);
   });
 });

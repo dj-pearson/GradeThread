@@ -42,6 +42,7 @@ import {
 } from "@/lib/tax-profile";
 import { Form1099kBridge } from "@/components/finances/form-1099k-bridge";
 import { MileageLogCard } from "@/components/finances/mileage-log-card";
+import { HomeOfficeCard } from "@/components/finances/home-office-card";
 
 // US-2982 — the tax setup screen.
 //
@@ -342,6 +343,11 @@ export function TaxSetupPage() {
           Part IV questions are asked per calendar year, so a fiscal-year
           selector here would be actively wrong. */}
       <MileageLogCard />
+
+      {/* US-2990. Beside mileage because both are once-a-year deductions a
+          reseller is entitled to and usually never claims, and both are
+          calendar-year figures. */}
+      <HomeOfficeCard />
 
       <Form1099kBridge />
 

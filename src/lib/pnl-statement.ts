@@ -46,6 +46,7 @@ export type StatementSectionKey =
   | "returns"
   | "cogs"
   | "expenses"
+  | "home_office"
   | "excluded";
 
 export interface StatementSection {
@@ -63,7 +64,12 @@ export interface PnlStatement {
   netRevenueCents: number;
   cogsCents: number;
   grossProfitCents: number;
+  /** Schedule C line 28. Lines 8 to 27 ONLY -- home office is not among them. */
   operatingExpensesCents: number;
+  /** Schedule C line 29: gross profit less line 28, before the home office. */
+  tentativeProfitCents: number;
+  /** Schedule C line 30, which the form keeps separate from line 28. */
+  homeOfficeCents: number;
   netProfitCents: number;
   /** Recorded, and deliberately in none of the totals above. */
   excludedCents: number;
@@ -79,6 +85,11 @@ const BY_CODE = new Map(SYSTEM_ACCOUNTS.map((a) => [a.code, a]));
 // quietly missing money.
 function sectionFor(account: LedgerAccount): StatementSectionKey | null {
   if (account.code === "returns_allowances") return "returns";
+  // US-2990. The home office is Schedule C LINE 30, and the form keeps it out
+  // of line 28. Folding it into running costs would put it inside a subtotal it
+  // does not belong to, and a seller transcribing line 28 off this statement
+  // would overstate it by the whole deduction.
+  if (account.code === "home_office") return "home_office";
   switch (account.flow) {
     case "income":
       return "income";
@@ -100,6 +111,7 @@ const SECTION_TITLES: Record<StatementSectionKey, string> = {
   returns: "Refunds and returns",
   cogs: "What the items cost you",
   expenses: "What it cost to run",
+  home_office: "Working from home",
   excluded: "Money that passed through",
 };
 
@@ -180,6 +192,7 @@ export function buildStatement(
     "returns",
     "cogs",
     "expenses",
+    "home_office",
     "excluded",
   ];
   const sections: StatementSection[] = order
@@ -203,7 +216,9 @@ export function buildStatement(
   const cogsCents = sectionTotal("cogs");
   const grossProfitCents = netRevenueCents + cogsCents;
   const operatingExpensesCents = sectionTotal("expenses");
-  const netProfitCents = grossProfitCents + operatingExpensesCents;
+  const tentativeProfitCents = grossProfitCents + operatingExpensesCents;
+  const homeOfficeCents = sectionTotal("home_office");
+  const netProfitCents = tentativeProfitCents + homeOfficeCents;
 
   return {
     sections,
@@ -213,6 +228,8 @@ export function buildStatement(
     cogsCents,
     grossProfitCents,
     operatingExpensesCents,
+    tentativeProfitCents,
+    homeOfficeCents,
     netProfitCents,
     excludedCents: sectionTotal("excluded"),
     entryCount: entries.length,
@@ -273,6 +290,27 @@ export function statementTotals(p: PnlStatement): StatementTotalRow[] {
       emphasis: false,
       hint: "Schedule C line 28",
     },
+    // Lines 29 and 30 only appear when there IS a home office. On a statement
+    // with none, "tentative profit" and "net profit" are the same number, and
+    // printing both invites a seller to wonder which one they are taxed on.
+    ...(p.homeOfficeCents !== 0
+      ? [
+          {
+            key: "tentative_profit",
+            label: "Profit before the home office",
+            cents: p.tentativeProfitCents,
+            emphasis: false,
+            hint: "Schedule C line 29",
+          },
+          {
+            key: "home_office",
+            label: "Working from home",
+            cents: p.homeOfficeCents,
+            emphasis: false,
+            hint: "Schedule C line 30",
+          },
+        ]
+      : []),
     {
       key: "net_profit",
       label: "Net profit",

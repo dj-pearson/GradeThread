@@ -47,6 +47,7 @@
     "check:tax": "node scripts/check-facilitator-tax.mjs",
     "check:1099k": "node scripts/check-1099k-bridge.mjs",
     "check:mileage": "node scripts/check-mileage-log.mjs",
+    "check:homeoffice": "node scripts/check-home-office.mjs",
     "verify:security": "node scripts/verify.mjs --security",
     "verify:android": "node scripts/verify.mjs --android",
     "android:doctor": "node android/scripts/doctor.mjs --fix",

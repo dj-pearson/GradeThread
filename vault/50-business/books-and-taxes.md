@@ -26,6 +26,9 @@ code_refs:
   - supabase/migrations/00695_mileage_log.sql
   - src/lib/mileage.ts
   - scripts/check-mileage-log.mjs
+  - supabase/migrations/00697_home_office.sql
+  - src/lib/home-office.ts
+  - scripts/check-home-office.mjs
   - supabase/migrations/00690_inventory_writeoffs.sql
   - scripts/check-inventory-writeoffs.mjs
   - supabase/migrations/00692_keeping_leaves_inventory.sql
@@ -669,6 +672,67 @@ the screen states it where the number is. On actual expenses the mileage figure
 does not apply, and the card says so instead of showing a deduction the seller
 cannot take.
 
+## The home office
+
+`home_office_rates` and `home_office_years` (migration 00697). Simplified method
+only: square feet times a rate, capped, prorated by months used.
+
+### Cap first, prorate second
+
+400 sq ft for six months is **300 capped, then halved: $750**. Prorating first
+and capping after gives **$1,000**. The order is the whole difference and both
+answers look plausible on a screen, which is why it has a database check and a
+sabotage that swaps it.
+
+### It is line 30, and that changed the P&L
+
+Schedule C keeps the home office OUT of total expenses: line 28 is expenses,
+line 29 is profit before the home office, line 30 is the home office, line 31 is
+what you are taxed on. **The P&L was folding it into line 28 until US-2990.** A
+seller transcribing that subtotal would have overstated it by the whole
+deduction. `pnl-statement.ts` gives it its own section now, and shows lines 29
+and 30 only when there is a home office — on a statement without one, tentative
+profit and net profit are the same number and printing both invites a seller to
+wonder which one they are taxed on.
+
+### The double-count guard reports rather than decides
+
+The simplified method **already covers** the rent and utilities you would
+otherwise apportion for that space. Claiming it alongside rent expensed
+separately deducts the same room twice, and neither figure looks wrong on its
+own — which is why `home_office_overlap()` is a query rather than a note.
+
+It does not accuse. A seller with a home office and a genuinely separate storage
+unit is fine, and the app cannot tell that apart from double-counting. It puts
+both numbers side by side and says only the seller can tell.
+
+### What is deliberately not built
+
+Actual expenses. Form 8829 needs mortgage interest, insurance, utilities and a
+basis calculation, plus depreciation recapture when the home is sold. Getting
+that wrong is worse than not offering it, so `method = 'actual'` produces no
+ledger entry and the card says why.
+
+## The db-backed money checks run in CI
+
+All six — ledger invariant, COGS worksheet, facilitator tax, 1099-K bridge,
+mileage, home office — run in the `db-migrations` workflow and in
+`node scripts/verify.mjs --db`.
+
+> **They did not, for six stories, and the reason is worth keeping.** Each one
+> argued in its own header that it was deliberately kept out of `verify` because
+> "a lane that skips silently when the stack is down teaches everyone to ignore
+> it". That argument was wrong: `check-session-revocation` and
+> `check-inventory-writeoffs` have always been db-backed, in that lane, and
+> skipped cleanly by the same Docker gate. Six copies of the same excuse
+> accumulated in `guard-lane-parity.test.ts` — each added after the check failed
+> an unrelated push days later — before the inconsistency was named. Moving them
+> in removed **six** exemptions and added none.
+>
+> The lesson is not about these scripts. A guard that is argued for in a comment
+> and never declared to the thing that enforces it is not a guard, and the
+> second time you write the same excuse is the signal.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -682,9 +746,10 @@ its contract into this note. Currently landed:
 - **US-2987** - the two sales-tax branches and the facilitator registry, above.
 - **US-2988** - the 1099-K bridge and its variance causes, above.
 - **US-2989** - mileage, dated rates and the per-trip rounding rule, above.
+- **US-2990** - the home office, line 30 and the double-count guard, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
 Still open, and each will add a section here rather than a new note: COGS and
-the ending-inventory snapshot (US-2986), facilitator sales tax (US-2987), the dated home-office rates (US-2990),
+the ending-inventory snapshot (US-2986), facilitator sales tax (US-2987), 
 estimated tax (US-2991), period close (US-2995) and the QuickBooks account
 mapping (US-2997, US-2998).

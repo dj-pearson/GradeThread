@@ -37,61 +37,6 @@ const WORKFLOWS = resolve(ROOT, ".github/workflows");
  * that filename.
  */
 const NOT_A_LANE_CHECK: Record<string, string> = {
-  "check-mileage-log.mjs":
-    "NEEDS A REAL POSTGRES. Fifth of the db-backed money checks and gated "  +
-    "identically, per its own header. It asserts the ledger and the summary "  +
-    "reach the SAME figure, which is a claim about two SQL paths agreeing and "  +
-    "so is not expressible in vitest. Run it by hand after touching the "  +
-    "mileage tables or the summary query. "  +
-    "⚠ FIVE ENTRIES NOW SHARE THIS REASON, and that is the finding rather "  +
-    "than five separate omissions. check-ledger-invariant, check-cogs-worksheet, "  +
-    "check-facilitator-tax, check-1099k-bridge and this one were each written "  +
-    "with the gate ARGUED IN THE SCRIPT HEADER and never declared here, so each "  +
-    "failed an unrelated push days later. The guard is working; what is missing "  +
-    "is a step in authoring a db-backed check that says to register it. Two "  +
-    "options and neither is this file's job to pick: a template that ships the "  +
-    "entry, or make the db lane run them all and drop the exemptions - note "  +
-    "that check-session-revocation and check-inventory-writeoffs ARE in the db "  +
-    "lane and skip cleanly when Docker is down, which is the same objection "  +
-    "these headers raise, answered differently. The inconsistency is the real "  +
-    "problem.",
-  "check-facilitator-tax.mjs":
-    "NEEDS A REAL POSTGRES. Third of the db-backed money checks, and its own "  +
-    "header states the gate in the same words its two siblings use: it needs "  +
-    "Postgres, so it is not in `npm run verify`, because a lane that skips "  +
-    "silently when the stack is down teaches everyone to ignore it. It asserts "  +
-    "the thing net profit CANNOT tell you - net is identical on both US-2987 "  +
-    "branches, so only gross receipts prove the marketplace-facilitator branch "  +
-    "was chosen correctly. Run it by hand after touching the ledger's tax "  +
-    "split: `npm run check:tax`.",
-  "check-1099k-bridge.mjs":
-    "NEEDS A REAL POSTGRES. Fourth of the same family, gated identically and "  +
-    "for the same stated reason. It asserts computed gross is IDENTICAL on "  +
-    "both US-2987 branches, which is the property the 1099-K reconciliation "  +
-    "rests on. Run it by hand after touching the bridge or the tax split: "  +
-    "`npm run check:1099k`.",
-  "check-cogs-worksheet.mjs":
-    "NEEDS A REAL POSTGRES, and says so in its own header: it is the "  +
-    "COMPANION to check-ledger-invariant.mjs above and is gated the same way. "  +
-    "It runs the COGS worksheet through `docker exec psql` - two snapshots, a "  +
-    "frozen ending inventory that must not move when acquired_price is edited "  +
-    "afterwards, and a 2026 that must NOT reconcile, because a check that "  +
-    "cannot fail is not a check. None of that is expressible in vitest. Run "  +
-    "it by hand after touching the snapshot or worksheet SQL: "  +
-    "`node scripts/check-cogs-worksheet.mjs`. Listed here for the same reason "  +
-    "as its companion - the intent was written in the script and never told "  +
-    "to this guard, so it failed an unrelated push.",
-  "check-ledger-invariant.mjs":
-    "NEEDS A REAL POSTGRES, and its own header already argues this: it runs "  +
-    "the ledger invariant through `docker exec psql`, comparing "  +
-    "public.ledger_entries against public.finances_dashboard, which is a "  +
-    "claim no vitest case can make. US-2984 kept it out of verify "  +
-    "DELIBERATELY, on the same reasoning that gates verify:db on Docker -- a "  +
-    "lane that skips silently when the stack is down teaches everyone to "  +
-    "ignore it. Run it by hand after touching the ledger derivation or "  +
-    "finances_dashboard: `node scripts/check-ledger-invariant.mjs`. Listed "  +
-    "here because the intent was written in the script and never told to "  +
-    "this guard, which then failed a push that had nothing to do with it.",
   "check-copy-reading-level.mjs":
     "REPORT-ONLY BY DESIGN (US-2868 AC3, which asked for exactly that). It " +
     "scores reading level with Flesch-Kincaid over a SYLLABLE GUESS -- the " +

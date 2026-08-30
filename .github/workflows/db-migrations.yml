@@ -21,6 +21,16 @@ on:
       - "scripts/check-session-revocation.mjs"
       - "scripts/check-inventory-writeoffs.mjs"
       - "scripts/db-denied-rpc-crash-check.mjs"
+      # The six Books-and-Taxes money checks (US-2984..US-2990). Each one
+      # asserts that two independent SQL paths reach the same number, which no
+      # vitest case can express.
+      - "scripts/check-ledger-invariant.mjs"
+      - "scripts/check-cogs-worksheet.mjs"
+      - "scripts/check-facilitator-tax.mjs"
+      - "scripts/check-1099k-bridge.mjs"
+      - "scripts/check-mileage-log.mjs"
+      - "scripts/check-home-office.mjs"
+      - "scripts/fixtures/**"
   push:
     branches: [main]
     paths:
@@ -35,6 +45,16 @@ on:
       - "scripts/check-session-revocation.mjs"
       - "scripts/check-inventory-writeoffs.mjs"
       - "scripts/db-denied-rpc-crash-check.mjs"
+      # The six Books-and-Taxes money checks (US-2984..US-2990). Each one
+      # asserts that two independent SQL paths reach the same number, which no
+      # vitest case can express.
+      - "scripts/check-ledger-invariant.mjs"
+      - "scripts/check-cogs-worksheet.mjs"
+      - "scripts/check-facilitator-tax.mjs"
+      - "scripts/check-1099k-bridge.mjs"
+      - "scripts/check-mileage-log.mjs"
+      - "scripts/check-home-office.mjs"
+      - "scripts/fixtures/**"
 
 concurrency:
   group: db-migrations-${{ github.ref }}
@@ -105,6 +125,33 @@ jobs:
       # to answer one question on every image bump — "is it still broken?" —
       # and to catch a regression once it is fixed. Drop continue-on-error the
       # moment the check goes green.
+      # US-2984..US-2990: the Books and Taxes money checks. Each seeds a fixture
+      # inside a transaction that ROLLS BACK, so they leave nothing behind and
+      # are safe to run against any database with the migrations applied.
+      #
+      # They lived outside CI until now, each arguing in its own header that a
+      # lane skipping silently when Docker is down teaches everyone to ignore
+      # it. The two steps above are the counter-argument: db-backed, in this
+      # lane, skipped cleanly by the same Docker gate. Six copies of that excuse
+      # accumulated before the inconsistency was noticed.
+      - name: Ledger equals finances_dashboard (US-2984)
+        run: node scripts/check-ledger-invariant.mjs
+      - name: COGS worksheet and its cross-check (US-2986)
+        run: node scripts/check-cogs-worksheet.mjs
+      # Net profit is IDENTICAL on both tax branches, so only gross receipts
+      # prove the facilitator branch was chosen correctly.
+      - name: Facilitator vs seller-collected sales tax (US-2987)
+        run: node scripts/check-facilitator-tax.mjs
+      - name: 1099-K gross is branch-independent (US-2988)
+        run: node scripts/check-1099k-bridge.mjs
+      # The ledger rounds per trip and the summary must round the same way; they
+      # diverged by a cent before this check existed.
+      - name: Mileage ledger equals the summary (US-2989)
+        run: node scripts/check-mileage-log.mjs
+      # The cap applies to the footage BEFORE the months are prorated. The wrong
+      # order gives $1,000 where the right one gives $750.
+      - name: Home office caps before prorating (US-2990)
+        run: node scripts/check-home-office.mjs
       - name: Denied-RPC crash check (advisory, US-2403)
         continue-on-error: true
         run: node scripts/db-denied-rpc-crash-check.mjs

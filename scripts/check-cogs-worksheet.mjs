@@ -1,9 +1,13 @@
 #!/usr/bin/env node
 // US-2986 — run the COGS worksheet against a real Postgres.
 //
-// Companion to scripts/check-ledger-invariant.mjs, and gated the same way: it
-// needs a database, so it is NOT in `npm run verify`. A lane that skips
-// silently when the stack is down teaches everyone to ignore it.
+// ⚠ THIS NOW RUNS IN CI. The header below used to argue it was deliberately
+// kept out of `npm run verify` because "a lane that skips silently when the
+// stack is down teaches everyone to ignore it". That argument was wrong, and
+// six scripts repeated it before anyone noticed: check-session-revocation and
+// check-inventory-writeoffs have always been db-backed, in the db lane, and
+// skipped cleanly by the same Docker gate. All six moved into that lane, and
+// six hand-written exemptions came out of guard-lane-parity.test.ts.
 //
 // What it asserts, and why each one is here:
 //

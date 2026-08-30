@@ -474,6 +474,27 @@ if (on("db")) {
     // replaced it spans two functions. This seeds three items, writes two off
     // different ways, and fails on the numbers.
     run("db: written-off inventory leaves the books (US-3007)", "node scripts/check-inventory-writeoffs.mjs");
+    // US-2984 .. US-2990: the six Books-and-Taxes money checks, moved INTO this
+    // lane rather than each carrying a hand-written exemption in
+    // guard-lane-parity.test.ts.
+    //
+    // Every one of them argued in its own header that it stayed out of `verify`
+    // because "a lane that skips silently when the stack is down teaches
+    // everyone to ignore it". That argument was wrong, and the two checks
+    // directly above are the proof: they are db-backed, they live here, and the
+    // lane's own Docker gate skips them cleanly. Six copies of the same excuse
+    // accumulated before anyone noticed the inconsistency, and each one failed
+    // an unrelated push on its way in.
+    //
+    // They assert things no vitest case can: that two independent SQL paths
+    // reach the same number. Keeping them out of CI meant they only ran when
+    // somebody remembered.
+    run("db: ledger equals finances_dashboard (US-2984)", "node scripts/check-ledger-invariant.mjs");
+    run("db: COGS worksheet and its cross-check (US-2986)", "node scripts/check-cogs-worksheet.mjs");
+    run("db: facilitator vs seller-collected sales tax (US-2987)", "node scripts/check-facilitator-tax.mjs");
+    run("db: 1099-K gross is branch-independent (US-2988)", "node scripts/check-1099k-bridge.mjs");
+    run("db: mileage ledger equals the summary (US-2989)", "node scripts/check-mileage-log.mjs");
+    run("db: home office caps before prorating (US-2990)", "node scripts/check-home-office.mjs");
     // US-2403: a denied function call SEGFAULTs the Supabase Postgres image and
     // restarts the whole database. ADVISORY, not a gate, and deliberately so:
     // the stock image is vulnerable today, so gating here would be red on every

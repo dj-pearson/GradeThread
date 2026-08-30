@@ -1,8 +1,13 @@
 #!/usr/bin/env node
 // US-2989 — the mileage log, against a real Postgres.
 //
-// Fifth of the database-backed checks, gated like the others: it needs
-// Postgres, so it is not in `npm run verify`.
+// ⚠ THIS NOW RUNS IN CI. The header below used to argue it was deliberately
+// kept out of `npm run verify` because "a lane that skips silently when the
+// stack is down teaches everyone to ignore it". That argument was wrong, and
+// six scripts repeated it before anyone noticed: check-session-revocation and
+// check-inventory-writeoffs have always been db-backed, in the db lane, and
+// skipped cleanly by the same Docker gate. All six moved into that lane, and
+// six hand-written exemptions came out of guard-lane-parity.test.ts.
 //
 // THE ASSERTION THIS EXISTS FOR: the ledger and the summary reach the SAME
 // deduction, to the cent. They compute it by different routes -- one entry per
