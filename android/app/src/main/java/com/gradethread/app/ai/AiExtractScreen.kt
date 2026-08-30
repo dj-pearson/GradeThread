@@ -11,6 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -52,6 +53,47 @@ fun AiExtractScreen(
     val currentOnDone by rememberUpdatedState(onDone)
     LaunchedEffect(state.applied) { if (state.applied) currentOnDone() }
 
+    AiExtractContent(
+        state = state,
+        actions = AiExtractActions(
+            apply = viewModel::apply,
+            undoAll = viewModel::undoAll,
+            skip = viewModel::skip,
+            dismissWithoutConsuming = viewModel::dismissWithoutConsuming,
+            done = onDone,
+        ),
+        modifier = modifier,
+    )
+}
+
+/**
+ * Everything the AI-fill review can do (US-2902 AC3).
+ *
+ * `bind` stays with the wrapper - it is a LaunchedEffect keyed on itemId - and
+ * so does the applied-terminal effect, because that one exists to call back OUT
+ * of the screen and has a rememberUpdatedState subtlety of its own (US-2978).
+ * Neither is something a person presses.
+ */
+@Immutable
+data class AiExtractActions(
+    val apply: (Set<String>, Set<String>, Boolean) -> Unit = { _, _, _ -> },
+    val undoAll: () -> Unit = {},
+    val skip: () -> Unit = {},
+    val dismissWithoutConsuming: () -> Unit = {},
+    val done: () -> Unit = {},
+)
+
+/**
+ * The AI-fill review with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ WHAT THIS SCREEN DECIDES IS WHAT GETS LISTED. It shows fields an AI filled
+ * in and asks the seller to accept them, so a row that stops rendering is not a
+ * missing row - it is a value that goes onto a live listing without anyone
+ * having seen it. `dismissWithoutConsuming` exists for exactly that asymmetry:
+ * backing out must not spend the suggestion.
+ */
+@Composable
+fun AiExtractContent(state: AiFillReviewViewModel.State, actions: AiExtractActions, modifier: Modifier = Modifier) {
     val review = state.review
     Column(
         modifier = modifier.fillMaxSize().padding(Spacing.md),
@@ -64,18 +106,18 @@ fun AiExtractScreen(
                 }
                 AiFillReviewSheet(
                     review = review,
-                    onApply = viewModel::apply,
-                    onUndoAll = viewModel::undoAll,
+                    onApply = actions.apply,
+                    onUndoAll = actions.undoAll,
                     // Cancel leaves the review UNCONSUMED (US-1182), so the
                     // item's AI banner can pop the same sheet later.
                     onCancel = {
-                        viewModel.dismissWithoutConsuming()
-                        onDone()
+                        actions.dismissWithoutConsuming()
+                        actions.done()
                     },
                 )
                 TextButton(onClick = {
-                    viewModel.skip()
-                    onDone()
+                    actions.skip()
+                    actions.done()
                 }, Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.aiextract_skip))
                 }
@@ -88,10 +130,10 @@ fun AiExtractScreen(
                 // means re-running extraction — which the item canvas owns.
                 // Leaving is the honest primary action.
                 retryTitle = stringResource(R.string.aiextract_failed_continue),
-                retry = { onDone() },
+                retry = { actions.done() },
             )
 
-            else -> Progress(state.phase, onBackground = onDone)
+            else -> Progress(state.phase, onBackground = actions.done)
         }
     }
 }
