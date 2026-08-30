@@ -15,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -37,16 +38,50 @@ import com.gradethread.app.ui.theme.cardStyle
  * than a spinner that never resolves.
  */
 @Composable
-fun SupportThreadScreen(
-    ticketId: String,
-    onBack: () -> Unit,
-    viewModel: SupportThreadViewModel = hiltViewModel(),
-) {
+fun SupportThreadScreen(ticketId: String, onBack: () -> Unit, viewModel: SupportThreadViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
 
     LaunchedEffect(ticketId) { viewModel.load(ticketId) }
 
-    Column(Modifier.fillMaxSize().padding(Spacing.md)) {
+    SupportThreadContent(
+        state,
+        SupportThreadActions(
+            retry = { viewModel.load(ticketId) },
+            setReply = viewModel::setReply,
+            send = { viewModel.send(ticketId) },
+            back = onBack,
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class SupportThreadActions(
+    val retry: () -> Unit = {},
+    val setReply: (String) -> Unit = {},
+    val send: () -> Unit = {},
+    val back: () -> Unit = {},
+)
+
+/**
+ * One support conversation, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ REPLYING TO A RESOLVED TICKET REOPENS IT, and reopenNotice is the only
+ * place that is said. A seller adding "thanks, all sorted" to a closed ticket
+ * would put it back in the queue without that line, and neither they nor
+ * support would know why it came back.
+ *
+ * ⚠ AND WHOSE MESSAGE IS WHOSE IS PURELY VISUAL. fromMe is author == "you";
+ * everything else about the two bubbles is layout. A thread that stopped
+ * distinguishing them reads as support saying what the seller said.
+ */
+@Composable
+fun SupportThreadContent(
+    state: SupportThreadViewModel.State,
+    actions: SupportThreadActions,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.fillMaxSize().padding(Spacing.md)) {
         when {
             state.loading && state.thread == null -> Row(
                 Modifier.fillMaxWidth().padding(Spacing.xl),
@@ -56,11 +91,11 @@ fun SupportThreadScreen(
             state.loadError != null -> Column(Modifier.fillMaxWidth().cardStyle()) {
                 Text(state.loadError!!, style = MaterialTheme.typography.bodyMedium)
                 Row(Modifier.padding(top = Spacing.sm)) {
-                    BrandSecondaryButton(text = stringResource(R.string.common_back)) { onBack() }
+                    BrandSecondaryButton(text = stringResource(R.string.common_back)) { actions.back() }
                     BrandSecondaryButton(
                         text = stringResource(R.string.common_try_again),
                         modifier = Modifier.padding(start = Spacing.xs),
-                    ) { viewModel.load(ticketId) }
+                    ) { actions.retry() }
                 }
             }
 
@@ -98,7 +133,7 @@ fun SupportThreadScreen(
                 }
                 OutlinedTextField(
                     value = state.reply,
-                    onValueChange = viewModel::setReply,
+                    onValueChange = actions.setReply,
                     label = { Text(stringResource(R.string.support_reply_label)) },
                     minLines = 2,
                     supportingText = {
@@ -113,7 +148,7 @@ fun SupportThreadScreen(
                     ),
                     modifier = Modifier.fillMaxWidth().padding(top = Spacing.xs),
                     enabled = state.canSend,
-                ) { viewModel.send(ticketId) }
+                ) { actions.send() }
             }
         }
     }
