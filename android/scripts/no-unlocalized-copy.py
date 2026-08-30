@@ -36,6 +36,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import label_rule  # noqa: E402  (path set above so this runs from any cwd)
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SOURCE = os.path.join(ROOT, "app", "src", "main", "java", "com", "gradethread", "app")
 BASELINE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "unlocalized-copy-baseline.json")
@@ -63,6 +66,24 @@ SQL = re.compile(
 
 # Lines whose literals are wire contracts or patterns, never shown to anyone.
 MACHINE_LINE = re.compile(r"@SerialName|@Named|@Query|@ColumnInfo|^\s*import\s|Regex\(")
+
+
+# Files whose display positions hold vocabulary somebody else owns (US-2976 AC5).
+#
+# The label rule is positional, so it cannot tell a word this product chose from
+# a word another company did. These entries are that judgement, written down.
+# STALENESS IS CHECKED below: an entry naming a file the rule finds nothing in
+# fails, so a reason cannot outlive the thing it excuses.
+LABEL_VOCABULARY = {
+    "marketplaces/publish/EbayCondition.kt": (
+        "eBay's own condition vocabulary. Note the reason is NOT the one "
+        "US-2976 AC5 gives: [wire] carries the API value, so translating "
+        "[label] would not break publishing. The real argument is that a "
+        "seller picking a condition is choosing an eBay grade whose meaning "
+        "eBay defines, and a Spanish gloss of 'Pre-owned - Excellent' would "
+        "be our word for their category."
+    ),
+}
 
 
 def strip_comments(src):
@@ -153,12 +174,86 @@ def scan():
                 for match in LITERAL.finditer(line):
                     if is_copy(match.group(1)):
                         found[rel].add(match.group(1))
+            # US-2976: the same file, read a second way. is_copy finds
+            # sentences; this finds the Title Case and single words a person
+            # reads off a tab bar, which are invisible to a sentence detector
+            # by construction.
+            if rel not in LABEL_VOCABULARY:
+                # NOT_COPY again, and it is load-bearing rather than tidy. The
+                # positional rule merges the display indexes of every class in
+                # a file, so an unrelated call putting a wire value at the same
+                # index is read as a label: without this, ItemDraft.kt reported
+                # `acquired_price`, `sku` and `sold`, and a baseline full of
+                # column names is exactly the place things go to be forgotten.
+                found[rel] |= {
+                    value
+                    for value in label_rule.labels_in(stripped)
+                    if not NOT_COPY.match(value) and re.search(r"[A-Za-z]", value)
+                }
     return {k: sorted(v) for k, v in found.items() if v}
+
+
+def vocabulary_is_current():
+    """Every LABEL_VOCABULARY entry still names a file that has labels.
+
+    Without this the map is where reasons go to be forgotten: a file renamed or
+    emptied leaves an entry that excuses nothing and reads as though somebody
+    checked it recently.
+    """
+    stale = []
+    for rel in sorted(LABEL_VOCABULARY):
+        path = os.path.join(SOURCE, *rel.split("/"))
+        if not os.path.exists(path):
+            stale.append(f"{rel}: no such file")
+            continue
+        with open(path, encoding="utf-8") as fh:
+            if not label_rule.labels_in(strip_comments(fh.read())):
+                stale.append(f"{rel}: the label rule finds nothing to exclude")
+    return stale
 
 
 def load_baseline():
     with open(BASELINE_PATH, encoding="utf-8") as fh:
         return json.load(fh)["files"]
+
+
+def label_discovery_test():
+    """US-2976 AC4: a NEW file carrying a display label must be found by itself.
+
+    Returns an error line, or None.
+
+    Written INSIDE `SOURCE` on purpose, the same as no-bare-strings.py's
+    discovery test. A temp directory would exercise the matcher, which was never
+    the doubt: the doubt is whether a file nobody registered anywhere is reached
+    and read the second way. The probe is the exact shape from this story - a
+    five-item bottom bar - because no-bare-strings.py reports that file CLEAN.
+    """
+    import tempfile
+
+    probe = None
+    try:
+        fd, probe = tempfile.mkstemp(prefix="ZzLabelProbe", suffix=".kt", dir=SOURCE)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(
+                "package com.gradethread.app\n\n"
+                "enum class ZzLabelProbe(val route: String, val label: String) {\n"
+                '    ONE("one", "Marketplaces"),\n'
+                "}\n"
+            )
+        rel = os.path.relpath(probe, SOURCE).replace(os.sep, "/")
+        found = scan().get(rel, [])
+        if "Marketplaces" not in found:
+            return (
+                f"LABEL DISCOVERY FAILED: {rel} carries a display label and the scan "
+                f"returned {found!r}. A new screen is outside the rule again, which is "
+                "the bug US-2976 exists for and it is silent."
+            )
+        return None
+    except OSError as exc:
+        return f"LABEL DISCOVERY FAILED: could not write a probe ({exc})"
+    finally:
+        if probe and os.path.exists(probe):
+            os.unlink(probe)
 
 
 def self_test():
@@ -191,6 +286,28 @@ def self_test():
     if "@Composable" in strip_comments("/** why no @Composable reaches it */\nval a = 1"):
         print(
             "no-unlocalized-copy: SELF-TEST FAILED: a comment can opt a file out of the scan",
+            file=sys.stderr,
+        )
+        return False
+    # US-2976: the label rule has its own cases, including the exact bottom-bar
+    # shape every other guard in this repo reported as clean.
+    label_failures = label_rule.self_test()
+    if label_failures:
+        print("no-unlocalized-copy: LABEL RULE SELF-TEST FAILED:", file=sys.stderr)
+        for failure in label_failures:
+            print(f"  {failure}", file=sys.stderr)
+        return False
+    discovery = label_discovery_test()
+    if discovery:
+        print(f"no-unlocalized-copy: {discovery}", file=sys.stderr)
+        return False
+    stale = vocabulary_is_current()
+    if stale:
+        print("no-unlocalized-copy: LABEL_VOCABULARY is stale:", file=sys.stderr)
+        for entry in stale:
+            print(f"  {entry}", file=sys.stderr)
+        print(
+            "  An entry that excuses nothing reads as though somebody checked it.",
             file=sys.stderr,
         )
         return False
