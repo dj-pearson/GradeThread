@@ -5292,6 +5292,72 @@ Deno.test({
 });
 
 Deno.test({
+  name: "US-2993: B cannot adopt a staged receipt onto A's expense",
+  ignore: !CONFIGURED || !A_EXPENSE_ID,
+  fn: async () => {
+    // The expense is A's, so ownership fails before the path is even looked at.
+    const res = await fetch(
+      `${BASE}/api/flipdesk/expenses/${A_EXPENSE_ID}/adopt-staged`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ staging_path: "whatever/_staging/x.jpg" }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST expenses/:id/adopt-staged as B");
+  },
+});
+
+Deno.test({
+  name: "US-2993: a seller cannot adopt a path outside their own staging prefix",
+  ignore: !CONFIGURED || !A_EXPENSE_ID,
+  fn: async () => {
+    // THE CASE THE PREFIX CHECK EXISTS FOR, and it is the one every ownership
+    // test in this file would MISS. A owns the expense, so the ownership load
+    // succeeds -- and the request then names a path in someone else's staging
+    // folder. Without the `${ownerId}/_staging/` prefix check this copies
+    // another tenant's receipt onto A's own expense, and every id in the
+    // request belongs to A.
+    const foreign =
+      "00000000-0000-4000-8000-000000000000/_staging/receipt_1.jpg";
+    const res = await fetch(
+      `${BASE}/api/flipdesk/expenses/${A_EXPENSE_ID}/adopt-staged`,
+      {
+        method: "POST",
+        headers: authHeaders(A_JWT!),
+        body: JSON.stringify({ staging_path: foreign }),
+      },
+    );
+    await res.body?.cancel();
+    assertEquals(res.status, 403);
+  },
+});
+
+Deno.test({
+  name: "US-2993: receipt extraction refuses a non-image before any model call",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    // Cheapest possible guard: an unauthenticated or malformed upload must not
+    // reach the vision model, because that is a paid call on somebody's budget.
+    const form = new FormData();
+    form.append(
+      "receipt",
+      new File([new Uint8Array([0x00, 0x01, 0x02, 0x03])], "x.bin", {
+        type: "application/octet-stream",
+      }),
+    );
+    const res = await fetch(`${BASE}/api/flipdesk/expenses/extract`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${B_JWT}` },
+      body: form,
+    });
+    await res.body?.cancel();
+    assertEquals(res.status, 400);
+  },
+});
+
+Deno.test({
   name: "US-2228: B cannot mint a signed URL for A's receipt",
   ignore: !CONFIGURED || !A_EXPENSE_ID,
   fn: async () => {

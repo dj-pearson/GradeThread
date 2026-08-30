@@ -34,6 +34,8 @@ code_refs:
   - supabase/migrations/00699_books_review_queue.sql
   - src/lib/books-review.ts
   - scripts/check-books-review.mjs
+  - supabase/migrations/00700_receipt_extraction.sql
+  - services/edge-functions/src/lib/receipt-extract.ts
   - supabase/migrations/00690_inventory_writeoffs.sql
   - scripts/check-inventory-writeoffs.mjs
   - supabase/migrations/00692_keeping_leaves_inventory.sql
@@ -851,6 +853,91 @@ is on the Money tab strip, visible the moment Money opens, but the shared
 sidebar has no badge mechanism at all and adding one touches navigation every
 section uses. Recorded rather than quietly counted as done.
 
+## Reading a receipt
+
+`receipt-extract.ts` in the edge service, behind
+`POST /api/flipdesk/expenses/extract`.
+
+### The model proposes; it never writes
+
+A wrong number the seller did not look at is worse than no number, because they
+will not check it again. Every field arrives editable and nothing is saved until
+Save is pressed. On an EDIT the photo is attached without rewriting anything:
+the seller already has their figures and is only adding proof.
+
+### The photo is staged before the model is called
+
+`{ownerId}/_staging/...`, uploaded first, so a model timeout does not lose the
+photo somebody just took at a till. On confirm it is MOVED onto the new expense
+rather than uploaded again.
+
+> **The staging prefix check is the security boundary, and it is the one an
+> ownership test misses.** `adopt-staged` loads the expense scoped to the owner
+> — and then takes a PATH from the request body. Without the
+> `${ownerId}/_staging/` prefix check, a seller could name another tenant's
+> staged receipt and have it copied onto their own expense, with every id in the
+> request legitimately theirs. `tenant-isolation_test.ts` covers both halves.
+
+### Confidence is per field
+
+A receipt can have a crisp total and an illegible date. One aggregate number
+would hide exactly the field worth checking. The threshold is **0.75**,
+deliberately the same as the grading pipeline's human-review threshold: two
+different numbers for "not sure enough" in one product is one number nobody can
+explain.
+
+**A field the model produced nothing for is not flagged.** It shows as an empty
+input, which already says everything a warning would.
+
+**A null value forces its confidence to 0**, whatever the model claimed. The
+specific failure this guards is a model returning `null` and `1.0` together,
+which would show a seller an empty box marked as certain.
+
+### The parser is tested against wrong output, not right output
+
+Twenty cases over totals with currency symbols, dates in the wrong century,
+invented categories, prose wrapped around the JSON, and outright refusals.
+Testing only well-formed replies would test the prompt, and the prompt is not
+what breaks at 2am. Every failure path returns nulls plus a warning the screen
+shows: a spinner that ends in an empty form teaches the seller the feature is
+broken.
+
+### Line items are captured but not yet used
+
+Thrift receipts describe things uselessly — "MENS SHIRT", "RED ITEM" — so
+matching on description is hopeless. The **prices** are the useful part: a
+receipt with six lines totalling $47.83, photographed on the day six items were
+added, carries six real cost bases. `linesReconcile()` reports whether the lines
+add up to the total less tax, because a partially-read receipt would allocate
+the wrong cost to every item. The matching itself is **US-3012**, and it attacks
+the worst issue in the review queue.
+
+### Provenance, and why the prompt version is on the row
+
+`extraction_prompt_version` is stored on every expense the model produced. A bad
+prompt release has to be traceable to the entries it made, and without the
+version the only way to find them is to guess at dates. **Bump
+`RECEIPT_PROMPT_VERSION` whenever the prompt text changes.**
+
+`extraction_proposed` keeps what the model said before the seller touched it,
+which is the only way to tell an accepted extraction from a corrected one — and
+therefore whether the prompt is any good.
+
+### Duplicate detection asks, it does not block
+
+A function, not a unique constraint. Two coffees from the same shop on the same
+day for the same price is a real thing, and refusing it would be wrong. It
+matches amount, a day either side (a card statement and a receipt disagree by
+one often enough), and description; the warning appears once and pressing Save
+again goes through.
+
+### Spend attribution is automatic
+
+`enterAiFeature("receipt-extract", userId)` at the top of the call. The limiter
+wrapper in `ai-config.ts` records model, tokens, latency and cost to
+`ai_usage_events` from there, so it appears in admin-ai-spend with no per-call
+bookkeeping.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -867,6 +954,7 @@ its contract into this note. Currently landed:
 - **US-2990** - the home office, line 30 and the double-count guard, above.
 - **US-2991** - estimated tax, and what it refuses to guess, above.
 - **US-2992** - books health, and the three things it stays quiet about, above.
+- **US-2993** - receipt extraction, its confidence rules and its staging boundary, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
 Still open, and each will add a section here rather than a new note: COGS and

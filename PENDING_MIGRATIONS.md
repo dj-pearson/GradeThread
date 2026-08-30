@@ -105,6 +105,38 @@ trigger to include `wearing` — it went red naming the real risk ("wearing or
 returned was removed from inventory - both must STAY") and green on restore.
 
 
+## ✅ APPLIED: 00700_receipt_extraction.sql (US-2993, applied 2026-08-29 — owner-confirmed)
+
+**What it does.** Adds four extraction-provenance columns to
+`flipdesk_expenses` (`extracted_at`, `extraction_prompt_version`,
+`extraction_confidence`, `extraction_proposed`) and
+`find_duplicate_expenses(numeric, date, text)`. No existing column changes and
+nothing is backfilled.
+
+**The extracted values land in the ORDINARY columns.** A confirmed extraction IS
+the expense; there is no second class of machine-entered row. What is stored
+separately is provenance: which prompt produced it, how sure the model was per
+field, and what it proposed before the seller touched it — which is the only way
+to tell an accepted extraction from a corrected one, and therefore whether the
+prompt is any good.
+
+**AC6 is why the prompt version is on the row.** A bad prompt release has to be
+traceable to the entries it made, and without it the only way to find them is to
+guess at dates.
+
+**Confidence is PER FIELD, not one number.** A receipt can have a crisp total
+and an illegible date, and an aggregate would hide exactly the field worth
+checking.
+
+**Duplicate detection is a FUNCTION, not a unique constraint.** Two coffees from
+the same shop on the same day for the same price is a real thing that happens,
+and refusing it outright would be wrong. It matches on amount, a day either side
+(a card statement and a receipt can disagree by one), and description — and the
+screen asks rather than blocks.
+
+**Apply order.** After 00699. Then `NOTIFY pgrst, 'reload schema';` — four new
+columns and one new RPC.
+
 ## ✅ APPLIED: 00699_books_review_queue.sql (US-2992, applied 2026-08-29)
 
 > **Confirmed by READING production.** `/rpc/books_review_queue`,

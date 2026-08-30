@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3012",
+  "nextId": "US-3013",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2741,21 +2741,6 @@
       "priority": 30
     },
     {
-      "id": "US-2993",
-      "passes": false,
-      "title": "Snap a receipt and the expense fills itself in",
-      "description": "The expense-receipts bucket, the upload validation and the EXIF strip all exist already (US-2228, migration 00564). What is missing is the part that makes anyone use it: the seller still types vendor, date, amount and category by hand after attaching the photo. Claude Vision is already wired for grading. Reading a receipt is a strictly easier extraction than grading a garment.",
-      "acceptanceCriteria": [
-        "Uploading a receipt returns proposed vendor, date, total, tax and a suggested account, as a draft the seller confirms. Never an auto-commit: a wrong number the seller did not look at is worse than no number.",
-        "Extraction failures degrade to the manual form with the image attached, and say so. A spinner that ends in an empty form teaches the seller the feature is broken.",
-        "Confidence is shown per field, and a low-confidence field is highlighted rather than quietly wrong.",
-        "Duplicate detection: the same vendor, date and total already logged is flagged before the save, because photographing the same receipt twice is the most common way a total goes wrong.",
-        "Runs through the existing AI budget and spend accounting so the cost is visible in admin-ai-spend rather than being an unmetered call.",
-        "The extraction prompt and its version are recorded on the row, so a bad prompt release is traceable to the entries it produced."
-      ],
-      "priority": 42
-    },
-    {
       "id": "US-2994",
       "passes": false,
       "title": "Bank and card CSV import, matched against what the books already know",
@@ -2914,6 +2899,22 @@
       ],
       "priority": 45,
       "notes": "Rescoped 2026-08-29, same sitting it was filed. The first draft added EasyPost as a second label provider, a prepaid postage wallet and carrier-adjustment chargebacks. Owner chose eBay-direct instead, and that is the cheaper shape by a lot: eBay bills the SELLER's own eBay account for the postage and for any reweigh adjustment, so we never hold seller money, never float postage, and never have to reconcile a carrier bill that lands three weeks later. The wallet, the Stripe top-up and the adjustment ledger all disappeared with that one decision. What it costs is coverage - eBay Logistics only covers eBay orders, so a Shopify sale or an extension-listed Poshmark sale still has no in-app label path. File that as its own story if sellers ask for it.\n\nSTILL DARK. None of this can run until eBay grants sell.logistics on the prod keyset (US-2380), and the capability check puts the deployment scope AHEAD of the plan check deliberately, so today every seller on every plan still gets feature_unavailable. That ordering is tested, not incidental: showing a Starter seller an upgrade prompt for a capability no plan can currently reach would be selling something that does not exist yet."
+    },
+    {
+      "id": "US-3012",
+      "passes": false,
+      "title": "Match a thrift receipt's lines to the items sourced that day, so every one gets a real cost basis",
+      "description": "OWNER'S IDEA, 2026-08-29, and it attacks the single worst issue in the books-health queue: items sold with no cost basis. Those overstate profit by exactly the figure nobody recorded, and US-2992 can only ESTIMATE the damage from the seller's median cost ratio. THE SHAPE OF THE PROBLEM IS WHY IT IS TRACTABLE. A thrift receipt describes nothing useful - 'MENS SHIRT', 'RED ITEM', 'CLOTHING 2.99' - so line-to-item matching on DESCRIPTION is hopeless and always will be. The PRICES are the useful part. A Goodwill receipt with six lines totalling 47.83 dollars, photographed on the day the seller added six items, carries six real cost bases; all that is missing is which price goes with which item. That is a question a person answers in about fifteen seconds and a computer answers badly. US-2993 ALREADY CAPTURES THE DATA. receipt-extract.ts returns draft.lines as {description, amount_cents} in printed order, deliberately copying the description verbatim however useless it is, and linesReconcile() reports whether the lines add up to the total less tax - a receipt whose lines miss the total was read partially, and a split built on it would allocate the wrong cost to every item. Nothing consumes either yet.",
+      "acceptanceCriteria": [
+        "After a receipt is extracted, offer the items the seller acquired near that date (same day first, widening to a few days) and let them drag or tap each receipt line onto an item. Cheap and obvious beats clever: the seller knows which shirt was 2.99.",
+        "Where the counts match and the seller says so, allow a one-tap 'these six lines are these six items, in order' - thrift receipts print in the order things came off the counter, which is often the order they were photographed.",
+        "REFUSE TO SPLIT when the lines do not reconcile. linesReconcile() returning anything but roughly zero means the receipt was read partially, and allocating a partial total across every item is worse than allocating nothing - it puts a WRONG cost basis on items that previously had an honest gap. Say so and fall back to the whole-receipt total.",
+        "An unmatched remainder (bag fee, a line for something not inventoried) goes to an operating expense rather than being smeared across the items. Smearing it makes every cost basis slightly wrong and untraceable.",
+        "Setting a cost basis this way writes inventory_items.acquired_price and is visible as such - it must not create a second, parallel notion of what an item cost. US-2984's ledger derives COGS from that column and would otherwise disagree.",
+        "The items it fixes drop out of the US-2992 review queue on the next load, and the queue's estimated-impact figure for them is replaced by the real one.",
+        "Works with NO line items at all: a receipt that reads only as a total can still be split across chosen items evenly or by the seller typing amounts. That is the common case for a handwritten estate-sale receipt."
+      ],
+      "priority": 42
     }
   ]
 }

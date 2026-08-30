@@ -10,6 +10,18 @@ import {
   accountByCode,
   scheduleCTag,
 } from "@/lib/chart-of-accounts";
+// US-2993: read the receipt so the seller confirms four fields instead of
+// typing them. The model never writes the row -- it proposes, and the seller
+// confirms, because a wrong number nobody looked at is worse than no number.
+import {
+  adoptStagedReceipt,
+  confidenceHint,
+  findDuplicates,
+  scanFailed,
+  scanReceipt,
+  type DuplicateExpense,
+  type ScanResult,
+} from "@/lib/receipt-scan";
 import {
   Wallet,
   Plus,
@@ -557,6 +569,13 @@ function ExpenseDialog({
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [receiptPath, setReceiptPath] = useState<string | null>(null);
   const [receiptBusy, setReceiptBusy] = useState(false);
+  // US-2993. `scan` holds what the model proposed and how sure it was, so the
+  // form can flag a field rather than quietly present a guess as fact.
+  // `stagingPath` is where the photo is parked until the row exists.
+  const [scan, setScan] = useState<ScanResult | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [stagingPath, setStagingPath] = useState<string | null>(null);
+  const [duplicates, setDuplicates] = useState<DuplicateExpense[] | null>(null);
   // US-2228 AC3.
   const [recurs, setRecurs] = useState(false);
   const recursId = useId();
@@ -591,6 +610,48 @@ function ExpenseDialog({
     setPendingFile(file);
   }
 
+  // US-2993. Reads the photo, fills the form, and NEVER saves. Every field
+  // stays editable and the seller presses Save as usual.
+  async function scanAndFill(file: File) {
+    if (!can("manage_inventory")) {
+      toast.error("You don't have permission to log expenses in this workspace.");
+      return;
+    }
+    setScanning(true);
+    setDuplicates(null);
+    try {
+      const result = await scanReceipt(file);
+      setScan(result);
+      setStagingPath(result.staging_path);
+      // The photo is staged server-side now, so the old pending-file path is
+      // not needed for this receipt and would upload it a second time.
+      setPendingFile(null);
+
+      const d = result.draft;
+      if (d) {
+        if (d.total_cents !== null) setAmount((d.total_cents / 100).toFixed(2));
+        if (d.spent_on) setDate(d.spent_on);
+        if (d.vendor && description.trim() === "") setDescription(d.vendor);
+        if (d.category) setCategory(d.category);
+      }
+
+      if (result.warning) {
+        // AC2. A spinner that ends in an empty form teaches the seller the
+        // feature is broken; saying what happened is the difference.
+        toast.warning(result.warning);
+      } else {
+        toast.success("Read it. Check the details and save.");
+      }
+    } catch (err) {
+      toastError(err, "Couldn't read that receipt.");
+      // Fall back to the ordinary attach-on-save path, so the photo is still
+      // kept even though nothing was read from it.
+      setPendingFile(file);
+    } finally {
+      setScanning(false);
+    }
+  }
+
   async function removeReceipt() {
     if (!expense) return;
     if (!can("manage_inventory")) {
@@ -621,6 +682,27 @@ function ExpenseDialog({
       toast.error("Enter a valid amount.");
       return;
     }
+
+    // US-2993 AC4. Photographing the same receipt twice is the commonest way a
+    // total goes wrong, and afterwards it is invisible: two identical expenses
+    // look like two real purchases. Checked here, while it is still one click
+    // to abandon. Shown ONCE -- pressing Save again goes through, because two
+    // coffees from the same shop on the same day really do happen.
+    if (!expense && duplicates === null) {
+      try {
+        const found = await findDuplicates(amt, date, description.trim() || null);
+        if (found.length > 0) {
+          setDuplicates(found);
+          toast.warning("You may have logged this one already.");
+          return;
+        }
+        setDuplicates([]);
+      } catch {
+        // A failed duplicate check must not block a legitimate save.
+        setDuplicates([]);
+      }
+    }
+
     setSaving(true);
     try {
       const fields = {
@@ -670,11 +752,26 @@ function ExpenseDialog({
         }
       }
 
+      // US-2993: a scanned photo is already in storage, so it is MOVED onto the
+      // new row rather than uploaded again. Same failure rule as above -- the
+      // number is the record and the receipt is the proof, so a failure here
+      // never undoes the save.
+      if (stagingPath && savedId) {
+        try {
+          await adoptStagedReceipt(savedId, stagingPath);
+        } catch (err) {
+          toastError(err, "Expense saved, but the receipt didn't attach.");
+        }
+      }
+
       await qc.invalidateQueries({ queryKey: ["expenses"] });
       toast.success(expense ? "Expense updated." : "Expense logged.");
       setAmount("");
       setDescription("");
       setPendingFile(null);
+      setScan(null);
+      setStagingPath(null);
+      setDuplicates(null);
       onOpenChange(false);
     } catch (err) {
       toastError(err, "Save failed.");
@@ -730,7 +827,14 @@ function ExpenseDialog({
             )}
           </div>
           <div className="space-y-1">
-            <Label htmlFor={amountId}>Amount</Label>
+            <Label htmlFor={amountId} className="flex items-center gap-2">
+              Amount
+              {confidenceHint("total", scan) && (
+                <span className="text-[11px] font-normal text-amber-700 dark:text-amber-400">
+                  {confidenceHint("total", scan)}
+                </span>
+              )}
+            </Label>
             <Input
               id={amountId}
               type="number"
@@ -742,7 +846,14 @@ function ExpenseDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor={dateId}>Date</Label>
+            <Label htmlFor={dateId} className="flex items-center gap-2">
+              Date
+              {confidenceHint("date", scan) && (
+                <span className="text-[11px] font-normal text-amber-700 dark:text-amber-400">
+                  {confidenceHint("date", scan)}
+                </span>
+              )}
+            </Label>
             <Input
               id={dateId}
               type="date"
@@ -751,7 +862,14 @@ function ExpenseDialog({
             />
           </div>
           <div className="space-y-1">
-            <Label htmlFor={descriptionId}>Description</Label>
+            <Label htmlFor={descriptionId} className="flex items-center gap-2">
+              Description
+              {confidenceHint("vendor", scan) && (
+                <span className="text-[11px] font-normal text-amber-700 dark:text-amber-400">
+                  {confidenceHint("vendor", scan)}
+                </span>
+              )}
+            </Label>
             <Input
               id={descriptionId}
               value={description}
@@ -824,15 +942,65 @@ function ExpenseDialog({
                 id={receiptId}
                 type="file"
                 accept={RECEIPT_ACCEPT}
-                onChange={(e) => chooseFile(e.target.files?.[0] ?? null)}
+                disabled={scanning}
+                onChange={(e) => {
+                  const file = e.target.files?.[0] ?? null;
+                  if (!file) {
+                    chooseFile(null);
+                    return;
+                  }
+                  // US-2993: on the ADD path, read it. On an edit the seller
+                  // already has their numbers and is only attaching proof, so
+                  // rewriting their fields from a photo would be presumptuous.
+                  if (expense) chooseFile(file);
+                  else void scanAndFill(file);
+                }}
               />
-              <p className="text-xs text-muted-foreground">
-                Photo or PDF, up to 10MB. Uploaded when you save. Only you can
-                open it.
-              </p>
+              {scanning ? (
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Reading it...
+                </p>
+              ) : scan && scanFailed(scan) ? (
+                <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-400">
+                  {scan.warning ??
+                    "We could not read that one. Your photo is saved. Fill in the details and it will be attached."}
+                </p>
+              ) : scan ? (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Filled in from the photo. Everything is still editable, and
+                  nothing is saved until you press Save.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  {expense
+                    ? "Photo or PDF, up to 10MB. Uploaded when you save. Only you can open it."
+                    : "Photo or PDF, up to 10MB. We will try to read it and fill this in. Only you can open it."}
+                </p>
+              )}
             </div>
           )}
         </div>
+        {duplicates && duplicates.length > 0 && (
+          <div className="rounded-md border border-amber-500/40 p-3">
+            <p className="text-sm font-medium">
+              You may have logged this already
+            </p>
+            <ul className="mt-1.5 space-y-0.5 text-[13px] text-muted-foreground">
+              {duplicates.map((d) => (
+                <li key={d.id}>
+                  {d.spent_on} &middot; {d.description ?? "No description"}{" "}
+                  &middot; ${d.amount.toFixed(2)}
+                  {d.has_receipt && " (has a receipt)"}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">
+              If this is a different purchase, press Save again and it will go
+              through.
+            </p>
+          </div>
+        )}
         <DialogFooter>
           <Button
             variant="outline"

@@ -6,6 +6,12 @@ import {
   validateReceiptUpload,
 } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import {
+  encodeBase64,
+  extractReceipt,
+  lowConfidenceFields,
+  linesReconcile,
+} from "../lib/receipt-extract.ts";
 
 // US-2228 AC2 — the receipt attached to an operating expense.
 //
@@ -72,6 +78,159 @@ export function receiptStoragePath(
 ): string {
   return `${ownerId}/${expenseId}/receipt_${timestamp}.${ext}`;
 }
+
+// POST /extract — read a receipt BEFORE the expense exists (US-2993).
+//
+// WHY THIS IS NOT PART OF THE ATTACH ROUTE. Attaching needs an expense to
+// attach to, so the old flow was: type vendor, date and amount by hand, save,
+// then upload the photo. Extraction has to happen the other way round or it
+// saves the seller nothing. So the image is validated, stripped and parked
+// under the owner's STAGING prefix, and the expense is created afterwards from
+// the confirmed draft.
+//
+// The staging path is `{ownerId}/_staging/...`, and the adopt step below checks
+// that prefix BEFORE touching storage or the database. A path from a request
+// body is attacker-controlled input; without the prefix check, a crafted one
+// would copy another tenant's receipt onto this tenant's expense.
+flipdeskExpensesRoutes.post("/extract", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let form: FormData;
+  try {
+    form = await c.req.formData();
+  } catch {
+    return c.json(
+      { error: "Invalid form data. Expected multipart/form-data." },
+      400,
+    );
+  }
+  const file = form.get("receipt");
+  if (!(file instanceof File) || file.size === 0) {
+    return c.json({ error: "Missing receipt file" }, 400);
+  }
+
+  const raw = new Uint8Array(await file.arrayBuffer());
+  const verdict = validateReceiptUpload(raw, { maxBytes: MAX_RECEIPT_BYTES });
+  if (!verdict.ok) return c.json({ error: verdict.reason }, 400);
+
+  // A PDF cannot be sent to the vision model, but it is still a valid receipt
+  // to KEEP. It stages and skips extraction rather than being refused, and the
+  // response says why so the screen does not look broken.
+  if (verdict.kind !== "image") {
+    const path = `${ownerId}/_staging/receipt_${Date.now()}.${verdict.ext}`;
+    const { error } = await supabaseAdmin.storage
+      .from(BUCKET)
+      .upload(path, raw, { contentType: verdict.contentType, upsert: true });
+    if (error) {
+      return failSafe(c, 500, "Upload failed.", error, "expenses.extract.upload");
+    }
+    return c.json({
+      staging_path: path,
+      draft: null,
+      confidence: {},
+      warning:
+        "We can keep a PDF receipt but cannot read one yet. Fill the details in and it will be attached.",
+    });
+  }
+
+  const image = validateImageUpload(raw, {
+    maxBytes: MAX_RECEIPT_BYTES,
+    allow: ["jpeg", "png", "webp"],
+  });
+  if (!image.ok) return c.json({ error: image.reason }, 400);
+  const bytes = stripImageMetadata(raw, image.format).bytes;
+
+  // Staged FIRST, so a model timeout does not lose the photo the seller just
+  // took. They can still save the expense by hand with the receipt attached,
+  // which is what AC2 asks for.
+  const path = `${ownerId}/_staging/receipt_${Date.now()}.${verdict.ext}`;
+  const { error: upErr } = await supabaseAdmin.storage
+    .from(BUCKET)
+    .upload(path, bytes, { contentType: verdict.contentType, upsert: true });
+  if (upErr) {
+    return failSafe(c, 500, "Upload failed.", upErr, "expenses.extract.upload");
+  }
+
+  try {
+    const base64 = encodeBase64(bytes);
+    const extraction = await extractReceipt(
+      base64,
+      verdict.contentType as "image/jpeg" | "image/png" | "image/webp",
+      ownerId,
+    );
+    return c.json({
+      staging_path: path,
+      draft: extraction.draft,
+      confidence: extraction.confidence,
+      low_confidence: lowConfidenceFields(extraction),
+      lines_gap_cents: linesReconcile(extraction.draft),
+      prompt_version: extraction.promptVersion,
+      warning: extraction.warning,
+    });
+  } catch (err) {
+    // AC2. The photo is already saved, so the seller loses nothing but the
+    // typing. Saying so is the difference between a degraded feature and a
+    // broken one.
+    console.error("[expenses.extract] model call failed", err);
+    return c.json({
+      staging_path: path,
+      draft: null,
+      confidence: {},
+      warning:
+        "We could not read that one. Your photo is saved -- fill in the details and it will be attached.",
+    });
+  }
+});
+
+// POST /:id/adopt-staged — attach a previously staged receipt to a new expense.
+flipdeskExpensesRoutes.post("/:id/adopt-staged", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const expenseId = c.req.param("id");
+
+  const expense = await loadOwnedExpense(expenseId, ownerId);
+  if (!expense) return c.json({ error: "Expense not found" }, 404);
+
+  let body: { staging_path?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const staged = typeof body.staging_path === "string" ? body.staging_path : "";
+
+  // THE TENANCY CHECK, before any storage call. A path from the body is
+  // attacker-controlled; without this a crafted one copies another tenant's
+  // receipt onto this expense.
+  if (!staged.startsWith(`${ownerId}/_staging/`)) {
+    return c.json({ error: "Not your file" }, 403);
+  }
+
+  const ext = staged.split(".").pop() ?? "jpg";
+  const finalPath = receiptStoragePath(ownerId, expenseId, ext, Date.now());
+
+  const { error: moveErr } = await supabaseAdmin.storage
+    .from(BUCKET)
+    .move(staged, finalPath);
+  if (moveErr) {
+    return failSafe(c, 500, "Couldn't attach the receipt.", moveErr, "expenses.adopt.move");
+  }
+
+  const { error: rowErr } = await supabaseAdmin
+    .from("flipdesk_expenses")
+    .update({
+      receipt_path: finalPath,
+      receipt_mime: ext === "pdf" ? "application/pdf" : `image/${ext === "jpg" ? "jpeg" : ext}`,
+      receipt_uploaded_at: new Date().toISOString(),
+    } as never)
+    .eq("id", expenseId)
+    .eq("user_id", ownerId);
+  if (rowErr) {
+    await supabaseAdmin.storage.from(BUCKET).remove([finalPath]);
+    return failSafe(c, 500, "Couldn't attach the receipt.", rowErr, "expenses.adopt.link");
+  }
+
+  return c.json({ receipt_path: finalPath });
+});
 
 // POST /:id/receipt — attach or replace the receipt on one expense.
 flipdeskExpensesRoutes.post("/:id/receipt", async (c) => {
