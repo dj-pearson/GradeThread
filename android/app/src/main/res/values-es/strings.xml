@@ -1949,4 +1949,15 @@
     <string name="trip_form_round_trip">Ida y vuelta</string>
     <string name="trip_form_save">Guardar</string>
     <string name="trip_form_cancel">Cancelar</string>
+    <string name="grade_factor_fabric">Estado del tejido</string>
+    <string name="grade_factor_structural">Integridad estructural</string>
+    <string name="grade_factor_cosmetic">Aspecto exterior</string>
+    <string name="grade_factor_functional">Piezas funcionales</string>
+    <string name="grade_factor_odor">Olor y limpieza</string>
+    <string name="inventory_sort_newest">Más recientes</string>
+    <string name="inventory_sort_oldest">Más antiguos</string>
+    <string name="inventory_sort_best_roi">Mejor rentabilidad</string>
+    <string name="inventory_sort_highest_comp">Precio comparable más alto</string>
+    <string name="inventory_sort_highest_grade">Nota más alta</string>
+    <string name="inventory_sort_sku">SKU</string>
 </resources>

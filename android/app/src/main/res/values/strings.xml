@@ -2080,4 +2080,15 @@
     <string name="money_removed_offline">Removed — the change will sync when you\'re back online.</string>
     <string name="money_refresh_failed">Couldn\'t refresh your finances.</string>
     <string name="money_action_failed">That didn\'t work.</string>
+    <string name="grade_factor_fabric">Fabric Condition</string>
+    <string name="grade_factor_structural">Structural Integrity</string>
+    <string name="grade_factor_cosmetic">Cosmetic Appearance</string>
+    <string name="grade_factor_functional">Functional Elements</string>
+    <string name="grade_factor_odor">Odor &amp; Cleanliness</string>
+    <string name="inventory_sort_newest">Newest</string>
+    <string name="inventory_sort_oldest">Oldest</string>
+    <string name="inventory_sort_best_roi">Best ROI</string>
+    <string name="inventory_sort_highest_comp">Highest comp</string>
+    <string name="inventory_sort_highest_grade">Highest grade</string>
+    <string name="inventory_sort_sku">SKU</string>
 </resources>

@@ -475,7 +475,7 @@ private fun SortRow(current: SortOption, onSelect: (SortOption) -> Unit) {
             FilterChip(
                 selected = option == current,
                 onClick = { onSelect(option) },
-                label = { Text(option.label) },
+                label = { Text(stringResource(option.label)) },
             )
         }
     }

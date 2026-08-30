@@ -1,5 +1,8 @@
 package com.gradethread.app.grading
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 /**
  * US-1337: the five weighted condition factors that compose an overall grade.
  *
@@ -8,13 +11,19 @@ package com.gradethread.app.grading
  * used for DISPLAY only — the server computes the overall score. If these ever
  * disagree with the server, the bars would explain a number that wasn't
  * arrived at this way, so the sum is pinned by a test.
+ *
+ * US-2976: [label] is a string RESOURCE. It was a literal, and the five
+ * factor names are Title Case single phrases, which the localization guard's
+ * sentence rule could not see - so a Spanish seller read the whole grade
+ * report in Spanish except the five things it is a report ABOUT. An enum
+ * cannot call stringResource, so it carries the id and the screen resolves it.
  */
-enum class GradeFactor(val label: String, val weight: Double) {
-    FABRIC_CONDITION("Fabric Condition", 0.30),
-    STRUCTURAL_INTEGRITY("Structural Integrity", 0.25),
-    COSMETIC_APPEARANCE("Cosmetic Appearance", 0.20),
-    FUNCTIONAL_ELEMENTS("Functional Elements", 0.15),
-    ODOR_CLEANLINESS("Odor & Cleanliness", 0.10),
+enum class GradeFactor(@StringRes val label: Int, val weight: Double) {
+    FABRIC_CONDITION(R.string.grade_factor_fabric, 0.30),
+    STRUCTURAL_INTEGRITY(R.string.grade_factor_structural, 0.25),
+    COSMETIC_APPEARANCE(R.string.grade_factor_cosmetic, 0.20),
+    FUNCTIONAL_ELEMENTS(R.string.grade_factor_functional, 0.15),
+    ODOR_CLEANLINESS(R.string.grade_factor_odor, 0.10),
     ;
 
     /** This factor's 1–10 sub-score from a decoded report. */

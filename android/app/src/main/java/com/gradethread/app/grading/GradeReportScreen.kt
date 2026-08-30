@@ -248,9 +248,10 @@ private fun FactorBreakdown(report: GradeReportDto) {
         GradeFactor.entries.forEach { factor ->
             val value = factor.score(report)
             // See Header: `semantics { }` is not a composable scope.
+            val factorLabel = stringResource(factor.label)
             val spoken = stringResource(
                 R.string.gradereport_factor_spoken,
-                factor.label,
+                factorLabel,
                 factor.weightLabel,
                 score(value),
             )
@@ -259,7 +260,7 @@ private fun FactorBreakdown(report: GradeReportDto) {
             ) {
                 Row(Modifier.fillMaxWidth()) {
                     Text(
-                        stringResource(R.string.gradereport_factor_label, factor.label, factor.weightLabel),
+                        stringResource(R.string.gradereport_factor_label, factorLabel, factor.weightLabel),
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.weight(1f),
                     )

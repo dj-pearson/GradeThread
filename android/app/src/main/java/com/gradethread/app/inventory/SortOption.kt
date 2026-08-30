@@ -1,5 +1,7 @@
 package com.gradethread.app.inventory
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
 import com.gradethread.app.sync.db.InventoryItemEntity
 
 /**
@@ -8,14 +10,18 @@ import com.gradethread.app.sync.db.InventoryItemEntity
  * NOTE ON THE ACCEPTANCE CRITERIA: US-1342 lists "graded-only" among the
  * sorts. It isn't one on iOS — it's a FILTER
  * ([InventoryFilterCriteria.gradedOnly]). "Highest grade" is the sort.
+ *
+ * US-2976: [wire] is the persisted value and must never change; [label] is a
+ * string RESOURCE, because the two are not the same thing and were the same
+ * String until now.
  */
-enum class SortOption(val wire: String, val label: String) {
-    NEWEST("newest", "Newest"),
-    OLDEST("oldest", "Oldest"),
-    BEST_ROI("best_roi", "Best ROI"),
-    HIGHEST_COMP("highest_comp", "Highest comp"),
-    HIGHEST_GRADE("highest_grade", "Highest grade"),
-    SKU_NATURAL("sku_natural", "SKU"),
+enum class SortOption(val wire: String, @StringRes val label: Int) {
+    NEWEST("newest", R.string.inventory_sort_newest),
+    OLDEST("oldest", R.string.inventory_sort_oldest),
+    BEST_ROI("best_roi", R.string.inventory_sort_best_roi),
+    HIGHEST_COMP("highest_comp", R.string.inventory_sort_highest_comp),
+    HIGHEST_GRADE("highest_grade", R.string.inventory_sort_highest_grade),
+    SKU_NATURAL("sku_natural", R.string.inventory_sort_sku),
     ;
 
     fun comparator(): Comparator<InventoryItemEntity> = when (this) {
