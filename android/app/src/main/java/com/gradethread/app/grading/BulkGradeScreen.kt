@@ -22,6 +22,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.pluralStringResource
@@ -50,6 +51,67 @@ fun BulkGradeScreen(
     LaunchedEffect(itemIds) { viewModel.bind(itemIds) }
     val state by viewModel.state.collectAsState()
 
+    BulkGradeContent(
+        state,
+        BulkGradeActions(
+            selectTier = viewModel::selectTier,
+            confirmTier = viewModel::confirmTier,
+            cancelTierConfirm = viewModel::cancelTierConfirm,
+            retry = viewModel::load,
+            submit = viewModel::submit,
+            revalidate = viewModel::revalidate,
+            close = onClose,
+        ),
+        modifier = modifier,
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class BulkGradeActions(
+    val selectTier: (GradeTier) -> Unit = {},
+    val confirmTier: () -> Unit = {},
+    val cancelTierConfirm: () -> Unit = {},
+    val retry: () -> Unit = {},
+    val submit: () -> Unit = {},
+    val revalidate: suspend () -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * Bulk grading with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THE CONFIRMATION IS WHERE THE CREDITS GET SPENT, and it names both numbers:
+ * what this tier costs and what the balance is. A seller pressing Grade on
+ * twenty items is committing twenty times the tier price in one tap, and the
+ * dialog is the only place that arithmetic appears.
+ *
+ * ⚠ BLOCKED ROWS ARE LISTED, NOT COUNTED. An item missing photos cannot be
+ * graded, and a screen that only said "18 of 20 ready" would leave a seller
+ * hunting for the two. They render with their reasons.
+ *
+ * ⚠ AND THE CREDIT SHEET REPLACES THE SUBMIT BUTTON rather than sitting beside
+ * it. With too few credits there is nothing to press, so offering a disabled
+ * Grade button next to a top-up would be two ways to do one thing.
+ */
+@Composable
+fun BulkGradeContent(
+    state: BulkGradeViewModel.State,
+    actions: BulkGradeActions,
+    modifier: Modifier = Modifier,
+    creditPackSheet: @Composable (BulkGradeViewModel.State) -> Unit = { s ->
+        CreditPackSheet(
+            // The balance is per ACCOUNT, so any selected item validates it -
+            // this one is simply the first ready id.
+            itemId = s.ready.firstOrNull()?.inventoryItemId.orEmpty(),
+            tier = s.tier,
+            creditsRequired = s.validation?.creditsRequired ?: 0,
+            creditBalance = s.creditBalance,
+            onGranted = actions.revalidate,
+            surface = TopUpSurface.BULK,
+        )
+    },
+) {
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -58,7 +120,7 @@ fun BulkGradeScreen(
         verticalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
         Text(
-            pluralStringResource(R.plurals.bulkgrade_title, itemIds.size, itemIds.size),
+            pluralStringResource(R.plurals.bulkgrade_title, state.itemIds.size, state.itemIds.size),
             style = MaterialTheme.typography.titleLarge,
         )
 
@@ -68,7 +130,7 @@ fun BulkGradeScreen(
                 contentAlignment = Alignment.Center,
             ) { CircularProgressIndicator() }
 
-            BulkGradeMachine.Phase.Ready -> ReadyBody(state, viewModel)
+            BulkGradeMachine.Phase.Ready -> ReadyBody(state, actions, creditPackSheet)
 
             BulkGradeMachine.Phase.Submitting -> Box(
                 Modifier.fillMaxWidth().padding(Spacing.xl),
@@ -92,7 +154,7 @@ fun BulkGradeScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 BrandPrimaryButton(text = stringResource(R.string.bulkgrade_done), modifier = Modifier.fillMaxWidth()) {
-                    onClose()
+                    actions.close()
                 }
             }
 
@@ -105,7 +167,7 @@ fun BulkGradeScreen(
                     text = stringResource(R.string.bulkgrade_close),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    onClose()
+                    actions.close()
                 }
             }
 
@@ -116,14 +178,13 @@ fun BulkGradeScreen(
                 BrandSecondaryButton(
                     text = stringResource(R.string.bulkgrade_try_again),
                     modifier = Modifier.fillMaxWidth(),
-                ) {
-                    viewModel.load()
-                }
+                    onClick = actions.retry,
+                )
                 BrandPrimaryButton(
                     text = stringResource(R.string.bulkgrade_close),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    onClose()
+                    actions.close()
                 }
             }
         }
@@ -131,7 +192,7 @@ fun BulkGradeScreen(
 
     state.pendingConfirmTier?.let { tier ->
         AlertDialog(
-            onDismissRequest = viewModel::cancelTierConfirm,
+            onDismissRequest = actions.cancelTierConfirm,
             title = {
                 Text(
                     pluralStringResource(
@@ -153,17 +214,25 @@ fun BulkGradeScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmTier) { Text(stringResource(R.string.bulkgrade_use_credits)) }
+                TextButton(onClick = actions.confirmTier) {
+                    Text(stringResource(R.string.bulkgrade_use_credits))
+                }
             },
             dismissButton = {
-                TextButton(onClick = viewModel::cancelTierConfirm) { Text(stringResource(R.string.bulkgrade_cancel)) }
+                TextButton(onClick = actions.cancelTierConfirm) {
+                    Text(stringResource(R.string.bulkgrade_cancel))
+                }
             },
         )
     }
 }
 
 @Composable
-private fun ReadyBody(state: BulkGradeViewModel.State, viewModel: BulkGradeViewModel) {
+private fun ReadyBody(
+    state: BulkGradeViewModel.State,
+    actions: BulkGradeActions,
+    creditPackSheet: @Composable (BulkGradeViewModel.State) -> Unit,
+) {
     val notReady = stringResource(R.string.bulkgrade_not_ready)
     Text(
         stringResource(
@@ -228,7 +297,7 @@ private fun ReadyBody(state: BulkGradeViewModel.State, viewModel: BulkGradeViewM
                     },
                     shape = RoundedCornerShape(12.dp),
                 )
-                .clickable { viewModel.selectTier(tier) }
+                .clickable { actions.selectTier(tier) }
                 .padding(Spacing.sm),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -256,21 +325,12 @@ private fun ReadyBody(state: BulkGradeViewModel.State, viewModel: BulkGradeViewM
     }
 
     if (state.isBlockedOnCredits) {
-        CreditPackSheet(
-            // The balance is per ACCOUNT, so any selected item validates it —
-            // this one is simply the first ready id.
-            itemId = state.ready.firstOrNull()?.inventoryItemId.orEmpty(),
-            tier = state.tier,
-            creditsRequired = state.validation?.creditsRequired ?: 0,
-            creditBalance = state.creditBalance,
-            onGranted = { viewModel.revalidate() },
-            surface = TopUpSurface.BULK,
-        )
+        creditPackSheet(state)
     } else {
         BrandPrimaryButton(
             text = pluralStringResource(R.plurals.bulkgrade_title, state.ready.size, state.ready.size),
             enabled = state.canSubmit,
             modifier = Modifier.fillMaxWidth(),
-        ) { viewModel.submit() }
+        ) { actions.submit() }
     }
 }
