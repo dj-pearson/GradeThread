@@ -106,6 +106,33 @@ class HomeQuickActionsTest {
     }
 
     /**
+     * ⚠ THE SECOND LINK, added when HomeScreen was split (US-2902 AC3).
+     *
+     * The block now calls `actions.onAddItem()`, and `contains("onAddItem()")`
+     * above is satisfied by that substring whether or not the wrapper ever binds
+     * it. So the assertion that used to prove the whole chain now proves half of
+     * one: the button calls SOMETHING named onAddItem on a record that could be
+     * carrying its default no-op.
+     *
+     * This is the same gap the split opened in ProviderSignInWiringTest, which
+     * passed silently. Asserting the binding closes it.
+     */
+    @Test
+    fun `the wrapper binds every quick action to its caller`() {
+        listOf(
+            "onAddItem = onAddItem,",
+            "onSnap = onSnap,",
+            "onScout = onScout,",
+            "onProspect = onProspect,",
+        ).forEach {
+            assertTrue(
+                "HomeScreen no longer binds $it - the action renders and reaches nothing",
+                home.contains(it),
+            )
+        }
+    }
+
+    /**
      * The half a source scan can still get wrong: a parameter that exists and is
      * passed `{}` at the call site looks identical to a wired one from inside
      * HomeScreen.kt.

@@ -19,6 +19,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.pluralStringResource
@@ -83,6 +84,74 @@ fun HomeScreen(
         )
     }
 
+    HomeContent(
+        state = state,
+        activation = activation,
+        refreshing = refreshing,
+        refreshError = refreshError,
+        actions = HomeActions(
+            onAddItem = onAddItem,
+            onSnap = onSnap,
+            onScout = onScout,
+            onProspect = onProspect,
+            onOpenInventory = onOpenInventory,
+            onOpenMoney = onOpenMoney,
+            onOpenGrades = onOpenGrades,
+            onOpenMarketplaces = onOpenMarketplaces,
+            onOpenItem = onOpenItem,
+            refresh = viewModel::refresh,
+            dismissRefreshError = viewModel::dismissRefreshError,
+            dismissChecklist = viewModel::dismissChecklist,
+        ),
+        modifier = modifier,
+    )
+}
+
+/**
+ * Everything the home screen can do (US-2902 AC3).
+ *
+ * Twelve callbacks - nine navigation targets plus three the ViewModel owns -
+ * passed one by one is a signature nobody reads and a screenshot test nobody
+ * writes. Bundled, HomeContent takes six arguments and renders from a golden
+ * with no Hilt graph and no Context.
+ *
+ * `refreshActivation` is NOT here: it needs a Context to read the OS
+ * notification permission, which is exactly the dependency this split exists to
+ * keep out of the stateless half.
+ */
+@Immutable
+data class HomeActions(
+    val onAddItem: () -> Unit = {},
+    val onSnap: () -> Unit = {},
+    val onScout: () -> Unit = {},
+    val onProspect: () -> Unit = {},
+    val onOpenInventory: () -> Unit = {},
+    val onOpenMoney: () -> Unit = {},
+    val onOpenGrades: () -> Unit = {},
+    val onOpenMarketplaces: () -> Unit = {},
+    val onOpenItem: (String) -> Unit = {},
+    val refresh: () -> Unit = {},
+    val dismissRefreshError: () -> Unit = {},
+    val dismissChecklist: () -> Unit = {},
+)
+
+/** The home screen with no ViewModel attached (US-2902 AC3). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HomeContent(
+    state: HomeViewModel.State,
+    activation: ActivationState,
+    refreshing: Boolean,
+    refreshError: String?,
+    actions: HomeActions,
+    modifier: Modifier = Modifier,
+) {
+    // Read here rather than passed in: LocalContext is available to any
+    // composable, so taking it as a parameter would make every caller - a
+    // golden included - supply something it should not have to know about.
+    // The checklist opens the OS notification settings, which needs it.
+    val context = LocalContext.current
+
     // US-2910 AC3: the GESTURE, not just the button.
     //
     // The Refresh control above has been here since this screen was
@@ -95,7 +164,7 @@ fun HomeScreen(
     // pullable - that is the state a seller pulls from.
     PullToRefreshBox(
         isRefreshing = refreshing,
-        onRefresh = viewModel::refresh,
+        onRefresh = actions.refresh,
         // detekt ModifierParameter: the caller's modifier belongs on the
         // ROOT-most layout, and after this wrap that is the box, not the list.
         modifier = modifier.fillMaxSize(),
@@ -111,7 +180,7 @@ fun HomeScreen(
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(onClick = viewModel::refresh, enabled = !refreshing) {
+                    TextButton(onClick = actions.refresh, enabled = !refreshing) {
                         Text(
                             stringResource(
                                 if (refreshing) R.string.home_refreshing else R.string.home_refresh,
@@ -133,7 +202,7 @@ fun HomeScreen(
                             color = MaterialTheme.colorScheme.error,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = viewModel::dismissRefreshError) {
+                        TextButton(onClick = actions.dismissRefreshError) {
                             Text(stringResource(R.string.home_dismiss))
                         }
                     }
@@ -155,14 +224,14 @@ fun HomeScreen(
                             state.metrics.onHandCount,
                         ),
                         modifier = Modifier.weight(1f),
-                        onClick = onOpenInventory,
+                        onClick = actions.onOpenInventory,
                     )
                     StatTile(
                         label = stringResource(R.string.home_listed),
                         value = state.metrics.listedCount.toString(),
                         detail = stringResource(R.string.home_active_listings),
                         modifier = Modifier.weight(1f),
-                        onClick = onOpenMarketplaces,
+                        onClick = actions.onOpenMarketplaces,
                     )
                 }
             }
@@ -176,14 +245,14 @@ fun HomeScreen(
                         value = state.metrics.soldThisWeekCount.toString(),
                         detail = Money.format(state.metrics.revenueThisWeek),
                         modifier = Modifier.weight(1f),
-                        onClick = onOpenMoney,
+                        onClick = actions.onOpenMoney,
                     )
                     StatTile(
                         label = stringResource(R.string.home_net_profit_7_days),
                         value = Money.format(state.metrics.netProfitThisWeek),
                         detail = stringResource(R.string.home_after_fees),
                         modifier = Modifier.weight(1f),
-                        onClick = onOpenMoney,
+                        onClick = actions.onOpenMoney,
                     )
                 }
             }
@@ -215,11 +284,11 @@ fun HomeScreen(
                 item {
                     ChecklistCard(
                         state = activation,
-                        onDismiss = viewModel::dismissChecklist,
+                        onDismiss = actions.dismissChecklist,
                         onStep = { step ->
                             when (step.id) {
-                                ActivationStep.ADD_ITEM.id -> onAddItem()
-                                ActivationStep.CONNECT_EBAY.id -> onOpenMarketplaces()
+                                ActivationStep.ADD_ITEM.id -> actions.onAddItem()
+                                ActivationStep.CONNECT_EBAY.id -> actions.onOpenMarketplaces()
                                 // Opens system settings rather than firing a runtime
                                 // permission request.
                                 //
@@ -275,13 +344,13 @@ fun HomeScreen(
                             text = stringResource(R.string.home_add_item),
                             modifier = Modifier.weight(1f),
                         ) {
-                            onAddItem()
+                            actions.onAddItem()
                         }
                         BrandSecondaryButton(
                             text = stringResource(R.string.home_snap_to_value),
                             modifier = Modifier.weight(1f),
                         ) {
-                            onSnap()
+                            actions.onSnap()
                         }
                     }
                     Row(
@@ -296,13 +365,13 @@ fun HomeScreen(
                             text = stringResource(R.string.tools_scout),
                             modifier = Modifier.weight(1f),
                         ) {
-                            onScout()
+                            actions.onScout()
                         }
                         BrandSecondaryButton(
                             text = stringResource(R.string.tools_prospect),
                             modifier = Modifier.weight(1f),
                         ) {
-                            onProspect()
+                            actions.onProspect()
                         }
                     }
                 }
@@ -315,7 +384,7 @@ fun HomeScreen(
                         Modifier
                             .fillMaxWidth()
                             .padding(horizontal = Spacing.md)
-                            .clickable(onClick = onOpenGrades),
+                            .clickable(onClick = actions.onOpenGrades),
                     ) {
                         Column(Modifier.padding(Spacing.sm)) {
                             Text(
@@ -356,7 +425,7 @@ fun HomeScreen(
                     Row(
                         Modifier
                             .fillMaxWidth()
-                            .clickable { onOpenItem(agingItem.id) }
+                            .clickable { actions.onOpenItem(agingItem.id) }
                             .padding(horizontal = Spacing.md, vertical = Spacing.xs),
                     ) {
                         Text(
