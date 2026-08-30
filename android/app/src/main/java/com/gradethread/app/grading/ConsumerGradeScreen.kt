@@ -94,8 +94,18 @@ fun ConsumerGradeScreen(
     }
 }
 
+/**
+ * ⚠ `internal`, not `private`, so a golden can render it (US-2902 AC3).
+ *
+ * This screen was ALREADY factored the way that story asks for - the comment at
+ * the call site says so: "State hoisted rather than the ViewModel forwarded:
+ * DraftStep takes values and callbacks, so it previews and tests without Hilt."
+ * The only thing stopping a capture was file-private visibility, so widening to
+ * module-internal was a smaller change than wrapping it in yet another
+ * Content layer. Nothing here becomes public API.
+ */
 @Composable
-private fun DraftStep(
+internal fun DraftStep(
     draft: ConsumerGradeViewModel.Draft,
     onTitleChange: (String) -> Unit,
     onTypeChange: (String) -> Unit,
@@ -133,7 +143,12 @@ private fun DraftStep(
         }
 
         item {
-            VocabularyRow(stringResource(R.string.consumergrade_kind), Vocabulary.TYPE, draft.garmentType, onTypeChange)
+            VocabularyRow(
+                stringResource(R.string.consumergrade_kind),
+                Vocabulary.TYPE,
+                draft.garmentType,
+                onTypeChange,
+            )
         }
 
         item {
@@ -277,7 +292,7 @@ private const val VISIBLE_VALUES = 4
  * a credits prompt are both no-charge and both are commonly read as failures.
  */
 @Composable
-private fun ProgressStep(
+internal fun ProgressStep(
     step: ConsumerGradeFlow.Step,
     onViewGrade: (String) -> Unit,
     onPurchase: (String) -> Unit,
