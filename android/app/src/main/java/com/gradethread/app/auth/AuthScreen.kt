@@ -14,6 +14,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,8 +47,65 @@ import com.gradethread.app.ui.theme.Spacing
 @Composable
 fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
-    // US-2792: the Custom Tab needs an Activity context to launch from.
+    // US-2792: the Custom Tab needs an Activity context to launch from. It is
+    // bound HERE so AuthContent needs no Context and stays renderable from a
+    // screenshot test.
     val context = LocalContext.current
+    AuthContent(
+        state = state,
+        actions = AuthActions(
+            setEmail = viewModel::setEmail,
+            setPassword = viewModel::setPassword,
+            setFullName = viewModel::setFullName,
+            setCaptcha = viewModel::setCaptcha,
+            dismissNotice = viewModel::dismissNotice,
+            toggleMode = viewModel::toggleMode,
+            submit = viewModel::submit,
+            resendConfirmation = viewModel::resendConfirmation,
+            resetPassword = viewModel::resetPassword,
+            signInWithProvider = { viewModel.signInWithProvider(context, it) },
+        ),
+    )
+}
+
+/**
+ * Everything AuthScreen can do, in one parameter (US-2902 AC3).
+ *
+ * Ten callbacks passed individually is a signature nobody reads and a screenshot
+ * test nobody writes. Bundled, the stateless half below takes exactly two
+ * arguments and can be rendered from a golden with no Hilt graph, no ViewModel
+ * and no Context.
+ */
+@Immutable
+data class AuthActions(
+    val setEmail: (String) -> Unit = {},
+    val setPassword: (String) -> Unit = {},
+    val setFullName: (String) -> Unit = {},
+    val setCaptcha: (TurnstileResult) -> Unit = {},
+    val dismissNotice: () -> Unit = {},
+    val toggleMode: () -> Unit = {},
+    val submit: () -> Unit = {},
+    val resendConfirmation: () -> Unit = {},
+    val resetPassword: () -> Unit = {},
+    val signInWithProvider: (OAuthSignIn.Provider) -> Unit = {},
+)
+
+/**
+ * The sign-in screen with no ViewModel attached.
+ *
+ * ⚠ THIS IS THE SCREEN US-3003's DEFECT LIVED ON. The headline was black on the
+ * navy window in dark mode, because setContent had no Surface and
+ * LocalContentColor defaults to black - invisible, on the first screen every
+ * user sees, and found only by launching the app on a device. A golden over
+ * this function is what would have caught it in CI, which is the whole argument
+ * of US-2902 AC3: 49 of 52 screens take a ViewModel and cannot be captured.
+ *
+ * The layout below is UNCHANGED from the version that lived inside AuthScreen -
+ * only the callback references are rebound - so the extraction cannot itself
+ * have altered what a golden records.
+ */
+@Composable
+fun AuthContent(state: AuthViewModel.State, actions: AuthActions) {
     var passwordVisible by remember { mutableStateOf(false) }
 
     Column(
@@ -84,7 +142,7 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
         if (state.isSignUp) {
             OutlinedTextField(
                 value = state.fullName,
-                onValueChange = viewModel::setFullName,
+                onValueChange = actions.setFullName,
                 label = { Text(stringResource(R.string.auth_name)) },
                 singleLine = true,
                 enabled = !state.busy,
@@ -94,7 +152,7 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
 
         OutlinedTextField(
             value = state.email,
-            onValueChange = viewModel::setEmail,
+            onValueChange = actions.setEmail,
             label = { Text(stringResource(R.string.auth_email)) },
             singleLine = true,
             enabled = !state.busy,
@@ -109,7 +167,7 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
 
         OutlinedTextField(
             value = state.password,
-            onValueChange = viewModel::setPassword,
+            onValueChange = actions.setPassword,
             label = { Text(stringResource(R.string.auth_password)) },
             singleLine = true,
             enabled = !state.busy,
@@ -157,19 +215,19 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
                     text = stringResource(R.string.auth_resend_confirmation),
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.busy,
-                ) { viewModel.resendConfirmation() }
+                ) { actions.resendConfirmation() }
 
                 AuthFormRules.Recovery.RESET_PASSWORD -> BrandSecondaryButton(
                     text = stringResource(R.string.auth_reset_password),
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.busy,
-                ) { viewModel.resetPassword() }
+                ) { actions.resetPassword() }
 
                 AuthFormRules.Recovery.SWITCH_TO_SIGN_IN -> BrandSecondaryButton(
                     text = stringResource(R.string.auth_sign_in),
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.busy,
-                ) { viewModel.toggleMode() }
+                ) { actions.toggleMode() }
 
                 AuthFormRules.Recovery.NONE -> Unit
             }
@@ -177,7 +235,7 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
 
         state.notice?.let { notice ->
             Text(notice, style = MaterialTheme.typography.bodyMedium)
-            TextButton(onClick = viewModel::dismissNotice) {
+            TextButton(onClick = actions.dismissNotice) {
                 Text(stringResource(R.string.common_ok))
             }
         }
@@ -192,9 +250,9 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
         // Invisible without a site key - the composable reports NotConfigured
         // and builds no WebView at all, so a dev or CI build behaves exactly as
         // it did before this existed.
-        ProviderSignIn(onProvider = { viewModel.signInWithProvider(context, it) })
+        ProviderSignIn(onProvider = { actions.signInWithProvider(it) })
 
-        SignUpCaptcha(state.isSignUp, viewModel::setCaptcha)
+        SignUpCaptcha(state.isSignUp, actions.setCaptcha)
 
         BrandPrimaryButton(
             text = stringResource(
@@ -209,10 +267,10 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
                 .fillMaxWidth()
                 .padding(top = Spacing.sm),
             enabled = state.canSubmit,
-        ) { viewModel.submit() }
+        ) { actions.submit() }
 
         TextButton(
-            onClick = viewModel::toggleMode,
+            onClick = actions.toggleMode,
             enabled = !state.busy,
             modifier = Modifier.testTag(TestTags.Auth.TOGGLE).fillMaxWidth(),
         ) {

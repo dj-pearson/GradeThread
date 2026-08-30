@@ -91,6 +91,9 @@ const HOST_OWNER: [RegExp, string][] = [
   [/(^|\.)cloudflare\.com$/, "Cloudflare"],
   [/(^|\.)supabase\.(co|com)$/, "Supabase"],
   [/(^|\.)amazonaws\.com$/, "Amazon"],
+  // US-2997. Three Intuit hosts, one processor: appcenter (the consent
+  // screen), oauth.platform (tokens) and quickbooks.api (the company file).
+  [/(^|\.)intuit\.com$/, "Intuit"],
   [/(^|\.)remove\.bg$/, "remove.bg"],
 ];
 

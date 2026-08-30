@@ -62,8 +62,16 @@ async function sourceFiles(dir: URL, acc: URL[] = []): Promise<URL[]> {
  * by the property under test.
  *
  * So: scan back only to the start of the ENCLOSING function, and require a
- * CALL — `validateImageUpload(` with the paren — which an import can never
- * satisfy.
+ * CALL — `validateImageUpload(` or `validateReceiptUpload(` with the paren,
+ * which an import can never satisfy.
+ *
+ * US-2993 added the second name. validateReceiptUpload is the SAME magic-byte
+ * sniff with one extra branch: a PDF is a legitimate receipt to keep, and
+ * validateImageUpload would reject it with a message that is actively wrong on
+ * that screen. Both refuse SVG, both cap size, and neither trusts the client's
+ * Content-Type. Recognising only one of them made the receipt route look
+ * unvalidated when it is not — and the tempting fix, adding the file to
+ * UNVALIDATED_UPLOADS, would have written down the opposite of the truth.
  */
 export function validatesInScope(src: string, uploadIdx: number): boolean {
   const head = src.slice(0, uploadIdx);
@@ -76,7 +84,9 @@ export function validatesInScope(src: string, uploadIdx: number): boolean {
     head.lastIndexOf("async function"),
   ];
   const start = Math.max(...bounds, 0);
-  return /validateImageUpload\s*\(/.test(src.slice(start, uploadIdx));
+  return /validateImageUpload\s*\(|validateReceiptUpload\s*\(/.test(
+    src.slice(start, uploadIdx),
+  );
 }
 
 const rel = (u: URL) => u.pathname.split("/services/edge-functions/")[1] ?? u.pathname;

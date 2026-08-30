@@ -254,6 +254,13 @@ const SERVICE_ROLE_ONLY = new Set([
   // written by the edge correction endpoint, read via documented SQL. The SPA
   // never queries it; deny-all by design. Keyed by owner_user_id.
   "measure_corrections",
+  // US-2997 QuickBooks OAuth CSRF state: RLS enabled, zero policies by design
+  // (migration 00704). Single-use and self-expiring, deleted-and-returned in
+  // one statement at the callback; the SPA never reads it. The connection and
+  // mapping tables beside it are ordinary tenant tables with per-user policies,
+  // because the status card reads them straight through PostgREST -- only the
+  // state belongs behind the service role.
+  "qbo_oauth_states",
   // US-146 Google Sheets OAuth CSRF state: RLS enabled, zero policies by design
   // (migration 00131 documents "all access via the service-role edge client").
   // Single-use + self-expiring; the SPA never reads it.

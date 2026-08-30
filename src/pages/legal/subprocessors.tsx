@@ -40,6 +40,7 @@ const SUBPROCESSORS: Subprocessor[] = [
   // Optional, and it says so: the route 503s unless the operator has configured
   // REMOVE_BG_API_KEY. A list that omitted it would be wrong on any deployment
   // where it IS configured, and a photo is a photo.
+  { name: "Intuit (QuickBooks Online) — only when connected", purpose: "Accounting sync: the seller's own sales, fees, expenses and payouts pushed into their QuickBooks company file", data: "Transaction amounts, dates, account names and receipt images the seller chooses to sync. No buyer PII and no garment photos.", location: "United States" },
   { name: "remove.bg (Kaleido AI) — only when enabled", purpose: "Optional background removal on a listing photo", data: "The single garment photo submitted for removal", location: "Austria / European Union" },
   { name: "Sentry", purpose: "Error monitoring", data: "Redacted error context, request metadata", location: "United States" },
   { name: "PostHog", purpose: "Product analytics (consent-gated)", data: "Usage events, pseudonymous identifiers", location: "United States" },

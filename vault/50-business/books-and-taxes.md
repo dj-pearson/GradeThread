@@ -19,6 +19,10 @@ code_refs:
   - src/lib/cogs.ts
   - scripts/check-cogs-worksheet.mjs
   - src/lib/tax-packet.ts
+  - supabase/migrations/00704_quickbooks_connection.sql
+  - src/lib/qbo-mapping.ts
+  - services/edge-functions/src/lib/qbo-client.ts
+  - services/edge-functions/src/routes/qbo.ts
   - src/components/finances/tax-packet-card.tsx
   - supabase/migrations/00691_facilitator_sales_tax.sql
   - scripts/check-facilitator-tax.mjs
@@ -1137,6 +1141,116 @@ home office is computed), and the honest one: **anything never recorded in
 GradeThread is not here.** An accountant who assumes state tax is in the packet
 finds out late; naming the gap is worth more than another number.
 
+## QuickBooks Online: the connection and the mapping
+
+US-2997, and it deliberately moves NO transactions. That is US-2998. A sale
+posted into the wrong QBO account is a mess an accountant unpicks by hand and
+QuickBooks has no undo for a bulk sync, so the mapping gets its own screen and
+its own sign-off first.
+
+### It is not on `marketplace_connections`, and that was a decision
+
+The OAuth shape is copied exactly from `flipdesk-ebay.ts`: AES-GCM tokens with
+the owning user id as the AAD, a single-use state row deleted-and-returned at
+the callback, lazy refresh on use with an hourly sweep behind it, and a
+permanent-versus-transient split on failure. Only the TABLE is separate.
+
+`marketplace_connections.marketplace` is the `listing_platform` enum. Adding
+"quickbooks" to it would put an accounting connector into every platform
+dropdown, every platform breakdown and every "which marketplaces am I on" count
+in the app, for a row that can never hold a listing. Three new tables in
+migration 00704 instead: `qbo_connections`, `qbo_account_mappings`, and the
+deny-all `qbo_oauth_states`.
+
+### The realm is the point
+
+A QBO connection is to ONE company file, named by its realm id. Every call is
+scoped by the realm stored on the connection row, and the realm is **never read
+from a request body** -- that is precisely how a seller with a personal file and
+a business file gets a sale in the wrong one. It arrives once, on Intuit's own
+callback, alongside a state token only this server minted.
+
+Sandbox and production are different company files and nothing ever falls back
+between them. The environment is part of the row, part of the unique key, and on
+the screen at all times, because pushing test data into a real file cannot be
+undone.
+
+### The 100-day clock
+
+QBO access tokens last an hour. The refresh token is the one that matters: it
+**rotates on every use** and dies after 100 days of disuse.
+
+Rotation is the dangerous half. The old refresh token is invalid the instant the
+new one is issued, so if the write fails after the network call succeeded, the
+stored token is already dead. `authFromRow` writes it immediately and, on a
+failed write, raises "connect it again" rather than returning a token whose
+refresh partner is lost.
+
+Expiry is the quiet half, and AC6 is about it: a silent stop is how a seller
+discovers in March that nothing has synced since November. The hourly sweep
+checks `refresh_token_expires_at` BEFORE trying, so the reconnect prompt appears
+while the seller can still act. A permanent failure clears `is_active` and
+writes the reconnect wording where the status card reads it; a transient one
+stores the message and leaves the connection alone, because treating an Intuit
+503 as a disconnect is the mirror-image mistake.
+
+### The mapping, and why absence is meaningful
+
+`src/lib/qbo-mapping.ts` is pure and takes a chart of accounts someone else
+fetched. `proposeMapping()` tries QBO's `AccountSubType` (precise), then a name
+contains (weak, and labelled weak), then the `AccountType` -- and the type stage
+fires **only when exactly one account in the file has that type**. A chart with
+eleven Expense accounts cannot tell travel from utilities, and proposing
+whichever came back first is how a seller's meals land in insurance.
+
+Two rules the tests found rather than the design:
+
+- **Candidates are filtered to the right side of the books before any guessing.**
+  Without it, the name stage matched "postage" against "Shipping Income" -- a
+  revenue account for an expense -- and `validateMapping` then rejected the
+  suggestion the same screen had just made. A proposer and a validator that
+  disagree are two rules, and the seller has to work out which one is real. An
+  invariant test now runs both over several charts and asserts they never
+  disagree.
+- **Ties are broken deterministically** (by name, then id). QBO returns accounts
+  in whatever order its query felt like, and a proposal that depends on that
+  order changes under the seller between one screen and the next.
+
+Four accounts are **never mapped**, and the screen says so with the reason
+rather than leaving a blank row: mileage and the home office are worked out on
+the return, so pushing them would deduct the same thing twice; the two inventory
+balances are QuickBooks' own, so pushing ours would count the same stock twice.
+
+An unmapped account **blocks its own push and nothing else** (AC4). A seller who
+has never paid for advertising must not be stopped from syncing by an empty
+advertising row, and the message says the rest still goes -- otherwise it reads
+as a stop.
+
+Validation runs against the LIVE chart, not against what we proposed last week:
+an account can be deactivated, merged or deleted in QuickBooks in between, and
+the one check worth doing beyond existence is income pointed at an expense
+account. That is the mistake that looks fine on the mapping screen and shows up
+as a negative profit in March.
+
+### Env, and the fact that none of it is on
+
+`QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_REDIRECT_URI` and `QBO_ENVIRONMENT`
+are all new and all optional. Unset -- which is the state today -- every route
+answers 503 and the card says QuickBooks is not switched on for this server.
+The redirect URI must match the Intuit app exactly, scheme and trailing slash
+included; Intuit's rejection does not say which part is wrong.
+
+### The guard that had to be fixed before it guarded anything
+
+`/api/flipdesk/qbo/*` is deny-by-default under one `qboAuthMiddleware` mount,
+with two named exemptions. The first version of `qbo-auth-coverage_test.ts`
+checked those two by name -- so a THIRD exemption added for an existing route
+(`/mappings`, say) passed every assertion: the key matched a declared route, the
+forward and reverse checks agreed with each other, and nothing ever asked what
+replaced the session. That sabotage was run and came back green. It now
+iterates every exemption and requires a mechanism to be visible in the handler,
+with a self-check proving an ordinary route shows none.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -1157,9 +1271,10 @@ its contract into this note. Currently landed:
 - **US-2994** - the bank CSV import and its two idempotency rules, above.
 - **US-2995** - period close, and why the lock is a trigger, above.
 - **US-2996** - the year-end packet, its receipts-not-links answer and its exclusions, above.
+- **US-2997** - the QuickBooks connection, the realm rule and the mapping, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
 Still open, and each will add a section here rather than a new note: the
-QuickBooks connection and push (US-2997, US-2998), the rebuilt Money navigation
+QuickBooks transaction push (US-2998), the rebuilt Money navigation
 (US-2999), mileage and receipts on mobile (US-3000), and matching a receipt's
 line items back to inventory (US-3012).

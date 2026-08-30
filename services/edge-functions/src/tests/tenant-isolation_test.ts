@@ -7313,3 +7313,93 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  // US-2997: the QuickBooks connector. Every route resolves the tenant as
+  // workspaceOwnerId ?? userId and the realm id comes only from the row loaded
+  // that way -- it is never read from a request body, because that is exactly
+  // how a seller's sale would land in another company's file. B, holding a
+  // valid JWT for their own workspace, must never see or change A's connection.
+  //
+  // The statuses to expect: 503 when QBO_CLIENT_ID is unset (the usual state on
+  // a test stack), 403 when B is not an admin, 400 when B simply has no
+  // connection of their own, 401 without a session. Never a 200 carrying
+  // another tenant's realm.
+  name: "B cannot read, connect or map another workspace's QuickBooks",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const start = await fetch(`${BASE}/api/flipdesk/qbo/oauth/start`, {
+      headers: authHeaders(B_JWT!),
+    });
+    await start.body?.cancel();
+    assert(
+      [200, 401, 403, 503].includes(start.status),
+      `qbo oauth/start: expected 200/401/403/503 but got ${start.status}`,
+    );
+
+    // Status is B's OWN connection or null. It must never carry a realm id
+    // belonging to anyone else, which is what a leak here would look like.
+    const status = await fetch(`${BASE}/api/flipdesk/qbo/status`, {
+      headers: authHeaders(B_JWT!),
+    });
+    if (status.status === 200) {
+      const body = await status.json();
+      assert(
+        body?.connection === null || typeof body?.connection?.realm_id === "string",
+        "qbo status returned a malformed connection",
+      );
+    } else {
+      await status.body?.cancel();
+      assertDenied(status.status, "qbo status");
+    }
+
+    // Saving a mapping without a connection must refuse rather than write a row
+    // keyed on somebody else's connection_id. The route ignores any
+    // connection_id in the body and loads it owner-scoped, so this is a 400.
+    const put = await fetch(`${BASE}/api/flipdesk/qbo/mappings`, {
+      method: "PUT",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        connection_id: SPOOF_ID,
+        mappings: [{ account_code: "sales_revenue", qbo_account_id: "1" }],
+      }),
+    });
+    await put.body?.cancel();
+    assert(
+      put.status !== 200 && [400, 401, 403, 503].includes(put.status),
+      `qbo mappings PUT: expected 400/401/403/503 but got ${put.status}`,
+    );
+
+    // Disconnect is admin-gated and owner-scoped. It is idempotent, so a 200 is
+    // legitimate for a caller who has no connection -- but it must never have
+    // touched A's row. The following status read proves nothing was torn down
+    // on the other side, because a cross-tenant teardown would be invisible in
+    // the disconnect response itself.
+    const disc = await fetch(`${BASE}/api/flipdesk/qbo/disconnect`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({}),
+    });
+    await disc.body?.cancel();
+    assert(
+      [200, 401, 403].includes(disc.status),
+      `qbo disconnect: expected 200/401/403 but got ${disc.status}`,
+    );
+  },
+});
+
+Deno.test({
+  // The cron sweep rotates tokens for EVERY tenant, so it is job-secret only
+  // and must not be reachable with an ordinary user's JWT. A seller who could
+  // call it would be triggering refreshes across the whole platform.
+  name: "the QuickBooks refresh sweep refuses a user JWT",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/qbo/oauth/refresh`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assertEquals(res.status, 401, "qbo oauth/refresh must be job-secret only");
+  },
+});

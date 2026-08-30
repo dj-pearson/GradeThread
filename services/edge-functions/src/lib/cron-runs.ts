@@ -262,6 +262,7 @@ export const CRON_REGISTRY: CronDef[] = [
   // reason the fleet alert exists. It was one of eight registry entries the
   // monitor never examined (US-2616).
   { name: "ebay-token-refresh", label: "eBay token refresh", schedule: "0 * * * *", category: "sync", endpoint: "/api/flipdesk/ebay/oauth/refresh", recorded: true },
+  { name: "qbo-token-refresh", label: "QuickBooks token refresh", schedule: "0 * * * *", category: "sync", endpoint: "/api/flipdesk/qbo/oauth/refresh", recorded: true },
   // ebay-orders-sync WAS HERE, and US-2617 deleted it rather than fixing it.
   //
   // It pointed at /api/flipdesk/ebay/listings/pull, a SELLER route that reads

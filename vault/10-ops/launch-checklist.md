@@ -204,6 +204,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | portfolio-alerts | `0 7 * * *` | `/api/jobs/portfolio-alerts` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | publish-batch-reclaim | `*/5 * * * *` | `/api/jobs/publish-batch-reclaim` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | push-token-prune | `0 3 * * *` | `/api/jobs/push-token-prune` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| qbo-token-refresh | `0 * * * *` | `/api/flipdesk/qbo/oauth/refresh` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | radar-aggregate | `20 * * * *` | `/api/jobs/radar-aggregate` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, events, venues, aggregates, suppressed, removed, kFloor, pruned}; suppressed > 0 is NORMAL and means the k-anonymity floor withheld those venues |
 | reconciliation-sweep | `0 5 * * *` | `/api/jobs/reconciliation-sweep` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 {owners,eligible_owners,auto_matched,ambiguous,...}; ambiguous is not an error — those rows are queued for the seller on purpose |
 | reprice-rules | `0 */6 * * *` | `/api/jobs/reprice-rules` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -217,7 +218,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_83 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_84 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 <!-- cron-registry:end -->
 
 **One-off at launch (not scheduled):** POST `/api/jobs/cert-integrity-backfill`

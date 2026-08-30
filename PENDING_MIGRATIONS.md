@@ -1,5 +1,53 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🔴 HELD: 00704_quickbooks_connection.sql (US-2997 — the QuickBooks Online connection and its account mapping)
+
+**Risk: low.** Three NEW tables and nothing else. No existing table, column,
+function, policy or row is touched, so an unapplied state is invisible to every
+current screen rather than broken.
+
+**⚠ Needs `NOTIFY pgrst, 'reload schema';`** — three tables are new, and
+PostgREST will 404 on all of them until it is told.
+
+**Apply order: independent.** It shares no object with 00701, 00702 or 00703 and
+can go before or after any of them.
+
+**What it does.**
+- `qbo_connections` — one row per connected QuickBooks company file. Holds the
+  realm id, the environment, and the AES-GCM access and refresh tokens. Per-user
+  RLS in the `(select auth.uid())` initplan form.
+- `qbo_account_mappings` — one row per GradeThread account the seller has mapped
+  to a QBO account. Absence means unmapped, which blocks that account's push and
+  nothing else. Per-user RLS.
+- `qbo_oauth_states` — the single-use OAuth CSRF token. RLS enabled with ZERO
+  policies by design (service-role only), and registered in `SERVICE_ROLE_ONLY`
+  in `rls-guard_test.ts` in the same commit.
+
+**Why it is NOT on `marketplace_connections`.** That table's `marketplace`
+column is the `listing_platform` enum, and QuickBooks is not a place you list a
+garment. Adding a value to that enum would put "quickbooks" into every platform
+dropdown, breakdown and count in the app, for a row that can never hold a
+listing. The OAuth SHAPE is copied exactly; only the table is separate.
+
+**Frontend dependency, and it is safe in both directions.** The QuickBooks card
+ships in the same commit, but every read goes through the edge
+(`/api/flipdesk/qbo/*`), not through PostgREST. If the frontend deploys before
+this SQL is applied, `/status` returns `configured: false` (the env vars are
+unset anyway) and the card says QuickBooks is not switched on. No screen 500s
+and no query 404s in the browser.
+
+**It is inert until the env vars are set.** `QBO_CLIENT_ID`,
+`QBO_CLIENT_SECRET`, `QBO_REDIRECT_URI` and `QBO_ENVIRONMENT` are all new and
+all optional. With none of them set — which is today — every route refuses with
+503 and nothing reaches Intuit. Applying this migration on its own changes
+nothing a seller can see.
+
+**Verified on the local stack.** Applied twice against the throwaway Postgres to
+prove idempotency; the second run is clean. `migrations-lint` passes,
+`rls-guard_test.ts` passes with the new registration, and the full edge suite is
+9130 passed / 0 failed.
+
+
 ## 🔴 HELD: 00703_archived_needs_a_reason.sql (US-3007 — archived items with no reason reach the review queue)
 
 **Risk: low.** Re-emits `public.books_review_queue(date, date)` with one extra

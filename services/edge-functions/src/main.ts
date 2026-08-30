@@ -75,6 +75,8 @@ import { flipdeskExtensionQueueRoutes } from "./routes/flipdesk-extension-queue.
 import { extensionOrUserAuthMiddleware } from "./middleware/extension-or-user-auth.ts";
 import { flipdeskSyncRoutes } from "./routes/flipdesk-sync.ts";
 import { flipdeskExpensesRoutes } from "./routes/flipdesk-expenses.ts";
+import { qboRoutes } from "./routes/qbo.ts";
+import { qboAuthMiddleware } from "./middleware/qbo-auth.ts";
 import { flipdeskConsignmentRoutes } from "./routes/flipdesk-consignment.ts";
 import {
   flipdeskPricingRoutes,
@@ -552,6 +554,10 @@ app.use("/api/flipdesk/disclosure/*", authMiddleware);
 // be sniffed and stripped server-side, which a browser cannot do.
 app.use("/api/flipdesk/expenses/*", authMiddleware);
 // US-600: consignment mode — consignor portal, splits, payouts. All authed.
+// US-2997: deny-by-default for the QuickBooks module, same shape as eBay. The
+// only routes that run without a session are named in QBO_SELF_AUTHENTICATING
+// with the mechanism that replaces it.
+app.use("/api/flipdesk/qbo/*", qboAuthMiddleware);
 app.use("/api/flipdesk/consignment/*", authMiddleware);
 app.use("/api/flipdesk/pricing/*", authMiddleware);
 app.use("/api/flipdesk/automations/*", authMiddleware);
@@ -635,6 +641,10 @@ app.use("/api/grade/*", workspaceMiddleware);
 // userId). Other /api/payments/* routes read userId for the customer, so the
 // added workspace context is harmless to them.
 app.use("/api/payments/*", workspaceMiddleware);
+// US-2997: a member acting inside a workspace connects and maps the OWNER's
+// QuickBooks file, so every qbo route resolves workspaceOwnerId ?? userId.
+// The two self-authenticating paths carry no session and are unaffected.
+app.use("/api/flipdesk/qbo/*", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/oauth/start", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/oauth/debug", workspaceMiddleware);
 app.use("/api/flipdesk/ebay/disconnect", workspaceMiddleware);
@@ -821,6 +831,9 @@ app.use("/api/flipdesk/ebay/sync/performance", recordEbayCron);
 // positive — it is the question "is this task actually installed?" answering
 // itself for the first time.
 app.use("/api/flipdesk/ebay/oauth/refresh", recordEbayCron);
+// US-2997: the QuickBooks refresh sweep is a registered cron on the same
+// pattern, so a missed run shows in the cron_runs ledger rather than nowhere.
+app.use("/api/flipdesk/qbo/oauth/refresh", recordEbayCron);
 // US-2617: the content scheduler's two crons. They were recorded:false because
 // they authenticate against CONTENT_INTERNAL_JOB_SECRET rather than the
 // FLIPDESK one — but that is which SECRET the handler validates, and the
@@ -1402,6 +1415,7 @@ app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
 app.route("/api/flipdesk/extension-queue", flipdeskExtensionQueueRoutes);
 app.route("/api/flipdesk/sync", flipdeskSyncRoutes);
 app.route("/api/flipdesk/expenses", flipdeskExpensesRoutes);
+app.route("/api/flipdesk/qbo", qboRoutes);
 app.route("/api/flipdesk/consignment", flipdeskConsignmentRoutes);
 app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
 app.route("/api/flipdesk/automations", flipdeskAutomationsRoutes);

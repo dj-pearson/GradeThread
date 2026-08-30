@@ -48,13 +48,18 @@ const mounts = matchAll(
 // Two wrappers count, and both are authMiddleware with one explicit, tested
 // change rather than a looser posture:
 //   ebayAuthMiddleware              (US-2014 AC3) — same auth, named skip-list.
+//   qboAuthMiddleware               (US-2997)     — same shape, same reason:
+//                                                   deny by default under one
+//                                                   mount, with the two
+//                                                   exemptions pinned by
+//                                                   qbo-auth-coverage_test.ts.
 //   extensionOrUserAuthMiddleware   (US-2723)     — same auth, plus the signed
 //     extension token the browser extension actually holds. Required on the two
 //     route groups the extension calls; under plain authMiddleware every one of
 //     its requests 401'd.
 const authPaths = matchAll(
   mainSrc,
-  /app\.use\(\s*"(\/api\/flipdesk\/[^"]+)"\s*,\s*(?:authMiddleware|ebayAuthMiddleware|extensionOrUserAuthMiddleware)\s*\)/g,
+  /app\.use\(\s*"(\/api\/flipdesk\/[^"]+)"\s*,\s*(?:authMiddleware|ebayAuthMiddleware|qboAuthMiddleware|extensionOrUserAuthMiddleware)\s*\)/g,
 ).map((p) => p.replace(/\/\*$/, "").replace(/\/$/, ""));
 
 Deno.test("every FlipDesk router mount has an auth posture (authed or explicitly public)", () => {
@@ -157,7 +162,7 @@ const PUBLIC_API_ROUTERS = new Set<string>([
 // browser extension holds). extension-auth_test.ts keeps it narrow: it may only
 // be mounted on the route groups the extension actually calls.
 const AUTH_MW =
-  "(?:authMiddleware|adminAuthMiddleware|apiKeyAuthMiddleware|ebayAuthMiddleware|mcpAuthMiddleware|extensionOrUserAuthMiddleware)";
+  "(?:authMiddleware|adminAuthMiddleware|apiKeyAuthMiddleware|ebayAuthMiddleware|qboAuthMiddleware|mcpAuthMiddleware|extensionOrUserAuthMiddleware)";
 
 const apiMounts = [
   ...new Set(

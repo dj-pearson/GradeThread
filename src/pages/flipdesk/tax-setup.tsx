@@ -46,6 +46,7 @@ import { HomeOfficeCard } from "@/components/finances/home-office-card";
 import { EstimatedTaxCard } from "@/components/finances/estimated-tax-card";
 import { PeriodCloseCard } from "@/components/finances/period-close-card";
 import { TaxPacketCard } from "@/components/finances/tax-packet-card";
+import { QuickBooksCard } from "@/components/finances/quickbooks-card";
 
 // US-2982 — the tax setup screen.
 //
@@ -367,6 +368,11 @@ export function TaxSetupPage() {
           shows a seller whether the year is ready to close -- the caveats on
           its cover page are the same list they would want cleared first. */}
       <TaxPacketCard />
+
+      {/* US-2997. Below the packet: a seller who does their taxes from the
+          packet needs nothing here, and a seller who keeps QuickBooks wants it
+          set up once and then forgotten. */}
+      <QuickBooksCard />
 
       <PeriodCloseCard />
 

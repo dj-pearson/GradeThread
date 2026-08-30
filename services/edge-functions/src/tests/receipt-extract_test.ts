@@ -1,3 +1,4 @@
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import {
   parseExtraction,

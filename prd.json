@@ -2741,22 +2741,6 @@
       "priority": 30
     },
     {
-      "id": "US-2997",
-      "passes": false,
-      "title": "Connect QuickBooks Online: OAuth, account mapping, and a connection that survives a token expiry",
-      "description": "The direct integration, in two stories. This one is the connection and the mapping only, with no transactions pushed, because the mapping is where the whole thing succeeds or fails: pushing a sale into the wrong QBO account produces a mess an accountant has to unpick manually, and there is no undo. marketplace_connections already holds the OAuth + AES-GCM refresh pattern for eBay (flipdesk-ebay.ts) and that is the pattern to copy, not reinvent. QBO tokens expire fast and the refresh token itself rotates and expires after 100 days of disuse, which is the failure mode to design for.",
-      "acceptanceCriteria": [
-        "OAuth 2.0 connect and disconnect for QuickBooks Online, tokens encrypted at rest with the existing AES-GCM helper, refresh handled by a scheduled job registered in CRON_REGISTRY like the eBay refresh.",
-        "The realm id is stored and every API call is scoped by it. A QBO connection is to one company file, and a seller with two of them must not have transactions land in the wrong one.",
-        "The seller maps each GradeThread account to a QBO account, with a sane proposed default they can override, and the mapping is validated against the live QBO chart of accounts rather than assumed.",
-        "An unmapped account blocks the push for that account only and says which one, rather than failing the whole sync.",
-        "Sandbox and production environments are separate config, and which one is in use is visible on the screen. Pushing test data into a real company file is not recoverable.",
-        "A refresh-token expiry produces an actionable reconnect prompt, not a silent stop. Silent stop is how a seller discovers in March that nothing has synced since November.",
-        "Tenant-scoped per US-268 with tenant-isolation_test.ts cases, and the connection row registered with rls-guard."
-      ],
-      "priority": 46
-    },
-    {
       "id": "US-2998",
       "passes": false,
       "title": "Push to QuickBooks Online: sales, fees, expenses, payouts and COGS, and run it twice safely",
