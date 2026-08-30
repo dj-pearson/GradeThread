@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -54,6 +55,61 @@ fun GradesListScreen(
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val refreshError by viewModel.refreshError.collectAsStateWithLifecycle()
 
+    GradesListContent(
+        state = GradesListUiState(
+            items = items,
+            sort = sort,
+            refreshing = refreshing,
+            refreshError = refreshError,
+        ),
+        actions = GradesListActions(
+            setSort = viewModel::setSort,
+            refresh = viewModel::refresh,
+            dismissRefreshError = viewModel::dismissRefreshError,
+            openReport = onOpenReport,
+        ),
+        modifier = modifier,
+    )
+}
+
+/** Everything the list renders from (US-2902 AC3). */
+@Immutable
+data class GradesListUiState(
+    val items: List<InventoryItemEntity> = emptyList(),
+    val sort: GradesList.Sort = GradesList.Sort.RECENT,
+    val refreshing: Boolean = false,
+    val refreshError: String? = null,
+)
+
+/** Everything it can do. Defaults are no-ops so a golden passes none of them. */
+@Immutable
+data class GradesListActions(
+    val setSort: (GradesList.Sort) -> Unit = {},
+    val refresh: () -> Unit = {},
+    val dismissRefreshError: () -> Unit = {},
+    val openReport: (String) -> Unit = {},
+)
+
+/**
+ * The grades list with no ViewModel attached (US-2902 AC3).
+ *
+ * Worth a golden beyond the extraction itself: every row draws its score through
+ * `gradeColor`, and US-3010 moved the failing-grade band off a hardcoded
+ * `Color(0xFFE94560)` onto `MaterialTheme.colorScheme.error`. That value differs
+ * between light and dark, so capturing both is the only thing that would notice
+ * it silently changing back.
+ *
+ * The layout body is unchanged from the version inside GradesListScreen - the
+ * two `remember` derivations moved in with it and the callbacks are rebound - so
+ * the extraction cannot have altered what a golden records.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GradesListContent(state: GradesListUiState, actions: GradesListActions, modifier: Modifier = Modifier) {
+    val items = state.items
+    val sort = state.sort
+    val refreshing = state.refreshing
+    val refreshError = state.refreshError
     val summary = remember(items) { GradesList.summarize(items) }
     val sorted = remember(items, sort) { GradesList.sorted(items, sort) }
 
@@ -67,7 +123,7 @@ fun GradesListScreen(
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.weight(1f),
             )
-            TextButton(onClick = viewModel::refresh, enabled = !refreshing) {
+            TextButton(onClick = actions.refresh, enabled = !refreshing) {
                 Text(
                     if (refreshing) {
                         stringResource(R.string.common_refreshing)
@@ -96,7 +152,7 @@ fun GradesListScreen(
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = viewModel::dismissRefreshError) {
+                TextButton(onClick = actions.dismissRefreshError) {
                     Text(stringResource(R.string.common_dismiss))
                 }
             }
@@ -109,7 +165,7 @@ fun GradesListScreen(
             GradesList.Sort.entries.forEach { option ->
                 FilterChip(
                     selected = option == sort,
-                    onClick = { viewModel.setSort(option) },
+                    onClick = { actions.setSort(option) },
                     label = { Text(option.label) },
                 )
             }
@@ -123,7 +179,7 @@ fun GradesListScreen(
         // the network.
         PullToRefreshBox(
             isRefreshing = refreshing,
-            onRefresh = viewModel::refresh,
+            onRefresh = actions.refresh,
             modifier = Modifier.weight(1f),
         ) {
             if (sorted.isEmpty()) {
@@ -145,7 +201,7 @@ fun GradesListScreen(
             } else {
                 LazyColumn(Modifier.fillMaxSize()) {
                     items(sorted, key = { it.id }) { item ->
-                        GradeRow(item) { onOpenReport(item.id) }
+                        GradeRow(item) { actions.openReport(item.id) }
                         HorizontalDivider()
                     }
                 }
