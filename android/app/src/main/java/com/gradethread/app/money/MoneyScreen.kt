@@ -97,6 +97,8 @@ fun MoneyScreen(
             onSetSort = viewModel::setSort,
             onDeleteExpense = viewModel::deleteExpense,
             onSaveExpense = viewModel::saveExpense,
+            onDeleteTrip = viewModel::deleteTrip,
+            onSaveTrip = viewModel::saveTrip,
         ),
         onOpenSales = onOpenSales,
         onOpenPayouts = onOpenPayouts,
@@ -140,6 +142,9 @@ data class MoneyActions(
     val onSetSort: (ItemProfitSort) -> Unit = {},
     val onDeleteExpense: (String) -> Unit = {},
     val onSaveExpense: (ExpenseDraft, () -> Unit) -> Unit = { _, _ -> },
+    /** US-3000: mileage trips. */
+    val onDeleteTrip: (String) -> Unit = {},
+    val onSaveTrip: (TripDraft, () -> Unit) -> Unit = { _, _ -> },
 )
 
 /**
@@ -171,6 +176,7 @@ internal fun MoneyContent(
     val equityError = ui.equityError
 
     var sheetDraft by remember { mutableStateOf<ExpenseDraft?>(null) }
+    var tripDraft by remember { mutableStateOf<TripDraft?>(null) }
     val sortedRows = remember(state.profitRows, sort) {
         MoneyAnalyticsRollup.sortProfitRows(state.profitRows, sort)
     }
@@ -491,7 +497,13 @@ internal fun MoneyContent(
                     )
                     TextButton(
                         onClick = {
-                            sheetDraft = ExpenseDraft(spentOnMs = System.currentTimeMillis())
+                            // US-3000: a DATE anchor, not the wall clock.
+                            // currentTimeMillis() at 8pm in Chicago is 02:00 UTC
+                            // tomorrow, so the form pre-filled the wrong day for
+                            // every evening entry west of Greenwich. Not the
+                            // US-2339 compounding bug -- a seller can correct it
+                            // -- but the same root cause, one field along.
+                            sheetDraft = ExpenseDraft(spentOnMs = CalendarDateField.todayMs())
                         },
                     ) { Text(stringResource(R.string.money_add)) }
                 }
@@ -515,7 +527,52 @@ internal fun MoneyContent(
                     HorizontalDivider()
                 }
             }
+
+            // ── Mileage (US-3000) ────────────────────────────────────────────
+            item {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "Mileage",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = { tripDraft = TripDraft.today() }) {
+                        Text("Log a trip")
+                    }
+                }
+            }
+            if (state.trips.isEmpty()) {
+                item {
+                    Text(
+                        "No trips yet. A drive to a thrift store is deductible, " +
+                            "and the log has to be kept as you go.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
+                    )
+                }
+            } else {
+                items(state.trips, key = { it.id }) { trip ->
+                    TripRowView(
+                        trip = trip,
+                        onEdit = { tripDraft = tripDraftFrom(trip) },
+                        onDelete = { actions.onDeleteTrip(trip.id) },
+                    )
+                    HorizontalDivider()
+                }
+            }
         }
+    }
+
+    tripDraft?.let { draft ->
+        TripFormSheet(
+            initial = draft,
+            onDismiss = { tripDraft = null },
+            onSave = { edited -> actions.onSaveTrip(edited) { tripDraft = null } },
+        )
     }
 
     sheetDraft?.let { draft ->
@@ -735,6 +792,58 @@ private fun ExpenseRowView(
         TextButton(onClick = onDelete) { Text(stringResource(R.string.money_remove)) }
     }
 }
+
+@Composable
+private fun TripRowView(
+    trip: com.gradethread.app.sync.db.MileageTripEntity,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onEdit)
+            .padding(horizontal = Spacing.md, vertical = Spacing.xs),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                TripDraft.label(trip.purpose),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                listOfNotNull(
+                    formatDate(trip.tripDate),
+                    listOfNotNull(trip.startLocation, trip.endLocation)
+                        .takeIf { it.isNotEmpty() }
+                        ?.joinToString(" to "),
+                    "round trip".takeIf { trip.roundTrip },
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        // One decimal place, always: the column is numeric(8,1) and "12" and
+        // "12.0" being shown differently makes the log look inconsistent.
+        Text(
+            String.format(Locale.getDefault(), "%.1f mi", trip.miles),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        TextButton(onClick = onDelete) { Text(stringResource(R.string.money_remove)) }
+    }
+}
+
+/** An existing trip, back into an editable draft. */
+private fun tripDraftFrom(trip: com.gradethread.app.sync.db.MileageTripEntity): TripDraft = TripDraft(
+    id = trip.id,
+    milesText = String.format(Locale.ROOT, "%.1f", trip.miles),
+    purpose = trip.purpose,
+    tripDateMs = trip.tripDate,
+    startLocation = trip.startLocation.orEmpty(),
+    endLocation = trip.endLocation.orEmpty(),
+    roundTrip = trip.roundTrip,
+    sourceId = trip.sourceId,
+)
 
 /** Medium-format local date — locale-aware, matching the currency formatting. */
 private fun formatDate(epochMs: Long, locale: Locale = Locale.getDefault()): String = runCatching {

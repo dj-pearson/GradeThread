@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.sync.SyncTrigger
 import com.gradethread.app.sync.db.ExpenseEntity
+import com.gradethread.app.sync.db.MileageTripEntity
 import com.gradethread.app.sync.db.GradeThreadDb
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +34,8 @@ class MoneyViewModel @Inject constructor(
     private val db: GradeThreadDb,
     private val syncTrigger: SyncTrigger,
     private val expenses: ExpenseRepository,
+    /** US-3000: mileage trips, logged on the phone at the store. */
+    private val mileage: MileageRepository,
     /** US-2491: what the unsold stock is worth. Server-computed. */
     private val equityService: EquityService,
 ) : ViewModel() {
@@ -45,6 +48,8 @@ class MoneyViewModel @Inject constructor(
         val sourceRoi: List<SourceRoiRow> = emptyList(),
         val profitRows: List<ItemProfitRow> = emptyList(),
         val expenses: List<ExpenseEntity> = emptyList(),
+        /** US-3000. Newest first, straight off Room so it works offline. */
+        val trips: List<MileageTripEntity> = emptyList(),
         /** Operating expenses this month — layered onto the KPI row. */
         val expensesThisMonth: Double = 0.0,
         val hasAnyData: Boolean = false,
@@ -109,7 +114,8 @@ class MoneyViewModel @Inject constructor(
         db.sales().observeAll(),
         db.expenses().observeAll(),
         db.sources().observeAll(),
-    ) { items, sales, expenseRows, sources ->
+        db.mileageTrips().observeAll(),
+    ) { items, sales, expenseRows, sources, trips ->
         // Read the clock ONCE per recompute so every panel buckets against the
         // same "now" — two panels reading it separately can straddle midnight
         // and disagree about which day a sale belongs to.
@@ -126,20 +132,28 @@ class MoneyViewModel @Inject constructor(
         State(
             metrics = MoneyRollup.compute(items, sales, now, zone),
             cashFlow = MoneyAnalyticsRollup.cashFlow(
-                items, sales, expenseRows, now, zone = zone,
+                items,
+                sales,
+                expenseRows,
+                now,
+                zone = zone,
             ),
             aging = MoneyAnalyticsRollup.inventoryAging(items, now, zone),
             timeOnMarket = MoneyAnalyticsRollup.timeOnMarket(items, sales, now, zone),
             sourceRoi = SourceRoiRollup.bySource(items, sales, sources),
             profitRows = MoneyAnalyticsRollup.itemProfitRows(items, sales),
             expenses = expenseRows,
+            trips = trips,
             expensesThisMonth = Money.sum(expenseRows.filter { it.spentOn >= expenseMonthStart }) {
                 it.amount
             },
             // Drives the empty state. Sales OR expenses count: a seller who has
             // only recorded costs so far still has a real (negative) P&L to see,
             // and showing them "no data yet" would hide it.
-            hasAnyData = sales.isNotEmpty() || expenseRows.isNotEmpty() || items.isNotEmpty(),
+            hasAnyData = sales.isNotEmpty() ||
+                expenseRows.isNotEmpty() ||
+                items.isNotEmpty() ||
+                trips.isNotEmpty(),
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), State())
 
@@ -188,6 +202,38 @@ class MoneyViewModel @Inject constructor(
         }
     }
 
+    /** @param onSaved invoked only on a durable outcome, so the sheet can close. */
+    fun saveTrip(draft: TripDraft, onSaved: () -> Unit) {
+        viewModelScope.launch {
+            when (val outcome = mileage.save(draft)) {
+                is MileageRepository.Outcome.Saved -> {
+                    _notice.value = "Trip logged."
+                    onSaved()
+                }
+                is MileageRepository.Outcome.Queued -> {
+                    // The state this feature exists for. A trip is entered in a
+                    // car park, so "saved offline" is the NORMAL outcome, not the
+                    // exceptional one -- and saying "failed" would send the
+                    // seller away to re-enter something already recorded.
+                    _notice.value = "Logged offline — it'll sync when you're back online."
+                    onSaved()
+                }
+                is MileageRepository.Outcome.Failed -> _notice.value = outcome.message
+            }
+        }
+    }
+
+    fun deleteTrip(id: String) {
+        viewModelScope.launch {
+            when (val outcome = mileage.delete(id)) {
+                is MileageRepository.Outcome.Failed -> _notice.value = outcome.message
+                is MileageRepository.Outcome.Queued ->
+                    _notice.value = "Removed — the change will sync when you're back online."
+                is MileageRepository.Outcome.Saved -> _notice.value = "Trip removed."
+            }
+        }
+    }
+
     fun deleteExpense(id: String) {
         viewModelScope.launch {
             when (val outcome = expenses.delete(id)) {
@@ -200,6 +246,5 @@ class MoneyViewModel @Inject constructor(
     }
 
     /** Seed the form for an edit, straight from the cached row. */
-    suspend fun draftFor(id: String): ExpenseDraft? =
-        db.expenses().byId(id)?.let { ExpenseDraft.from(it) }
+    suspend fun draftFor(id: String): ExpenseDraft? = db.expenses().byId(id)?.let { ExpenseDraft.from(it) }
 }

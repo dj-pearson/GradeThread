@@ -31,6 +31,7 @@ import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
+import com.gradethread.app.money.TripQuickLogButton
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.cardStyle
 
@@ -56,6 +57,12 @@ fun ScoutScreen(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+
+        // US-3000 AC4: two taps. A seller opens Scout standing outside a shop,
+        // and this is where the drive they just made is still in mind. Tap the
+        // button, tap Save. Anything further away does not get logged, and an
+        // unlogged trip is worth nothing in April.
+        TripQuickLogButton(modifier = Modifier.align(Alignment.Start))
 
         OutlinedTextField(
             value = state.keyword,
@@ -148,7 +155,9 @@ fun ScoutScreen(
         BrandSecondaryButton(text = stringResource(R.string.scout_prospect_store), modifier = Modifier.fillMaxWidth()) {
             onOpenProspect()
         }
-        BrandSecondaryButton(text = stringResource(R.string.scout_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+        BrandSecondaryButton(text = stringResource(R.string.scout_back), modifier = Modifier.fillMaxWidth()) {
+            onClose()
+        }
     }
 }
 
