@@ -56,7 +56,11 @@ class CameraCaptureProcessedTest {
     private val captureBody by lazy {
         val start = captureScreen.indexOf("fun capture() {")
         assertTrue("capture() is gone or was renamed", start > -1)
-        val end = captureScreen.indexOf("\n    Column(Modifier.fillMaxSize())", start)
+        // US-2902 AC3 moved the layout into CaptureContent, so capture() now
+        // ends at the handoff rather than at the Column. The scope is still
+        // the point: a whole-file scan passes against the broken code,
+        // because the library-import path satisfies it.
+        val end = captureScreen.indexOf("\n    CaptureContent(", start)
         assertTrue("the end of capture() moved — rescope this guard", end > start)
         captureScreen.substring(start, end)
     }
