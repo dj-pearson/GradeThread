@@ -7,6 +7,9 @@ import { PageHostContext } from "@/hooks/use-page-host";
 import { HostViewSkeleton } from "@/components/flipdesk/host-view-skeleton";
 import { resolveMoneyView } from "@/pages/flipdesk/nav-tabs";
 import { PageHelp } from "@/components/help/page-help";
+import { useQuery } from "@tanstack/react-query";
+import { useAuthStore } from "@/stores/auth-store";
+import { fetchReviewCount } from "@/lib/books-review";
 
 // US-2161: Finances, Expenses and Reconcile were three sidebar entries
 // answering one question — where did my money go. They are one destination
@@ -56,6 +59,19 @@ const TaxSetupPage = lazy(() =>
 export function FlipdeskMoneyPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeView = resolveMoneyView(searchParams.get("view"));
+  const user = useAuthStore((s) => s.user);
+
+  // US-2992 AC5: the count is on the tab strip, so it is seen on arrival rather
+  // than found. Scoped to the CURRENT calendar year -- a badge counting every
+  // issue since the account opened is a number nobody can ever clear, and a
+  // badge that never reaches zero stops being read.
+  const year = new Date().getFullYear();
+  const { data: reviewCount = 0 } = useQuery({
+    queryKey: ["books-review-count", user?.id, year],
+    enabled: !!user,
+    queryFn: () => fetchReviewCount(`${year}-01-01`, `${year + 1}-01-01`),
+    staleTime: 5 * 60 * 1000,
+  });
 
   function setActiveView(value: string) {
     setSearchParams(
@@ -87,7 +103,17 @@ export function FlipdeskMoneyPage() {
         <Tabs value={activeView} onValueChange={setActiveView}>
           <TabsList>
             <TabsTrigger value="finances">Finances</TabsTrigger>
-            <TabsTrigger value="pnl">P&amp;L</TabsTrigger>
+            <TabsTrigger value="pnl">
+              P&amp;L
+              {reviewCount > 0 && (
+                <span
+                  className="ml-1.5 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-medium text-amber-800 dark:text-amber-300"
+                  aria-label={`${reviewCount} thing${reviewCount === 1 ? "" : "s"} in your books need a look`}
+                >
+                  {reviewCount}
+                </span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="expenses">Expenses</TabsTrigger>
             <TabsTrigger value="reconcile">Reconcile</TabsTrigger>
             <TabsTrigger value="tax">Tax</TabsTrigger>

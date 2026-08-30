@@ -31,6 +31,9 @@ code_refs:
   - scripts/check-home-office.mjs
   - supabase/migrations/00698_estimated_tax.sql
   - src/lib/estimated-tax.ts
+  - supabase/migrations/00699_books_review_queue.sql
+  - src/lib/books-review.ts
+  - scripts/check-books-review.mjs
   - supabase/migrations/00690_inventory_writeoffs.sql
   - scripts/check-inventory-writeoffs.mjs
   - supabase/migrations/00692_keeping_leaves_inventory.sql
@@ -797,6 +800,57 @@ Security has capped out, and whether the year's figures are provisional.
 > is carried forward from 2025 and rises most years, so a high earner's Social
 > Security portion comes out low. Update it when the SSA announces the figure.
 
+## Books health
+
+`books_review_queue(from, to)` (migration 00699). Six checks, ordered by what it
+costs to leave an issue alone rather than by how easy it is to fix.
+
+### The silences are the design
+
+Anyone can make a queue find problems. Three things it deliberately does NOT
+flag:
+
+- **A local cash sale with no fees.** Facebook and OfferUp genuinely charge
+  nothing on a pickup, so a zero there is correct.
+- **An expense under $75.** That is the IRS's own substantiation threshold;
+  chasing a receipt below it costs more than it protects.
+- **An item that has a cost basis.** Obvious, and it is asserted anyway, because
+  the check that matters is the count: exactly six issues from the fixture, not
+  seven.
+
+> Sabotage-verified by removing both exemptions, which turns six issues into
+> nine. **A queue that cries wolf gets ignored, and then the real issue in it
+> goes unread too.**
+
+### Where the impact is unknowable, it says so
+
+A sold item with no cost basis overstates profit by whatever it cost — which is
+exactly what nobody recorded. Inventing a figure would be the same mistake in a
+different place. Instead the row carries an estimate from the seller's **own**
+median cost-to-price ratio, labelled as an estimate wherever it appears
+(`"about $80.00"`, never `"$80.00"`), and **null under five priced sales**,
+because a ratio from two items is a guess dressed as a statistic.
+
+Exact and estimated totals are reported **separately**. Adding a guess to a set
+of measured figures and printing one total would make the whole thing look
+measured.
+
+### Dismissing is a record, not a hide
+
+A reason is required, the row is kept with its date, and there is **no UPDATE
+policy**: editing a recorded reason after the fact turns the record into
+whatever the last edit said. Undismiss and dismiss again.
+
+### The badge is scoped to the current year
+
+A badge counting every issue since the account opened is a number nobody can
+ever clear, and a badge that never reaches zero stops being read.
+
+**Not built: the sidebar badge.** AC5 asked for the count on the Money nav. It
+is on the Money tab strip, visible the moment Money opens, but the shared
+sidebar has no badge mechanism at all and adding one touches navigation every
+section uses. Recorded rather than quietly counted as done.
+
 ## Where the rest of the epic is written down
 
 The child stories carry the detail while they are open; each closed story folds
@@ -812,6 +866,7 @@ its contract into this note. Currently landed:
 - **US-2989** - mileage, dated rates and the per-trip rounding rule, above.
 - **US-2990** - the home office, line 30 and the double-count guard, above.
 - **US-2991** - estimated tax, and what it refuses to guess, above.
+- **US-2992** - books health, and the three things it stays quiet about, above.
 - **US-3007** - leaving inventory without selling, above (data layer only).
 
 Still open, and each will add a section here rather than a new note: COGS and

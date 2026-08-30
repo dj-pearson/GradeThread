@@ -30,6 +30,7 @@ on:
       - "scripts/check-1099k-bridge.mjs"
       - "scripts/check-mileage-log.mjs"
       - "scripts/check-home-office.mjs"
+      - "scripts/check-books-review.mjs"
       - "scripts/fixtures/**"
   push:
     branches: [main]
@@ -54,6 +55,7 @@ on:
       - "scripts/check-1099k-bridge.mjs"
       - "scripts/check-mileage-log.mjs"
       - "scripts/check-home-office.mjs"
+      - "scripts/check-books-review.mjs"
       - "scripts/fixtures/**"
 
 concurrency:
@@ -152,6 +154,11 @@ jobs:
       # order gives $1,000 where the right one gives $750.
       - name: Home office caps before prorating (US-2990)
         run: node scripts/check-home-office.mjs
+      # The negative assertions are the point here: a local cash sale genuinely
+      # has no fees and a $12 expense is under the substantiation threshold. A
+      # queue that cries wolf gets ignored, and the real issue in it goes unread.
+      - name: Books review queue and its false positives (US-2992)
+        run: node scripts/check-books-review.mjs
       - name: Denied-RPC crash check (advisory, US-2403)
         continue-on-error: true
         run: node scripts/db-denied-rpc-crash-check.mjs

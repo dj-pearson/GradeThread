@@ -16,6 +16,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
 import { CogsWorksheetCard } from "@/components/finances/cogs-worksheet-card";
+import { BooksReviewCard } from "@/components/finances/books-review-card";
 import {
   ensureLedgerBuilt,
   fetchLedgerEntries,
@@ -412,6 +413,16 @@ td{padding:6px 10px;border-bottom:1px solid #e5e5e5;font-size:13px}
               </table>
             </CardContent>
           </Card>
+
+          {/* US-2992. The review queue goes ABOVE the statement, not below it.
+              Everything under it is a number; this is the list of reasons those
+              numbers might be wrong, and a seller who reads the statement first
+              has already believed it. */}
+          <BooksReviewCard
+            from={range.from}
+            to={range.to}
+            periodLabel={range.label}
+          />
 
           {/* US-2986. Part III sits under the statement rather than on its own
               page because it FEEDS line 4 of Part I, which the table above

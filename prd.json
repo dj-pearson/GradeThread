@@ -2741,20 +2741,6 @@
       "priority": 30
     },
     {
-      "id": "US-2992",
-      "passes": false,
-      "title": "Books health: the review queue that tells a seller what is wrong before their accountant does",
-      "description": "QuickBooks' actual hook is not its reports, it is the count badge saying 'N transactions need your review'. GradeThread has the same problem set and no surface for it: items sold with no acquired_price, expenses on 'other', payouts that never matched a sale, expenses with no receipt over the substantiation threshold, sales with no fees recorded, a fiscal year with no inventory snapshot. Each of those quietly corrupts a report and none of them is visible until someone reconciles by hand.",
-      "acceptanceCriteria": [
-        "A single review queue with one row per issue, the dollar impact of each, and a fix action that lands on the exact record rather than the section.",
-        "Checks at minimum: sold items with no cost basis, entries on an unmapped or 'other' account, unmatched payout rows, sales missing platform fees, expenses over the receipt threshold with no receipt, and a closed fiscal year with no inventory snapshot.",
-        "Each issue says what it costs in real terms: an item with no cost basis overstates profit by the amount it cost, and the queue shows that number.",
-        "A dismiss action with a reason, so a seller who knows an item was a gift is not asked forever. The dismissal is recorded, not silent.",
-        "The count appears on the Money nav so it is seen without going looking."
-      ],
-      "priority": 41
-    },
-    {
       "id": "US-2993",
       "passes": false,
       "title": "Snap a receipt and the expense fills itself in",

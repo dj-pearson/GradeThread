@@ -2237,6 +2237,27 @@ export type SavedViewUpdate = Partial<
 // credits, state tax -- none of which this app sees. The seller picks a rate and
 // the screen names it as their assumption rather than presenting a confident
 // number built on inputs we do not have.
+// US-2992 — a dismissed review issue, WITH a reason. Recorded rather than
+// silent so a later reader can tell "resolved" from "hidden".
+//
+// `subject_id` is TEXT rather than uuid because one issue kind is about a YEAR
+// boundary ('2025-01-01') rather than a record, and a nullable uuid plus a
+// nullable date would be two columns that must never both be set.
+//
+// There is no Update type: the table has no UPDATE policy. Editing a recorded
+// reason after the fact turns the record into whatever the last edit said.
+export interface BooksReviewDismissalRow {
+  id: string;
+  user_id: string;
+  issue_kind: string;
+  subject_id: string;
+  reason: string;
+  dismissed_at: string;
+}
+export type BooksReviewDismissalInsert = Omit<
+  BooksReviewDismissalRow, "id" | "dismissed_at"
+> & Partial<Pick<BooksReviewDismissalRow, "id" | "dismissed_at">>;
+
 export interface TaxRateYearRow {
   id: string;
   tax_year: number;
@@ -4502,6 +4523,11 @@ export interface Database {
         Row: ExpenseRow;
         Insert: ExpenseInsert;
         Update: ExpenseUpdate;
+      };
+      books_review_dismissals: {
+        Row: BooksReviewDismissalRow;
+        Insert: BooksReviewDismissalInsert;
+        Update: never;
       };
       tax_rate_years: {
         Row: TaxRateYearRow;
