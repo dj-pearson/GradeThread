@@ -45,7 +45,7 @@
     "consignment/ConsignorsViewModel.kt": 4,
     "disclosure/DisclosureService.kt": 1,
     "disclosure/DisclosureViewModel.kt": 4,
-    "feedback/Feedback.kt": 12,
+    "feedback/Feedback.kt": 2,
     "feedback/FeedbackViewModel.kt": 1,
     "fulfillment/Fulfillment.kt": 6,
     "fulfillment/FulfillmentService.kt": 1,

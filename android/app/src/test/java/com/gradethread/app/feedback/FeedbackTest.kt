@@ -1,5 +1,7 @@
 package com.gradethread.app.feedback
 
+import com.gradethread.app.R
+
 import com.gradethread.app.testing.MainDispatcherRule
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -25,17 +27,20 @@ class FeedbackTest {
 
     @Test
     fun `an empty message is refused with words, not a dead button alone`() {
-        assertEquals(
-            "Write a line or two so we know what you mean.",
-            Feedback.error("   "),
-        )
+        // US-2976: the id, not the words. Asserting the English here would have
+        // made the test the second place the copy lives, and the one that
+        // silently disagrees with strings.xml.
+        assertEquals(R.string.feedback_error_empty, Feedback.error("   "))
         assertNull(Feedback.error("The grade never came back."))
     }
 
     @Test
     fun `the cap holds at the boundary`() {
         assertNull(Feedback.error("x".repeat(Feedback.MAX_MESSAGE)))
-        assertTrue(Feedback.error("x".repeat(Feedback.MAX_MESSAGE + 1))!!.contains("longer than"))
+        assertEquals(
+            R.string.feedback_error_too_long,
+            Feedback.error("x".repeat(Feedback.MAX_MESSAGE + 1)),
+        )
     }
 
     @Test
@@ -71,7 +76,7 @@ class FeedbackTest {
         assertTrue(composed.endsWith("x".repeat(10)))
         assertEquals(
             Feedback.MAX_MESSAGE,
-            composed.removePrefix("[${Feedback.Category.OTHER.label}] ").length,
+            composed.removePrefix("[${Feedback.Category.OTHER.triage}] ").length,
         )
     }
 
@@ -81,9 +86,12 @@ class FeedbackTest {
         // decorative.
         val hints = Feedback.Category.entries.map { it.hint }
         assertEquals(hints.size, hints.toSet().size)
+        // A resource id of 0 is what an unresolved R reference compiles to, so
+        // this is the id-level version of "the string is not blank".
         Feedback.Category.entries.forEach {
-            assertTrue(it.label, it.label.isNotBlank())
-            assertTrue(it.hint, it.hint.isNotBlank())
+            assertTrue(it.name, it.label != 0)
+            assertTrue(it.name, it.hint != 0)
+            assertTrue(it.name, it.triage.isNotBlank())
         }
     }
 

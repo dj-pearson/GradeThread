@@ -2022,4 +2022,16 @@
     <string name="import_field_list_price">Precio de venta</string>
     <string name="import_field_purchase_date">Fecha de compra</string>
     <string name="import_field_status">Estado</string>
+    <string name="feedback_category_bug">Algo no funciona</string>
+    <string name="feedback_category_bug_hint">¿Qué estabas haciendo cuando falló?</string>
+    <string name="feedback_category_idea">Ojalá pudiera&#8230;</string>
+    <string name="feedback_category_idea_hint">¿Qué te gustaría que hiciera?</string>
+    <string name="feedback_category_praise">Esto funcionó bien</string>
+    <string name="feedback_category_praise_hint">¿Qué te ayudó? Queremos conservarlo.</string>
+    <string name="feedback_category_other">Otra cosa</string>
+    <string name="feedback_category_other_hint">Cuéntanos lo que quieras.</string>
+    <string name="feedback_error_empty">Escribe una o dos líneas para que sepamos a qué te refieres.</string>
+    <string name="feedback_error_too_long">Es más largo de lo que podemos enviar. Acórtalo e inténtalo de nuevo.</string>
+    <string name="feedback_one_way_note">Los comentarios son de ida. Abre una solicitud de soporte si quieres una respuesta que puedas seguir.</string>
+    <string name="feedback_sent">Enviado &#8212; gracias. Los leemos todos.</string>
 </resources>

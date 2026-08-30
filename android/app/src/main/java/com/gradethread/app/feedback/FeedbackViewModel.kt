@@ -1,5 +1,7 @@
 package com.gradethread.app.feedback
 
+import androidx.annotation.StringRes
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.platform.net.EdgeApiError
@@ -21,9 +23,7 @@ import javax.inject.Inject
  * inside a `ModalBottomSheet` dies with the sheet; this outlives it.
  */
 @HiltViewModel
-class FeedbackViewModel @Inject constructor(
-    private val service: FeedbackSending,
-) : ViewModel() {
+class FeedbackViewModel @Inject constructor(private val service: FeedbackSending) : ViewModel() {
 
     data class State(
         val open: Boolean = false,
@@ -34,7 +34,8 @@ class FeedbackViewModel @Inject constructor(
         val sent: Boolean = false,
     ) {
         /** Only once they've typed something — an error on an empty field nags. */
-        val messageError: String?
+        @get:StringRes
+        val messageError: Int?
             get() = message.takeIf { it.isNotEmpty() }?.let(Feedback::error)
 
         val canSend: Boolean get() = Feedback.canSend(message, sending)

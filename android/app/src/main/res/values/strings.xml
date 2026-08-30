@@ -2153,4 +2153,16 @@
     <string name="import_field_list_price">List price</string>
     <string name="import_field_purchase_date">Purchase date</string>
     <string name="import_field_status">Status</string>
+    <string name="feedback_category_bug">Something\'s broken</string>
+    <string name="feedback_category_bug_hint">What were you doing when it went wrong?</string>
+    <string name="feedback_category_idea">I wish it did&#8230;</string>
+    <string name="feedback_category_idea_hint">What would you want it to do instead?</string>
+    <string name="feedback_category_praise">This worked well</string>
+    <string name="feedback_category_praise_hint">What helped? We\'d like to keep it.</string>
+    <string name="feedback_category_other">Something else</string>
+    <string name="feedback_category_other_hint">Tell us whatever\'s on your mind.</string>
+    <string name="feedback_error_empty">Write a line or two so we know what you mean.</string>
+    <string name="feedback_error_too_long">That\'s longer than we can send. Shorten it and try again.</string>
+    <string name="feedback_one_way_note">Feedback is one-way. Open a support request if you\'d like a reply you can track.</string>
+    <string name="feedback_sent">Sent &#8212; thanks. We read every one.</string>
 </resources>

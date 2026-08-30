@@ -98,7 +98,7 @@ fun FeedbackSheet(onOpenSupport: () -> Unit, viewModel: FeedbackViewModel = hilt
                     val selected = state.category == category
                     val chipState = stringResource(
                         R.string.feedback_chip_state,
-                        category.label,
+                        stringResource(category.label),
                         stringResource(
                             if (selected) {
                                 R.string.feedback_chip_selected
@@ -111,7 +111,7 @@ fun FeedbackSheet(onOpenSupport: () -> Unit, viewModel: FeedbackViewModel = hilt
                         selected = selected,
                         onClick = { viewModel.setCategory(category) },
                         enabled = !state.sending,
-                        label = { Text(category.label) },
+                        label = { Text(stringResource(category.label)) },
                         modifier = Modifier.semantics {
                             contentDescription = chipState
                         },
@@ -122,14 +122,14 @@ fun FeedbackSheet(onOpenSupport: () -> Unit, viewModel: FeedbackViewModel = hilt
             OutlinedTextField(
                 value = state.message,
                 onValueChange = viewModel::setMessage,
-                label = { Text(state.category.hint) },
+                label = { Text(stringResource(state.category.hint)) },
                 minLines = 5,
                 enabled = !state.sending,
                 isError = state.messageError != null || state.error != null,
                 supportingText = {
                     Text(
                         state.error
-                            ?: state.messageError
+                            ?: state.messageError?.let { stringResource(it) }
                             ?: "${state.message.length} / ${Feedback.MAX_MESSAGE}",
                     )
                 },
@@ -138,7 +138,7 @@ fun FeedbackSheet(onOpenSupport: () -> Unit, viewModel: FeedbackViewModel = hilt
 
             if (state.sent) {
                 Text(
-                    Feedback.SENT,
+                    stringResource(Feedback.SENT),
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(top = Spacing.xs),
                 )
@@ -153,7 +153,7 @@ fun FeedbackSheet(onOpenSupport: () -> Unit, viewModel: FeedbackViewModel = hilt
             ) { viewModel.send() }
 
             Text(
-                Feedback.ONE_WAY_NOTE,
+                stringResource(Feedback.ONE_WAY_NOTE),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = Spacing.md),
