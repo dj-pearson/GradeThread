@@ -1,5 +1,8 @@
 package com.gradethread.app.inventory
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 /**
  * US-1342: the kanban board model (iOS `PipelineBoard`).
  *
@@ -7,23 +10,29 @@ package com.gradethread.app.inventory
  */
 object PipelineBoard {
 
-    data class Column(val status: String, val label: String, val nextAction: String)
+    /**
+     * US-2976: [label] and [nextAction] are string RESOURCES. They were
+     * literals, so the whole kanban board - thirteen column headings and
+     * the thirteen next steps under them - was English in a Spanish app.
+     * [status] is the persisted value and stays a String.
+     */
+    data class Column(val status: String, @StringRes val label: Int, @StringRes val nextAction: Int)
 
     /** 13 columns, mirroring the web `FLIPDESK_PIPELINE`. */
     val columns: List<Column> = listOf(
-        Column("sourced", "Sourced", "Catalog basic info"),
-        Column("cataloged", "Cataloged", "Measure"),
-        Column("measured", "Measured", "Photograph"),
-        Column("photographed", "Photographed", "Send to GradeThread"),
-        Column("grading", "Grading", "Awaiting grade"),
-        Column("graded", "Graded", "Run comps"),
-        Column("comped", "Comped", "Draft listing"),
-        Column("drafted", "Drafted", "Push to eBay"),
-        Column("listed", "Listed", "Wait for sale"),
-        Column("sold", "Sold", "Ship"),
-        Column("shipped", "Shipped", "Confirm delivery"),
-        Column("completed", "Completed", "Archive"),
-        Column("returned", "Returned", "Relist or write off"),
+        Column("sourced", R.string.pipeline_sourced_label, R.string.pipeline_sourced_next),
+        Column("cataloged", R.string.pipeline_cataloged_label, R.string.pipeline_cataloged_next),
+        Column("measured", R.string.pipeline_measured_label, R.string.pipeline_measured_next),
+        Column("photographed", R.string.pipeline_photographed_label, R.string.pipeline_photographed_next),
+        Column("grading", R.string.pipeline_grading_label, R.string.pipeline_grading_next),
+        Column("graded", R.string.pipeline_graded_label, R.string.pipeline_graded_next),
+        Column("comped", R.string.pipeline_comped_label, R.string.pipeline_comped_next),
+        Column("drafted", R.string.pipeline_drafted_label, R.string.pipeline_drafted_next),
+        Column("listed", R.string.pipeline_listed_label, R.string.pipeline_listed_next),
+        Column("sold", R.string.pipeline_sold_label, R.string.pipeline_sold_next),
+        Column("shipped", R.string.pipeline_shipped_label, R.string.pipeline_shipped_next),
+        Column("completed", R.string.pipeline_completed_label, R.string.pipeline_completed_next),
+        Column("returned", R.string.pipeline_returned_label, R.string.pipeline_returned_next),
     )
 
     val statusOrder: List<String> = columns.map { it.status }

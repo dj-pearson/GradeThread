@@ -534,14 +534,14 @@ private fun InventoryBoard(
                 Text(
                     stringResource(
                         R.string.inventorylist_label_count,
-                        column.label,
+                        stringResource(column.label),
                         grouped[column.status]?.size ?: 0,
                     ),
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    column.nextAction,
+                    stringResource(column.nextAction),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
