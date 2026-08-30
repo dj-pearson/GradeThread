@@ -66,6 +66,20 @@ const NOT_A_LANE_CHECK: Record<string, string> = {
     "against a backlog nobody can work from the output. Run it with " +
     "`node scripts/check-ui-browser.mjs` when you are changing one of those " +
     "pages; `--enforce` makes it fail if you want that locally.",
+  "check-ui-authed.mjs":
+    "REPORT-ONLY BY DESIGN (US-3013 AC5, which asked for exactly that). It is " +
+    "the same four browser-scoped rules as check-ui-browser.mjs, pointed at " +
+    "dashboard screens instead of marketing pages, and it inherits that tool's " +
+    "deciding problem: a finding carries no selector, no line and the snippet " +
+    "'Card inside card', so a red build would name a page and nothing else. " +
+    "It also needs a BUILT dist/ for the stylesheet and it drives a real " +
+    "browser per screen, neither of which belongs in a pre-push hook. The " +
+    "baseline has not been read by a human yet, and gating before that either " +
+    "pins numbers nobody has looked at or passes vacuously. What DOES gate is " +
+    "src/test/narrow-css.test.ts, which covers the CSS narrowing this rests " +
+    "on - the part that can go wrong SILENTLY, since an over-narrowed page " +
+    "renders unstyled and an unstyled page reports every rule clean. Run it " +
+    "with `npm run ui:check:authed`.",
 };
 
 function guards(): string[] {
@@ -91,7 +105,9 @@ describe("every check-*.mjs gate runs in both places", () => {
 
   it("each one is invoked by scripts/verify.mjs", () => {
     const verify = readFileSync(VERIFY, "utf8");
-    const missing = all.filter((g) => !NOT_A_LANE_CHECK[g] && !verify.includes(g));
+    const missing = all.filter(
+      (g) => !NOT_A_LANE_CHECK[g] && !verify.includes(g),
+    );
     expect(
       missing,
       `these are in scripts/ and not in the verify lanes: ${missing.join(", ")}. ` +
@@ -101,7 +117,9 @@ describe("every check-*.mjs gate runs in both places", () => {
   });
 
   it("each one is invoked by a workflow", () => {
-    const missing = all.filter((g) => !NOT_A_LANE_CHECK[g] && !workflowText.includes(g));
+    const missing = all.filter(
+      (g) => !NOT_A_LANE_CHECK[g] && !workflowText.includes(g),
+    );
     expect(
       missing,
       `these run locally and in no workflow: ${missing.join(", ")}. A gate the ` +

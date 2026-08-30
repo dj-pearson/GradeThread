@@ -15,6 +15,7 @@
     "sync:aspects": "node scripts/sync-aspect-registry.mjs",
     "lint": "eslint .",
     "ui:check": "node scripts/check-ui-antipatterns.mjs",
+    "ui:check:authed": "node scripts/check-ui-authed.mjs",
     "unwired:check": "node scripts/check-unwired-modules.mjs",
     "unwired:check:web": "node scripts/check-web-unwired.mjs",
     "refs:check": "node scripts/check-comment-path-refs.mjs",
