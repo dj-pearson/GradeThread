@@ -20,6 +20,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,8 +68,59 @@ fun RadarNearbyScreen(
         ActivityResultContracts.RequestPermission(),
     ) { granted -> viewModel.onLocationPermission(granted) }
 
+    RadarNearbyContent(
+        state,
+        RadarNearbyActions(
+            setWindow = viewModel::setWindow,
+            // The permission check stays in the wrapper. A seller who already
+            // said yes must not be asked again, and the launcher needs an
+            // Activity result registry a screenshot test does not have.
+            useMyLocation = {
+                if (viewModel.hasLocationPermission()) {
+                    viewModel.useMyLocation()
+                } else {
+                    locationLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+                }
+            },
+            retryPersonal = viewModel::retryPersonal,
+            retryNetwork = viewModel::retryNetwork,
+            checkNetworkAgain = viewModel::checkNetworkAgain,
+            openVenue = onOpenVenue,
+            close = onClose,
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class RadarNearbyActions(
+    val setWindow: (RadarWindow) -> Unit = {},
+    val useMyLocation: () -> Unit = {},
+    val retryPersonal: () -> Unit = {},
+    val retryNetwork: () -> Unit = {},
+    val checkNetworkAgain: () -> Unit = {},
+    val openVenue: (String) -> Unit = {},
+    val close: () -> Unit = {},
+)
+
+/**
+ * The sourcing radar with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THREE THINGS CAN FAIL SEPARATELY HERE, and they read alike. The seller's
+ * OWN store history (`personalError`), the shared network view
+ * (`networkError`), and location. Each has its own retry, and one failing must
+ * not blank the others - a seller whose location was refused still has a usable
+ * list, which is why that case explains itself rather than disabling the row.
+ *
+ * ⚠ AND `networkLocked` IS NOT AN ERROR. It is a Free plan meeting a paid
+ * surface, sticky for the session so the upgrade is offered once rather than on
+ * every window change. Rendering it as a failure would tell a seller something
+ * is broken when the answer is a price.
+ */
+@Composable
+fun RadarNearbyContent(state: RadarNearbyViewModel.State, actions: RadarNearbyActions, modifier: Modifier = Modifier) {
     Column(
-        Modifier.fillMaxSize().padding(Spacing.md),
+        modifier.fillMaxSize().padding(Spacing.md),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.radar_title), style = MaterialTheme.typography.titleLarge)
@@ -82,7 +134,7 @@ fun RadarNearbyScreen(
             for (window in RadarWindow.entries) {
                 FilterChip(
                     selected = state.window == window,
-                    onClick = { viewModel.setWindow(window) },
+                    onClick = { actions.setWindow(window) },
                     enabled = !state.loadingNetwork,
                     label = { Text(windowLabel(window)) },
                 )
@@ -97,15 +149,8 @@ fun RadarNearbyScreen(
             },
             modifier = Modifier.fillMaxWidth(),
             enabled = !state.locating,
-        ) {
-            // Checked first, so a seller who already said yes is not asked again
-            // and the fix starts immediately.
-            if (viewModel.hasLocationPermission()) {
-                viewModel.useMyLocation()
-            } else {
-                locationLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
-            }
-        }
+            onClick = actions.useMyLocation,
+        )
 
         if (state.locationDenied) {
             // A dead button would be worse than an explanation: after two
@@ -128,7 +173,7 @@ fun RadarNearbyScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.error,
                         )
-                        TextButton(onClick = { viewModel.retryPersonal() }) {
+                        TextButton(onClick = actions.retryPersonal) {
                             Text(stringResource(R.string.common_try_again))
                         }
                     }
@@ -154,7 +199,7 @@ fun RadarNearbyScreen(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        TextButton(onClick = { viewModel.checkNetworkAgain() }) {
+                        TextButton(onClick = actions.checkNetworkAgain) {
                             Text(stringResource(R.string.radar_check_again))
                         }
                     }
@@ -164,7 +209,7 @@ fun RadarNearbyScreen(
                     item {
                         Column(Modifier.fillMaxWidth().cardStyle()) {
                             Text(message, style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = { viewModel.retryNetwork() }) {
+                            TextButton(onClick = actions.retryNetwork) {
                                 Text(stringResource(R.string.common_try_again))
                             }
                         }
@@ -205,7 +250,7 @@ fun RadarNearbyScreen(
             }
 
             items(state.rows, key = { it.id }) { row ->
-                NearbyRow(row) { row.venueId?.let(onOpenVenue) }
+                NearbyRow(row) { row.venueId?.let(actions.openVenue) }
             }
 
             if (state.kFloor > 0) {
@@ -241,7 +286,7 @@ fun RadarNearbyScreen(
         BrandSecondaryButton(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
-        ) { onClose() }
+        ) { actions.close() }
     }
 }
 
