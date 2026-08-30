@@ -134,10 +134,9 @@ export function EstimatedTaxCard() {
       const { supabase } = await import("@/lib/supabase");
       const { error } = await supabase
         .from("tax_profiles")
-        .upsert(
-          { user_id: user.id, income_tax_rate_bps: bps } as never,
-          { onConflict: "user_id" },
-        );
+        .upsert({ user_id: user.id, income_tax_rate_bps: bps } as never, {
+          onConflict: "user_id",
+        });
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["tax-profile"] });
     } catch (err) {
@@ -183,7 +182,10 @@ export function EstimatedTaxCard() {
           </p>
         </div>
         <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-          <SelectTrigger className="h-9 w-28" aria-label="Tax year for the estimate">
+          <SelectTrigger
+            className="h-9 w-28"
+            aria-label="Tax year for the estimate"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -219,14 +221,18 @@ export function EstimatedTaxCard() {
             <div className="flex flex-wrap gap-x-6 gap-y-2 text-[13px]">
               <span>
                 <span className="text-muted-foreground">Profit so far </span>
-                <span className="tabular-nums">{formatCents(netProfitCents)}</span>
+                <span className="tabular-nums">
+                  {formatCents(netProfitCents)}
+                </span>
               </span>
               <span>
                 <span className="text-muted-foreground">Paid </span>
                 <span className="tabular-nums">{formatCents(paidCents)}</span>
               </span>
               <span>
-                <span className="text-muted-foreground">Still to set aside </span>
+                <span className="text-muted-foreground">
+                  Still to set aside{" "}
+                </span>
                 <span className="font-medium tabular-nums">
                   {formatCents(estimate.shortfallCents)}
                 </span>
@@ -267,7 +273,9 @@ export function EstimatedTaxCard() {
                             </span>
                           )}
                         </td>
-                        <td className="p-2 text-muted-foreground">{p.covers}</td>
+                        <td className="p-2 text-muted-foreground">
+                          {p.covers}
+                        </td>
                         <td className="p-2 text-right tabular-nums">
                           {formatCents(estimate.perPeriodCents)}
                         </td>
@@ -309,7 +317,9 @@ export function EstimatedTaxCard() {
                               onClick={() => {
                                 setPayingQuarter(p.quarter);
                                 setPayAmount(
-                                  paid ? (paid.paid_cents / 100).toFixed(2) : "",
+                                  paid
+                                    ? (paid.paid_cents / 100).toFixed(2)
+                                    : "",
                                 );
                               }}
                             >
@@ -328,7 +338,7 @@ export function EstimatedTaxCard() {
                 cannot see the assumptions cannot tell whether it applies to
                 them, and will either over-save all year or find out in April
                 that it did not. */}
-            <div className="rounded-md border p-4">
+            <div className="border-t pt-4">
               <p className="flex items-center gap-2 text-sm font-medium">
                 <Info className="h-4 w-4" />
                 What this is built on
@@ -377,12 +387,13 @@ export function EstimatedTaxCard() {
                     onClick={() => setPreferSafeHarbour((v) => !v)}
                   >
                     <PiggyBank className="mr-2 h-4 w-4" />
-                    {preferSafeHarbour ? "Using" : "Use"} last year's tax instead
+                    {preferSafeHarbour ? "Using" : "Use"} last year's tax
+                    instead
                   </Button>
                   <span className="max-w-prose text-[13px] leading-relaxed text-muted-foreground">
                     {formatCents(estimate.safeHarbourCents)}. Pay that and there
-                    is no penalty however this year turns out, even if you end up
-                    owing more.
+                    is no penalty however this year turns out, even if you end
+                    up owing more.
                   </span>
                 </div>
               )}
@@ -396,8 +407,8 @@ export function EstimatedTaxCard() {
 
             <p className="max-w-prose text-[13px] leading-relaxed text-muted-foreground">
               This is an estimate to plan with, not a filing and not advice.
-              GradeThread does the arithmetic; what you owe depends on your whole
-              return.
+              GradeThread does the arithmetic; what you owe depends on your
+              whole return.
             </p>
           </>
         )}

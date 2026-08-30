@@ -108,7 +108,9 @@ export function QuickBooksSyncCard() {
       const sent = total.created + total.updated;
       toast.success(
         `${sent} sent to QuickBooks. ${total.skipped} were already there.` +
-          (total.blocked > 0 ? ` ${total.blocked} are waiting on an account.` : ""),
+          (total.blocked > 0
+            ? ` ${total.blocked} are waiting on an account.`
+            : ""),
       );
       void qc.invalidateQueries({ queryKey: ["qbo-sync-log"] });
     },
@@ -123,7 +125,9 @@ export function QuickBooksSyncCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Send your books to QuickBooks</CardTitle>
+        <CardTitle className="text-base">
+          Send your books to QuickBooks
+        </CardTitle>
         <p className="mt-1 max-w-prose text-[13px] leading-relaxed text-muted-foreground">
           Sales go over as receipts with the fees, the label and the cost of the
           item on them. Expenses go as purchases with their receipt. Payouts go
@@ -137,7 +141,10 @@ export function QuickBooksSyncCard() {
             <Label htmlFor="qbo-sync-year" className="text-xs">
               Year
             </Label>
-            <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+            <Select
+              value={String(year)}
+              onValueChange={(v) => setYear(Number(v))}
+            >
               <SelectTrigger id="qbo-sync-year" className="h-9 w-28">
                 <SelectValue />
               </SelectTrigger>
@@ -166,10 +173,11 @@ export function QuickBooksSyncCard() {
         </p>
 
         {problems.length > 0 && (
-          <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
+          <div className="rounded-md bg-amber-500/10 p-3">
             <p className="flex items-center gap-2 text-sm font-medium">
               <AlertTriangle className="h-4 w-4 text-amber-700 dark:text-amber-400" />
-              {problems.length} thing{problems.length === 1 ? "" : "s"} did not go
+              {problems.length} thing{problems.length === 1 ? "" : "s"} did not
+              go
             </p>
             <ul className="mt-1.5 space-y-1 text-[13px] leading-relaxed text-muted-foreground">
               {problems.slice(0, 8).map((p) => (
@@ -198,12 +206,19 @@ export function QuickBooksSyncCard() {
               </thead>
               <tbody>
                 {log.slice(0, 25).map((e) => (
-                  <tr key={`${e.object_kind}:${e.source_id}`} className="border-t">
+                  <tr
+                    key={`${e.object_kind}:${e.source_id}`}
+                    className="border-t"
+                  >
                     <td className="py-1.5 pr-3">
                       {KIND_LABEL[e.object_kind] ?? e.object_kind}
                     </td>
-                    <td className="py-1.5 pr-3 font-mono text-[12px]">{e.doc_number}</td>
-                    <td className="py-1.5">{STATUS_LABEL[e.status] ?? e.status}</td>
+                    <td className="py-1.5 pr-3 font-mono text-[12px]">
+                      {e.doc_number}
+                    </td>
+                    <td className="py-1.5">
+                      {STATUS_LABEL[e.status] ?? e.status}
+                    </td>
                   </tr>
                 ))}
               </tbody>

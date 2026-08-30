@@ -138,7 +138,10 @@ export function PeriodCloseCard() {
             <Label htmlFor="pc-year" className="text-xs">
               Year
             </Label>
-            <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+            <Select
+              value={String(year)}
+              onValueChange={(v) => setYear(Number(v))}
+            >
               <SelectTrigger id="pc-year" className="h-9 w-28">
                 <SelectValue />
               </SelectTrigger>
@@ -160,7 +163,7 @@ export function PeriodCloseCard() {
         {/* A lock nobody understands gets reopened on the first refusal. Saying
             plainly what stops and what does not is the difference between a
             seller trusting the close and fighting it. */}
-        <div className="rounded-md border p-3">
+        <div className="border-t pt-3">
           <p className="text-sm font-medium">What closing stops</p>
           <ul className="mt-1.5 space-y-0.5 text-[13px] leading-relaxed text-muted-foreground">
             <li>Editing or deleting an expense dated in that year</li>
@@ -183,11 +186,11 @@ export function PeriodCloseCard() {
         {isLoading ? (
           <Skeleton className="h-20 w-full" />
         ) : periods.length > 0 ? (
-          <ul className="space-y-2">
+          <ul className="divide-y">
             {periods.map((p) => (
               <li
                 key={p.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"
+                className="flex flex-wrap items-center justify-between gap-2 py-3"
               >
                 <div>
                   <p className="text-sm">

@@ -145,7 +145,8 @@ export function ReconciliationPayoutsTab() {
       const csv = await file.text();
       const res = await importPayouts.mutateAsync({ csv });
       const parts = [`Imported ${res.imported}`];
-      if (res.duplicates > 0) parts.push(`${res.duplicates} dup${res.duplicates === 1 ? "" : "s"}`);
+      if (res.duplicates > 0)
+        parts.push(`${res.duplicates} dup${res.duplicates === 1 ? "" : "s"}`);
       if (res.skipped > 0) parts.push(`${res.skipped} skipped`);
       if (res.imported === 0 && res.duplicates > 0) {
         toast.info(parts.join(" · "));
@@ -214,139 +215,131 @@ export function ReconciliationPayoutsTab() {
       <EbayPayoutsCard />
 
       {/* CSV import */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Import payouts</CardTitle>
-              <CardDescription>
-                In eBay Seller Hub go to <strong>Payments → Payouts</strong>,
-                pick a date range, and download the report. FlipDesk reads the
-                Payout ID, date, and amount and deduplicates against your
-                existing rows automatically.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-wrap items-center gap-3">
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".csv,text/csv"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void handlePayoutFile(f);
-                }}
-              />
-              <Button
-                onClick={() => fileRef.current?.click()}
-                disabled={importing}
-              >
-                {importing ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Upload className="mr-2 h-4 w-4" />
-                )}
-                Upload payouts CSV
-              </Button>
-              <span className="text-xs text-muted-foreground">
-                {payoutImports.length} payout
-                {payoutImports.length === 1 ? "" : "s"} imported
-                {payoutImports.length > 0 && (
-                  <>
-                    {" · "}
-                    {
-                      payoutImports.filter((p) => !p.reconciled).length
-                    }{" "}
-                    awaiting match
-                  </>
-                )}
-              </span>
-            </CardContent>
-          </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Import payouts</CardTitle>
+          <CardDescription>
+            In eBay Seller Hub go to <strong>Payments → Payouts</strong>, pick a
+            date range, and download the report. FlipDesk reads the Payout ID,
+            date, and amount and deduplicates against your existing rows
+            automatically.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-wrap items-center gap-3">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void handlePayoutFile(f);
+            }}
+          />
+          <Button onClick={() => fileRef.current?.click()} disabled={importing}>
+            {importing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="mr-2 h-4 w-4" />
+            )}
+            Upload payouts CSV
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {payoutImports.length} payout
+            {payoutImports.length === 1 ? "" : "s"} imported
+            {payoutImports.length > 0 && (
+              <>
+                {" · "}
+                {payoutImports.filter((p) => !p.reconciled).length} awaiting
+                match
+              </>
+            )}
+          </span>
+        </CardContent>
+      </Card>
 
-          {/* Recent imports preview */}
-          {payoutImports.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  Recent payout rows
-                </CardTitle>
-                <CardDescription>
-                  Last 25. Use the review queue below to link each one to a
-                  sale.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="px-0">
-                <Table className="text-xs">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Payout ID</TableHead>
-                      <TableHead>Date</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Reconciled</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {payoutsLoading ? (
-                      <TableRow>
-                        <TableCell colSpan={5} className="py-3">
-                          <LoadingRegion label="Loading payouts">
-                            <SkeletonRows rows={4} />
-                          </LoadingRegion>
+      {/* Recent imports preview */}
+      {payoutImports.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Recent payout rows
+            </CardTitle>
+            <CardDescription>
+              Last 25. Use the review queue below to link each one to a sale.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="px-0">
+            <Table className="text-xs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Payout ID</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Reconciled</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {payoutsLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="py-3">
+                      <LoadingRegion label="Loading payouts">
+                        <SkeletonRows rows={4} />
+                      </LoadingRegion>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  payoutImports.slice(0, 25).map((p) => {
+                    const id = String(
+                      (p.raw_payload as Record<string, unknown>)?.payoutid ??
+                        "—",
+                    );
+                    const status = (p.raw_payload as Record<string, unknown>)
+                      ?.status;
+                    return (
+                      <TableRow key={p.id}>
+                        <TableCell className="font-mono text-[11px]">
+                          {id.slice(0, 18)}
+                          {id.length > 18 ? "…" : ""}
+                        </TableCell>
+                        <TableCell>{fmtDate(p.payout_date)}</TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {fmtMoney(p.amount)}
+                        </TableCell>
+                        <TableCell className="text-muted-foreground">
+                          {typeof status === "string" ? status : "—"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={p.reconciled ? "default" : "secondary"}
+                            className="text-[10px]"
+                          >
+                            {p.reconciled ? "matched" : "queued"}
+                          </Badge>
                         </TableCell>
                       </TableRow>
-                    ) : (
-                      payoutImports.slice(0, 25).map((p) => {
-                        const id = String(
-                          (p.raw_payload as Record<string, unknown>)
-                            ?.payoutid ?? "—",
-                        );
-                        const status =
-                          (p.raw_payload as Record<string, unknown>)?.status;
-                        return (
-                          <TableRow key={p.id}>
-                            <TableCell className="font-mono text-[11px]">
-                              {id.slice(0, 18)}
-                              {id.length > 18 ? "…" : ""}
-                            </TableCell>
-                            <TableCell>{fmtDate(p.payout_date)}</TableCell>
-                            <TableCell className="text-right tabular-nums">
-                              {fmtMoney(p.amount)}
-                            </TableCell>
-                            <TableCell className="text-muted-foreground">
-                              {typeof status === "string" ? status : "—"}
-                            </TableCell>
-                            <TableCell>
-                              <Badge
-                                variant={
-                                  p.reconciled ? "default" : "secondary"
-                                }
-                                className="text-[10px]"
-                              >
-                                {p.reconciled ? "matched" : "queued"}
-                              </Badge>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })
-                    )}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          )}
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
-          {/* Review queue */}
-          <ReviewQueueCard
-            queue={queue}
-            loading={queueLoading}
-            total={queueData?.total ?? queue.length}
-            hasMore={queueData?.hasMore ?? false}
-            limit={queueData?.limit ?? queue.length}
-          />
+      {/* Review queue */}
+      <ReviewQueueCard
+        queue={queue}
+        loading={queueLoading}
+        total={queueData?.total ?? queue.length}
+        hasMore={queueData?.hasMore ?? false}
+        limit={queueData?.limit ?? queue.length}
+      />
 
-          {/* Discrepancies */}
-          <Card>
+      {/* Discrepancies */}
+      <Card>
         <CardHeader>
           <div className="flex items-start justify-between">
             <div>
@@ -377,10 +370,7 @@ export function ReconciliationPayoutsTab() {
           ) : (
             <ul className="space-y-2">
               {flagged.map(({ sale, issues }) => (
-                <li
-                  key={sale.id}
-                  className="rounded-md border border-destructive/30 bg-destructive/5 p-3"
-                >
+                <li key={sale.id} className="rounded-md bg-destructive/10 p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div className="font-medium">
                       {titleById.get(sale.inventory_item_id) ?? "Item"}
@@ -390,10 +380,7 @@ export function ReconciliationPayoutsTab() {
                     </div>
                   </div>
                   {issues.map((d, i) => (
-                    <div
-                      key={i}
-                      className="mt-1 text-xs text-destructive"
-                    >
+                    <div key={i} className="mt-1 text-xs text-destructive">
                       • {d}
                     </div>
                   ))}
@@ -429,7 +416,7 @@ export function ReconciliationPayoutsTab() {
             ))}
           </ol>
         </CardContent>
-          </Card>
+      </Card>
 
       {/* eBay sync history — stats from each background pull, newest first. */}
       <SyncHistoryCard />
@@ -483,7 +470,10 @@ function TaxPnlExportCard({
     () => buildTaxPnlRows(sales, metaById),
     [sales, metaById],
   );
-  const categories = useMemo(() => distinctValues(allRows, "category"), [allRows]);
+  const categories = useMemo(
+    () => distinctValues(allRows, "category"),
+    [allRows],
+  );
   const brands = useMemo(() => distinctValues(allRows, "brand"), [allRows]);
 
   const rows = useMemo(
@@ -544,7 +534,11 @@ function TaxPnlExportCard({
     setTimeout(() => w.print(), 500);
   }
 
-  const summaryTiles: Array<{ label: string; value: number; accent?: boolean }> = [
+  const summaryTiles: Array<{
+    label: string;
+    value: number;
+    accent?: boolean;
+  }> = [
     { label: "Gross revenue", value: totals.revenue },
     { label: "COGS", value: totals.cogs },
     { label: "Fees", value: totals.fees },
@@ -569,9 +563,9 @@ function TaxPnlExportCard({
             </CardTitle>
             <CardDescription>
               Per-item and period profit/loss — COGS (source cost), fees,
-              shipping, and net — for completed sales. Filter by category, brand,
-              and date range, then export a CSV or printable report for your
-              accountant. Numbers match your per-item P&amp;L exactly.
+              shipping, and net — for completed sales. Filter by category,
+              brand, and date range, then export a CSV or printable report for
+              your accountant. Numbers match your per-item P&amp;L exactly.
             </CardDescription>
           </div>
         </div>
@@ -580,7 +574,9 @@ function TaxPnlExportCard({
         {/* Filters */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1">
-            <Label className="text-xs" htmlFor="tax-pnl-category">Category</Label>
+            <Label className="text-xs" htmlFor="tax-pnl-category">
+              Category
+            </Label>
             <Select value={category} onValueChange={setCategory}>
               <SelectTrigger id="tax-pnl-category">
                 <SelectValue />
@@ -596,7 +592,9 @@ function TaxPnlExportCard({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs" htmlFor="tax-pnl-brand">Brand</Label>
+            <Label className="text-xs" htmlFor="tax-pnl-brand">
+              Brand
+            </Label>
             <Select value={brand} onValueChange={setBrand}>
               <SelectTrigger id="tax-pnl-brand">
                 <SelectValue />
@@ -638,7 +636,7 @@ function TaxPnlExportCard({
         {/* Live totals preview */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
           {summaryTiles.map((t) => (
-            <div key={t.label} className="rounded-md border p-2.5">
+            <div key={t.label} className="p-2.5">
               <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
                 {t.label}
               </div>
@@ -685,8 +683,7 @@ function buildTaxPnlPrintHtml(
 ): string {
   const esc = (s: string) =>
     s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const usd = (n: number) =>
-    `${n < 0 ? "-" : ""}$${Math.abs(n).toFixed(2)}`;
+  const usd = (n: number) => `${n < 0 ? "-" : ""}$${Math.abs(n).toFixed(2)}`;
 
   const summaryRows: Array<[string, number]> = [
     ["Gross Revenue", totals.revenue],
@@ -753,7 +750,10 @@ function buildTaxPnlPrintHtml(
   <table class="summary-table">
     <tbody>
       ${summaryRows
-        .map(([label, val]) => `<tr><td>${esc(label)}</td><td>${usd(val)}</td></tr>`)
+        .map(
+          ([label, val]) =>
+            `<tr><td>${esc(label)}</td><td>${usd(val)}</td></tr>`,
+        )
         .join("\n")}
     </tbody>
   </table>
@@ -780,13 +780,15 @@ function runStatusBadge(status: EbaySyncRun["status"]) {
     case "success":
       return {
         label: "Success",
-        className: "border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:text-emerald-300",
+        className:
+          "border-emerald-600/30 bg-emerald-600/10 text-emerald-700 dark:text-emerald-300",
         Icon: CheckCircle2,
       };
     case "partial":
       return {
         label: "Partial",
-        className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+        className:
+          "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
         Icon: AlertTriangle,
       };
     case "failed":
@@ -960,7 +962,8 @@ function SyncHistoryCard() {
                           )}
                           {(run.sales_reversed ?? 0) > 0 && (
                             <>
-                              {(run.sales_new > 0 || run.sales_updated > 0) && " "}
+                              {(run.sales_new > 0 || run.sales_updated > 0) &&
+                                " "}
                               <span className="text-rose-700 dark:text-rose-300">
                                 -{run.sales_reversed}
                               </span>
@@ -1113,7 +1116,7 @@ function ReviewQueueCard({
             Auto-match, which sweeps ALL of them server-side (not just this
             page); the list re-fetches after so the next batch surfaces. */}
         {hasMore && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+          <div className="flex items-start gap-2 rounded-md bg-amber-500/10 px-3 py-2 text-xs text-amber-900 dark:text-amber-200">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
               Showing the first {Math.min(limit, queue.length)} of {total}{" "}
@@ -1138,7 +1141,7 @@ function ReviewQueueCard({
             return (
               <div
                 key={entry.payout_import.id}
-                className="rounded-lg border bg-card p-3 space-y-3"
+                className="border-t py-3 space-y-3 first:border-t-0 first:pt-0"
               >
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <div className="flex items-baseline gap-3">
@@ -1160,7 +1163,7 @@ function ReviewQueueCard({
                       {entry.candidates.length === 1 ? "" : "s"}
                     </span>
                     <Button
-                    aria-label={`Dismiss the ${fmtMoney(entry.payout_import.amount)} payout`}
+                      aria-label={`Dismiss the ${fmtMoney(entry.payout_import.amount)} payout`}
                       variant="ghost"
                       size="sm"
                       className="h-7 px-2 text-[10px]"
@@ -1206,7 +1209,9 @@ function ReviewQueueCard({
                         <Button
                           size="sm"
                           className="h-7 px-2 text-[10px]"
-                          onClick={() => doMatch(entry.payout_import.id, c.sale_id)}
+                          onClick={() =>
+                            doMatch(entry.payout_import.id, c.sale_id)
+                          }
                           disabled={isBusy}
                         >
                           {isBusy ? (

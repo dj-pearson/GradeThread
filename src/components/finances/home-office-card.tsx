@@ -71,9 +71,7 @@ export function HomeOfficeCard() {
   // Computed locally as the seller types. The database owns the real figure;
   // this mirrors it so there is no round trip per keystroke, and the two are
   // pinned to each other by tests on both sides.
-  const preview = rate
-    ? homeOfficeDeductionCents(sqftNum, monthsNum, rate)
-    : 0;
+  const preview = rate ? homeOfficeDeductionCents(sqftNum, monthsNum, rate) : 0;
 
   const notices = overlap ? homeOfficeNotices(overlap, rate ?? null) : [];
 
@@ -110,7 +108,10 @@ export function HomeOfficeCard() {
           </p>
         </div>
         <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-          <SelectTrigger className="h-9 w-28" aria-label="Tax year for the home office deduction">
+          <SelectTrigger
+            className="h-9 w-28"
+            aria-label="Tax year for the home office deduction"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -131,7 +132,7 @@ export function HomeOfficeCard() {
             {/* AC5. What "regularly and exclusively" means, in a sentence, at
                 the point where the seller is deciding whether it applies. This
                 is a fact about the rule, not advice about their situation. */}
-            <p className="max-w-prose rounded-md border p-3 text-[13px] leading-relaxed text-muted-foreground">
+            <p className="max-w-prose text-[13px] leading-relaxed text-muted-foreground">
               The space has to be used <strong>regularly and only</strong> for
               the business. A corner of the spare room that holds nothing but
               stock counts. The dining table you also eat at does not, and
@@ -159,7 +160,7 @@ export function HomeOfficeCard() {
             </div>
 
             {method === "actual" ? (
-              <p className="max-w-prose rounded-md border p-3 text-[13px] leading-relaxed text-muted-foreground">
+              <p className="max-w-prose text-[13px] leading-relaxed text-muted-foreground">
                 Actual expenses means working out your share of mortgage or
                 rent, insurance, utilities and depreciation on Form 8829. We do
                 not do that one, so there is no figure here for you. Your

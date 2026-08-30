@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Car, FileSpreadsheet, Plus, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  Car,
+  FileSpreadsheet,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
@@ -89,7 +95,9 @@ export function MileageLogCard() {
   });
 
   const warnings = summary ? mileageWarnings(summary) : [];
-  const conflict = summary ? partIvConflict(summary, vehicleYear ?? null) : null;
+  const conflict = summary
+    ? partIvConflict(summary, vehicleYear ?? null)
+    : null;
   const method = vehicleYear?.method ?? "standard";
 
   async function remove(id: string) {
@@ -105,7 +113,9 @@ export function MileageLogCard() {
       await deleteTrip(id);
       await qc.invalidateQueries({ queryKey: ["mileage-summary"] });
       await qc.invalidateQueries({ queryKey: ["mileage-trips"] });
-      toast.success("Trip deleted. Rebuild your books to update the deduction.");
+      toast.success(
+        "Trip deleted. Rebuild your books to update the deduction.",
+      );
     } catch (err) {
       toastError(err, "Couldn't delete the trip.");
     }
@@ -133,7 +143,9 @@ export function MileageLogCard() {
     if (!summary) return;
     const lines: string[] = [];
     lines.push(`MILEAGE LOG ${year}`);
-    lines.push(`Method,${method === "standard" ? "Standard mileage rate" : "Actual expenses"}`);
+    lines.push(
+      `Method,${method === "standard" ? "Standard mileage rate" : "Actual expenses"}`,
+    );
     lines.push("");
     lines.push("Date,Miles,Purpose,From,To,Round trip");
     for (const t of [...trips].reverse()) {
@@ -191,8 +203,14 @@ export function MileageLogCard() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
-            <SelectTrigger className="h-9 w-28" aria-label="Tax year for the mileage log">
+          <Select
+            value={String(year)}
+            onValueChange={(v) => setYear(Number(v))}
+          >
+            <SelectTrigger
+              className="h-9 w-28"
+              aria-label="Tax year for the mileage log"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -230,12 +248,20 @@ export function MileageLogCard() {
           <span className="text-[13px] text-muted-foreground">
             You are claiming
           </span>
-          <Select value={method} onValueChange={(v) => setMethod(v as "standard" | "actual")}>
-            <SelectTrigger className="h-8 w-56" aria-label="How vehicle costs are claimed">
+          <Select
+            value={method}
+            onValueChange={(v) => setMethod(v as "standard" | "actual")}
+          >
+            <SelectTrigger
+              className="h-8 w-56"
+              aria-label="How vehicle costs are claimed"
+            >
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="standard">the standard mileage rate</SelectItem>
+              <SelectItem value="standard">
+                the standard mileage rate
+              </SelectItem>
               <SelectItem value="actual">actual vehicle expenses</SelectItem>
             </SelectContent>
           </Select>
@@ -243,11 +269,11 @@ export function MileageLogCard() {
         </div>
 
         {method === "actual" ? (
-          <p className="max-w-prose rounded-md border p-3 text-[13px] leading-relaxed text-muted-foreground">
+          <p className="max-w-prose text-[13px] leading-relaxed text-muted-foreground">
             On actual expenses you deduct petrol, insurance, repairs and
             depreciation instead of a rate per mile. Log your trips anyway: the
-            business-use percentage still comes from the miles, and Part IV still
-            asks for them. The figure below does not apply to you.
+            business-use percentage still comes from the miles, and Part IV
+            still asks for them. The figure below does not apply to you.
           </p>
         ) : isLoading ? (
           <Skeleton className="h-24 w-full" />
@@ -323,7 +349,11 @@ export function MileageLogCard() {
                       >
                         Edit
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => remove(t.id)}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => remove(t.id)}
+                      >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </td>
@@ -344,8 +374,8 @@ export function MileageLogCard() {
         />
 
         <p className="max-w-prose text-[13px] leading-relaxed text-muted-foreground">
-          The rate comes from the date of each trip, so a year that changed rates
-          part-way through is handled and last year's trips never reprice.
+          The rate comes from the date of each trip, so a year that changed
+          rates part-way through is handled and last year's trips never reprice.
           GradeThread does the arithmetic. It does not give tax advice.
         </p>
       </CardContent>
@@ -367,7 +397,9 @@ function PartIvSection({
   conflict,
 }: {
   year: number;
-  summary: ReturnType<typeof mileageWarnings> extends never ? never : Parameters<typeof partIvRows>[0] | undefined;
+  summary: ReturnType<typeof mileageWarnings> extends never
+    ? never
+    : Parameters<typeof partIvRows>[0] | undefined;
   vehicleYear: Parameters<typeof partIvRows>[1];
   conflict: string | null;
 }) {
@@ -402,7 +434,7 @@ function PartIvSection({
   }
 
   return (
-    <div className="rounded-md border p-4">
+    <div className="border-t pt-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium">What Schedule C Part IV asks</p>
@@ -428,7 +460,9 @@ function PartIvSection({
         <tbody>
           {rows.map((r) => (
             <tr key={r.label} className="border-b last:border-b-0">
-              <td className="w-12 py-2 text-xs text-muted-foreground">{r.line}</td>
+              <td className="w-12 py-2 text-xs text-muted-foreground">
+                {r.line}
+              </td>
               <td className="py-2">
                 {r.label}
                 {r.derived && (
@@ -612,7 +646,8 @@ function TripDialog({
         <DialogHeader>
           <DialogTitle>{editing ? "Edit trip" : "Log a trip"}</DialogTitle>
           <DialogDescription>
-            Date, miles and why you went. Those three are what makes it a record.
+            Date, miles and why you went. Those three are what makes it a
+            record.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -649,7 +684,9 @@ function TripDialog({
                       {" "}
                       &middot;{" "}
                       {formatCents(
-                        Math.round((milesNum * rate.tenths_of_cent_per_mile) / 10),
+                        Math.round(
+                          (milesNum * rate.tenths_of_cent_per_mile) / 10,
+                        ),
                       )}
                     </>
                   )}
@@ -662,8 +699,8 @@ function TripDialog({
                 </>
               ) : (
                 <span className="text-amber-700 dark:text-amber-400">
-                  We have no rate for that date, so this trip will deduct nothing
-                  until one is added.
+                  We have no rate for that date, so this trip will deduct
+                  nothing until one is added.
                 </span>
               )}
             </p>

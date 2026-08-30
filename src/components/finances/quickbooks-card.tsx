@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Link2, Link2Off, RefreshCw } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Link2,
+  Link2Off,
+  RefreshCw,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useAuthStore } from "@/stores/auth-store";
 import { toastError } from "@/lib/toast-error";
@@ -84,7 +90,8 @@ export function QuickBooksCard() {
       no_realm: "QuickBooks didn't say which company file. Start again.",
       exchange_failed: "QuickBooks refused the connection. Try again.",
     };
-    const msg = messages[result] ?? "Something went wrong connecting QuickBooks.";
+    const msg =
+      messages[result] ?? "Something went wrong connecting QuickBooks.";
     if (result === "connected") toast.success(msg);
     else toast.error(msg);
     const next = new URLSearchParams(params);
@@ -117,7 +124,11 @@ export function QuickBooksCard() {
   // rather than a sync run: the seller wants to see the whole list, and
   // US-2998 narrows it to what a period actually touched.
   const unmapped = useMemo(
-    () => blockedAccounts(effective, SYSTEM_ACCOUNTS.map((a) => a.code)),
+    () =>
+      blockedAccounts(
+        effective,
+        SYSTEM_ACCOUNTS.map((a) => a.code),
+      ),
     [effective],
   );
 
@@ -176,15 +187,19 @@ export function QuickBooksCard() {
           {/* AC5. Which company file, and which environment, on the screen at
               all times. A seller who cannot see this cannot tell a sandbox sync
               from a real one until the damage is in a real company file. */}
-          <Badge variant={status.environment === "sandbox" ? "secondary" : "outline"}>
-            {status.environment === "sandbox" ? "Sandbox (test data)" : "Live company"}
+          <Badge
+            variant={status.environment === "sandbox" ? "secondary" : "outline"}
+          >
+            {status.environment === "sandbox"
+              ? "Sandbox (test data)"
+              : "Live company"}
           </Badge>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-4">
         {!status.configured && (
-          <p className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-[13px] leading-relaxed">
+          <p className="rounded-md bg-amber-500/10 p-3 text-[13px] leading-relaxed">
             QuickBooks is not switched on for this server yet. Nothing here can
             reach Intuit.
           </p>
@@ -194,7 +209,7 @@ export function QuickBooksCard() {
           // AC6. A silent stop is how a seller finds out in March that nothing
           // has synced since November. It says what to do, and the button is
           // right there.
-          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3">
+          <div className="rounded-md bg-destructive/10 p-3">
             <p className="flex items-center gap-2 text-sm font-medium">
               <AlertTriangle className="h-4 w-4 text-destructive" />
               {status.connection.refresh_error}
@@ -245,8 +260,8 @@ export function QuickBooksCard() {
 
         {connected && chart?.reconnect && (
           <p className="text-[13px] leading-relaxed text-muted-foreground">
-            Your QuickBooks sign-in has run out. Reconnect above and the accounts
-            will load.
+            Your QuickBooks sign-in has run out. Reconnect above and the
+            accounts will load.
           </p>
         )}
 
@@ -255,14 +270,14 @@ export function QuickBooksCard() {
             <div>
               <p className="text-sm font-medium">Line up your accounts</p>
               <p className="mt-0.5 max-w-prose text-[13px] leading-relaxed text-muted-foreground">
-                We picked the closest match in your QuickBooks file for each one.
-                Check them. A sale posted into the wrong account has to be
+                We picked the closest match in your QuickBooks file for each
+                one. Check them. A sale posted into the wrong account has to be
                 unpicked by hand.
               </p>
             </div>
 
             {problems.length > 0 && (
-              <ul className="space-y-1 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-[13px] leading-relaxed">
+              <ul className="space-y-1 rounded-md bg-destructive/10 p-3 text-[13px] leading-relaxed">
                 {problems.map((p) => (
                   <li key={p.code}>{p.message}</li>
                 ))}
@@ -304,7 +319,8 @@ export function QuickBooksCard() {
                                   setChoice({
                                     ...effective,
                                     [a.code]: v === "__none" ? null : v,
-                                  })}
+                                  })
+                                }
                               >
                                 <SelectTrigger
                                   className="h-8 w-full max-w-[320px]"
@@ -313,7 +329,9 @@ export function QuickBooksCard() {
                                   <SelectValue placeholder="Not mapped" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="__none">Not mapped</SelectItem>
+                                  <SelectItem value="__none">
+                                    Not mapped
+                                  </SelectItem>
                                   {accounts
                                     .filter((q) => q.Active !== false)
                                     .map((q) => (
@@ -346,8 +364,8 @@ export function QuickBooksCard() {
                 between a seller finishing setup and a seller giving up. */}
             {unmapped.length > 0 && (
               <p className="text-[13px] leading-relaxed text-muted-foreground">
-                {unmapped.length} account{unmapped.length === 1 ? "" : "s"} still
-                need a home. Those wait; everything else syncs.
+                {unmapped.length} account{unmapped.length === 1 ? "" : "s"}{" "}
+                still need a home. Those wait; everything else syncs.
               </p>
             )}
 

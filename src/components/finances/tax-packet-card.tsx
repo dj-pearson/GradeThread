@@ -24,7 +24,11 @@ import { buildStatement } from "@/lib/pnl-statement";
 import { fetchCogsWorksheet } from "@/lib/cogs";
 import { fetchBridge, fetchPlatformsWithSales } from "@/lib/form-1099k";
 import { fetchMileageSummary, fetchVehicleYear } from "@/lib/mileage";
-import { fetchHomeOfficeRate, fetchHomeOfficeYear, homeOfficeDeductionCents } from "@/lib/home-office";
+import {
+  fetchHomeOfficeRate,
+  fetchHomeOfficeYear,
+  homeOfficeDeductionCents,
+} from "@/lib/home-office";
 import { fetchReviewQueue } from "@/lib/books-review";
 import { expenseReceiptUrl } from "@/lib/expense-receipts";
 import {
@@ -182,9 +186,19 @@ export function TaxPacketCard() {
         );
       }
 
-      const files: { name: string; input: Blob | string; lastModified?: Date }[] = [];
-      files.push({ name: `${label}/tax-packet-${label}.csv`, input: buildPacketCsv(input) });
-      files.push({ name: `${label}/tax-packet-${label}.html`, input: buildPacketHtml(input) });
+      const files: {
+        name: string;
+        input: Blob | string;
+        lastModified?: Date;
+      }[] = [];
+      files.push({
+        name: `${label}/tax-packet-${label}.csv`,
+        input: buildPacketCsv(input),
+      });
+      files.push({
+        name: `${label}/tax-packet-${label}.html`,
+        input: buildPacketHtml(input),
+      });
 
       // AC3. The RECEIPT FILES, not links to them. A signed URL is capped at
       // 900 seconds and would be dead before the accountant opened the folder.
@@ -247,7 +261,9 @@ export function TaxPacketCard() {
       const input = await gather();
       const w = window.open("", "_blank", "width=900,height=1000");
       if (!w) {
-        toast.error("Your browser blocked the window. Allow pop-ups and retry.");
+        toast.error(
+          "Your browser blocked the window. Allow pop-ups and retry.",
+        );
         return;
       }
       w.document.write(buildPacketHtml(input));
@@ -282,7 +298,10 @@ export function TaxPacketCard() {
             <Label htmlFor="tp-year" className="text-xs">
               Tax year
             </Label>
-            <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
+            <Select
+              value={String(year)}
+              onValueChange={(v) => setYear(Number(v))}
+            >
               <SelectTrigger id="tp-year" className="h-9 w-28">
                 <SelectValue />
               </SelectTrigger>
@@ -305,7 +324,7 @@ export function TaxPacketCard() {
           </Button>
         </div>
 
-        <div className="rounded-md border p-3">
+        <div className="border-t pt-3">
           <p className="text-sm font-medium">What is in it</p>
           <ul className="mt-1.5 space-y-0.5 text-[13px] leading-relaxed text-muted-foreground">
             <li>A Schedule C worksheet with the line numbers filled in</li>

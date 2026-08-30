@@ -60,9 +60,28 @@ export const SCREENS: {
     path: "/dashboard/flipdesk/money?view=expenses",
     render: () => <FlipdeskExpensesPage />,
   },
+  // Reconcile's four inner tabs render one at a time, and ?tab= picks which -
+  // so each tab is its own entry. The default "photos" tab is a drop zone fed
+  // by local state, not by a query, so no fixture can fill it and it will
+  // always render thin. The other three are worth more.
   {
     key: "reconcile",
     path: "/dashboard/flipdesk/money?view=reconcile",
+    render: () => <FlipdeskReconcilePage />,
+  },
+  {
+    key: "reconcile-payouts",
+    path: "/dashboard/flipdesk/money?view=reconcile&tab=payouts",
+    render: () => <FlipdeskReconcilePage />,
+  },
+  {
+    key: "reconcile-ebay",
+    path: "/dashboard/flipdesk/money?view=reconcile&tab=ebay",
+    render: () => <FlipdeskReconcilePage />,
+  },
+  {
+    key: "reconcile-conflicts",
+    path: "/dashboard/flipdesk/money?view=reconcile&tab=cross-source",
     render: () => <FlipdeskReconcilePage />,
   },
   {
