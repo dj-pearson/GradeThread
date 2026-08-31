@@ -42,6 +42,7 @@ import com.gradethread.app.ui.components.BarDatum
 import com.gradethread.app.ui.components.GroupedBarChart
 import com.gradethread.app.ui.theme.ContentMaxWidth
 import com.gradethread.app.ui.theme.Spacing
+import com.gradethread.app.ui.UiMessage
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle

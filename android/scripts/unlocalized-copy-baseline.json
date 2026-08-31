@@ -89,7 +89,6 @@
     "marketplaces/negotiation/NegotiationService.kt": 1,
     "marketplaces/postsale/PostSale.kt": 2,
     "marketplaces/postsale/PostSaleViewModel.kt": 3,
-    "marketplaces/pricing/BulkPricing.kt": 10,
     "marketplaces/pricing/BulkPricingService.kt": 1,
     "marketplaces/promotions/PromotionTypes.kt": 1,
     "marketplaces/promotions/PromotionViewModel.kt": 4,

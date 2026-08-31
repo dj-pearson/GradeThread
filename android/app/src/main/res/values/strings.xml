@@ -2243,4 +2243,14 @@
     <string name="auth_error_weak_password">That password doesn\'t meet the requirements. Try a longer one with a mix of letters, numbers, and symbols.</string>
     <string name="auth_error_expired_link">That link has expired or was already used. Request a fresh one &#8212; reset your password or sign in to resend the confirmation.</string>
     <string name="auth_error_generic">Something went wrong. Please try again.</string>
+    <string name="bulkpricing_mode_none">No change</string>
+    <string name="bulkpricing_mode_set">Set price</string>
+    <string name="bulkpricing_mode_reduce">Reduce %</string>
+    <string name="bulkpricing_below_zero">That would price this at $0 or less &#8212; lower the reduction.</string>
+    <string name="bulkpricing_below_cent">That would price this under a cent &#8212; lower the reduction.</string>
+    <string name="bulkpricing_row_rejected">eBay rejected this one.</string>
+    <string name="bulkpricing_summary_none">Nothing to update.</string>
+    <string name="bulkpricing_summary_all">Updated %1$d listings on eBay.</string>
+    <string name="bulkpricing_summary_zero">None of the %1$d updates went through.</string>
+    <string name="bulkpricing_summary_partial">Updated %1$d of %2$d. The rest are marked below with what eBay said.</string>
 </resources>

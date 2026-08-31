@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.gradethread.app.marketplaces.MarketplaceConnectionRepository
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.sync.SyncService
+import com.gradethread.app.ui.UiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,9 +30,9 @@ class BulkPricingViewModel @Inject constructor(
         val mode: BulkPricing.Mode = BulkPricing.Mode.NONE,
         val inputText: String = "",
         /** Per-listing failures from the last push. */
-        val rowErrors: Map<String, String> = emptyMap(),
+        val rowErrors: Map<String, UiMessage> = emptyMap(),
         val busy: Boolean = false,
-        val banner: String? = null,
+        val banner: BulkPricing.Summary? = null,
         val errorMessage: String? = null,
         /**
          * US-1216: every bulk edit routes through the PRIMARY store, and
@@ -47,8 +48,7 @@ class BulkPricingViewModel @Inject constructor(
             get() = BulkPricing.updates(listings, selected, mode, value)
 
         /** The new price for a row, or the reason there isn't one. */
-        fun target(listing: BulkListing): BulkPricing.Target =
-            BulkPricing.target(listing.price, mode, value)
+        fun target(listing: BulkListing): BulkPricing.Target = BulkPricing.target(listing.price, mode, value)
 
         val allSelected: Boolean
             get() = listings.isNotEmpty() && selected.size == listings.size

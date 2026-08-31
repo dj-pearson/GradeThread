@@ -1,8 +1,9 @@
 package com.gradethread.app.marketplaces.pricing
 
+import com.gradethread.app.R
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -51,7 +52,7 @@ class BulkPricingTest {
         // zero. Quietly clamping would push a price the seller never chose.
         val zeroed = BulkPricing.target(0.15, BulkPricing.Mode.REDUCE, 99.0)
         assertNull(zeroed.price)
-        assertTrue(zeroed.error!!.contains("0 or less"))
+        assertEquals(R.string.bulkpricing_below_zero, zeroed.error)
 
         val valid = BulkPricing.target(0.15, BulkPricing.Mode.REDUCE, 90.0)
         assertEquals(0.02, valid.price!!, 1e-9)
@@ -137,22 +138,26 @@ class BulkPricingTest {
             ),
         )
         assertEquals(setOf("b", "c"), errors.keys)
-        assertEquals("Offer not found", errors["b"])
-        assertTrue(errors["c"]!!.isNotBlank())
+        // eBay's own text survives; ours only fills in when there is none.
+        assertEquals("Offer not found", errors["b"]!!.detail)
+        assertNull(errors["c"]!!.detail)
+        assertEquals(R.string.bulkpricing_row_rejected, errors["c"]!!.res)
     }
 
     @Test
     fun `a partial batch is named as partial`() {
+        // US-2976: the resource and its NUMBERS. The sentence is assembled
+        // on screen, because "18 of 20" puts them in an order English chose.
         assertEquals(
-            "Updated 20 listings on eBay.",
+            BulkPricing.Summary(R.string.bulkpricing_summary_all, listOf(20)),
             BulkPricing.summary(BulkPriceResponse(succeeded = 20, total = 20)),
         )
-        assertTrue(
-            BulkPricing.summary(BulkPriceResponse(succeeded = 18, total = 20))
-                .startsWith("Updated 18 of 20."),
+        assertEquals(
+            BulkPricing.Summary(R.string.bulkpricing_summary_partial, listOf(18, 20)),
+            BulkPricing.summary(BulkPriceResponse(succeeded = 18, total = 20)),
         )
         assertEquals(
-            "None of the 20 updates went through.",
+            BulkPricing.Summary(R.string.bulkpricing_summary_zero, listOf(20)),
             BulkPricing.summary(BulkPriceResponse(succeeded = 0, total = 20)),
         )
     }

@@ -34,6 +34,7 @@ import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.cardStyle
+import com.gradethread.app.ui.UiMessage
 
 /**
  * US-1355: bulk price editor — pick listings, choose an adjustment, see the new
@@ -100,7 +101,7 @@ fun BulkPricingContent(state: BulkPricingViewModel.State, actions: BulkPricingAc
                 FilterChip(
                     selected = state.mode == mode,
                     onClick = { actions.setMode(mode) },
-                    label = { Text(mode.label) },
+                    label = { Text(stringResource(mode.label)) },
                 )
             }
         }
@@ -223,7 +224,7 @@ private fun ListingRow(
     listing: BulkListing,
     selected: Boolean,
     target: BulkPricing.Target,
-    rowError: String?,
+    rowError: UiMessage?,
     onToggle: () -> Unit,
 ) {
     Column(
@@ -263,7 +264,7 @@ private fun ListingRow(
         if (selected) {
             target.error?.let {
                 Text(
-                    it,
+                    stringResource(it),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                 )
@@ -272,8 +273,12 @@ private fun ListingRow(
         rowError?.let {
             // A per-listing failure from the last push. It stays on its row so a
             // partial batch reads as "these two didn't", not "it failed".
+            //
+            // US-2976: eBay's own text when there is any, ours when there is
+            // not. Only the second half is translatable and only the second
+            // half is ours.
             Text(
-                it,
+                it.detail ?: stringResource(it.res),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -312,6 +317,12 @@ private fun BulkPricingNotices(state: BulkPricingViewModel.State) {
         InfoCard(stringResource(R.string.bulkpricing_that_didn_t_work), it, tone = InfoTone.Error)
     }
     state.banner?.let {
-        InfoCard(stringResource(R.string.bulkpricing_pushed), it, tone = InfoTone.Success)
+        // The resource plus its numbers, formatted here. "18 of 20" puts them
+        // in an order English chose; a translator has to be free to move them.
+        InfoCard(
+            stringResource(R.string.bulkpricing_pushed),
+            stringResource(it.res, *it.args.toTypedArray()),
+            tone = InfoTone.Success,
+        )
     }
 }

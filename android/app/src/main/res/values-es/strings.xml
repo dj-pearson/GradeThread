@@ -2112,4 +2112,14 @@
     <string name="auth_error_weak_password">Esa contraseña no cumple los requisitos. Prueba una más larga que mezcle letras, números y símbolos.</string>
     <string name="auth_error_expired_link">Ese enlace caducó o ya se usó. Pide uno nuevo &#8212; restablece tu contraseña o entra para reenviar la confirmación.</string>
     <string name="auth_error_generic">Algo salió mal. Inténtalo de nuevo.</string>
+    <string name="bulkpricing_mode_none">Sin cambios</string>
+    <string name="bulkpricing_mode_set">Fijar precio</string>
+    <string name="bulkpricing_mode_reduce">Bajar %</string>
+    <string name="bulkpricing_below_zero">Eso lo dejaría en 0 $ o menos &#8212; baja la reducción.</string>
+    <string name="bulkpricing_below_cent">Eso lo dejaría por debajo de un céntimo &#8212; baja la reducción.</string>
+    <string name="bulkpricing_row_rejected">eBay rechazó este.</string>
+    <string name="bulkpricing_summary_none">Nada que actualizar.</string>
+    <string name="bulkpricing_summary_all">%1$d anuncios actualizados en eBay.</string>
+    <string name="bulkpricing_summary_zero">Ninguna de las %1$d actualizaciones se aplicó.</string>
+    <string name="bulkpricing_summary_partial">%1$d de %2$d actualizados. El resto están marcados abajo con lo que dijo eBay.</string>
 </resources>

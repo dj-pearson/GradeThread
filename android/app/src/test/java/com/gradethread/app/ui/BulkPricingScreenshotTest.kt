@@ -9,6 +9,7 @@ import com.gradethread.app.marketplaces.pricing.BulkPricing
 import com.gradethread.app.marketplaces.pricing.BulkPricingActions
 import com.gradethread.app.marketplaces.pricing.BulkPricingContent
 import com.gradethread.app.marketplaces.pricing.BulkPricingViewModel
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -73,7 +74,12 @@ class BulkPricingScreenshotTest {
         BulkPricingContent(
             loaded.copy(
                 selected = setOf("l1", "l2", "l3"),
-                rowErrors = mapOf("l2" to "eBay rejected this price: below the reserve."),
+                rowErrors = mapOf(
+                    "l2" to UiMessage(
+                        R.string.bulkpricing_row_rejected,
+                        "eBay rejected this price: below the reserve.",
+                    ),
+                ),
             ),
             BulkPricingActions(),
         )

@@ -1,5 +1,9 @@
 package com.gradethread.app.marketplaces.pricing
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+
 import com.gradethread.app.capture.CurrencyAmount
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -7,12 +11,7 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 
 /** One active eBay listing eligible for a bulk price edit. */
-data class BulkListing(
-    val id: String,
-    val title: String,
-    val price: Double,
-    val quantity: Int?,
-)
+data class BulkListing(val id: String, val title: String, val price: Double, val quantity: Int?)
 
 @Serializable
 internal data class BulkListingRow(
@@ -61,19 +60,19 @@ object BulkPricing {
     /** The server refuses more than this in one request. */
     const val MAX_UPDATES = 500
 
-    enum class Mode(val label: String) {
+    enum class Mode(@StringRes val label: Int) {
         /** Leave prices alone (the safe default). */
-        NONE("No change"),
+        NONE(R.string.bulkpricing_mode_none),
 
         /** Every selected listing gets the same price. */
-        SET("Set price"),
+        SET(R.string.bulkpricing_mode_set),
 
         /** Take a percentage off each listing's current price. */
-        REDUCE("Reduce %"),
+        REDUCE(R.string.bulkpricing_mode_reduce),
     }
 
     /** A row's computed target, or why it can't be applied. */
-    data class Target(val price: Double?, val error: String? = null) {
+    data class Target(val price: Double?, @StringRes val error: Int? = null) {
         val applicable: Boolean get() = price != null
     }
 
@@ -119,9 +118,9 @@ object BulkPricing {
             return Target(
                 null,
                 if (rounded <= 0) {
-                    "That would price this at \$0 or less — lower the reduction."
+                    R.string.bulkpricing_below_zero
                 } else {
-                    "That would price this under a cent — lower the reduction."
+                    R.string.bulkpricing_below_cent
                 },
             )
         }
@@ -163,10 +162,18 @@ object BulkPricing {
         }
         .take(MAX_UPDATES)
 
-    /** Per-listing failures from an apply, keyed by listing id. */
-    fun rowErrors(results: List<BulkPriceResult>): Map<String, String> = results
+    /**
+     * Per-listing failures from an apply, keyed by listing id.
+     *
+     * US-2976: a [UiMessage], because the two halves have different owners.
+     * eBay's own rejection text is the useful one and we cannot translate it;
+     * our fallback only runs when eBay said nothing, and that one must.
+     */
+    fun rowErrors(results: List<BulkPriceResult>): Map<String, UiMessage> = results
         .filter { !it.ok }
-        .associate { it.listingId to (it.error ?: "eBay rejected this one.") }
+        .associate {
+            it.listingId to UiMessage(R.string.bulkpricing_row_rejected, it.error)
+        }
 
     /**
      * The outcome line.
@@ -174,11 +181,25 @@ object BulkPricing {
      * A partial batch is named as a partial: "18 of 20" tells the seller two
      * listings still carry the old price, which "done" would hide.
      */
-    fun summary(response: BulkPriceResponse): String = when {
-        response.total == 0 -> "Nothing to update."
-        response.succeeded == response.total -> "Updated ${response.total} listings on eBay."
-        response.succeeded == 0 -> "None of the ${response.total} updates went through."
-        else -> "Updated ${response.succeeded} of ${response.total}. " +
-            "The rest are marked below with what eBay said."
+    fun summary(response: BulkPriceResponse): Summary = when {
+        response.total == 0 -> Summary(R.string.bulkpricing_summary_none)
+        response.succeeded == response.total ->
+            Summary(R.string.bulkpricing_summary_all, listOf(response.total))
+        response.succeeded == 0 ->
+            Summary(R.string.bulkpricing_summary_zero, listOf(response.total))
+        else -> Summary(
+            R.string.bulkpricing_summary_partial,
+            listOf(response.succeeded, response.total),
+        )
     }
+
+    /**
+     * The outcome line, as a resource plus its numbers.
+     *
+     * US-2976: the SENTENCE cannot be built here. "18 of 20" puts the numbers
+     * in an order English chose, and a translator has to be free to move them -
+     * which is only possible if what leaves this object is the resource and the
+     * arguments, not a finished string.
+     */
+    data class Summary(@StringRes val res: Int, val args: List<Int> = emptyList())
 }

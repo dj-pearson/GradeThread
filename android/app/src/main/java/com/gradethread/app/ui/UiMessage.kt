@@ -1,4 +1,4 @@
-package com.gradethread.app.money
+package com.gradethread.app.ui
 
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Immutable
