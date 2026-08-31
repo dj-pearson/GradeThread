@@ -57,3 +57,49 @@ Deno.test("soldConfidenceFromCount: 0 below the minimum, rising and capped", () 
 Deno.test("MIN_SOLD_COMPS is a sane floor", () => {
   assert(MIN_SOLD_COMPS >= 3);
 });
+
+// ── ebaySoldSearchUrl: the public sold-search link Scout hands the seller ────
+// This URL is the ONLY realized-price surface we have until the Marketplace
+// Insights grant lands, so a wrong param here is a seller reading the wrong
+// item's prices in a thrift aisle.
+const { ebaySoldSearchUrl } = await import("../lib/sold-comps.ts");
+
+Deno.test("ebaySoldSearchUrl: sold + completed filters and recent-first sort", () => {
+  const url = new URL(ebaySoldSearchUrl({ query: "patagonia synchilla" }));
+  assertEquals(url.origin + url.pathname, "https://www.ebay.com/sch/i.html");
+  assertEquals(url.searchParams.get("_nkw"), "patagonia synchilla");
+  assertEquals(url.searchParams.get("LH_Sold"), "1");
+  assertEquals(url.searchParams.get("LH_Complete"), "1");
+  // Best Match would lead with a two-year-old sale; ended-recent is the point.
+  assertEquals(url.searchParams.get("_sop"), "13");
+});
+
+Deno.test("ebaySoldSearchUrl: a resolved leaf category scopes the search", () => {
+  const url = new URL(
+    ebaySoldSearchUrl({ query: "patagonia synchilla", categoryId: "57988" }),
+  );
+  assertEquals(url.searchParams.get("_sacat"), "57988");
+});
+
+Deno.test("ebaySoldSearchUrl: no category → site-wide, never a blank _sacat", () => {
+  for (const categoryId of [null, undefined, ""]) {
+    const url = new URL(ebaySoldSearchUrl({ query: "levis 501", categoryId }));
+    assertEquals(url.searchParams.has("_sacat"), false);
+  }
+});
+
+Deno.test("ebaySoldSearchUrl: a non-numeric category is dropped, not passed on", () => {
+  // eBay answers a malformed _sacat with zero results, which a seller reads as
+  // "nothing like this ever sold" rather than as our bug.
+  const url = new URL(
+    ebaySoldSearchUrl({ query: "levis 501", categoryId: "Men's Jeans" }),
+  );
+  assertEquals(url.searchParams.has("_sacat"), false);
+});
+
+Deno.test("ebaySoldSearchUrl: query is escaped, not concatenated", () => {
+  const url = new URL(
+    ebaySoldSearchUrl({ query: "carhartt 34x30 & double-knee" }),
+  );
+  assertEquals(url.searchParams.get("_nkw"), "carhartt 34x30 & double-knee");
+});

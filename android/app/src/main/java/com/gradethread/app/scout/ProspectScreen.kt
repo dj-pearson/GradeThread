@@ -348,7 +348,11 @@ private fun ResultCard(response: ProspectResponse, state: ProspectViewModel.Stat
         }
 
         response.ebaySoldSearchUrl?.let { url ->
-            TextButton(onClick = { CustomTabsLauncher.open(context, url) }) {
+            // The eBay app, not a Custom Tab: this is the one screen where the
+            // destination app beats the mobile web page, because the seller is
+            // already signed in there and the sold search is the reason they
+            // opened GradeThread in the aisle.
+            TextButton(onClick = { CustomTabsLauncher.openInMarketplaceApp(context, url) }) {
                 Text(stringResource(R.string.prospect_see_sold_listings))
             }
         }

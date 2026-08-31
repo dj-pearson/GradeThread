@@ -252,3 +252,37 @@ export async function getRealizedCompTitles(
     return [];
   }
 }
+
+// ── The public sold-search link ────────────────────────────────────────────
+//
+// Until the Marketplace Insights grant lands, our comp basis is ACTIVE eBay
+// listings, which are asking prices and skew high. This URL is the honest
+// escape hatch: eBay's own completed/sold search, which anyone can open with no
+// account and no API grant. Scout hands it to the seller so they can eyeball
+// real realized prices next to our estimate.
+export interface SoldSearchUrlArgs {
+  query: string;
+  // The eBay LEAF category we comped in, when we resolved one. Without it the
+  // search runs site-wide, so "patagonia synchilla" pulls jackets, patches and
+  // dog beds into the same price spread the seller is reading.
+  categoryId?: string | null;
+}
+
+export function ebaySoldSearchUrl(args: SoldSearchUrlArgs): string {
+  const url = new URL("https://www.ebay.com/sch/i.html");
+  url.searchParams.set("_nkw", args.query);
+  url.searchParams.set("LH_Sold", "1");
+  url.searchParams.set("LH_Complete", "1");
+  // Ended most recently, not Best Match. A sold page is only worth opening if
+  // the top rows are this month's prices; Best Match happily leads with a sale
+  // from two years ago.
+  url.searchParams.set("_sop", "13");
+  // eBay's site search takes the same numeric category ids the Taxonomy API
+  // hands us, so this is the same filter our own comp query ran under. Anything
+  // non-numeric is dropped rather than passed through — a bad _sacat silently
+  // returns zero results, which reads as "nothing ever sold".
+  if (args.categoryId && /^\d+$/.test(args.categoryId)) {
+    url.searchParams.set("_sacat", args.categoryId);
+  }
+  return url.toString();
+}

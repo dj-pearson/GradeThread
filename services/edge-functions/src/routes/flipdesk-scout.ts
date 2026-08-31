@@ -50,6 +50,7 @@ import {
   type IdentifyRequest,
 } from "../lib/scout-identify.ts";
 import { forecastSellThrough } from "../lib/sell-through.ts";
+import { ebaySoldSearchUrl } from "../lib/sold-comps.ts";
 import { decideBuy, DECISION_FEE_RATE, sourcingCeiling } from "../lib/scout-decision.ts";
 import { sourcingTargetRoi } from "../lib/sourcing-target.ts";
 import {
@@ -1145,9 +1146,10 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   // A deep link to eBay's SOLD/completed search for this item — lets the
   // reseller eyeball actual realized prices in the browser even while our comp
   // basis is active listings (until the Marketplace Insights grant lands).
-  const ebaySoldSearchUrl =
-    `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}` +
-    `&LH_Sold=1&LH_Complete=1`;
+  // Built by the shared builder so the page the seller lands on carries the SAME
+  // category filter our own comp query ran under; an unscoped sold search was
+  // showing a different item's price spread next to our estimate.
+  const soldSearchUrl = ebaySoldSearchUrl({ query, categoryId });
 
   recordMetric("scout.prospect", 1, {
     identified: "true",
@@ -1215,7 +1217,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     costCents,
     decision,
     ceiling,
-    ebaySoldSearchUrl,
+    ebaySoldSearchUrl: soldSearchUrl,
     // "active" today; flips to "sold" automatically once Marketplace Insights
     // is granted — the client labels its pricing copy off this.
     source: "active",
