@@ -1,5 +1,7 @@
 package com.gradethread.app.ai
 
+import com.gradethread.app.ui.UiMessage
+
 /**
  * US-1334: the extraction orchestration — WHAT happens in which order and
  * which fallback fires when.
@@ -29,12 +31,9 @@ object AiExtractFlow {
 
     sealed class Outcome {
         /** A review is ready — from the server, from OCR, or both. */
-        data class Ready(
-            val review: AiExtractReview.Review,
-            val usedLiveTextFallback: Boolean,
-        ) : Outcome()
+        data class Ready(val review: AiExtractReview.Review, val usedLiveTextFallback: Boolean) : Outcome()
 
-        data class Failed(val message: String) : Outcome()
+        data class Failed(val message: UiMessage) : Outcome()
     }
 
     /** One telemetry emission the caller forwards to Telemetry.event. */

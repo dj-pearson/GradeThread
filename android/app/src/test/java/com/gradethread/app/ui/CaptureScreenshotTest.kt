@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.gradethread.app.ai.AiExtractMessages
 import com.gradethread.app.capture.CaptureActions
 import com.gradethread.app.capture.CaptureContent
 import com.gradethread.app.capture.CapturePublishViewModel
@@ -125,7 +126,11 @@ class CaptureScreenshotTest {
     fun publishError_dark() = capture("screen-capture-publish-error-dark", dark = true) {
         CaptureContent(
             store("front", "back"),
-            CapturePublishViewModel.State(errorMessage = "Could not reach the server."),
+            CapturePublishViewModel.State(
+                errorMessage = AiExtractMessages.forError(
+                    IllegalStateException("Could not reach the server."),
+                ),
+            ),
             CaptureActions(),
             preview = stub(),
         )

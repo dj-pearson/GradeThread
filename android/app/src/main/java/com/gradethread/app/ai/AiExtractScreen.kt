@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.components.ErrorStateView
 import com.gradethread.app.ui.theme.Spacing
 
@@ -102,7 +103,7 @@ fun AiExtractContent(state: AiFillReviewViewModel.State, actions: AiExtractActio
         when {
             review != null -> {
                 state.errorMessage?.let { message ->
-                    Text(message, color = MaterialTheme.colorScheme.error)
+                    Text(message.text(), color = MaterialTheme.colorScheme.error)
                 }
                 AiFillReviewSheet(
                     review = review,
@@ -125,7 +126,7 @@ fun AiExtractContent(state: AiFillReviewViewModel.State, actions: AiExtractActio
 
             state.phase is AiExtractPhase.Failed -> ErrorStateView(
                 title = stringResource(R.string.aiextract_failed_title),
-                message = (state.phase as AiExtractPhase.Failed).message,
+                message = (state.phase as AiExtractPhase.Failed).message.text(),
                 // The item and its photos already exist, so "try again" here
                 // means re-running extraction — which the item canvas owns.
                 // Leaving is the honest primary action.

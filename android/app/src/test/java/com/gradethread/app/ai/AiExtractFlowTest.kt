@@ -1,5 +1,11 @@
 package com.gradethread.app.ai
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.gradethread.app.ui.text
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -12,7 +18,15 @@ import org.junit.Test
  * Every seam is injected, so this proves WHICH path runs and what is
  * reported, without a network, a camera or a database.
  */
+@RunWith(RobolectricTestRunner::class)
 class AiExtractFlowTest {
+
+    // US-2976: the reassurance copy lives in strings.xml now, and these two
+    // tests are about the WORDS - "saved and waiting" is the answer to the
+    // panic that leaving the screen loses the capture. Asserting a resource id
+    // would prove which branch ran and say nothing about whether the sentence
+    // still reassures anybody.
+    private val context = ApplicationProvider.getApplicationContext<Context>()
 
     private val photo = AiExtractPhoto("https://x/1.jpg", "front")
 
@@ -32,7 +46,10 @@ class AiExtractFlowTest {
             photos = photos,
             existingValues = existing,
             extract = extract,
-            ocrLines = { ocrCalls++; ocr },
+            ocrLines = {
+                ocrCalls++
+                ocr
+            },
             liveTextOnly = { lines -> liveTextOnly(lines) },
             mergeGaps = { response, lines -> mergeGaps(response, lines) },
         )
@@ -85,7 +102,7 @@ class AiExtractFlowTest {
         val result = run(isOnline = false, ocr = listOf("MADE IN VIETNAM"), extract = { error("no") })
         val failed = result.outcome as AiExtractFlow.Outcome.Failed
         // The common panic is that leaving the screen loses the capture.
-        assertTrue(failed.message.contains("saved and waiting"))
+        assertTrue(failed.message.text(context).contains("saved and waiting"))
         val bail = result.emissions.single { it.name == AiExtractFlow.Events.BAIL }
         assertEquals("offline", bail.props["reason"])
     }
@@ -107,7 +124,7 @@ class AiExtractFlowTest {
             extract = { error("server must not be called") },
         )
         val failed = result.outcome as AiExtractFlow.Outcome.Failed
-        assertTrue(failed.message.contains("keep retrying in the background"))
+        assertTrue(failed.message.text(context).contains("keep retrying in the background"))
         val bail = result.emissions.single { it.name == AiExtractFlow.Events.BAIL }
         assertEquals("no_uploads", bail.props["reason"])
     }
@@ -130,7 +147,10 @@ class AiExtractFlowTest {
                     ),
                 )
             },
-            ocrLines = { ocrCalls++; tagLines },
+            ocrLines = {
+                ocrCalls++
+                tagLines
+            },
             liveTextOnly = { liveTextOnly(it) },
             mergeGaps = { r, l -> mergeGaps(r, l) },
         )

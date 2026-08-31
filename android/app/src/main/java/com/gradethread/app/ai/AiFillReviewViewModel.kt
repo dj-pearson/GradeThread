@@ -1,5 +1,9 @@
 package com.gradethread.app.ai
 
+import com.gradethread.app.ui.UiMessage
+
+import com.gradethread.app.R
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.platform.telemetry.Telemetry
@@ -32,7 +36,7 @@ class AiFillReviewViewModel @Inject constructor(
         val review: AiExtractReview.Review? = null,
         val saving: Boolean = false,
         val applied: Boolean = false,
-        val errorMessage: String? = null,
+        val errorMessage: UiMessage? = null,
         /** Suggestions the writer refused, surfaced rather than dropped. */
         val rejectedFields: Map<String, String> = emptyMap(),
     )
@@ -81,11 +85,7 @@ class AiFillReviewViewModel @Inject constructor(
         _state.value = _state.value.copy(review = null, errorMessage = null)
     }
 
-    fun apply(
-        keptApplied: Set<String>,
-        acceptedLowConfidence: Set<String>,
-        keepMeasurements: Boolean,
-    ) {
+    fun apply(keptApplied: Set<String>, acceptedLowConfidence: Set<String>, keepMeasurements: Boolean) {
         val review = _state.value.review ?: return
         if (_state.value.saving) return
         _state.value = _state.value.copy(saving = true, errorMessage = null)
@@ -105,7 +105,10 @@ class AiFillReviewViewModel @Inject constructor(
                 )
                 manager.consumeReview(review.itemId)
                 val used = AiExtractFlow.usedEvent(
-                    review, keptApplied, acceptedLowConfidence, keepMeasurements,
+                    review,
+                    keptApplied,
+                    acceptedLowConfidence,
+                    keepMeasurements,
                 )
                 Telemetry.event(used.name, used.props)
 
@@ -123,7 +126,13 @@ class AiFillReviewViewModel @Inject constructor(
                 // they can retry rather than redo the whole review.
                 _state.value = _state.value.copy(
                     saving = false,
-                    errorMessage = "Couldn't save: ${AiExtractMessages.forError(error)}",
+                    // US-2976: "Couldn't save: X" is OUR sentence wrapping the
+                    // failure, so the wrapped message NESTS as an argument
+                    // rather than being interpolated into a String.
+                    errorMessage = UiMessage(
+                        R.string.ai_fill_save_failed,
+                        args = listOf(AiExtractMessages.forError(error)),
+                    ),
                 )
             }
         }

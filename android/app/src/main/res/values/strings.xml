@@ -2915,4 +2915,9 @@
         <item quantity="other">%1$d pending review</item>
     </plurals>
     <string name="grades_summary_average">avg %1$s</string>
+    <string name="ai_extract_offline">You\'re offline. Reconnect and reopen this item to let AI read your photos &#8212; they\'re saved and waiting.</string>
+    <string name="ai_extract_no_uploads">Your photos didn\'t finish uploading &#8212; check your connection, then tap Try again. They\'re saved and keep retrying in the background.</string>
+    <string name="ai_extract_unavailable">AI extraction is temporarily unavailable. Please try again in a moment.</string>
+    <string name="ai_extract_generic_error">Something went wrong. Please try again.</string>
+    <string name="ai_fill_save_failed">Couldn\'t save: %1$s</string>
 </resources>

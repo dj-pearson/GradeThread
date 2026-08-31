@@ -2,10 +2,9 @@
   "_comment": "Per-file counts of English copy in non-Compose sources. A file may never gain one; a file that loses them lowers its number in the same commit. Regenerate with: python3 android/scripts/no-unlocalized-copy.py --rebaseline",
   "files": {
     "ai/AiExtractReview.kt": 3,
-    "ai/AiExtractService.kt": 6,
+    "ai/AiExtractService.kt": 1,
     "ai/AiExtractTypes.kt": 3,
     "ai/AiFieldWriter.kt": 1,
-    "ai/AiFillReviewViewModel.kt": 1,
     "analytics/AnalyticsNarrativeService.kt": 1,
     "analytics/CommunityInsightsViewModel.kt": 2,
     "analytics/ListingPerformanceViewModel.kt": 1,

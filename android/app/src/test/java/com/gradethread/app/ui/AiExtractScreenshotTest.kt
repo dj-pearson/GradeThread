@@ -6,6 +6,7 @@ import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.gradethread.app.ai.AiExtractActions
 import com.gradethread.app.ai.AiExtractContent
+import com.gradethread.app.ai.AiExtractMessages
 import com.gradethread.app.ai.AiExtractPhase
 import com.gradethread.app.ai.AiFillReviewViewModel
 import com.gradethread.app.ui.theme.GradeThreadTheme
@@ -65,7 +66,16 @@ class AiExtractScreenshotTest {
     @Test
     fun failed_dark() = capture("screen-aiextract-failed-dark", dark = true) {
         AiExtractContent(
-            state(AiExtractPhase.Failed("The label photo was too blurry to read.")),
+            // US-2976: built the way the app builds it. A failure sentence
+            // this specific can only be the SERVER's, and the server's words
+            // ride as `detail` - which is what forError produces.
+            state(
+                AiExtractPhase.Failed(
+                    AiExtractMessages.forError(
+                        IllegalStateException("The label photo was too blurry to read."),
+                    ),
+                ),
+            ),
             AiExtractActions(),
         )
     }

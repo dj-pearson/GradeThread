@@ -1,6 +1,8 @@
 package com.gradethread.app.ai
 
 import com.gradethread.app.platform.net.EdgeApi
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.vision.SizeTagInference
@@ -71,10 +73,7 @@ class AiExtractService @Inject constructor(
      *
      * @param ocrLines lines already recognized from the tag photo.
      */
-    fun mergeLiveTextGaps(
-        response: AiExtractResponse,
-        ocrLines: List<String>,
-    ): AiExtractResponse {
+    fun mergeLiveTextGaps(response: AiExtractResponse, ocrLines: List<String>): AiExtractResponse {
         val brand = response.suggestions["brand"]?.value
         val size = response.suggestions["size"]?.value
         if (!SizeTagInference.needsInference(brand, size)) return response
@@ -121,7 +120,7 @@ sealed class AiExtractPhase {
     data class Uploading(val done: Int, val total: Int) : AiExtractPhase()
     object Running : AiExtractPhase()
     object Ready : AiExtractPhase()
-    data class Failed(val message: String) : AiExtractPhase()
+    data class Failed(val message: UiMessage) : AiExtractPhase()
 
     val isRunning: Boolean get() = this is Uploading || this is Running
 }
@@ -134,20 +133,27 @@ sealed class AiExtractPhase {
  */
 object AiExtractMessages {
 
-    const val OFFLINE =
-        "You're offline. Reconnect and reopen this item to let AI read your photos — " +
-            "they're saved and waiting."
+    val OFFLINE = UiMessage(R.string.ai_extract_offline)
 
-    const val NO_UPLOADS =
-        "Your photos didn't finish uploading — check your connection, then tap Try again. " +
-            "They're saved and keep retrying in the background."
+    val NO_UPLOADS = UiMessage(R.string.ai_extract_no_uploads)
 
-    const val UNAVAILABLE =
-        "AI extraction is temporarily unavailable. Please try again in a moment."
+    val UNAVAILABLE = UiMessage(R.string.ai_extract_unavailable)
 
-    /** Quota exhaustion is a plan state, not an error — it routes to upgrade. */
-    fun forError(error: Throwable): String = when (error) {
-        is EdgeApiError -> error.userMessage()
-        else -> error.message ?: "Something went wrong. Please try again."
-    }
+    /**
+     * Quota exhaustion is a plan state, not an error — it routes to upgrade.
+     *
+     * US-2976: both branches ride as `detail`, because both are somebody
+     * else's sentence — EdgeApiError.userMessage() is the server's and
+     * error.message is the exception's. Ours is the fallback shown when
+     * neither said anything, and it is the only half that translates today.
+     * When US-3025 converts userMessage() to a UiMessage this becomes a
+     * straight pass-through.
+     */
+    fun forError(error: Throwable): UiMessage = UiMessage(
+        R.string.ai_extract_generic_error,
+        detail = when (error) {
+            is EdgeApiError -> error.userMessage()
+            else -> error.message
+        },
+    )
 }

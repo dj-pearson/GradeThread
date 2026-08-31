@@ -2781,4 +2781,9 @@
         <item quantity="other">%1$d pendientes de revisi&#243;n</item>
     </plurals>
     <string name="grades_summary_average">media %1$s</string>
+    <string name="ai_extract_offline">No tienes conexi&#243;n. Vuelve a conectarte y abre de nuevo este art&#237;culo para que la IA lea tus fotos &#8212; est&#225;n guardadas y esperando.</string>
+    <string name="ai_extract_no_uploads">Tus fotos no terminaron de subirse &#8212; comprueba tu conexi&#243;n y pulsa Reintentar. Est&#225;n guardadas y siguen reintent&#225;ndose en segundo plano.</string>
+    <string name="ai_extract_unavailable">La extracci&#243;n con IA no est&#225; disponible ahora mismo. Int&#233;ntalo de nuevo en un momento.</string>
+    <string name="ai_extract_generic_error">Algo ha salido mal. Int&#233;ntalo de nuevo.</string>
+    <string name="ai_fill_save_failed">No se pudo guardar: %1$s</string>
 </resources>

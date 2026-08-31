@@ -450,7 +450,7 @@ fun CaptureContent(
         // uploads and starts the extraction; the screen only navigates.
         publish.errorMessage?.let { message ->
             Text(
-                message,
+                message.text(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(horizontal = Spacing.md),

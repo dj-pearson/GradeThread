@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.ai.AiExtractMessages
+import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.ai.AiExtractionManager
 import com.gradethread.app.sync.ConnectivityMonitor
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -55,16 +56,13 @@ class CapturePublishViewModel @Inject constructor(
         val publishing: Boolean = false,
         /** Set once; the screen navigates and clears it. */
         val publishedItemId: String? = null,
-        val errorMessage: String? = null,
+        val errorMessage: UiMessage? = null,
     )
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
-    fun publish(
-        session: PhotoIntakeStore.State,
-        profile: PhotoProfile = PhotoProfile.clothingFallback,
-    ) {
+    fun publish(session: PhotoIntakeStore.State, profile: PhotoProfile = PhotoProfile.clothingFallback) {
         if (_state.value.publishing) return
         _state.value = State(publishing = true)
 
