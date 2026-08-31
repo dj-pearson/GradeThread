@@ -174,7 +174,9 @@ class OnboardingTest {
 
         assertTrue(rows.all { it.actionable })
         assertFalse(ActivationChecklist.allDone(rows))
-        assertEquals("0 of 2 done", ActivationChecklist.progressLabel(rows))
+        // US-2976: the two numbers, not the sentence. The word order is the
+        // translator's business and this object has no Context.
+        assertEquals(ActivationChecklist.Progress(0, 2), ActivationChecklist.progress(rows))
     }
 
     @Test
@@ -186,13 +188,13 @@ class OnboardingTest {
             ebayConnected = true,
         )
 
-        assertEquals("2 of 2 done", ActivationChecklist.progressLabel(rows))
+        assertEquals(ActivationChecklist.Progress(2, 2), ActivationChecklist.progress(rows))
         assertTrue(ActivationChecklist.allDone(rows))
     }
 
     @Test
     fun `an empty checklist reports nothing rather than zero of zero`() {
-        assertNull(ActivationChecklist.progressLabel(emptyList()))
+        assertNull(ActivationChecklist.progress(emptyList()))
         assertFalse(ActivationChecklist.allDone(emptyList()))
     }
 

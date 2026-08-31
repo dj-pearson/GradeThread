@@ -114,7 +114,6 @@
     "money/PayoutReconciliationViewModel.kt": 2,
     "money/SalesViewModel.kt": 1,
     "money/SourceRoiRollup.kt": 1,
-    "onboarding/ActivationChecklist.kt": 4,
     "passport/PassportTypes.kt": 7,
     "plangate/PlanGatePresentation.kt": 1,
     "platform/locale/AppLocale.kt": 1,

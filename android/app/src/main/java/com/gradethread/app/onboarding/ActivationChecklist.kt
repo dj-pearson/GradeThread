@@ -1,5 +1,8 @@
 package com.gradethread.app.onboarding
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 /**
  * US-1384 AC2: the last onboarding step — the two things that make the app
  * useful on day one.
@@ -11,21 +14,21 @@ package com.gradethread.app.onboarding
  */
 object ActivationChecklist {
 
-    enum class Item(val title: String, val detail: String) {
+    enum class Item(@StringRes val title: Int, @StringRes val detail: Int) {
         /**
          * Notifications. Asked HERE rather than at launch because the seller
          * has just told us what they came to do, so "we'll tell you when it
          * sells" is finally an answer to a question they asked.
          */
         NOTIFICATIONS(
-            title = "Turn on alerts",
-            detail = "We'll tell you the moment something sells or a grade is ready.",
+            title = R.string.activation_notifications_title,
+            detail = R.string.activation_notifications_detail,
         ),
 
         /** eBay. The single biggest difference between a full app and an empty one. */
         EBAY(
-            title = "Connect eBay",
-            detail = "Sync your listings, orders, and payouts both ways.",
+            title = R.string.activation_ebay_title,
+            detail = R.string.activation_ebay_detail,
         ),
     }
 
@@ -62,11 +65,19 @@ object ActivationChecklist {
         add(Row(item = Item.EBAY, done = ebayConnected, actionable = !ebayConnected))
     }
 
-    /** "1 of 2 done" — or nothing at all when there is nothing to report. */
-    fun progressLabel(rows: List<Row>): String? {
+    /** How far along, or null when there is nothing to report. */
+    data class Progress(val done: Int, val total: Int)
+
+    /**
+     * US-2976: the two NUMBERS, not the sentence.
+     *
+     * This returned "1 of 2 done", which cannot be translated from here - the
+     * word order is the translator's business and this object has no Context.
+     * The screen formats it with R.string.onboarding_progress.
+     */
+    fun progress(rows: List<Row>): Progress? {
         if (rows.isEmpty()) return null
-        val done = rows.count { it.done }
-        return "$done of ${rows.size} done"
+        return Progress(done = rows.count { it.done }, total = rows.size)
     }
 
     /** True when every row is ticked, so the flow can say so instead of nagging. */

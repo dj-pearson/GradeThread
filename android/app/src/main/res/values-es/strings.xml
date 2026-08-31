@@ -2087,4 +2087,9 @@
     <string name="onboarding_page_grade_body">Una nota estandarizada del 1 al 10 y un certificado que los compradores creen, para que vuelvan menos pedidos.</string>
     <string name="onboarding_page_profit_title">Publica y controla tu beneficio</string>
     <string name="onboarding_page_profit_body">Publica en eBay, sincroniza en ambos sentidos y mira qué se vendió, qué pago llega y cuál es tu beneficio real.</string>
+    <string name="activation_notifications_title">Activa los avisos</string>
+    <string name="activation_notifications_detail">Te avisamos en cuanto se venda algo o esté lista una nota.</string>
+    <string name="activation_ebay_title">Conecta eBay</string>
+    <string name="activation_ebay_detail">Sincroniza tus anuncios, pedidos y pagos en ambos sentidos.</string>
+    <string name="onboarding_progress">%1$d de %2$d hechos</string>
 </resources>

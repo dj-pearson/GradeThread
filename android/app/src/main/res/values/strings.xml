@@ -2218,4 +2218,9 @@
     <string name="onboarding_page_grade_body">A standardised 1 to 10 grade and a shareable certificate buyers trust, so fewer orders come back.</string>
     <string name="onboarding_page_profit_title">List and track profit</string>
     <string name="onboarding_page_profit_body">Publish to eBay, sync both ways, and see what sold, what payout is coming, and your real profit.</string>
+    <string name="activation_notifications_title">Turn on alerts</string>
+    <string name="activation_notifications_detail">We\'ll tell you the moment something sells or a grade is ready.</string>
+    <string name="activation_ebay_title">Connect eBay</string>
+    <string name="activation_ebay_detail">Sync your listings, orders, and payouts both ways.</string>
+    <string name="onboarding_progress">%1$d of %2$d done</string>
 </resources>

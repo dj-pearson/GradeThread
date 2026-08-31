@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
@@ -72,31 +73,88 @@ fun OnboardingHost(
 
     if (!state.visible) return
 
+    // AC3: the real ActivityResult contract, not a settings deep link. The
+    // result is recorded either way - a denial still counts as asked, because
+    // Android silently auto-denies the second dialog. Hoisted to the wrapper
+    // (US-2902 AC3): a launcher needs an Activity result registry, which the
+    // activity a screenshot test renders into does not have.
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { viewModel.markNotificationsAsked() }
+
+    // eBay consent leaves the app and comes back; re-read on return rather than
+    // leaving the row unticked next to an account that is now connected.
+    LaunchedEffect(state.step) {
+        if (state.step == Onboarding.Step.ACTIVATION) viewModel.refreshChecklist()
+    }
+
+    OnboardingContent(
+        state,
+        OnboardingActions(
+            setPage = viewModel::setPage,
+            pick = viewModel::pick,
+            next = viewModel::next,
+            skip = viewModel::skip,
+            connectEbay = onConnectEbay,
+            askNotifications = {
+                if (PushPermission.required) {
+                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                }
+            },
+        ),
+    )
+}
+
+/** Everything this screen can be asked to do (US-2902 AC3). */
+@Immutable
+data class OnboardingActions(
+    val setPage: (Int) -> Unit = {},
+    val pick: (OnboardingUseCase) -> Unit = {},
+    val next: () -> Unit = {},
+    val skip: () -> Unit = {},
+    val connectEbay: () -> Unit = {},
+    val askNotifications: () -> Unit = {},
+)
+
+/**
+ * The first-run flow, with no ViewModel attached (US-2902 AC3).
+ *
+ * ⚠ THIS SCREEN HAD NO GOLDEN, which is how US-2976 came to add it. Every other
+ * string extraction in that story was verified against a screenshot - "the
+ * words move and the pixels do not" - and this one could not be, because
+ * US-2902's 46 screens did not include the one a seller sees FIRST. It is
+ * reachable only on a first run, which is presumably why it was missed.
+ *
+ * ⚠ THE PRIMARY BUTTON IS DISABLED ON ONE STEP ONLY. The use-case step is the
+ * single place a choice is required, and "Continue" with nothing picked would
+ * silently mean "skip" - so the three steps are three different buttons and
+ * only a capture shows which one came out.
+ */
+@Composable
+fun OnboardingContent(state: OnboardingViewModel.State, actions: OnboardingActions, modifier: Modifier = Modifier) {
     // A full-bleed Surface, not a dialog: this IS the app until it is done, and
     // a dismissible scrim would let someone tap past the one moment they get
     // to say what they came for.
-    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+    Surface(modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(Modifier.fillMaxSize().padding(Spacing.lg)) {
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (state.step) {
-                    Onboarding.Step.CAROUSEL -> Carousel(state, viewModel::setPage)
-                    Onboarding.Step.USE_CASE -> UseCaseStep(state, viewModel::pick)
-                    Onboarding.Step.ACTIVATION -> ActivationStep(viewModel, onConnectEbay)
+                    Onboarding.Step.CAROUSEL -> Carousel(state, actions.setPage)
+                    Onboarding.Step.USE_CASE -> UseCaseStep(state, actions.pick)
+                    Onboarding.Step.ACTIVATION -> ActivationStep(state, actions)
                 }
             }
 
             BrandPrimaryButton(
                 text = stringResource(state.primaryLabel),
                 modifier = Modifier.fillMaxWidth().padding(top = Spacing.md),
-                // The use-case step is the one place a choice is required, and
-                // "Continue" with nothing picked would silently mean "skip".
                 enabled = state.step != Onboarding.Step.USE_CASE || state.useCase != null,
-            ) { viewModel.next() }
+            ) { actions.next() }
 
             BrandSecondaryButton(
                 text = stringResource(R.string.onboarding_skip),
                 modifier = Modifier.fillMaxWidth().padding(top = Spacing.xs),
-            ) { viewModel.skip() }
+            ) { actions.skip() }
         }
     }
 }
@@ -209,26 +267,16 @@ private fun UseCaseStep(state: OnboardingViewModel.State, onPick: (OnboardingUse
 }
 
 @Composable
-private fun ActivationStep(viewModel: OnboardingViewModel, onConnectEbay: () -> Unit) {
-    val state by viewModel.state.collectAsState()
-    // AC3: the real ActivityResult contract, not a settings deep link. The
-    // result is recorded either way — a denial still counts as asked, because
-    // Android silently auto-denies the second dialog.
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { viewModel.markNotificationsAsked() }
-
-    // eBay consent leaves the app and comes back; re-read on return rather than
-    // leaving the row unticked next to an account that is now connected.
-    LaunchedEffect(Unit) { viewModel.refreshChecklist() }
-
+private fun ActivationStep(state: OnboardingViewModel.State, actions: OnboardingActions) {
     Column(Modifier.fillMaxSize()) {
         Text(
             stringResource(R.string.onboarding_activation_title),
             style = MaterialTheme.typography.headlineMedium,
         )
         Text(
-            state.progressLabel ?: stringResource(R.string.onboarding_activation_subtitle),
+            state.progress?.let {
+                stringResource(R.string.onboarding_progress, it.done, it.total)
+            } ?: stringResource(R.string.onboarding_activation_subtitle),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = Spacing.xs, bottom = Spacing.md),
@@ -242,12 +290,8 @@ private fun ActivationStep(viewModel: OnboardingViewModel, onConnectEbay: () -> 
                     .cardStyle(flush = true)
                     .clickable(enabled = row.actionable) {
                         when (row.item) {
-                            ActivationChecklist.Item.NOTIFICATIONS ->
-                                if (PushPermission.required) {
-                                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                }
-
-                            ActivationChecklist.Item.EBAY -> onConnectEbay()
+                            ActivationChecklist.Item.NOTIFICATIONS -> actions.askNotifications()
+                            ActivationChecklist.Item.EBAY -> actions.connectEbay()
                         }
                     }
                     .padding(Spacing.md),
@@ -255,9 +299,9 @@ private fun ActivationStep(viewModel: OnboardingViewModel, onConnectEbay: () -> 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         if (row.done) {
-                            stringResource(R.string.checked_prefix, row.item.title)
+                            stringResource(R.string.checked_prefix, stringResource(row.item.title))
                         } else {
-                            row.item.title
+                            stringResource(row.item.title)
                         },
                         style = MaterialTheme.typography.titleMedium,
                     )
@@ -274,10 +318,10 @@ private fun ActivationStep(viewModel: OnboardingViewModel, onConnectEbay: () -> 
                         // wants it.
                         stringResource(
                             R.string.onboarding_permission_blocked_detail,
-                            row.item.detail,
+                            stringResource(row.item.detail),
                         )
                     } else {
-                        row.item.detail
+                        stringResource(row.item.detail)
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

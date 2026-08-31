@@ -42,7 +42,8 @@ class OnboardingViewModel @Inject constructor(
     ) {
         @get:androidx.annotation.StringRes
         val primaryLabel: Int get() = Onboarding.primaryLabel(step, pageIndex)
-        val progressLabel: String? get() = ActivationChecklist.progressLabel(checklist)
+        val progress: ActivationChecklist.Progress?
+            get() = ActivationChecklist.progress(checklist)
     }
 
     private val _state = MutableStateFlow(State())
