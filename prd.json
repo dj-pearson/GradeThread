@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3030",
+  "nextId": "US-3031",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2897,6 +2897,19 @@
       ],
       "dependsOn": [
         "US-3025"
+      ]
+    },
+    {
+      "id": "US-3030",
+      "passes": false,
+      "title": "A full-suite verifyRoborazziDebug fails 120 goldens that pass per-class",
+      "description": "Measured 2026-08-31. Running 'gradlew verifyRoborazziDebug' with NO --tests filter reports 120 golden failures across roughly 30 screenshot classes. Running the same classes with a --tests filter, minutes apart on the same working tree and the same goldens, reports them GREEN. ReconciliationScreenshotTest and SnapScreenshotTest were verified green in a filtered run and then failed in the unfiltered one; PayoutReconciliationScreenshotTest was re-recorded to green and also appears in the 120. So this is not copy drift and the goldens are not stale - something about running every screenshot class in one JVM renders differently. THE DANGEROUS RESPONSE IS TO RE-RECORD. 120 goldens re-recorded from the full-suite run would bake the wrong baseline in permanently and every future filtered run would then be the thing that looks broken. Only 11 of the 120 are the known spinner-frame nondeterminism (loading/submitting/processing/running/saving), so that explains under a tenth of it. Suspects worth checking in order: font loading or fallback differing once many classes have run in one process; a Robolectric qualifier or Looper state leaking between classes; and memory pressure changing text rendering, since the same JVM OOMs on a full recordRoborazziDebug and needs per-class --tests to record at all (already a known constraint). WHAT THIS MEANS FOR CI: if CI runs the unfiltered task, its screenshot signal is currently noise, and a real regression would be invisible inside 120 failures. Check what the Android CI workflow actually invokes before treating any of this as urgent.",
+      "acceptanceCriteria": [
+        "Reproduce: run verifyRoborazziDebug unfiltered, then run one failing class with --tests, on an unchanged tree. Record both results.",
+        "Identify the shared state that differs - font/typeface loading, Robolectric qualifiers, Looper or resource cache leaking across classes, or memory pressure - and name it with evidence rather than a guess.",
+        "Do NOT bulk re-record. Any golden that is genuinely stale must be shown stale by a FILTERED run of its own class before it is re-recorded.",
+        "Confirm which task the Android CI workflow invokes. If it is the unfiltered one, either fix the shared state or make CI run per-class, so that a red screenshot lane means something again.",
+        "The 11 spinner-frame failures (loading/submitting/processing/running/saving) are a separate known class - freeze the frame or exclude them deliberately, with a comment saying which."
       ]
     }
   ]
