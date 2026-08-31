@@ -1,5 +1,8 @@
 package com.gradethread.app.referrals
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -21,12 +24,7 @@ data class ReferralMe(
 )
 
 @Serializable
-data class ReferralStats(
-    val total: Int = 0,
-    val pending: Int = 0,
-    val qualified: Int = 0,
-    val granted: Int = 0,
-)
+data class ReferralStats(val total: Int = 0, val pending: Int = 0, val qualified: Int = 0, val granted: Int = 0)
 
 @Serializable
 data class ReferralCredits(
@@ -42,17 +40,10 @@ data class ReferralMilestones(
 )
 
 @Serializable
-data class NextMilestone(
-    val threshold: Int = 0,
-    val bonus: Int = 0,
-    val remaining: Int = 0,
-)
+data class NextMilestone(val threshold: Int = 0, val bonus: Int = 0, val remaining: Int = 0)
 
 @Serializable
-data class ReferredBy(
-    val status: String = "",
-    val code: String = "",
-)
+data class ReferredBy(val status: String = "", val code: String = "")
 
 /** The result of a redeem attempt: taken, or refused with a machine reason. */
 data class RedeemResult(val ok: Boolean, val reason: String? = null)
@@ -67,16 +58,17 @@ data class RedeemResult(val ok: Boolean, val reason: String? = null)
  */
 object RedeemRejection {
 
-    const val GENERIC = "That code isn't valid. Double-check it and try again."
+    @StringRes
+    val GENERIC: Int = R.string.referral_error_generic
 
-    fun message(reason: String?): String = when (reason) {
-        "invalid_code", "not_found" ->
-            "We couldn't find that code. Double-check it and try again."
-        "self_referral" -> "That's your own code — enter a friend's code instead."
-        "already_referred" -> "You've already applied a referral code."
-        "expired" -> "That code has expired. Ask your friend for a current one."
-        "account_suspended" -> "Your account can't redeem a referral code right now."
-        "missing_code" -> "Enter a code to continue."
+    @StringRes
+    fun message(reason: String?): Int = when (reason) {
+        "invalid_code", "not_found" -> R.string.referral_error_not_found
+        "self_referral" -> R.string.referral_error_self
+        "already_referred" -> R.string.referral_error_already
+        "expired" -> R.string.referral_error_expired
+        "account_suspended" -> R.string.referral_error_suspended
+        "missing_code" -> R.string.referral_error_missing
         else -> GENERIC
     }
 }
@@ -92,8 +84,7 @@ object Referrals {
     /** Where a shared link points. */
     const val SIGNUP_ORIGIN = "https://gradethread.com"
 
-    fun link(code: String?): String? =
-        code?.takeIf { it.isNotBlank() }?.let { "$SIGNUP_ORIGIN/signup?ref=$it" }
+    fun link(code: String?): String? = code?.takeIf { it.isNotBlank() }?.let { "$SIGNUP_ORIGIN/signup?ref=$it" }
 
     /**
      * Referrals that are counted but not yet rewarded.
@@ -115,29 +106,32 @@ object Referrals {
     fun normalize(typed: String): String = typed.trim().uppercase()
 
     /**
-     * What the sharer actually sends.
+     * What the sharer actually sends: the code and the link.
      *
      * The code is in the message as well as in the link, because plenty of
      * places strip or shorten URLs and a code someone can type is the fallback.
+     *
+     * US-2976: the two PARTS, not the sentence.
+     *
+     * This is the text a seller sends a friend, so it has to be in the
+     * seller's language - and the sentence around the code cannot be built by
+     * an object with no Context. The screen formats
+     * R.string.referral_share_text with these two.
      */
-    fun shareText(code: String?): String? {
-        val url = link(code) ?: return null
-        return "Grade and list your clothes faster with GradeThread. " +
-            "Use my code $code when you sign up: $url"
+    fun shareParts(code: String?): Pair<String, String>? {
+        val trimmed = code?.takeIf { it.isNotBlank() } ?: return null
+        val url = link(trimmed) ?: return null
+        return trimmed to url
     }
 
-    /** What the seller's own referrals are worth, said once. */
-    fun creditsSummary(credits: ReferralCredits): String? {
-        if (credits.perReferral <= 0) return null
-        return "You get ${credits.perReferral} grading " +
-            (if (credits.perReferral == 1) "credit" else "credits") + " per friend who signs up."
-    }
+    /** What a referral is worth, or null when it is nothing. */
+    fun creditsPerReferral(credits: ReferralCredits): Int? = credits.perReferral.takeIf { it > 0 }
 
-    /** "2 more to unlock 25 bonus credits" — or nothing when nothing is next. */
-    fun nextMilestoneLabel(milestones: ReferralMilestones): String? {
+    /** The next milestone's remaining count and bonus, or null when none is next. */
+    fun nextMilestone(milestones: ReferralMilestones): Pair<Int, Int>? {
         val next = milestones.next ?: return null
         if (next.remaining <= 0) return null
-        return "${next.remaining} more to unlock ${next.bonus} bonus credits"
+        return next.remaining to next.bonus
     }
 
     /**
@@ -147,11 +141,11 @@ object Referrals {
      * "not yet" — one is waiting on the friend, the other on us — so they get
      * different words.
      */
-    fun referredByLabel(referredBy: ReferredBy?): String? = when (referredBy?.status) {
+    @StringRes
+    fun referredByLabel(referredBy: ReferredBy?): Int? = when (referredBy?.status) {
         null -> null
-        "granted" -> "You were referred with code ${referredBy.code}. The bonus has been applied."
-        "qualified" -> "You were referred with code ${referredBy.code}. Your bonus is on its way."
-        else -> "You were referred with code ${referredBy.code}. " +
-            "The bonus lands once your first grade goes through."
+        "granted" -> R.string.referral_referred_granted
+        "qualified" -> R.string.referral_referred_qualified
+        else -> R.string.referral_referred_pending
     }
 }

@@ -1,5 +1,7 @@
 package com.gradethread.app.referrals
 
+import com.gradethread.app.R
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -32,16 +34,20 @@ class ReferralsTest {
         assertNull(Referrals.link(null))
         assertNull(Referrals.link(""))
         assertNull(Referrals.link("   "))
-        assertNull(Referrals.shareText(null))
+        assertNull(Referrals.shareParts(null))
     }
 
     @Test
     fun `the share message carries the code as well as the link`() {
         // Plenty of places strip or shorten URLs; a typeable code is the
         // fallback that still works when the link doesn't survive.
-        val text = Referrals.shareText("ABCD2345")!!
-        assertTrue(text.contains("ABCD2345"))
-        assertTrue(text.contains("https://gradethread.com/signup?ref=ABCD2345"))
+        //
+        // US-2976: the two PARTS. The sentence around them is assembled on
+        // screen from R.string.referral_share_text, because the seller is
+        // sending it and it has to be in their language.
+        val (code, url) = Referrals.shareParts("ABCD2345")!!
+        assertEquals("ABCD2345", code)
+        assertEquals("https://gradethread.com/signup?ref=ABCD2345", url)
     }
 
     // ── The three columns ────────────────────────────────────────────────────
@@ -86,25 +92,33 @@ class ReferralsTest {
         // A generic "that code isn't valid" in front of someone who typed their
         // own code is a dead end. The server tags each rejection so the client
         // can do better; this is the doing better.
+        // US-2976: ids, and then the claim the ids alone would drop - that
+        // every reason gets its OWN sentence, which is the entire point of
+        // tagging them.
+        assertEquals(R.string.referral_error_self, RedeemRejection.message("self_referral"))
         assertEquals(
-            "That's your own code — enter a friend's code instead.",
-            RedeemRejection.message("self_referral"),
-        )
-        assertEquals(
-            "You've already applied a referral code.",
+            R.string.referral_error_already,
             RedeemRejection.message("already_referred"),
         )
         assertEquals(
-            "Your account can't redeem a referral code right now.",
+            R.string.referral_error_suspended,
             RedeemRejection.message("account_suspended"),
         )
-        assertEquals("Enter a code to continue.", RedeemRejection.message("missing_code"))
-        assertEquals(
-            "That code has expired. Ask your friend for a current one.",
-            RedeemRejection.message("expired"),
+        assertEquals(R.string.referral_error_missing, RedeemRejection.message("missing_code"))
+        val reasons = listOf(
+            "self_referral",
+            "already_referred",
+            "account_suspended",
+            "missing_code",
+            "expired",
+            "not_found",
         )
+        assertEquals(reasons.size, reasons.map(RedeemRejection::message).toSet().size)
+        assertEquals(R.string.referral_error_expired, RedeemRejection.message("expired"))
+        // invalid_code and not_found share one sentence ON PURPOSE - both mean
+        // "we do not know that code" and there is nothing different to say.
         assertEquals(
-            "We couldn't find that code. Double-check it and try again.",
+            RedeemRejection.message("not_found"),
             RedeemRejection.message("invalid_code"),
         )
     }
@@ -122,60 +136,65 @@ class ReferralsTest {
         // One is waiting on the friend, the other on us. Same word for both
         // would leave a seller unable to tell whether to do anything.
         assertEquals(
-            "You were referred with code FRIEND. The bonus lands once your first grade goes through.",
+            R.string.referral_referred_pending,
             Referrals.referredByLabel(ReferredBy("pending", "FRIEND")),
         )
         assertEquals(
-            "You were referred with code FRIEND. Your bonus is on its way.",
+            R.string.referral_referred_qualified,
             Referrals.referredByLabel(ReferredBy("qualified", "FRIEND")),
         )
         assertEquals(
-            "You were referred with code FRIEND. The bonus has been applied.",
+            R.string.referral_referred_granted,
             Referrals.referredByLabel(ReferredBy("granted", "FRIEND")),
+        )
+        // Three states, three DIFFERENT ids. Same word for all three would
+        // leave a seller unable to tell whether to do anything.
+        val states = listOf("pending", "qualified", "granted")
+        assertEquals(
+            states.size,
+            states.mapNotNull { Referrals.referredByLabel(ReferredBy(it, "FRIEND")) }.toSet().size,
         )
         assertNull(Referrals.referredByLabel(null))
     }
 
     @Test
     fun `a status nobody has seen before still reads as pending, not blank`() {
-        assertTrue(
-            Referrals.referredByLabel(ReferredBy("escrowed", "FRIEND"))!!
-                .contains("once your first grade goes through"),
+        // An unknown status falls to the PENDING wording, not to null and not
+        // to "granted". Asserting the id is what says which of the three.
+        assertEquals(
+            R.string.referral_referred_pending,
+            Referrals.referredByLabel(ReferredBy("escrowed", "FRIEND")),
         )
     }
 
     // ── Credits and milestones ───────────────────────────────────────────────
 
     @Test
-    fun `the credit line is singular for one`() {
-        assertEquals(
-            "You get 1 grading credit per friend who signs up.",
-            Referrals.creditsSummary(ReferralCredits(perReferral = 1)),
-        )
-        assertEquals(
-            "You get 5 grading credits per friend who signs up.",
-            Referrals.creditsSummary(ReferralCredits(perReferral = 5)),
-        )
+    fun `the credit count is what the line is built from`() {
+        // US-2976: the COUNT. Singular versus plural is now a plurals resource,
+        // which is what Spanish needs anyway - this object cannot pick the form.
+        assertEquals(1, Referrals.creditsPerReferral(ReferralCredits(perReferral = 1)))
+        assertEquals(5, Referrals.creditsPerReferral(ReferralCredits(perReferral = 5)))
     }
 
     @Test
     fun `a zero reward says nothing rather than promising zero credits`() {
-        assertNull(Referrals.creditsSummary(ReferralCredits(perReferral = 0)))
+        assertNull(Referrals.creditsPerReferral(ReferralCredits(perReferral = 0)))
     }
 
     @Test
     fun `the milestone line only shows when there is one to reach`() {
         assertEquals(
-            "2 more to unlock 25 bonus credits",
-            Referrals.nextMilestoneLabel(
+            2 to 25,
+            Referrals.nextMilestone(
                 ReferralMilestones(next = NextMilestone(threshold = 5, bonus = 25, remaining = 2)),
             ),
         )
-        assertNull(Referrals.nextMilestoneLabel(ReferralMilestones()))
+        assertNull(Referrals.nextMilestone(ReferralMilestones()))
         // Already reached: the server can report remaining 0 in the window
         // between hitting a tier and the grant landing.
         assertNull(
-            Referrals.nextMilestoneLabel(
+            Referrals.nextMilestone(
                 ReferralMilestones(next = NextMilestone(threshold = 5, bonus = 25, remaining = 0)),
             ),
         )

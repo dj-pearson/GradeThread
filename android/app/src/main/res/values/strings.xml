@@ -2300,4 +2300,21 @@
         <item quantity="one">%1$d active listing</item>
         <item quantity="other">%1$d active listings</item>
     </plurals>
+    <string name="referral_error_generic">That code isn\'t valid. Double-check it and try again.</string>
+    <string name="referral_error_not_found">We couldn\'t find that code. Double-check it and try again.</string>
+    <string name="referral_error_self">That\'s your own code &#8212; enter a friend\'s code instead.</string>
+    <string name="referral_error_already">You\'ve already applied a referral code.</string>
+    <string name="referral_error_expired">That code has expired. Ask your friend for a current one.</string>
+    <string name="referral_error_suspended">Your account can\'t redeem a referral code right now.</string>
+    <string name="referral_error_missing">Enter a code to continue.</string>
+    <string name="referral_share_text">Grade and list your clothes faster with GradeThread. Use my code %1$s when you sign up: %2$s</string>
+    <string name="referral_next_milestone">%1$d more to unlock %2$d bonus credits</string>
+    <string name="referral_referred_granted">You were referred with code %1$s. The bonus has been applied.</string>
+    <string name="referral_referred_qualified">You were referred with code %1$s. Your bonus is on its way.</string>
+    <string name="referral_referred_pending">You were referred with code %1$s. The bonus lands once your first grade goes through.</string>
+    <plurals name="referral_credits_summary">
+        <item quantity="one">You get %1$d grading credit per friend who signs up.</item>
+        <item quantity="other">You get %1$d grading credits per friend who signs up.</item>
+    </plurals>
+    <string name="referral_redeem_failed">Couldn\'t apply that code. Try again in a moment.</string>
 </resources>

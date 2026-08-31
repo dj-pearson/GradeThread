@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.telemetry.Telemetry
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,9 +21,7 @@ import javax.inject.Inject
  * balance is checkable without a device.
  */
 @HiltViewModel
-class ReferralsViewModel @Inject constructor(
-    private val service: ReferralProviding,
-) : ViewModel() {
+class ReferralsViewModel @Inject constructor(private val service: ReferralProviding) : ViewModel() {
 
     data class State(
         val loading: Boolean = false,
@@ -29,11 +29,16 @@ class ReferralsViewModel @Inject constructor(
         val loadError: String? = null,
         val typedCode: String = "",
         val redeeming: Boolean = false,
-        val redeemError: String? = null,
+        /**
+         * US-2976: a [UiMessage] because the two halves have different owners.
+         * The edge's own refusal is the useful one when there is one; ours only
+         * runs when it said nothing, and only ours can be translated.
+         */
+        val redeemError: UiMessage? = null,
         val redeemed: Boolean = false,
     ) {
         val link: String? get() = Referrals.link(me?.code)
-        val shareText: String? get() = Referrals.shareText(me?.code)
+        val shareParts: Pair<String, String>? get() = Referrals.shareParts(me?.code)
         val inProgress: Int get() = Referrals.inProgress(me?.stats ?: ReferralStats())
         val alreadyReferred: Boolean get() = Referrals.alreadyReferred(me)
         val canRedeem: Boolean get() = Referrals.canRedeem(me, typedCode, redeeming)
@@ -101,7 +106,7 @@ class ReferralsViewModel @Inject constructor(
                     } else {
                         _state.value = _state.value.copy(
                             redeeming = false,
-                            redeemError = RedeemRejection.message(result.reason),
+                            redeemError = UiMessage(RedeemRejection.message(result.reason)),
                         )
                     }
                 },
@@ -109,8 +114,10 @@ class ReferralsViewModel @Inject constructor(
                     // A thrown error is auth or infrastructure, never the code.
                     _state.value = _state.value.copy(
                         redeeming = false,
-                        redeemError = (error as? EdgeApiError)?.userMessage()
-                            ?: "Couldn't apply that code. Try again in a moment.",
+                        redeemError = UiMessage(
+                            R.string.referral_redeem_failed,
+                            (error as? EdgeApiError)?.userMessage(),
+                        ),
                     )
                 },
             )

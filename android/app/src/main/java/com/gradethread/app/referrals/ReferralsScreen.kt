@@ -24,6 +24,7 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
 import androidx.compose.ui.platform.LocalContext
@@ -169,27 +170,30 @@ private fun ShareCard(state: ReferralsViewModel.State, onCopy: (String, String) 
             modifier = Modifier.semantics { contentDescription = spokenCode },
         )
 
-        Referrals.creditsSummary(state.me?.credits ?: ReferralCredits())?.let {
+        Referrals.creditsPerReferral(state.me?.credits ?: ReferralCredits())?.let {
             Text(
-                it,
+                pluralStringResource(R.plurals.referral_credits_summary, it, it),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = Spacing.xs),
             )
         }
-        Referrals.nextMilestoneLabel(state.me?.milestones ?: ReferralMilestones())?.let {
+        Referrals.nextMilestone(state.me?.milestones ?: ReferralMilestones())?.let {
             Text(
-                it,
+                stringResource(R.string.referral_next_milestone, it.first, it.second),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = Spacing.xs),
             )
         }
 
-        state.shareText?.let { text ->
+        state.shareParts?.let { (code, url) ->
+            // The sentence is assembled HERE, from a resource, because the
+            // seller is sending it and it has to be in their language.
+            val message = stringResource(R.string.referral_share_text, code, url)
             BrandPrimaryButton(
                 text = stringResource(R.string.referrals_share_link),
                 modifier = Modifier.fillMaxWidth().padding(top = Spacing.md),
-            ) { onShare(text) }
+            ) { onShare(message) }
         }
         Row(Modifier.fillMaxWidth().padding(top = Spacing.xs)) {
             val codeCopied = stringResource(R.string.referrals_code_copied)
@@ -258,7 +262,7 @@ private fun RedeemSection(state: ReferralsViewModel.State, actions: ReferralsAct
             // A form that can only ever be refused is worse than a sentence
             // that explains why there is no form.
             Text(
-                referredLabel,
+                stringResource(referredLabel, state.me?.referredBy?.code.orEmpty()),
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.padding(top = Spacing.xs),
             )
@@ -282,7 +286,7 @@ private fun RedeemSection(state: ReferralsViewModel.State, actions: ReferralsAct
         )
         state.redeemError?.let {
             Text(
-                it,
+                it.detail ?: stringResource(it.res),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(top = Spacing.xs),

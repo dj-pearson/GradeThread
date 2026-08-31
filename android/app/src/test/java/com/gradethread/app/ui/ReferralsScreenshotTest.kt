@@ -13,6 +13,7 @@ import com.gradethread.app.referrals.ReferralsActions
 import com.gradethread.app.referrals.ReferralsContent
 import com.gradethread.app.referrals.ReferralsViewModel
 import com.gradethread.app.referrals.ReferredBy
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -120,7 +121,14 @@ class ReferralsScreenshotTest {
     @Test
     fun redeemFailed_dark() = capture("screen-referrals-redeem-error-dark", dark = true) {
         ReferralsContent(
-            loaded.copy(typedCode = "MAPLEAVE", redeemError = "That code is not valid."),
+            loaded.copy(
+                typedCode = "MAPLEAVE",
+                // The edge's own refusal, which is what a seller usually sees.
+                redeemError = UiMessage(
+                    R.string.referral_redeem_failed,
+                    "That code is not valid.",
+                ),
+            ),
             ReferralsActions(),
         )
     }

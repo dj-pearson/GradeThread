@@ -2169,4 +2169,21 @@
         <item quantity="one">%1$d anuncio activo</item>
         <item quantity="other">%1$d anuncios activos</item>
     </plurals>
+    <string name="referral_error_generic">Ese código no es válido. Revísalo e inténtalo de nuevo.</string>
+    <string name="referral_error_not_found">No encontramos ese código. Revísalo e inténtalo de nuevo.</string>
+    <string name="referral_error_self">Ese es tu propio código &#8212; introduce el de un amigo.</string>
+    <string name="referral_error_already">Ya has aplicado un código de invitación.</string>
+    <string name="referral_error_expired">Ese código ha caducado. Pídele a tu amigo uno vigente.</string>
+    <string name="referral_error_suspended">Tu cuenta no puede canjear un código ahora mismo.</string>
+    <string name="referral_error_missing">Introduce un código para continuar.</string>
+    <string name="referral_share_text">Evalúa y publica tu ropa más rápido con GradeThread. Usa mi código %1$s al registrarte: %2$s</string>
+    <string name="referral_next_milestone">%1$d más para desbloquear %2$d créditos de regalo</string>
+    <string name="referral_referred_granted">Te invitaron con el código %1$s. Ya tienes el bono.</string>
+    <string name="referral_referred_qualified">Te invitaron con el código %1$s. Tu bono está en camino.</string>
+    <string name="referral_referred_pending">Te invitaron con el código %1$s. El bono llega en cuanto se procese tu primera nota.</string>
+    <plurals name="referral_credits_summary">
+        <item quantity="one">Consigues %1$d crédito de evaluación por cada amigo que se registre.</item>
+        <item quantity="other">Consigues %1$d créditos de evaluación por cada amigo que se registre.</item>
+    </plurals>
+    <string name="referral_redeem_failed">No se pudo aplicar ese código. Inténtalo en un momento.</string>
 </resources>
