@@ -2272,4 +2272,11 @@
     <string name="grade_confidence_high">High</string>
     <string name="grade_confidence_medium">Medium</string>
     <string name="grade_confidence_low">Low</string>
+    <string name="dispute_status_open">Disputed</string>
+    <string name="dispute_status_under_review">Under review</string>
+    <string name="dispute_status_resolved">Dispute resolved</string>
+    <string name="dispute_status_rejected">Dispute declined</string>
+    <string name="dispute_a11y_with_status">Grade dispute: %1$s</string>
+    <string name="dispute_a11y">Grade dispute</string>
+    <string name="verified_since">Verified since %1$s</string>
 </resources>

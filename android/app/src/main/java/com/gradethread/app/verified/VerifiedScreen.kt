@@ -74,7 +74,7 @@ class VerifiedViewModel @Inject constructor(private val service: VerifiedProvidi
 
         val credentials: String? get() = VerifiedBadge.credentials(stats)
 
-        val sinceLabel: String? get() = profile?.let { VerifiedBadge.sinceLabel(it) }
+        val sinceDate: String? get() = profile?.let { VerifiedBadge.sinceDate(it) }
     }
 
     /**
@@ -408,9 +408,9 @@ fun VerifiedContent(state: VerifiedViewModel.State, actions: VerifiedActions, mo
                     }
                 }
                 Text(stringResource(status.detail), style = MaterialTheme.typography.bodyMedium)
-                state.sinceLabel?.let {
+                state.sinceDate?.let {
                     Text(
-                        it,
+                        stringResource(R.string.verified_since, it),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

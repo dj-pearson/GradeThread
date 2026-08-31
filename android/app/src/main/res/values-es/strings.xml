@@ -2141,4 +2141,11 @@
     <string name="grade_confidence_high">Alta</string>
     <string name="grade_confidence_medium">Media</string>
     <string name="grade_confidence_low">Baja</string>
+    <string name="dispute_status_open">En disputa</string>
+    <string name="dispute_status_under_review">En revisión</string>
+    <string name="dispute_status_resolved">Disputa resuelta</string>
+    <string name="dispute_status_rejected">Disputa rechazada</string>
+    <string name="dispute_a11y_with_status">Disputa de nota: %1$s</string>
+    <string name="dispute_a11y">Disputa de nota</string>
+    <string name="verified_since">Verificado desde %1$s</string>
 </resources>

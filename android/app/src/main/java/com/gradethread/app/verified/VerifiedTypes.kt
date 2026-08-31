@@ -237,14 +237,18 @@ object VerifiedBadge {
     fun profileUrl(profile: VerifiedProfile): String? =
         profile.handle?.trim()?.takeIf { it.isNotEmpty() }?.let { PROFILE_BASE + it }
 
-    /** "Verified since 2026-03-04" from the raw ISO timestamp, or null. */
-    fun sinceLabel(profile: VerifiedProfile): String? {
-        val raw = profile.verifiedSince?.takeIf { it.isNotBlank() } ?: return null
-        // Kept as text and cut at the date: the edge sends fractional seconds,
-        // and this is display-only — parsing it just to reformat it would add a
-        // failure mode for no gain.
-        return "Verified since " + raw.take(10)
-    }
+    /**
+     * The date part of the raw ISO timestamp, or null.
+     *
+     * US-2976: the DATE, not the sentence. It returned "Verified since
+     * 2026-03-04"; the screen wraps it in R.string.verified_since now, because
+     * "since" goes in a different place in Spanish.
+     *
+     * Kept as text and cut at the date: the edge sends fractional seconds, and
+     * this is display-only - parsing it just to reformat it would add a failure
+     * mode for no gain.
+     */
+    fun sinceDate(profile: VerifiedProfile): String? = profile.verifiedSince?.takeIf { it.isNotBlank() }?.take(10)
 
     /** The grading record the badge actually shows a buyer. */
     fun credentials(stats: VerifiedStats): String? {

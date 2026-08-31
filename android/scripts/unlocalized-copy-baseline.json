@@ -43,7 +43,6 @@
     "consignment/ConsignorsViewModel.kt": 4,
     "disclosure/DisclosureService.kt": 1,
     "disclosure/DisclosureViewModel.kt": 4,
-    "feedback/Feedback.kt": 2,
     "feedback/FeedbackViewModel.kt": 1,
     "fulfillment/Fulfillment.kt": 8,
     "fulfillment/FulfillmentService.kt": 1,
@@ -51,7 +50,6 @@
     "grading/BulkGradeViewModel.kt": 1,
     "grading/ConsumerGradeFlow.kt": 3,
     "grading/DisputeViewModel.kt": 1,
-    "grading/Disputes.kt": 12,
     "grading/GradeReportViewModel.kt": 1,
     "grading/GradeRequestMachine.kt": 4,
     "grading/GradeRequestViewModel.kt": 1,
@@ -145,7 +143,6 @@
     "templates/TemplateApply.kt": 2,
     "templates/TemplateService.kt": 1,
     "templates/TemplatesViewModel.kt": 3,
-    "verified/VerifiedTypes.kt": 1,
     "widget/WidgetCopy.kt": 12,
     "workspace/TeamViewModel.kt": 1,
     "workspace/Workspaces.kt": 4

@@ -263,7 +263,7 @@ private fun GradeRow(item: InventoryItemEntity, onClick: () -> Unit) {
         // US-819: dispute state rides the row, so the seller sees it without
         // opening each report.
         DisputeStatusDisplay.label(item.disputeStatus)?.let { label ->
-            Badge(label, disputeTone(item.disputeStatus))
+            Badge(stringResource(label), disputeTone(item.disputeStatus))
         }
     }
 }

@@ -63,8 +63,10 @@ fun DisputeSheet(
             )
 
             existing != null -> Outcome(
-                title = DisputeStatusDisplay.label(existing.status)
-                    ?: stringResource(R.string.dispute_already_title),
+                title = stringResource(
+                    DisputeStatusDisplay.label(existing.status)
+                        ?: R.string.dispute_already_title,
+                ),
                 body = stringResource(R.string.dispute_already_body),
                 extra = existing.reason.takeIf { it.isNotBlank() },
                 onClose = onClose,

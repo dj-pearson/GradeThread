@@ -103,6 +103,32 @@ DIAGNOSTIC_FILES = {
 # the words "Monthly" and "Yearly" in adjacent enums, and excluding the file
 # would have quietly kept the second pair in English.
 LABEL_VOCABULARY = {
+    # US-2976: the TWO-OWNERS shape, three times over. One value was doing two
+    # jobs and only one of the jobs is the seller's, so the enum gained a second
+    # field: the seller reads the resource, and this English string is recorded
+    # for whoever reads the row afterwards. Filing Spanish disputes or Spanish
+    # bug reports under a reason nobody can group with the English ones is the
+    # cost of translating these, and it is silent.
+    "grading/Disputes.kt": (
+        "DisputeReason.record, concatenated into the submitted dispute by "
+        "DisputeComposer.compose and read by a GradeThread reviewer. The chip "
+        "the seller taps is DisputeReason.label and IS translated.",
+        [
+            "Overall grade is too low",
+            "Intentional design counted as damage",
+            "A listed defect isn't actually present",
+            "An important detail or flaw was missed",
+            "Wrong garment type or category",
+            "A factor score looks wrong",
+            "Other (please explain)",
+        ],
+    ),
+    "feedback/Feedback.kt": (
+        "Feedback.Category.triage, the prefix Feedback.compose puts in front of "
+        "the stored message so support can group the rows. The chip the seller "
+        "taps is Category.label and IS translated.",
+        ["I wish it did…", "This worked well"],
+    ),
     "billing/SubscriptionCatalog.kt": (
         "Product names, not words. A seller who reads about Pro in a Spanish "
         "support thread has to find Pro on the paywall. The billing PERIODS in "
@@ -203,18 +229,23 @@ def scan():
             if "@Composable" in stripped:
                 continue
             rel = os.path.relpath(path, SOURCE).replace(os.sep, "/")
+            excluded = LABEL_VOCABULARY.get(rel)
+            # A value list applies to BOTH rules. The two-owners strings -
+            # DisputeReason.record, Feedback.Category.triage - are sentences, so
+            # is_copy finds them, and leaving them counted would put copy that
+            # will never be translated in the "remaining work" number.
+            by_value = set(excluded[1]) if excluded and not isinstance(excluded, str) else set()
             if rel not in DIAGNOSTIC_FILES:
                 for line in stripped.split("\n"):
                     if MACHINE_LINE.search(line):
                         continue
                     for match in LITERAL.finditer(line):
-                        if is_copy(match.group(1)):
+                        if is_copy(match.group(1)) and match.group(1) not in by_value:
                             found[rel].add(match.group(1))
             # US-2976: the same file, read a second way. is_copy finds
             # sentences; this finds the Title Case and single words a person
             # reads off a tab bar, which are invisible to a sentence detector
             # by construction.
-            excluded = LABEL_VOCABULARY.get(rel)
             if not isinstance(excluded, str):
                 # NOT_COPY again, and it is load-bearing rather than tidy. The
                 # positional rule merges the display indexes of every class in
@@ -222,7 +253,6 @@ def scan():
                 # index is read as a label: without this, ItemDraft.kt reported
                 # `acquired_price`, `sku` and `sold`, and a baseline full of
                 # column names is exactly the place things go to be forgotten.
-                by_value = set(excluded[1]) if excluded else set()
                 found[rel] |= {
                     value
                     for value in label_rule.labels_in(stripped)
@@ -276,9 +306,20 @@ def vocabulary_is_current():
             stale.append(f"{rel}: no such file")
             continue
         with open(path, encoding="utf-8") as fh:
-            labels = label_rule.labels_in(strip_comments(fh.read()))
+            stripped = strip_comments(fh.read())
+        # BOTH rules, because a value list now filters both. The two-owners
+        # strings are sentences, so only is_copy sees them - checking the label
+        # rule alone reported a live entry as stale.
+        labels = label_rule.labels_in(stripped)
+        labels |= {
+            m.group(1)
+            for line in stripped.split("\n")
+            if not MACHINE_LINE.search(line)
+            for m in LITERAL.finditer(line)
+            if is_copy(m.group(1))
+        }
         if not labels:
-            stale.append(f"{rel}: the label rule finds nothing to exclude")
+            stale.append(f"{rel}: neither rule finds anything to exclude")
             continue
         entry = LABEL_VOCABULARY[rel]
         if not isinstance(entry, str):

@@ -146,17 +146,26 @@ object DisputeStatusDisplay {
      * before this client knows it, and rendering a blank capsule for it looks
      * like a rendering bug rather than an unrecognized state.
      */
-    fun label(status: String?): String? = when (status) {
-        "open" -> "Disputed"
-        "under_review" -> "Under review"
-        "resolved" -> "Dispute resolved"
-        "rejected" -> "Dispute declined"
+    @StringRes
+    fun label(status: String?): Int? = when (status) {
+        "open" -> R.string.dispute_status_open
+        "under_review" -> R.string.dispute_status_under_review
+        "resolved" -> R.string.dispute_status_resolved
+        "rejected" -> R.string.dispute_status_rejected
         else -> null
     }
 
     fun isDisputed(status: String?): Boolean = label(status) != null
 
-    fun accessibilityLabel(status: String?): String = label(status)?.let { "Grade dispute: $it" } ?: "Grade dispute"
+    /**
+     * US-2976: the resource and the status separately, not a built sentence.
+     *
+     * This returned "Grade dispute: Under review" - two strings joined with a
+     * colon that a translator cannot move. The caller formats it.
+     */
+    @StringRes
+    fun accessibilityLabel(status: String?): Int =
+        if (label(status) == null) R.string.dispute_a11y else R.string.dispute_a11y_with_status
 
     /**
      * Whether a NEW dispute may be filed. A grade already under dispute must

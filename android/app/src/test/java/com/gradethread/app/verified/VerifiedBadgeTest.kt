@@ -170,15 +170,18 @@ class VerifiedBadgeTest {
     }
 
     @Test
-    fun `the since label cuts the timestamp rather than parsing it`() {
+    fun `the since date cuts the timestamp rather than parsing it`() {
         // The edge sends fractional seconds; parsing just to reformat would add
         // a failure mode for no gain.
+        //
+        // US-2976: the DATE, not "Verified since <date>". The sentence is built
+        // on screen because "since" goes in a different place in Spanish.
         assertEquals(
-            "Verified since 2026-03-04",
-            VerifiedBadge.sinceLabel(profile(since = "2026-03-04T09:12:33.412Z")),
+            "2026-03-04",
+            VerifiedBadge.sinceDate(profile(since = "2026-03-04T09:12:33.412Z")),
         )
-        assertNull(VerifiedBadge.sinceLabel(profile()))
-        assertNull(VerifiedBadge.sinceLabel(profile(since = "  ")))
+        assertNull(VerifiedBadge.sinceDate(profile()))
+        assertNull(VerifiedBadge.sinceDate(profile(since = "  ")))
     }
 
     @Test

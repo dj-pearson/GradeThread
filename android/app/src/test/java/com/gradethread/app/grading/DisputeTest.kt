@@ -1,5 +1,7 @@
 package com.gradethread.app.grading
 
+import com.gradethread.app.R
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -128,8 +130,13 @@ class DisputeTest {
         // complaint category into two.
         assertEquals(
             listOf(
-                "grade_too_low", "design_as_damage", "defect_not_present",
-                "missed_detail", "wrong_category", "factor_score", "other",
+                "grade_too_low",
+                "design_as_damage",
+                "defect_not_present",
+                "missed_detail",
+                "wrong_category",
+                "factor_score",
+                "other",
             ),
             DisputeReason.entries.map { it.wire },
         )
@@ -139,10 +146,28 @@ class DisputeTest {
 
     @Test
     fun `known statuses badge and unknown ones stay silent`() {
-        assertEquals("Disputed", DisputeStatusDisplay.label("open"))
-        assertEquals("Under review", DisputeStatusDisplay.label("under_review"))
-        assertEquals("Dispute resolved", DisputeStatusDisplay.label("resolved"))
-        assertEquals("Dispute declined", DisputeStatusDisplay.label("rejected"))
+        assertEquals(R.string.dispute_status_open, DisputeStatusDisplay.label("open"))
+        assertEquals(
+            R.string.dispute_status_under_review,
+            DisputeStatusDisplay.label("under_review"),
+        )
+        assertEquals(
+            R.string.dispute_status_resolved,
+            DisputeStatusDisplay.label("resolved"),
+        )
+        assertEquals(
+            R.string.dispute_status_rejected,
+            DisputeStatusDisplay.label("rejected"),
+        )
+        // Four statuses, four DIFFERENT ids - four copies of one would pass
+        // every check above and badge every dispute the same way.
+        assertEquals(
+            4,
+            listOf("open", "under_review", "resolved", "rejected")
+                .mapNotNull(DisputeStatusDisplay::label)
+                .toSet()
+                .size,
+        )
         // A future server enum value must not render a blank capsule.
         assertNull(DisputeStatusDisplay.label("escalated_to_legal"))
         assertNull(DisputeStatusDisplay.label(null))
