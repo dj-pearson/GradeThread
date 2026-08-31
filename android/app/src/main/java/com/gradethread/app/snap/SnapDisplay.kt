@@ -1,5 +1,9 @@
 package com.gradethread.app.snap
 
+import com.gradethread.app.ui.UiMessage
+
+import com.gradethread.app.R
+
 import com.gradethread.app.capture.CurrencyAmount
 
 /**
@@ -38,17 +42,21 @@ object SnapDisplay {
      *   edge only comps when it has one of those, so with neither, "not enough
      *   comps" would be a lie: we never looked.
      */
-    fun valueSubtitle(value: SnapValue?, hasHints: Boolean): String = when {
-        value != null && value.sufficient -> "est. resale value at this condition"
-        !hasHints -> "add a brand or item to see value"
-        else -> "not enough comps to value yet"
+    fun valueSubtitle(value: SnapValue?, hasHints: Boolean): UiMessage = when {
+        value != null && value.sufficient -> UiMessage(R.string.snap_value_estimated)
+        !hasHints -> UiMessage(R.string.snap_value_needs_hints)
+        else -> UiMessage(R.string.snap_value_not_enough_comps)
     }
 
     /** "Excellent · 87% confidence" — tier is lowercase on the wire. */
-    fun gradeSubtitle(grade: SnapGrade): String {
+    fun gradeSubtitle(grade: SnapGrade): UiMessage {
+        // US-2976: the TIER stays an untranslated argument. It is the server's
+        // word, and GradeReportScreen and GradeRequestScreen render it raw too
+        // - inventing a Spanish vocabulary for it here and nowhere else would
+        // make one screen disagree with three. The wrapper is ours.
         val tier = grade.gradeTier.replaceFirstChar { it.uppercase() }
         val percent = Math.round(grade.confidence.coerceIn(0.0, 1.0) * 100)
-        return "$tier · $percent% confidence"
+        return UiMessage(R.string.snap_grade_subtitle, args = listOf(tier, percent.toInt()))
     }
 
     fun scoreText(grade: SnapGrade): String = String.format(java.util.Locale.US, "%.1f", grade.overallScore)

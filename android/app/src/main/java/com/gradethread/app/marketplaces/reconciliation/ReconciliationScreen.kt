@@ -32,6 +32,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.money.Money
+import com.gradethread.app.ui.text
+import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.theme.BrandPrimaryButton
@@ -143,7 +145,11 @@ fun ReconciliationContent(
         )
 
         state.errorMessage?.let {
-            InfoCard(stringResource(R.string.reconciliation_that_didn_t_work), it, tone = InfoTone.Error)
+            InfoCard(
+                stringResource(R.string.reconciliation_that_didn_t_work),
+                it.text(),
+                tone = InfoTone.Error,
+            )
         }
         state.banner?.let { InfoCard(stringResource(R.string.reconciliation_done), it, tone = InfoTone.Success) }
         state.bulkProgress?.let { (done, total) ->
@@ -244,7 +250,7 @@ fun ReconciliationContent(
 @Composable
 private fun OrphanCard(
     orphan: OrphanEbayListing,
-    rowError: String?,
+    rowError: UiMessage?,
     busy: Boolean,
     onCreate: () -> Unit,
     onLink: () -> Unit,
@@ -272,7 +278,11 @@ private fun OrphanCard(
             }
         }
         rowError?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            Text(
+                it.text(),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             BrandPrimaryButton(

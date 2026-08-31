@@ -1,5 +1,7 @@
 package com.gradethread.app.marketplaces.reconciliation
 
+import com.gradethread.app.ui.UiMessage
+
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -40,16 +42,13 @@ sealed interface ReconcileOutcome {
     data class Created(override val orphanId: String, val itemId: String) : ReconcileOutcome
     data class Linked(override val orphanId: String, val itemId: String) : ReconcileOutcome
     data class Ignored(override val orphanId: String) : ReconcileOutcome
-    data class Failed(override val orphanId: String, val message: String) : ReconcileOutcome
+    data class Failed(override val orphanId: String, val message: UiMessage) : ReconcileOutcome
 
     val succeeded: Boolean get() = this !is Failed
 }
 
 /** Aggregate of a create-all run. */
-data class ReconcileBulkResult(
-    val succeeded: Int = 0,
-    val failures: List<Pair<String, String>> = emptyList(),
-) {
+data class ReconcileBulkResult(val succeeded: Int = 0, val failures: List<Pair<String, UiMessage>> = emptyList()) {
     val total: Int get() = succeeded + failures.size
 
     /**

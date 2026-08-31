@@ -44,6 +44,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.gradethread.app.R
 import com.gradethread.app.platform.rememberHapticFeedback
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -363,7 +364,7 @@ private fun ResultCard(result: SnapResponse, hasHints: Boolean, onCertifiedGrade
                     color = gradeColor(result.grade.overallScore),
                 )
                 Text(
-                    SnapDisplay.gradeSubtitle(result.grade),
+                    SnapDisplay.gradeSubtitle(result.grade).text(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -374,7 +375,7 @@ private fun ResultCard(result: SnapResponse, hasHints: Boolean, onCertifiedGrade
                     style = MaterialTheme.typography.titleLarge,
                 )
                 Text(
-                    SnapDisplay.valueSubtitle(result.value, hasHints),
+                    SnapDisplay.valueSubtitle(result.value, hasHints).text(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

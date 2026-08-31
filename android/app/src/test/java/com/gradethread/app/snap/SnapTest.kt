@@ -1,5 +1,11 @@
 package com.gradethread.app.snap
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.gradethread.app.ui.text
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -10,7 +16,13 @@ import org.junit.Test
 /**
  * US-1335: the Snap wire contract and the result card's display rules.
  */
+@RunWith(RobolectricTestRunner::class)
 class SnapTest {
+
+    // US-2976: every one of these five is named for the WORDS - "the subtitle
+    // says so", "reads as thin comps", "capitalizes the wire tier". They
+    // render rather than checking resource ids.
+    private val context = ApplicationProvider.getApplicationContext<Context>()
 
     // ── Wire ─────────────────────────────────────────────────────────────
 
@@ -38,8 +50,7 @@ class SnapTest {
         }
     """.trimIndent()
 
-    private fun decode(body: String) =
-        snapJson.decodeFromString(SnapResponse.serializer(), body)
+    private fun decode(body: String) = snapJson.decodeFromString(SnapResponse.serializer(), body)
 
     @Test
     fun `the snake_case envelope and the camelCase value block both decode`() {
@@ -85,8 +96,12 @@ class SnapTest {
     // ── Display ──────────────────────────────────────────────────────────
 
     private val sufficient = SnapValue(
-        lowCents = 3200, medianCents = 4500, highCents = 6100,
-        sampleSize = 24, confidence = 0.7, sufficient = true,
+        lowCents = 3200,
+        medianCents = 4500,
+        highCents = 6100,
+        sampleSize = 24,
+        confidence = 0.7,
+        sufficient = true,
     )
 
     @Test
@@ -117,7 +132,7 @@ class SnapTest {
         // comps" here would be a lie about work we didn't do.
         assertEquals(
             "add a brand or item to see value",
-            SnapDisplay.valueSubtitle(null, hasHints = false),
+            SnapDisplay.valueSubtitle(null, hasHints = false).text(context),
         )
     }
 
@@ -125,7 +140,7 @@ class SnapTest {
     fun `hints with a thin comp set reads as thin comps`() {
         assertEquals(
             "not enough comps to value yet",
-            SnapDisplay.valueSubtitle(sufficient.copy(sufficient = false), hasHints = true),
+            SnapDisplay.valueSubtitle(sufficient.copy(sufficient = false), hasHints = true).text(context),
         )
     }
 
@@ -133,20 +148,20 @@ class SnapTest {
     fun `a quoted value explains what the number means`() {
         assertEquals(
             "est. resale value at this condition",
-            SnapDisplay.valueSubtitle(sufficient, hasHints = true),
+            SnapDisplay.valueSubtitle(sufficient, hasHints = true).text(context),
         )
     }
 
     @Test
     fun `the grade subtitle capitalizes the wire tier and rounds confidence`() {
         val grade = SnapGrade(overallScore = 8.44, gradeTier = "excellent", confidence = 0.876)
-        assertEquals("Excellent · 88% confidence", SnapDisplay.gradeSubtitle(grade))
+        assertEquals("Excellent · 88% confidence", SnapDisplay.gradeSubtitle(grade).text(context))
         assertEquals("8.4", SnapDisplay.scoreText(grade))
     }
 
     @Test
     fun `a nonsense confidence cannot render over 100 percent`() {
         val grade = SnapGrade(overallScore = 9.0, gradeTier = "mint", confidence = 4.2)
-        assertEquals("Mint · 100% confidence", SnapDisplay.gradeSubtitle(grade))
+        assertEquals("Mint · 100% confidence", SnapDisplay.gradeSubtitle(grade).text(context))
     }
 }

@@ -1,5 +1,11 @@
 package com.gradethread.app.marketplaces.reconciliation
 
+import com.gradethread.app.ui.UiMessage
+
+import com.gradethread.app.R
+
+import androidx.annotation.StringRes
+
 import com.gradethread.app.platform.workspace.WorkspaceScope
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
@@ -27,9 +33,7 @@ import javax.inject.Singleton
  * id alone must never flip another seller's listing.
  */
 @Singleton
-class ReconciliationService @Inject constructor(
-    private val client: SupabaseClient,
-) {
+class ReconciliationService @Inject constructor(private val client: SupabaseClient) {
 
     companion object {
         private const val ORPHANS = "flipdesk_ebay_listings"
@@ -50,9 +54,8 @@ class ReconciliationService @Inject constructor(
         /** Ceiling for the banner's count read. */
         const val COUNT_CAP = 200
 
-        const val DUPLICATE_LISTING_MESSAGE =
-            "That item already has a different active eBay listing. Link this one to " +
-                "another item, or end the existing listing first."
+        val DUPLICATE_LISTING_MESSAGE =
+            UiMessage(R.string.reconcile_error_duplicate_listing)
     }
 
     @Serializable
@@ -61,8 +64,7 @@ class ReconciliationService @Inject constructor(
     @Serializable
     private data class ActiveListingRow(val platform_listing_id: String? = null)
 
-    private fun ownerId(): String? =
-        client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
+    private fun ownerId(): String? = client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
 
     /**
      * How many listings are waiting.
@@ -114,7 +116,10 @@ class ReconciliationService @Inject constructor(
         targetPrice: Double? = null,
     ): ReconcileOutcome {
         val owner = ownerId()
-            ?: return ReconcileOutcome.Failed(orphan.id, "You're signed out.")
+            ?: return ReconcileOutcome.Failed(
+                orphan.id,
+                UiMessage(R.string.reconcile_error_signed_out),
+            )
         val itemId = UUID.randomUUID().toString().lowercase()
 
         return runCatching {
@@ -142,7 +147,7 @@ class ReconciliationService @Inject constructor(
             runCatching { mirrorListing(itemId, orphan) }
             markMatched(orphan.id, itemId, owner)
             ReconcileOutcome.Created(orphan.id, itemId)
-        }.getOrElse { ReconcileOutcome.Failed(orphan.id, it.message ?: "Couldn't create the item.") }
+        }.getOrElse { failed(orphan.id, it, R.string.reconcile_error_create) }
     }
 
     /**
@@ -155,7 +160,10 @@ class ReconciliationService @Inject constructor(
      */
     suspend fun link(orphan: OrphanEbayListing, itemId: String): ReconcileOutcome {
         val owner = ownerId()
-            ?: return ReconcileOutcome.Failed(orphan.id, "You're signed out.")
+            ?: return ReconcileOutcome.Failed(
+                orphan.id,
+                UiMessage(R.string.reconcile_error_signed_out),
+            )
         return runCatching {
             val active = client.from(LISTINGS)
                 .select(Columns.raw("platform_listing_id")) {
@@ -175,13 +183,16 @@ class ReconciliationService @Inject constructor(
             // Same best-effort reasoning as the mirror on create.
             runCatching { markItemListed(itemId, owner) }
             ReconcileOutcome.Linked(orphan.id, itemId)
-        }.getOrElse { ReconcileOutcome.Failed(orphan.id, it.message ?: "Couldn't link that listing.") }
+        }.getOrElse { failed(orphan.id, it, R.string.reconcile_error_link) }
     }
 
     /** Drop it from the queue. A re-sync can bring it back. */
     suspend fun ignore(orphan: OrphanEbayListing): ReconcileOutcome {
         val owner = ownerId()
-            ?: return ReconcileOutcome.Failed(orphan.id, "You're signed out.")
+            ?: return ReconcileOutcome.Failed(
+                orphan.id,
+                UiMessage(R.string.reconcile_error_signed_out),
+            )
         return runCatching {
             client.from(ORPHANS).update(
                 JsonObject(mapOf("match_status" to JsonPrimitive("ignored"))),
@@ -192,7 +203,7 @@ class ReconciliationService @Inject constructor(
                 }
             }
             ReconcileOutcome.Ignored(orphan.id)
-        }.getOrElse { ReconcileOutcome.Failed(orphan.id, it.message ?: "Couldn't ignore that one.") }
+        }.getOrElse { failed(orphan.id, it, R.string.reconcile_error_ignore) }
     }
 
     /**
@@ -283,3 +294,13 @@ class ReconciliationService @Inject constructor(
         }
     }
 }
+
+/**
+ * A reconcile failure: the thrown message when there is one, ours otherwise.
+ *
+ * US-2976: `it.message` is the exception's own words - a PostgREST error, a
+ * socket timeout - and cannot be translated here, so it rides as `detail`.
+ * Ours is the fallback shown when the throwable said nothing.
+ */
+private fun failed(orphanId: String, error: Throwable, @StringRes fallback: Int) =
+    ReconcileOutcome.Failed(orphanId, UiMessage(fallback, detail = error.message))

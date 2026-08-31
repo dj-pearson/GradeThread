@@ -1,5 +1,9 @@
 package com.gradethread.app.marketplaces.reconciliation
 
+import com.gradethread.app.ui.UiMessage
+
+import com.gradethread.app.R
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -7,6 +11,14 @@ import org.junit.Test
 
 /** US-1356: what the orphan queue shows and how a bulk run reports itself. */
 class ReconciliationTest {
+
+    /**
+     * US-2976: an opaque failure marker. These tests never assert the WORDS -
+     * they assert which orphans failed and what the summary counts - so the
+     * message only has to be distinct, and the server-detail slot is the
+     * honest place for a string this test invented.
+     */
+    private fun failure(marker: String) = UiMessage(R.string.reconcile_error_create, detail = marker)
 
     @Test
     fun `a listing with no title still names itself`() {
@@ -30,7 +42,7 @@ class ReconciliationTest {
         assertTrue(ReconcileOutcome.Created("o1", "i1").succeeded)
         assertTrue(ReconcileOutcome.Linked("o1", "i1").succeeded)
         assertTrue(ReconcileOutcome.Ignored("o1").succeeded)
-        assertFalse(ReconcileOutcome.Failed("o1", "nope").succeeded)
+        assertFalse(ReconcileOutcome.Failed("o1", failure("nope")).succeeded)
     }
 
     @Test
@@ -48,8 +60,8 @@ class ReconciliationTest {
         val result = ReconcileBulkResult.from(
             (1..8).map { ReconcileOutcome.Created("o$it", "i$it") } +
                 listOf(
-                    ReconcileOutcome.Failed("o9", "duplicate"),
-                    ReconcileOutcome.Failed("o10", "network"),
+                    ReconcileOutcome.Failed("o9", failure("duplicate")),
+                    ReconcileOutcome.Failed("o10", failure("network")),
                 ),
         )
         assertEquals(8, result.succeeded)
@@ -61,7 +73,7 @@ class ReconciliationTest {
     @Test
     fun `a run where everything failed says so plainly`() {
         val result = ReconcileBulkResult.from(
-            listOf(ReconcileOutcome.Failed("o1", "x"), ReconcileOutcome.Failed("o2", "y")),
+            listOf(ReconcileOutcome.Failed("o1", failure("x")), ReconcileOutcome.Failed("o2", failure("y"))),
         )
         assertEquals("All 2 items failed.", result.summary)
     }

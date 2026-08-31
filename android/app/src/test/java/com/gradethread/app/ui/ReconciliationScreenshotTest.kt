@@ -4,6 +4,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.gradethread.app.R
 import com.gradethread.app.marketplaces.reconciliation.OrphanEbayListing
 import com.gradethread.app.marketplaces.reconciliation.ReconciliationActions
 import com.gradethread.app.marketplaces.reconciliation.ReconciliationContent
@@ -75,7 +76,15 @@ class ReconciliationScreenshotTest {
     @Test
     fun rowScopedFailure_dark() = capture("screen-reconcile-rowerror-dark", dark = true) {
         ReconciliationContent(
-            loaded.copy(rowErrors = mapOf("o2" to "eBay would not return this listing's details.")),
+            loaded.copy(
+                rowErrors = mapOf(
+                    "o2" to UiMessage(
+                        // The real shape: our sentence with eBay's behind it.
+                        R.string.reconcile_error_create,
+                        detail = "eBay would not return this listing's details.",
+                    ),
+                ),
+            ),
             ReconciliationActions(),
         )
     }
@@ -86,7 +95,13 @@ class ReconciliationScreenshotTest {
         ReconciliationContent(
             loaded.copy(
                 orphans = orphans.filter { it.id == "o2" },
-                rowErrors = mapOf("o2" to "eBay would not return this listing's details."),
+                rowErrors = mapOf(
+                    "o2" to UiMessage(
+                        // The real shape: our sentence with eBay's behind it.
+                        R.string.reconcile_error_create,
+                        detail = "eBay would not return this listing's details.",
+                    ),
+                ),
                 banner = "Created 2 of 3 items.",
             ),
             ReconciliationActions(),
@@ -112,7 +127,12 @@ class ReconciliationScreenshotTest {
     @Test
     fun error_dark() = capture("screen-reconcile-error-dark", dark = true) {
         ReconciliationContent(
-            loaded.copy(errorMessage = "Could not reach eBay."),
+            loaded.copy(
+                errorMessage = UiMessage(
+                    R.string.reconcile_error_load,
+                    detail = "Could not reach eBay.",
+                ),
+            ),
             ReconciliationActions(),
         )
     }

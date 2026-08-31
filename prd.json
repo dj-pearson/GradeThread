@@ -2851,7 +2851,8 @@
         "check-string-formats passes across en and es, and no-unlocalized-copy's baseline for platform/net/EdgeApiError.kt reaches 0.",
         "Any test asserting the WORDS of an error moves its assertion to values/strings.xml rather than becoming assertEquals(R.string.x, ...). Six files in US-2976 would have silently lost a product claim to that conversion; check for it here before assuming there is none."
       ],
-      "priority": 21
+      "priority": 21,
+      "notes": "Blocked-on discovery 2026-08-31: platform/net/PlanGate.kt is entangled and must land in the SAME change. PlanGateError.title and .recommendation are composed by EdgeApiError.kt:225 as \"${gate.title}. ${gate.recommendation}\" — so converting either to a UiMessage breaks userMessage(), and EdgeApiError is a plain error type with no Context to render one. PlanGate's own shape is worth doing properly when it lands: title splices capLabel(cap) into \"You've reached your X limit\", which wants a whole sentence per cap (activeListings, aiActions, includedGrades, marketplaces, teamSeats, plus the fallback) rather than a fragment glued in, and PlanGatePresentation.kt:85 splices the same capLabel into a second sentence. prettyPlan() should stay untranslated for the same reason billing/SubscriptionCatalog.kt is in LABEL_VOCABULARY: plan names are product names. 5 strings in PlanGate.kt, still in the no-unlocalized-copy baseline."
     },
     {
       "id": "US-3027",

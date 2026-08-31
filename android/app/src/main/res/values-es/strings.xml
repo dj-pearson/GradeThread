@@ -2799,4 +2799,14 @@
     <string name="workspace_subtitle_personal">Tu propio inventario y tus ventas</string>
     <string name="workspace_subtitle_shared">Espacio compartido &#8212; eres miembro</string>
     <string name="workspace_access_revoked">Ya no tienes acceso a ese espacio. Has vuelto al tuyo.</string>
+    <string name="reconcile_error_signed_out">Has cerrado sesi&#243;n.</string>
+    <string name="reconcile_error_create">No se pudo crear el art&#237;culo.</string>
+    <string name="reconcile_error_link">No se pudo vincular ese anuncio.</string>
+    <string name="reconcile_error_ignore">No se pudo descartar ese.</string>
+    <string name="reconcile_error_duplicate_listing">Ese art&#237;culo ya tiene otro anuncio activo en eBay. Vincula este a otro art&#237;culo o finaliza primero el anuncio existente.</string>
+    <string name="snap_value_estimated">valor de reventa estimado en este estado</string>
+    <string name="snap_value_needs_hints">a&#241;ade una marca o un art&#237;culo para ver el valor</string>
+    <string name="snap_value_not_enough_comps">a&#250;n no hay comparables suficientes para valorar</string>
+    <string name="snap_grade_subtitle">%1$s &#183; %2$d%% de confianza</string>
+    <string name="reconcile_error_load">No se pudieron cargar los anuncios sin vincular.</string>
 </resources>

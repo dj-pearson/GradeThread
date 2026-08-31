@@ -2933,4 +2933,14 @@
     <string name="workspace_subtitle_personal">Your own inventory and sales</string>
     <string name="workspace_subtitle_shared">Shared workspace &#8212; you\'re a member</string>
     <string name="workspace_access_revoked">You no longer have access to that workspace. You\'re back in your own.</string>
+    <string name="reconcile_error_signed_out">You\'re signed out.</string>
+    <string name="reconcile_error_create">Couldn\'t create the item.</string>
+    <string name="reconcile_error_link">Couldn\'t link that listing.</string>
+    <string name="reconcile_error_ignore">Couldn\'t ignore that one.</string>
+    <string name="reconcile_error_duplicate_listing">That item already has a different active eBay listing. Link this one to another item, or end the existing listing first.</string>
+    <string name="snap_value_estimated">est. resale value at this condition</string>
+    <string name="snap_value_needs_hints">add a brand or item to see value</string>
+    <string name="snap_value_not_enough_comps">not enough comps to value yet</string>
+    <string name="snap_grade_subtitle">%1$s &#183; %2$d%% confidence</string>
+    <string name="reconcile_error_load">Couldn\'t load unmatched listings.</string>
 </resources>

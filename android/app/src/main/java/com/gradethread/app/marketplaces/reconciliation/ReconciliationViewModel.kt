@@ -1,5 +1,9 @@
 package com.gradethread.app.marketplaces.reconciliation
 
+import com.gradethread.app.ui.UiMessage
+
+import com.gradethread.app.R
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.platform.telemetry.Telemetry
@@ -30,9 +34,9 @@ class ReconciliationViewModel @Inject constructor(
         /** Create-all progress, as (done, total). Null when not running. */
         val bulkProgress: Pair<Int, Int>? = null,
         /** Per-orphan failures from the last action, so the row can explain itself. */
-        val rowErrors: Map<String, String> = emptyMap(),
+        val rowErrors: Map<String, UiMessage> = emptyMap(),
         val banner: String? = null,
-        val errorMessage: String? = null,
+        val errorMessage: UiMessage? = null,
         /** Candidates for the link sheet, newest first. */
         val linkCandidates: List<InventoryItemEntity> = emptyList(),
     )
@@ -48,7 +52,10 @@ class ReconciliationViewModel @Inject constructor(
                 .onFailure {
                     _state.value = _state.value.copy(
                         loading = false,
-                        errorMessage = it.message ?: "Couldn't load unmatched listings.",
+                        errorMessage = UiMessage(
+                            R.string.reconcile_error_load,
+                            detail = it.message,
+                        ),
                     )
                 }
         }
