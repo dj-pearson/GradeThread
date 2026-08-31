@@ -68,12 +68,35 @@ SQL = re.compile(
 MACHINE_LINE = re.compile(r"@SerialName|@Named|@Query|@ColumnInfo|^\s*import\s|Regex\(")
 
 
+# Files whose English is read by a DEVELOPER, not by a seller (US-2976 AC5).
+#
+# is_copy is a sentence detector and cannot tell "Your session expired" from
+# "Queued photo delete has no photo_id". The second is a diagnostic: it is
+# thrown, stored on the mutation row, and read by whoever is debugging a stuck
+# queue. Translating it would be worse than leaving it - a Spanish stack trace
+# helps nobody, and the words are how you find the throw site.
+#
+# The bar is "no user can reach it", not "it looks technical". Each entry names
+# the path that was checked. STALENESS IS CHECKED below.
+DIAGNOSTIC_FILES = {
+    "sync/MutationReplayer.kt": (
+        "Payload-shape failures from the offline queue. Every one goes through "
+        "terminal() -> EdgeApiError.BadRequest -> MutationQueue.describe() -> "
+        "the `lastError` column, and NOTHING in the app reads that column back "
+        "(checked 2026-08-30: no `.lastError` reader outside Daos, Entities and "
+        "MutationQueue). They are stored diagnostics. If an inspector screen is "
+        "ever built, DELETE THIS ENTRY - these strings become user-facing the "
+        "day something renders them."
+    ),
+}
+
 # Files whose display positions hold vocabulary somebody else owns (US-2976 AC5).
 #
 # The label rule is positional, so it cannot tell a word this product chose from
 # a word another company did. These entries are that judgement, written down.
 # STALENESS IS CHECKED below: an entry naming a file the rule finds nothing in
 # fails, so a reason cannot outlive the thing it excuses.
+#
 # A value is either a string (the whole file is excluded) or a (reason, values)
 # pair, which excludes only those values. The pair form exists because a file
 # can hold both: SubscriptionCatalog.kt carries the names of things we SELL and
@@ -180,12 +203,13 @@ def scan():
             if "@Composable" in stripped:
                 continue
             rel = os.path.relpath(path, SOURCE).replace(os.sep, "/")
-            for line in stripped.split("\n"):
-                if MACHINE_LINE.search(line):
-                    continue
-                for match in LITERAL.finditer(line):
-                    if is_copy(match.group(1)):
-                        found[rel].add(match.group(1))
+            if rel not in DIAGNOSTIC_FILES:
+                for line in stripped.split("\n"):
+                    if MACHINE_LINE.search(line):
+                        continue
+                    for match in LITERAL.finditer(line):
+                        if is_copy(match.group(1)):
+                            found[rel].add(match.group(1))
             # US-2976: the same file, read a second way. is_copy finds
             # sentences; this finds the Title Case and single words a person
             # reads off a tab bar, which are invisible to a sentence detector
@@ -207,6 +231,35 @@ def scan():
                     and re.search(r"[A-Za-z]", value)
                 }
     return {k: sorted(v) for k, v in found.items() if v}
+
+
+def diagnostics_are_current():
+    """Every DIAGNOSTIC_FILES entry still names a file with sentences in it.
+
+    Same rule as LABEL_VOCABULARY: an entry that excuses nothing reads as though
+    somebody checked it recently.
+    """
+    stale = []
+    for rel in sorted(DIAGNOSTIC_FILES):
+        path = os.path.join(SOURCE, *rel.split("/"))
+        if not os.path.exists(path):
+            stale.append(f"{rel}: no such file")
+            continue
+        with open(path, encoding="utf-8") as fh:
+            stripped = strip_comments(fh.read())
+        found_any = False
+        for line in stripped.split("\n"):
+            if MACHINE_LINE.search(line):
+                continue
+            for m in LITERAL.finditer(line):
+                if is_copy(m.group(1)):
+                    found_any = True
+                    break
+            if found_any:
+                break
+        if not found_any:
+            stale.append(f"{rel}: no sentence-shaped strings left to exclude")
+    return stale
 
 
 def vocabulary_is_current():
@@ -324,9 +377,9 @@ def self_test():
     if discovery:
         print(f"no-unlocalized-copy: {discovery}", file=sys.stderr)
         return False
-    stale = vocabulary_is_current()
+    stale = vocabulary_is_current() + diagnostics_are_current()
     if stale:
-        print("no-unlocalized-copy: LABEL_VOCABULARY is stale:", file=sys.stderr)
+        print("no-unlocalized-copy: an exclusion list is stale:", file=sys.stderr)
         for entry in stale:
             print(f"  {entry}", file=sys.stderr)
         print(

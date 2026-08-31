@@ -138,7 +138,6 @@
     "support/SupportViewModel.kt": 4,
     "sync/BackgroundRefresh.kt": 3,
     "sync/MutationQueue.kt": 2,
-    "sync/MutationReplayer.kt": 9,
     "sync/PersistenceHealth.kt": 1,
     "sync/SyncTrigger.kt": 2,
     "templates/ListingTemplate.kt": 2,
