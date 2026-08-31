@@ -143,7 +143,6 @@
     "templates/TemplateApply.kt": 2,
     "templates/TemplateService.kt": 1,
     "templates/TemplatesViewModel.kt": 3,
-    "widget/WidgetCopy.kt": 12,
     "workspace/TeamViewModel.kt": 1,
     "workspace/Workspaces.kt": 4
   }

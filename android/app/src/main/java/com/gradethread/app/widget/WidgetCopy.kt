@@ -1,60 +1,72 @@
 package com.gradethread.app.widget
 
+import android.content.Context
+import com.gradethread.app.R
 import com.gradethread.app.money.Money
 
 /**
  * US-1380 AC3 (mirrors US-1222): every word the widget says, composed from the
  * snapshot.
  *
- * Pure and separate from the Glance tree for one reason: the TalkBack labels
- * are the only version of this widget a blind seller ever gets, and a Glance
- * composable cannot be asserted in a JVM unit test. Splitting the copy out
- * means the labels are actually checked rather than merely written.
+ * Separate from the Glance tree for one reason: the TalkBack labels are the
+ * only version of this widget a blind seller ever gets, and a Glance composable
+ * cannot be asserted in a test. Splitting the copy out means the labels are
+ * actually checked rather than merely written.
+ *
+ * US-2976: EVERY FUNCTION TAKES A CONTEXT NOW. This object used to be pure and
+ * every sentence was built in Kotlin, so the whole widget - a thing that sits
+ * on the home screen - was English regardless of the phone's language. A
+ * Context is what a resource needs, and Robolectric supplies one, so the labels
+ * are still asserted; the tests moved rather than went away.
+ *
+ * ⚠ AND THE SENTENCES ARE NOT CONCATENATED ANY MORE. "3 sales today, $412.00"
+ * was five appends in a row, which fixes the word order in English. Each one is
+ * a format string with its arguments, so a translator can move them.
  */
 object WidgetCopy {
 
-    const val TITLE = "Seller snapshot"
+    fun title(context: Context): String = context.getString(R.string.widget_title)
 
     /** What the signed-out widget says instead of a row of zeros. */
-    const val SIGNED_OUT = "Sign in to see your snapshot"
+    fun signedOut(context: Context): String = context.getString(R.string.widget_signed_out)
 
     fun activeListings(snapshot: WidgetSnapshot): String = snapshot.activeListings.toString()
 
     fun soldToday(snapshot: WidgetSnapshot): String = Money.formatCompact(snapshot.soldTodayGross)
 
-    fun pendingPayout(snapshot: WidgetSnapshot): String =
-        Money.formatCompact(snapshot.pendingPayoutNet)
+    fun pendingPayout(snapshot: WidgetSnapshot): String = Money.formatCompact(snapshot.pendingPayoutNet)
 
     /**
      * The small line under each money figure.
      *
      * A bare "2" under a dollar amount reads as part of the amount. The unit
-     * has to be on the tile, not only in the label above it.
+     * is what makes it a count.
      */
-    fun soldTodaySub(snapshot: WidgetSnapshot): String =
-        plural(snapshot.soldTodayCount, "sale", "sales")
+    fun soldTodaySub(context: Context, snapshot: WidgetSnapshot): String = sales(context, snapshot.soldTodayCount)
 
-    fun pendingSub(snapshot: WidgetSnapshot): String =
-        plural(snapshot.pendingPayoutCount, "sale", "sales")
+    fun pendingSub(context: Context, snapshot: WidgetSnapshot): String = sales(context, snapshot.pendingPayoutCount)
 
     /**
      * "Updated 5m ago".
      *
-     * A widget can be hours behind — the system decides when it refreshes — so
+     * A widget can be hours behind - the system decides when it refreshes - so
      * saying WHEN is the difference between old numbers and wrong ones. A
      * snapshot with no timestamp says nothing rather than claiming "now".
      */
-    fun updatedAgo(generatedAtMs: Long, nowMs: Long): String? {
+    fun updatedAgo(context: Context, generatedAtMs: Long, nowMs: Long): String? {
         if (generatedAtMs <= 0L) return null
         val minutes = (nowMs - generatedAtMs) / 60_000L
         return when {
             // A clock that moved backwards (timezone change, NTP correction)
-            // is not a reason to claim the future.
+            // is not a reason to claim the future. US-2976: this branch was
+            // briefly replaced by coerceAtLeast(0L) while moving the strings,
+            // which turns "say nothing" into "Updated just now". The test
+            // caught it.
             minutes < 0L -> null
-            minutes < 1L -> "Updated just now"
-            minutes < 60L -> "Updated ${minutes}m ago"
-            minutes < 60L * 24 -> "Updated ${minutes / 60}h ago"
-            else -> "Updated ${minutes / (60 * 24)}d ago"
+            minutes < 1L -> context.getString(R.string.widget_updated_now)
+            minutes < 60L -> context.getString(R.string.widget_updated_minutes, minutes)
+            minutes < 60L * 24 -> context.getString(R.string.widget_updated_hours, minutes / 60)
+            else -> context.getString(R.string.widget_updated_days, minutes / (60 * 24))
         }
     }
 
@@ -63,63 +75,61 @@ object WidgetCopy {
      *
      * Spoken in the order a sighted seller reads it, with units attached to
      * every number: "3" alone tells a screen-reader user nothing, and the
-     * visual layout that supplies the meaning is exactly what they can't see.
+     * visual layout that supplies the meaning is exactly what they cannot see.
      */
-    fun accessibilityLabel(snapshot: WidgetSnapshot): String {
-        if (!snapshot.isSignedIn) return SIGNED_OUT
-        return buildString {
-            append(TITLE)
-            append(". ")
-            append(plural(snapshot.activeListings, "active listing", "active listings"))
-            append(". ")
-            if (snapshot.soldTodayCount == 0) {
-                append("Nothing sold today")
-            } else {
-                append(plural(snapshot.soldTodayCount, "sale", "sales"))
-                append(" today, ")
-                // The exact amount, not the compact "$1.2k" the tile shows —
-                // there is no space pressure in speech, and a rounded figure
-                // read aloud sounds like the real one.
-                append(Money.format(snapshot.soldTodayGross))
-            }
-            append(". ")
-            if (snapshot.pendingPayoutCount == 0) {
-                append("No payouts pending")
-            } else {
-                append(Money.format(snapshot.pendingPayoutNet))
-                append(" pending across ")
-                append(plural(snapshot.pendingPayoutCount, "sale", "sales"))
-            }
-            append(".")
-        }
+    fun accessibilityLabel(context: Context, snapshot: WidgetSnapshot): String {
+        if (!snapshot.isSignedIn) return signedOut(context)
+        return context.getString(
+            R.string.widget_a11y,
+            title(context),
+            listings(context, snapshot.activeListings),
+            soldPhrase(context, snapshot),
+            pendingPhrase(context, snapshot),
+        )
     }
 
     /** Where each tappable region says it goes. */
-    fun listingsActionLabel(snapshot: WidgetSnapshot): String =
-        "${plural(snapshot.activeListings, "active listing", "active listings")}. Opens marketplaces."
+    fun listingsActionLabel(context: Context, snapshot: WidgetSnapshot): String = context.getString(
+        R.string.widget_action_listings,
+        listings(context, snapshot.activeListings),
+    )
 
-    fun moneyActionLabel(snapshot: WidgetSnapshot): String = buildString {
-        if (snapshot.soldTodayCount == 0) {
-            append("Nothing sold today")
-        } else {
-            append(plural(snapshot.soldTodayCount, "sale", "sales"))
-            append(" today, ")
-            append(Money.format(snapshot.soldTodayGross))
-        }
-        append(". Opens money.")
+    fun moneyActionLabel(context: Context, snapshot: WidgetSnapshot): String =
+        context.getString(R.string.widget_action_money, soldPhrase(context, snapshot))
+
+    fun pendingActionLabel(context: Context, snapshot: WidgetSnapshot): String =
+        context.getString(R.string.widget_action_money, pendingPhrase(context, snapshot))
+
+    /**
+     * The EXACT amount, not the compact "$1.2k" the tile shows.
+     *
+     * There is no space pressure in speech, and a rounded figure read aloud
+     * sounds like the real one.
+     */
+    private fun soldPhrase(context: Context, snapshot: WidgetSnapshot): String = if (snapshot.soldTodayCount == 0) {
+        context.getString(R.string.widget_sold_none)
+    } else {
+        context.getString(
+            R.string.widget_sold_phrase,
+            sales(context, snapshot.soldTodayCount),
+            Money.format(snapshot.soldTodayGross),
+        )
     }
 
-    fun pendingActionLabel(snapshot: WidgetSnapshot): String = buildString {
+    private fun pendingPhrase(context: Context, snapshot: WidgetSnapshot): String =
         if (snapshot.pendingPayoutCount == 0) {
-            append("No payouts pending")
+            context.getString(R.string.widget_payout_none)
         } else {
-            append(Money.format(snapshot.pendingPayoutNet))
-            append(" pending across ")
-            append(plural(snapshot.pendingPayoutCount, "sale", "sales"))
+            context.getString(
+                R.string.widget_payout_pending,
+                Money.format(snapshot.pendingPayoutNet),
+                sales(context, snapshot.pendingPayoutCount),
+            )
         }
-        append(". Opens money.")
-    }
 
-    private fun plural(count: Int, one: String, many: String): String =
-        "$count ${if (count == 1) one else many}"
+    private fun sales(context: Context, count: Int): String =
+        context.resources.getQuantityString(R.plurals.widget_sales, count, count)
+
+    private fun listings(context: Context, count: Int): String =
+        context.resources.getQuantityString(R.plurals.widget_active_listings, count, count)
 }

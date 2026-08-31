@@ -2148,4 +2148,25 @@
     <string name="dispute_a11y_with_status">Disputa de nota: %1$s</string>
     <string name="dispute_a11y">Disputa de nota</string>
     <string name="verified_since">Verificado desde %1$s</string>
+    <string name="widget_title">Resumen del vendedor</string>
+    <string name="widget_signed_out">Entra para ver tu resumen</string>
+    <string name="widget_updated_now">Actualizado ahora mismo</string>
+    <string name="widget_updated_minutes">Actualizado hace %1$d min</string>
+    <string name="widget_updated_hours">Actualizado hace %1$d h</string>
+    <string name="widget_updated_days">Actualizado hace %1$d d</string>
+    <string name="widget_sold_none">Hoy no se ha vendido nada</string>
+    <string name="widget_sold_phrase">%1$s hoy, %2$s</string>
+    <string name="widget_payout_none">No hay pagos pendientes</string>
+    <string name="widget_payout_pending">%1$s pendientes en %2$s</string>
+    <string name="widget_a11y">%1$s. %2$s. %3$s. %4$s.</string>
+    <string name="widget_action_listings">%1$s. Abre marketplaces.</string>
+    <string name="widget_action_money">%1$s. Abre dinero.</string>
+    <plurals name="widget_sales">
+        <item quantity="one">%1$d venta</item>
+        <item quantity="other">%1$d ventas</item>
+    </plurals>
+    <plurals name="widget_active_listings">
+        <item quantity="one">%1$d anuncio activo</item>
+        <item quantity="other">%1$d anuncios activos</item>
+    </plurals>
 </resources>

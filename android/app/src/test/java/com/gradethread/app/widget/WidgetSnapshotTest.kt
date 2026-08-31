@@ -1,11 +1,9 @@
 package com.gradethread.app.widget
 
-import com.gradethread.app.money.Money
 import com.gradethread.app.money.MoneyFixtures
 import com.gradethread.app.sync.db.ListingEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -128,8 +126,11 @@ class WidgetSnapshotTest {
                 MoneyFixtures.sale("a", "i1", salePrice = 100.0, platformFees = 13.0, saleDate = now),
                 MoneyFixtures.sale("b", "i2", salePrice = 50.0, platformFees = 6.5, saleDate = now),
                 MoneyFixtures.sale(
-                    "paid", "i3",
-                    salePrice = 400.0, platformFees = 0.0, saleDate = now,
+                    "paid",
+                    "i3",
+                    salePrice = 400.0,
+                    platformFees = 0.0,
+                    saleDate = now,
                     payoutReference = "PAYOUT-1",
                 ),
             ),
@@ -168,8 +169,11 @@ class WidgetSnapshotTest {
             listings = emptyList(),
             sales = listOf(
                 MoneyFixtures.sale(
-                    "a", "i1",
-                    salePrice = 20.0, saleDate = now, payoutReference = "   ",
+                    "a",
+                    "i1",
+                    salePrice = 20.0,
+                    saleDate = now,
+                    payoutReference = "   ",
                 ),
             ),
             nowMs = now,
@@ -259,82 +263,9 @@ class WidgetSnapshotTest {
         )
     }
 
-    // ── Copy + TalkBack ──────────────────────────────────────────────────────
-
-    @Test
-    fun `signed out speaks the prompt, not zeros`() {
-        assertEquals(
-            WidgetCopy.SIGNED_OUT,
-            WidgetCopy.accessibilityLabel(WidgetSnapshot.signedOut()),
-        )
-    }
-
-    @Test
-    fun `every number is spoken with its unit`() {
-        val snapshot = WidgetSnapshot(
-            generatedAt = 0L,
-            isSignedIn = true,
-            activeListings = 1,
-            soldTodayCount = 2,
-            soldTodayGross = 60.0,
-            pendingPayoutCount = 3,
-            pendingPayoutNet = 90.0,
-        )
-
-        assertEquals(
-            "Seller snapshot. 1 active listing. 2 sales today, ${Money.format(60.0)}. " +
-                "${Money.format(90.0)} pending across 3 sales.",
-            WidgetCopy.accessibilityLabel(snapshot),
-        )
-    }
-
-    @Test
-    fun `a quiet day says so rather than reading out zeros`() {
-        val snapshot = WidgetSnapshot(generatedAt = 0L, isSignedIn = true, activeListings = 0)
-
-        assertEquals(
-            "Seller snapshot. 0 active listings. Nothing sold today. No payouts pending.",
-            WidgetCopy.accessibilityLabel(snapshot),
-        )
-    }
-
-    @Test
-    fun `each tappable region says where it goes`() {
-        val snapshot = WidgetSnapshot.PLACEHOLDER
-        assertTrue(WidgetCopy.listingsActionLabel(snapshot).endsWith("Opens marketplaces."))
-        assertTrue(WidgetCopy.moneyActionLabel(snapshot).endsWith("Opens money."))
-        assertTrue(WidgetCopy.pendingActionLabel(snapshot).endsWith("Opens money."))
-    }
-
-    @Test
-    fun `tile subtitles carry the unit`() {
-        val snapshot = WidgetSnapshot(
-            generatedAt = 0L,
-            isSignedIn = true,
-            soldTodayCount = 1,
-            pendingPayoutCount = 4,
-        )
-        assertEquals("1 sale", WidgetCopy.soldTodaySub(snapshot))
-        assertEquals("4 sales", WidgetCopy.pendingSub(snapshot))
-    }
-
-    @Test
-    fun `the freshness stamp`() {
-        // US-2435: must exceed the largest offset subtracted below (2 days =
-        // 172,800,000). The original 10_000_000L is only 2h46m past the epoch,
-        // so `now - 3h` and `now - 2d` went NEGATIVE and tripped
-        // WidgetCopy's "never published" guard (generatedAtMs <= 0 -> null)
-        // instead of reaching the formatter. The two assertions below have
-        // therefore never passed, on any commit.
-        val now = 10_000_000_000L
-        assertEquals("Updated just now", WidgetCopy.updatedAgo(now - 30_000, now))
-        assertEquals("Updated 5m ago", WidgetCopy.updatedAgo(now - 5 * 60_000, now))
-        assertEquals("Updated 3h ago", WidgetCopy.updatedAgo(now - 3 * 3_600_000, now))
-        assertEquals("Updated 2d ago", WidgetCopy.updatedAgo(now - 2 * 86_400_000L, now))
-        // Never published, and never claim the future.
-        assertNull(WidgetCopy.updatedAgo(0L, now))
-        assertNull(WidgetCopy.updatedAgo(now + 60_000, now))
-    }
+    // The copy cases moved to WidgetCopyTest, which needs a Context now that
+    // the labels come from resources (US-2976). Everything above this line is
+    // the rollup, which is still pure.
 
     @Test
     fun `widget links match the scheme the manifest claims`() {

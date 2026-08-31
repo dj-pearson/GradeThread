@@ -2279,4 +2279,25 @@
     <string name="dispute_a11y_with_status">Grade dispute: %1$s</string>
     <string name="dispute_a11y">Grade dispute</string>
     <string name="verified_since">Verified since %1$s</string>
+    <string name="widget_title">Seller snapshot</string>
+    <string name="widget_signed_out">Sign in to see your snapshot</string>
+    <string name="widget_updated_now">Updated just now</string>
+    <string name="widget_updated_minutes">Updated %1$dm ago</string>
+    <string name="widget_updated_hours">Updated %1$dh ago</string>
+    <string name="widget_updated_days">Updated %1$dd ago</string>
+    <string name="widget_sold_none">Nothing sold today</string>
+    <string name="widget_sold_phrase">%1$s today, %2$s</string>
+    <string name="widget_payout_none">No payouts pending</string>
+    <string name="widget_payout_pending">%1$s pending across %2$s</string>
+    <string name="widget_a11y">%1$s. %2$s. %3$s. %4$s.</string>
+    <string name="widget_action_listings">%1$s. Opens marketplaces.</string>
+    <string name="widget_action_money">%1$s. Opens money.</string>
+    <plurals name="widget_sales">
+        <item quantity="one">%1$d sale</item>
+        <item quantity="other">%1$d sales</item>
+    </plurals>
+    <plurals name="widget_active_listings">
+        <item quantity="one">%1$d active listing</item>
+        <item quantity="other">%1$d active listings</item>
+    </plurals>
 </resources>

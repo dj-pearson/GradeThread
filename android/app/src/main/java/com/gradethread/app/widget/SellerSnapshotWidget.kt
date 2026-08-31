@@ -72,6 +72,10 @@ object SellerSnapshotWidget : GlanceAppWidget() {
 
     @Composable
     private fun Content(snapshot: WidgetSnapshot, nowMs: Long) {
+        // US-2976: WidgetCopy resolves resources now, so every label needs a
+        // Context. Glance supplies one through LocalContext, the same as
+        // Compose does.
+        val context = LocalContext.current
         GlanceTheme {
             Column(
                 modifier = GlanceModifier
@@ -81,7 +85,7 @@ object SellerSnapshotWidget : GlanceAppWidget() {
                     // The whole tile reads as one sentence. TalkBack users get
                     // the snapshot in one swipe rather than hunting three
                     // unlabelled numbers.
-                    .semantics { contentDescription = WidgetCopy.accessibilityLabel(snapshot) },
+                    .semantics { contentDescription = WidgetCopy.accessibilityLabel(context, snapshot) },
                 verticalAlignment = Alignment.Vertical.Top,
             ) {
                 if (!snapshot.isSignedIn) {
@@ -89,7 +93,7 @@ object SellerSnapshotWidget : GlanceAppWidget() {
                     return@Column
                 }
                 Metrics(snapshot)
-                WidgetCopy.updatedAgo(snapshot.generatedAt, nowMs)?.let { stamp ->
+                WidgetCopy.updatedAgo(context, snapshot.generatedAt, nowMs)?.let { stamp ->
                     Spacer(GlanceModifier.height(6.dp))
                     Text(
                         stamp,
@@ -105,13 +109,14 @@ object SellerSnapshotWidget : GlanceAppWidget() {
 
     @Composable
     private fun SignedOut() {
+        val context = LocalContext.current
         Column(
             modifier = GlanceModifier.fillMaxSize().clickable(openApp(WidgetDeepLink.MONEY)),
             verticalAlignment = Alignment.Vertical.CenterVertically,
             horizontalAlignment = Alignment.Horizontal.Start,
         ) {
             Text(
-                WidgetCopy.TITLE,
+                WidgetCopy.title(context),
                 style = TextStyle(
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
@@ -120,7 +125,7 @@ object SellerSnapshotWidget : GlanceAppWidget() {
             )
             Spacer(GlanceModifier.height(4.dp))
             Text(
-                WidgetCopy.SIGNED_OUT,
+                WidgetCopy.signedOut(context),
                 style = TextStyle(fontSize = 12.sp, color = GlanceTheme.colors.onSurfaceVariant),
             )
         }
@@ -137,16 +142,16 @@ object SellerSnapshotWidget : GlanceAppWidget() {
             Metric(
                 label = context.getString(R.string.widget_sold_today),
                 value = WidgetCopy.soldToday(snapshot),
-                sub = WidgetCopy.soldTodaySub(snapshot),
-                description = WidgetCopy.moneyActionLabel(snapshot),
+                sub = WidgetCopy.soldTodaySub(context, snapshot),
+                description = WidgetCopy.moneyActionLabel(context, snapshot),
                 link = WidgetDeepLink.MONEY,
             )
             Spacer(GlanceModifier.width(12.dp))
             Metric(
                 label = context.getString(R.string.widget_pending),
                 value = WidgetCopy.pendingPayout(snapshot),
-                sub = WidgetCopy.pendingSub(snapshot),
-                description = WidgetCopy.pendingActionLabel(snapshot),
+                sub = WidgetCopy.pendingSub(context, snapshot),
+                description = WidgetCopy.pendingActionLabel(context, snapshot),
                 link = WidgetDeepLink.MONEY,
             )
             // Active listings is the first thing dropped at the small size:
@@ -158,7 +163,7 @@ object SellerSnapshotWidget : GlanceAppWidget() {
                     label = context.getString(R.string.widget_listed),
                     value = WidgetCopy.activeListings(snapshot),
                     sub = null,
-                    description = WidgetCopy.listingsActionLabel(snapshot),
+                    description = WidgetCopy.listingsActionLabel(context, snapshot),
                     link = WidgetDeepLink.MARKETPLACES,
                 )
             }
@@ -166,13 +171,7 @@ object SellerSnapshotWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun Metric(
-        label: String,
-        value: String,
-        sub: String?,
-        description: String,
-        link: WidgetDeepLink,
-    ) {
+    private fun Metric(label: String, value: String, sub: String?, description: String, link: WidgetDeepLink) {
         Column(
             modifier = GlanceModifier
                 .clickable(openApp(link))
