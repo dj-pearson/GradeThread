@@ -1,5 +1,7 @@
 package com.gradethread.app.capture
 
+import com.gradethread.app.ui.UiMessage
+
 /**
  * One position in the capture strip, identified by the (photo_type, photo_role)
  * PAIR — US-2498, the Android half of the iOS US-2470 change.
@@ -42,11 +44,24 @@ class CaptureSlot(
      */
     val role: String? = role?.trim()?.takeIf { it.isNotEmpty() }
 
-    /** Category-specific display label from the profile. */
-    val label: String = label ?: type.label
+    /**
+     * What this slot is called.
+     *
+     * US-2976: a UiMessage, because there are TWO possible sources and only
+     * one of them is ours. A category profile can name the slot, and that
+     * wording arrives from the server, so it goes in `detail` and is shown
+     * exactly as it came. With no profile label, [PhotoSlotType.label] is our
+     * own copy and translates.
+     *
+     * The precedence is unchanged - the profile still wins - so this is only
+     * the untranslated half becoming translatable. Whether a Spanish seller
+     * SHOULD read an English profile label is a separate question, and one
+     * this shape makes a one-line change to answer either way.
+     */
+    val label: UiMessage = UiMessage(type.label, detail = label)
 
-    /** One-line capture guidance from the profile. */
-    val hint: String = hint ?: type.hint
+    /** One-line capture guidance, from the profile or our own default. */
+    val hint: UiMessage = UiMessage(type.hint, detail = hint)
 
     /** Must be filled before the item can advance - front + back, in practice. */
     val isBlocking: Boolean = isBlocking ?: (type in PhotoSlotType.required)
@@ -72,8 +87,7 @@ class CaptureSlot(
     /** True for the defect slots, which reveal one at a time. */
     val isDefect: Boolean get() = type in PhotoSlotType.defects
 
-    override fun equals(other: Any?): Boolean =
-        other is CaptureSlot && other.storageKey == storageKey
+    override fun equals(other: Any?): Boolean = other is CaptureSlot && other.storageKey == storageKey
 
     override fun hashCode(): Int = storageKey.hashCode()
 
@@ -117,10 +131,9 @@ class CaptureSlot(
         const val DEFAULT_STRIP_SIZE = 4
 
         /** The three defect slots in reveal order, carrying a profile's wording. */
-        fun defectSlots(label: String, hint: String): List<CaptureSlot> =
-            PhotoSlotType.defects.map {
-                CaptureSlot(type = it, role = null, label = label, hint = hint, isBlocking = false)
-            }
+        fun defectSlots(label: String, hint: String): List<CaptureSlot> = PhotoSlotType.defects.map {
+            CaptureSlot(type = it, role = null, label = label, hint = hint, isBlocking = false)
+        }
     }
 }
 

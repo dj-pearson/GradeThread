@@ -27,7 +27,6 @@
     "capture/CapturePublisher.kt": 1,
     "capture/FlipdeskPhotoType.kt": 36,
     "capture/PhotoProfile.kt": 53,
-    "capture/PhotoSlotType.kt": 39,
     "consignment/ConsignmentReport.kt": 2,
     "consignment/ConsignorService.kt": 2,
     "consignment/ConsignorTypes.kt": 3,

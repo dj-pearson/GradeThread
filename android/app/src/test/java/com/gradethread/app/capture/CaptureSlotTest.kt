@@ -119,7 +119,9 @@ class CaptureSlotTest {
             ),
         )
         assertEquals(1, profile.captureSlots.size)
-        assertEquals("Brand label", profile.captureSlots.single().label)
+        // US-2976: the PROFILE's wording arrives from the server, so it is
+        // `detail` and is shown exactly as it came.
+        assertEquals("Brand label", profile.captureSlots.single().label.detail)
     }
 
     @Test
@@ -127,7 +129,7 @@ class CaptureSlotTest {
         val slots = PhotoProfile.clothingFallback.defectCaptureSlots
         assertEquals(3, slots.size)
         assertEquals(3, slots.map { it.storageKey }.distinct().size)
-        assertTrue(slots.all { it.label == "Defect" && !it.isBlocking })
+        assertTrue(slots.all { it.label.detail == "Defect" && !it.isBlocking })
         // A profile with no defect role offers none.
         val noDefects = PhotoProfile(
             category = "x",

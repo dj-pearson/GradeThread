@@ -228,13 +228,13 @@ private fun SlotRow(uri: Uri, slot: PhotoSlotType, onSlot: (PhotoSlotType) -> Un
             modifier = Modifier.size(64.dp),
         )
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
-            TextButton(onClick = { open = true }) { Text(slot.label) }
+            TextButton(onClick = { open = true }) { Text(stringResource(slot.label)) }
             DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
                 // The four that shape a grade first, then everything a seller
                 // might reasonably have shot before opening the app.
                 (PhotoSlotType.defaultSlots + PhotoSlotType.extras).distinct().forEach { option ->
                     DropdownMenuItem(
-                        text = { Text(option.label) },
+                        text = { Text(stringResource(option.label)) },
                         onClick = {
                             onSlot(option)
                             open = false

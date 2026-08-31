@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.gradethread.app.sync.db.GradeThreadDb
 import kotlinx.coroutines.test.runTest
+import com.gradethread.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -159,8 +160,11 @@ class PhotoIntakeStoreTest {
             listOf("front", "back", "serial", "accessory"),
             store.visibleSlots.map { it.storageKey },
         )
-        // The profile's wording, not the enum's.
-        assertEquals("Dial", store.visibleSlots.first().label)
+        // The profile's wording, not the enum's. US-2976: it arrives from the
+        // server, so it is `detail` - the field shown exactly as it came - and
+        // the enum's own resource sits behind it as the fallback.
+        assertEquals("Dial", store.visibleSlots.first().label.detail)
+        assertEquals(R.string.slot_label_front, store.visibleSlots.first().label.res)
         // A clothing-only slot is not on offer anywhere.
         assertTrue(store.hiddenExtraSlots.none { it.type == PhotoSlotType.FLATLAY })
     }

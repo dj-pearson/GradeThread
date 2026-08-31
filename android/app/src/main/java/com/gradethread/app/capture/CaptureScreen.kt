@@ -57,6 +57,7 @@ import com.gradethread.app.R
 import com.gradethread.app.platform.rememberShutterSound
 import com.gradethread.app.platform.rememberHapticFeedback
 import com.gradethread.app.sync.db.DatabaseProvider
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.Spacing
 import kotlinx.coroutines.launch
@@ -367,7 +368,7 @@ fun CaptureContent(
 
         // Hint for the active slot — the profile's wording when it has one.
         Text(
-            state.activeCaptureSlot.hint,
+            state.activeCaptureSlot.hint.text(),
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
         )
@@ -385,9 +386,9 @@ fun CaptureContent(
                     label = {
                         Text(
                             if (state.photoFor(slot) != null) {
-                                stringResource(R.string.checked_prefix, slot.label)
+                                stringResource(R.string.checked_prefix, slot.label.text())
                             } else {
-                                slot.label
+                                slot.label.text()
                             },
                         )
                     },
@@ -412,7 +413,7 @@ fun CaptureContent(
                     DropdownMenu(expanded = addMenuOpen, onDismissRequest = { addMenuOpen = false }) {
                         intake.hiddenExtraSlots.forEach { slot ->
                             DropdownMenuItem(
-                                text = { Text(slot.label) },
+                                text = { Text(slot.label.text()) },
                                 onClick = {
                                     addMenuOpen = false
                                     actions.revealSlot(slot)

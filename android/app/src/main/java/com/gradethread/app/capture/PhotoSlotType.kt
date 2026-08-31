@@ -1,5 +1,8 @@
 package com.gradethread.app.capture
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 /**
  * US-1324: the canonical photo positions (iOS PhotoSlotType). Wire values
  * equal the server `photo_type` strings so they round-trip through drafts
@@ -8,35 +11,39 @@ package com.gradethread.app.capture
  * GALLERY/COVER ORDER — sort_order derives from ordinal, so FRONT is the
  * cover / eBay main image.
  */
-enum class PhotoSlotType(val wire: String, val label: String) {
-    FRONT("front", "Front"),
-    BACK("back", "Back"),
-    TAG("tag", "Tag"),
-    DETAIL("detail", "Detail"),
-    MEASUREMENT_CHEST("measurement_chest", "Chest / Bust"),
-    MEASUREMENT_WAIST("measurement_waist", "Waist"),
-    MEASUREMENT_LENGTH("measurement_length", "Length"),
-    MEASUREMENT_SLEEVE("measurement_sleeve", "Sleeve"),
-    MEASUREMENT_INSEAM("measurement_inseam", "Inseam"),
-    DEFECT1("defect1", "Defect 1"),
-    DEFECT2("defect2", "Defect 2"),
-    DEFECT3("defect3", "Defect 3"),
-    TAG2("tag_2", "Tag 2"),
-    DETAIL2("detail_2", "Detail 2"),
-    DETAIL3("detail_3", "Detail 3"),
-    DETAIL4("detail_4", "Detail 4"),
-    INTERIOR("interior", "Interior"),
-    FLATLAY("flatlay", "Flat lay"),
-    ON_MODEL("on_model", "On model"),
+// US-2976: the WIRE value stays a String - the server compares it, and the
+// header above says so - and the label beside it is a resource id. Keeping
+// them in one constructor is the point: they are the same fact.
+enum class PhotoSlotType(val wire: String, @StringRes val label: Int) {
+    FRONT("front", R.string.slot_label_front),
+    BACK("back", R.string.slot_label_back),
+    TAG("tag", R.string.slot_label_tag),
+    DETAIL("detail", R.string.slot_label_detail),
+    MEASUREMENT_CHEST("measurement_chest", R.string.slot_label_measurement_chest),
+    MEASUREMENT_WAIST("measurement_waist", R.string.slot_label_measurement_waist),
+    MEASUREMENT_LENGTH("measurement_length", R.string.slot_label_measurement_length),
+    MEASUREMENT_SLEEVE("measurement_sleeve", R.string.slot_label_measurement_sleeve),
+    MEASUREMENT_INSEAM("measurement_inseam", R.string.slot_label_measurement_inseam),
+    DEFECT1("defect1", R.string.slot_label_defect1),
+    DEFECT2("defect2", R.string.slot_label_defect2),
+    DEFECT3("defect3", R.string.slot_label_defect3),
+    TAG2("tag_2", R.string.slot_label_tag2),
+    DETAIL2("detail_2", R.string.slot_label_detail2),
+    DETAIL3("detail_3", R.string.slot_label_detail3),
+    DETAIL4("detail_4", R.string.slot_label_detail4),
+    INTERIOR("interior", R.string.slot_label_interior),
+    FLATLAY("flatlay", R.string.slot_label_flatlay),
+    ON_MODEL("on_model", R.string.slot_label_on_model),
+
     // Universal roles (migration 00230) for non-clothing photo profiles.
-    ANGLE("angle", "Angle / Profile"),
-    SOLE("sole", "Sole"),
-    MARKING("marking", "Markings"),
-    SERIAL("serial", "Serial / Model"),
-    ACCESSORY("accessory", "Accessories"),
-    CERTIFICATE("certificate", "Certificate"),
-    CORNER("corner", "Corners"),
-    SURFACE("surface", "Surface"),
+    ANGLE("angle", R.string.slot_label_angle),
+    SOLE("sole", R.string.slot_label_sole),
+    MARKING("marking", R.string.slot_label_marking),
+    SERIAL("serial", R.string.slot_label_serial),
+    ACCESSORY("accessory", R.string.slot_label_accessory),
+    CERTIFICATE("certificate", R.string.slot_label_certificate),
+    CORNER("corner", R.string.slot_label_corner),
+    SURFACE("surface", R.string.slot_label_surface),
 
     /**
      * US-1576: the MeasureCard frame — the garment flat with the printed card
@@ -50,7 +57,7 @@ enum class PhotoSlotType(val wire: String, val label: String) {
      * ([CapturePublishPlan.build]), so appending leaves every existing slot's
      * path arithmetic exactly where it was.
      */
-    MEASUREMENT("measurement", "MeasureCard"),
+    MEASUREMENT("measurement", R.string.slot_label_measurement),
 
     /**
      * US-2498 (migration 00587): the two profile roles that had no capture case
@@ -60,8 +67,8 @@ enum class PhotoSlotType(val wire: String, val label: String) {
      * APPENDED for the reason [MEASUREMENT] is: [ordinal] is a stable per-slot
      * key and the pre-profile ordering has to stay exactly where it was.
      */
-    ON_HANGER("on_hanger", "On hanger"),
-    SET_PAIR("set_pair", "Set / pair"),
+    ON_HANGER("on_hanger", R.string.slot_label_on_hanger),
+    SET_PAIR("set_pair", R.string.slot_label_set_pair),
     ;
 
     /** Server item_photos.photo_type — defects collapse to `defect`. */
@@ -77,19 +84,20 @@ enum class PhotoSlotType(val wire: String, val label: String) {
         get() = this == TAG || this == TAG2
 
     /** Single-line cue above the strip while this slot is active. */
-    val hint: String
+    @get:StringRes
+    val hint: Int
         get() = when (this) {
-            FRONT -> "Lay flat, full front in frame"
-            BACK -> "Same crop as the front shot"
-            TAG -> "Care + size label, close enough to read"
-            DETAIL -> "Texture, weave, or distinctive feature"
-            DEFECT1, DEFECT2, DEFECT3 -> "Close-up of the flaw, well lit"
+            FRONT -> R.string.slot_hint_front
+            BACK -> R.string.slot_hint_back
+            TAG -> R.string.slot_hint_tag
+            DETAIL -> R.string.slot_hint_detail
+            DEFECT1, DEFECT2, DEFECT3 -> R.string.slot_hint_defect
             // Mirrors the iOS MeasureCard hint word for word: every failure the
             // server's quality gate can report is one of these four things.
-            MEASUREMENT -> "Garment flat, MeasureCard BESIDE it - all 4 squares visible, top-down"
-            ON_HANGER -> "Hung as it would be worn - shows how it drapes"
-            SET_PAIR -> "Both pieces together, so the set reads as one item"
-            else -> "Optional shot — add what buyers ask about"
+            MEASUREMENT -> R.string.slot_hint_measurement
+            ON_HANGER -> R.string.slot_hint_on_hanger
+            SET_PAIR -> R.string.slot_hint_set_pair
+            else -> R.string.slot_hint_optional
         }
 
     companion object {
@@ -117,8 +125,11 @@ enum class PhotoSlotType(val wire: String, val label: String) {
 
         /** Kept for [fromWire] round-tripping only — never offered as a choice. */
         val retiredMeasurements = listOf(
-            MEASUREMENT_CHEST, MEASUREMENT_WAIST, MEASUREMENT_LENGTH,
-            MEASUREMENT_SLEEVE, MEASUREMENT_INSEAM,
+            MEASUREMENT_CHEST,
+            MEASUREMENT_WAIST,
+            MEASUREMENT_LENGTH,
+            MEASUREMENT_SLEEVE,
+            MEASUREMENT_INSEAM,
         )
 
         /**
@@ -140,7 +151,6 @@ enum class PhotoSlotType(val wire: String, val label: String) {
         /** Every type migration 00587 retired: legal to decode, never to offer. */
         val retired = retiredMeasurements + retiredExtras
 
-        fun fromWire(value: String): PhotoSlotType? =
-            entries.firstOrNull { it.wire == value }
+        fun fromWire(value: String): PhotoSlotType? = entries.firstOrNull { it.wire == value }
     }
 }
