@@ -2607,4 +2607,26 @@
         <item quantity="other">%1$d paquetes por enviar</item>
     </plurals>
     <string name="fulfillment_waiting_with_buyer">%1$s &#183; %2$s</string>
+    <string name="passport_confidence_verified">Verificado</string>
+    <string name="passport_confidence_verified_why">Establecido por un hecho de primera mano &#8212; el escaneo de una etiqueta f&#237;sica, un traspaso confirmado por el propietario, el historial de pedidos del marketplace o la nota original.</string>
+    <string name="passport_confidence_probable">Probable</string>
+    <string name="passport_confidence_probable_why">Deducido de una huella visual o de una foto reutilizada. Un eslab&#243;n probable de la cadena, no uno verificado de forma independiente.</string>
+    <string name="passport_confidence_unverified">Sin verificar</string>
+    <string name="passport_confidence_unverified_why">La base de este eslab&#243;n no est&#225; verificada de forma independiente (por ejemplo, un origen declarado por la propia persona).</string>
+    <string name="passport_strength_none">Ninguna</string>
+    <string name="passport_strength_strong">S&#243;lida</string>
+    <string name="passport_strength_moderate">Moderada</string>
+    <string name="passport_strength_emerging">Incipiente</string>
+    <string name="passport_no_history">A&#250;n no hay historial.</string>
+    <string name="passport_event_graded">Estado evaluado</string>
+    <string name="passport_event_listed">Puesto a la venta</string>
+    <string name="passport_event_sold">Vendido</string>
+    <string name="passport_event_ownership_transfer">Propiedad transferida</string>
+    <string name="passport_event_fingerprinted">Huella registrada</string>
+    <string name="passport_event_authenticity_assessed">Autenticidad evaluada</string>
+    <string name="passport_event_other">Evento del pasaporte</string>
+    <plurals name="passport_verified_links">
+        <item quantity="one">%1$d de %2$d eslab&#243;n est&#225; verificado de forma independiente.</item>
+        <item quantity="other">%1$d de %2$d eslabones est&#225;n verificados de forma independiente.</item>
+    </plurals>
 </resources>

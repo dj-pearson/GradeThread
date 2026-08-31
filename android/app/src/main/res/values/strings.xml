@@ -2741,4 +2741,26 @@
         <item quantity="other">%1$d parcels to post</item>
     </plurals>
     <string name="fulfillment_waiting_with_buyer">%1$s &#183; %2$s</string>
+    <string name="passport_confidence_verified">Verified</string>
+    <string name="passport_confidence_verified_why">Established by a first-party fact &#8212; a physical tag scan, an owner-confirmed claim handoff, marketplace order lineage, or the original grade itself.</string>
+    <string name="passport_confidence_probable">Probable</string>
+    <string name="passport_confidence_probable_why">Inferred from a visual fingerprint or reused-photo match. A likely link in the chain, not an independently verified one.</string>
+    <string name="passport_confidence_unverified">Unverified</string>
+    <string name="passport_confidence_unverified_why">The basis for this link isn\'t independently verified (for example, a self-declared origin).</string>
+    <string name="passport_strength_none">None</string>
+    <string name="passport_strength_strong">Strong</string>
+    <string name="passport_strength_moderate">Moderate</string>
+    <string name="passport_strength_emerging">Emerging</string>
+    <string name="passport_no_history">No history recorded yet.</string>
+    <string name="passport_event_graded">Condition graded</string>
+    <string name="passport_event_listed">Listed for sale</string>
+    <string name="passport_event_sold">Sold</string>
+    <string name="passport_event_ownership_transfer">Ownership transferred</string>
+    <string name="passport_event_fingerprinted">Fingerprinted</string>
+    <string name="passport_event_authenticity_assessed">Authenticity assessed</string>
+    <string name="passport_event_other">Passport event</string>
+    <plurals name="passport_verified_links">
+        <item quantity="one">%1$d of %2$d link is independently verified.</item>
+        <item quantity="other">%1$d of %2$d links are independently verified.</item>
+    </plurals>
 </resources>

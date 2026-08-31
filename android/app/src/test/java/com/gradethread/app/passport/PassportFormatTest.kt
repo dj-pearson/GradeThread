@@ -2,6 +2,9 @@ package com.gradethread.app.passport
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import com.gradethread.app.R
+import java.io.File
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -46,19 +49,46 @@ class PassportFormatTest {
 
     @Test
     fun `only the proven level says verified`() {
-        assertEquals("Verified", PassportConfidence.DETERMINISTIC.label)
-        assertEquals("Probable", PassportConfidence.PROBABLE.label)
-        assertEquals("Unverified", PassportConfidence.UNKNOWN.label)
+        // US-2976: three DISTINCT resources. Which level a link got is the
+        // claim a buyer may pay on, and the ids say that as exactly as the
+        // words did.
+        assertEquals(
+            R.string.passport_confidence_verified,
+            PassportConfidence.DETERMINISTIC.label,
+        )
+        assertEquals(R.string.passport_confidence_probable, PassportConfidence.PROBABLE.label)
+        assertEquals(R.string.passport_confidence_unverified, PassportConfidence.UNKNOWN.label)
     }
 
     @Test
-    fun `the softer levels never claim confirmation`() {
+    fun `the softer levels never claim confirmation, in any language`() {
         // Legal safety, not tone: "confirmed" on an inferred link is a claim
         // nobody checked.
-        listOf(PassportConfidence.PROBABLE, PassportConfidence.UNKNOWN).forEach { level ->
-            val text = level.explanation.lowercase()
-            assertTrue(level.name, !text.contains("confirmed"))
-            assertTrue(level.name, !text.contains("guaranteed"))
+        //
+        // US-2976: this used to read PassportConfidence.explanation, which is a
+        // resource id now. Asserting the id would have quietly DROPPED the
+        // guarantee - so it reads the resource files instead, and in doing so
+        // covers Spanish, which it never did. A translator writing "confirmado"
+        // into the probable explanation is the exact failure this guards, and
+        // until now nothing would have caught it.
+        val forbidden = listOf("confirmed", "guaranteed", "confirmad", "garantizad")
+        val softer = listOf(
+            "passport_confidence_probable_why",
+            "passport_confidence_unverified_why",
+        )
+        for (locale in listOf("values", "values-es")) {
+            val xml = File("src/main/res/$locale/strings.xml").readText()
+            for (name in softer) {
+                val value = Regex("<string name=\"$name\">(.*?)</string>", RegexOption.DOT_MATCHES_ALL)
+                    .find(xml)
+                    ?.groupValues
+                    ?.get(1)
+                assertNotNull("$locale is missing $name", value)
+                val text = value!!.lowercase()
+                forbidden.forEach { word ->
+                    assertTrue("$locale/$name claims \"$word\"", !text.contains(word))
+                }
+            }
         }
     }
 
@@ -69,23 +99,26 @@ class PassportFormatTest {
         val strength = PassportChainStrength.of(emptyList())
         assertEquals(0, strength.total)
         assertEquals(0.0, strength.score, 0.0001)
-        assertEquals("None", strength.label)
-        assertEquals("No history recorded yet.", strength.summary)
+        assertEquals(R.string.passport_strength_none, strength.label)
+        assertEquals(R.string.passport_no_history, strength.summary.res)
     }
 
     @Test
     fun `strength bands follow the proven fraction`() {
-        assertEquals("Strong", PassportChainStrength.of(List(4) { "deterministic" }).label)
         assertEquals(
-            "Strong",
+            R.string.passport_strength_strong,
+            PassportChainStrength.of(List(4) { "deterministic" }).label,
+        )
+        assertEquals(
+            R.string.passport_strength_strong,
             PassportChainStrength.of(listOf("deterministic", "deterministic", "deterministic", "probable")).label,
         )
         assertEquals(
-            "Moderate",
+            R.string.passport_strength_moderate,
             PassportChainStrength.of(listOf("deterministic", "deterministic", "probable", "unknown", "unknown")).label,
         )
         assertEquals(
-            "Emerging",
+            R.string.passport_strength_emerging,
             PassportChainStrength.of(listOf("probable", "probable", "unknown")).label,
         )
     }
@@ -96,7 +129,12 @@ class PassportFormatTest {
         val strength = PassportChainStrength.of(
             listOf("deterministic", "deterministic", "deterministic", "probable", "unknown"),
         )
-        assertEquals("3 of 5 links are independently verified.", strength.summary)
+        // Three verified OF five, in that order. Reversed, the line claims
+        // five of three, which is the one arithmetic a buyer would notice.
+        assertEquals(R.plurals.passport_verified_links, strength.summary.res)
+        assertEquals(listOf<Any>(3, 5), strength.summary.args)
+        // Pluralised on the TOTAL: "links are" agrees with the five.
+        assertEquals(5, strength.summary.quantity)
         assertEquals(3, strength.deterministic)
         assertEquals(1, strength.probable)
         assertEquals(1, strength.unknown)
@@ -104,10 +142,9 @@ class PassportFormatTest {
 
     @Test
     fun `a single link reads as singular`() {
-        assertEquals(
-            "1 of 1 link is independently verified.",
-            PassportChainStrength.of(listOf("deterministic")).summary,
-        )
+        val single = PassportChainStrength.of(listOf("deterministic")).summary
+        assertEquals(R.plurals.passport_verified_links, single.res)
+        assertEquals(1, single.quantity)
     }
 
     // ── Ordering ─────────────────────────────────────────────────────────────
@@ -151,26 +188,41 @@ class PassportFormatTest {
 
         assertEquals("abc", timeline.slug)
         assertTrue(timeline.events.isEmpty())
-        assertEquals("None", PassportChainStrength.of(emptyList()).label)
+        assertEquals(
+            R.string.passport_strength_none,
+            PassportChainStrength.of(emptyList()).label,
+        )
     }
 
     // ── Labels ───────────────────────────────────────────────────────────────
 
     @Test
     fun `every enum event type has real wording`() {
-        assertEquals("Condition graded", PassportFormat.eventLabel("graded"))
-        assertEquals("Listed for sale", PassportFormat.eventLabel("listed"))
-        assertEquals("Sold", PassportFormat.eventLabel("sold"))
-        assertEquals("Ownership transferred", PassportFormat.eventLabel("ownership_transfer"))
-        assertEquals("Fingerprinted", PassportFormat.eventLabel("fingerprinted"))
-        // Added to the enum in migration 00488; iOS still falls through on it.
-        assertEquals("Authenticity assessed", PassportFormat.eventLabel("authenticity_assessed"))
+        // US-2976: `detail` being null is what says the lookup HIT. A type
+        // that falls through carries the raw wire name instead, which is the
+        // regression this test exists to catch.
+        listOf(
+            "graded" to R.string.passport_event_graded,
+            "listed" to R.string.passport_event_listed,
+            "sold" to R.string.passport_event_sold,
+            "ownership_transfer" to R.string.passport_event_ownership_transfer,
+            "fingerprinted" to R.string.passport_event_fingerprinted,
+            // Added to the enum in migration 00488; iOS still falls through.
+            "authenticity_assessed" to R.string.passport_event_authenticity_assessed,
+        ).forEach { (wire, res) ->
+            val label = PassportFormat.eventLabel(wire)
+            assertEquals(wire, res, label.res)
+            assertNull(wire, label.detail)
+        }
     }
 
     @Test
     fun `an unknown event type renders as itself, not as nothing`() {
         // Hiding a real event behind "Unknown" would say nothing happened.
-        assertEquals("Repaired By Cobbler", PassportFormat.eventLabel("repaired_by_cobbler"))
+        val unknown = PassportFormat.eventLabel("repaired_by_cobbler")
+        assertEquals(R.string.passport_event_other, unknown.res)
+        // The server's own word, tidied and shown as-is.
+        assertEquals("Repaired By Cobbler", unknown.detail)
     }
 
     @Test

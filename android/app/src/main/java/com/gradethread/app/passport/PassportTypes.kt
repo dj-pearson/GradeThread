@@ -1,5 +1,9 @@
 package com.gradethread.app.passport
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
@@ -78,21 +82,18 @@ data class PassportVerifiedSeller(
  * may rely on when paying, and overstating a link is the one failure that
  * matters here.
  */
-enum class PassportConfidence(val label: String, val explanation: String) {
+enum class PassportConfidence(@StringRes val label: Int, @StringRes val explanation: Int) {
     DETERMINISTIC(
-        "Verified",
-        "Established by a first-party fact — a physical tag scan, an owner-confirmed " +
-            "claim handoff, marketplace order lineage, or the original grade itself.",
+        R.string.passport_confidence_verified,
+        R.string.passport_confidence_verified_why,
     ),
     PROBABLE(
-        "Probable",
-        "Inferred from a visual fingerprint or reused-photo match. A likely link in " +
-            "the chain, not an independently verified one.",
+        R.string.passport_confidence_probable,
+        R.string.passport_confidence_probable_why,
     ),
     UNKNOWN(
-        "Unverified",
-        "The basis for this link isn't independently verified (for example, a " +
-            "self-declared origin).",
+        R.string.passport_confidence_unverified,
+        R.string.passport_confidence_unverified_why,
     ),
     ;
 
@@ -114,8 +115,8 @@ data class PassportChainStrength(
     val unknown: Int,
     /** Fraction of links that are deterministic, 0..1. */
     val score: Double,
-    val label: String,
-    val summary: String,
+    @StringRes val label: Int,
+    val summary: UiMessage,
 ) {
     companion object {
         fun of(confidences: List<String?>): PassportChainStrength {
@@ -138,18 +139,24 @@ data class PassportChainStrength(
                 unknown = unk,
                 score = score,
                 label = when {
-                    total == 0 -> "None"
-                    score >= 0.75 -> "Strong"
-                    score >= 0.4 -> "Moderate"
-                    else -> "Emerging"
+                    total == 0 -> R.string.passport_strength_none
+                    score >= 0.75 -> R.string.passport_strength_strong
+                    score >= 0.4 -> R.string.passport_strength_moderate
+                    else -> R.string.passport_strength_emerging
                 },
                 summary = if (total == 0) {
-                    "No history recorded yet."
+                    UiMessage(R.string.passport_no_history)
                 } else {
                     // Counts, not an adjective on its own: "3 of 5 verified" is
                     // checkable, "moderate" is a word somebody has to trust.
-                    "$det of $total ${if (total == 1) "link is" else "links are"} " +
-                        "independently verified."
+                    //
+                    // US-2976: pluralised on the TOTAL, because "links are" is
+                    // agreeing with the five, not with the three.
+                    UiMessage(
+                        R.plurals.passport_verified_links,
+                        args = listOf(det, total),
+                        quantity = total,
+                    )
                 },
             )
         }
@@ -165,16 +172,20 @@ object PassportFormat {
      * migration 00488 and the iOS map still doesn't have it, so that event
      * falls through to a generic title-cased label there.
      */
-    fun eventLabel(eventType: String): String = when (eventType) {
-        "graded" -> "Condition graded"
-        "listed" -> "Listed for sale"
-        "sold" -> "Sold"
-        "ownership_transfer" -> "Ownership transferred"
-        "fingerprinted" -> "Fingerprinted"
-        "authenticity_assessed" -> "Authenticity assessed"
+    fun eventLabel(eventType: String): UiMessage = when (eventType) {
+        "graded" -> UiMessage(R.string.passport_event_graded)
+        "listed" -> UiMessage(R.string.passport_event_listed)
+        "sold" -> UiMessage(R.string.passport_event_sold)
+        "ownership_transfer" -> UiMessage(R.string.passport_event_ownership_transfer)
+        "fingerprinted" -> UiMessage(R.string.passport_event_fingerprinted)
+        "authenticity_assessed" -> UiMessage(R.string.passport_event_authenticity_assessed)
         // A future enum value renders as itself rather than as "Unknown", which
         // would hide a real event behind a word that means nothing happened.
-        else -> titleCase(eventType)
+        //
+        // US-2976: it rides as `detail`, so it is shown exactly as the server
+        // named it. Untranslated is the honest outcome for a word we have never
+        // seen; inventing a resource for it would not be.
+        else -> UiMessage(R.string.passport_event_other, detail = titleCase(eventType))
     }
 
     /** "ownership_transfer" / "very-good" → "Ownership Transfer" / "Very Good". */
@@ -191,12 +202,11 @@ object PassportFormat {
         return if (parts.isEmpty()) "Graded garment" else parts.joinToString(" ")
     }
 
-    private fun string(obj: JsonObject, key: String): String? =
-        (obj[key] as? JsonPrimitive)
-            ?.takeIf { it.isString }
-            ?.content
-            ?.trim()
-            ?.takeIf { it.isNotEmpty() }
+    private fun string(obj: JsonObject, key: String): String? = (obj[key] as? JsonPrimitive)
+        ?.takeIf { it.isString }
+        ?.content
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
 
     /**
      * ISO timestamp to a readable date, falling back to the raw string.
@@ -214,9 +224,8 @@ object PassportFormat {
     }
 
     /** Sort key for chronological ordering; unparseable timestamps sink. */
-    fun epochMillis(iso: String): Long =
-        runCatching { OffsetDateTime.parse(iso).toInstant().toEpochMilli() }
-            .getOrDefault(Long.MAX_VALUE)
+    fun epochMillis(iso: String): Long = runCatching { OffsetDateTime.parse(iso).toInstant().toEpochMilli() }
+        .getOrDefault(Long.MAX_VALUE)
 
     /**
      * Chronological order, oldest first.
@@ -225,8 +234,7 @@ object PassportFormat {
      * a timeline that renders out of order tells a false story about what
      * happened to a garment. Sorting again costs nothing.
      */
-    fun ordered(events: List<PassportEvent>): List<PassportEvent> =
-        events.sortedBy { epochMillis(it.createdAt) }
+    fun ordered(events: List<PassportEvent>): List<PassportEvent> = events.sortedBy { epochMillis(it.createdAt) }
 
     /** The grade line on a `graded` hop, or null when it carries none. */
     fun gradeLine(event: PassportEvent): String? {

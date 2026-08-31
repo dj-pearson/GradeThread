@@ -32,6 +32,7 @@ import androidx.lifecycle.viewModelScope
 import com.gradethread.app.R
 import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.telemetry.Telemetry
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.a11y.A11yAnnouncer
 import com.gradethread.app.ui.a11y.rememberA11yAnnouncer
 import com.gradethread.app.ui.components.InfoCard
@@ -239,12 +240,18 @@ fun PassportContent(state: PassportViewModel.State, actions: PassportActions, mo
                 ) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            stringResource(R.string.passport_chain_strength, state.strength.label),
+                            stringResource(
+                                R.string.passport_chain_strength,
+                                stringResource(state.strength.label),
+                            ),
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.weight(1f),
                         )
                     }
-                    Text(state.strength.summary, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        state.strength.summary.text(),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
                     LinearProgressIndicator(
                         progress = { state.strength.score.toFloat() },
                         modifier = Modifier.fillMaxWidth(),
@@ -389,12 +396,12 @@ private fun EventCard(event: PassportEvent) {
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                PassportFormat.eventLabel(event.eventType),
+                PassportFormat.eventLabel(event.eventType).text(),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f),
             )
-            AssistChip(onClick = {}, label = { Text(confidence.label) })
+            AssistChip(onClick = {}, label = { Text(stringResource(confidence.label)) })
         }
         Text(
             PassportFormat.longDate(event.createdAt),
@@ -417,7 +424,7 @@ private fun EventCard(event: PassportEvent) {
         Text(
             // The basis, on every hop. A confidence badge without its reason is
             // a word someone has to take on faith.
-            confidence.explanation,
+            stringResource(confidence.explanation),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

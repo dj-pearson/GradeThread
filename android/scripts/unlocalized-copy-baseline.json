@@ -95,7 +95,6 @@
     "money/SalePnL.kt": 4,
     "money/SalesViewModel.kt": 1,
     "money/SourceRoiRollup.kt": 1,
-    "passport/PassportTypes.kt": 12,
     "plangate/PlanGatePresentation.kt": 1,
     "platform/locale/AppLocale.kt": 1,
     "platform/net/EdgeApiError.kt": 20,
