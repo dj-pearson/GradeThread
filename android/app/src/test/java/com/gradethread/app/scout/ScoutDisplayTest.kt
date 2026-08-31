@@ -1,5 +1,7 @@
 package com.gradethread.app.scout
 
+import com.gradethread.app.R
+
 import com.gradethread.app.platform.net.EdgeApiError
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -140,15 +142,34 @@ class ScoutDisplayTest {
 
     @Test
     fun `the summary distinguishes no results from nothing worth buying`() {
-        assertTrue(ScoutDisplay.summary(null, 0).contains("Search a brand"))
+        // US-2976: a resource and its numbers, so this asserts WHICH resource
+        // and WHAT numbers. The four cases are four different answers and the
+        // distinctness below is what says so.
+        assertEquals(R.string.scout_summary_idle, ScoutDisplay.summary(null, 0).res)
 
         val empty = ScoutScanResponse(scanned = 12, candidates = emptyList(), note = "Nothing here")
-        assertEquals("Nothing here", ScoutDisplay.summary(empty, 0))
+        // The SERVER's note wins when there is one; our own sentence is the
+        // fallback and is the only half that translates.
+        assertEquals("Nothing here", ScoutDisplay.summary(empty, 0).detail)
+        assertEquals(R.string.scout_summary_empty, ScoutDisplay.summary(empty, 0).res)
 
         // Candidates exist, the filter hid them all — and that IS the answer.
         val filtered = ScoutScanResponse(scanned = 8, candidates = listOf(candidate("a")))
-        assertTrue(ScoutDisplay.summary(filtered, 0).contains("None of them cleared"))
-        assertTrue(ScoutDisplay.summary(filtered, 1).contains("showing 1"))
+        assertEquals(
+            ScoutDisplay.Summary(R.string.scout_summary_none_cleared, listOf(8)),
+            ScoutDisplay.summary(filtered, 0),
+        )
+        assertEquals(
+            ScoutDisplay.Summary(R.string.scout_summary_showing, listOf(8, 1)),
+            ScoutDisplay.summary(filtered, 1),
+        )
+        val cases = listOf(
+            ScoutDisplay.summary(null, 0).res,
+            ScoutDisplay.summary(empty, 0).res,
+            ScoutDisplay.summary(filtered, 0).res,
+            ScoutDisplay.summary(filtered, 1).res,
+        )
+        assertEquals(cases.size, cases.toSet().size)
     }
 
     // ── Plan walls ───────────────────────────────────────────────────────────
@@ -163,7 +184,10 @@ class ScoutDisplayTest {
         assertTrue(error is EdgeApiError.PlanGated)
         val wall = ScoutError.from(error)
         assertEquals(ScoutError.PlanLocked("pro"), wall)
-        assertTrue(wall!!.message.contains("Pro"))
+        // The sentence is a resource; the PLAN NAME is the argument, and
+        // capitalising it is what this case was really asserting.
+        assertEquals(R.string.scout_plan_locked, wall!!.message)
+        assertEquals("Pro", wall.messageArg)
     }
 
     @Test
@@ -174,7 +198,10 @@ class ScoutDisplayTest {
         )
 
         assertEquals(ScoutError.QuotaReached, ScoutError.from(error))
-        assertTrue(ScoutError.from(error)!!.message.contains("monthly"))
+        assertEquals(R.string.scout_quota_reached, ScoutError.from(error)!!.message)
+        // A quota takes no plan name; a feature lock does. Same field, and only
+        // one of them fills it.
+        assertNull(ScoutError.from(error)!!.messageArg)
     }
 
     @Test

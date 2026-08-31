@@ -2317,4 +2317,16 @@
         <item quantity="other">You get %1$d grading credits per friend who signs up.</item>
     </plurals>
     <string name="referral_redeem_failed">Couldn\'t apply that code. Try again in a moment.</string>
+    <string name="scout_sort_margin">Margin</string>
+    <string name="scout_sort_grade">Shadow grade</string>
+    <string name="scout_sort_confidence">Confidence</string>
+    <string name="scout_plan_locked">ScoutAI is a %1$s feature. Upgrade your plan to start scouting deals.</string>
+    <string name="scout_quota_reached">You\'ve hit your monthly AI scan limit. It resets next cycle, or upgrade for a higher cap.</string>
+    <string name="scout_summary_idle">Search a brand or a keyword to scan live listings.</string>
+    <string name="scout_summary_empty">Nothing matched. Try a broader keyword.</string>
+    <string name="scout_summary_none_cleared">Scanned %1$d. None of them cleared the buy bar.</string>
+    <string name="scout_summary_showing">Scanned %1$d &#183; showing %2$d</string>
+    <string name="scout_scan_failed">Couldn\'t run that scan.</string>
+    <string name="prospect_retry_failed">That didn\'t work. Try again.</string>
+    <string name="prospect_photos_unreadable">Couldn\'t read those photos. Take them again.</string>
 </resources>

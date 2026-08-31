@@ -2186,4 +2186,16 @@
         <item quantity="other">Consigues %1$d créditos de evaluación por cada amigo que se registre.</item>
     </plurals>
     <string name="referral_redeem_failed">No se pudo aplicar ese código. Inténtalo en un momento.</string>
+    <string name="scout_sort_margin">Margen</string>
+    <string name="scout_sort_grade">Nota estimada</string>
+    <string name="scout_sort_confidence">Confianza</string>
+    <string name="scout_plan_locked">ScoutAI es una función de %1$s. Mejora tu plan para empezar a buscar chollos.</string>
+    <string name="scout_quota_reached">Has alcanzado tu límite mensual de análisis con IA. Se renueva el próximo ciclo, o mejora tu plan para tener más.</string>
+    <string name="scout_summary_idle">Busca una marca o una palabra clave para analizar anuncios.</string>
+    <string name="scout_summary_empty">Nada coincide. Prueba con algo más general.</string>
+    <string name="scout_summary_none_cleared">%1$d analizados. Ninguno supera el listón de compra.</string>
+    <string name="scout_summary_showing">%1$d analizados &#183; %2$d mostrados</string>
+    <string name="scout_scan_failed">No se pudo ejecutar ese análisis.</string>
+    <string name="prospect_retry_failed">No funcionó. Inténtalo de nuevo.</string>
+    <string name="prospect_photos_unreadable">No se pudieron leer esas fotos. Hazlas otra vez.</string>
 </resources>

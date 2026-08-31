@@ -186,6 +186,38 @@ def scan(path, spec):
     return failures
 
 
+#: A `'` that is not escaped, inside a <string> value.
+BARE_APOSTROPHE = re.compile(r"<string name=\"[a-z0-9_]+\">([^<]*)</string>")
+
+
+def check_apostrophes():
+    """aapt2 rejects an unescaped `'` in a string value, and says so uselessly.
+
+    US-2976: the build fails with "Can not extract resource from
+    com.android.aaptcompiler.ParsedResource@3f054c72" and a line number from the
+    MERGED values.xml, which is thousands of lines from the file anyone edits.
+    It cost two debugging rounds on two different days before it was recognised
+    on sight. The repo convention is `\\'`, and this says so by name.
+    """
+    failures = []
+    for tag in sorted(translated_tags()):
+        directory = "values" if tag == DEFAULT_TAG else "values-" + tag.replace("-", "-r")
+        path = os.path.join(RESOURCES, directory, "strings.xml")
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            for line_no, line in enumerate(fh, start=1):
+                match = BARE_APOSTROPHE.search(line)
+                if not match:
+                    continue
+                if re.search(r"(?<!\\)'", match.group(1)):
+                    failures.append(
+                        f"{directory}/strings.xml:{line_no}: unescaped apostrophe "
+                        f"-- aapt2 rejects this. Write \\\\' instead."
+                    )
+    return failures
+
+
 def main():
     spec, duplicates, ragged = load_spec()
     if ragged:
@@ -206,7 +238,7 @@ def main():
             print(f"  {name}", file=sys.stderr)
         return 1
 
-    drift = check_language_list() + check_translations(spec)
+    drift = check_language_list() + check_translations(spec) + check_apostrophes()
     if drift:
         print("check-string-formats: translations have drifted\n", file=sys.stderr)
         for message in drift:

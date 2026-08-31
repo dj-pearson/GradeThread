@@ -155,7 +155,9 @@ fun ScoutContent(
                         R.string.prospect_failed
                     },
                 ),
-                it,
+                // US-2976: the server's sentence when there is one, ours when
+                // there is not, with the plan name substituted either way.
+                it.detail ?: stringResource(it.res, *it.args.toTypedArray()),
                 tone = if (state.planWall != null) InfoTone.Warning else InfoTone.Error,
             )
         }
@@ -169,7 +171,7 @@ fun ScoutContent(
                 FilterChip(
                     selected = option == state.sort,
                     onClick = { actions.setSort(option) },
-                    label = { Text(option.label) },
+                    label = { Text(stringResource(option.label)) },
                 )
             }
             FilterChip(
@@ -179,7 +181,17 @@ fun ScoutContent(
             )
         }
 
-        Text(state.summary, style = MaterialTheme.typography.bodySmall)
+        // The server's own note for an empty result when there is one, ours
+        // otherwise - and "Scanned 40, showing 12" is a format string, because
+        // that order is English's.
+        Text(
+            state.summary.detail
+                ?: stringResource(
+                    state.summary.res,
+                    *state.summary.args.toTypedArray(),
+                ),
+            style = MaterialTheme.typography.bodySmall,
+        )
 
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f),

@@ -3,8 +3,9 @@ package com.gradethread.app.scout
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.inventory.CategorySuggestion
-import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.telemetry.Telemetry
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,9 +17,7 @@ import javax.inject.Inject
  * US-1374: ScoutAI.
  */
 @HiltViewModel
-class ScoutViewModel @Inject constructor(
-    private val service: ScoutScanning,
-) : ViewModel() {
+class ScoutViewModel @Inject constructor(private val service: ScoutScanning) : ViewModel() {
 
     data class State(
         val keyword: String = "",
@@ -29,7 +28,7 @@ class ScoutViewModel @Inject constructor(
         val response: ScoutScanResponse? = null,
         /** The category the last scan actually used; null means the fallback. */
         val resolvedCategory: CategorySuggestion? = null,
-        val errorMessage: String? = null,
+        val errorMessage: UiMessage? = null,
         /**
          * Set when the failure was a plan wall. The shell is already showing
          * the upgrade dialog, so this screen hides its retry.
@@ -44,7 +43,8 @@ class ScoutViewModel @Inject constructor(
         val categoryLabel: String
             get() = resolvedCategory?.categoryName ?: ScoutDisplay.APPAREL_ROOT_NAME
 
-        val summary: String get() = ScoutDisplay.summary(response, candidates.size)
+        val summary: ScoutDisplay.Summary
+            get() = ScoutDisplay.summary(response, candidates.size)
 
         /** A retry can only help when the wall isn't the plan. */
         val canRetry: Boolean get() = errorMessage != null && planWall == null
@@ -117,9 +117,7 @@ class ScoutViewModel @Inject constructor(
                         // un-find the deals.
                         resolvedCategory = suggestion,
                         planWall = wall,
-                        errorMessage = wall?.message
-                            ?: (error as? EdgeApiError)?.userMessage()
-                            ?: "Couldn't run that scan.",
+                        errorMessage = errorMessage(wall, error, R.string.scout_scan_failed),
                     )
                 },
             )

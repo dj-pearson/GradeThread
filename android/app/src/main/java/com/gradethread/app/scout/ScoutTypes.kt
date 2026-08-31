@@ -1,5 +1,9 @@
 package com.gradethread.app.scout
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+
 import com.gradethread.app.money.Money
 import com.gradethread.app.platform.net.EdgeApiError
 import kotlinx.serialization.Serializable
@@ -17,12 +21,7 @@ import kotlinx.serialization.Serializable
  * decoding.
  */
 @Serializable
-data class ScoutScanRequest(
-    val categoryId: String,
-    val q: String? = null,
-    val brand: String? = null,
-    val limit: Int,
-)
+data class ScoutScanRequest(val categoryId: String, val q: String? = null, val brand: String? = null, val limit: Int)
 
 @Serializable
 data class ScoutScanResponse(
@@ -74,14 +73,13 @@ data class ScoutCandidate(
      */
     val gradeLabel: String get() = shadowGrade?.let { "%.1f".format(it) } ?: "—"
 
-    private fun money(cents: Int?): String =
-        cents?.let { Money.format(it / 100.0) } ?: "—"
+    private fun money(cents: Int?): String = cents?.let { Money.format(it / 100.0) } ?: "—"
 }
 
-enum class ScoutSort(val label: String) {
-    MARGIN("Margin"),
-    GRADE("Shadow grade"),
-    CONFIDENCE("Confidence"),
+enum class ScoutSort(@StringRes val label: Int) {
+    MARGIN(R.string.scout_sort_margin),
+    GRADE(R.string.scout_sort_grade),
+    CONFIDENCE(R.string.scout_sort_confidence),
 }
 
 /**
@@ -96,15 +94,26 @@ sealed class ScoutError {
     data class PlanLocked(val requiredPlan: String?) : ScoutError()
     object QuotaReached : ScoutError()
 
-    val message: String
+    /**
+     * US-2976: the resource and the PLAN NAME, not the sentence.
+     *
+     * The plan name is a product name and stays as the server sent it (Pro,
+     * Business); the sentence around it is ours and translates. A UiMessage
+     * would be wrong here - there is no server sentence to prefer, only a
+     * server-supplied noun to substitute.
+     */
+    @get:StringRes
+    val message: Int
         get() = when (this) {
-            is PlanLocked -> {
-                val tier = requiredPlan?.replaceFirstChar { it.uppercaseChar() } ?: "Pro"
-                "ScoutAI is a $tier feature. Upgrade your plan to start scouting deals."
-            }
-            QuotaReached ->
-                "You've hit your monthly AI scan limit. It resets next cycle, or upgrade " +
-                    "for a higher cap."
+            is PlanLocked -> R.string.scout_plan_locked
+            QuotaReached -> R.string.scout_quota_reached
+        }
+
+    /** The plan name to substitute, or null when the message takes no argument. */
+    val messageArg: String?
+        get() = when (this) {
+            is PlanLocked -> requiredPlan?.replaceFirstChar { it.uppercaseChar() } ?: "Pro"
+            QuotaReached -> null
         }
 
     companion object {
@@ -114,6 +123,22 @@ sealed class ScoutError {
             return if (gate.isFeatureLock) PlanLocked(gate.requiredPlan) else QuotaReached
         }
     }
+}
+
+/**
+ * The error line for a Scout or Prospect failure, in one place.
+ *
+ * US-2976: three sources with a precedence, and the precedence is the point.
+ * A PLAN WALL wins - it is the specific answer and it is ours to translate.
+ * Otherwise the SERVER's sentence, which we did not write and cannot localize
+ * but which usually says what actually happened. Only if both are absent does
+ * our own fallback run, and that one translates.
+ */
+fun errorMessage(wall: ScoutError?, error: Throwable?, @StringRes fallback: Int): UiMessage {
+    if (wall != null) {
+        return UiMessage(wall.message, args = listOfNotNull(wall.messageArg))
+    }
+    return UiMessage(fallback, (error as? EdgeApiError)?.userMessage())
 }
 
 object ScoutDisplay {
@@ -132,11 +157,7 @@ object ScoutDisplay {
      * has not proven it is a bad deal, but putting it above one with a measured
      * margin would be presenting an absence as a result.
      */
-    fun display(
-        candidates: List<ScoutCandidate>,
-        sort: ScoutSort,
-        actionableOnly: Boolean,
-    ): List<ScoutCandidate> {
+    fun display(candidates: List<ScoutCandidate>, sort: ScoutSort, actionableOnly: Boolean): List<ScoutCandidate> {
         val list = if (actionableOnly) candidates.filter { it.actionable } else candidates
         val comparator = when (sort) {
             ScoutSort.MARGIN -> compareByDescending<ScoutCandidate> {
@@ -161,15 +182,25 @@ object ScoutDisplay {
     fun canScan(keyword: String, brand: String, busy: Boolean): Boolean =
         !busy && (keyword.isNotBlank() || brand.isNotBlank())
 
-    /** The line under the results, so an empty scan still says something. */
-    fun summary(response: ScoutScanResponse?, shown: Int): String = when {
-        response == null -> "Search a brand or a keyword to scan live listings."
+    /**
+     * The line under the results, so an empty scan still says something.
+     *
+     * US-2976: the resource and its NUMBERS.
+     *
+     * "Scanned 40 - showing 12" fixes an order English chose. `note` is the
+     * SERVER's sentence for an empty result and is preferred when there is one,
+     * so this returns a UiMessage-shaped pair rather than a string.
+     */
+    fun summary(response: ScoutScanResponse?, shown: Int): Summary = when {
+        response == null -> Summary(R.string.scout_summary_idle)
         response.candidates.isEmpty() ->
-            response.note ?: "Nothing matched. Try a broader keyword."
+            Summary(R.string.scout_summary_empty, detail = response.note)
         shown == 0 ->
-            // The filter is why the list is empty, and that IS the answer:
-            // nothing in this scan was worth buying.
-            "Scanned ${response.scanned}. None of them cleared the buy bar."
-        else -> "Scanned ${response.scanned} · showing $shown"
+            Summary(R.string.scout_summary_none_cleared, listOf(response.scanned))
+        else ->
+            Summary(R.string.scout_summary_showing, listOf(response.scanned, shown))
     }
+
+    /** A resource, its integer arguments, and the server's own sentence if any. */
+    data class Summary(@StringRes val res: Int, val args: List<Int> = emptyList(), val detail: String? = null)
 }

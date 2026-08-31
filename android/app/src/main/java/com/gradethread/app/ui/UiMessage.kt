@@ -17,4 +17,16 @@ import androidx.compose.runtime.Immutable
  * a ViewModel returning English reaches a Spanish seller untranslated.
  */
 @Immutable
-data class UiMessage(@StringRes val res: Int, val detail: String? = null)
+data class UiMessage(
+    @StringRes val res: Int,
+    val detail: String? = null,
+    /**
+     * Format arguments for [res], when it takes any.
+     *
+     * US-2976: added for the Scout plan wall, whose sentence is ours and whose
+     * PLAN NAME comes from the server - "ScoutAI is a Pro feature". A server
+     * noun to substitute is not the same thing as a server sentence to prefer,
+     * and [detail] is only the latter.
+     */
+    val args: List<Any> = emptyList(),
+)

@@ -14,6 +14,7 @@ import com.gradethread.app.scout.ScoutError
 import com.gradethread.app.scout.ScoutScanResponse
 import com.gradethread.app.scout.ScoutSort
 import com.gradethread.app.scout.ScoutViewModel
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -130,7 +131,13 @@ class ScoutScreenshotTest {
     @Test
     fun retryableError_dark() = capture("screen-scout-error-dark", dark = true) {
         ScoutContent(
-            scanned.copy(response = null, errorMessage = "Could not reach eBay."),
+            scanned.copy(
+                response = null,
+                errorMessage = UiMessage(
+                    R.string.scout_scan_failed,
+                    "Could not reach eBay.",
+                ),
+            ),
             ScoutActions(),
             tripQuickLog = { TripLogStandIn() },
         )
@@ -146,7 +153,12 @@ class ScoutScreenshotTest {
         ScoutContent(
             scanned.copy(
                 response = null,
-                errorMessage = "Scout is on Pro and above.",
+                // A plan wall: OUR sentence with the plan name in it, and
+                // no server detail to prefer.
+                errorMessage = UiMessage(
+                    R.string.scout_plan_locked,
+                    args = listOf("Pro"),
+                ),
                 planWall = ScoutError.PlanLocked(requiredPlan = "pro"),
             ),
             ScoutActions(),

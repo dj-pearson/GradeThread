@@ -15,6 +15,7 @@ import com.gradethread.app.scout.ProspectSellThrough
 import com.gradethread.app.scout.ProspectStats
 import com.gradethread.app.scout.ProspectViewModel
 import com.gradethread.app.scout.ScoutError
+import com.gradethread.app.R
 import com.gradethread.app.ui.theme.GradeThreadTheme
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -144,7 +145,10 @@ class ProspectScreenshotTest {
         ProspectContent(
             ProspectViewModel.State(
                 photos = photos,
-                errorMessage = "Could not reach the server.",
+                errorMessage = UiMessage(
+                    R.string.prospect_retry_failed,
+                    "Could not reach the server.",
+                ),
             ),
             ProspectActions(),
         )
@@ -159,7 +163,12 @@ class ProspectScreenshotTest {
         ProspectContent(
             ProspectViewModel.State(
                 photos = photos,
-                errorMessage = "Prospect is on Pro and above.",
+                // A plan wall: OUR sentence with the plan name in it, and
+                // no server detail to prefer.
+                errorMessage = UiMessage(
+                    R.string.scout_plan_locked,
+                    args = listOf("Pro"),
+                ),
                 planWall = ScoutError.PlanLocked(requiredPlan = "pro"),
             ),
             ProspectActions(),

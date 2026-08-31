@@ -3,8 +3,9 @@ package com.gradethread.app.scout
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.capture.CurrencyAmount
-import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.telemetry.Telemetry
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,9 +24,7 @@ import javax.inject.Inject
  * costs them cash.
  */
 @HiltViewModel
-class ProspectViewModel @Inject constructor(
-    private val service: ScoutScanning,
-) : ViewModel() {
+class ProspectViewModel @Inject constructor(private val service: ScoutScanning) : ViewModel() {
 
     data class State(
         val photos: List<File> = emptyList(),
@@ -34,7 +33,7 @@ class ProspectViewModel @Inject constructor(
         val response: ProspectResponse? = null,
         val buying: Boolean = false,
         val boughtItemId: String? = null,
-        val errorMessage: String? = null,
+        val errorMessage: UiMessage? = null,
         val planWall: ScoutError? = null,
     ) {
         val costCents: Int? get() = CurrencyAmount.parseCents(costText)?.toInt()
@@ -105,7 +104,7 @@ class ProspectViewModel @Inject constructor(
             if (bytes.isEmpty()) {
                 _state.value = _state.value.copy(
                     running = false,
-                    errorMessage = "Couldn't read those photos. Take them again.",
+                    errorMessage = UiMessage(R.string.prospect_photos_unreadable),
                 )
                 return@launch
             }
@@ -174,9 +173,7 @@ class ProspectViewModel @Inject constructor(
             running = false,
             buying = false,
             planWall = wall,
-            errorMessage = wall?.message
-                ?: (error as? EdgeApiError)?.userMessage()
-                ?: "That didn't work. Try again.",
+            errorMessage = errorMessage(wall, error, R.string.prospect_retry_failed),
         )
     }
 }
