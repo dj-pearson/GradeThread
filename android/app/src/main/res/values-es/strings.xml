@@ -2138,4 +2138,7 @@
     <string name="dispute_reason_wrong_category">Tipo de prenda o categoría equivocados</string>
     <string name="dispute_reason_factor_score">La puntuación de un factor parece incorrecta</string>
     <string name="dispute_reason_other">Otro (explícalo)</string>
+    <string name="grade_confidence_high">Alta</string>
+    <string name="grade_confidence_medium">Media</string>
+    <string name="grade_confidence_low">Baja</string>
 </resources>

@@ -340,7 +340,7 @@ private fun ConfidenceCard(report: GradeReportDto) {
     Text(
         stringResource(
             R.string.gradereport_confidence,
-            GradeScale.confidenceLabel(report.confidenceScore),
+            stringResource(GradeScale.confidenceLabel(report.confidenceScore)),
             percent,
         ),
         style = MaterialTheme.typography.bodySmall,

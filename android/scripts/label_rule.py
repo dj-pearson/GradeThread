@@ -155,6 +155,8 @@ def labels_in(src):
         if match.group(2).strip():
             found.add(match.group(2))
 
+    found |= display_bodies(src)
+
     positions = display_positions(src)
     if not positions:
         return found
@@ -197,6 +199,18 @@ def self_test():
     if "Needs review" not in labels_in(named):
         failures.append("a named `title =` argument was not found")
 
+    # The third blind spot: a `when` inside a display-named function.
+    when_body = (
+        'fun eventLabel(type: String): String = when (type) {\n'
+        '    "graded" -> "Condition graded"\n'
+        "}\n"
+    )
+    got_when = labels_in(when_body)
+    if "Condition graded" not in got_when:
+        failures.append("a display-named function body was not read")
+    if "graded" in got_when:
+        failures.append("the WIRE value left of `->` was read as a label")
+
     no_role = (
         "enum class Wire(val code: String, val other: String) {\n"
         '    A("a", "Alpha"),\n'
@@ -216,3 +230,66 @@ def self_test():
         failures.append("a bracket inside a default value shifted the positions")
 
     return failures
+
+
+#: A declaration whose NAME says a person reads what it returns.
+DISPLAY_DECL = re.compile(
+    r"\b(?:fun|val)\s+(\w*(?:[lL]abel|[tT]itle|[sS]ummary|[bB]lurb|[cC]aption|"
+    r"[hH]eading|displayName|[sS]ubtitle))\b[^\n=]*?:\s*String\??\s*(?==|\{)"
+)
+
+
+def display_bodies(src):
+    """Every string literal returned by a display-named declaration.
+
+    THE THIRD BLIND SPOT (US-2976). The positional rule reads constructor
+    arguments; a `when` inside a function has no argument position, so
+
+        fun eventLabel(type: String): String = when (type) {
+            "graded" -> "Condition graded"
+
+    is invisible to it, and "Condition graded" is too short and too Title Case
+    for the sentence rule. Measured 2026-08-30: 100 declarations in this app
+    match DISPLAY_DECL.
+
+    The body is taken from the `{` after the signature to its matching brace,
+    or to the end of the line for a single-expression body. Bracket-counted for
+    the same reason [balanced] is: a `)` or `}` inside a string would otherwise
+    end the body early and report a prefix of it.
+    """
+    found = set()
+    for match in DISPLAY_DECL.finditer(src):
+        rest = src[match.end():]
+        brace = rest.find("{")
+        newline = rest.find("\n")
+        if brace != -1 and (newline == -1 or brace < newline or rest[:brace].strip() in ("=", "= when", "")):
+            body, _ = balanced(src, match.end() + brace)
+        else:
+            body = rest[: newline if newline != -1 else len(rest)]
+        for value in _returned_literals(body):
+            if value.strip():
+                found.add(value)
+    return found
+
+
+#: Any string literal, escapes included.
+ANY_LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
+
+
+def _returned_literals(body):
+    """The literals a display-named body RETURNS, not the ones it matches on.
+
+    A `when` puts wire values on the left of `->` and copy on the right:
+
+        "graded" -> "Condition graded"
+
+    Taking every literal would report `graded` as a label, which is a wire
+    value, and a baseline full of wire values is the place things go to be
+    forgotten (the same mistake the positional rule made on ItemDraft.kt).
+    """
+    out = []
+    for line in body.split("\n"):
+        arrow = line.find("->")
+        text = line[arrow + 2 :] if arrow != -1 else line
+        out += [m.group(1) for m in ANY_LITERAL.finditer(text)]
+    return out

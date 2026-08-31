@@ -2269,4 +2269,7 @@
     <string name="dispute_reason_wrong_category">Wrong garment type or category</string>
     <string name="dispute_reason_factor_score">A factor score looks wrong</string>
     <string name="dispute_reason_other">Other (please explain)</string>
+    <string name="grade_confidence_high">High</string>
+    <string name="grade_confidence_medium">Medium</string>
+    <string name="grade_confidence_low">Low</string>
 </resources>

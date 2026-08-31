@@ -188,10 +188,10 @@ class CertIntegrityTest {
 
     @Test
     fun `the low confidence band is exactly the review band`() {
-        assertEquals("Low", GradeScale.confidenceLabel(0.74))
-        assertEquals("Medium", GradeScale.confidenceLabel(0.75))
-        assertEquals("Medium", GradeScale.confidenceLabel(0.85))
-        assertEquals("High", GradeScale.confidenceLabel(0.86))
+        assertEquals(R.string.grade_confidence_low, GradeScale.confidenceLabel(0.74))
+        assertEquals(R.string.grade_confidence_medium, GradeScale.confidenceLabel(0.75))
+        assertEquals(R.string.grade_confidence_medium, GradeScale.confidenceLabel(0.85))
+        assertEquals(R.string.grade_confidence_high, GradeScale.confidenceLabel(0.86))
     }
 
     // ── factor weights ───────────────────────────────────────────────────

@@ -70,11 +70,19 @@ object GradeScale {
     fun isPendingReview(certificateUrl: String?, confidence: Double): Boolean =
         certificateUrl.isNullOrBlank() && requiresReview(confidence)
 
-    /** Qualitative confidence bucket; "Low" is the review band. */
-    fun confidenceLabel(confidence: Double): String = when {
-        confidence > 0.85 -> "High"
-        confidence >= REVIEW_CONFIDENCE_THRESHOLD -> "Medium"
-        else -> "Low"
+    /**
+     * Qualitative confidence bucket; "Low" is the review band.
+     *
+     * US-2976: found by the display-declaration rule, not by either of the
+     * first two. Three Title Case single words inside a `when` - too short for
+     * the sentence detector, and a function body has no constructor position
+     * for the positional one.
+     */
+    @StringRes
+    fun confidenceLabel(confidence: Double): Int = when {
+        confidence > 0.85 -> R.string.grade_confidence_high
+        confidence >= REVIEW_CONFIDENCE_THRESHOLD -> R.string.grade_confidence_medium
+        else -> R.string.grade_confidence_low
     }
 }
 
