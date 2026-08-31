@@ -73,7 +73,6 @@
     "marketplaces/pricing/BulkPricingService.kt": 1,
     "marketplaces/promotions/PromotionTypes.kt": 1,
     "marketplaces/promotions/PromotionViewModel.kt": 4,
-    "marketplaces/promotions/Promotions.kt": 9,
     "marketplaces/publish/EbayCondition.kt": 4,
     "marketplaces/publish/EbayPublishService.kt": 2,
     "marketplaces/publish/ListingDraftService.kt": 1,

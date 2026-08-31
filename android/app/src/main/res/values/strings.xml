@@ -2804,4 +2804,13 @@
         <item quantity="one">Sales up %2$s over the last 30 days &#183; %1$d seller</item>
         <item quantity="other">Sales up %2$s over the last 30 days &#183; %1$d sellers</item>
     </plurals>
+    <string name="promotion_summary_opted_out">Not promoted &#8212; this listing is opted out.</string>
+    <string name="promotion_summary_at_rate">Promoted at %1$s%% ad rate.</string>
+    <string name="promotion_summary_default_rate">Promoted at your default ad rate.</string>
+    <string name="promotion_summary_off_for_listing">Not promoted &#8212; turned off for this listing.</string>
+    <string name="promotion_summary_not_yet">Not promoted yet.</string>
+    <string name="promotion_summary_never">Not promoted. Promoting pays a percentage only when the ad makes the sale.</string>
+    <string name="promotion_sale_at_pct">On sale &#8212; %1$s%% off, with the old price struck through.</string>
+    <string name="promotion_sale_on">On sale.</string>
+    <string name="promotion_sale_none">No sale running. A sale shows a struck-through price and tells watchers.</string>
 </resources>

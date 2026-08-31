@@ -1,10 +1,13 @@
 package com.gradethread.app.marketplaces.promotions
 
+import com.gradethread.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 /**
  * US-1357: promotion + markdown rules.
@@ -83,7 +86,10 @@ class PromotionsTest {
             effectivePromote = false,
             promoteByDefault = false,
         )
-        assertTrue(Promotions.promotionSummary(inheriting).startsWith("Not promoted"))
+        assertEquals(
+            R.string.promotion_summary_never,
+            Promotions.promotionSummary(inheriting).res,
+        )
     }
 
     @Test
@@ -94,27 +100,65 @@ class PromotionsTest {
             promoteByDefault = true,
         )
         assertEquals(
-            "Not promoted — turned off for this listing.",
-            Promotions.promotionSummary(off),
+            R.string.promotion_summary_off_for_listing,
+            Promotions.promotionSummary(off).res,
         )
     }
 
     @Test
     fun `an active promotion names its rate`() {
         val on = PromotionState(effectivePromote = true, ratePct = 7.5)
-        assertEquals("Promoted at 7.5% ad rate.", Promotions.promotionSummary(on))
+        val promoted = Promotions.promotionSummary(on)
+        assertEquals(R.string.promotion_summary_at_rate, promoted.res)
+        // The rate is pre-formatted by formatPct, not handed over as a Double:
+        // "7.5", never "7,5" and never "7.50".
+        assertEquals("7.5", promoted.args[0])
     }
 
     @Test
     fun `opting out outranks everything else`() {
         val out = PromotionState(optOut = true, effectivePromote = true, ratePct = 9.0)
-        assertEquals("Not promoted — this listing is opted out.", Promotions.promotionSummary(out))
+        assertEquals(R.string.promotion_summary_opted_out, Promotions.promotionSummary(out).res)
     }
 
     @Test
     fun `a running sale names its discount`() {
         val onSale = PromotionState(saleActive = true, salePct = 20.0)
-        assertTrue(Promotions.saleSummary(onSale).contains("20% off"))
-        assertTrue(Promotions.saleSummary(PromotionState()).startsWith("No sale running"))
+        val sale = Promotions.saleSummary(onSale)
+        assertEquals(R.string.promotion_sale_at_pct, sale.res)
+        assertEquals("20", sale.args[0])
+        assertEquals(R.string.promotion_sale_none, Promotions.saleSummary(PromotionState()).res)
+    }
+
+    /**
+     * US-2976: the honesty guard, now that the sentences live in XML.
+     *
+     * Asserting a resource id proves which branch ran and nothing about what
+     * the seller reads - a translator could have written "Promocionado" into
+     * promotion_summary_never and every test above would stay green while the
+     * app told sellers they were paying for placement they never bought. So
+     * read the XML, in both locales.
+     */
+    @Test
+    fun `every not-promoted sentence reads as not promoted, in both locales`() {
+        val notPromoted = listOf(
+            "promotion_summary_opted_out",
+            "promotion_summary_off_for_listing",
+            "promotion_summary_not_yet",
+            "promotion_summary_never",
+        )
+        // The test working directory is app/, not android/.
+        for ((dir, opener) in listOf("values" to "Not promoted", "values-es" to "Sin promocionar")) {
+            val xml = File("src/main/res/$dir/strings.xml").readText()
+            for (name in notPromoted) {
+                val line = xml.lines().firstOrNull { it.contains("\"$name\"") }
+                assertNotNull("$dir is missing $name", line)
+                val body = line!!.substringAfter(">").substringBefore("</string>")
+                assertTrue(
+                    "$dir/$name does not read as not promoted: $body",
+                    body.startsWith(opener),
+                )
+            }
+        }
     }
 }

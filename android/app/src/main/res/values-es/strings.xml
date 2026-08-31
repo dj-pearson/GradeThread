@@ -2670,4 +2670,13 @@
         <item quantity="one">Ventas al alza un %2$s en los &#250;ltimos 30 d&#237;as &#183; %1$d vendedor</item>
         <item quantity="other">Ventas al alza un %2$s en los &#250;ltimos 30 d&#237;as &#183; %1$d vendedores</item>
     </plurals>
+    <string name="promotion_summary_opted_out">Sin promocionar &#8212; este anuncio est&#225; excluido.</string>
+    <string name="promotion_summary_at_rate">Promocionado con una tarifa de anuncio del %1$s%%.</string>
+    <string name="promotion_summary_default_rate">Promocionado con tu tarifa de anuncio predeterminada.</string>
+    <string name="promotion_summary_off_for_listing">Sin promocionar &#8212; desactivado para este anuncio.</string>
+    <string name="promotion_summary_not_yet">Sin promocionar todav&#237;a.</string>
+    <string name="promotion_summary_never">Sin promocionar. Promocionar cobra un porcentaje solo cuando el anuncio consigue la venta.</string>
+    <string name="promotion_sale_at_pct">En oferta &#8212; %1$s%% de descuento, con el precio anterior tachado.</string>
+    <string name="promotion_sale_on">En oferta.</string>
+    <string name="promotion_sale_none">Sin oferta activa. Una oferta muestra el precio tachado y avisa a los seguidores.</string>
 </resources>

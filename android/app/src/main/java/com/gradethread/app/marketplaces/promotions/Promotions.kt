@@ -1,5 +1,7 @@
 package com.gradethread.app.marketplaces.promotions
 
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import java.util.Locale
 
 /**
@@ -23,12 +25,11 @@ object Promotions {
     fun clampAdRate(pct: Double): Double =
         if (!pct.isFinite()) MIN_AD_RATE_PCT else pct.coerceIn(MIN_AD_RATE_PCT, MAX_AD_RATE_PCT)
 
-    fun clampMarkdown(pct: Double): Double =
-        if (!pct.isFinite()) {
-            MIN_MARKDOWN_PCT
-        } else {
-            pct.coerceIn(MIN_MARKDOWN_PCT, MAX_MARKDOWN_PCT)
-        }
+    fun clampMarkdown(pct: Double): Double = if (!pct.isFinite()) {
+        MIN_MARKDOWN_PCT
+    } else {
+        pct.coerceIn(MIN_MARKDOWN_PCT, MAX_MARKDOWN_PCT)
+    }
 
     /**
      * Parse a typed rate: "8", "8.5", "8,5", "8%".
@@ -66,23 +67,32 @@ object Promotions {
      * default setting is NOT "promoted", and saying so would have the seller
      * believe they were paying for placement they never bought.
      */
-    fun promotionSummary(state: PromotionState): String = when {
-        state.optOut -> "Not promoted — this listing is opted out."
-        state.effectivePromote && state.ratePct != null ->
-            "Promoted at ${formatPct(state.ratePct)}% ad rate."
+    fun promotionSummary(state: PromotionState): UiMessage = when {
+        state.optOut -> UiMessage(R.string.promotion_summary_opted_out)
+        state.effectivePromote && state.ratePct != null -> UiMessage(
+            R.string.promotion_summary_at_rate,
+            // US-2976: the rate goes in as the FORMATTED string, not as a
+            // Double. formatPct already decided that 8.0 prints as "8" and 7.5
+            // as "7.5"; handing the raw number to the resource would let the
+            // locale's own number format re-decide that, and eBay bids carry
+            // one decimal in every language.
+            args = listOf(formatPct(state.ratePct)),
+        )
 
-        state.effectivePromote -> "Promoted at your default ad rate."
-        state.promoteOverride == false -> "Not promoted — turned off for this listing."
-        state.promoteByDefault -> "Not promoted yet."
-        else -> "Not promoted. Promoting pays a percentage only when the ad makes the sale."
+        state.effectivePromote -> UiMessage(R.string.promotion_summary_default_rate)
+        state.promoteOverride == false -> UiMessage(R.string.promotion_summary_off_for_listing)
+        state.promoteByDefault -> UiMessage(R.string.promotion_summary_not_yet)
+        else -> UiMessage(R.string.promotion_summary_never)
     }
 
     /** What the panel says about a markdown sale. */
-    fun saleSummary(state: PromotionState): String = when {
-        state.saleActive && state.salePct != null ->
-            "On sale — ${formatPct(state.salePct)}% off, with the old price struck through."
+    fun saleSummary(state: PromotionState): UiMessage = when {
+        state.saleActive && state.salePct != null -> UiMessage(
+            R.string.promotion_sale_at_pct,
+            args = listOf(formatPct(state.salePct)),
+        )
 
-        state.saleActive -> "On sale."
-        else -> "No sale running. A sale shows a struck-through price and tells watchers."
+        state.saleActive -> UiMessage(R.string.promotion_sale_on)
+        else -> UiMessage(R.string.promotion_sale_none)
     }
 }

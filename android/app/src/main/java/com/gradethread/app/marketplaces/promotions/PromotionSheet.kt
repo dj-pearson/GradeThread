@@ -20,6 +20,7 @@ import com.gradethread.app.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.theme.BrandPrimaryButton
@@ -58,7 +59,9 @@ fun PromotionSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            state.errorMessage?.let { InfoCard(stringResource(R.string.promotion_that_didn_t_work), it, tone = InfoTone.Error) }
+            state.errorMessage?.let {
+                InfoCard(stringResource(R.string.promotion_that_didn_t_work), it, tone = InfoTone.Error)
+            }
             state.banner?.let { InfoCard(stringResource(R.string.promotion_done), it, tone = InfoTone.Success) }
 
             when {
@@ -80,24 +83,22 @@ fun PromotionSheet(
                 }
             }
 
-            BrandSecondaryButton(text = stringResource(R.string.promotion_close), modifier = Modifier.fillMaxWidth()) { onDismiss() }
+            BrandSecondaryButton(text = stringResource(R.string.promotion_close), modifier = Modifier.fillMaxWidth()) {
+                onDismiss()
+            }
         }
     }
 }
 
 @Composable
-private fun PromotionPanel(
-    promo: PromotionState,
-    state: PromotionViewModel.State,
-    viewModel: PromotionViewModel,
-) {
+private fun PromotionPanel(promo: PromotionState, state: PromotionViewModel.State, viewModel: PromotionViewModel) {
     Column(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.promotion_promoted_listing), style = MaterialTheme.typography.bodyLarge)
         Text(
-            Promotions.promotionSummary(promo),
+            Promotions.promotionSummary(promo).text(),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -153,18 +154,14 @@ private fun PromotionPanel(
 }
 
 @Composable
-private fun SalePanel(
-    promo: PromotionState,
-    state: PromotionViewModel.State,
-    viewModel: PromotionViewModel,
-) {
+private fun SalePanel(promo: PromotionState, state: PromotionViewModel.State, viewModel: PromotionViewModel) {
     Column(
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
     ) {
         Text(stringResource(R.string.promotion_sale), style = MaterialTheme.typography.bodyLarge)
         Text(
-            Promotions.saleSummary(promo),
+            Promotions.saleSummary(promo).text(),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
