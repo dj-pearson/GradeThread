@@ -35,7 +35,6 @@
     "billing/SubscriptionService.kt": 2,
     "capture/BarcodeAnalyzer.kt": 3,
     "capture/CapturePublisher.kt": 1,
-    "capture/DetailsIntakeState.kt": 16,
     "capture/FlipdeskPhotoType.kt": 9,
     "capture/PhotoProfile.kt": 53,
     "capture/PhotoSlotType.kt": 39,

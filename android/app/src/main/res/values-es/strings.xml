@@ -2057,4 +2057,20 @@
         <item quantity="one">%1$d certificado hasta ahora.</item>
         <item quantity="other">%1$d certificados hasta ahora.</item>
     </plurals>
+    <string name="category_clothing">Ropa</string>
+    <string name="category_shoes">Calzado</string>
+    <string name="category_watches">Relojes</string>
+    <string name="category_sports_cards">Cromos deportivos</string>
+    <string name="category_collectibles">Coleccionables</string>
+    <string name="category_electronics">Electrónica</string>
+    <string name="category_books">Libros</string>
+    <string name="category_jewelry">Joyería</string>
+    <string name="category_bags">Bolsos</string>
+    <string name="category_accessories">Accesorios</string>
+    <string name="category_other">Otros</string>
+    <string name="intake_status_sourced">Comprado (sin registrar)</string>
+    <string name="intake_status_cataloged">Registrado</string>
+    <string name="intake_status_keeping">Me lo quedo (personal)</string>
+    <string name="intake_status_wearing">En uso (personal)</string>
+    <string name="intake_title_required">Hace falta un título para guardar</string>
 </resources>

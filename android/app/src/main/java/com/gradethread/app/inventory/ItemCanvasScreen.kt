@@ -339,7 +339,7 @@ private fun CanvasForm(
                         // into one by the act of opening the canvas.
                         actions.setCategory(if (draft.category == option) null else option)
                     },
-                    label = { Text(option.label) },
+                    label = { Text(stringResource(option.label)) },
                 )
             }
         }

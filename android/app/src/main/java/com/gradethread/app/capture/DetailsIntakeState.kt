@@ -1,5 +1,8 @@
 package com.gradethread.app.capture
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 import kotlinx.serialization.Serializable
 
 /**
@@ -40,8 +43,9 @@ data class DetailsIntakeState(
      * One source of truth for the inline [com.gradethread.app.ui.components.FieldError]
      * and the accessibility announcement, so they can never disagree.
      */
-    val titleValidationMessage: String?
-        get() = if (title.isBlank()) "A title is required to save" else null
+    @get:StringRes
+    val titleValidationMessage: Int?
+        get() = if (title.isBlank()) R.string.intake_title_required else null
 
     /**
      * Worth persisting? An all-blank form is DELETED rather than saved, so a
@@ -94,36 +98,42 @@ data class DetailsIntakeState(
 }
 
 /** `item_category` values — the full iOS `FlipdeskCategory` set, in its order. */
-enum class FlipdeskCategory(val wire: String, val label: String) {
-    CLOTHING("clothing", "Clothing"),
-    SHOES("shoes", "Shoes"),
-    WATCHES("watches", "Watches"),
-    SPORTS_CARDS("sports_cards", "Sports cards"),
-    COLLECTIBLES("collectibles", "Collectibles"),
-    ELECTRONICS("electronics", "Electronics"),
-    BOOKS("books", "Books"),
-    JEWELRY("jewelry", "Jewelry"),
-    BAGS("bags", "Bags"),
+/**
+ * US-2976: [wire] is the persisted value and must not change; [label] is a
+ * string RESOURCE. Both were plain Strings, so the eleven category chips a
+ * seller picks from were English.
+ */
+enum class FlipdeskCategory(val wire: String, @StringRes val label: Int) {
+    CLOTHING("clothing", R.string.category_clothing),
+    SHOES("shoes", R.string.category_shoes),
+    WATCHES("watches", R.string.category_watches),
+    SPORTS_CARDS("sports_cards", R.string.category_sports_cards),
+    COLLECTIBLES("collectibles", R.string.category_collectibles),
+    ELECTRONICS("electronics", R.string.category_electronics),
+    BOOKS("books", R.string.category_books),
+    JEWELRY("jewelry", R.string.category_jewelry),
+    BAGS("bags", R.string.category_bags),
+
     // Non-garment accessories sold standalone (hats, belts, sunglasses).
-    ACCESSORIES("accessories", "Accessories"),
-    OTHER("other", "Other");
+    ACCESSORIES("accessories", R.string.category_accessories),
+    OTHER("other", R.string.category_other),
+    ;
 
     companion object {
         /** Unknown/legacy wire values fall back rather than throwing. */
-        fun from(wire: String?): FlipdeskCategory =
-            entries.firstOrNull { it.wire == wire } ?: CLOTHING
+        fun from(wire: String?): FlipdeskCategory = entries.firstOrNull { it.wire == wire } ?: CLOTHING
     }
 }
 
 /** The `item_status` values reachable from manual intake (iOS IntakeStatus). */
-enum class IntakeStatus(val wire: String, val label: String) {
-    SOURCED("sourced", "Sourced (not yet cataloged)"),
-    CATALOGED("cataloged", "Cataloged"),
-    KEEPING("keeping", "Keeping (personal)"),
-    WEARING("wearing", "Wearing (personal)");
+enum class IntakeStatus(val wire: String, @StringRes val label: Int) {
+    SOURCED("sourced", R.string.intake_status_sourced),
+    CATALOGED("cataloged", R.string.intake_status_cataloged),
+    KEEPING("keeping", R.string.intake_status_keeping),
+    WEARING("wearing", R.string.intake_status_wearing),
+    ;
 
     companion object {
-        fun from(wire: String?): IntakeStatus =
-            entries.firstOrNull { it.wire == wire } ?: CATALOGED
+        fun from(wire: String?): IntakeStatus = entries.firstOrNull { it.wire == wire } ?: CATALOGED
     }
 }

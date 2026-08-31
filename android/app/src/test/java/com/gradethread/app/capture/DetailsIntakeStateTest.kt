@@ -1,5 +1,7 @@
 package com.gradethread.app.capture
 
+import com.gradethread.app.R
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -17,10 +19,13 @@ class DetailsIntakeStateTest {
     fun titleIsTheOnlyRequiredField() {
         // Matches the web intake form: everything else is optional.
         val everythingButTitle = DetailsIntakeState(
-            sku = "A1", brand = "Nike", size = "L", notes = "hi",
+            sku = "A1",
+            brand = "Nike",
+            size = "L",
+            notes = "hi",
         )
         assertFalse(everythingButTitle.canSubmit)
-        assertEquals("A title is required to save", everythingButTitle.titleValidationMessage)
+        assertEquals(R.string.intake_title_required, everythingButTitle.titleValidationMessage)
 
         val titled = DetailsIntakeState(title = "Vintage tee")
         assertTrue(titled.canSubmit)

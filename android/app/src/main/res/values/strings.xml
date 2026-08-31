@@ -2188,4 +2188,20 @@
         <item quantity="one">%1$d certified so far.</item>
         <item quantity="other">%1$d certified so far.</item>
     </plurals>
+    <string name="category_clothing">Clothing</string>
+    <string name="category_shoes">Shoes</string>
+    <string name="category_watches">Watches</string>
+    <string name="category_sports_cards">Sports cards</string>
+    <string name="category_collectibles">Collectibles</string>
+    <string name="category_electronics">Electronics</string>
+    <string name="category_books">Books</string>
+    <string name="category_jewelry">Jewelry</string>
+    <string name="category_bags">Bags</string>
+    <string name="category_accessories">Accessories</string>
+    <string name="category_other">Other</string>
+    <string name="intake_status_sourced">Sourced (not yet cataloged)</string>
+    <string name="intake_status_cataloged">Cataloged</string>
+    <string name="intake_status_keeping">Keeping (personal)</string>
+    <string name="intake_status_wearing">Wearing (personal)</string>
+    <string name="intake_title_required">A title is required to save</string>
 </resources>

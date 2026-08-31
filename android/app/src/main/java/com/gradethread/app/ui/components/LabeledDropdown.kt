@@ -38,7 +38,12 @@ fun <T> LabeledDropdown(
     label: String,
     selected: T?,
     options: List<T>,
-    optionLabel: (T) -> String,
+    /**
+     * US-2976: @Composable, so a caller can resolve a @StringRes option label.
+     * Every enum whose label became a resource id has to read it from a
+     * composition, and a plain lambda cannot.
+     */
+    optionLabel: @Composable (T) -> String,
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
     /** Shown when nothing is selected — e.g. "No source". */
@@ -46,7 +51,10 @@ fun <T> LabeledDropdown(
     enabled: Boolean = true,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val display = selected?.let(optionLabel) ?: placeholder
+    // `selected?.let(optionLabel)` does not compile once optionLabel is
+    // @Composable: `let` is an ordinary higher-order function and cannot carry
+    // a composable into it.
+    val display = if (selected != null) optionLabel(selected) else placeholder
     // Hoisted: `semantics { }` is not a composable scope, so stringResource
     // cannot be called inside it.
     val fieldDescription = stringResource(R.string.a11y_field_value, label, display)

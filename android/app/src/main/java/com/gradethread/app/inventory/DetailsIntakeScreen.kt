@@ -111,7 +111,11 @@ fun DetailsIntakeContent(
 
     // The validation message and its announcement share one source, so they
     // can never disagree.
-    val titleError = if (state.showValidation) form.titleValidationMessage else null
+    val titleError = if (state.showValidation) {
+        form.titleValidationMessage?.let { stringResource(it) }
+    } else {
+        null
+    }
     val announcer = rememberA11yAnnouncer()
     // Keyed so each NEW message announces once, not on every recomposition.
     LaunchedEffect(titleError) { titleError?.let(announcer::announce) }
@@ -222,7 +226,7 @@ fun DetailsIntakeContent(
                 label = stringResource(R.string.intake_category),
                 selected = FlipdeskCategory.from(form.category),
                 options = FlipdeskCategory.entries,
-                optionLabel = { it.label },
+                optionLabel = { stringResource(it.label) },
                 onSelect = { c -> actions.update { it.copy(category = c.wire) } },
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -232,7 +236,7 @@ fun DetailsIntakeContent(
                 label = stringResource(R.string.intake_status),
                 selected = IntakeStatus.from(form.status),
                 options = IntakeStatus.entries,
-                optionLabel = { it.label },
+                optionLabel = { stringResource(it.label) },
                 onSelect = { s -> actions.update { it.copy(status = s.wire) } },
                 modifier = Modifier.fillMaxWidth(),
             )
