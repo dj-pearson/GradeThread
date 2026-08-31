@@ -1,8 +1,25 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ▶ OUTSTANDING RIGHT NOW — 00706, 00707
+## ▶ OUTSTANDING RIGHT NOW — none
 
-### HELD: 00706_sale_pnl_view.sql (US-3018 — one per-sale profit row the team reports group by)
+00706 and 00707 were held here while already applied to prod, so the gate
+blocked every push for something that was done. Both are recorded below with the
+reads that confirm them.
+
+## ✅ APPLIED 2026-08-30: 00706_sale_pnl_view.sql (US-3018 — one per-sale profit row the team reports group by)
+
+**Verified applied 2026-08-30.** Not applied by this change — found already on
+prod when the held-migration gate blocked an unrelated push. Three independent
+reads agree: `public.sale_pnl` exists in `pg_views`; the edge boot guard prints
+`[schema-version] OK — DB at 00707 matches expected 00707`; and
+`GET /rest/v1/sale_pnl` returns 200. The `NOTIFY pgrst, 'reload schema'` this
+entry calls for had NOT been run, so PostgREST was still 404ing on the view; it
+has been run now, which is what took that endpoint from 404 to 200.
+
+**Note on `supabase_migrations.schema_migrations`: it is NOT the evidence here.**
+That tracker reads 00589 as its highest version on this database, ~117 behind
+the schema, which is the known Lovable-origin tracker lag. The objects and the
+boot guard are what was checked. Do not read the tracker as "unapplied".
 
 **Risk: low.** One NEW view. No table, column, function, policy or row is
 touched, and nothing existing reads it yet.
@@ -31,7 +48,14 @@ edge boot guard still expects `00706`, so keep the normal order.
 sabotage-tested: dropping the legacy-shipments term fails at $5.95, and removing
 the case fold fails on `'Dan'`/`'dan'` not collapsing.
 
-### HELD: 00707_created_by_tracking.sql (US-3023 — who created an item or listing)
+## ✅ APPLIED 2026-08-30: 00707_created_by_tracking.sql (US-3023 — who created an item or listing)
+
+**Verified applied 2026-08-30.** Not applied by this change — same discovery as
+00706 above. `created_by` exists on both `inventory_items` and `listings`, and
+all four triggers this migration declares are present and enabled:
+`set_inventory_items_created_by`, `guard_inventory_items_created_by`,
+`set_listings_created_by`, `guard_listings_created_by`. The edge boot guard
+independently reports the schema at 00707.
 
 **Risk: low-to-medium.** Two NEW columns, two indexes, two functions and FOUR
 triggers. No existing column, policy or row is changed, and nothing is
