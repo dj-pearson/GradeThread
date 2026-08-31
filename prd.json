@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3028",
+  "nextId": "US-3029",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2866,6 +2866,21 @@
         "The Android screenshot test covers both the empty two-slot state and a filled one, so the slots are visible in review."
       ],
       "priority": 22
+    },
+    {
+      "id": "US-3028",
+      "passes": false,
+      "title": "credentials-refresh reports one no_block for four different skips, three of which are stale live badges",
+      "description": "The daily credentials-refresh cron reported a single no_block counter for every listing it left alone, documented as 'no block in the description; left alone (never injected)'. findSellerCredentialBlock returns null for four situations and only one of them matches that description: the marker being absent. The other three (marker present but the next element is not a div, an unclosed div, and more than MAX_TAG_SCAN div tags) mean the badge IS live and IS stale, and the legacy path skips those listings every run with no error and no log line. A prod run on 2026-08-30 returned {revised:0, up_to_date:8, no_block:13, errors:0} over 21 listings and nothing in it could tell the two apart. Split the verdict so a skip says which skip, and log the listing ids for the ones that are not benign.",
+      "acceptanceCriteria": [
+        "classifyRefreshSkip is a pure, unit-tested function that both cron paths consult BEFORE either picks a listing up, so the never-inject rule has one site instead of one per path.",
+        "locateSellerCredentialBlock returns the reason a walk failed (absent / no-element / unclosed / scan-limit); findSellerCredentialBlock keeps its null-returning signature for every existing caller.",
+        "The cron response splits no_block into no_marker, unparseable and blocks_disagree, and no_block stays as their sum so the ops dashboard history remains comparable.",
+        "An unparseable block and a blocks_disagree listing each log the listing id and the reason (credentials_refresh.unparseable_block / .blocks_disagree), plus one run-level warn (credentials_refresh.stale_blocks_unreachable) so a run that skipped real badges is not silent.",
+        "The CRON_REGISTRY healthy string says unparseable and blocks_disagree must both be zero, and the generated cron tables in COOLIFY.md, CRON_SETUP.md and vault/10-ops/launch-checklist.md are regenerated to match.",
+        "OPERATOR: after deploy, hit Run now on credentials-refresh at /admin/ops/jobs and read the new counters to find out what the 13 skipped listings actually are."
+      ],
+      "priority": 30
     }
   ]
 }

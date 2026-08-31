@@ -159,29 +159,56 @@ export interface SellerCredentialBlockSpan {
 const MAX_TAG_SCAN = 500;
 
 /**
- * Pure: locate the credential block that follows the marker.
+ * Why the walk could not produce a span.
  *
- * Returns null when the marker is absent, when no <div> opens after it, or when
- * the element never closes — every "shape I don't recognise" case, because the
- * caller's only safe response to an unrecognised description is to leave it
+ * `absent` is the ONLY benign one: the description never carried a block, and
+ * leaving it alone is correct. The other three mean the description almost
+ * certainly DOES carry a badge that the walk cannot parse — a stale count a
+ * buyer is reading right now, on a listing the refresh cron skips every run.
+ */
+export type CredentialBlockReason =
+  /** No marker comment anywhere in the description. */
+  | "absent"
+  /** Marker present, but the next thing after it is not a `<div>`. */
+  | "no-element"
+  /** A `<div>` opened after the marker and never closed. */
+  | "unclosed"
+  /** More than MAX_TAG_SCAN `div` tags before the block closed. */
+  | "scan-limit";
+
+/** The walk's full answer: the span, or the reason there isn't one. */
+export type CredentialBlockLookup =
+  | { found: true; span: SellerCredentialBlockSpan }
+  | { found: false; reason: CredentialBlockReason };
+
+/**
+ * Pure: locate the credential block that follows the marker, and say why when
+ * it cannot be found.
+ *
+ * US-3028. `findSellerCredentialBlock` collapses four situations into one
+ * `null`, and the refresh cron counted all four as `no_block` — "this listing
+ * never had a badge, leave it alone". Three of them are the opposite: the badge
+ * is there, the walk failed, and the listing is skipped forever with no error
+ * and no log line. Distinguishing them is a diagnosis, not a behaviour change:
+ * every caller's response to a failed walk is still to leave the description
  * exactly as it is.
  *
  * `marker` is a parameter (US-2628) because the disclosure block is generated
  * the same way, marker comment then one <div>, and cert-description.ts strips
  * both. The walk is the delicate part; there should be one of it.
  */
-export function findSellerCredentialBlock(
+export function locateSellerCredentialBlock(
   description: string,
   marker: string = SELLER_CREDENTIALS_MARKER,
-): SellerCredentialBlockSpan | null {
+): CredentialBlockLookup {
   const markerAt = description.indexOf(marker);
-  if (markerAt < 0) return null;
+  if (markerAt < 0) return { found: false, reason: "absent" };
 
   const after = markerAt + marker.length;
   // Only whitespace may sit between the marker and its block; anything else
   // means this isn't the generated shape.
   const openMatch = /^\s*<div\b/i.exec(description.slice(after));
-  if (!openMatch) return null;
+  if (!openMatch) return { found: false, reason: "no-element" };
   const start = after + openMatch[0].length - "<div".length;
 
   const tagRe = /<\s*(\/?)div\b[^>]*>/gi;
@@ -190,14 +217,93 @@ export function findSellerCredentialBlock(
   let scanned = 0;
   let m: RegExpExecArray | null;
   while ((m = tagRe.exec(description)) !== null) {
-    if (++scanned > MAX_TAG_SCAN) return null;
+    if (++scanned > MAX_TAG_SCAN) return { found: false, reason: "scan-limit" };
     depth += m[1] === "/" ? -1 : 1;
     if (depth === 0) {
       const end = m.index + m[0].length;
-      return { start, end, html: description.slice(start, end) };
+      return { found: true, span: { start, end, html: description.slice(start, end) } };
     }
   }
-  return null; // unclosed
+  return { found: false, reason: "unclosed" };
+}
+
+/**
+ * Pure: locate the credential block that follows the marker.
+ *
+ * Returns null when the marker is absent, when no <div> opens after it, or when
+ * the element never closes — every "shape I don't recognise" case, because the
+ * caller's only safe response to an unrecognised description is to leave it
+ * exactly as it is. Callers that need to know WHICH case they hit use
+ * `locateSellerCredentialBlock`.
+ */
+export function findSellerCredentialBlock(
+  description: string,
+  marker: string = SELLER_CREDENTIALS_MARKER,
+): SellerCredentialBlockSpan | null {
+  const found = locateSellerCredentialBlock(description, marker);
+  return found.found ? found.span : null;
+}
+
+/**
+ * Why the refresh cron left a listing alone.
+ *
+ * `no_marker` is the benign one and the only one the old `no_block` counter was
+ * ever meant to mean.
+ */
+export type RefreshSkipKind =
+  /** No badge in the stored description. A refresh must never inject one. */
+  | "no_marker"
+  /**
+   * The badge is there and the div walk could not parse it. The listing has a
+   * STALE count a buyer is reading, and the legacy path skips it every run.
+   */
+  | "unparseable"
+  /**
+   * `description_blocks` carries a `credentials` block but the stored string
+   * has no marker, so the two columns disagree about what was published.
+   */
+  | "blocks_disagree";
+
+// One literal `kind` per member, so a caller that has ruled out the other two
+// gets `reason` narrowed rather than having to assert it.
+export type RefreshSkipVerdict =
+  | { skip: false }
+  | { skip: true; kind: "no_marker" }
+  | { skip: true; kind: "blocks_disagree" }
+  | { skip: true; kind: "unparseable"; reason: CredentialBlockReason };
+
+/**
+ * Pure: decide whether the credentials cron can refresh this listing, and when
+ * it cannot, say which of three different things "cannot" means.
+ *
+ * US-3028. The cron reported one number, `no_block`, for every listing it left
+ * alone, and read it as "these sellers never had a badge". Two of the three
+ * cases underneath it are the opposite — a badge that IS live and IS stale —
+ * and one run reported 13 of 21 listings that way with nothing to tell them
+ * apart. Splitting the verdict changes no behaviour: a skip is still a skip.
+ *
+ * `blocks` is typed structurally rather than as `DescriptionBlock[]` so this
+ * module stays free of description-blocks.ts, which imports it.
+ */
+export function classifyRefreshSkip(
+  blocks: ReadonlyArray<{ key: string }> | null | undefined,
+  description: string,
+): RefreshSkipVerdict {
+  // Block-backed: the description is re-rendered from the blocks, so a walk
+  // that cannot parse the old markup is irrelevant. All that matters is the
+  // never-inject rule, and the marker is what proves the seller had a badge.
+  if (blocks?.length) {
+    if (description.includes(SELLER_CREDENTIALS_MARKER)) return { skip: false };
+    return blocks.some((b) => b.key === "credentials")
+      ? { skip: true, kind: "blocks_disagree" }
+      : { skip: true, kind: "no_marker" };
+  }
+
+  const located = locateSellerCredentialBlock(description);
+  if (located.found) return { skip: false };
+  return located.reason === "absent"
+    ? { skip: true, kind: "no_marker" }
+    : { skip: true, kind: "unparseable", reason: located.reason };
 }
 
 /**

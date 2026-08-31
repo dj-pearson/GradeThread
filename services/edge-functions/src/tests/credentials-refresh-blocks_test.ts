@@ -145,20 +145,46 @@ Deno.test("AC3: the div walk is not on the block-backed write path", () => {
     !branch.includes("findSellerCredentialBlock("),
     "nor the walk itself",
   );
-  // The presence check that keeps the never-inject rule is a plain marker test.
-  assertStringIncludes(branch, "dbDesc.includes(SELLER_CREDENTIALS_MARKER)");
+  // US-3028: the never-inject rule moved OUT of this branch and into
+  // classifyRefreshSkip, which both paths consult before either one runs. So
+  // the assertion here is that the branch no longer decides it for itself.
+  assert(
+    !branch.includes("SELLER_CREDENTIALS_MARKER"),
+    "the marker check belongs to classifyRefreshSkip now, not to this branch",
+  );
 });
 
 Deno.test("AC2: a listing with no blocks still takes the legacy path", () => {
   const legacy = cronSrc.slice(cronSrc.indexOf("// ── The legacy path"));
   assertStringIncludes(legacy, "refreshSellerCredentialBlock(dbDesc, html)");
-  assertStringIncludes(legacy, "result.no_block++");
 });
 
 Deno.test("the never-inject rule survives on both paths", () => {
   // A refresh that ADDED a badge would be putting marketing copy into a
-  // description the seller wrote. Both paths answer "no block, skip".
-  assertEquals((cronSrc.match(/result\.no_block\+\+/g) ?? []).length, 2);
+  // description the seller wrote. US-3028 made that ONE decision, taken before
+  // either path runs, so there is exactly one skip site to audit instead of two
+  // that could drift apart.
+  assertEquals((cronSrc.match(/result\.no_block\+\+/g) ?? []).length, 1);
+  assertStringIncludes(cronSrc, "const verdict = classifyRefreshSkip(blocks, dbDesc);");
+  const verdictAt = cronSrc.indexOf("classifyRefreshSkip(blocks, dbDesc)");
+  const blockPathAt = cronSrc.indexOf("if (blocks?.length) {");
+  assert(
+    verdictAt > 0 && verdictAt < blockPathAt,
+    "the skip decision has to come before either path picks up the listing",
+  );
+});
+
+Deno.test("US-3028: a skip says WHICH skip, and the stale ones are logged", () => {
+  // `no_block` alone read as \"this seller never had a badge\" and covered two
+  // cases that mean the opposite: a live, stale badge the walk cannot parse.
+  for (const counter of ["no_marker", "unparseable", "blocks_disagree"]) {
+    assertStringIncludes(cronSrc, `result.${counter}++`);
+    assertStringIncludes(cronSrc, `${counter}: 0,`);
+  }
+  // A counter says a problem exists; an id says which listing to open.
+  assertStringIncludes(cronSrc, "credentials_refresh.unparseable_block");
+  assertStringIncludes(cronSrc, "credentials_refresh.blocks_disagree");
+  assertStringIncludes(cronSrc, "credentials_refresh.stale_blocks_unreachable");
 });
 
 Deno.test("freshness is a substring test, so a steady-state run costs nothing extra", () => {

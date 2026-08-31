@@ -39,8 +39,8 @@ import { getSetting } from "../lib/system-settings.ts";
 import { getOffer, isEbayConfigured, updateOfferFields } from "../lib/ebay-client.ts";
 import { loadSellerCredentialBlock } from "../lib/seller-credentials-job.ts";
 import {
+  classifyRefreshSkip,
   refreshSellerCredentialBlock,
-  SELLER_CREDENTIALS_MARKER,
 } from "../lib/seller-credentials.ts";
 import {
   renderAndPersistDescription,
@@ -90,8 +90,24 @@ export interface CredentialsRefreshResult {
   revised: number;
   /** Block already matched the fresh render — no eBay call made. */
   up_to_date: number;
-  /** No block in the description; left alone (never injected). */
+  /**
+   * Listings left alone. The SUM of the three counters below, kept so the ops
+   * dashboard's history stays comparable across this change.
+   */
   no_block: number;
+  /** No badge in the description; left alone (never injected). The benign one. */
+  no_marker: number;
+  /**
+   * US-3028: the badge IS in the description and the div walk could not parse
+   * it, so the legacy path skips it every run and a buyer keeps reading a stale
+   * count. Any number above zero here is a bug report, not a statistic.
+   */
+  unparseable: number;
+  /**
+   * US-3028: `description_blocks` carries a `credentials` block but the stored
+   * string has no marker. The two columns disagree about what was published.
+   */
+  blocks_disagree: number;
   /** DB copy refreshed without an eBay write (live copy had no block). */
   db_only: number;
   /** US-2963: refreshed by re-rendering blocks rather than walking div depth. */
@@ -181,6 +197,36 @@ async function refreshSeller(
     const connId = row.marketplace_connection_id ?? undefined;
     const blocks = row.description_blocks;
 
+    // ── US-3028: one skip verdict, for both paths ───────────────────
+    //
+    // `no_block` used to be the only thing a skipped listing reported, and it
+    // reads as "this seller never had a badge here" — which is true for exactly
+    // one of the three cases underneath it. The other two are a live, stale
+    // badge on a listing this cron will skip again tomorrow. They are logged
+    // with the listing id, because a counter tells you a problem exists and an
+    // id tells you which listing to open.
+    const verdict = classifyRefreshSkip(blocks, dbDesc);
+    if (verdict.skip) {
+      result.no_block++;
+      if (verdict.kind === "no_marker") {
+        result.no_marker++;
+      } else if (verdict.kind === "blocks_disagree") {
+        result.blocks_disagree++;
+        logEvent("warn", "credentials_refresh.blocks_disagree", {
+          seller: sellerId,
+          listing: row.id,
+        });
+      } else {
+        result.unparseable++;
+        logEvent("warn", "credentials_refresh.unparseable_block", {
+          seller: sellerId,
+          listing: row.id,
+          reason: verdict.reason,
+        });
+      }
+      continue;
+    }
+
     // ── US-2963: the block-backed path ──────────────────────────────
     //
     // A listing that carries `description_blocks` has a description that is
@@ -196,12 +242,8 @@ async function refreshSeller(
       // already containing `html` is already current — and a steady-state run
       // therefore still costs zero extra queries per listing, which is what
       // keeps this cron affordable over 200 sellers.
-      if (!dbDesc.includes(SELLER_CREDENTIALS_MARKER)) {
-        // Same rule as the legacy path: a refresh NEVER injects a block into a
-        // description that never carried one.
-        result.no_block++;
-        continue;
-      }
+      // The never-inject rule is enforced by classifyRefreshSkip above, which
+      // has already sent a marker-less description to `continue`.
       if (dbDesc.includes(html)) {
         result.up_to_date++;
         continue;
@@ -282,7 +324,15 @@ async function refreshSeller(
     // ── The legacy path, for listings not yet converted ─────────────
     const dbNext = refreshSellerCredentialBlock(dbDesc, html);
     if (dbNext === null) {
-      result.no_block++;
+      // Unreachable: classifyRefreshSkip walked this same description and found
+      // the block. Counted as an error rather than a skip so that if the two
+      // ever diverge it surfaces, instead of hiding inside the skip tally the
+      // way the four walk failures used to.
+      logEvent("warn", "credentials_refresh.walk_disagreed", {
+        seller: sellerId,
+        listing: row.id,
+      });
+      result.errors++;
       continue;
     }
     if (dbNext === dbDesc) {
@@ -381,6 +431,9 @@ export async function handleCredentialsRefreshCron(c: Context): Promise<Response
       revised: 0,
       up_to_date: 0,
       no_block: 0,
+      no_marker: 0,
+      unparseable: 0,
+      blocks_disagree: 0,
       db_only: 0,
       rendered: 0,
       errors: 0,
@@ -423,6 +476,16 @@ export async function handleCredentialsRefreshCron(c: Context): Promise<Response
       logEvent("info", "credentials_refresh.capped", {
         max_per_run: maxRevisions,
         revised: result.revised,
+      });
+    }
+
+    // US-3028: a run that skipped listings carrying a real badge is not a quiet
+    // run, and `revised: 0` next to `no_block: 13` used to read like one.
+    if (result.unparseable > 0 || result.blocks_disagree > 0) {
+      logEvent("warn", "credentials_refresh.stale_blocks_unreachable", {
+        unparseable: result.unparseable,
+        blocks_disagree: result.blocks_disagree,
+        scanned: result.listings_scanned,
       });
     }
 

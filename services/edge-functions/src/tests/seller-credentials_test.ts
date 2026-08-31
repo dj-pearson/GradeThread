@@ -10,7 +10,9 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   buildSellerCredentialBlock,
+  classifyRefreshSkip,
   findSellerCredentialBlock,
+  locateSellerCredentialBlock,
   refreshSellerCredentialBlock,
   SELLER_CREDENTIALS_MARKER,
   type SellerCredential,
@@ -176,4 +178,113 @@ Deno.test("US-2272: a block with no stats line still refreshes", () => {
   assert(next !== null);
   assert(next!.includes("19 items independently graded"), "stats line appears");
   assert(next!.endsWith("Graded by GradeThread"));
+});
+
+// ─── US-3028: why the walk failed, not just that it did ────────────
+//
+// `findSellerCredentialBlock` answers null for four different situations and
+// the refresh cron counted all four as "this listing has no block". Three of
+// them are a stale badge nobody can see: the description HAS a block, the walk
+// just could not parse it, and the listing is skipped every run forever. The
+// reason has to survive the return so the cron can log and count it.
+
+Deno.test("US-3028: no marker at all is `absent`", () => {
+  const r = locateSellerCredentialBlock("<p>Just body copy.</p>");
+  assertEquals(r.found, false);
+  assertEquals(r.found === false && r.reason, "absent");
+});
+
+Deno.test("US-3028: marker with no element after it is `no-element`", () => {
+  const r = locateSellerCredentialBlock(
+    `<p>body</p>${SELLER_CREDENTIALS_MARKER}42 items independently graded`,
+  );
+  assertEquals(r.found, false);
+  assertEquals(r.found === false && r.reason, "no-element");
+});
+
+Deno.test("US-3028: a block that never closes is `unclosed`", () => {
+  const r = locateSellerCredentialBlock(
+    `<p>body</p>${SELLER_CREDENTIALS_MARKER}<div>42 items independently graded`,
+  );
+  assertEquals(r.found, false);
+  assertEquals(r.found === false && r.reason, "unclosed");
+});
+
+Deno.test("US-3028: a description with more divs than the cap is `scan-limit`", () => {
+  const r = locateSellerCredentialBlock(
+    `${SELLER_CREDENTIALS_MARKER}<div>${"<div></div>".repeat(300)}</div>`,
+  );
+  assertEquals(r.found, false);
+  assertEquals(r.found === false && r.reason, "scan-limit");
+});
+
+Deno.test("US-3028: a block that parses reports the same span as findSellerCredentialBlock", () => {
+  const desc = `<p>body</p>${SELLER_CREDENTIALS_MARKER}<div><span>42 items</span></div>\nCert #GT-X9RQ0J6`;
+  const r = locateSellerCredentialBlock(desc);
+  assert(r.found);
+  assertEquals(r.found === true ? r.span : null, findSellerCredentialBlock(desc));
+});
+
+Deno.test("US-3028: findSellerCredentialBlock still answers null for all four", () => {
+  for (
+    const desc of [
+      "<p>body</p>",
+      `${SELLER_CREDENTIALS_MARKER}not an element`,
+      `${SELLER_CREDENTIALS_MARKER}<div>unclosed`,
+      `${SELLER_CREDENTIALS_MARKER}<div>${"<div></div>".repeat(300)}</div>`,
+    ]
+  ) {
+    assertEquals(findSellerCredentialBlock(desc), null);
+  }
+});
+
+// ─── US-3028: what the refresh cron's skip actually meant ──────────
+
+Deno.test("US-3028: a legacy description with no marker skips as no_marker", () => {
+  assertEquals(classifyRefreshSkip(null, "<p>body</p>"), {
+    skip: true,
+    kind: "no_marker",
+  });
+});
+
+Deno.test("US-3028: a legacy description with an unparseable block skips as unparseable", () => {
+  assertEquals(
+    classifyRefreshSkip(null, `${SELLER_CREDENTIALS_MARKER}<div>never closed`),
+    { skip: true, kind: "unparseable", reason: "unclosed" },
+  );
+  assertEquals(
+    classifyRefreshSkip(null, `${SELLER_CREDENTIALS_MARKER}42 items graded`),
+    { skip: true, kind: "unparseable", reason: "no-element" },
+  );
+});
+
+Deno.test("US-3028: a legacy description with a parseable block is not skipped", () => {
+  assertEquals(
+    classifyRefreshSkip(null, `${SELLER_CREDENTIALS_MARKER}<div>42 items</div>`),
+    { skip: false },
+  );
+});
+
+Deno.test("US-3028: a block-backed listing needs only the marker, not a clean walk", () => {
+  const blocks = [{ key: "credentials" }];
+  // The walk would fail here; the render path does not care, because it never
+  // reads the old markup.
+  assertEquals(
+    classifyRefreshSkip(blocks, `${SELLER_CREDENTIALS_MARKER}<div>unclosed`),
+    { skip: false },
+  );
+});
+
+Deno.test("US-3028: blocks say credentials but the stored string has no marker", () => {
+  assertEquals(classifyRefreshSkip([{ key: "credentials" }], "<p>body</p>"), {
+    skip: true,
+    kind: "blocks_disagree",
+  });
+});
+
+Deno.test("US-3028: a block-backed listing that simply has no credentials block", () => {
+  assertEquals(
+    classifyRefreshSkip([{ key: "title" }, { key: "measurements" }], "<p>body</p>"),
+    { skip: true, kind: "no_marker" },
+  );
 });

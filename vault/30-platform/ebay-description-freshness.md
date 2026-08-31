@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/seller-credentials.ts
   - services/edge-functions/src/routes/jobs-credentials-refresh.ts
   - services/edge-functions/src/lib/ai-listing.ts
-reviewed: 2026-08-28
+reviewed: 2026-08-30
 tags: [ebay, publishing, listings, gotcha]
 summary: An eBay description is frozen text — eBay bans active content and off-eBay links — so anything time-varying in it goes stale until a scheduled revise re-renders it.
 ---
@@ -96,6 +96,46 @@ only safe answer is `null` — which the loop counts as "no block" and skips. So
 malformed description defeated the refresh permanently and silently. It still
 does on this path; the block-backed path is what removes that failure, one
 listing at a time as they convert.
+
+## What `no_block` was hiding
+
+US-3028. The cron reported one counter, `no_block`, for every listing it left
+alone, and its own doc comment read "No block in the description; left alone
+(never injected)". That is true of exactly one of the four situations underneath
+it. `findSellerCredentialBlock` answers `null` when the marker is absent AND
+when the marker is there but the next element is not a `<div>`, AND when the
+`<div>` never closes, AND after `MAX_TAG_SCAN` tags. The last three mean the
+badge IS live and IS stale, on a listing the legacy path then skips every night.
+
+A production run on 2026-08-30 read
+`{revised: 0, up_to_date: 8, no_block: 13, errors: 0}` over 21 listings, and
+nothing in it could distinguish "13 sellers who never opted in" from "13 stale
+badges nobody can reach". That is the failure this note has warned about since
+2026-08-28, arriving as a clean-looking success.
+
+The verdict is now one call, `classifyRefreshSkip`, taken before either path
+picks the listing up — so the never-inject rule has a single site rather than
+one per path — and it splits into `no_marker` (benign), `unparseable` (a walk
+failure, logged with the listing id and the reason) and `blocks_disagree`
+(`description_blocks` carries a `credentials` block while the stored string has
+no marker, so the two columns disagree about what was published). **A healthy
+run has `unparseable` and `blocks_disagree` both at zero**; anything above that
+is a bug report, and `credentials_refresh.stale_blocks_unreachable` says so in
+the log rather than leaving it to be read out of a counter.
+
+## The freshness check never asks eBay
+
+Still open, and worth knowing before trusting a `revised: 0`. Both paths decide
+freshness from the DB copy of `listing_description` and only call `getOffer`
+once they already believe the listing is dirty. That is the deliberate
+cost-control choice (a steady-state run makes zero eBay calls), and its price is
+that DB/live divergence is permanent: the eBay pull does not correct it either,
+because `listing_description` is locked on GradeThread-origin listings
+(`LISTING_PULL_ALLOWED_ON_GT_ORIGIN` in `sync-precedence.ts`) and drift is only
+recorded, in `platform_fields.sync_drift`. So a revise that failed once leaves
+eBay stale and the row fresh, and every later run reports `up_to_date`. The
+cheap fix, if this turns out to bite, is to treat a `sync_drift` marker naming
+`description` as dirty — the sync already writes it, so it costs no eBay call.
 
 `inventory_items.description` keeps the surgery either way: it is a plain string
 with no blocks behind it, and it is the fallback `resyncGradeToLiveListing`
