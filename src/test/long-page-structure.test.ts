@@ -17,8 +17,10 @@ const PAGES = [
   { rel: "src/pages/referrals.tsx", tabs: ["share", "affiliate", "boards"] },
   { rel: "src/pages/flipdesk/verified.tsx", tabs: ["profile", "badges", "passport"] },
   {
+    // US-3032 added "ads". Connections had absorbed seven eBay advertising
+    // cards, which is the same growth this story split the page for.
     rel: "src/pages/flipdesk/marketplaces.tsx",
-    tabs: ["connections", "settings", "how"],
+    tabs: ["connections", "ads", "settings", "how"],
   },
 ];
 

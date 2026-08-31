@@ -12,6 +12,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { useEbayPromotions } from "@/hooks/use-ebay";
+import { promotionPerformanceHasContent } from "@/components/flipdesk/promotion-performance";
 
 // US-2949 + US-2951: did the sale sell more, and can the discounts stack below
 // cost?
@@ -124,6 +126,26 @@ export function PromotionPerformanceCard() {
     },
     onError: (err) => toastError(err, "Couldn't read your eBay promotions."),
   });
+
+  // What the seller has on eBay, whether or not it has ever been synced here.
+  // Only used to decide whether the card is worth rendering; the table below
+  // reads our own records, because the comparison needs stored windows.
+  const { data: live } = useEbayPromotions(true);
+
+  // Every query has answered and none of them found a reason. Render nothing at
+  // all rather than a heading over an empty state. Still loading keeps the
+  // card, so the section does not jump as the requests land.
+  const settled = !isLoading && stack !== undefined && live !== undefined;
+  if (
+    settled &&
+    !promotionPerformanceHasContent({
+      onRecord: data?.promotions.length ?? 0,
+      breaching: stack?.breaching.length ?? 0,
+      liveOnEbay: live?.promotions?.length ?? 0,
+    })
+  ) {
+    return null;
+  }
 
   return (
     <Card>

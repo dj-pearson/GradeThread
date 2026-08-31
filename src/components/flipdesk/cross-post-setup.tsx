@@ -174,15 +174,15 @@ export function CrossPostSetup() {
 
   if (isLoading) {
     return (
-      <section>
-        <h2 className="mb-3 text-base font-semibold text-foreground">
+      <div>
+        <h3 className="mb-3 text-sm font-semibold text-foreground">
           Set up cross-posting
-        </h2>
+        </h3>
         <div className="flex items-center gap-2 rounded-lg border p-3 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Checking your browser for the extension...
         </div>
-      </section>
+      </div>
     );
   }
 
@@ -194,10 +194,10 @@ export function CrossPostSetup() {
   // is true and leave the manual copy-paste path as the answer.
   if (state.unavailable === "disabled") {
     return (
-      <section>
-        <h2 className="mb-3 text-base font-semibold text-foreground">
+      <div>
+        <h3 className="mb-3 text-sm font-semibold text-foreground">
           Set up cross-posting
-        </h2>
+        </h3>
         <div className="flex items-start gap-3 rounded-lg border border-dashed p-3">
           <Puzzle className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
           <p className="max-w-prose text-xs leading-relaxed text-muted-foreground">
@@ -207,7 +207,7 @@ export function CrossPostSetup() {
             right order.
           </p>
         </div>
-      </section>
+      </div>
     );
   }
 
@@ -215,11 +215,14 @@ export function CrossPostSetup() {
   const remaining = steps.filter((s) => s.state !== "done").length;
 
   return (
-    <section>
+    // US-3032: h3 inside a <div>, not an h2 inside a <section>. These steps are
+    // one part of the "Browser extension" section on Marketplaces now, beside
+    // the queue, sold-sync and the per-channel disclosures.
+    <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <h2 className="text-base font-semibold text-foreground">
+        <h3 className="text-sm font-semibold text-foreground">
           Set up cross-posting
-        </h2>
+        </h3>
         {remaining === 0 ? (
           <Badge
             variant="outline"
@@ -250,6 +253,6 @@ export function CrossPostSetup() {
           <StepRow key={step.key} step={step} index={i} />
         ))}
       </ol>
-    </section>
+    </div>
   );
 }

@@ -8,12 +8,17 @@ code_refs:
   - services/edge-functions/src/lib/grade-adjustment.ts
   - services/edge-functions/src/routes/content-public.ts
   - services/edge-functions/src/tests/certificate-revision-stamp_test.ts
-reviewed: 2026-08-21
+reviewed: 2026-08-31
 tags: [grading, certificates, provenance, seo]
 summary: A certificate records when its certified content was last rewritten in place; NULL means never revised, and a regrade must never set it.
 ---
 
 # Certificate revision provenance
+
+> **Re-reviewed 2026-08-31.** Drift flagged `content-public.ts` for US-9030, which adds two anonymous
+> registered-number endpoints beside the existing ones. It reads
+> `registered_number_registry` and `registered_number_sightings` only, and
+> touches no certificate handler, revision or provenance field.
 
 > **Re-reviewed 2026-08-17.** Drift flagged `content-public.ts` for `b324cb03`,
 > which flattens a submission description from HTML to plain text before the

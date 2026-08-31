@@ -8,12 +8,16 @@ code_refs:
   - services/edge-functions/src/routes/content-public.ts
   - src/pages/certificate.tsx
   - src/test/public-grade-report-view-parity.test.ts
-reviewed: 2026-08-25
+reviewed: 2026-08-31
 tags: [certificates, public, schema, gotcha]
 summary: A public certificate is served by two independent projections — an edge column allowlist and a Postgres view — and adding a column to one has twice shipped as "done" while the other stayed silent.
 ---
 
 # Public certificate read paths
+
+> **Re-reviewed 2026-08-31.** Drift flagged `content-public.ts` for US-9030, the two new registered-number
+> endpoints. They are additive and read only the RN reference tables; no
+> certificate read path, gate or projection changed.
 
 A certificate reaches an anonymous viewer through **two independent
 projections**, each with its own column list. Neither knows about the other.

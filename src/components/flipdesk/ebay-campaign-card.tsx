@@ -102,9 +102,14 @@ export function EbayCampaignCard() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center justify-between gap-2 text-base">
+          {/* US-3032: this card and the running-listings table above it were
+              both called "Promoted Listings" and sat four rows apart, so the
+              page named two different surfaces the same thing. The name now
+              belongs to the section that holds both; each card says which half
+              of it you are looking at. */}
           <span className="flex items-center gap-2">
             <Megaphone className="h-4 w-4" />
-            Promoted Listings
+            Worth promoting
           </span>
           <span className="flex gap-1">
             <Button

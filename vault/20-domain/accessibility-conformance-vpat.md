@@ -7,7 +7,7 @@ source_of_truth: code
 code_refs:
   - src/components/breadcrumbs.tsx
   - src/lib/seo/public-routes.ts
-reviewed: 2026-08-23
+reviewed: 2026-08-31
 tags: [accessibility, compliance, wcag, vpat]
 summary: WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a published artifact that must stay true, not a snapshot.
 ---
@@ -25,6 +25,12 @@ summary: WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a publis
 > flags it when the accessibility surface changes. It should be re-reviewed on
 > any a11y-affecting change, not on a schedule.
 # Accessibility Conformance Report — GradeThread & FlipDesk
+
+> **Re-reviewed 2026-08-31.** Drift flagged `src/lib/seo/public-routes.ts` for US-9033, which registers one
+> new public route (`/tools/rn-lookup`) and its lastmod. It adds no component,
+> no interaction pattern and no markup, so nothing this note claims about
+> conformance moves. The new page uses the same MarketingLayout, Input, Label
+> and Button primitives already audited here.
 
 ### Voluntary Product Accessibility Template® (VPAT®) — Version 2.5 (INT)
 

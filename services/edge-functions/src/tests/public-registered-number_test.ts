@@ -134,3 +134,28 @@ Deno.test("the page and the sitemap agree on the same fixtures", () => {
     assertEquals(page.indexable, inSitemap.has(row.digits), row.digits);
   }
 });
+
+Deno.test("the newest lastmod per number wins", () => {
+  const dupes = [
+    { registry_key: "RN:7", kind: "RN", digits: "7", company_name: "A Co.", updated_at: "2026-01-01" },
+    { registry_key: "RN:7", kind: "RN", digits: "7", company_name: "A Co.", updated_at: "2026-08-31" },
+  ];
+  assertEquals(indexableNumbers(dupes), [{ digits: "7", updated_at: "2026-08-31" }]);
+});
+
+Deno.test("CA is the one deliberate asymmetry: it indexes, and is not sitemapped", () => {
+  // Recorded because it looks like a bug from either side alone. A CA number
+  // renders and indexes as a page; it stays out of the sitemap because nothing
+  // has measured demand for the Canadian register, and a sitemap entry is a
+  // claim that a URL is worth crawling.
+  const row = {
+    registry_key: "CA:32054",
+    kind: "CA" as const,
+    digits: "32054",
+    company_name: "A Canadian Co.",
+    updated_at: null,
+  };
+  const page = publicRegisteredNumber({ requested: "32054", registry: row, sightings: null })!;
+  assertEquals(page.indexable, true);
+  assertEquals(indexableNumbers([row]), []);
+});

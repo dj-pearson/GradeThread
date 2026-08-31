@@ -929,9 +929,12 @@ function PromotedListingsSection() {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2">
-            <Megaphone className="h-5 w-5" />
-            Promoted listings
+          {/* US-3032: "Running now", not "Promoted listings" — the suggestions
+              card below carried the same name. The section heading owns the
+              name; these two say which half they are. */}
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Megaphone className="h-4 w-4" />
+            Running now
           </CardTitle>
           <Button
             variant="outline"
@@ -948,9 +951,8 @@ function PromotedListingsSection() {
           </Button>
         </div>
         <CardDescription>
-          Promoted Listings is a Cost-Per-Sale ad — eBay charges the ad rate only
-          when the item sells through the ad, never up front. Set each listing&apos;s
-          rate or opt out from its item page.
+          Every listing carrying an ad right now, and what it has cost. Set a
+          listing&apos;s rate or opt it out from its item page.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -1293,10 +1295,12 @@ function SoldSyncSection() {
         : "text-muted-foreground";
 
   return (
-    <section>
-      <h2 className="mb-1 text-base font-semibold text-foreground">
+    // US-3032: h3 and <div>, not h2 and <section>. This is one part of the
+    // "Browser extension" section now, not a peer of "Active".
+    <div>
+      <h3 className="mb-1 text-sm font-semibold text-foreground">
         Sold-sync
-      </h2>
+      </h3>
       <p className="mb-3 max-w-prose text-xs text-muted-foreground">
         When one of these channels sells a garment, GradeThread ends your other
         listings for it so the same item cannot sell twice. It reads your own
@@ -1402,7 +1406,7 @@ function SoldSyncSection() {
           })}
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -1423,10 +1427,11 @@ function ExtensionQueueSection() {
   };
 
   return (
-    <section>
-      <h2 className="mb-3 text-base font-semibold text-foreground">
+    // US-3032: h3 and <div> — a part of the "Browser extension" section.
+    <div>
+      <h3 className="mb-3 text-sm font-semibold text-foreground">
         Queued for your desktop
-      </h2>
+      </h3>
 
       {pending.length > 0 && (
         <div className="rounded-lg border p-3">
@@ -1490,7 +1495,7 @@ function ExtensionQueueSection() {
           </ul>
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -1725,10 +1730,19 @@ export function FlipdeskMarketplacesPage() {
       {/* US-2543 AC2: eight stacked sections meant scrolling past five pages of
           reference copy to reach a switch. The doing is in Connections, the
           settings are in Settings, and the disclosures are reference material
-          that no longer sits between them. */}
+          that no longer sits between them.
+
+          US-3032 added the fourth tab. Connections had picked up seven eBay
+          advertising cards — ads, campaign suggestions, keywords, promotions,
+          lift, follower email, account programs — which is a whole subject with
+          its own money in it, and none of it is a connection. Splitting it out
+          takes Connections back to what its name promises, and puts every card
+          that spends money on eBay where they can be read against each other.
+          The programs card went to Settings, which is what it always was. */}
       <Tabs defaultValue="connections" className="space-y-6">
         <TabsList>
           <TabsTrigger value="connections">Connections</TabsTrigger>
+          <TabsTrigger value="ads">Ads &amp; promotions</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
           <TabsTrigger value="how">How channels work</TabsTrigger>
         </TabsList>
@@ -1749,20 +1763,6 @@ export function FlipdeskMarketplacesPage() {
             oauthPending={startOauth.isPending}
           />
           <ShopifySetup />
-          {connection && <PromotedListingsSection />}
-          {/* US-1448: surface the seller's eBay Promotions Manager offers. */}
-          {connection && <EbayPromotionsCard />}
-          {/* US-2949/2951: whether the sale worked, and whether the discounts stack under cost. */}
-          {connection && <PromotionPerformanceCard />}
-          {/* US-2946/2947: what to promote, and the controls to stop it. */}
-          {connection && <EbayCampaignCard />}
-          {/* US-2945: keywords are the only lever a cost-per-click campaign has. */}
-          {connection && <EbayKeywordsCard />}
-          {/* US-2953: the audience the seller already owns and pays nothing to reach. */}
-          {connection && <FollowerCampaignCard />}
-          {/* US-2157: eBay account-level program opt-in (out-of-stock control,
-              business policy management). */}
-          {connection && <EbayProgramsCard />}
         </div>
       </section>
 
@@ -1800,23 +1800,21 @@ export function FlipdeskMarketplacesPage() {
       {/* US-718: extension tier — Poshmark/Mercari/Grailed have no public write
           API, so they're listed from the seller's own logged-in tab via the
           GradeThread Lister browser extension (US-716). Presented honestly as a
-          real, available capability — not "coming soon". */}
-      {/* US-2481: what your phone queued and this desktop has not run yet. */}
-      <SoldSyncSection />
-        <ExtensionQueueSection />
+          real, available capability — not "coming soon".
 
-      {/* US-2719: the steps, before the channel list. The paragraph below used
-          to carry the only install instruction on the page and it was not a
-          link — a seller was told to install something and given nowhere to do
-          it. The instruction now lives in the setup section, which knows what
-          is already done; this block describes the mechanism only. */}
-      <CrossPostSetup />
-
+          US-3032: this was FOUR top-level sections — "Sold-sync", "Queued for
+          your desktop", "Set up cross-posting" and "Connect via browser
+          extension" — sitting at the same level as "Active" and "Coming soon",
+          in that order. Every one of them is the same extension, and two of the
+          four hide themselves when empty, so the page's outline changed shape
+          depending on whether anything was queued. One section now, in the
+          order a seller meets it: install it, see what it owes you, see what it
+          brought back, read what each channel costs you. */}
       <section>
-        <h2 className="mb-3 text-base font-semibold text-foreground">
-          Connect via browser extension
+        <h2 className="mb-1 text-base font-semibold text-foreground">
+          Browser extension
         </h2>
-        <div className="mb-3 flex items-start gap-3 rounded-lg border p-3">
+        <div className="mb-4 flex items-start gap-3 rounded-lg border p-3">
           <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-brand-navy/10 text-brand-navy">
             <Puzzle className="h-4 w-4" />
           </div>
@@ -1835,11 +1833,31 @@ export function FlipdeskMarketplacesPage() {
             </p>
           </div>
         </div>
-        {/* US-2475: one risk block per channel, driven by MARKETPLACE_MECHANISM. */}
-        <div className="space-y-2">
-          {EXTENSION_CHANNELS.map((m) => (
-            <ChannelRisk key={m} platform={m} />
-          ))}
+
+        <div className="space-y-6">
+          {/* US-2719: the steps, before anything that depends on them. The
+              paragraph above used to carry the only install instruction on the
+              page and it was not a link — a seller was told to install
+              something and given nowhere to do it. The instruction lives in the
+              setup steps, which know what is already done. */}
+          <CrossPostSetup />
+
+          {/* US-2481: what your phone queued and this desktop has not run yet. */}
+          <ExtensionQueueSection />
+
+          <SoldSyncSection />
+
+          <div>
+            <h3 className="mb-3 text-sm font-semibold text-foreground">
+              What each channel means for your account
+            </h3>
+            {/* US-2475: one risk block per channel, driven by MARKETPLACE_MECHANISM. */}
+            <div className="space-y-2">
+              {EXTENSION_CHANNELS.map((m) => (
+                <ChannelRisk key={m} platform={m} />
+              ))}
+            </div>
+          </div>
         </div>
       </section>
 
@@ -1887,6 +1905,74 @@ export function FlipdeskMarketplacesPage() {
           )}
         </div>
       </section>
+        </TabsContent>
+
+        {/* US-3032. Everything here spends money on eBay, so it is read
+            together or not at all. Gated once on the connection rather than per
+            card: five cards each saying "connect eBay first" is the state this
+            replaced. */}
+        <TabsContent value="ads" className="space-y-8">
+          {connLoading ? (
+            // Nothing, not the prompt below: telling a connected seller to go
+            // and connect eBay for the half-second before the query answers is
+            // worse than an empty tab.
+            <div className="h-4" />
+          ) : !connection ? (
+            <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+              Connect eBay on the Connections tab and your ads, sales and
+              follower emails show up here.
+            </div>
+          ) : (
+            <>
+              <section>
+                <h2 className="mb-1 text-base font-semibold text-foreground">
+                  Promoted Listings
+                </h2>
+                <p className="mb-3 max-w-prose text-xs text-muted-foreground">
+                  A Cost-Per-Sale ad: eBay charges the ad rate only when the item
+                  sells through the ad, never up front. What is running now,
+                  then what eBay thinks is worth adding.
+                </p>
+                <div className="space-y-4">
+                  <PromotedListingsSection />
+                  {/* US-2946/2947: what to promote, and the controls to stop it. */}
+                  <EbayCampaignCard />
+                  {/* US-2945: keywords are the only lever a cost-per-click
+                      campaign has, so they sit with the campaign rather than on
+                      a connections list, where they answered no question a
+                      seller was asking. */}
+                  <EbayKeywordsCard />
+                </div>
+              </section>
+
+              <section>
+                <h2 className="mb-1 text-base font-semibold text-foreground">
+                  Sales and discounts
+                </h2>
+                <p className="mb-3 max-w-prose text-xs text-muted-foreground">
+                  Markdowns, coupons and volume discounts, and whether they
+                  earned their keep.
+                </p>
+                <div className="space-y-4">
+                  {/* US-1448: the seller's eBay Promotions Manager offers. */}
+                  <EbayPromotionsCard />
+                  {/* US-2949/2951: whether the sale worked, and whether the
+                      discounts stack under cost. Renders nothing at all when it
+                      has neither — see promotionPerformanceHasContent. */}
+                  <PromotionPerformanceCard />
+                </div>
+              </section>
+
+              <section>
+                <h2 className="mb-3 text-base font-semibold text-foreground">
+                  Your followers
+                </h2>
+                {/* US-2953: the audience the seller already owns and pays
+                    nothing to reach. */}
+                <FollowerCampaignCard />
+              </section>
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="settings" className="space-y-8">
@@ -1942,6 +2028,25 @@ export function FlipdeskMarketplacesPage() {
               images can get marketplace accounts suspended.
             </p>
           </div>
+        </section>
+
+        {/* US-2157: eBay account-level program opt-in (out-of-stock control,
+            business policy management).
+
+            US-3032 moved it here from the connections list. Its own description
+            calls it "account-level eBay settings that change how your listings
+            behave", which is the definition of this tab and not of that one. */}
+        <section>
+          <h2 className="mb-3 text-base font-semibold text-foreground">
+            eBay account programs
+          </h2>
+          {connection ? (
+            <EbayProgramsCard />
+          ) : (
+            <p className="rounded-lg border border-dashed p-3 text-xs text-muted-foreground">
+              Connect eBay on the Connections tab to switch these on.
+            </p>
+          )}
         </section>
         </TabsContent>
 

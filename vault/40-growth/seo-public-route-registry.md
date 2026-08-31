@@ -9,12 +9,19 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-08-30
+reviewed: 2026-08-31
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
 
 # SEO — the public route registry
+
+> **Re-reviewed 2026-08-31.** Drift flagged `public-routes.ts`, `entry-server.tsx` and `routes/index.tsx`
+> together for US-9033 — which is this note's own lockstep firing exactly as
+> documented, on one new route (`/tools/rn-lookup`). Re-verified while here:
+> the three places named above are still the three a static public page needs,
+> the lastmod map is still a fourth, and following this note was enough to ship
+> the route with no guard complaining.
 
 > **Re-reviewed 2026-08-30.** Drift flagged `src/routes/index.tsx` for
 > `8f9719281` (US-3019), which adds `/dashboard/flipdesk/analytics/team`.

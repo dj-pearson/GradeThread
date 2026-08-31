@@ -7,11 +7,17 @@ code_refs:
   - src/prerender/head-builder.ts
   - src/prerender/entry-server.tsx
   - src/lib/seo/json-ld.ts
-reviewed: 2026-08-28
+reviewed: 2026-08-31
 tags: [seo, prerender, ci, contract]
 summary: What CI enforces about the HTML crawlers actually receive, and how to read each failure.
 ---
 # Prerender / hydration parity — runbook (US-1669)
+
+> **Re-reviewed 2026-08-31.** Drift flagged `src/prerender/entry-server.tsx` for US-9033, which adds
+> `/tools/rn-lookup` to the prerender map. That is the guard in this note doing
+> its job rather than a change to it: the sync guard is what required the entry.
+> The new `/rn/:number` family is edge-SSR'd like `/cert` and `/style`, so it
+> sits outside the prerender registry by design.
 
 Bots (Googlebot, and JS-less LLM crawlers like GPTBot/ClaudeBot/PerplexityBot)
 fetch the **static `dist/*.html`** we prerender — the exact bytes Cloudflare
