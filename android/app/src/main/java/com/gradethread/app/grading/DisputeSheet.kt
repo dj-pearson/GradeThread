@@ -78,18 +78,21 @@ fun DisputeSheet(
                 )
 
                 DisputeReason.entries.forEach { reason ->
+                    // Hoisted: `semantics { }` is not a composable scope, so
+                    // stringResource cannot be called inside it.
+                    val reasonLabel = stringResource(reason.label)
                     Row(
                         Modifier
                             .fillMaxWidth()
                             .clickable { viewModel.setReason(reason) }
-                            .semantics { contentDescription = reason.label },
+                            .semantics { contentDescription = reasonLabel },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(
                             selected = reason == state.reason,
                             onClick = { viewModel.setReason(reason) },
                         )
-                        Text(reason.label, style = MaterialTheme.typography.bodyMedium)
+                        Text(reasonLabel, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
 
@@ -159,12 +162,7 @@ fun DisputeSheet(
 }
 
 @Composable
-private fun Outcome(
-    title: String,
-    body: String,
-    onClose: () -> Unit,
-    extra: String? = null,
-) {
+private fun Outcome(title: String, body: String, onClose: () -> Unit, extra: String? = null) {
     Column(
         Modifier
             .fillMaxWidth()

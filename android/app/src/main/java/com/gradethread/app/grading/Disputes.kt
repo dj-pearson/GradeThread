@@ -1,5 +1,8 @@
 package com.gradethread.app.grading
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -10,14 +13,47 @@ import kotlinx.serialization.Serializable
  * filed from Android reads identically in the admin queue — the reason string
  * is what a human reviewer sorts by.
  */
-enum class DisputeReason(val wire: String, val label: String) {
-    GRADE_TOO_LOW("grade_too_low", "Overall grade is too low"),
-    DESIGN_AS_DAMAGE("design_as_damage", "Intentional design counted as damage"),
-    DEFECT_NOT_PRESENT("defect_not_present", "A listed defect isn't actually present"),
-    MISSED_DETAIL("missed_detail", "An important detail or flaw was missed"),
-    WRONG_CATEGORY("wrong_category", "Wrong garment type or category"),
-    FACTOR_SCORE("factor_score", "A factor score looks wrong"),
-    OTHER("other", "Other (please explain)"),
+/**
+ * US-2976: THREE fields where there were two, the same split as
+ * [com.gradethread.app.feedback.Feedback.Category].
+ *
+ * [label] is the chip the seller taps and is a resource. [record] is what
+ * [DisputeComposer.compose] puts in front of the submitted text, and stays
+ * ENGLISH because a GradeThread reviewer reads it - a dispute filed in Spanish
+ * would land under a reason nobody can group with the English ones.
+ */
+enum class DisputeReason(val wire: String, @StringRes val label: Int, val record: String) {
+    GRADE_TOO_LOW(
+        "grade_too_low",
+        R.string.dispute_reason_grade_too_low,
+        "Overall grade is too low",
+    ),
+    DESIGN_AS_DAMAGE(
+        "design_as_damage",
+        R.string.dispute_reason_design_as_damage,
+        "Intentional design counted as damage",
+    ),
+    DEFECT_NOT_PRESENT(
+        "defect_not_present",
+        R.string.dispute_reason_defect_not_present,
+        "A listed defect isn't actually present",
+    ),
+    MISSED_DETAIL(
+        "missed_detail",
+        R.string.dispute_reason_missed_detail,
+        "An important detail or flaw was missed",
+    ),
+    WRONG_CATEGORY(
+        "wrong_category",
+        R.string.dispute_reason_wrong_category,
+        "Wrong garment type or category",
+    ),
+    FACTOR_SCORE(
+        "factor_score",
+        R.string.dispute_reason_factor_score,
+        "A factor score looks wrong",
+    ),
+    OTHER("other", R.string.dispute_reason_other, "Other (please explain)"),
 }
 
 /**
@@ -32,16 +68,15 @@ object DisputeComposer {
     fun compose(reason: DisputeReason, details: String): String {
         val trimmed = details.trim()
         if (reason == DisputeReason.OTHER) return trimmed
-        if (trimmed.isEmpty()) return reason.label
-        return "${reason.label} — $trimmed"
+        if (trimmed.isEmpty()) return reason.record
+        return "${reason.record} — $trimmed"
     }
 
-    fun canSubmit(reason: DisputeReason, details: String): Boolean =
-        if (reason == DisputeReason.OTHER) {
-            details.trim().length >= OTHER_MIN_LENGTH
-        } else {
-            true
-        }
+    fun canSubmit(reason: DisputeReason, details: String): Boolean = if (reason == DisputeReason.OTHER) {
+        details.trim().length >= OTHER_MIN_LENGTH
+    } else {
+        true
+    }
 }
 
 /**
@@ -74,10 +109,7 @@ object GradeDisputeWindow {
     }
 
     /** Whole days left, floored at 0. Null when the timestamp is unusable. */
-    fun daysRemaining(
-        createdAtIso: String?,
-        nowMillis: Long = System.currentTimeMillis(),
-    ): Int? {
+    fun daysRemaining(createdAtIso: String?, nowMillis: Long = System.currentTimeMillis()): Int? {
         val created = parseIsoMillis(createdAtIso) ?: return null
         val elapsedDays = (nowMillis - created) / MILLIS_PER_DAY
         return (DAYS - elapsedDays).coerceAtLeast(0).toInt()
@@ -124,8 +156,7 @@ object DisputeStatusDisplay {
 
     fun isDisputed(status: String?): Boolean = label(status) != null
 
-    fun accessibilityLabel(status: String?): String =
-        label(status)?.let { "Grade dispute: $it" } ?: "Grade dispute"
+    fun accessibilityLabel(status: String?): String = label(status)?.let { "Grade dispute: $it" } ?: "Grade dispute"
 
     /**
      * Whether a NEW dispute may be filed. A grade already under dispute must

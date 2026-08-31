@@ -55,7 +55,6 @@
     "grading/GradeReportViewModel.kt": 1,
     "grading/GradeRequestMachine.kt": 4,
     "grading/GradeRequestViewModel.kt": 1,
-    "grading/GradeTier.kt": 6,
     "grading/GradesList.kt": 6,
     "grading/GradesListViewModel.kt": 1,
     "grading/PhotoGradePayment.kt": 3,

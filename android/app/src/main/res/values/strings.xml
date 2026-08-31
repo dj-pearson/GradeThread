@@ -2253,4 +2253,20 @@
     <string name="bulkpricing_summary_all">Updated %1$d listings on eBay.</string>
     <string name="bulkpricing_summary_zero">None of the %1$d updates went through.</string>
     <string name="bulkpricing_summary_partial">Updated %1$d of %2$d. The rest are marked below with what eBay said.</string>
+    <string name="grade_tier_standard">Standard</string>
+    <string name="grade_tier_standard_turnaround">~48 hr</string>
+    <string name="grade_tier_standard_blurb">Full certified grade. Included with your plan.</string>
+    <string name="grade_tier_premium">Premium</string>
+    <string name="grade_tier_premium_turnaround">~12 hr</string>
+    <string name="grade_tier_premium_blurb">Faster queue for time-sensitive listings.</string>
+    <string name="grade_tier_express">Express</string>
+    <string name="grade_tier_express_turnaround">~1 hr</string>
+    <string name="grade_tier_express_blurb">Top-priority &#8212; graded within the hour.</string>
+    <string name="dispute_reason_grade_too_low">Overall grade is too low</string>
+    <string name="dispute_reason_design_as_damage">Intentional design counted as damage</string>
+    <string name="dispute_reason_defect_not_present">A listed defect isn\'t actually present</string>
+    <string name="dispute_reason_missed_detail">An important detail or flaw was missed</string>
+    <string name="dispute_reason_wrong_category">Wrong garment type or category</string>
+    <string name="dispute_reason_factor_score">A factor score looks wrong</string>
+    <string name="dispute_reason_other">Other (please explain)</string>
 </resources>

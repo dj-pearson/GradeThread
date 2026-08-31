@@ -207,7 +207,7 @@ fun BulkGradeContent(
                     pluralStringResource(
                         R.plurals.bulkgrade_confirm_body,
                         tier.creditCost,
-                        tier.label,
+                        stringResource(tier.label),
                         tier.creditCost,
                         state.creditBalance,
                     ),
@@ -302,7 +302,7 @@ private fun ReadyBody(
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    tier.label,
+                    stringResource(tier.label),
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
@@ -317,7 +317,11 @@ private fun ReadyBody(
                 )
             }
             Text(
-                stringResource(R.string.graderequest_tier_detail, tier.turnaround, tier.blurb),
+                stringResource(
+                    R.string.graderequest_tier_detail,
+                    stringResource(tier.turnaround),
+                    stringResource(tier.blurb),
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

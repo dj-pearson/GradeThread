@@ -1,5 +1,8 @@
 package com.gradethread.app.grading
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 /**
  * US-1336: the three certified-grade tiers (iOS `GradeTierOption`).
  *
@@ -10,38 +13,37 @@ package com.gradethread.app.grading
  */
 enum class GradeTier(
     val wire: String,
-    val label: String,
-    val turnaround: String,
+    @StringRes val label: Int,
+    @StringRes val turnaround: Int,
     val creditCost: Int,
-    val blurb: String,
+    @StringRes val blurb: Int,
 ) {
     STANDARD(
         wire = "standard",
-        label = "Standard",
-        turnaround = "~48 hr",
+        label = R.string.grade_tier_standard,
+        turnaround = R.string.grade_tier_standard_turnaround,
         creditCost = 1,
-        blurb = "Full certified grade. Included with your plan.",
+        blurb = R.string.grade_tier_standard_blurb,
     ),
     PREMIUM(
         wire = "premium",
-        label = "Premium",
-        turnaround = "~12 hr",
+        label = R.string.grade_tier_premium,
+        turnaround = R.string.grade_tier_premium_turnaround,
         creditCost = 3,
-        blurb = "Faster queue for time-sensitive listings.",
+        blurb = R.string.grade_tier_premium_blurb,
     ),
     EXPRESS(
         wire = "express",
-        label = "Express",
-        turnaround = "~1 hr",
+        label = R.string.grade_tier_express,
+        turnaround = R.string.grade_tier_express_turnaround,
         creditCost = 5,
-        blurb = "Top-priority — graded within the hour.",
+        blurb = R.string.grade_tier_express_blurb,
     ),
     ;
 
     companion object {
         val default: GradeTier = STANDARD
 
-        fun fromWire(value: String?): GradeTier =
-            entries.firstOrNull { it.wire == value } ?: default
+        fun fromWire(value: String?): GradeTier = entries.firstOrNull { it.wire == value } ?: default
     }
 }

@@ -2122,4 +2122,20 @@
     <string name="bulkpricing_summary_all">%1$d anuncios actualizados en eBay.</string>
     <string name="bulkpricing_summary_zero">Ninguna de las %1$d actualizaciones se aplicó.</string>
     <string name="bulkpricing_summary_partial">%1$d de %2$d actualizados. El resto están marcados abajo con lo que dijo eBay.</string>
+    <string name="grade_tier_standard">Estándar</string>
+    <string name="grade_tier_standard_turnaround">~48 h</string>
+    <string name="grade_tier_standard_blurb">Nota certificada completa. Incluida en tu plan.</string>
+    <string name="grade_tier_premium">Premium</string>
+    <string name="grade_tier_premium_turnaround">~12 h</string>
+    <string name="grade_tier_premium_blurb">Cola más rápida para anuncios que corren prisa.</string>
+    <string name="grade_tier_express">Exprés</string>
+    <string name="grade_tier_express_turnaround">~1 h</string>
+    <string name="grade_tier_express_blurb">Máxima prioridad &#8212; evaluada en una hora.</string>
+    <string name="dispute_reason_grade_too_low">La nota general es demasiado baja</string>
+    <string name="dispute_reason_design_as_damage">Un detalle de diseño contado como daño</string>
+    <string name="dispute_reason_defect_not_present">Un defecto listado no está presente</string>
+    <string name="dispute_reason_missed_detail">Se pasó por alto un detalle o defecto importante</string>
+    <string name="dispute_reason_wrong_category">Tipo de prenda o categoría equivocados</string>
+    <string name="dispute_reason_factor_score">La puntuación de un factor parece incorrecta</string>
+    <string name="dispute_reason_other">Otro (explícalo)</string>
 </resources>

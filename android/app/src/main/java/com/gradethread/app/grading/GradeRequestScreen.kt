@@ -291,7 +291,7 @@ private fun TierRow(tier: GradeTier, selected: Boolean, spendsCredits: Boolean, 
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                tier.label,
+                stringResource(tier.label),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f),
