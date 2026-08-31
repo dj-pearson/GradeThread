@@ -1,5 +1,9 @@
 package com.gradethread.app.inventory
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -27,37 +31,52 @@ object MeasurementCatalog {
         MM("mm"),
     }
 
-    data class Spec(val key: String, val label: String, val kind: Kind)
+    /**
+     * A measurement key, what it is CALLED on the wire, and what the seller
+     * reads.
+     *
+     * ⚠ [label] IS NOT DISPLAY COPY AND MUST NOT BE TRANSLATED. It is
+     * persisted onto a calibration line and drawn into the overlay image the
+     * BUYER sees - `formatInches(line.label, line.inches)` in
+     * services/edge-functions/src/lib/measure-overlay.ts - and it is the key
+     * the web matches on in src/lib/measurements.ts. A Spanish seller whose
+     * client wrote "Pecho (de axila a axila)" here would publish a listing
+     * photo captioned in a language the buyer did not choose.
+     *
+     * [display] is the same measurement in the seller's own language, and is
+     * what every screen shows. US-2976 separated the two.
+     */
+    data class Spec(val key: String, val label: String, @StringRes val display: Int, val kind: Kind)
 
     /** Canonical key → spec, in render order. */
     val specs: List<Spec> = listOf(
-        Spec("chest", "Chest (pit to pit)", Kind.LENGTH),
-        Spec("bust", "Bust", Kind.LENGTH),
-        Spec("waist", "Waist (flat)", Kind.LENGTH),
-        Spec("hip", "Hip", Kind.LENGTH),
-        Spec("inseam", "Inseam", Kind.LENGTH),
-        Spec("rise", "Front rise", Kind.LENGTH),
-        Spec("leg_opening", "Leg opening", Kind.LENGTH),
-        Spec("sleeve", "Sleeve", Kind.LENGTH),
-        Spec("shoulder", "Shoulder", Kind.LENGTH),
-        Spec("length", "Length", Kind.LENGTH),
-        Spec("width", "Width", Kind.LENGTH),
-        Spec("insole", "Insole length", Kind.LENGTH),
-        Spec("size_us", "US size", Kind.SHOE),
+        Spec("chest", "Chest (pit to pit)", R.string.measurement_chest, Kind.LENGTH),
+        Spec("bust", "Bust", R.string.measurement_bust, Kind.LENGTH),
+        Spec("waist", "Waist (flat)", R.string.measurement_waist, Kind.LENGTH),
+        Spec("hip", "Hip", R.string.measurement_hip, Kind.LENGTH),
+        Spec("inseam", "Inseam", R.string.measurement_inseam, Kind.LENGTH),
+        Spec("rise", "Front rise", R.string.measurement_rise, Kind.LENGTH),
+        Spec("leg_opening", "Leg opening", R.string.measurement_leg_opening, Kind.LENGTH),
+        Spec("sleeve", "Sleeve", R.string.measurement_sleeve, Kind.LENGTH),
+        Spec("shoulder", "Shoulder", R.string.measurement_shoulder, Kind.LENGTH),
+        Spec("length", "Length", R.string.measurement_length, Kind.LENGTH),
+        Spec("width", "Width", R.string.measurement_width, Kind.LENGTH),
+        Spec("insole", "Insole length", R.string.measurement_insole, Kind.LENGTH),
+        Spec("size_us", "US size", R.string.measurement_size_us, Kind.SHOE),
         // US-2812: bags, belts and headwear. These existed on the web and in
         // no native catalog, so suggestedKeys could not offer them and a key
         // arriving from the server rendered with an auto-derived label.
-        Spec("height", "Height", Kind.LENGTH),
-        Spec("depth", "Depth", Kind.LENGTH),
-        Spec("strap_drop", "Strap drop", Kind.LENGTH),
-        Spec("handle_drop", "Handle drop", Kind.LENGTH),
-        Spec("hole_span", "First to last hole (belts)", Kind.LENGTH),
-        Spec("circumference", "Head circumference (inside)", Kind.LENGTH),
-        Spec("crown_height", "Crown height", Kind.LENGTH),
-        Spec("brim_length", "Brim length", Kind.LENGTH),
-        Spec("case_diameter", "Case diameter", Kind.MM),
-        Spec("lug_width", "Lug width", Kind.MM),
-        Spec("band_length", "Band length", Kind.MM),
+        Spec("height", "Height", R.string.measurement_height, Kind.LENGTH),
+        Spec("depth", "Depth", R.string.measurement_depth, Kind.LENGTH),
+        Spec("strap_drop", "Strap drop", R.string.measurement_strap_drop, Kind.LENGTH),
+        Spec("handle_drop", "Handle drop", R.string.measurement_handle_drop, Kind.LENGTH),
+        Spec("hole_span", "First to last hole (belts)", R.string.measurement_hole_span, Kind.LENGTH),
+        Spec("circumference", "Head circumference (inside)", R.string.measurement_circumference, Kind.LENGTH),
+        Spec("crown_height", "Crown height", R.string.measurement_crown_height, Kind.LENGTH),
+        Spec("brim_length", "Brim length", R.string.measurement_brim_length, Kind.LENGTH),
+        Spec("case_diameter", "Case diameter", R.string.measurement_case_diameter, Kind.MM),
+        Spec("lug_width", "Lug width", R.string.measurement_lug_width, Kind.MM),
+        Spec("band_length", "Band length", R.string.measurement_band_length, Kind.MM),
     )
 
     private val byKey: Map<String, Spec> = specs.associateBy { it.key }
@@ -115,10 +134,27 @@ object MeasurementCatalog {
     }
 
     /** Human label; a non-canonical key de-underscores rather than vanishing. */
-    fun label(key: String): String = byKey[key]?.label
-        ?: key.split("_").joinToString(" ") { part ->
-            part.replaceFirstChar { it.uppercase() }
-        }
+    /**
+     * The WIRE label: persisted with a calibration line and drawn into the
+     * buyer-facing overlay. See [Spec.label] - this one does not translate.
+     */
+    fun label(key: String): String = byKey[key]?.label ?: derive(key)
+
+    /**
+     * What the SELLER reads for this key.
+     *
+     * US-2976: a key this build has never seen still gets a name, derived from
+     * the key itself, and that derived name arrives as `detail` - it is not
+     * ours to translate and inventing a resource for it would be a lie.
+     */
+    fun display(key: String): UiMessage {
+        val spec = byKey[key] ?: return UiMessage(R.string.measurement_unknown, detail = derive(key))
+        return UiMessage(spec.display)
+    }
+
+    private fun derive(key: String): String = key.split("_").joinToString(" ") { part ->
+        part.replaceFirstChar { it.uppercase() }
+    }
 
     /** Unknown keys are treated as lengths — overwhelmingly the common case. */
     fun kind(key: String): Kind = byKey[key]?.kind ?: Kind.LENGTH

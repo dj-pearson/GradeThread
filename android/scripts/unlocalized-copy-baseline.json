@@ -64,7 +64,6 @@
     "inventory/ItemPhotoRepository.kt": 2,
     "inventory/ItemPhotosViewModel.kt": 6,
     "inventory/ListingCopyService.kt": 2,
-    "inventory/MeasurementCatalog.kt": 36,
     "marketplaces/EbayOAuth.kt": 2,
     "marketplaces/EbaySync.kt": 2,
     "marketplaces/ExtensionQueue.kt": 3,

@@ -52,6 +52,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.gradethread.app.R
 import com.gradethread.app.inventory.MeasurementCatalog
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandPalette
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -193,7 +194,14 @@ private fun EditorBody(
             addable.forEach { key ->
                 AssistChip(
                     onClick = { viewModel.addLine(key) },
-                    label = { Text(stringResource(R.string.measure_editor_add_line, MeasurementCatalog.label(key))) },
+                    label = {
+                        Text(
+                            stringResource(
+                                R.string.measure_editor_add_line,
+                                MeasurementCatalog.display(key).text(),
+                            ),
+                        )
+                    },
                 )
             }
         }

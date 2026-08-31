@@ -129,6 +129,61 @@ LABEL_VOCABULARY = {
         "taps is Category.label and IS translated.",
         ["I wish it did…", "This worked well"],
     ),
+    # US-2976: the same two-owners shape, and the costliest instance of it.
+    # These strings are PERSISTED onto a calibration line and then drawn into
+    # the overlay image the BUYER sees - formatInches(line.label, line.inches)
+    # in services/edge-functions/src/lib/measure-overlay.ts - as well as being
+    # the key src/lib/measurements.ts matches on. Translating them would burn
+    # Spanish into a listing photo aimed at an English-speaking buyer, and
+    # nothing on the seller's screen would look wrong while it happened.
+    "inventory/MeasurementCatalog.kt": (
+        "Spec.label, persisted with a calibration line and rendered into the "
+        "buyer-facing overlay by the edge. What the SELLER reads is "
+        "Spec.display / MeasurementCatalog.display(), which IS translated.",
+        [
+            "Chest (pit to pit)",
+            "Waist (flat)",
+            "Front rise",
+            "Leg opening",
+            "Insole length",
+            "US size",
+            "Strap drop",
+            "Handle drop",
+            "First to last hole (belts)",
+            "Head circumference (inside)",
+            "Crown height",
+            "Brim length",
+            "Case diameter",
+            "Lug width",
+            "Band length",
+            # aspectCandidates: eBay's OWN field names, matched against the
+            # aspect list eBay returns for a category. A translated one matches
+            # nothing, so the publish quietly stops filling that blank and the
+            # seller is asked to type a measurement the item already carries.
+            # Same class as marketplaces/publish/EbayCondition.kt below.
+            "Inseam Length",
+            "Front Rise",
+            "Hem Width",
+            "Shoulder to Shoulder",
+            "Garment Length",
+            "Shoe Size",
+            "Case Size",
+            "Bust Size",
+            "Strap Length",
+            "Bust",
+            "Chest",
+            "Waist",
+            "Hip",
+            "Inseam",
+            "Sleeve",
+            "Shoulder",
+            "Length",
+            "Width",
+            "Height",
+            "Depth",
+            "Insole",
+        ],
+    ),
     "billing/SubscriptionCatalog.kt": (
         "Product names, not words. A seller who reads about Pro in a Spanish "
         "support thread has to find Pro on the paywall. The billing PERIODS in "

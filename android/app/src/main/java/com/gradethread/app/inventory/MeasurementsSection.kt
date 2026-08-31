@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import com.gradethread.app.R
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 
@@ -83,7 +84,7 @@ fun MeasurementsSection(
                 suggestions.forEach { key ->
                     AssistChip(
                         onClick = { opened = opened + key },
-                        label = { Text("+ ${MeasurementCatalog.label(key)}") },
+                        label = { Text("+ ${MeasurementCatalog.display(key).text()}") },
                     )
                 }
             }
@@ -92,12 +93,7 @@ fun MeasurementsSection(
 }
 
 @Composable
-private fun MeasurementField(
-    key: String,
-    value: Double?,
-    onSet: (Double?) -> Unit,
-    onRemove: () -> Unit,
-) {
+private fun MeasurementField(key: String, value: Double?, onSet: (Double?) -> Unit, onRemove: () -> Unit) {
     // The field holds TEXT, not the parsed number: re-formatting mid-typing
     // would fight the seller over a half-entered "18." (and, in a
     // comma-decimal locale, over "18,").
@@ -114,7 +110,7 @@ private fun MeasurementField(
                 // than one claiming nothing.
                 onSet(MeasurementCatalog.parse(entered))
             },
-            label = { Text("${MeasurementCatalog.label(key)} (${spec.unit})") },
+            label = { Text("${MeasurementCatalog.display(key).text()} (${spec.unit})") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.weight(1f),
@@ -144,10 +140,10 @@ fun SizeEstimateCard(
         if (estimate == null) {
             BrandSecondaryButton(
                 text = if (busy) {
-                stringResource(R.string.measure_estimating)
-            } else {
-                stringResource(R.string.measure_estimate_cta)
-            },
+                    stringResource(R.string.measure_estimating)
+                } else {
+                    stringResource(R.string.measure_estimate_cta)
+                },
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
             ) { onEstimate() }
