@@ -1,5 +1,7 @@
 package com.gradethread.app.money
 
+import com.gradethread.app.ui.UiMessage
+
 import com.gradethread.app.sync.db.InventoryItemEntity
 import com.gradethread.app.sync.db.SaleEntity
 
@@ -13,7 +15,17 @@ data class SaleRow(
     val fees: Double,
     val costBasis: Double,
     val netProfit: Double,
-    val statusLabel: String,
+    val statusLabel: UiMessage,
+    /**
+     * The raw status, kept beside the label.
+     *
+     * US-2976: the sales screen chose the chip's COLOUR by matching the label
+     * against "Refunded" / "Cancelled" / "Pending". Translating the label would
+     * have made every one of those fall through to the neutral grey, in
+     * Spanish only, with nothing failing - a refunded sale quietly losing the
+     * one visual cue that says the money went back.
+     */
+    val status: String,
     /** False for refunded/cancelled/pending — the row is shown, not summed. */
     val countsTowardTotals: Boolean,
 ) {
@@ -44,10 +56,7 @@ data class SalesSummary(
  */
 object SalesRollup {
 
-    fun compute(
-        sales: List<SaleEntity>,
-        items: List<InventoryItemEntity>,
-    ): SalesSummary {
+    fun compute(sales: List<SaleEntity>, items: List<InventoryItemEntity>): SalesSummary {
         val byId = items.associateBy { it.id }
 
         val rows = sales
@@ -69,6 +78,7 @@ object SalesRollup {
                     costBasis = Money.cents(cost),
                     netProfit = Money.cents(SalePnL.net(sale, cost)),
                     statusLabel = SalePnL.statusLabel(sale),
+                    status = sale.status,
                     countsTowardTotals = SalePnL.isCompleted(sale),
                 )
             }

@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gradethread.app.R
+import com.gradethread.app.ui.text
+import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.ui.theme.Spacing
 import java.time.Instant
 import java.time.ZoneId
@@ -272,21 +274,24 @@ private fun SaleRowView(row: SaleRow, onClick: () -> Unit) {
             } else {
                 // No P&L figure for a reversed order — printing one would imply
                 // money that never landed.
-                StatusChip(row.statusLabel)
+                StatusChip(row.status, row.statusLabel)
             }
         }
     }
 }
 
 @Composable
-private fun StatusChip(text: String) {
-    val tone = when (text) {
-        "Refunded", "Cancelled" -> MaterialTheme.colorScheme.error
-        "Pending" -> Color(0xFFF59E0B)
+private fun StatusChip(status: String, label: UiMessage) {
+    // US-2976: keyed on the WIRE status, not on the label. This used to match
+    // the English words, so a translated label fell through to the neutral
+    // grey and a refunded sale lost the only cue saying the money went back.
+    val tone = when (status) {
+        "refunded", "cancelled" -> MaterialTheme.colorScheme.error
+        "pending" -> Color(0xFFF59E0B)
         else -> Color(0xFF6B7280)
     }
     Text(
-        text = text,
+        text = label.text(),
         style = MaterialTheme.typography.labelSmall,
         color = tone,
         modifier = Modifier

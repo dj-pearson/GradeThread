@@ -4,6 +4,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.gradethread.app.money.MoneyFixtures
+import com.gradethread.app.money.SalePnL
 import com.gradethread.app.money.SaleRow
 import com.gradethread.app.money.SalesActions
 import com.gradethread.app.money.SalesContent
@@ -43,12 +45,12 @@ class SalesScreenshotTest {
     private val aug = 1_756_000_000_000L
 
     private val rows = listOf(
-        row("s1", "Levi's 501 Straight Jean", 78.0, 11.70, 24.0, "Completed", true),
-        row("s2", "Barbour Bedale Wax Jacket", 210.0, 31.50, 90.0, "Completed", true),
+        row("s1", "Levi's 501 Straight Jean", 78.0, 11.70, 24.0, "completed", true),
+        row("s2", "Barbour Bedale Wax Jacket", 210.0, 31.50, 90.0, "completed", true),
         // No cost basis recorded: ROI must read as an em dash, never 0%.
-        row("s3", "Uniqlo Oxford Shirt", 22.0, 3.30, 0.0, "Completed", true),
+        row("s3", "Uniqlo Oxford Shirt", 22.0, 3.30, 0.0, "completed", true),
         // Shown, NOT summed. Its 64.00 must not appear in the total above.
-        row("s4", "Patagonia Better Sweater", 64.0, 9.60, 30.0, "Refunded", false),
+        row("s4", "Patagonia Better Sweater", 64.0, 9.60, 30.0, "refunded", false),
     )
 
     private val summary = SalesSummary(
@@ -94,7 +96,7 @@ class SalesScreenshotTest {
         revenue: Double,
         fees: Double,
         costBasis: Double,
-        statusLabel: String,
+        status: String,
         counts: Boolean,
     ) = SaleRow(
         saleId = id,
@@ -105,7 +107,12 @@ class SalesScreenshotTest {
         fees = fees,
         costBasis = costBasis,
         netProfit = revenue - fees - costBasis,
-        statusLabel = statusLabel,
+        // US-2976: the label comes from the REAL mapping rather than being
+        // restated here, so the fixture cannot show a status word the app
+        // would not produce. `status` is also what picks the chip's colour
+        // now - it used to be matched against the English label.
+        statusLabel = SalePnL.statusLabel(MoneyFixtures.sale(id, "i-$id", status = status)),
+        status = status,
         countsTowardTotals = counts,
     )
 

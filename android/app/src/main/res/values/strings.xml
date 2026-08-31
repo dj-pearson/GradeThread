@@ -2920,4 +2920,9 @@
     <string name="ai_extract_unavailable">AI extraction is temporarily unavailable. Please try again in a moment.</string>
     <string name="ai_extract_generic_error">Something went wrong. Please try again.</string>
     <string name="ai_fill_save_failed">Couldn\'t save: %1$s</string>
+    <string name="sale_status_completed">Completed</string>
+    <string name="sale_status_pending">Pending</string>
+    <string name="sale_status_refunded">Refunded</string>
+    <string name="sale_status_cancelled">Cancelled</string>
+    <string name="sale_status_other">Status</string>
 </resources>

@@ -1,5 +1,11 @@
 package com.gradethread.app.money
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.gradethread.app.ui.text
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+
 import com.gradethread.app.money.MoneyFixtures.item
 import com.gradethread.app.money.MoneyFixtures.ms
 import com.gradethread.app.money.MoneyFixtures.sale
@@ -17,7 +23,13 @@ import org.junit.Test
  * change is to assert it against the OTHER rollup rather than against a hardcoded
  * number that could drift with it.
  */
+@RunWith(RobolectricTestRunner::class)
 class SalesRollupTest {
+
+    // US-2976: these three assert the WORD a seller reads - "Pending" is the
+    // whole point of the test that says a pending sale is not folded into
+    // completed. Rendered, not asserted as ids.
+    private val context = ApplicationProvider.getApplicationContext<Context>()
 
     private val day = DashboardRollup.DAY_MS
     private val now = ms(2026, 6, 20)
@@ -55,7 +67,7 @@ class SalesRollupTest {
             emptyList(),
         )
         val row = state.rows.single()
-        assertEquals("Refunded", row.statusLabel)
+        assertEquals("Refunded", row.statusLabel.text(context))
         assertFalse(row.countsTowardTotals)
     }
 
@@ -67,7 +79,7 @@ class SalesRollupTest {
             listOf(sale("p", "i1", status = "pending", saleDate = now)),
             emptyList(),
         ).rows.single()
-        assertEquals("Pending", row.statusLabel)
+        assertEquals("Pending", row.statusLabel.text(context))
         assertFalse(row.countsTowardTotals)
     }
 
@@ -77,7 +89,7 @@ class SalesRollupTest {
             listOf(sale("s", "i1", status = "", saleDate = now)),
             emptyList(),
         ).rows.single()
-        assertEquals("Completed", row.statusLabel)
+        assertEquals("Completed", row.statusLabel.text(context))
         assertTrue(row.countsTowardTotals)
     }
 
@@ -104,7 +116,8 @@ class SalesRollupTest {
         )
         val sales = listOf(
             sale(
-                "s1", "i1",
+                "s1",
+                "i1",
                 salePrice = 100.0,
                 shippingCollected = 10.0,
                 platformFees = 13.0,
@@ -143,7 +156,8 @@ class SalesRollupTest {
         val items = listOf(item("i1", acquiredPrice = 20.0))
         val sales = listOf(
             sale(
-                "s1", "i1",
+                "s1",
+                "i1",
                 salePrice = 100.0,
                 platformFees = 10.0,
                 saleDate = ms(2026, 6, 5),

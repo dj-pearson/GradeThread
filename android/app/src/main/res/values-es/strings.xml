@@ -2786,4 +2786,9 @@
     <string name="ai_extract_unavailable">La extracci&#243;n con IA no est&#225; disponible ahora mismo. Int&#233;ntalo de nuevo en un momento.</string>
     <string name="ai_extract_generic_error">Algo ha salido mal. Int&#233;ntalo de nuevo.</string>
     <string name="ai_fill_save_failed">No se pudo guardar: %1$s</string>
+    <string name="sale_status_completed">Completada</string>
+    <string name="sale_status_pending">Pendiente</string>
+    <string name="sale_status_refunded">Reembolsada</string>
+    <string name="sale_status_cancelled">Cancelada</string>
+    <string name="sale_status_other">Estado</string>
 </resources>

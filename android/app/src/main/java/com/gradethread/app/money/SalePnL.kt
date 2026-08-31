@@ -1,5 +1,9 @@
 package com.gradethread.app.money
 
+import com.gradethread.app.ui.UiMessage
+
+import com.gradethread.app.R
+
 import com.gradethread.app.sync.db.SaleEntity
 
 /**
@@ -30,34 +34,37 @@ object SalePnL {
      * unknown status reads as completed: rows predating the status column carry
      * none, and dropping them would erase historical revenue.
      */
-    fun isCompleted(sale: SaleEntity): Boolean =
-        sale.status.isBlank() || sale.status == "completed"
+    fun isCompleted(sale: SaleEntity): Boolean = sale.status.isBlank() || sale.status == "completed"
 
-    fun revenue(sale: SaleEntity): Double =
-        sale.salePrice + (sale.shippingCollected ?: 0.0)
+    fun revenue(sale: SaleEntity): Double = sale.salePrice + (sale.shippingCollected ?: 0.0)
 
-    fun fees(sale: SaleEntity): Double =
-        sale.platformFees + (sale.paymentProcessingFees ?: 0.0)
+    fun fees(sale: SaleEntity): Double = sale.platformFees + (sale.paymentProcessingFees ?: 0.0)
 
     fun sellerCosts(sale: SaleEntity): Double =
         (sale.shippingCost ?: 0.0) + (sale.gradingCost ?: 0.0) + (sale.otherCosts ?: 0.0)
 
     /** Net profit for one sale given the item's cost basis (acquisition price). */
-    fun net(sale: SaleEntity, costBasis: Double): Double =
-        revenue(sale) - fees(sale) - sellerCosts(sale) - costBasis
+    fun net(sale: SaleEntity, costBasis: Double): Double = revenue(sale) - fees(sale) - sellerCosts(sale) - costBasis
 
     /**
      * Display status for the sales list (US-1371 AC2). `pending` is a real 00111
      * state — an order taken but not yet settled — and is shown as such rather
      * than folded into completed, because it does NOT count toward totals.
      */
-    fun statusLabel(sale: SaleEntity): String = when (sale.status) {
-        "", "completed" -> "Completed"
-        "pending" -> "Pending"
-        "refunded" -> "Refunded"
-        "cancelled" -> "Cancelled"
+    fun statusLabel(sale: SaleEntity): UiMessage = when (sale.status) {
+        "", "completed" -> UiMessage(R.string.sale_status_completed)
+        "pending" -> UiMessage(R.string.sale_status_pending)
+        "refunded" -> UiMessage(R.string.sale_status_refunded)
+        "cancelled" -> UiMessage(R.string.sale_status_cancelled)
         // Forward-compatible: a status this build doesn't know is shown as
         // itself rather than mislabeled as completed.
-        else -> sale.status.replaceFirstChar { it.uppercase() }
+        //
+        // US-2976: it rides as `detail`, so it is shown exactly as the server
+        // named it. Untranslated is the honest outcome for a word we have
+        // never seen; inventing a resource for it would not be.
+        else -> UiMessage(
+            R.string.sale_status_other,
+            detail = sale.status.replaceFirstChar { it.uppercase() },
+        )
     }
 }
