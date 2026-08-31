@@ -20,10 +20,28 @@ import { refundAiAction, reserveAiActionSafe } from "../lib/ai-metering.ts";
 import {
   type BrowseCompsResult,
   searchBrowseComps,
-  suggestCategories,
 } from "../lib/ebay-client.ts";
-import { extractMatchHints, type VisionImage } from "../lib/ai-reconcile.ts";
-import { quickGrade } from "../lib/quick-grade.ts";
+import { type VisionImage } from "../lib/ai-reconcile.ts";
+import {
+  analyzeQuickImages,
+  compositeQuickGrade,
+  type QuickGradeAnalysis,
+  quickGrade,
+} from "../lib/quick-grade.ts";
+import {
+  buildBroadSearchQuery,
+  buildCompQuerySeed,
+  buildDisplayTitle,
+  buildSoldSearchQuery,
+  emptyIdentity,
+  type GarmentIdentity,
+  identityFromKeywords,
+  identityFromListingTitle,
+  identityIsUsable,
+  identityKeywords,
+} from "../lib/prospect-query.ts";
+import { identifyProspectGarment } from "../lib/prospect-vision.ts";
+import { cachedSuggestCategories } from "../lib/taxonomy-cache.ts";
 import {
   valueAtGrade,
   applyMeasuredCurve,
@@ -619,7 +637,9 @@ flipdeskScoutRoutes.post("/appraise-url", async (c) => {
   if (!categoryId) {
     try {
       const query = [brand, title].filter(Boolean).join(" ").trim();
-      categoryId = (await suggestCategories(query))[0]?.categoryId ?? "";
+      // US-3026: same cache /prospect uses. A seller appraising a rack asks
+      // eBay's taxonomy the same question once per garment.
+      categoryId = (await cachedSuggestCategories(query)).result[0]?.categoryId ?? "";
     } catch (err) {
       return failSafe(
         c,
@@ -747,17 +767,6 @@ function splitImageInput(
   return null;
 }
 
-// Title-case a short identification phrase for display ("lululemon" → "Lululemon").
-function titleizeWords(parts: string[]): string {
-  return parts
-    .join(" ")
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ")
-    .trim();
-}
-
 flipdeskScoutRoutes.post("/prospect", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
@@ -773,6 +782,15 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   ]);
   if (whichRefusal(gate !== null, quota.ok) === "gate") return gate!;
   if (!quota.ok) return c.json(quota.body, quota.status);
+
+  // US-3026: the owner's sourcing margin is a settings read that depends on
+  // nothing in this request, and it was being awaited at the very END - after
+  // both vision calls and every eBay round trip, with the seller watching a
+  // spinner. Started here and awaited where it is used. `sourcingTargetRoi`
+  // swallows its own failures and returns the default, so this promise cannot
+  // reject and cannot take the worker down while nobody is awaiting it
+  // (vault/10-ops/edge-hang-vs-crash-loop.md).
+  const targetRoiPromise = sourcingTargetRoi(userId);
 
   let body: {
     image?: unknown;
@@ -868,9 +886,9 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
 
   // 1) IDENTIFY. US-2759: who does this depends on what the seller photographed.
   //
-  //   tag in frame        -> extractMatchHints. Text on the garment beats a
-  //                          similarity match, and it is what they went to the
-  //                          trouble of photographing.
+  //   tag in frame        -> read the tag (identifyProspectGarment). Text on the
+  //                          garment beats a similarity match, and it is what
+  //                          they went to the trouble of photographing.
   //   garment only        -> eBay visual search. No text to read, and this is
   //                          the case US-2758 measured it best on. Costs NO AI
   //                          action, which is the whole of US-2760's complaint.
@@ -883,28 +901,68 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     imageRoles: cappedRoles,
   });
 
-  let brand: string | null = null;
-  let keywords: string[] = [];
+  // US-3026: START LOOKING AT THE PHOTO NOW, not after we know what it is.
+  //
+  // The scan took about twenty seconds and the seller is standing in an aisle
+  // holding the garment. Three vision calls ran strictly back to back: identify,
+  // then per-image analysis, then the composite grade. The middle one was
+  // waiting on the first for NOTHING - `analyzeImage` receives only a garment
+  // type and category, and /prospect has never had either at this point, so it
+  // passed the same defaults whenever it ran. The inputs are byte-identical
+  // either way; only the clock changes. That is the whole justification, and it
+  // is why the composite call (which DOES read the brand and title) still waits.
+  //
+  // The IIFE catches everything and resolves to null, so this promise cannot
+  // reject while nothing is awaiting it - the unhandled rejection that takes the
+  // worker down (vault/10-ops/edge-hang-vs-crash-loop.md).
+  let gradeActionReserved = false;
+  const analysisPromise: Promise<QuickGradeAnalysis | null> = (async () => {
+    if (!frontDataUri || isRepull) return null;
+    const reserved = await reserveAiActionSafe(userId, quota.limit);
+    if (reserved !== true) return null;
+    gradeActionReserved = true;
+    try {
+      return await analyzeQuickImages([{ dataUri: frontDataUri, type: "front" }]);
+    } catch (err) {
+      captureException(err, { level: "warn", route: "scout.prospect.analyze" });
+      return null;
+    }
+  })();
+
+  /**
+   * Give the grade's AI action back. Safe to call more than once.
+   *
+   * WAITS FOR THE ANALYSIS FIRST, and that is the whole point rather than
+   * tidiness. The reservation is made INSIDE the promise above, so a refund
+   * issued while that promise is still mid-reserve reads `gradeActionReserved`
+   * as false, refunds nothing, and then the reservation lands - charging a
+   * seller for a scan that returned them an error. The flag is only truthful
+   * once the promise has settled.
+   */
+  const releaseGradeAction = async () => {
+    await analysisPromise;
+    if (!gradeActionReserved) return;
+    gradeActionReserved = false;
+    await refundAiAction(userId);
+  };
+
+  let identity: GarmentIdentity = emptyIdentity();
   let identitySource: IdentitySource | null = null;
   let identityIsAuthoritative = false;
   let visualComps: Awaited<ReturnType<typeof identifyWithFallback>> = null;
-  // How sure the IDENTIFICATION is, on the 0-1 scale the response has always
-  // used. Visual search reports no confidence of its own - US-2758 measured it
-  // being equally confident when right and when wrong - so a matched title gets
-  // a fixed, deliberately unflattering 0.5. It is a suggestion, and the number
-  // should not read like a measurement.
-  let identifyConfidence = 0;
 
   if (isRepull && override.kind === "override") {
-    // The seller identified it. Nothing here runs: no visual search, no hints,
-    // no AI action. `keywords` carries the corrected words so the category
-    // lookup and the comp query below are unchanged in shape.
-    brand = override.brand;
-    keywords = override.title.split(/\s+/).filter(Boolean).slice(0, 12);
+    // The seller identified it. Nothing here runs: no visual search, no
+    // identification call, no AI action.
+    identity = identityFromKeywords(
+      override.brand,
+      override.title.split(/\s+/).filter(Boolean),
+    );
+    identity.brand = override.brand;
+    identity.confidence = 1;
     identitySource = "seller";
     // The one authoritative source in the union. A human looked at the garment.
     identityIsAuthoritative = true;
-    identifyConfidence = 1;
   } else if (idPlan.useVisual) {
     const vIdx = pickVisualImageIndex(cappedRoles);
     // -1 would mean the plan and the picker disagree; a unit test pins that they
@@ -935,16 +993,28 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     // claim in prospect-repull_test.ts is that NO AI action is spent here.
   } else if (visualComps?.matchedTitle) {
     // Visual search carried it. NO AI action was spent here.
+    //
+    // US-3026: the matched title is SOMEBODY ELSE'S LISTING, and it used to be
+    // chopped into its first eight whitespace tokens and used as this item's
+    // keywords. "NWT Free People We The Free Womens Blue Off The" is eight
+    // tokens of which three name the garment. identityFromListingTitle strips
+    // the seller's SEO and keeps the product.
     identitySource = visualComps.identitySource;
     identityIsAuthoritative = visualComps.identityIsAuthoritative;
-    keywords = visualComps.matchedTitle.split(/\s+/).filter(Boolean).slice(0, 8);
-    identifyConfidence = 0.5;
+    identity = identityFromListingTitle(visualComps.matchedTitle);
+    // Visual search reports no confidence of its own - US-2758 measured it being
+    // equally confident when right and when wrong - so a matched title gets a
+    // fixed, deliberately unflattering 0.5. It is a suggestion, and the number
+    // should not read like a measurement.
+    identity.confidence = 0.5;
   } else {
-    // Either the plan chose hints, or visual search declined / found nothing.
-    // Falling back is silent to the seller and costs the ordinary AI action.
+    // Either the plan chose the identifier, or visual search declined / found
+    // nothing. Falling back is silent to the seller and costs the ordinary AI
+    // action.
     {
       const reserved = await reserveAiActionSafe(userId, quota.limit);
       if (reserved !== true) {
+        await releaseGradeAction();
         return jsonError(
           c,
           429,
@@ -952,11 +1022,16 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
         );
       }
     }
-    let hints;
     try {
-      hints = await extractMatchHints(visionImages);
+      // US-3026: a garment-shaped question instead of a match-a-row-in-a-list
+      // one. See lib/prospect-vision.ts for why /prospect stopped borrowing
+      // reconcile's `extractMatchHints`, and why that function is unchanged.
+      identity = await identifyProspectGarment(
+        visionImages.map((img, i) => ({ ...img, role: cappedRoles[i] })),
+      );
     } catch (err) {
       await refundAiAction(userId);
+      await releaseGradeAction();
       return failSafe(
         c,
         502,
@@ -965,26 +1040,43 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
         "scout.prospect.identify",
       );
     }
-    brand = hints.brand?.trim() || null;
-    keywords = hints.keywords.map((k) => k.trim()).filter(Boolean);
-    identifyConfidence = hints.confidence;
     // A tag read is TEXT on the garment, which is stronger than a similarity
     // match and weaker than a barcode: OCR misreads, and a tag can name a parent
     // brand or a licensee. Offered, not saved.
-    identitySource = brand ? "tag" : null;
+    identitySource = identity.brand ? "tag" : null;
     identityIsAuthoritative = false;
   }
+
+  const brand = identity.brand;
+  const keywords = identityKeywords(identity);
+  const identifyConfidence = identity.confidence;
+  // The eBay Taxonomy lookup wants a phrase that reads like a product, which is
+  // the display title minus the seller's own capitalisation quirks.
   const query = [brand, ...keywords].filter(Boolean).join(" ").trim();
-  // A corrected title is shown back EXACTLY as the seller typed it. titleizeWords
-  // would rewrite "ABC Pant" to "Abc Pant" and "L'AGENCE" to "L'agence", which
-  // reads as the app having failed to understand the correction.
+  // A corrected title is shown back EXACTLY as the seller typed it. Rebuilding
+  // it from tokens would rewrite "ABC Pant" to "Abc Pant" and "L'AGENCE" to
+  // "L'agence", which reads as the app having failed to understand the
+  // correction.
   const displayTitle = isRepull && override.kind === "override"
     ? override.title
-    : titleizeWords([brand ?? "", ...keywords].filter(Boolean));
+    : buildDisplayTitle(identity);
 
-  // No brand AND no keywords → we can't comp. Return the (empty) identification
-  // honestly rather than a misleading "0 comps" against a blank search.
-  if (!query) {
+  // Not enough to comp → return the (empty) identification honestly rather than
+  // a misleading "0 comps" against a blank search. `identityIsUsable` is what
+  // makes the richer identification safe: a model that can now name a garment
+  // type off any photo would otherwise turn every unreadable scan into a comp
+  // search for the word "top".
+  //
+  // AN AUTHORITATIVE IDENTITY IS EXEMPT. A seller who typed "top" and asked for
+  // comps has been told what we think of that query by every caveat on the card
+  // already; refusing to run it would be the app overruling the one participant
+  // who is holding the garment. The gate exists to stop US from guessing, not to
+  // stop them from asking.
+  if (!query || !(identityIsAuthoritative || identityIsUsable(identity))) {
+    // The photo analysis is already in flight and its answer is about to be
+    // thrown away. Give the action back: the seller is not charged for a scan
+    // that told them nothing.
+    await releaseGradeAction();
     recordMetric("scout.prospect", 1, { identified: "false" });
     return c.json({
       identified: false,
@@ -1002,27 +1094,42 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   // 2+3) US-2757: RESOLVE THE CATEGORY AND GRADE THE PHOTO AT THE SAME TIME.
   //
   // These were sequential, and there was never a reason for it. The category
-  // lookup needs the identification QUERY; the grade needs the front PHOTO and
-  // the same hints for context. Both inputs exist the moment extractMatchHints
-  // returns, and neither waits on the other — so /prospect was paying for an
-  // eBay round trip and a Vision call back to back when it could pay for the
-  // slower of the two.
+  // lookup needs the identification QUERY; the composite grade needs the
+  // per-image read and the same identification for context. Both inputs exist
+  // the moment the identification returns, and neither waits on the other — so
+  // /prospect was paying for an eBay round trip and a Vision call back to back
+  // when it could pay for the slower of the two.
   //
-  // The grade still receives the hints, so the number it produces is unchanged.
-  // Running it BEFORE the hints would have been faster still and would have
+  // The composite still receives the identification, so the number it produces
+  // is unchanged. Grading WITHOUT it would have been faster still and would have
   // meant grading a garment we could not name — a different answer dressed up
-  // as a speedup, which this epic has already refused once.
+  // as a speedup, which this epic has already refused once. US-3026 takes the
+  // per-image pass off the front of it instead, which needs no identification
+  // and therefore changes no input.
   //
   // The comp query rides behind the category inside the same branch, at the
   // speculative condition (US-2753), so it overlaps the grade too.
-  const compQuery = { q: keywords.join(" ") || undefined, brand: brand ?? undefined };
+  //
+  // US-3026: `q` is the COMP seed, not the display title. Colour and size are
+  // deliberately absent — a red one and a blue one of the same top sell for the
+  // same money, so spending a comp term on colour halves the sample for nothing.
+  // The sold-comps LINK the seller clicks is built from the opposite rule; see
+  // lib/prospect-query.ts.
+  const compQuery = {
+    q: buildCompQuerySeed(identity) || keywords.join(" ") || undefined,
+    brand: brand ?? undefined,
+  };
 
   const [categoryOutcome, gradeOutcome] = await Promise.all([
     (async () => {
       let categoryId: string | null = null;
       let categoryPath: string | null = null;
       try {
-        const cats = await suggestCategories(query);
+        // US-3026: cached. The taxonomy answer for "flannel shirt" is the same
+        // for every seller and stays the same for months, and the rack of six
+        // this endpoint exists for was paying a full eBay round trip per scan
+        // to be told it again.
+        const { result: cats } = await cachedSuggestCategories(query);
         categoryId = cats[0]?.categoryId ?? null;
         categoryPath = cats[0]?.categoryTreePath ?? null;
       } catch (err) {
@@ -1045,15 +1152,18 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     (async () => {
       // Best-effort. If the cap is hit or grading fails, fall through with a
       // null grade and price at the default used condition, exactly as before.
-      if (!frontDataUri) return { shadowGrade: null, gradeTier: null, gradeConfidence: 0 };
-      const reservedGrade = await reserveAiActionSafe(userId, quota.limit);
-      if (reservedGrade !== true) {
+      //
+      // The photos were read while the identification was running; only the
+      // composite is left, and it is the half that needs the brand and title.
+      const analysis = await analysisPromise;
+      if (!analysis) {
+        await releaseGradeAction();
         return { shadowGrade: null, gradeTier: null, gradeConfidence: 0 };
       }
       try {
-        const grade = await quickGrade({
-          images: [{ dataUri: frontDataUri, type: "front" }],
-          garment: { brand, title: keywords.join(" ") || undefined },
+        const grade = await compositeQuickGrade(analysis, {
+          brand,
+          title: keywords.join(" ") || undefined,
         });
         return {
           shadowGrade: grade.overallScore,
@@ -1061,7 +1171,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
           gradeConfidence: grade.confidence,
         };
       } catch (err) {
-        await refundAiAction(userId);
+        await releaseGradeAction();
         captureException(err, { level: "warn", route: "scout.prospect.grade" });
         return { shadowGrade: null, gradeTier: null, gradeConfidence: 0 };
       }
@@ -1140,7 +1250,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   // target is the OWNER's setting, so a workspace member spends against the
   // owner's margin rather than one of their own.
   const ceiling = value
-    ? sourcingCeiling({ value, targetRoi: await sourcingTargetRoi(userId) })
+    ? sourcingCeiling({ value, targetRoi: await targetRoiPromise })
     : null;
 
   // A deep link to eBay's SOLD/completed search for this item — lets the
@@ -1149,7 +1259,34 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   // Built by the shared builder so the page the seller lands on carries the SAME
   // category filter our own comp query ran under; an unscoped sold search was
   // showing a different item's price spread next to our estimate.
-  const soldSearchUrl = ebaySoldSearchUrl({ query, categoryId });
+  //
+  // US-3026: TWO links, and the specific one is the default.
+  //
+  // This link used to carry `query`, which is brand-led and colourless because
+  // it was built for the comp maths. On a house brand that is a search for the
+  // house: a We The Free cropped top opened the completed page for We The Free,
+  // several thousand garments deep, and the seller was told to read a price off
+  // it. The primary link now carries colour and cut.
+  //
+  // The broad one stays because precision can overshoot. eBay ANDs every term,
+  // so five right words about an unusual garment can return an empty page — and
+  // an empty sold page reads as "nothing like this ever sold", which is a worse
+  // lie than a broad answer. Nothing here can tell in advance which garment eBay
+  // has ten of; the seller looking at the page can, in one tap.
+  const soldSearchQuery = isRepull && override.kind === "override"
+    ? override.title
+    : buildSoldSearchQuery(identity);
+  const broadSearchQuery = buildBroadSearchQuery(identity);
+  const soldSearchUrl = ebaySoldSearchUrl({
+    query: soldSearchQuery || query,
+    categoryId,
+  });
+  // Omitted rather than duplicated when it would be the same link: two rows
+  // going to one page is not a choice, it is a bug the seller has to discover.
+  const broadSoldSearchUrl =
+    broadSearchQuery && broadSearchQuery !== soldSearchQuery
+      ? ebaySoldSearchUrl({ query: broadSearchQuery, categoryId })
+      : null;
 
   recordMetric("scout.prospect", 1, {
     identified: "true",
@@ -1192,6 +1329,16 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
       // you know what it was matched against.
       identitySource,
       identityIsAuthoritative,
+      // US-3026: the identification, in fields. The phone shows the size and
+      // colour on the card and pre-fills them into the buy sheet, which it
+      // previously had to guess at by re-reading the title it had just been
+      // given. Every one is independently optional.
+      garmentType: identity.garmentType,
+      color: identity.color,
+      material: identity.material,
+      gender: identity.gender,
+      size: identity.size,
+      styleCode: identity.styleCode,
     },
     category: categoryId ? { id: categoryId, path: categoryPath } : null,
     grade: shadowGrade != null
@@ -1218,6 +1365,13 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     decision,
     ceiling,
     ebaySoldSearchUrl: soldSearchUrl,
+    // US-3026: what that link actually searches for, so the seller can see the
+    // words before they tap and correct them when they are wrong. A link whose
+    // query is invisible is a link nobody can tell is broken — which is exactly
+    // how the brand-only search survived.
+    ebaySoldSearchQuery: soldSearchQuery || query,
+    ebayBroadSearchUrl: broadSoldSearchUrl,
+    ebayBroadSearchQuery: broadSoldSearchUrl ? broadSearchQuery : null,
     // "active" today; flips to "sold" automatically once Marketplace Insights
     // is granted — the client labels its pricing copy off this.
     source: "active",

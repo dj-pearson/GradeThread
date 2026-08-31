@@ -237,32 +237,80 @@ Deno.test("/prospect resolves the category and grades the photo concurrently", a
   // and this one. Taking the first match found the wrong block and failed on
   // correct code, which is the read-more-than-you-meant mistake this codebase
   // keeps producing. Anchor on the block that actually contains the category.
-  const catAt = handler.indexOf("suggestCategories(query)");
-  const gradeAt = handler.indexOf("await quickGrade(");
+  const catAt = handler.indexOf("cachedSuggestCategories(query)");
+  const gradeAt = handler.indexOf("await compositeQuickGrade(");
   const allAt = handler.lastIndexOf("await Promise.all([", catAt);
   assert(catAt !== -1 && gradeAt !== -1 && allAt !== -1, "expected calls are missing");
   assert(allAt < catAt && allAt < gradeAt, "the category and grade are outside the concurrent block");
 });
 
-Deno.test("/prospect still grades WITH the hints, so the grade is unchanged", async () => {
-  // Grading before the hints would be faster and would mean grading a garment
-  // we cannot name — a different answer dressed as a speedup. The epic refused
-  // that trade once already and must keep refusing it.
+Deno.test("/prospect still grades WITH the identification, so the grade is unchanged", async () => {
+  // Compositing before the identification would be faster and would mean
+  // grading a garment we cannot name — a different answer dressed as a speedup.
+  // The epic refused that trade once already and must keep refusing it.
+  //
+  // US-3026 renamed the halves without changing the rule: the PER-IMAGE pass
+  // may start early (it receives no identification, so it cannot be changed by
+  // one), the COMPOSITE may not.
   const handler = prospectHandler(
     await Deno.readTextFile(new URL("../routes/flipdesk-scout.ts", import.meta.url)),
   );
-  const hintsAt = handler.indexOf("await extractMatchHints(");
-  const catAt = handler.indexOf("suggestCategories(query)");
+  const identifyAt = handler.indexOf("await identifyProspectGarment(");
+  const catAt = handler.indexOf("cachedSuggestCategories(query)");
   const allAt = handler.lastIndexOf("await Promise.all([", catAt);
-  assert(hintsAt !== -1 && allAt !== -1 && catAt !== -1);
+  assert(identifyAt !== -1 && allAt !== -1 && catAt !== -1);
   assert(
-    hintsAt < allAt,
-    "the concurrent block starts before the hints exist, so the grade lost its context",
+    identifyAt < allAt,
+    "the concurrent block starts before the identification exists, so the grade lost its context",
   );
   assert(
-    /garment: \{ brand, title: keywords\.join\(" "\) \|\| undefined \}/.test(handler),
-    "quickGrade no longer receives the identification hints",
+    /compositeQuickGrade\(analysis, \{\s*brand,\s*title: keywords\.join\(" "\) \|\| undefined,\s*\}\)/
+      .test(handler),
+    "the composite grade no longer receives the identification",
   );
+});
+
+Deno.test("/prospect reads the photo WHILE it identifies, not after (US-3026)", async () => {
+  // The twenty-second scan. Three vision calls ran strictly back to back, and
+  // the middle one — the per-image analysis — was waiting on the first for
+  // nothing: analyzeImage receives a garment type and category, which /prospect
+  // has never had at that point and passes as the defaults whichever order they
+  // run in. So the analysis must be STARTED (not awaited) before the branch
+  // that identifies.
+  const handler = prospectHandler(
+    await Deno.readTextFile(new URL("../routes/flipdesk-scout.ts", import.meta.url)),
+  );
+  const startAt = handler.indexOf("analysisPromise: Promise<QuickGradeAnalysis | null>");
+  const identifyAt = handler.indexOf("await identifyProspectGarment(");
+  const visualAt = handler.indexOf("await identifyWithFallback(");
+  assert(startAt !== -1, "the per-image analysis is no longer started as a promise");
+  assert(identifyAt !== -1 && visualAt !== -1, "expected identification calls are missing");
+  assert(
+    startAt < visualAt && startAt < identifyAt,
+    "the analysis starts after identification, so it is back on the critical path",
+  );
+  // Started, not awaited. An `await` on the declaration line would look almost
+  // identical and would serialise the two again with no test noticing.
+  assert(
+    !/const analysisPromise[^\n]*=\s*await /.test(handler),
+    "the analysis promise is awaited where it is created, which serialises it again",
+  );
+});
+
+Deno.test("/prospect refunds the grade action only after the analysis settles", async () => {
+  // The reservation is made INSIDE the analysis promise, so a refund issued
+  // while that promise is mid-reserve reads the flag as false, refunds nothing,
+  // and then the reservation lands — charging a seller for a scan that returned
+  // them an error.
+  const handler = prospectHandler(
+    await Deno.readTextFile(new URL("../routes/flipdesk-scout.ts", import.meta.url)),
+  );
+  const release = handler.slice(handler.indexOf("const releaseGradeAction = async () =>"));
+  const body = release.slice(0, release.indexOf("};"));
+  const awaitAt = body.indexOf("await analysisPromise");
+  const flagAt = body.indexOf("if (!gradeActionReserved)");
+  assert(awaitAt !== -1, "releaseGradeAction no longer waits for the analysis to settle");
+  assert(flagAt !== -1 && awaitAt < flagAt, "the reservation flag is read before it is truthful");
 });
 
 Deno.test("/prospect comps go through the shared cache and the speculation", async () => {

@@ -148,6 +148,22 @@ struct ProspectResponse: Decodable {
     let decision: ProspectDecision?
     /// Deep link to eBay's SOLD/completed search for this item (browser).
     let ebaySoldSearchUrl: String?
+    /// US-3026: the words that link searches for.
+    ///
+    /// Shown next to the link rather than hidden behind it. A link whose query
+    /// is invisible is a link nobody can tell is broken, which is how a
+    /// brand-only sold search survived: the seller saw "See sold comps on eBay",
+    /// tapped it, and had to work out for themselves that they were looking at
+    /// every We The Free garment ever listed instead of their cropped top.
+    let ebaySoldSearchQuery: String?
+    /// The wider search: brand plus garment type, nothing else.
+    ///
+    /// Offered ALONGSIDE the specific one because precision can overshoot - eBay
+    /// ANDs every term, so a well-described unusual garment can return an empty
+    /// page, which reads as "nothing like this ever sold". Nil when it would
+    /// open the same page as the specific link.
+    let ebayBroadSearchUrl: String?
+    let ebayBroadSearchQuery: String?
     /// "active" today; "sold" once the Marketplace Insights grant lands.
     let source: String
     let disclaimer: String?
@@ -172,6 +188,27 @@ struct ProspectItem: Decodable {
     /// May the title be trusted without the seller confirming it? Only a barcode
     /// or the seller's own correction says yes.
     let identityIsAuthoritative: Bool?
+
+    // US-3026: the identification in FIELDS rather than only as a title.
+    //
+    // The buy sheet used to send `size: nil, color: nil` with a comment saying
+    // the prospect payload did not carry them. It does now, and the catalog step
+    // starts from what the AI actually read off the tag instead of from a blank
+    // item the seller re-types. Every one is optional: a tag macro with no
+    // garment in frame legitimately yields a brand and nothing else.
+
+    /// The head noun: "cropped top", "flannel shirt".
+    let garmentType: String?
+    /// The dominant colour, one word.
+    let color: String?
+    /// Main fabric, when the care label states it.
+    let material: String?
+    /// "women" | "men" | "unisex" | "kids".
+    let gender: String?
+    /// Size as printed on the tag.
+    let size: String?
+    /// The brand's own product code off the tag.
+    let styleCode: String?
 
     /// Should the card invite the seller to check this title? True for a
     /// similarity match, which US-2758 measured being equally confident when

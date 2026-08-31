@@ -61,10 +61,14 @@ final class ProspectStoreTests: XCTestCase {
                       title: String? = "Patagonia Synchilla Fleece",
                       keywords: [String] = ["fleece", "synchilla"],
                       identitySource: String? = "tag",
-                      identityIsAuthoritative: Bool? = false) -> ProspectItem {
+                      identityIsAuthoritative: Bool? = false,
+                      color: String? = "navy",
+                      size: String? = "M") -> ProspectItem {
         ProspectItem(brand: brand, title: title, keywords: keywords, identifyConfidence: 0.9,
                      identitySource: identitySource,
-                     identityIsAuthoritative: identityIsAuthoritative)
+                     identityIsAuthoritative: identityIsAuthoritative,
+                     garmentType: "fleece", color: color, material: nil,
+                     gender: "men", size: size, styleCode: nil)
     }
 
     private func response(identified: Bool = true,
@@ -88,6 +92,9 @@ final class ProspectStoreTests: XCTestCase {
             costCents: costCents,
             decision: nil,
             ebaySoldSearchUrl: nil,
+            ebaySoldSearchQuery: nil,
+            ebayBroadSearchUrl: nil,
+            ebayBroadSearchQuery: nil,
             source: "active",
             disclaimer: nil,
             note: nil

@@ -298,15 +298,19 @@ final class ProspectStore {
         addError = nil
         defer { isAdding = false }
 
-        // US-1170: don't discard the AI's read on commit. size/color aren't in
-        // the prospect payload (ProspectItem only carries brand/title/keywords),
-        // but the keywords + resolved category are — fold them into notes so the
-        // catalog step starts from the AI's read instead of a blank item.
+        // US-1170: don't discard the AI's read on commit. The keywords + resolved
+        // category are folded into notes so the catalog step starts from the AI's
+        // read instead of a blank item.
+        //
+        // US-3026: size and colour used to be sent as nil, because the response
+        // carried only brand/title/keywords. It carries fields now, so the two
+        // things the seller would otherwise re-type off the same tag we just
+        // read are filled in.
         let request = ProspectBuyRequest(
             title: title,
             brand: result.item.brand,
-            size: nil,
-            color: nil,
+            size: result.item.size,
+            color: result.item.color,
             // US-1275: commit the cost the run was computed with (result.costCents),
             // not the current field — if the user edited cost after the run
             // (costNeedsRerun), targetCents/grade below come from the prior run, so

@@ -280,13 +280,7 @@ struct ProspectView: View {
                 if let decision = result.decision, result.costCents != nil {
                     decisionBlock(decision)
                 }
-                if let urlString = result.ebaySoldSearchUrl, let url = URL(string: urlString) {
-                    Link(destination: url) {
-                        Label("See sold comps on eBay", systemImage: "arrow.up.right.square")
-                            .font(.footnote.weight(.medium))
-                    }
-                    .tint(Color.brandNavy)
-                }
+                soldCompsLinks(result)
                 if let disclaimer = result.disclaimer {
                     Text(disclaimer)
                         .font(.caption2)
@@ -299,6 +293,54 @@ struct ProspectView: View {
             }
             .padding()
             .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+        }
+    }
+
+    /// US-3026: the sold-comps links, with the search terms visible.
+    ///
+    /// The old row was one link labelled "See sold comps on eBay" and nothing
+    /// else. When the identification was thin it opened the completed search for
+    /// the brand alone — every We The Free garment ever listed, next to an
+    /// estimate for one cropped top — and there was nothing on screen to say so.
+    /// The seller had to notice on eBay's page, which is late.
+    ///
+    /// So the terms are printed under the link, and there is a second link that
+    /// drops back to brand-plus-type. Two links because neither of us can tell
+    /// in advance which garment eBay has ten of: a five-word search is right
+    /// until it returns an empty page, and an empty sold page reads as "nothing
+    /// like this ever sold".
+    @ViewBuilder private func soldCompsLinks(_ result: ProspectResponse) -> some View {
+        if let urlString = result.ebaySoldSearchUrl, let url = URL(string: urlString) {
+            VStack(alignment: .leading, spacing: 4) {
+                Link(destination: url) {
+                    Label("See sold comps on eBay", systemImage: "arrow.up.right.square")
+                        .font(.footnote.weight(.medium))
+                }
+                .tint(Color.brandNavy)
+
+                if let terms = result.ebaySoldSearchQuery, !terms.isEmpty {
+                    Text("Searching: \(terms)")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .accessibilityLabel(Text("Sold comps search terms: \(terms)"))
+                }
+
+                if let broadString = result.ebayBroadSearchUrl,
+                   let broadURL = URL(string: broadString) {
+                    Link(destination: broadURL) {
+                        Label(
+                            result.ebayBroadSearchQuery
+                                .map { String(localized: "Too few results? Search \($0)") }
+                                ?? String(localized: "Too few results? Search wider"),
+                            systemImage: "arrow.up.left.and.arrow.down.right"
+                        )
+                        .font(.caption2)
+                        .lineLimit(2)
+                    }
+                    .tint(.secondary)
+                }
+            }
         }
     }
 

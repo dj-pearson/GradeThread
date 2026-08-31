@@ -121,21 +121,52 @@ export interface QuickGradeInput {
 }
 
 /**
- * Grade a small image set and return a slim, certificate-free result. Throws if
- * no usable image resolves. Caller is responsible for auth, quota/cost gating,
- * and labeling the output as an ESTIMATE (not a certified grade).
+ * The per-image half of a quick grade, held between the two vision phases.
+ *
+ * Opaque on purpose: the shape is an implementation detail of this module and a
+ * caller has no business reading `perImage` and deciding something from it.
  */
-export async function quickGrade(input: QuickGradeInput): Promise<QuickGradeResult> {
-  const garment: GarmentInfo = {
-    garment_type: input.garment?.garment_type || "clothing",
-    garment_category: input.garment?.garment_category || "",
-    brand: input.garment?.brand ?? null,
-    title: input.garment?.title || "",
-    description: input.garment?.description ?? null,
-    style_attributes: input.garment?.style_attributes,
-  };
+export interface QuickGradeAnalysis {
+  perImage: PerImageAnalysis[];
+  usages: Array<{ phase: string; usage: AiTokenUsage }>;
+  /** How many images were SUBMITTED, so the partial-set cap can still fire. */
+  requested: number;
+  fabricCloseupMissing: boolean;
+}
 
-  const inputs = input.images.slice(0, MAX_QUICK_IMAGES);
+/**
+ * What the per-image pass needs to know about the garment.
+ *
+ * Two fields, and they are the ONLY two `analyzeImage` receives. That is what
+ * makes the split below safe: brand and title reach the composite call and
+ * nothing else, so a caller that does not yet know the brand can still start
+ * looking at the photo (US-3026).
+ */
+export interface QuickGradeImageContext {
+  garment_type?: string;
+  garment_category?: string;
+}
+
+/**
+ * PHASE ONE: look at the photos. Throws if no usable image resolves.
+ *
+ * Split out of `quickGrade` for /prospect, where identifying the garment and
+ * grading it are two vision calls that ran back to back for no reason. The
+ * identification takes six seconds and the per-image analysis takes five, and
+ * the second one needs nothing the first produces - `analyzeImage` receives
+ * only the garment type and category, which /prospect has never had at this
+ * point and passes as the defaults either way. Running them at the same time
+ * takes those five seconds off every scan and cannot change the grade, because
+ * both calls receive byte-identical inputs to the ones they received before.
+ */
+export async function analyzeQuickImages(
+  images: QuickGradeImage[],
+  context: QuickGradeImageContext = {},
+): Promise<QuickGradeAnalysis> {
+  const garmentType = context.garment_type || "clothing";
+  const garmentCategory = context.garment_category || "";
+
+  const inputs = images.slice(0, MAX_QUICK_IMAGES);
   const dataUris = (await Promise.all(inputs.map(resolveToDataUri))).map((d, i) => ({
     dataUri: d,
     type: inputs[i].type || "detail",
@@ -149,7 +180,7 @@ export async function quickGrade(input: QuickGradeInput): Promise<QuickGradeResu
   const perImage: PerImageAnalysis[] = [];
   for (const { dataUri, type } of dataUris) {
     try {
-      const analysis = await analyzeImage(dataUri, type, garment.garment_type, garment.garment_category);
+      const analysis = await analyzeImage(dataUri, type, garmentType, garmentCategory);
       if (analysis.usage) usages.push({ phase: `quick_image_${type}`, usage: analysis.usage });
       perImage.push(analysis);
     } catch (err) {
@@ -171,6 +202,45 @@ export async function quickGrade(input: QuickGradeInput): Promise<QuickGradeResu
   // Passed through so compositeGrade applies the same cap the full path does;
   // with a close-up present this argument is false and nothing changes.
   const fabricCloseupMissing = !dataUris.some((d) => /detail|fabric/i.test(d.type));
+
+  return { perImage, usages, requested: inputs.length, fabricCloseupMissing };
+}
+
+/**
+ * Grade a small image set and return a slim, certificate-free result. Throws if
+ * no usable image resolves. Caller is responsible for auth, quota/cost gating,
+ * and labeling the output as an ESTIMATE (not a certified grade).
+ */
+export async function quickGrade(input: QuickGradeInput): Promise<QuickGradeResult> {
+  const analysis = await analyzeQuickImages(input.images, {
+    garment_type: input.garment?.garment_type,
+    garment_category: input.garment?.garment_category,
+  });
+  return await compositeQuickGrade(analysis, input.garment);
+}
+
+/**
+ * PHASE TWO: turn the per-image reads into one grade. Needs the brand and title.
+ *
+ * Every confidence cap, the peer-norm check and the review threshold live here,
+ * unchanged and in the same order - this is the same code that used to be the
+ * back half of `quickGrade`, and `quickGrade` is now literally the two phases
+ * called in a row.
+ */
+export async function compositeQuickGrade(
+  analysis: QuickGradeAnalysis,
+  garmentInput?: Partial<GarmentInfo>,
+): Promise<QuickGradeResult> {
+  const garment: GarmentInfo = {
+    garment_type: garmentInput?.garment_type || "clothing",
+    garment_category: garmentInput?.garment_category || "",
+    brand: garmentInput?.brand ?? null,
+    title: garmentInput?.title || "",
+    description: garmentInput?.description ?? null,
+    style_attributes: garmentInput?.style_attributes,
+  };
+  const { perImage, fabricCloseupMissing } = analysis;
+  const usages = [...analysis.usages];
 
   const composite = await compositeGrade(
     perImage,
@@ -195,7 +265,10 @@ export async function quickGrade(input: QuickGradeInput): Promise<QuickGradeResu
   // PARTIAL means "fewer images reached the grader than the caller supplied",
   // counted at both drop points: an image that would not resolve, and one whose
   // analysis threw. Either way the grade is a read of less than it was given.
-  const requested = inputs.length;
+  // Carried across the phase split rather than recounted, because phase two no
+  // longer sees the submitted list and a recount there would always say zero
+  // were dropped.
+  const requested = analysis.requested;
   const partialImageSet = perImage.length < requested;
 
   // Peer-norm is a DB read and a pure comparison — no vision call — so it stays

@@ -122,6 +122,16 @@ BASELINE = frozenset({
     "Keeps your condition grade and photos. No AI charge.",
     "Re-pull comps",
     "Remove ",
+    # ── US-3026 (2026-08-30): the sold-comps search terms are on screen ───────
+    #
+    # Two entries, both about the same complaint: the link said "See sold comps
+    # on eBay" and nothing else, so when the identification was thin it opened
+    # the completed search for the brand alone and there was nothing on the card
+    # to say so. Baselined on the same grounds as the block below - the catalog
+    # is populated at build time on the Mac and is not committed, so a "localized
+    # key" and a bare SwiftUI literal are still the same artifact.
+    "Searching: ",
+    "Sold comps search terms: ",
     "Snap the item, and its tag if it has one. We'll identify it and pull eBay "
     "comps: how many are listed, what they're asking, and how fast it should "
     "move. Got the wrong item? Tap the title to fix it.",

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3026",
+  "nextId": "US-3028",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2852,6 +2852,20 @@
         "Any test asserting the WORDS of an error moves its assertion to values/strings.xml rather than becoming assertEquals(R.string.x, ...). Six files in US-2976 would have silently lost a product claim to that conversion; check for it here before assuming there is none."
       ],
       "priority": 21
+    },
+    {
+      "id": "US-3027",
+      "passes": false,
+      "title": "Android /prospect sends no imageRoles, so it can never reach visual search",
+      "description": "MEASURED 2026-08-30 while doing US-3026. ScoutService.kt:95 builds ProspectRequest(images, costCents) and the data class has no imageRoles field at all. The server decides who identifies a prospect purely from the roles (planProspectIdentification, US-2759), and an absent or unrecognised role is deliberately NOT permission - so every Android scan takes the no-usable-role branch, reads the tag, and can never reach eBay visual search however good a garment shot the seller took. It also means the identification prompt captions Android photos 'Photo 0' / 'Photo 1' rather than 'Close-up of the brand/size tag', which US-3026 added precisely because a model that knows which photo is a care label stops trying to read a silhouette out of it. THIS IS NOT A ONE-LINE FIELD ADD. iOS earns its roles from named capture slots (US-2923): the seller states what each photo shows, because guessing the role from a photo's POSITION is the tempting shortcut and the wrong one - a seller who photographs only the care label would have it labelled 'front', and US-2758 measured a care label returning a midi dress, joggers and a mini skirt with no expressed doubt. Android's ProspectScreen has a generic strip of up to two photos with no slot identity, so the capture UI is the actual work.",
+      "acceptanceCriteria": [
+        "ProspectScreen captures into two NAMED slots (item photo, brand tag) the way ProspectView does, rather than a generic strip. Do not infer the role from list position.",
+        "ProspectRequest carries imageRoles parallel to images, and a photo that fails to encode drops its ROLE with it rather than shifting the remaining roles up.",
+        "A tag-only scan sends one photo whose role is tag, so the server reads the tag instead of treating a label macro as a garment shot.",
+        "A garment-only scan reaches eBay visual search and therefore costs no AI action for identification, which is the saving US-2760 is about.",
+        "The Android screenshot test covers both the empty two-slot state and a filled one, so the slots are visible in review."
+      ],
+      "priority": 22
     }
   ]
 }
