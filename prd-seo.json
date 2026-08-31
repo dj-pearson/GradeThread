@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "claude/seo-strategy-options-evftv2",
   "description": "SEO rebuild backlog, held OUT of prd.json entirely so the Ralph loop can never collide with it. Derived from vault/40-growth/seo-strategy-options-2026-08.md and the 2026-08-18 Keyword Planner pull (docs/seo/keyword-pull-2026-08-results.csv). Build order is Path 3 (calculators, 127,100/mo seller intent), then Path 7 (conversion + comparisons), then Path 1 (damage and care, 295,750/mo, authority engine only). Path 2 (returns) and Path 4 (resale value) were killed by the pull and are deliberately absent. IDS USE A RESERVED HIGH BLOCK (US-9001+) RATHER THAN prd.json.nextId: an earlier attempt reserved US-2674..US-2689 by bumping prd.json.nextId, and PR #275 merged the same block to main first, so the reservation both conflicted and failed. prd.json is now never touched by this file. Ralph allocates sequentially from US-2684 and will not reach 9001. On merge back, renumber into the live sequence and re-rank priorities, which are local to this file.",
-  "nextId": "US-9029",
+  "nextId": "US-9034",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -580,6 +580,106 @@
       ],
       "priority": 10,
       "notes": "Evidence: docs/seo/serp-feature-audit-2026-08-28.md (13 queries checked in a browser) and the Search Console export at keyword/gradethread.com-Performance-on-Search-2026-08-28/. | FOUND WHILE ANSWERING A DIFFERENT QUESTION, which is why it is filed rather than fixed in passing. The per-family table in docs/seo/keyword-expansion-2026-08-28.md and the report given to the owner both quoted the 94-day average as if it were the current rate. It understates the site by about 4x. | The reason it matters more than a reporting nicety: the whole \"the site has a coverage problem or a CTR problem\" argument rests on these numbers, and one of the two candidate answers (traffic is flat) is simply false. Traffic is climbing steeply. The CTR half survives the correction."
+    },
+    {
+      "id": "US-9029",
+      "passes": false,
+      "title": "RN registry: read the FTC public search and seed it from the brands we know",
+      "description": "As a reseller holding a garment with an unfamiliar tag, I need GradeThread to know which company an RN belongs to, so the lookup page can answer instead of shrugging. registered_number_registry (00502) already exists and is nearly empty because migration 00466 recorded the FTC database as auth-gated, which is wrong. Plan: docs/superpowers/plans/2026-08-31-rn-lookup.md tasks 1 and 2.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/ftc-rn-search.ts parses a committed FTC response into kind, digits, legalName, productLines and sourceUrl",
+        "Three fixtures are committed and cover a number search, a company search and a no-match; no test in the suite hits the live FTC site",
+        "Unexpected markup returns an empty list rather than throwing, so one odd page cannot kill a run",
+        "scripts/seed-registered-numbers.ts writes a registry row only when the FTC search returns exactly one match; two or more go to a review list, zero is a normal skip",
+        "The seeder reads brand_knowledge names first, then unresolved registered_number_sightings rows by sighting count",
+        "Requests are paced at one per two seconds, single threaded, and the run halts on any non-200",
+        "No FTC account is created, stored or automated anywhere in the code or the runbook; only the signed-out ftc.gov search URL is read",
+        "Every written row carries source_url pointing at the FTC record it came from",
+        "The seeder header and a vault note record that migration 00466 is wrong about the RN database being auth-gated; migration 00466 itself is NOT edited",
+        "OPERATOR: run the seeder against prod once the dry run has been reviewed"
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-9030",
+      "passes": false,
+      "title": "RN lookup: the public payload and its two anonymous endpoints",
+      "description": "As a crawler and as the SSR page, I need one place that decides what an RN answer contains and whether it may be indexed, so the page and the sitemap can never disagree about which URLs exist. Mirrors public-style-code.ts. Plan: docs/superpowers/plans/2026-08-31-rn-lookup.md tasks 3 and 4.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/public-registered-number.ts is pure and exports publicRegisteredNumber and indexableNumbers",
+        "indexable is true only when a company name is resolved, and that decision is made in the lib and nowhere else",
+        "indexableNumbers applies the same condition as publicRegisteredNumber, driven by one fixture set in the test",
+        "GET /api/content/public/registered-numbers/:number returns 400 for anything that is not a registry number",
+        "A number with no registry row returns 200 with companyName null, never a 404, because the page still renders and still offers the tag reader",
+        "RN56323, rn 56323, RN# 56323 and 056323 all resolve to digits 56323 and are flagged non-canonical for the redirect",
+        "GET /api/content/public/registered-numbers.json returns only indexable RN rows, capped at 5000 with warnIfCapped, and a test proves a CA row never reaches the set",
+        "Both handlers carry a comment recording that these are global reference tables with no owner column, so US-268 tenant scoping does not apply"
+      ],
+      "priority": 4,
+      "dependsOn": [
+        "US-9029"
+      ]
+    },
+    {
+      "id": "US-9031",
+      "passes": false,
+      "title": "One page per registered number at /rn/:number",
+      "description": "As someone who just typed an RN off a care label, I need a page that names the company, says what that does and does not prove, and shows me the tag reader. Mirrors functions/style/[code].ts. Plan: docs/superpowers/plans/2026-08-31-rn-lookup.md task 5.",
+      "acceptanceCriteria": [
+        "C:/Program Files/Git/rn/56323 edge SSRs with the company name first, then the brands it labels, the business type and product line, the FTC record linked as the source, and how many real garment tags we have seen the number on",
+        "A shared registrant names every brand it covers and does not pick between them",
+        "The page states plainly that an RN names the company rather than the brand, and that a counterfeit prints one too; no copy claims an RN proves a brand or proves authenticity",
+        "robots is index, follow only when the payload is indexable, and noindex, follow otherwise",
+        "A non-canonical spelling 301s to the canonical digits, never 302",
+        "An unresolved number renders for a human, says we have no reference for it, and never reads as the number being wrong, invalid or fake",
+        "An unreachable upstream returns 503 rather than 404, so the URL stays alive for crawlers",
+        "A path segment that is not a registry number at all returns 404 with noindex",
+        "Every RN page links to /tools/rn-lookup?rn=<digits> for the tag reader",
+        "The renderer is pure and unit-tested with no database, matching public-style-code_test.ts"
+      ],
+      "priority": 5,
+      "dependsOn": [
+        "US-9030"
+      ]
+    },
+    {
+      "id": "US-9032",
+      "passes": false,
+      "title": "sitemap-rn.xml, its own segment, matching the page noindex rule exactly",
+      "description": "As the person reading Search Console, I need this cluster reportable as one line, and I need every URL in it to be a URL that actually indexes. A sitemapped URL that renders noindex is the contradiction that gets a whole section ignored (US-2748). Plan: docs/superpowers/plans/2026-08-31-rn-lookup.md task 6.",
+      "acceptanceCriteria": [
+        "functions/sitemap-rn.xml.ts lists exactly the numbers the lookup endpoint reports as indexable, with a HEAD export via headOf",
+        "sitemap.xml registers the new segment and its URL count includes it",
+        "A test proves the sitemap set and the page noindex decision come from the same predicate, driven by one fixture set",
+        "CA numbers render a page when asked for but never appear in the sitemap, because there is no measured demand for them yet",
+        "An unreachable upstream returns 503 rather than a silently incomplete 200"
+      ],
+      "priority": 6,
+      "dependsOn": [
+        "US-9031"
+      ]
+    },
+    {
+      "id": "US-9033",
+      "passes": false,
+      "title": "The RN hub and the anonymous tag reader that makes it worth the visit",
+      "description": "As a visitor who came for a company name, I should leave having watched our AI read my actual garment label. extractTagGroundTruth already reads brand, size, fibre content, style code and RN off a tag photo, so this is wiring plus a hardened anonymous endpoint. Plan: docs/superpowers/plans/2026-08-31-rn-lookup.md tasks 7 and 8.",
+      "acceptanceCriteria": [
+        "C:/Program Files/Git/tools/rn-lookup is registered in PUBLIC_ROUTES, the lastmod map, src/prerender/entry-server.tsx and the router",
+        "?rn=56323 prefills the search box, which is the link every RN page sends",
+        "POST /api/grading/public/tag-read is unauthenticated, rate limited at 5 per IP per hour returning the rate_limited code, capped at 8MB, and reserves against the shared global AI daily ceiling returning at_capacity when exhausted",
+        "The endpoint runs validateImageUpload then stripImageMetadata before the model sees the bytes, and persists no image and no result",
+        "The reader returns RN, size, fibre content and style code via extractTagGroundTruth",
+        "A read carrying an RN records a sighting; a read without one records nothing",
+        "The conversion pitch appears after the answer, never before it",
+        "npm run ui:check reports zero enforced findings",
+        "A vault note of type contract carries the FTC no-account access rule, the 00466 correction and the indexable-only-with-a-company rule, with code_refs, and npm run vault:lint passes strict",
+        "OPERATOR: search rn number lookup once in a browser and append whether an AI Overview is present to docs/seo/serp-feature-audit-2026-08-28.md"
+      ],
+      "priority": 7,
+      "dependsOn": [
+        "US-9031"
+      ]
     }
   ]
 }

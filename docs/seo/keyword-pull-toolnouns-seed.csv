@@ -1,0 +1,108 @@
+path,cluster,keyword,shape
+3-tools,listing-composer,ebay listing template,template
+3-tools,listing-composer,ebay description template,template
+3-tools,listing-composer,ebay html description template,template
+3-tools,listing-composer,ebay title generator,tool-noun
+3-tools,listing-composer,ebay title builder,tool-noun
+3-tools,listing-composer,ebay keyword tool,tool-noun
+3-tools,listing-composer,ebay item specifics tool,tool-noun
+3-tools,listing-composer,ebay listing analyzer,tool-noun
+3-tools,listing-composer,poshmark listing template,template
+3-tools,listing-composer,depop description template,template
+3-tools,listing-composer,clothing listing template,template
+3-tools,listing-composer,listing description generator,tool-noun
+3-tools,comps-pricing,ebay sold price checker,tool-noun
+3-tools,comps-pricing,ebay price checker,tool-noun
+3-tools,comps-pricing,ebay average sold price,tool-noun
+3-tools,comps-pricing,sold listings lookup,lookup
+3-tools,comps-pricing,ebay comp checker,tool-noun
+3-tools,comps-pricing,terapeak alternative,tool-noun
+3-tools,comps-pricing,used clothing price checker,tool-noun
+3-tools,comps-pricing,clothing value calculator,tool-noun
+3-tools,comps-pricing,resale value calculator,tool-noun
+3-tools,comps-pricing,thrift store price checker,tool-noun
+3-tools,fee-math,ebay break even calculator,tool-noun
+3-tools,fee-math,reseller break even calculator,tool-noun
+3-tools,fee-math,ebay promoted listings fee calculator,tool-noun
+3-tools,fee-math,promoted listings calculator,tool-noun
+3-tools,fee-math,ebay store fee calculator,tool-noun
+3-tools,fee-math,ebay auction fee calculator,tool-noun
+3-tools,fee-math,best offer calculator,tool-noun
+3-tools,fee-math,consignment payout calculator,tool-noun
+3-tools,fee-math,consignment split calculator,tool-noun
+3-tools,fee-math,markdown calculator,tool-noun
+3-tools,tax-books,reseller tax calculator,tool-noun
+3-tools,tax-books,1099k calculator,tool-noun
+3-tools,tax-books,ebay 1099 calculator,tool-noun
+3-tools,tax-books,self employment tax calculator reseller,tool-noun
+3-tools,tax-books,ebay sales tax calculator,tool-noun
+3-tools,tax-books,reseller profit and loss template,template
+3-tools,tax-books,mileage log template,template
+3-tools,tax-books,cost of goods sold template,template
+3-tools,tax-books,reseller bookkeeping template,template
+3-tools,tax-books,inventory value calculator,tool-noun
+3-tools,shipping-tools,usps shipping calculator,tool-noun
+3-tools,shipping-tools,usps ground advantage calculator,tool-noun
+3-tools,shipping-tools,shipping weight estimator,tool-noun
+3-tools,shipping-tools,dimensional weight calculator,tool-noun
+3-tools,shipping-tools,package size calculator,tool-noun
+3-tools,shipping-tools,shipping label price comparison,tool-noun
+3-tools,shipping-tools,ebay shipping label cost calculator,tool-noun
+3-tools,shipping-tools,first class vs ground advantage calculator,tool-noun
+3-tools,shipping-tools,poly mailer size calculator,tool-noun
+3-tools,shipping-tools,flat rate box size chart,chart
+3-tools,shipping-tools,clothing shipping weight chart,chart
+3-tools,size-tools,size chart converter,tool-noun
+3-tools,size-tools,eu to us size converter,tool-noun
+3-tools,size-tools,uk to us size converter,tool-noun
+3-tools,size-tools,mens to womens shoe size converter,tool-noun
+3-tools,size-tools,shoe size conversion chart,chart
+3-tools,size-tools,jeans size calculator,tool-noun
+3-tools,size-tools,waist size converter,tool-noun
+3-tools,size-tools,bust waist hip calculator,tool-noun
+3-tools,size-tools,vintage size converter,tool-noun
+3-tools,size-tools,kids size conversion chart,chart
+3-tools,size-tools,sleeve length calculator,tool-noun
+3-tools,size-tools,big and tall size chart,chart
+3-tools,code-lookups,rn number lookup,lookup
+3-tools,code-lookups,rn number search,lookup
+3-tools,code-lookups,levis lot number lookup,lookup
+3-tools,code-lookups,levis date code lookup,lookup
+3-tools,code-lookups,levis tab dating,lookup
+3-tools,code-lookups,nike style code lookup,lookup
+3-tools,code-lookups,adidas product code lookup,lookup
+3-tools,code-lookups,patagonia style number lookup,lookup
+3-tools,code-lookups,north face style number lookup,lookup
+3-tools,code-lookups,lululemon style number lookup,lookup
+3-tools,code-lookups,lululemon size dot decoder,lookup
+3-tools,code-lookups,carhartt tag dating,lookup
+3-tools,code-lookups,clothing style number lookup,lookup
+3-tools,code-lookups,upc lookup clothing,lookup
+3-tools,code-lookups,barcode lookup clothing,lookup
+3-tools,code-lookups,made in usa tag dating,lookup
+3-tools,care-decoders,laundry symbol decoder,tool-noun
+3-tools,care-decoders,care label symbol chart,chart
+3-tools,care-decoders,wash symbol chart,chart
+3-tools,care-decoders,fabric care symbol lookup,lookup
+3-tools,care-decoders,fabric identification chart,chart
+3-tools,care-decoders,fabric weight chart,chart
+3-tools,care-decoders,gsm fabric calculator,tool-noun
+3-tools,care-decoders,shrinkage calculator,tool-noun
+3-tools,care-decoders,thread count chart,chart
+3-tools,condition-tools,clothing condition chart,chart
+3-tools,condition-tools,used clothing condition chart,chart
+3-tools,condition-tools,condition grade calculator,tool-noun
+3-tools,condition-tools,condition rating scale chart,chart
+3-tools,condition-tools,garment condition checklist,template
+3-tools,photo-tools,clothing background remover,tool-noun
+3-tools,photo-tools,photo resizer for ebay,tool-noun
+3-tools,photo-tools,ebay image size chart,chart
+3-tools,photo-tools,flat lay template,template
+3-tools,photo-tools,product photo checklist,template
+3-tools,inventory-ops,sku generator,tool-noun
+3-tools,inventory-ops,inventory label template,template
+3-tools,inventory-ops,barcode generator for inventory,tool-noun
+3-tools,inventory-ops,reseller inventory app,tool-noun
+3-tools,inventory-ops,listing manager for resellers,tool-noun
+3-tools,inventory-ops,thrift inventory tracker,tool-noun
+3-tools,inventory-ops,storage bin label template,template

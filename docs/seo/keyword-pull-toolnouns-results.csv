@@ -1,0 +1,108 @@
+path,cluster,keyword,shape,avg_monthly,competition,comp_index,bid_low,bid_high,yoy,three_month
+3-tools,listing-composer,"ebay listing template",template,500,Low,7,1.50,4.93,0%,0%
+3-tools,listing-composer,"ebay description template",template,500,Low,5,1.56,7.66,0%,0%
+3-tools,listing-composer,"ebay html description template",template,50,Low,11,,,0%,0%
+3-tools,listing-composer,"ebay title generator",tool-noun,50,Low,15,1.67,4.56,0%,0%
+3-tools,listing-composer,"ebay title builder",tool-noun,500,Low,6,0.37,5.27,-90%,0%
+3-tools,listing-composer,"ebay keyword tool",tool-noun,500,Low,2,2.00,8.09,0%,0%
+3-tools,listing-composer,"ebay item specifics tool",tool-noun,50,Medium,43,,,0%,∞
+3-tools,listing-composer,"ebay listing analyzer",tool-noun,50,Low,21,2.34,6.51,0%,0%
+3-tools,listing-composer,"poshmark listing template",template,50,Low,1,,,0%,0%
+3-tools,listing-composer,"depop description template",template,50,Low,0,,,900%,900%
+3-tools,listing-composer,"clothing listing template",template,,,,,,,
+3-tools,listing-composer,"listing description generator",tool-noun,50,Low,28,0.17,6.04,0%,0%
+3-tools,comps-pricing,"ebay sold price checker",tool-noun,50,Low,2,,,0%,0%
+3-tools,comps-pricing,"ebay price checker",tool-noun,500,Low,4,1.04,2.86,0%,0%
+3-tools,comps-pricing,"ebay average sold price",tool-noun,500,Low,0,,,900%,0%
+3-tools,comps-pricing,"sold listings lookup",lookup,,,,,,,
+3-tools,comps-pricing,"ebay comp checker",tool-noun,50,Low,2,,,0%,0%
+3-tools,comps-pricing,"terapeak alternative",tool-noun,50,Low,11,2.77,17.92,0%,0%
+3-tools,comps-pricing,"used clothing price checker",tool-noun,,,,,,,
+3-tools,comps-pricing,"clothing value calculator",tool-noun,50,Low,4,,,0%,0%
+3-tools,comps-pricing,"resale value calculator",tool-noun,50,Medium,43,0.92,3.49,-90%,0%
+3-tools,comps-pricing,"thrift store price checker",tool-noun,,,,,,,
+3-tools,fee-math,"ebay break even calculator",tool-noun,50,Low,0,,,0%,0%
+3-tools,fee-math,"reseller break even calculator",tool-noun,,,,,,,
+3-tools,fee-math,"ebay promoted listings fee calculator",tool-noun,50,Low,0,,,0%,0%
+3-tools,fee-math,"promoted listings calculator",tool-noun,,,,,,,
+3-tools,fee-math,"ebay store fee calculator",tool-noun,50,Low,1,,,0%,0%
+3-tools,fee-math,"ebay auction fee calculator",tool-noun,50,Low,0,,,0%,0%
+3-tools,fee-math,"best offer calculator",tool-noun,,,,,,,
+3-tools,fee-math,"consignment payout calculator",tool-noun,,,,,,,
+3-tools,fee-math,"consignment split calculator",tool-noun,,,,,,,
+3-tools,fee-math,"markdown calculator",tool-noun,500,Low,0,,,0%,0%
+3-tools,tax-books,"reseller tax calculator",tool-noun,,,,,,,
+3-tools,tax-books,"1099k calculator",tool-noun,50,Low,27,0.08,2.08,0%,0%
+3-tools,tax-books,"ebay 1099 calculator",tool-noun,,,,,,,
+3-tools,tax-books,"self employment tax calculator reseller",tool-noun,,,,,,,
+3-tools,tax-books,"ebay sales tax calculator",tool-noun,500,Low,1,,,0%,0%
+3-tools,tax-books,"reseller profit and loss template",template,,,,,,,
+3-tools,tax-books,"mileage log template",template,500,High,86,0.77,10.91,0%,0%
+3-tools,tax-books,"cost of goods sold template",template,50,Low,32,,,0%,0%
+3-tools,tax-books,"reseller bookkeeping template",template,50,High,100,,,0%,0%
+3-tools,tax-books,"inventory value calculator",tool-noun,50,Low,0,,,0%,0%
+3-tools,shipping-tools,"usps shipping calculator",tool-noun,50000,Low,9,0.01,0.91,-90%,0%
+3-tools,shipping-tools,"usps ground advantage calculator",tool-noun,500,Low,4,0.01,0.69,0%,0%
+3-tools,shipping-tools,"shipping weight estimator",tool-noun,50,Medium,52,2.25,5.50,0%,0%
+3-tools,shipping-tools,"dimensional weight calculator",tool-noun,5000,Low,20,0.39,6.54,0%,0%
+3-tools,shipping-tools,"package size calculator",tool-noun,50,Low,3,,,0%,0%
+3-tools,shipping-tools,"shipping label price comparison",tool-noun,,,,,,,
+3-tools,shipping-tools,"ebay shipping label cost calculator",tool-noun,50,Low,5,,,0%,0%
+3-tools,shipping-tools,"first class vs ground advantage calculator",tool-noun,,,,,,,
+3-tools,shipping-tools,"poly mailer size calculator",tool-noun,50,Low,1,,,0%,0%
+3-tools,shipping-tools,"flat rate box size chart",chart,,,,,,,
+3-tools,shipping-tools,"clothing shipping weight chart",chart,,,,,,,
+3-tools,size-tools,"size chart converter",tool-noun,5000,Low,10,0.57,5.15,0%,0%
+3-tools,size-tools,"eu to us size converter",tool-noun,50,Low,14,,,0%,0%
+3-tools,size-tools,"uk to us size converter",tool-noun,5000,Low,13,0.02,2.32,0%,0%
+3-tools,size-tools,"mens to womens shoe size converter",tool-noun,5000,Low,18,0.03,1.21,0%,0%
+3-tools,size-tools,"shoe size conversion chart",chart,50000,Low,19,0.02,0.64,0%,0%
+3-tools,size-tools,"jeans size calculator",tool-noun,5000,Low,1,,,900%,0%
+3-tools,size-tools,"waist size converter",tool-noun,50,Low,4,,,0%,0%
+3-tools,size-tools,"bust waist hip calculator",tool-noun,500,Low,1,,,-90%,0%
+3-tools,size-tools,"vintage size converter",tool-noun,,,,,,,
+3-tools,size-tools,"kids size conversion chart",chart,,,,,,,
+3-tools,size-tools,"sleeve length calculator",tool-noun,50,Low,7,,,0%,0%
+3-tools,size-tools,"big and tall size chart",chart,500,Medium,65,0.75,1.79,0%,0%
+3-tools,code-lookups,"rn number lookup",lookup,5000,Low,0,,,0%,0%
+3-tools,code-lookups,"rn number search",lookup,5000,Low,0,,,0%,0%
+3-tools,code-lookups,"levis lot number lookup",lookup,,,,,,,
+3-tools,code-lookups,"levis date code lookup",lookup,50,Low,0,,,0%,0%
+3-tools,code-lookups,"levis tab dating",lookup,,,,,,,
+3-tools,code-lookups,"nike style code lookup",lookup,500,Low,0,,,0%,0%
+3-tools,code-lookups,"adidas product code lookup",lookup,50,Low,3,,,0%,0%
+3-tools,code-lookups,"patagonia style number lookup",lookup,500,Low,0,,,0%,0%
+3-tools,code-lookups,"north face style number lookup",lookup,500,Low,3,,,0%,0%
+3-tools,code-lookups,"lululemon style number lookup",lookup,500,Low,1,,,0%,0%
+3-tools,code-lookups,"lululemon size dot decoder",lookup,50,Low,0,,,∞,0%
+3-tools,code-lookups,"carhartt tag dating",lookup,,,,,,,
+3-tools,code-lookups,"clothing style number lookup",lookup,50,Low,0,,,0%,0%
+3-tools,code-lookups,"upc lookup clothing",lookup,,,,,,,
+3-tools,code-lookups,"barcode lookup clothing",lookup,,,,,,,
+3-tools,code-lookups,"made in usa tag dating",lookup,,,,,,,
+3-tools,care-decoders,"laundry symbol decoder",tool-noun,50,High,99,,,0%,0%
+3-tools,care-decoders,"care label symbol chart",chart,50,High,81,,,0%,0%
+3-tools,care-decoders,"wash symbol chart",chart,50,High,93,,,0%,0%
+3-tools,care-decoders,"fabric care symbol lookup",lookup,,,,,,,
+3-tools,care-decoders,"fabric identification chart",chart,50,Low,0,,,0%,0%
+3-tools,care-decoders,"fabric weight chart",chart,500,Low,3,0.64,3.94,0%,0%
+3-tools,care-decoders,"gsm fabric calculator",tool-noun,50,Low,0,,,0%,0%
+3-tools,care-decoders,"shrinkage calculator",tool-noun,500,Low,0,,,0%,0%
+3-tools,care-decoders,"thread count chart",chart,50,Low,22,0.05,0.73,-90%,0%
+3-tools,condition-tools,"clothing condition chart",chart,,,,,,,
+3-tools,condition-tools,"used clothing condition chart",chart,,,,,,,
+3-tools,condition-tools,"condition grade calculator",tool-noun,,,,,,,
+3-tools,condition-tools,"condition rating scale chart",chart,,,,,,,
+3-tools,condition-tools,"garment condition checklist",template,,,,,,,
+3-tools,photo-tools,"clothing background remover",tool-noun,,,,,,,
+3-tools,photo-tools,"photo resizer for ebay",tool-noun,,,,,,,
+3-tools,photo-tools,"ebay image size chart",chart,,,,,,,
+3-tools,photo-tools,"flat lay template",template,50,Low,17,,,0%,0%
+3-tools,photo-tools,"product photo checklist",template,,,,,,,
+3-tools,inventory-ops,"sku generator",tool-noun,500,Low,33,3.09,18.57,-90%,0%
+3-tools,inventory-ops,"inventory label template",template,50,High,100,2.08,15.30,0%,0%
+3-tools,inventory-ops,"barcode generator for inventory",tool-noun,500,High,84,4.19,19.85,-90%,-90%
+3-tools,inventory-ops,"reseller inventory app",tool-noun,50,Medium,65,3.68,12.83,0%,0%
+3-tools,inventory-ops,"listing manager for resellers",tool-noun,,,,,,,
+3-tools,inventory-ops,"thrift inventory tracker",tool-noun,,,,,,,
+3-tools,inventory-ops,"storage bin label template",template,,,,,,,
