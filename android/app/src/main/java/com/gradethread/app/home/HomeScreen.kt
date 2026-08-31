@@ -37,6 +37,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
 import com.gradethread.app.money.DashboardRollup
 import com.gradethread.app.money.Money
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.components.Sparkline
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -392,7 +393,7 @@ fun HomeContent(
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             Text(
-                                state.grades.label,
+                                state.grades.label.text(),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

@@ -2762,4 +2762,23 @@
     <string name="dictation_network">El dictado necesita conexi&#243;n ahora mismo.</string>
     <string name="dictation_stopped">El dictado se ha detenido de forma inesperada.</string>
     <string name="dictation_failed_detail">El dictado ha fallado: %1$s</string>
+    <string name="grades_sort_recent">M&#225;s recientes</string>
+    <string name="grades_sort_highest">Nota m&#225;s alta</string>
+    <string name="grades_sort_lowest">Nota m&#225;s baja</string>
+    <string name="item_photos_error_add">No se pudieron a&#241;adir esas fotos.</string>
+    <string name="item_photos_error_retag">No se pudo cambiar el tipo de esa foto.</string>
+    <string name="item_photos_error_delete_item">No se pudo eliminar este art&#237;culo.</string>
+    <string name="item_photos_error_duplicate">No se pudo duplicar este art&#237;culo.</string>
+    <string name="item_photos_error_remove">No se pudo quitar esa foto.</string>
+    <string name="item_photos_error_reorder">No se pudo guardar ese orden.</string>
+    <string name="item_photos_error_with_detail">%1$s (%2$s)</string>
+    <plurals name="grades_summary_total">
+        <item quantity="one">%1$d evaluado</item>
+        <item quantity="other">%1$d evaluados</item>
+    </plurals>
+    <plurals name="grades_summary_pending">
+        <item quantity="one">%1$d pendiente de revisi&#243;n</item>
+        <item quantity="other">%1$d pendientes de revisi&#243;n</item>
+    </plurals>
+    <string name="grades_summary_average">media %1$s</string>
 </resources>

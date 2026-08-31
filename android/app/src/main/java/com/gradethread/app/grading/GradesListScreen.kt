@@ -34,6 +34,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gradethread.app.R
 import com.gradethread.app.sync.db.InventoryItemEntity
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.gradeColor
 import java.util.Locale
@@ -139,7 +140,7 @@ fun GradesListContent(state: GradesListUiState, actions: GradesListActions, modi
         }
 
         Text(
-            summary.label,
+            summary.label.text(),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(horizontal = Spacing.md),
@@ -170,7 +171,7 @@ fun GradesListContent(state: GradesListUiState, actions: GradesListActions, modi
                 FilterChip(
                     selected = option == sort,
                     onClick = { actions.setSort(option) },
-                    label = { Text(option.label) },
+                    label = { Text(stringResource(option.label)) },
                 )
             }
         }

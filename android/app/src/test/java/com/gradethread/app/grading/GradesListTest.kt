@@ -1,5 +1,12 @@
 package com.gradethread.app.grading
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.gradethread.app.ui.text
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
 import com.gradethread.app.sync.db.InventoryItemEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -10,7 +17,10 @@ import org.junit.Test
 /**
  * US-1341: which grades count, and what the average is allowed to claim.
  */
+@RunWith(RobolectricTestRunner::class)
 class GradesListTest {
+
+    private val context = ApplicationProvider.getApplicationContext<Context>()
 
     private fun item(
         id: String,
@@ -58,8 +68,7 @@ class GradesListTest {
     )
 
     /** A grade produced but withheld pending review: score, no cert, no report. */
-    private fun provisional(id: String, grade: Double) =
-        item(id, grade, certificateUrl = null, gradeReportId = null)
+    private fun provisional(id: String, grade: Double) = item(id, grade, certificateUrl = null, gradeReportId = null)
 
     @Test
     fun `only graded items are listed`() {
@@ -146,23 +155,46 @@ class GradesListTest {
     @Test
     fun `the summary mentions pending grades only when there are some`() {
         val clean = GradesList.summarize(listOf(item("a", 8.0), item("b", 6.0)))
-        assertEquals("2 graded · avg 7.0", clean.label)
+        assertEquals("2 graded · avg 7.0", clean.label.text(context))
 
         val mixed = GradesList.summarize(listOf(item("a", 8.0), provisional("p", 5.0)))
-        assertEquals("2 graded · 1 pending review · avg 8.0", mixed.label)
+        assertEquals("2 graded · 1 pending review · avg 8.0", mixed.label.text(context))
     }
 
     @Test
     fun `an all-provisional summary quotes no average`() {
         val summary = GradesList.summarize(listOf(provisional("p", 5.0)))
-        assertEquals("1 graded · 1 pending review", summary.label)
+        assertEquals("1 graded · 1 pending review", summary.label.text(context))
         assertEquals("—", summary.averageLabel)
+    }
+
+    /**
+     * US-2976: the same line in Spanish.
+     *
+     * The English forms hide every plural mistake in this summary - "2 graded"
+     * and "1 graded" differ only in the digit, so a translator who filled in
+     * only the "other" form still passes every assertion above. Spanish
+     * inflects both the total and the pending count.
+     */
+    @Test
+    @Config(qualifiers = "es")
+    fun `the Spanish summary agrees with its own numbers`() {
+        val one = GradesList.summarize(listOf(provisional("p", 5.0)))
+        assertEquals("1 evaluado · 1 pendiente de revisión", one.label.text(context))
+
+        val many = GradesList.summarize(
+            listOf(item("a", 8.0), item("b", 6.0), provisional("p", 5.0)),
+        )
+        assertEquals(
+            "3 evaluados · 1 pendiente de revisión · media 7.0",
+            many.label.text(context),
+        )
     }
 
     @Test
     fun `an empty inventory summarizes to nothing rather than crashing`() {
         val summary = GradesList.summarize(emptyList())
         assertEquals(0, summary.total)
-        assertEquals("0 graded", summary.label)
+        assertEquals("0 graded", summary.label.text(context))
     }
 }

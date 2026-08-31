@@ -189,7 +189,7 @@ fun ItemPhotosSection(
         state.errorMessage?.let { message ->
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    message,
+                    message.text(),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f),

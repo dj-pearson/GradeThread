@@ -1,5 +1,9 @@
 package com.gradethread.app.inventory
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -53,7 +57,7 @@ class ItemPhotosViewModel @Inject constructor(
     data class State(
         val working: List<ItemPhotoEntity>? = null,
         val busy: Boolean = false,
-        val errorMessage: String? = null,
+        val errorMessage: UiMessage? = null,
         val duplicatedItemId: String? = null,
         val deleted: Boolean = false,
     )
@@ -106,7 +110,7 @@ class ItemPhotosViewModel @Inject constructor(
                     _state.value = _state.value.copy(busy = false)
                     Telemetry.event("item_photo_retagged", mapOf("type" to type))
                 }
-                .onFailure { error -> fail("Couldn't change that photo's type.", error) }
+                .onFailure { error -> fail(R.string.item_photos_error_retag, error) }
         }
     }
 
@@ -138,7 +142,7 @@ class ItemPhotosViewModel @Inject constructor(
                     _state.value = _state.value.copy(busy = false, working = null)
                     Telemetry.event("item_photos_reordered", mapOf("count" to ordered.size))
                 }
-                .onFailure { error -> fail("Couldn't save that order.", error) }
+                .onFailure { error -> fail(R.string.item_photos_error_reorder, error) }
         }
     }
 
@@ -149,7 +153,7 @@ class ItemPhotosViewModel @Inject constructor(
         viewModelScope.launch {
             repository.remove(photoId, remaining)
                 .onSuccess { _state.value = _state.value.copy(busy = false, working = null) }
-                .onFailure { error -> fail("Couldn't remove that photo.", error) }
+                .onFailure { error -> fail(R.string.item_photos_error_remove, error) }
         }
     }
 
@@ -205,7 +209,7 @@ class ItemPhotosViewModel @Inject constructor(
             }.onSuccess { count ->
                 _state.value = _state.value.copy(busy = false)
                 Telemetry.event("item_photos_added", mapOf("count" to count))
-            }.onFailure { error -> fail("Couldn't add those photos.", error) }
+            }.onFailure { error -> fail(R.string.item_photos_error_add, error) }
         }
     }
 
@@ -217,7 +221,7 @@ class ItemPhotosViewModel @Inject constructor(
                 .onSuccess { newId ->
                     _state.value = _state.value.copy(busy = false, duplicatedItemId = newId)
                 }
-                .onFailure { error -> fail("Couldn't duplicate this item.", error) }
+                .onFailure { error -> fail(R.string.item_photos_error_duplicate, error) }
         }
     }
 
@@ -227,7 +231,7 @@ class ItemPhotosViewModel @Inject constructor(
         viewModelScope.launch {
             repository.deleteItem(itemId)
                 .onSuccess { _state.value = _state.value.copy(busy = false, deleted = true) }
-                .onFailure { error -> fail("Couldn't delete this item.", error) }
+                .onFailure { error -> fail(R.string.item_photos_error_delete_item, error) }
         }
     }
 
@@ -240,11 +244,23 @@ class ItemPhotosViewModel @Inject constructor(
     }
 
     /** Drop the optimistic order so Room's confirmed one shows again. */
-    private fun fail(message: String, error: Throwable) {
+    private fun fail(@StringRes message: Int, error: Throwable) {
+        // US-2976: the exception's text is an ARGUMENT, not a `detail`
+        // override. "Couldn't remove that photo. (timeout)" is OUR sentence
+        // with the failure's own words appended, and the sentence translates
+        // even though the words in the parentheses do not.
+        val detail = error.message
         _state.value = _state.value.copy(
             busy = false,
             working = null,
-            errorMessage = error.message?.let { "$message ($it)" } ?: message,
+            errorMessage = if (detail == null) {
+                UiMessage(message)
+            } else {
+                UiMessage(
+                    R.string.item_photos_error_with_detail,
+                    args = listOf(UiMessage(message), detail),
+                )
+            },
         )
     }
 }

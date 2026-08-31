@@ -1,5 +1,10 @@
 package com.gradethread.app.grading
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+import com.gradethread.app.ui.joinMessages
+
 import com.gradethread.app.sync.db.InventoryItemEntity
 
 /**
@@ -11,15 +16,14 @@ import com.gradethread.app.sync.db.InventoryItemEntity
  */
 object GradesList {
 
-    enum class Sort(val label: String) {
-        RECENT("Most recent"),
-        HIGHEST("Highest grade"),
-        LOWEST("Lowest grade"),
+    enum class Sort(@StringRes val label: Int) {
+        RECENT(R.string.grades_sort_recent),
+        HIGHEST(R.string.grades_sort_highest),
+        LOWEST(R.string.grades_sort_lowest),
     }
 
     /** Every item carrying a grade, provisional ones included. */
-    fun graded(items: List<InventoryItemEntity>): List<InventoryItemEntity> =
-        items.filter { it.gradeValue != null }
+    fun graded(items: List<InventoryItemEntity>): List<InventoryItemEntity> = items.filter { it.gradeValue != null }
 
     /**
      * Is this grade still awaiting human review?
@@ -29,10 +33,9 @@ object GradesList {
      * certificate URL or a report id; a provisional one has a score and
      * neither, since both are withheld until a reviewer clears it (US-1209).
      */
-    fun isPendingReview(item: InventoryItemEntity): Boolean =
-        item.gradeValue != null &&
-            item.certificateUrl.isNullOrBlank() &&
-            item.gradeReportId.isNullOrBlank()
+    fun isPendingReview(item: InventoryItemEntity): Boolean = item.gradeValue != null &&
+        item.certificateUrl.isNullOrBlank() &&
+        item.gradeReportId.isNullOrBlank()
 
     /**
      * Items whose grade has actually certified.
@@ -73,12 +76,36 @@ object GradesList {
          * Only mentions provisional grades when there are some — a permanent
          * "0 pending" is noise that trains people to stop reading the line.
          */
-        val label: String
-            get() = buildString {
-                append("$total graded")
+        val label: UiMessage
+            get() {
+                // US-2976: a LIST of facts, not a sentence - the same shape the
+                // import summary had. Each clause carries its own plural and
+                // the separator is a resource, so a language can reorder or
+                // repunctuate the line without touching this code.
+                val parts = mutableListOf(
+                    UiMessage(
+                        R.plurals.grades_summary_total,
+                        args = listOf(total),
+                        quantity = total,
+                    ),
+                )
                 val pending = total - certified
-                if (pending > 0) append(" · $pending pending review")
-                if (average != null) append(" · avg $averageLabel")
+                if (pending > 0) {
+                    parts += UiMessage(
+                        R.plurals.grades_summary_pending,
+                        args = listOf(pending),
+                        quantity = pending,
+                    )
+                }
+                if (average != null) {
+                    // averageLabel is already formatted to one decimal; it goes
+                    // in as a string so the resource cannot re-round it.
+                    parts += UiMessage(
+                        R.string.grades_summary_average,
+                        args = listOf(averageLabel),
+                    )
+                }
+                return joinMessages(parts)
             }
     }
 

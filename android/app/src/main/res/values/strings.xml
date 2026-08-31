@@ -2896,4 +2896,23 @@
     <string name="dictation_network">Dictation needs a connection right now.</string>
     <string name="dictation_stopped">Dictation stopped unexpectedly.</string>
     <string name="dictation_failed_detail">Dictation failed: %1$s</string>
+    <string name="grades_sort_recent">Most recent</string>
+    <string name="grades_sort_highest">Highest grade</string>
+    <string name="grades_sort_lowest">Lowest grade</string>
+    <string name="item_photos_error_add">Couldn\'t add those photos.</string>
+    <string name="item_photos_error_retag">Couldn\'t change that photo\'s type.</string>
+    <string name="item_photos_error_delete_item">Couldn\'t delete this item.</string>
+    <string name="item_photos_error_duplicate">Couldn\'t duplicate this item.</string>
+    <string name="item_photos_error_remove">Couldn\'t remove that photo.</string>
+    <string name="item_photos_error_reorder">Couldn\'t save that order.</string>
+    <string name="item_photos_error_with_detail">%1$s (%2$s)</string>
+    <plurals name="grades_summary_total">
+        <item quantity="one">%1$d graded</item>
+        <item quantity="other">%1$d graded</item>
+    </plurals>
+    <plurals name="grades_summary_pending">
+        <item quantity="one">%1$d pending review</item>
+        <item quantity="other">%1$d pending review</item>
+    </plurals>
+    <string name="grades_summary_average">avg %1$s</string>
 </resources>
