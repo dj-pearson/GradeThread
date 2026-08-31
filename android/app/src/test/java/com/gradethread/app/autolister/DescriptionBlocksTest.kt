@@ -2,6 +2,7 @@ package com.gradethread.app.autolister
 
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.builtins.ListSerializer
+import com.gradethread.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -219,16 +220,41 @@ class DescriptionBlocksTest {
             gradeValue = 8.5,
         )
         val blocks = sample()
-        assertEquals("Brand, Color", DescriptionBlocks.describe(blocks[2], ctx))
-        assertEquals("1 value, inches", DescriptionBlocks.describe(blocks[4], ctx))
-        assertEquals("8.5 / 10", DescriptionBlocks.describe(blocks[5], ctx))
+
+        // US-2976: the attributes row is one part PER FILLED FIELD, and the
+        // blank size is the point - a field with only whitespace in it must not
+        // appear in a list that says what the section will show.
+        val attributes = DescriptionBlocks.describe(blocks[2], ctx)
+        assertEquals(
+            listOf(R.string.block_attr_brand, R.string.block_attr_color),
+            attributes.parts.map { it.res },
+        )
+
+        // The UNIT picks the plurals resource, and the count picks the form.
+        val inches = DescriptionBlocks.describe(blocks[4], ctx).parts.single()
+        assertEquals(R.plurals.block_measurement_count_in, inches.res)
+        assertEquals(1, inches.quantity)
+
+        val grade = DescriptionBlocks.describe(blocks[5], ctx).parts.single()
+        assertEquals(R.string.block_grade_value, grade.res)
+        // The number keeps Locale.US on purpose: 8.5 out of 10 is the same
+        // scale everywhere, and a decimal comma would read as a different one.
+        assertEquals(listOf<Any>("8.5"), grade.args)
 
         val metric = ctx.copy(measurementCount = 3, unit = "cm")
-        assertEquals("3 values, centimetres", DescriptionBlocks.describe(blocks[4], metric))
+        val centimetres = DescriptionBlocks.describe(blocks[4], metric).parts.single()
+        assertEquals(R.plurals.block_measurement_count_cm, centimetres.res)
+        assertEquals(3, centimetres.quantity)
 
         val ungraded = ctx.copy(gradeValue = null)
-        assertEquals("Not graded yet", DescriptionBlocks.describe(blocks[5], ungraded))
-        assertEquals("Not graded yet", DescriptionBlocks.describe(blocks[6], ungraded))
+        assertEquals(
+            R.string.block_not_graded,
+            DescriptionBlocks.describe(blocks[5], ungraded).parts.single().res,
+        )
+        assertEquals(
+            R.string.block_not_graded,
+            DescriptionBlocks.describe(blocks[6], ungraded).parts.single().res,
+        )
     }
 
     /**
@@ -244,17 +270,26 @@ class DescriptionBlocksTest {
             DescriptionBlockSource.ACCOUNT,
             ref = "gone",
         )
+        // Not loaded yet: the neutral wording, and NOT the deleted one.
+        val waiting = DescriptionBlocks
+            .describe(block, DescriptionBlocks.RowContext())
+            .parts
+            .single()
+        assertEquals(R.string.block_snippet, waiting.res)
+        assertNull(waiting.detail)
+
+        // Loaded and still missing: now it is genuinely deleted, and a
+        // DIFFERENT resource says so.
         assertEquals(
-            "Saved snippet",
-            DescriptionBlocks.describe(block, DescriptionBlocks.RowContext()),
-        )
-        assertEquals(
-            "Deleted snippet, so this section shows nothing",
+            R.string.block_snippet_deleted,
             DescriptionBlocks.describe(
                 block,
                 DescriptionBlocks.RowContext(snippetsLoaded = true),
-            ),
+            ).parts.single().res,
         )
+
+        // The snippet's own name is the seller's word and goes through as
+        // `detail`, untranslated.
         assertEquals(
             "Returns policy",
             DescriptionBlocks.describe(
@@ -263,7 +298,7 @@ class DescriptionBlocksTest {
                     snippetNames = mapOf("gone" to "Returns policy"),
                     snippetsLoaded = true,
                 ),
-            ),
+            ).parts.single().detail,
         )
     }
 
@@ -284,7 +319,7 @@ class DescriptionBlocksTest {
                     snippetNames = mapOf("s1" to "Returns policy"),
                     snippetsLoaded = true,
                 ),
-            ),
+            ).parts.single().detail,
         )
     }
 

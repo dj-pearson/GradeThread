@@ -1,5 +1,9 @@
 package com.gradethread.app.autolister
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -133,29 +137,31 @@ data class DescriptionBlock(
 object DescriptionBlocks {
 
     /** Row heading per block type. */
-    fun label(key: DescriptionBlockKey): String = when (key) {
-        DescriptionBlockKey.INTRO -> "Intro"
-        DescriptionBlockKey.FEATURES -> "Features"
-        DescriptionBlockKey.CONDITION -> "Condition"
-        DescriptionBlockKey.ATTRIBUTES -> "Attributes"
-        DescriptionBlockKey.MEASUREMENTS -> "Measurements"
-        DescriptionBlockKey.GRADE -> "Grade badge"
-        DescriptionBlockKey.DISCLOSURE -> "Grade disclosure"
-        DescriptionBlockKey.CREDENTIALS -> "Verified seller"
-        DescriptionBlockKey.FACTS -> "Item facts"
-        DescriptionBlockKey.SNIPPET -> "Saved snippet"
-        DescriptionBlockKey.TEXT -> "Custom text"
+    @StringRes
+    fun label(key: DescriptionBlockKey): Int = when (key) {
+        DescriptionBlockKey.INTRO -> R.string.block_intro
+        DescriptionBlockKey.FEATURES -> R.string.block_features
+        DescriptionBlockKey.CONDITION -> R.string.block_condition
+        DescriptionBlockKey.ATTRIBUTES -> R.string.block_attributes
+        DescriptionBlockKey.MEASUREMENTS -> R.string.block_measurements
+        DescriptionBlockKey.GRADE -> R.string.block_grade
+        DescriptionBlockKey.DISCLOSURE -> R.string.block_disclosure
+        DescriptionBlockKey.CREDENTIALS -> R.string.block_credentials
+        DescriptionBlockKey.FACTS -> R.string.block_facts
+        DescriptionBlockKey.SNIPPET -> R.string.block_snippet
+        DescriptionBlockKey.TEXT -> R.string.block_text
     }
 
     /** The small plain-text tag that says who owns a row's content. */
-    fun label(src: DescriptionBlockSource): String = when (src) {
-        DescriptionBlockSource.AI -> "AI"
-        DescriptionBlockSource.ITEM -> "Item"
-        DescriptionBlockSource.GRADE -> "Grade"
-        DescriptionBlockSource.SELLER -> "Seller"
-        DescriptionBlockSource.SYSTEM -> "System"
-        DescriptionBlockSource.ACCOUNT -> "Account"
-        DescriptionBlockSource.USER -> "You"
+    @StringRes
+    fun label(src: DescriptionBlockSource): Int = when (src) {
+        DescriptionBlockSource.AI -> R.string.block_src_ai
+        DescriptionBlockSource.ITEM -> R.string.block_src_item
+        DescriptionBlockSource.GRADE -> R.string.block_src_grade
+        DescriptionBlockSource.SELLER -> R.string.block_src_seller
+        DescriptionBlockSource.SYSTEM -> R.string.block_src_system
+        DescriptionBlockSource.ACCOUNT -> R.string.block_src_account
+        DescriptionBlockSource.USER -> R.string.block_src_user
     }
 
     /**
@@ -378,11 +384,11 @@ object DescriptionBlocks {
     )
 
     private val ATTRIBUTE_LABELS = mapOf(
-        "brand" to "Brand",
-        "size" to "Size",
-        "color" to "Color",
-        "material" to "Material",
-        "style" to "Style",
+        "brand" to R.string.block_attr_brand,
+        "size" to R.string.block_attr_size,
+        "color" to R.string.block_attr_color,
+        "material" to R.string.block_attr_material,
+        "style" to R.string.block_attr_style,
     )
 
     /**
@@ -391,12 +397,14 @@ object DescriptionBlocks {
      * Derived rows say what they WILL show rather than showing it, because the
      * row is a control and the preview below is where the actual bytes live.
      */
-    fun describe(block: DescriptionBlock, ctx: RowContext): String = when (block.key) {
+    fun describe(block: DescriptionBlock, ctx: RowContext): RowSummary = when (block.key) {
         DescriptionBlockKey.INTRO,
         DescriptionBlockKey.FEATURES,
         DescriptionBlockKey.CONDITION,
         DescriptionBlockKey.TEXT,
-        -> block.text.orEmpty().trim().ifBlank { "Empty" }
+        // The seller's own words, shown exactly as typed - which is what
+        // `detail` is for. R.string.block_empty covers the blank case.
+        -> one(R.string.block_empty, detail = block.text.orEmpty().trim().ifBlank { null })
 
         DescriptionBlockKey.SNIPPET -> {
             // The per-listing override wins, exactly as the renderer resolves it
@@ -406,14 +414,15 @@ object DescriptionBlocks {
             val ref = block.ref.orEmpty()
             val name = ctx.snippetNames[ref]
             when {
-                own.isNotEmpty() -> own
-                ref.isEmpty() -> "Empty"
-                name != null -> name
+                own.isNotEmpty() -> one(R.string.block_empty, detail = own)
+                ref.isEmpty() -> one(R.string.block_empty)
+                // The snippet's own name, which the seller wrote.
+                name != null -> one(R.string.block_snippet, detail = name)
                 // Deleting a snippet leaves the block in place and renders
                 // nothing, which is the safe outcome and an invisible one. The
                 // row is where it gets said.
-                ctx.snippetsLoaded -> "Deleted snippet, so this section shows nothing"
-                else -> "Saved snippet"
+                ctx.snippetsLoaded -> one(R.string.block_snippet_deleted)
+                else -> one(R.string.block_snippet)
             }
         }
 
@@ -421,40 +430,88 @@ object DescriptionBlocks {
             val fields = block.fields ?: listOf("brand", "size", "color", "material")
             val filled = fields.filter { ctx.attributes[it].orEmpty().isNotBlank() }
             if (filled.isEmpty()) {
-                "No attributes filled in yet"
+                one(R.string.block_no_attributes)
             } else {
-                filled.joinToString(", ") { ATTRIBUTE_LABELS[it] ?: it }
+                // US-2976: one part per field, joined on screen. A field this
+                // build has no label for falls back to its own wire name rather
+                // than vanishing from a list that claims to be complete.
+                RowSummary(
+                    filled.map { field ->
+                        val res = ATTRIBUTE_LABELS[field]
+                        if (res == null) {
+                            UiMessage(R.string.block_attributes, detail = field)
+                        } else {
+                            UiMessage(res)
+                        }
+                    },
+                )
             }
         }
 
         DescriptionBlockKey.MEASUREMENTS -> {
             val n = ctx.measurementCount
             if (n == 0) {
-                "No measurements yet"
+                one(R.string.block_no_measurements)
             } else {
+                // US-2976: "value" versus "values" is a plurals resource, and
+                // the UNIT picks which plurals resource - the two cannot be one
+                // string with the unit substituted, because a language may
+                // decline the noun differently for each.
                 val unit = block.unit ?: ctx.unit
-                val word = if (unit == "cm") "centimetres" else "inches"
-                "$n ${if (n == 1) "value" else "values"}, $word"
+                RowSummary(
+                    listOf(
+                        UiMessage(
+                            if (unit == "cm") {
+                                R.plurals.block_measurement_count_cm
+                            } else {
+                                R.plurals.block_measurement_count_in
+                            },
+                            args = listOf(n),
+                            quantity = n,
+                        ),
+                    ),
+                )
             }
         }
 
         DescriptionBlockKey.GRADE ->
-            ctx.gradeValue?.let { String.format(java.util.Locale.US, "%.1f / 10", it) }
-                ?: "Not graded yet"
+            ctx.gradeValue
+                ?.let {
+                    // Locale.US on the NUMBER only: the grade is 8.5 out of 10
+                    // everywhere, and a decimal comma here would read as a
+                    // different scale rather than as the same one localized.
+                    one(
+                        R.string.block_grade_value,
+                        args = listOf(String.format(java.util.Locale.US, "%.1f", it)),
+                    )
+                }
+                ?: one(R.string.block_not_graded)
 
         DescriptionBlockKey.DISCLOSURE ->
             if (ctx.gradeValue == null) {
-                "Not graded yet"
+                one(R.string.block_not_graded)
             } else {
-                "Defects and grade disclosure from the report"
+                one(R.string.block_disclosure_summary)
             }
 
         // The server decides whether this seller has one and what it says, so the
         // row promises the section rather than previewing bytes it cannot know.
-        DescriptionBlockKey.CREDENTIALS -> "Your verified-seller stats, filled in by the server"
+        DescriptionBlockKey.CREDENTIALS -> one(R.string.block_credentials_summary)
 
-        DescriptionBlockKey.FACTS -> "Machine-readable facts, always last"
+        DescriptionBlockKey.FACTS -> one(R.string.block_facts_summary)
     }
+
+    private fun one(res: Int, detail: String? = null, args: List<Any> = emptyList()) =
+        RowSummary(listOf(UiMessage(res, detail = detail, args = args)))
+
+    /**
+     * What a row says under its heading.
+     *
+     * US-2976: a LIST, because the attributes row names each filled field and
+     * joining them is the step that has to be translatable. Every other row has
+     * exactly one part; the screen joins with R.string.block_separator.
+     */
+    data class RowSummary(val parts: List<UiMessage>)
 
     /**
      * The starting order for a listing that has no row yet.

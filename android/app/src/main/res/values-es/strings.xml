@@ -2379,4 +2379,45 @@
         <item quantity="other">%1$d borradores actualizados.</item>
     </plurals>
     <string name="autolister_upload_failed">No se pudo subir ninguna de esas fotos.</string>
+    <string name="block_intro">Introducción</string>
+    <string name="block_features">Características</string>
+    <string name="block_condition">Estado</string>
+    <string name="block_attributes">Atributos</string>
+    <string name="block_measurements">Medidas</string>
+    <string name="block_grade">Insignia de nota</string>
+    <string name="block_disclosure">Aviso sobre la nota</string>
+    <string name="block_credentials">Vendedor verificado</string>
+    <string name="block_facts">Datos del artículo</string>
+    <string name="block_snippet">Fragmento guardado</string>
+    <string name="block_text">Texto propio</string>
+    <string name="block_src_ai">IA</string>
+    <string name="block_src_item">Artículo</string>
+    <string name="block_src_grade">Nota</string>
+    <string name="block_src_seller">Vendedor</string>
+    <string name="block_src_system">Sistema</string>
+    <string name="block_src_account">Cuenta</string>
+    <string name="block_src_user">Tú</string>
+    <string name="block_attr_brand">Marca</string>
+    <string name="block_attr_size">Talla</string>
+    <string name="block_attr_color">Color</string>
+    <string name="block_attr_material">Material</string>
+    <string name="block_attr_style">Estilo</string>
+    <string name="block_empty">Vacío</string>
+    <string name="block_snippet_deleted">Fragmento eliminado, así que esta sección no muestra nada</string>
+    <string name="block_no_attributes">Aún no hay atributos rellenados</string>
+    <string name="block_no_measurements">Aún no hay medidas</string>
+    <string name="block_not_graded">Aún sin nota</string>
+    <string name="block_disclosure_summary">Defectos y aviso sobre la nota, del informe</string>
+    <string name="block_credentials_summary">Tus estadísticas de vendedor verificado, que rellena el servidor</string>
+    <string name="block_facts_summary">Datos legibles por máquina, siempre al final</string>
+    <string name="block_grade_value">%1$s / 10</string>
+    <string name="block_separator">, </string>
+    <plurals name="block_measurement_count_in">
+        <item quantity="one">%1$d medida, en pulgadas</item>
+        <item quantity="other">%1$d medidas, en pulgadas</item>
+    </plurals>
+    <plurals name="block_measurement_count_cm">
+        <item quantity="one">%1$d medida, en centímetros</item>
+        <item quantity="other">%1$d medidas, en centímetros</item>
+    </plurals>
 </resources>

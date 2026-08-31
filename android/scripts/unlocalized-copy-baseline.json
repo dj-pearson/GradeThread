@@ -13,7 +13,6 @@
     "analytics/ListingPerformanceViewModel.kt": 1,
     "auth/AuthFormRules.kt": 8,
     "auth/AuthViewModel.kt": 2,
-    "autolister/DescriptionBlocks.kt": 23,
     "autolister/DescriptionBlocksViewModel.kt": 2,
     "autolister/DraftBulk.kt": 2,
     "billing/BillingRepository.kt": 3,

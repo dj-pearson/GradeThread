@@ -2513,4 +2513,45 @@
         <item quantity="other">Updated %1$d drafts.</item>
     </plurals>
     <string name="autolister_upload_failed">None of those photos could be uploaded.</string>
+    <string name="block_intro">Intro</string>
+    <string name="block_features">Features</string>
+    <string name="block_condition">Condition</string>
+    <string name="block_attributes">Attributes</string>
+    <string name="block_measurements">Measurements</string>
+    <string name="block_grade">Grade badge</string>
+    <string name="block_disclosure">Grade disclosure</string>
+    <string name="block_credentials">Verified seller</string>
+    <string name="block_facts">Item facts</string>
+    <string name="block_snippet">Saved snippet</string>
+    <string name="block_text">Custom text</string>
+    <string name="block_src_ai">AI</string>
+    <string name="block_src_item">Item</string>
+    <string name="block_src_grade">Grade</string>
+    <string name="block_src_seller">Seller</string>
+    <string name="block_src_system">System</string>
+    <string name="block_src_account">Account</string>
+    <string name="block_src_user">You</string>
+    <string name="block_attr_brand">Brand</string>
+    <string name="block_attr_size">Size</string>
+    <string name="block_attr_color">Color</string>
+    <string name="block_attr_material">Material</string>
+    <string name="block_attr_style">Style</string>
+    <string name="block_empty">Empty</string>
+    <string name="block_snippet_deleted">Deleted snippet, so this section shows nothing</string>
+    <string name="block_no_attributes">No attributes filled in yet</string>
+    <string name="block_no_measurements">No measurements yet</string>
+    <string name="block_not_graded">Not graded yet</string>
+    <string name="block_disclosure_summary">Defects and grade disclosure from the report</string>
+    <string name="block_credentials_summary">Your verified-seller stats, filled in by the server</string>
+    <string name="block_facts_summary">Machine-readable facts, always last</string>
+    <string name="block_grade_value">%1$s / 10</string>
+    <string name="block_separator">, </string>
+    <plurals name="block_measurement_count_in">
+        <item quantity="one">%1$d value, inches</item>
+        <item quantity="other">%1$d values, inches</item>
+    </plurals>
+    <plurals name="block_measurement_count_cm">
+        <item quantity="one">%1$d value, centimetres</item>
+        <item quantity="other">%1$d values, centimetres</item>
+    </plurals>
 </resources>

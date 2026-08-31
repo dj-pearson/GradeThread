@@ -26,6 +26,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import com.gradethread.app.R
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.Spacing
 
 /**
@@ -193,7 +194,7 @@ private fun BlockRow(
     onRemove: () -> Unit,
     onRegenerate: () -> Unit,
 ) {
-    val label = DescriptionBlocks.label(block.key)
+    val label = stringResource(DescriptionBlocks.label(block.key))
     val pinned = DescriptionBlocks.isPinned(block.key)
     // Read outside the semantics lambda, which is not a composable scope.
     val includeDescription = stringResource(R.string.blocks_include, label)
@@ -216,13 +217,17 @@ private fun BlockRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
                 Text(
-                    DescriptionBlocks.label(block.src),
+                    stringResource(DescriptionBlocks.label(block.src)),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 if (!editing) {
                     Text(
-                        DescriptionBlocks.describe(block, rowContext),
+                        // `map` is inline, so text() stays in a composable
+                        // scope; joinToString is not.
+                        DescriptionBlocks.describe(block, rowContext).parts
+                            .map { it.text() }
+                            .joinToString(stringResource(R.string.block_separator)),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
