@@ -35,6 +35,15 @@ import {
 } from "../lib/extension-scan.ts";
 import { deriveFraudFlags } from "../lib/fraud-flags.ts";
 import { coverageGapForTitle } from "../lib/coverage-gap.ts";
+// US-9033: the free tag reader reuses the AutoLister's tag-OCR pass rather than
+// prompting for a second time. Same model call, anonymous caller.
+import {
+  extractTagGroundTruth,
+  TAG_GROUND_TRUTH_MIN_CONFIDENCE,
+  type TagField,
+  type TagGroundTruth,
+} from "../lib/ai-tag-ocr.ts";
+import { parseRegisteredNumber, registeredNumberKey } from "../lib/registered-numbers.ts";
 import { bearerFromHeader, verifyExtensionToken } from "../lib/extension-token.ts";
 import { resolveExtensionGates } from "../lib/extension-gates.ts";
 import {
@@ -1906,3 +1915,144 @@ publicGradingRoutes.post("/ingest-listing", async (c) => {
     return c.json({ error: "Couldn't check that listing right now. Try again later." }, 500);
   }
 });
+
+// ── Free tag reader for /tools/rn-lookup (US-9033) ───────────────────────────
+// POST /tag-read — UNAUTHENTICATED single-photo read of a garment care label,
+// returning the RN, size, fibre content and style code printed on it.
+//
+// Defended exactly like /grade-check above, and for the same reason: it is a
+// Vision-cost and abuse surface reachable with no account. The body limit caps
+// the request, a per-IP sliding window caps calls here, the shared ai-limiter's
+// global daily ceiling caps total Vision spend, and NO image is ever persisted.
+//
+// The one thing it does write is a SIGHTING — the registry key and nothing
+// else. That is what makes the lookup pages better the more the tool is used,
+// and it carries no image, no IP, no session and no identity. See
+// lib/registered-numbers.ts for why a bare count is the honest signal.
+const TAG_READ_PER_IP_PER_HOUR = 5;
+const TAG_READ_WINDOW_MS = 60 * 60 * 1000;
+const tagReadHits = new Map<string, number[]>();
+
+export function tagReadRateLimited(ip: string, now: number): boolean {
+  const recent = (tagReadHits.get(ip) ?? []).filter((t) => now - t < TAG_READ_WINDOW_MS);
+  if (recent.length >= TAG_READ_PER_IP_PER_HOUR) {
+    tagReadHits.set(ip, recent);
+    return true;
+  }
+  recent.push(now);
+  tagReadHits.set(ip, recent);
+  if (tagReadHits.size > 5000) {
+    for (const [k, v] of tagReadHits) {
+      if (v.every((t) => now - t >= TAG_READ_WINDOW_MS)) tagReadHits.delete(k);
+    }
+  }
+  return false;
+}
+
+/** What the page renders. A field the model could not read is simply absent. */
+export interface PublicTagRead {
+  rn: string | null;
+  size: string | null;
+  fiberContent: string | null;
+  styleCode: string | null;
+  brand: string | null;
+}
+
+/** Pure: shape the OCR result for an anonymous caller, dropping confidences
+ *  and anything the model was not sure enough about to be worth showing. */
+export function publicTagRead(fields: TagGroundTruth): PublicTagRead {
+  const pick = (f: TagField | undefined): string | null => {
+    const v = (f?.value ?? "").trim();
+    if (!v) return null;
+    // The same floor the ground-truth merge uses. Below it the model is
+    // guessing at smudged text, and a wrong RN sends someone to the wrong
+    // company with our name on the answer.
+    if ((f?.confidence ?? 0) < TAG_GROUND_TRUTH_MIN_CONFIDENCE) return null;
+    return v;
+  };
+  return {
+    rn: pick(fields.rn_number),
+    size: pick(fields.size),
+    fiberContent: pick(fields.fiber_content),
+    styleCode: pick(fields.style_code),
+    brand: pick(fields.brand),
+  };
+}
+
+/** Record the sighting a successful read earns. Pure except for the writer,
+ *  which is injected so the rule is testable without a database. */
+export async function afterTagRead(
+  read: { rn: string | null; brand: string | null },
+  opts: { writer?: (args: { registryKey: string; declaredBrand?: string }) => Promise<void> } = {},
+): Promise<void> {
+  const parsed = parseRegisteredNumber(read.rn);
+  // No number on the label is the common case and writes nothing. A sighting
+  // is a claim that we SAW this number, so inventing one would poison the
+  // count that the lookup page's whole credibility rests on.
+  if (!parsed) return;
+  // NOT recordRegisteredNumberSighting: that one is the cross-check's path and
+  // writes only when the outcome is `no_reference`, so a number we HAVE
+  // resolved would never increment. This surface wants the opposite — the
+  // count on a resolved number's page is exactly the line nobody else can
+  // print. Same RPC underneath, from 00501.
+  const writer = opts.writer ??
+    (async (args) => {
+      const { error } = await supabaseAdmin.rpc("record_registered_number_sighting", {
+        p_registry_key: args.registryKey,
+        p_kind: parsed.kind,
+        p_digits: parsed.digits,
+        p_declared_brand: args.declaredBrand ?? null,
+      });
+      if (error) throw error;
+    });
+  await writer({
+    registryKey: registeredNumberKey(parsed),
+    declaredBrand: read.brand ?? undefined,
+  });
+}
+
+publicGradingRoutes.post("/tag-read", async (c) => {
+  try {
+    const ip = clientIpFor(c);
+    if (tagReadRateLimited(ip, Date.now())) {
+      return c.json(
+        {
+          error: "You've reached the free tag-reader limit for now. Try again later.",
+          code: RATE_LIMITED_CODE,
+        },
+        429,
+      );
+    }
+
+    const body = (await c.req.json().catch(() => null)) as { image?: unknown } | null;
+    const prepared = prepareGradeCheckImage(body?.image);
+    if (!prepared.ok) return c.json({ error: prepared.error }, prepared.status);
+
+    try {
+      await reserveGlobalDailyBudget();
+    } catch (err) {
+      if (err instanceof AiCeilingError) return c.json(atCapacityBody(), 503);
+      throw err;
+    }
+
+    const result = await extractTagGroundTruth([{ url: prepared.cleanDataUri, type: "tag" }]);
+    const read = publicTagRead(result.fields);
+
+    // Best-effort. A sighting that fails to write must never cost the reader
+    // the answer they came for.
+    try {
+      await afterTagRead(read);
+    } catch (err) {
+      console.warn("[tag-read] sighting write failed (ignored):", err);
+    }
+
+    return c.json({ ...read, disclaimer: TAG_READ_DISCLAIMER });
+  } catch (err) {
+    console.error("public-grading /tag-read:", err);
+    return c.json({ error: "Couldn't read that tag. Try a straighter, better-lit photo." }, 500);
+  }
+});
+
+export const TAG_READ_DISCLAIMER =
+  "Read from one photo by AI. An RN names the company that made or imported " +
+  "the item, never the brand on the tag, and a counterfeit can print a real one.";

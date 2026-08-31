@@ -144,6 +144,8 @@ import { ConditionChartPage } from "@/pages/marketing/condition-chart";
 import { ChangelogPage } from "@/pages/marketing/changelog";
 import { GRADE_CHECKER_PATH } from "@/lib/seo/grade-checker";
 import { GradeCheckerPage } from "@/pages/tools/grade-checker";
+import { RN_LOOKUP_PATH } from "@/lib/seo/rn-lookup";
+import { RnLookupPage } from "@/pages/tools/rn-lookup";
 import { AUTHENTICITY_CHECK_PATH } from "@/lib/seo/authenticity-check";
 import { AuthenticityCheckPage } from "@/pages/tools/authenticity-check";
 import { FIT_CHECKER_PATH } from "@/lib/seo/fit-checker";
@@ -350,6 +352,8 @@ const PAGES: Record<string, React.ReactNode> = {
   [CHANGELOG_PATH]: <ChangelogPage />,
   // Free grade-checker tool (US-1687).
   [GRADE_CHECKER_PATH]: <GradeCheckerPage />,
+  // Free RN number lookup + tag reader (US-9033).
+  [RN_LOOKUP_PATH]: <RnLookupPage />,
   // Free authenticity-check tool (US-1771).
   [AUTHENTICITY_CHECK_PATH]: <AuthenticityCheckPage />,
   [FIT_CHECKER_PATH]: <FitCheckerPage />,
@@ -499,6 +503,7 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
   [CONDITION_CHART_PATH]: `${M}marketing/condition-chart`,
   [CHANGELOG_PATH]: `${M}marketing/changelog`,
   [GRADE_CHECKER_PATH]: `${M}tools/grade-checker`,
+  [RN_LOOKUP_PATH]: `${M}tools/rn-lookup`,
   [AUTHENTICITY_CHECK_PATH]: `${M}tools/authenticity-check`,
   [FIT_CHECKER_PATH]: `${M}tools/fit-checker`,
   [CALCULATOR_HUB_PATH]: `${M}tools/calculators`,

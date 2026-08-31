@@ -26,6 +26,7 @@ import {
   durabilityUrls,
   authorUrls,
   helpUrls,
+  rnUrls,
   styleCodeUrls,
   urlsetXml,
   sitemapIndexXml,
@@ -100,9 +101,10 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
     leaderboards: SitemapUrl[],
     authors: SitemapUrl[],
     help: SitemapUrl[],
-    styleCodes: SitemapUrl[];
+    styleCodes: SitemapUrl[],
+    rnNumbers: SitemapUrl[];
   try {
-    [statics, blog, certs, passports, sellers, condition, value, durability, finds, leaderboards, authors, help, styleCodes] =
+    [statics, blog, certs, passports, sellers, condition, value, durability, finds, leaderboards, authors, help, styleCodes, rnNumbers] =
       await Promise.all([
       staticUrls(env),
       blogUrls(env),
@@ -117,6 +119,7 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
       authorUrls(env),
       helpUrls(env),
       styleCodeUrls(env),
+      rnUrls(env),
     ]);
   } catch (e) {
     if (e instanceof UpstreamUnavailable) {
@@ -139,6 +142,7 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
     leaderboards.length +
     authors.length +
     styleCodes.length +
+    rnNumbers.length +
     help.length;
 
   const xml =
@@ -177,6 +181,10 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
           // a sitemap full of pages that answer nothing is how a section gets
           // ignored rather than ranked.
           { name: "sitemap-style-codes.xml", lastmod: newestLastmod(styleCodes) },
+          // US-9032: the RN lookup. Same rule as the style codes above — only
+          // the numbers we can tie to a company are listed. RN only; a CA
+          // number answers when asked for and is not claimed as worth crawling.
+          { name: "sitemap-rn.xml", lastmod: newestLastmod(rnNumbers) },
           // The image sitemap is generated from the blog payload, so its
           // content date is the blog's.
           { name: "sitemap-images.xml", lastmod: newestLastmod(blog) },
@@ -195,6 +203,7 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
           ...authors,
           ...help,
           ...styleCodes,
+          ...rnNumbers,
         ]);
 
   return new Response(xml, { status: 200, headers: { ...SITEMAP_HEADERS } });

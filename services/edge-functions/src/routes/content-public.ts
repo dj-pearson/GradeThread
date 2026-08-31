@@ -27,6 +27,16 @@ import { PUBLIC_MIN_SUBMISSIONS } from "../lib/style-code-names.ts";
  *  when it binds, because a silently-truncated sitemap tells crawlers that the
  *  missing URLs do not exist. */
 const STYLE_CODE_SITEMAP_CAP = 20_000;
+/** US-9032: the registry is seeded from ~180 known brands plus resolved
+ *  sightings, so this cap is headroom rather than a real ceiling today. */
+const RN_SITEMAP_CAP = 5_000;
+import {
+  indexableNumbers,
+  publicRegisteredNumber,
+  type RegistryRowForPublic,
+  type SitemapNumberRow,
+} from "../lib/public-registered-number.ts";
+import { parseRegisteredNumber, registeredNumberKey } from "../lib/registered-numbers.ts";
 import { filterListablePhotos } from "../lib/item-photo-storage.ts";
 import { verifyPreviewToken } from "../lib/preview-token.ts";
 import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
@@ -757,6 +767,90 @@ contentPublicRoutes.get("/style-codes.json", async (c) => {
   const codes = indexableCodes((data ?? []) as SitemapCandidateRow[]);
   const truncated = warnIfCapped("style-codes.json", (data ?? []).length, STYLE_CODE_SITEMAP_CAP);
   return c.json({ truncated, codes });
+});
+
+// ── GET /registered-numbers/:number ───────────────────────
+// US-9030: the public RN lookup. Someone reads a number off a care label and
+// gets the COMPANY that registered it, plus where that answer came from.
+//
+// TENANT SCOPING DOES NOT APPLY HERE, and the missing filter is deliberate:
+// registered_number_registry and registered_number_sightings are global
+// reference data with no owner column (00501, 00502), the same class as
+// style_code_names. There is no user_id to scope by and nothing here reads a
+// tenant table.
+//
+// A number with no registry row returns 200 with companyName:null rather than
+// a 404 — the page still renders, still says honestly that we have no
+// reference for it, and still offers the tag reader. Only a string that is not
+// a registry number at all is a 400.
+contentPublicRoutes.get("/registered-numbers/:number", async (c) => {
+  const requested = (c.req.param("number") ?? "").trim();
+  const parsed = parseRegisteredNumber(requested);
+  if (!parsed) return c.json({ error: "That is not a registered identification number" }, 400);
+
+  const key = registeredNumberKey(parsed);
+
+  const [registryRes, sightingRes] = await Promise.all([
+    supabaseAdmin
+      .from("registered_number_registry")
+      .select("registry_key, kind, digits, company_name, brand_keys, source_url, notes")
+      .eq("registry_key", key)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("registered_number_sightings")
+      .select("sighting_count")
+      .eq("registry_key", key)
+      .maybeSingle(),
+  ]);
+  if (registryRes.error) return publicError(c, registryRes.error, "registered-numbers");
+  if (sightingRes.error) return publicError(c, sightingRes.error, "registered-numbers");
+
+  const registry = registryRes.data as RegistryRowForPublic | null;
+
+  // brand_keys are internal keys; a page shows names. An unknown key simply
+  // drops out rather than being printed raw at a reader.
+  let brandNames: string[] = [];
+  const keys = (registry?.brand_keys ?? []).filter(Boolean);
+  if (keys.length > 0) {
+    const { data: brands, error: brandErr } = await supabaseAdmin
+      .from("brand_knowledge")
+      .select("brand_key, canonical_brand")
+      .in("brand_key", keys);
+    if (brandErr) return publicError(c, brandErr, "registered-numbers");
+    brandNames = (brands ?? [])
+      .map((b) => String(b.canonical_brand ?? "").trim())
+      .filter(Boolean);
+  }
+
+  const payload = publicRegisteredNumber({
+    requested,
+    registry,
+    brandNames,
+    sightings: sightingRes.data ? Number(sightingRes.data.sighting_count) : null,
+  });
+  if (!payload) return c.json({ error: "That is not a registered identification number" }, 400);
+  return c.json(payload);
+});
+
+// ── GET /registered-numbers.json ──────────────────────────
+// US-9032: exactly the numbers that are indexable, for sitemap-rn.xml. The
+// SAME predicate the page uses to decide noindex, for the same reason
+// style-codes.json exists in this shape.
+contentPublicRoutes.get("/registered-numbers.json", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("registered_number_registry")
+    .select("registry_key, kind, digits, company_name, updated_at")
+    .eq("kind", "RN")
+    .not("company_name", "is", null)
+    .order("updated_at", { ascending: false })
+    .limit(RN_SITEMAP_CAP);
+  if (error) return publicError(c, error, "registered-numbers.json");
+
+  // The filters above are belt-and-braces for the query planner; the decision
+  // is in indexableNumbers, which is the half a test can hold to the page.
+  const numbers = indexableNumbers((data ?? []) as SitemapNumberRow[]);
+  const truncated = warnIfCapped("registered-numbers.json", (data ?? []).length, RN_SITEMAP_CAP);
+  return c.json({ truncated, numbers });
 });
 
 contentPublicRoutes.get("/authors.json", async (c) => {

@@ -56,6 +56,8 @@ export const ANALYTICS_EVENTS = {
   "grade_checker_result": "The public grade checker produced a result.",
   "grade_checker_share": "A grade-checker result was shared.",
   "grade_checker_cta_click": "A conversion control on a grade-checker result was pressed.",
+  "rn_lookup_searched": "Someone looked up a registered identification number.",
+  "rn_tag_read": "The free tag reader read a care label.",
   "fit_checker_result": "The public fit checker produced a verdict.",
   "fit_checker_share": "A fit-checker verdict was shared.",
   "authenticity_checker_result": "The public authenticity checker produced a result.",

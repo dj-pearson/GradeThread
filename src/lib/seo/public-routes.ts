@@ -35,6 +35,7 @@ import { competitorAlternativeRoutes } from "./competitor-alternatives";
 import { conditionChartRoute } from "./condition-chart";
 import { changelogRoute } from "./changelog";
 import { gradeCheckerRoute } from "./grade-checker";
+import { rnLookupRoute } from "./rn-lookup";
 import { authenticityCheckRoute } from "./authenticity-check";
 import { fitCheckerRoute } from "./fit-checker";
 import { calculatorRoutes } from "./calculators";
@@ -179,6 +180,8 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/changelog": "2026-08-23",
   // Free grade-checker tool (US-1687).
   "/tools/grade-checker": "2026-07-06",
+  // Free RN number lookup (US-9033).
+  "/tools/rn-lookup": "2026-08-31",
   // Free authenticity-check tool (US-1771).
   "/tools/authenticity-check": "2026-07-09",
   // Free fit-checker tool (US-1780).
@@ -689,6 +692,9 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   changelogRoute(),
   // Free grade-checker tool (US-1687).
   gradeCheckerRoute(),
+  // Free RN number lookup + tag reader (US-9033). A named tool noun, which the
+  // 2026-08-28 SERP audit found is the query shape that still returns links.
+  rnLookupRoute(),
   // Free authenticity-check tool (US-1771).
   authenticityCheckRoute(),
   // Free fit-checker tool (US-1780).

@@ -456,6 +456,39 @@ export async function styleCodeUrls(env: PagesEnv): Promise<SitemapUrl[]> {
   }));
 }
 
+/**
+ * The RN lookup URLs (US-9032).
+ *
+ * THE SET IS DELIBERATELY SMALL, for the same reason styleCodeUrls above is:
+ * it is the numbers we can NAME, not the numbers we have seen. The edge
+ * endpoint applies the SAME predicate the page uses to decide noindex (a
+ * registry row with a company), which is what stops the two from drifting. A
+ * URL in a sitemap that renders noindex is the specific contradiction that
+ * gets a section ignored.
+ *
+ * RN only. A CA number answers when asked for and stays out of the sitemap:
+ * there is no measured demand for the Canadian register, and a sitemap entry
+ * is a claim that a URL is worth crawling.
+ */
+export async function rnUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  const base = siteUrl(env);
+  const data = await fetchEdgeJson<{
+    truncated?: boolean;
+    numbers: Array<{ digits: string; updated_at?: string | null }>;
+  }>(env, "/api/content/public/registered-numbers.json");
+  if (!data) return [];
+
+  return data.numbers.map((n) => ({
+    loc: `${base}/rn/${n.digits}`,
+    lastmod: n.updated_at?.slice(0, 10),
+    // A registrant's name changes when a company is bought or renamed, which
+    // is rare. The sighting count moves more often and is not in the markup a
+    // crawler is being asked to re-read.
+    changefreq: "monthly" as const,
+    priority: 0.6,
+  }));
+}
+
 export async function certUrls(env: PagesEnv): Promise<SitemapUrl[]> {
   const base = siteUrl(env);
   const urls: SitemapUrl[] = [];

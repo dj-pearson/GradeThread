@@ -119,6 +119,7 @@ const ChangelogPage = lazy(() => import("@/pages/marketing/changelog").then(m =>
 const ConditionIndexHubPage = lazy(() => import("@/pages/marketing/condition-index").then(m => ({ default: m.ConditionIndexHubPage })));
 const ConditionIndexItemPage = lazy(() => import("@/pages/marketing/condition-index").then(m => ({ default: m.ConditionIndexItemPage })));
 const GradeCheckerPage = lazy(() => import("@/pages/tools/grade-checker").then(m => ({ default: m.GradeCheckerPage })));
+const RnLookupPage = lazy(() => import("@/pages/tools/rn-lookup").then(m => ({ default: m.RnLookupPage })));
 const AuthenticityCheckPage = lazy(() => import("@/pages/tools/authenticity-check").then(m => ({ default: m.AuthenticityCheckPage })));
 const FitCheckerPage = lazy(() => import("@/pages/tools/fit-checker").then(m => ({ default: m.FitCheckerPage })));
 const CalculatorHubPage = lazy(() => import("@/pages/tools/calculators").then(m => ({ default: m.CalculatorHubPage })));
@@ -444,6 +445,8 @@ export const router = createBrowserRouter([
       { path: "/changelog", element: <SuspenseWrapper><ChangelogPage /></SuspenseWrapper> },
       // US-1687: free grade-checker tool.
       { path: "/tools/grade-checker", element: <SuspenseWrapper><GradeCheckerPage /></SuspenseWrapper> },
+      // US-9033: free RN number lookup + tag reader.
+      { path: "/tools/rn-lookup", element: <SuspenseWrapper><RnLookupPage /></SuspenseWrapper> },
       // US-1771: free authenticity-check tool.
       { path: "/tools/authenticity-check", element: <SuspenseWrapper><AuthenticityCheckPage /></SuspenseWrapper> },
       // US-1780: free fit-checker tool.
