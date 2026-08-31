@@ -5,7 +5,7 @@ status: current
 source_of_truth: code
 code_refs:
   - src/lib/admin/runbooks.ts
-reviewed: 2026-08-22
+reviewed: 2026-08-31
 tags: [ops, runbooks, duplication, migration]
 summary: Ops procedures are duplicated across repo root, docs/, and a shipped in-app admin feature — and the in-app copy is the one on-call actually reads.
 ---
@@ -109,6 +109,14 @@ in US-2049 had been transcribed into either shipped copy.
 
 **Do not "fix" this by deleting the in-app copy.** It is a deliberate feature
 with a good rationale.
+
+> **Re-reviewed 2026-08-31, and this one had something to carry.** Drift flagged
+> `runbooks.ts` for a change that was not a re-dating: Coolify's Auto deploy on
+> the edge resource is now *Manual deployments only*, so the shipped deploy
+> distillation's central claim — that a push to `main` ships the edge — had gone
+> false, and was corrected in place. That is the failure mode this note exists
+> to name, caught in the copy on-call actually reads. The four-copies finding is
+> unchanged, and the count in the table below is still not quoted anywhere.
 
 > **Re-reviewed 2026-08-01.** Drift flagged `src/lib/admin/runbooks.ts`, which
 > changed because `runbook-sync` failed CI after edits to `deploy.md` and

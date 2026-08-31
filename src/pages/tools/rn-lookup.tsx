@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
-import { Loader2, Search, Upload } from "lucide-react";
+import { Link, useNavigate } from "react-router";
+import { ArrowRight, Loader2, Search, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MarketingLayout } from "@/components/marketing/marketing-layout";
+import { rnLookupJsonLd } from "@/pages/marketing/marketing-jsonld";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { track } from "@/lib/analytics";
 import {
@@ -96,6 +97,48 @@ function RnSearchBox() {
       <p className="mt-3 text-sm text-muted-foreground">
         Type the digits with or without the RN. Canadian CA numbers work too.
       </p>
+    </div>
+  );
+}
+
+/**
+ * The conversion pitch, and the rule about where it goes.
+ *
+ * US-9033 asks for it AFTER the answer and never before. That ordering is the
+ * whole deal the page offers: somebody arriving off `rn number lookup` came for
+ * a company name, and a tool that withholds one until you sign up is the reason
+ * they were on a free mirror in the first place. They get the answer, they watch
+ * the reader pull four more fields off their own photo, and only then are they
+ * asked for anything.
+ *
+ * Mirrors the grade checker's block (src/pages/tools/grade-checker.tsx), down to
+ * the US-2526 lesson that the primary control goes to the submission flow rather
+ * than to an explainer — this reader has just watched it work and does not need
+ * telling how.
+ */
+function AfterAnswerPitch() {
+  const onCta = (cta: "certify" | "signup") =>
+    track("rn_lookup_cta_click", { cta });
+
+  return (
+    <div className="mt-6 border-t pt-6">
+      <p className="text-sm text-foreground">
+        That is the same reader our sellers run on every item they list. It also
+        grades the garment&apos;s condition from photos and writes the listing.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Link to="/dashboard/submissions/new" onClick={() => onCta("certify")}>
+          <Button size="sm">
+            Grade this item
+            <ArrowRight className="ml-1 h-4 w-4" />
+          </Button>
+        </Link>
+        <Link to="/signup" onClick={() => onCta("signup")}>
+          <Button size="sm" variant="secondary">
+            Create a free account
+          </Button>
+        </Link>
+      </div>
     </div>
   );
 }
@@ -210,6 +253,7 @@ function TagReader() {
             {result.disclaimer
               ? <p className="mt-4 text-xs text-muted-foreground">{result.disclaimer}</p>
               : null}
+            <AfterAnswerPitch />
           </div>
         )
         : null}
@@ -223,6 +267,7 @@ export function RnLookupPage() {
       title={RN_LOOKUP_META.title}
       description={RN_LOOKUP_META.description}
       canonicalPath={RN_LOOKUP_PATH}
+      jsonLd={rnLookupJsonLd()}
     >
       <section className="px-6 py-16 lg:py-20">
         <div className="mx-auto max-w-3xl text-center">

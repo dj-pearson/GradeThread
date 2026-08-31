@@ -97,6 +97,7 @@ import {
   durabilityReportJsonLd,
   authenticityCheckJsonLd,
   fitCheckerJsonLd,
+  rnLookupJsonLd,
   calculatorHubJsonLd,
   calculatorJsonLd,
   calculatorBreadcrumbLdItems,
@@ -204,6 +205,10 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   // which is what made these two easy to miss.
   "/tools/authenticity-check": authenticityCheckJsonLd,
   "/tools/fit-checker": fitCheckerJsonLd,
+  // US-9033: same omission, same reason it was easy to miss — the route
+  // declared WebApplication in PUBLIC_ROUTES and the page rendered it via
+  // <SEO>, so both halves looked done and only the prerenderer was blind.
+  "/tools/rn-lookup": rnLookupJsonLd,
   // US-9002/9007: the calculator hub. Individual calculators resolve through
   // the registry in jsonLdForRoute() rather than being listed one by one.
   "/tools/calculators": calculatorHubJsonLd,

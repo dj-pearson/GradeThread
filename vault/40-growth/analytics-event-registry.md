@@ -15,12 +15,18 @@ summary: Every product event name is declared in src/lib/analytics-events.ts and
 
 # Analytics event registry
 
-> **Re-reviewed 2026-08-31.** Drift flagged `src/lib/analytics-events.ts` for US-9033, which ADDS two
-> events, `rn_lookup_searched` and `rn_tag_read`, in the existing snake_case
-> convention. Re-verified while here: this note names no event count, so the
-> addition cannot have staled it, and both new names are declared in the
-> registry rather than passed as free strings — which is the rule that makes
-> `tsc` the enforcement.
+> **Re-reviewed 2026-08-31.** Drift flagged `src/lib/analytics-events.ts` for US-9033, which ADDS
+> `rn_lookup_searched`, `rn_tag_read` and `rn_lookup_cta_click`, all in the
+> existing snake_case convention. Re-verified while here: this note names no
+> event count, so the addition cannot have staled it, and all three names are
+> declared in the registry rather than passed as free strings — which is the
+> rule that makes `tsc` the enforcement.
+>
+> `rn_lookup_cta_click` landed last and closes a measurement hole worth naming:
+> the hub shipped with the two read events and no conversion event at all, so
+> the funnel could show that 10,000 monthly searches arrived and nothing about
+> whether any of them became a signup. It matches `grade_checker_cta_click`,
+> `cta` payload included, so the two free tools are comparable.
 
 The full list of event names lives in **`src/lib/analytics-events.ts`** and
 nowhere else. This note carries the two things the code cannot tell you: why the

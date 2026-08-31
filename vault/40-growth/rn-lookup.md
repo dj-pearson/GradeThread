@@ -97,6 +97,79 @@ TRADING CO., and nothing on the page says which one labels the fleece in your
 hand. A wrong company under a page whose whole selling point is showing its
 sources is worse than no page at all.
 
+## The queue drains, and it did not used to (US-9034)
+
+`registered_number_sightings.resolved` is the work queue `00501` built, with an
+index on `(resolved, sighting_count DESC)` to serve it. Until US-9034 the only
+writer that ever set it was the admin resolve route. The seeder — the bulk path,
+the one that actually empties the queue — read `resolved = false` and never
+wrote it back.
+
+Nothing looked wrong. A run that re-searches settled numbers builds the same
+registry as one that skips them; it is only slower, and it gets slower every
+time the product reads another tag. At one request per two seconds and a 500-row
+queue, a second run repeats about seventeen minutes of requests to learn what it
+already knew, against a public service this file elsewhere promises to be polite
+to.
+
+Two rules now, both in `seed-registered-numbers.ts`:
+
+- A queue row whose `registry_key` is already in the registry is dropped
+  **before** a request is spent. A sighting *is* its registry key, so unlike a
+  brand we can tell without asking.
+- An `--apply` run flags the sighting for the number **the FTC returned**, not
+  the term searched. That resolves both origins from one call: a brand candidate
+  often answers a number somebody photographed before we knew whose it was.
+
+A dry run still writes nothing, the flag included. A failed flag logs and the
+run continues, because the registry row is the deliverable and is already
+written.
+
+## Four things that would have shipped broken
+
+All four were caught by tests that already existed, on a branch where the suite
+had never been run to completion. Recording them because none is visible by
+reading the feature's own files, and three of the four leave every RN unit test
+green.
+
+**`/rn/*` and `/sitemap-rn.xml` were missing from `public/_routes.json`.**
+Cloudflare Pages routes a URL to a Function only if it matches an `include`
+pattern there; anything else is served as a static asset. Every RN page and the
+whole sitemap segment would have answered with the SPA shell in production while
+every unit test stayed green, because the renderer, the payload and the sitemap
+builder were all correct — nothing was wired to reach them. `routes-json.test.ts`
+(US-424) catches it by walking `functions/` and demanding a pattern per route
+file. It is 71 rules against Cloudflare's limit of 100.
+
+**The hub had no conversion pitch at all.** US-9033 asks for one "after the
+answer, never before it", which reads as a placement constraint and was
+satisfied vacuously. The tag reader returned its four fields, offered a link to
+`/rn/:number`, and stopped: no signup, no submission link, and no
+`rn_lookup_cta_click` event, so the funnel could show 10,000 monthly searches
+arriving and nothing about what any of them did next. The block now mirrors the
+grade checker's, including US-2526's rule that the primary control goes to the
+submission flow rather than to an explainer.
+
+**`/tools/rn-lookup` declared `WebApplication` and never prerendered it.** Both
+halves looked done — the route declares `jsonLdType` in `PUBLIC_ROUTES` and the
+page passed nothing to `MarketingLayout` — so the markup existed nowhere at all,
+and a `<SEO>` route that *had* rendered it would still have been SPA-only. US-2044
+paid for this exact omission on the other two free tools; `jsonld-parity.test.tsx`
+is the guard it left behind. Fixed in both places: `rnLookupJsonLd()` in
+`marketing-jsonld.ts`, mirrored into `head-builder.ts`'s route map, which is the
+rule `CLAUDE.md` states and the one that is easy to half-obey.
+
+**The meta description ran 183 characters against a 160 budget.** US-435 caps it
+at the snippet window, and the overflow clause was the tag reader — the half that
+distinguishes the page from a free mirror. Now 143.
+
+**`www.ftc.gov` was on no subprocessor list.** US-2527 walks the edge service for
+outbound hosts and demands each one be a listed processor or a stated exception
+with a reason. The seeder introduced a new one. It belongs in `NOT_A_PROCESSOR`:
+traffic is one way, and the query string is a brand name or the digits off a care
+label, both public facts about a product rather than about a person. We hold no
+account and send them nothing about a seller, an item or a submission.
+
 ## The tag reader, and the count it earns
 
 `POST /api/grading/public/tag-read` is anonymous and reuses

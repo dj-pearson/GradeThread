@@ -7,12 +7,18 @@ code_refs:
   - services/edge-functions/scripts/comp-read-calibration.ts
   - services/edge-functions/src/lib/comp-read-calibration.ts
   - services/edge-functions/src/routes/public-grading.ts
-reviewed: 2026-08-25
+reviewed: 2026-08-31
 tags: [ops, grading, comps, condition-index, spike]
 summary: How to run the US-2842 calibration spike against production, what each number it prints means, and why it stops short of a verdict.
 ---
 
 # Running the comp-read calibration spike (US-2842)
+
+> **Re-reviewed 2026-08-31.** Drift flagged `public-grading.ts`, which grew the
+> anonymous tag reader for the RN lookup (US-9033). Nothing to carry: the
+> addition is 150 new lines behind `POST /tag-read` and touches no part of the
+> `/scan` comp path this runbook drives. The flag is file-level on a 2,000-line
+> route module, so it fires on any edit to it.
 
 The condition-priced comps bet (US-2841) rests on one unmeasured assumption:
 that reading a stranger's listing photos for condition produces a number close
