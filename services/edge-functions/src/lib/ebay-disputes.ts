@@ -19,6 +19,7 @@
 import { fetchWithTimeout } from "./circuit-breaker.ts";
 import {
   apiHost,
+  ebayId,
   ebayResilientFetch,
   getMarketplaceId,
   getUserAccessToken,
@@ -119,7 +120,7 @@ export function normalizePaymentDispute(raw: RawDispute): PaymentDisputeSummary 
   const amt = raw.amount?.value != null ? Number(raw.amount.value) : null;
   return {
     paymentDisputeId: raw.paymentDisputeId ?? "",
-    orderId: raw.orderId ?? null,
+    orderId: ebayId(raw.orderId),
     status: raw.paymentDisputeStatus ?? null,
     reason: raw.reason ?? null,
     amount: amt != null && Number.isFinite(amt) ? amt : null,

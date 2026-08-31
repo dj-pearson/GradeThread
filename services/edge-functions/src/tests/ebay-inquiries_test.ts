@@ -78,3 +78,46 @@ Deno.test("isInquiryAlreadySettled does NOT swallow a real failure", () => {
   assertFalse(isInquiryAlreadySettled({ status: 400, ebayErrorIds: [99999] }));
   assertFalse(isInquiryAlreadySettled(new Error("network down")));
 });
+
+// ── US-2977: a NUMERIC id is still an id ─────────────────────────────────
+//
+// Measured in production 2026-08-31 on inquiry 5384833027:
+//
+//   marketplace_events.poll_failed
+//   errors: ["inquiry 5384833027: ev.orderLabel?.trim is not a function"]
+//
+// RawInquiry declares `legacyOrderId?: string` and InquirySummary declares
+// `orderId: string | null`, and both are compile-time claims about JSON that
+// nothing validated. eBay sent a NUMBER, `??` passed it through untouched, and
+// the type system went on believing it had a string all the way to
+// buildInquiryOpened's `ev.orderLabel?.trim()` — where `?.` guards null and
+// undefined and has nothing to say about the wrong type.
+//
+// That threw inside the per-item try, which released the claim, so the same
+// inquiry was re-polled and re-thrown every fifteen minutes from 2026-08-27
+// 12:15 UTC: ~330 consecutive failed sweeps on one un-notified buyer.
+//
+// Coerce at the normalizer, which this module's own comment already calls "the
+// one place that knows about" eBay's shape drift.
+Deno.test("normalizeInquiry coerces a NUMERIC legacyOrderId to a string", () => {
+  const out = normalizeInquiry({
+    inquiryId: "5384833027",
+    // Deliberately the wrong type: this is the payload prod actually sent.
+    legacyOrderId: 123456789012 as unknown as string,
+    itemId: 225000111222 as unknown as string,
+  });
+  assertEquals(out.orderId, "123456789012");
+  assertEquals(out.itemId, "225000111222");
+  // The actual crash, reproduced: the consumer calls .trim() on it.
+  assertEquals(typeof out.orderId, "string");
+  assert(out.orderId!.trim().length > 0, "the value a notification renders must be trimmable");
+});
+
+Deno.test("normalizeInquiry leaves a genuinely absent id as null, not \"null\"", () => {
+  // The counter-assertion. A coercion written as String(v) turns null into the
+  // four-character string "null", which is worse than the crash: it renders to
+  // a seller as `A buyer says null never arrived` and nothing throws to say so.
+  const out = normalizeInquiry({ inquiryId: "q9" });
+  assertEquals(out.orderId, null);
+  assertEquals(out.itemId, null);
+});

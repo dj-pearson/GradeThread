@@ -5224,3 +5224,33 @@ export async function sendOfferToInterestedBuyers(
     connectionId,
   );
 }
+
+// ── US-2977: eBay ids are not reliably strings ──────────────────────────────
+//
+// Every post-order response type in this codebase declares its id fields as
+// `string`, and a TypeScript type is a claim about JSON that nothing checks.
+// eBay sends `legacyOrderId` as a NUMBER for at least some inquiries, `??`
+// passes it straight through, and the wrong type travels untouched until
+// something calls a string method on it. Measured in production 2026-08-31:
+//
+//   inquiry 5384833027: ev.orderLabel?.trim is not a function
+//
+// which had failed the marketplace-events sweep every fifteen minutes since
+// 2026-08-27 12:15 UTC. `?.` looks like the guard and is not — it answers for
+// null and undefined and says nothing about a number.
+//
+// NOT `String(v)`, and the distinction is the whole point: String(null) is the
+// four-character string "null", which renders to a seller as "A buyer says null
+// never arrived" and throws nothing to say so. A missing id must stay missing —
+// the callers all fall back to "an order" for exactly that case.
+//
+// Objects are refused rather than stringified for the same reason: an id that
+// arrives as `{value: "123"}` would become "[object Object]", and a nesting
+// change should surface as a null the normalizer's own tests can catch, not as
+// a plausible-looking label in a customer's inbox.
+export function ebayId(v: unknown): string | null {
+  if (typeof v === "string") return v.trim() === "" ? null : v;
+  if (typeof v === "number") return Number.isFinite(v) ? String(v) : null;
+  if (typeof v === "bigint") return String(v);
+  return null;
+}

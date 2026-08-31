@@ -19,6 +19,7 @@
 
 import {
   apiHost,
+  ebayId,
   ebayResilientFetch,
   getMarketplaceId,
   getUserAccessToken,
@@ -145,8 +146,8 @@ export function normalizeReturn(raw: RawReturn): ReturnSummary {
     // US-2933: this was hard-coded null. Reading it can only improve on that —
     // every caller already handles a null order id, and a real one links the
     // return to the sale and the graded item.
-    orderId: raw.legacyOrderId ?? raw.orderId ?? null,
-    itemId: raw.detail?.item?.itemId ?? null,
+    orderId: ebayId(raw.legacyOrderId) ?? ebayId(raw.orderId),
+    itemId: ebayId(raw.detail?.item?.itemId),
     reason: raw.detail?.buyerSelectedReturnReason ??
       raw.buyerSelectedReturnReason ?? null,
     creationDate: raw.creationInfo?.creationDate?.value ?? null,
@@ -477,7 +478,7 @@ export function normalizeCancellation(
   return {
     cancelId: raw.cancelId ?? "",
     state: raw.cancelStatus?.state ?? null,
-    orderId: raw.legacyOrderId ?? null,
+    orderId: ebayId(raw.legacyOrderId),
     reason: raw.cancelReason ?? null,
     requestorType: raw.requestorType ?? null,
     creationDate: raw.cancelRequestDate?.value ?? null,

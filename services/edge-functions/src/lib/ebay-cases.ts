@@ -20,6 +20,7 @@
 // the route resolves and verifies first (US-268).
 
 import { postOrderFetch } from "./ebay-postorder.ts";
+import { ebayId } from "./ebay-client.ts";
 
 export interface CaseSummary {
   caseId: string;
@@ -86,8 +87,8 @@ export function normalizeCase(raw: RawCase): CaseSummary {
   return {
     caseId: typeof raw.caseId === "string" ? raw.caseId : (raw.caseId?.caseId ?? ""),
     state: raw.caseStatus ?? raw.status?.state ?? raw.state ?? null,
-    orderId: raw.legacyOrderId ?? raw.orderId ?? null,
-    itemId: raw.itemId ?? raw.detail?.item?.itemId ?? null,
+    orderId: ebayId(raw.legacyOrderId) ?? ebayId(raw.orderId),
+    itemId: ebayId(raw.itemId) ?? ebayId(raw.detail?.item?.itemId),
     reason: raw.reason ?? raw.buyerSelectedReason ?? raw.detail?.reason ?? null,
     buyerUsername: raw.buyerLoginName ?? raw.buyerUsername ?? null,
     respondBy: dateValue(raw.respondByDate) ?? dateValue(raw.sellerResponseDue),

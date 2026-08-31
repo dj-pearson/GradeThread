@@ -21,6 +21,7 @@
 // verify before calling (US-268).
 
 import { postOrderFetch } from "./ebay-postorder.ts";
+import { ebayId } from "./ebay-client.ts";
 
 export interface InquirySummary {
   inquiryId: string;
@@ -74,8 +75,8 @@ export function normalizeInquiry(raw: RawInquiry): InquirySummary {
   return {
     inquiryId: raw.inquiryId ?? "",
     state: raw.status?.state ?? raw.inquiryStatus ?? raw.state ?? null,
-    orderId: raw.legacyOrderId ?? raw.orderId ?? null,
-    itemId: raw.itemId ?? raw.detail?.item?.itemId ?? null,
+    orderId: ebayId(raw.legacyOrderId) ?? ebayId(raw.orderId),
+    itemId: ebayId(raw.itemId) ?? ebayId(raw.detail?.item?.itemId),
     reason: raw.buyerSelectedReason ?? raw.detail?.buyerSelectedReason ?? raw.reason ?? null,
     buyerUsername: raw.buyerLoginName ?? raw.buyerUsername ?? null,
     respondBy: dateValue(raw.respondByDate) ?? dateValue(raw.sellerResponseDue),
