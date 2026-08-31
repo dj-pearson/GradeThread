@@ -112,7 +112,17 @@ export const RUNBOOKS: Runbook[] = [
     // (it cannot know which line changed) and the phrasing doing its job. If a
     // future copy is ever tempted to name the number, this is the four-check
     // record of why not.
-    reviewed: "2026-08-30",
+    // Re-read 2026-08-31, and there WAS something to carry — the second time in
+    // eight checks, and the more urgent of the two. Auto deploy on the edge
+    // resource is now "Manual deployments only" (verified in the Coolify UI, not
+    // inferred), so this copy's central claim that a push ships the edge was
+    // false. An operator reading a stale copy mid-incident would see a fix on
+    // main, see prod behaving like the old code, and start debugging code that
+    // was never deployed. Carried: the manual-only step, a "did anyone press
+    // Redeploy" check before debugging, and the reason Watch Paths is not the
+    // fix (Coolify renders it only for a private GitHub-App source; this app is
+    // Public GitHub).
+    reviewed: "2026-08-31",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -140,9 +150,11 @@ export const RUNBOOKS: Runbook[] = [
       "## How each layer deploys",
       "",
       "- **Database** — manual apply (CLI / `psql`) against self-hosted Supabase. Back up prod FIRST. Apply pending files in order (each is idempotent), then record the applied versions into `supabase_migrations.schema_migrations` so the edge boot assertion stays active.",
-      "- **Edge** — Coolify auto-deploys on push to `main` via its deploy webhook; a manual **Redeploy** builds from the latest commit. Coolify Scheduled Tasks live on the service, so they survive a redeploy.",
+      "- **Edge** — **manual only, since 2026-08-31.** Coolify's Auto deploy on this resource is set to *Manual deployments only*, so pushing to `main` does NOT ship the edge. Press **Redeploy**, which builds from the latest commit. Coolify Scheduled Tasks live on the service, so they survive a redeploy.",
       "",
-      "> **A deploy makes the API answer `no available server` for a few seconds, and that is the same string a real edge HANG produces.** Every push rolls the single edge container, including a docs-only commit — there is no path filter. During or just after a deploy, two 503s followed by a 200 is the rollover, not an incident. Re-check `/health/ready` a few seconds later before escalating; if it stays down past a minute, it is not the rollover.",
+      "> **A push no longer deploys the edge.** If a fix is on `main` and prod still behaves like the old code, check whether anyone pressed Redeploy before you start debugging the code. This changed on 2026-08-31: every push used to roll the container, docs-only commits included, and the 20 seconds of interruption that caused was not worth it. Watch Paths would have been the narrower fix and is unreachable — Coolify only renders it for a private GitHub-App source, and this app is connected as Public GitHub.",
+      "",
+      "> **A deploy makes the API answer `no available server` for a few seconds, and that is the same string a real edge HANG produces.** During or just after a Redeploy, two 503s followed by a 200 is the rollover, not an incident. Re-check `/health/ready` a few seconds later before escalating; if it stays down past a minute, it is not the rollover.",
       "",
       "> **`docker-compose.coolify.yml` is not the deployed configuration.** Measured 2026-08-17: `/health/metrics` reports no memory limit while that file declares 2048 MB. If you are chasing a setting that \"should\" be set, check the Coolify UI rather than the repo file — and expect the two to disagree.",
       "",
