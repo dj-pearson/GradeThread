@@ -9,6 +9,8 @@ import androidx.core.graphics.drawable.IconCompat
 import com.gradethread.app.MainActivity
 import com.gradethread.app.R
 import com.gradethread.app.platform.telemetry.Telemetry
+import com.gradethread.app.ui.UiMessage
+import com.gradethread.app.ui.text
 import com.gradethread.app.widget.WidgetSnapshot
 
 /**
@@ -38,13 +40,14 @@ object AppShortcuts {
     const val SCHEME = "com.gradethread.app"
     const val HOST = "shortcut"
 
-    /** What a shortcut is, decided without touching Android. */
-    data class Spec(
-        val id: String,
-        val shortLabel: String,
-        val longLabel: String,
-        val uri: String,
-    )
+    /**
+     * What a shortcut is, decided without touching Android.
+     *
+     * US-2976: the labels are UiMessage, not String. The decision of WHICH
+     * sentence is still made here, with no Context; only the rendering needs
+     * one, and that happens in [build], which has one.
+     */
+    data class Spec(val id: String, val shortLabel: UiMessage, val longLabel: UiMessage, val uri: String)
 
     /**
      * The dynamic shortcut for the current snapshot.
@@ -88,17 +91,16 @@ object AppShortcuts {
         }
     }
 
-    private fun build(context: Context, spec: Spec): ShortcutInfoCompat =
-        ShortcutInfoCompat.Builder(context, spec.id)
-            .setShortLabel(spec.shortLabel)
-            .setLongLabel(spec.longLabel)
-            .setIcon(IconCompat.createWithResource(context, R.drawable.ic_shortcut_sales))
-            .setIntent(
-                // ACTION_VIEW with an explicit component: a shortcut intent must
-                // carry an action, and naming the component means no other app
-                // can be offered the tap.
-                Intent(Intent.ACTION_VIEW, Uri.parse(spec.uri))
-                    .setClass(context, MainActivity::class.java),
-            )
-            .build()
+    private fun build(context: Context, spec: Spec): ShortcutInfoCompat = ShortcutInfoCompat.Builder(context, spec.id)
+        .setShortLabel(spec.shortLabel.text(context))
+        .setLongLabel(spec.longLabel.text(context))
+        .setIcon(IconCompat.createWithResource(context, R.drawable.ic_shortcut_sales))
+        .setIntent(
+            // ACTION_VIEW with an explicit component: a shortcut intent must
+            // carry an action, and naming the component means no other app
+            // can be offered the tap.
+            Intent(Intent.ACTION_VIEW, Uri.parse(spec.uri))
+                .setClass(context, MainActivity::class.java),
+        )
+        .build()
 }

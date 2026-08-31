@@ -2813,4 +2813,18 @@
     <string name="promotion_sale_at_pct">On sale &#8212; %1$s%% off, with the old price struck through.</string>
     <string name="promotion_sale_on">On sale.</string>
     <string name="promotion_sale_none">No sale running. A sale shows a struck-through price and tells watchers.</string>
+    <string name="sold_today_signed_out">Sign in to see what sold today</string>
+    <string name="sold_today_nothing_yet">Nothing\'s sold yet today. %1$s</string>
+    <string name="sold_today_label_default">Sold today</string>
+    <string name="sold_today_label_nothing">Nothing sold today</string>
+    <string name="sold_today_label_money">%1$s today</string>
+    <string name="sold_today_no_payouts">No payouts are waiting.</string>
+    <plurals name="sold_today_sold">
+        <item quantity="one">You\'ve sold %1$d item today for %2$s. %3$s</item>
+        <item quantity="other">You\'ve sold %1$d items today for %2$s. %3$s</item>
+    </plurals>
+    <plurals name="sold_today_payout_waiting">
+        <item quantity="one">%2$s is waiting from %1$d sale.</item>
+        <item quantity="other">%2$s is waiting from %1$d sales.</item>
+    </plurals>
 </resources>

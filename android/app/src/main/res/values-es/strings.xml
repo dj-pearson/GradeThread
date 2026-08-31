@@ -2679,4 +2679,18 @@
     <string name="promotion_sale_at_pct">En oferta &#8212; %1$s%% de descuento, con el precio anterior tachado.</string>
     <string name="promotion_sale_on">En oferta.</string>
     <string name="promotion_sale_none">Sin oferta activa. Una oferta muestra el precio tachado y avisa a los seguidores.</string>
+    <string name="sold_today_signed_out">Inicia sesi&#243;n para ver qu&#233; se vendi&#243; hoy</string>
+    <string name="sold_today_nothing_yet">Hoy todav&#237;a no se ha vendido nada. %1$s</string>
+    <string name="sold_today_label_default">Vendido hoy</string>
+    <string name="sold_today_label_nothing">Hoy no se ha vendido nada</string>
+    <string name="sold_today_label_money">%1$s hoy</string>
+    <string name="sold_today_no_payouts">No hay pagos pendientes.</string>
+    <plurals name="sold_today_sold">
+        <item quantity="one">Hoy has vendido %1$d art&#237;culo por %2$s. %3$s</item>
+        <item quantity="other">Hoy has vendido %1$d art&#237;culos por %2$s. %3$s</item>
+    </plurals>
+    <plurals name="sold_today_payout_waiting">
+        <item quantity="one">Faltan %2$s de %1$d venta.</item>
+        <item quantity="other">Faltan %2$s de %1$d ventas.</item>
+    </plurals>
 </resources>

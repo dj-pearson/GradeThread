@@ -96,8 +96,6 @@
     "platform/locale/AppLocale.kt": 1,
     "platform/net/EdgeApiError.kt": 20,
     "platform/net/PlanGate.kt": 5,
-    "platform/shortcuts/AppShortcuts.kt": 1,
-    "platform/shortcuts/SoldTodaySummary.kt": 7,
     "platform/supabase/TokenAccess.kt": 2,
     "radar/MyStoresService.kt": 1,
     "referrals/ReferralsViewModel.kt": 1,

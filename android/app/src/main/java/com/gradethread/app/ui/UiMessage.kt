@@ -1,5 +1,6 @@
 package com.gradethread.app.ui
 
+import android.content.Context
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -59,4 +60,20 @@ fun UiMessage.text(): String {
     val resolved = args.map { if (it is UiMessage) it.text() else it }.toTypedArray()
     val count = quantity ?: return stringResource(res, *resolved)
     return pluralStringResource(res, count, *resolved)
+}
+
+/**
+ * The same sentence, for a caller with no composition.
+ *
+ * US-2976: a launcher shortcut label is composed with the app closed and
+ * rendered by another process, and a widget and a notification are the same
+ * shape - so the type needs a renderer that only wants a Context. The two must
+ * stay in lockstep, which is why this one lives beside the composable rather
+ * than being hand-rolled wherever a Context happens to be in scope.
+ */
+fun UiMessage.text(context: Context): String {
+    detail?.let { return it }
+    val resolved = args.map { if (it is UiMessage) it.text(context) else it }.toTypedArray()
+    val count = quantity ?: return context.getString(res, *resolved)
+    return context.resources.getQuantityString(res, count, *resolved)
 }

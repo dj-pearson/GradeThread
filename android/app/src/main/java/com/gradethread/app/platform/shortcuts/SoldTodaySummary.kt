@@ -1,6 +1,8 @@
 package com.gradethread.app.platform.shortcuts
 
+import com.gradethread.app.R
 import com.gradethread.app.money.Money
+import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.widget.WidgetSnapshot
 
 /**
@@ -16,7 +18,7 @@ import com.gradethread.app.widget.WidgetSnapshot
  */
 object SoldTodaySummary {
 
-    const val SIGNED_OUT = "Sign in to see what sold today"
+    val SIGNED_OUT = UiMessage(R.string.sold_today_signed_out)
 
     /**
      * The full sentence.
@@ -25,15 +27,26 @@ object SoldTodaySummary {
      * back to the sign-in prompt rather than reading zeros, which sound like a
      * dead business rather than an unknown one.
      */
-    fun dialog(snapshot: WidgetSnapshot?): String {
+    fun dialog(snapshot: WidgetSnapshot?): UiMessage {
         if (snapshot == null || !snapshot.isSignedIn) return SIGNED_OUT
 
+        // US-2976: the payout clause NESTS as an argument rather than being
+        // concatenated on. It is a plural sentence in its own right, and a
+        // language that puts it first can now do that.
         val payout = payoutClause(snapshot.pendingPayoutCount, snapshot.pendingPayoutNet)
-        if (snapshot.soldTodayCount == 0) return "Nothing's sold yet today. $payout"
+        if (snapshot.soldTodayCount == 0) {
+            return UiMessage(R.string.sold_today_nothing_yet, args = listOf(payout))
+        }
 
-        val itemWord = if (snapshot.soldTodayCount == 1) "item" else "items"
-        return "You've sold ${snapshot.soldTodayCount} $itemWord today for " +
-            "${Money.format(snapshot.soldTodayGross)}. $payout"
+        return UiMessage(
+            R.plurals.sold_today_sold,
+            args = listOf(
+                snapshot.soldTodayCount,
+                Money.format(snapshot.soldTodayGross),
+                payout,
+            ),
+            quantity = snapshot.soldTodayCount,
+        )
     }
 
     /**
@@ -43,15 +56,23 @@ object SoldTodaySummary {
      * predict, so the money — the thing being asked about — goes first and the
      * count second. A truncated "$184 today" still answers the question.
      */
-    fun shortLabel(snapshot: WidgetSnapshot?): String {
-        if (snapshot == null || !snapshot.isSignedIn) return "Sold today"
-        if (snapshot.soldTodayCount == 0) return "Nothing sold today"
-        return "${Money.format(snapshot.soldTodayGross)} today"
+    fun shortLabel(snapshot: WidgetSnapshot?): UiMessage {
+        if (snapshot == null || !snapshot.isSignedIn) {
+            return UiMessage(R.string.sold_today_label_default)
+        }
+        if (snapshot.soldTodayCount == 0) return UiMessage(R.string.sold_today_label_nothing)
+        return UiMessage(
+            R.string.sold_today_label_money,
+            args = listOf(Money.format(snapshot.soldTodayGross)),
+        )
     }
 
-    private fun payoutClause(count: Int, net: Double): String {
-        if (count <= 0) return "No payouts are waiting."
-        val saleWord = if (count == 1) "sale" else "sales"
-        return "${Money.format(net)} is waiting from $count $saleWord."
+    private fun payoutClause(count: Int, net: Double): UiMessage {
+        if (count <= 0) return UiMessage(R.string.sold_today_no_payouts)
+        return UiMessage(
+            R.plurals.sold_today_payout_waiting,
+            args = listOf(count, Money.format(net)),
+            quantity = count,
+        )
     }
 }

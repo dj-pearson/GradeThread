@@ -310,11 +310,67 @@ def self_test():
         found = len(scan_source(source, spec))
         if found != expected:
             broken.append(f"{name}: expected {expected} failure(s), got {found}")
+
+    # US-2976: the apostrophe rule covered <string> and not <plurals><item>,
+    # which is how a `&#39;` in a plural reached aapt2. Both shapes, and the
+    # escaped forms, are asserted here so neither half can go quiet.
+    apostrophe_cases = [
+        ("a bare apostrophe in a string", '<string name="a">don\'t</string>', 1),
+        ("an escaped apostrophe in a string", '<string name="a">don\\\'t</string>', 0),
+        ("a bare apostrophe in a plural", '<item quantity="one">don\'t</item>', 1),
+        ("an escaped apostrophe in a plural", '<item quantity="one">don\\\'t</item>', 0),
+        ("no apostrophe at all", '<item quantity="other">%1$d items</item>', 0),
+        # The spelling that actually got through: an entity is not a `'` in the
+        # source text and is one by the time aapt2 reads it.
+        ("a numeric entity in a plural", '<item quantity="one">You&#39;ve</item>', 1),
+        ("a hex entity in a string", '<string name="a">You&#x27;ve</string>', 1),
+        ("a named entity in a string", '<string name="a">You&apos;ve</string>', 1),
+    ]
+    for name, source, expected in apostrophe_cases:
+        found = len(apostrophe_offenders(source))
+        if found != expected:
+            broken.append(f"{name}: expected {expected} failure(s), got {found}")
     return broken
 
 
-#: A `'` that is not escaped, inside a <string> value.
-BARE_APOSTROPHE = re.compile(r"<string name=\"[a-z0-9_]+\">([^<]*)</string>")
+#: A `'` that is not escaped, inside a <string> value OR a <plurals> <item>.
+#:
+#: US-2976: this used to match `<string>` alone. A plurals item is the same
+#: resource to aapt2 and the same escaping rule, so an apostrophe written as
+#: `&#39;` inside one sailed past a clean run of this script and failed the
+#: build in mergeDebugResources instead - with an NPE out of
+#: ResourceCompilerRunnable, which names neither the file nor the string.
+#: A guard that covers one of two shapes reads exactly like a guard.
+BARE_APOSTROPHE = re.compile(
+    r"<string name=\"[a-z0-9_]+\">([^<]*)</string>"
+    r"|<item quantity=\"[a-z]+\">([^<]*)</item>"
+)
+
+
+#: The three spellings of an apostrophe that survive XML parsing as one.
+APOSTROPHE_ENTITY = re.compile(r"&#0*39;|&#[xX]0*27;|&apos;")
+
+
+def apostrophe_offenders(text):
+    """Every value in `text` carrying an apostrophe aapt2 will reject.
+
+    Returns (line_number, value) pairs. Split out from check_apostrophes so
+    self_test can exercise it without a file on disk.
+
+    The ENTITY spellings are normalised first. `&#39;` looks nothing like a
+    quote in the source and reaches aapt2 as one, which is the whole reason
+    this function exists: the guard read the raw line, saw five harmless
+    characters, and passed. Writing `&#39;` and expecting the resource to be
+    fine is the natural mistake, not an exotic one.
+    """
+    found = []
+    for line_no, line in enumerate(text.splitlines(), start=1):
+        for match in BARE_APOSTROPHE.finditer(line):
+            value = match.group(1) if match.group(1) is not None else match.group(2)
+            value = APOSTROPHE_ENTITY.sub("'", value)
+            if re.search(r"(?<!\\)'", value):
+                found.append((line_no, value))
+    return found
 
 
 def check_apostrophes():
@@ -333,15 +389,11 @@ def check_apostrophes():
         if not os.path.exists(path):
             continue
         with open(path, encoding="utf-8") as fh:
-            for line_no, line in enumerate(fh, start=1):
-                match = BARE_APOSTROPHE.search(line)
-                if not match:
-                    continue
-                if re.search(r"(?<!\\)'", match.group(1)):
-                    failures.append(
-                        f"{directory}/strings.xml:{line_no}: unescaped apostrophe "
-                        f"-- aapt2 rejects this. Write \\\\' instead."
-                    )
+            for line_no, _value in apostrophe_offenders(fh.read()):
+                failures.append(
+                    f"{directory}/strings.xml:{line_no}: unescaped apostrophe "
+                    f"-- aapt2 rejects this. Write \\' instead."
+                )
     return failures
 
 
