@@ -11,7 +11,6 @@
     "analytics/CommunityInsightsViewModel.kt": 2,
     "analytics/ListingPerformance.kt": 11,
     "analytics/ListingPerformanceViewModel.kt": 1,
-    "auth/AuthFormRules.kt": 8,
     "auth/AuthViewModel.kt": 2,
     "autolister/DescriptionBlocksViewModel.kt": 2,
     "autolister/DraftBulk.kt": 2,

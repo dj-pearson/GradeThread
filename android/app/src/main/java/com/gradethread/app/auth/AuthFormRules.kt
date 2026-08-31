@@ -1,5 +1,9 @@
 package com.gradethread.app.auth
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+
 /**
  * US-2369: what a sign-in / sign-up form will accept, before the network sees
  * it.
@@ -17,8 +21,8 @@ object AuthFormRules {
     /** Mirrors `minimum_password_length` in `supabase/config.toml`. */
     const val PASSWORD_MIN_LENGTH = 10
 
-    const val PASSWORD_HINT =
-        "At least 10 characters, including upper- and lower-case letters and a number."
+    @StringRes
+    val PASSWORD_HINT: Int = R.string.auth_password_hint
 
     enum class Mode { SIGN_IN, SIGN_UP }
 
@@ -30,11 +34,12 @@ object AuthFormRules {
      * proves anything. This catches a missing @ and a missing dot — the two
      * that are always a typo.
      */
-    fun emailError(email: String): String? {
+    @StringRes
+    fun emailError(email: String): Int? {
         val trimmed = email.trim()
         return when {
-            trimmed.isEmpty() -> "Enter your email address."
-            !EMAIL_SHAPE.matches(trimmed) -> "That doesn't look like an email address."
+            trimmed.isEmpty() -> R.string.auth_email_required
+            !EMAIL_SHAPE.matches(trimmed) -> R.string.auth_email_shape
             else -> null
         }
     }
@@ -47,14 +52,22 @@ object AuthFormRules {
      * rule tightened, and refuse them with a message about the rule rather than
      * letting the server say "wrong password".
      */
-    fun passwordError(password: String, mode: Mode): String? = when {
-        password.isEmpty() -> "Enter your password."
+    /**
+     * US-2976: a UiMessage rather than a bare resource, because one of the six
+     * carries the MINIMUM LENGTH. That number is the whole content of the
+     * message - a rule that says "at least some characters" helps nobody - and
+     * it has to travel with the id so a change to PASSWORD_MIN_LENGTH cannot
+     * leave the sentence quoting the old one.
+     */
+    fun passwordError(password: String, mode: Mode): UiMessage? = when {
+        password.isEmpty() -> UiMessage(R.string.auth_password_required)
         mode == Mode.SIGN_IN -> null
         password.length < PASSWORD_MIN_LENGTH ->
-            "Password must be at least $PASSWORD_MIN_LENGTH characters."
-        !password.any { it.isLowerCase() } -> "Password must include a lower-case letter."
-        !password.any { it.isUpperCase() } -> "Password must include an upper-case letter."
-        !password.any { it.isDigit() } -> "Password must include a number."
+            UiMessage(R.string.auth_password_too_short, args = listOf(PASSWORD_MIN_LENGTH))
+
+        !password.any { it.isLowerCase() } -> UiMessage(R.string.auth_password_needs_lower)
+        !password.any { it.isUpperCase() } -> UiMessage(R.string.auth_password_needs_upper)
+        !password.any { it.isDigit() } -> UiMessage(R.string.auth_password_needs_digit)
         else -> null
     }
 
@@ -100,8 +113,7 @@ object AuthFormRules {
     }
 
     /** The other mode, for the toggle. */
-    fun toggled(mode: Mode): Mode =
-        if (mode == Mode.SIGN_IN) Mode.SIGN_UP else Mode.SIGN_IN
+    fun toggled(mode: Mode): Mode = if (mode == Mode.SIGN_IN) Mode.SIGN_UP else Mode.SIGN_IN
 
     private val EMAIL_SHAPE = Regex("""^[^@\s]+@[^@\s]+\.[^@\s]+$""")
 }

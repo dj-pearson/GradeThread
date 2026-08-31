@@ -2531,4 +2531,12 @@
     <string name="photo_role_detail_insole">Plantilla</string>
     <string name="photo_role_measure">Medida: %1$s</string>
     <string name="photo_type_unknown">Foto</string>
+    <string name="auth_password_hint">Al menos 10 caracteres, con may&#250;sculas, min&#250;sculas y un n&#250;mero.</string>
+    <string name="auth_email_required">Escribe tu correo electr&#243;nico.</string>
+    <string name="auth_email_shape">Eso no parece un correo electr&#243;nico.</string>
+    <string name="auth_password_required">Escribe tu contrase&#241;a.</string>
+    <string name="auth_password_too_short">La contrase&#241;a debe tener al menos %1$d caracteres.</string>
+    <string name="auth_password_needs_lower">La contrase&#241;a debe incluir una min&#250;scula.</string>
+    <string name="auth_password_needs_upper">La contrase&#241;a debe incluir una may&#250;scula.</string>
+    <string name="auth_password_needs_digit">La contrase&#241;a debe incluir un n&#250;mero.</string>
 </resources>

@@ -1,5 +1,6 @@
 package com.gradethread.app.auth
 
+import com.gradethread.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -22,8 +23,11 @@ class AuthFormRulesTest {
 
     @Test
     fun `an obviously wrong email is caught before the network`() {
-        assertEquals("Enter your email address.", AuthFormRules.emailError(""))
-        assertEquals("Enter your email address.", AuthFormRules.emailError("   "))
+        assertEquals(R.string.auth_email_required, AuthFormRules.emailError(""))
+        // Whitespace-only is EMPTY, not malformed: the two are different
+        // resources and telling them apart is what this line is for.
+        assertEquals(R.string.auth_email_required, AuthFormRules.emailError("   "))
+        assertEquals(R.string.auth_email_shape, AuthFormRules.emailError("no-at-sign"))
         assertTrue(AuthFormRules.emailError("no-at-sign") != null)
         assertTrue(AuthFormRules.emailError("missing@dot") != null)
     }
@@ -48,10 +52,26 @@ class AuthFormRulesTest {
         // password_requirements = lower_upper_letters_digits.
         assertEquals(10, AuthFormRules.PASSWORD_MIN_LENGTH)
 
-        assertTrue(AuthFormRules.passwordError("Short1", signUp)!!.contains("10 characters"))
-        assertTrue(AuthFormRules.passwordError("ALLUPPER123", signUp)!!.contains("lower-case"))
-        assertTrue(AuthFormRules.passwordError("alllower123", signUp)!!.contains("upper-case"))
-        assertTrue(AuthFormRules.passwordError("NoDigitsHere", signUp)!!.contains("number"))
+        // US-2976: the resource id, and for the length rule the NUMBER too.
+        // That number is the whole content of the message - "at least some
+        // characters" helps nobody - so it travels as an argument, and a change
+        // to PASSWORD_MIN_LENGTH cannot leave the sentence quoting the old one.
+        val short = AuthFormRules.passwordError("Short1", signUp)!!
+        assertEquals(R.string.auth_password_too_short, short.res)
+        assertEquals(listOf<Any>(AuthFormRules.PASSWORD_MIN_LENGTH), short.args)
+
+        assertEquals(
+            R.string.auth_password_needs_lower,
+            AuthFormRules.passwordError("ALLUPPER123", signUp)?.res,
+        )
+        assertEquals(
+            R.string.auth_password_needs_upper,
+            AuthFormRules.passwordError("alllower123", signUp)?.res,
+        )
+        assertEquals(
+            R.string.auth_password_needs_digit,
+            AuthFormRules.passwordError("NoDigitsHere", signUp)?.res,
+        )
         assertNull(AuthFormRules.passwordError("CorrectHorse1", signUp))
     }
 
@@ -61,7 +81,10 @@ class AuthFormRulesTest {
         // the rule tightened, and refuse them with a message about the RULE
         // rather than letting the server say "wrong password".
         assertNull(AuthFormRules.passwordError("old", signIn))
-        assertEquals("Enter your password.", AuthFormRules.passwordError("", signIn))
+        assertEquals(
+            R.string.auth_password_required,
+            AuthFormRules.passwordError("", signIn)?.res,
+        )
     }
 
     // ── Submission ───────────────────────────────────────────────────────────

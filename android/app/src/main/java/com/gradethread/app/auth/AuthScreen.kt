@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.text.KeyboardOptions
 import com.gradethread.app.R
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.TestTags
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -160,7 +161,7 @@ fun AuthContent(state: AuthViewModel.State, actions: AuthActions, modifier: Modi
             singleLine = true,
             enabled = !state.busy,
             isError = state.emailError != null,
-            supportingText = state.emailError?.let { { Text(it) } },
+            supportingText = state.emailError?.let { { Text(stringResource(it)) } },
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Email,
                 imeAction = ImeAction.Next,
@@ -180,8 +181,12 @@ fun AuthContent(state: AuthViewModel.State, actions: AuthActions, modifier: Modi
             // trying four passwords.
             supportingText = {
                 Text(
-                    state.passwordError
-                        ?: if (state.isSignUp) AuthFormRules.PASSWORD_HINT else "",
+                    state.passwordError?.text()
+                        ?: if (state.isSignUp) {
+                            stringResource(AuthFormRules.PASSWORD_HINT)
+                        } else {
+                            ""
+                        },
                 )
             },
             visualTransformation = if (passwordVisible) {

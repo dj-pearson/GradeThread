@@ -4,6 +4,7 @@ import androidx.annotation.StringRes
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.platform.telemetry.Telemetry
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,10 +45,11 @@ class AuthViewModel @Inject constructor(private val auth: AuthRepository) : View
         val captchaToken: String? = null,
     ) {
         /** Only once they have typed something — an error on an empty field nags. */
-        val emailError: String?
+        @get:StringRes
+        val emailError: Int?
             get() = email.takeIf { it.isNotEmpty() }?.let(AuthFormRules::emailError)
 
-        val passwordError: String?
+        val passwordError: UiMessage?
             get() = password.takeIf { it.isNotEmpty() }
                 ?.let { AuthFormRules.passwordError(it, mode) }
 

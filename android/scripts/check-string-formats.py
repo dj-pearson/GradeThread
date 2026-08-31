@@ -46,9 +46,36 @@ def placeholders(text):
     return {int(index) for index in PLACEHOLDER.findall(text or "")}
 
 
+def parse(path):
+    """Parse a strings file, or say which line is malformed and stop.
+
+    US-2976: a bare `&` in "Care & fabric" made this exit with an ElementTree
+    traceback. The message names the character and the offset, which is the
+    right information wrapped in the wrong thing entirely - a stack trace reads
+    as "the checker is broken", not "your XML is". aapt2 would have said so
+    too, eventually, and much further from the file.
+    """
+    try:
+        return ET.parse(path).getroot()
+    except ET.ParseError as error:
+        line, column = error.position
+        print(f"check-string-formats: {path} is not valid XML\n", file=sys.stderr)
+        print(f"  line {line}, column {column}: {error.msg}", file=sys.stderr)
+        with open(path, encoding="utf-8") as handle:
+            for number, text in enumerate(handle, start=1):
+                if number == line:
+                    print(f"  {text.rstrip()}", file=sys.stderr)
+                    break
+        print(
+            "\n  A bare & < or > in a value does this. Write &amp; &lt; &gt;.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def load_spec(path=STRINGS):
     spec, seen, ragged = {}, [], []
-    for element in ET.parse(path).getroot():
+    for element in parse(path):
         seen.append(element.get("name"))
         if element.tag == "string":
             spec[("string", element.get("name"))] = placeholders(element.text)

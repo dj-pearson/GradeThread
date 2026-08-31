@@ -2665,4 +2665,12 @@
     <string name="photo_role_detail_insole">Insole</string>
     <string name="photo_role_measure">Measure: %1$s</string>
     <string name="photo_type_unknown">Photo</string>
+    <string name="auth_password_hint">At least 10 characters, including upper- and lower-case letters and a number.</string>
+    <string name="auth_email_required">Enter your email address.</string>
+    <string name="auth_email_shape">That doesn\'t look like an email address.</string>
+    <string name="auth_password_required">Enter your password.</string>
+    <string name="auth_password_too_short">Password must be at least %1$d characters.</string>
+    <string name="auth_password_needs_lower">Password must include a lower-case letter.</string>
+    <string name="auth_password_needs_upper">Password must include an upper-case letter.</string>
+    <string name="auth_password_needs_digit">Password must include a number.</string>
 </resources>
