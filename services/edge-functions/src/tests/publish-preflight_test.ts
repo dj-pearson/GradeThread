@@ -24,9 +24,11 @@ import {
   reachabilityBlocker,
   remapConditionForCategory,
   resolveCategoryLeafStatus,
+  resolveDraftCondition,
   resolveEbayCondition,
   validateConditionForCategory,
 } from "../lib/publish-preflight.ts";
+import { EBAY_CONDITION_VALUES } from "../lib/ai-listing.ts";
 
 // ── apparel condition family (2990/3010) — the Dress/Women's-Sweaters set ──────
 
@@ -524,4 +526,91 @@ Deno.test("photoStandards: does not mutate or reorder the caller's array", () =>
   const snapshot = input.map((p) => p.sort_order);
   photoStandardsPreflight(input);
   assertEquals(input.map((p) => p.sort_order), snapshot);
+});
+
+
+// ── US-3031: generation-time condition settlement ────────────────────────────
+//
+// The listing model picks a condition before the leaf is known. These cover the
+// crossing it makes most often: a worn garment on an apparel leaf.
+
+Deno.test("resolveDraftCondition keeps an already-allowed pick untouched", () => {
+  const r = resolveDraftCondition("PRE_OWNED_EXCELLENT", APPAREL_CONDITIONS);
+  assertEquals(r.condition, "PRE_OWNED_EXCELLENT");
+  assertEquals(r.changed, false);
+  assertEquals(r.unresolved, false);
+});
+
+Deno.test("resolveDraftCondition leaves an unrestricted category alone", () => {
+  const r = resolveDraftCondition("USED_GOOD", []);
+  assertEquals(r.condition, "USED_GOOD");
+  assertEquals(r.changed, false);
+  assertEquals(r.unresolved, false);
+});
+
+Deno.test("resolveDraftCondition translates the legacy used ladder onto apparel", () => {
+  // The whole point: rank-only remapping sent Very good and Good to Fair, two
+  // tiers below what the model meant.
+  assertEquals(
+    resolveDraftCondition("USED_VERY_GOOD", APPAREL_CONDITIONS).condition,
+    "USED_EXCELLENT", // 3000 = "Pre-owned - Good"
+  );
+  assertEquals(
+    resolveDraftCondition("USED_GOOD", APPAREL_CONDITIONS).condition,
+    "USED_EXCELLENT",
+  );
+  assertEquals(
+    resolveDraftCondition("USED_ACCEPTABLE", APPAREL_CONDITIONS).condition,
+    "PRE_OWNED_FAIR",
+  );
+  assertEquals(
+    resolveDraftCondition("LIKE_NEW", APPAREL_CONDITIONS).condition,
+    "PRE_OWNED_EXCELLENT",
+  );
+  for (const c of ["USED_VERY_GOOD", "USED_GOOD", "USED_ACCEPTABLE", "LIKE_NEW"]) {
+    assertEquals(resolveDraftCondition(c, APPAREL_CONDITIONS).changed, true);
+    assertEquals(resolveDraftCondition(c, APPAREL_CONDITIONS).unresolved, false);
+  }
+});
+
+Deno.test("resolveDraftCondition emits only conditions the category accepts", () => {
+  for (const c of EBAY_CONDITION_VALUES) {
+    const r = resolveDraftCondition(c, APPAREL_CONDITIONS);
+    if (r.unresolved) continue;
+    const id = CONDITION_ENUM_TO_ID[r.condition];
+    assert(
+      APPAREL_CONDITIONS.includes(id),
+      `${c} settled on ${r.condition} (${id}), which the leaf rejects`,
+    );
+  }
+});
+
+Deno.test("resolveDraftCondition falls back to rank remapping off apparel", () => {
+  // Non-apparel leaf without 1500: New without tags steps down to Used.
+  assertEquals(
+    resolveDraftCondition("NEW_OTHER", ["1000", "3000", "4000"]).condition,
+    "USED_EXCELLENT",
+  );
+});
+
+Deno.test("resolveDraftCondition takes the pre-owned floor when nothing is worse", () => {
+  // For-parts has no apparel translation and nothing below Fair to fall to.
+  const r = resolveDraftCondition("FOR_PARTS_OR_NOT_WORKING", APPAREL_CONDITIONS);
+  assertEquals(r.condition, "PRE_OWNED_FAIR");
+  assertEquals(r.unresolved, false);
+});
+
+Deno.test("resolveDraftCondition never calls a used item new", () => {
+  // A new-only category: no honest stand-in exists, so the draft keeps the
+  // model's value and goes to review rather than claiming "New without tags".
+  const r = resolveDraftCondition("USED_GOOD", ["1000", "1500"]);
+  assertEquals(r.condition, "USED_GOOD");
+  assertEquals(r.changed, false);
+  assertEquals(r.unresolved, true);
+});
+
+Deno.test("resolveDraftCondition marks refurbished-only categories unresolved", () => {
+  const r = resolveDraftCondition("USED_EXCELLENT", ["2000", "2010"]);
+  assertEquals(r.unresolved, true);
+  assertEquals(r.condition, "USED_EXCELLENT");
 });

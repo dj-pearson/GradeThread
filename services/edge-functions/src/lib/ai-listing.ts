@@ -41,9 +41,14 @@ import {
 } from "./listing-photo-budget.ts";
 import {
   getCategoryAspects,
+  getItemConditionPolicies,
   searchBrowseComps,
   suggestCategories,
 } from "./ebay-client.ts";
+// US-3031: settles the generated condition against the leaf's allow-list. The
+// type-only edge of this pair (publish-preflight imports EbayCondition from
+// here) is erased at compile time, so there is no runtime import cycle.
+import { resolveDraftCondition } from "./publish-preflight.ts";
 import {
   filterListablePhotos,
   type ItemPhotoUrlRow,
@@ -2199,6 +2204,46 @@ export async function generateListing(
     }
   }
 
+  // 5b. US-3031: settle the condition against the leaf we just resolved.
+  //
+  // The model picks a condition from the full enum before anything knows which
+  // category the item lands in, so on a clothing leaf it lands on a rejected
+  // tier (LIKE_NEW / USED_VERY_GOOD / USED_GOOD / USED_ACCEPTABLE) most of the
+  // time. Until this ran here, the first anyone heard of it was the composer's
+  // red "not accepted by this category" warning, and the publish it blocked.
+  //
+  // Deliberately placed BEFORE the comp search in step 7: comps are filtered on
+  // the condition id, so pricing should reflect the condition we will actually
+  // publish, not the one eBay would have bounced.
+  //
+  // Best-effort. A policy-fetch failure or an unrestricted category leaves the
+  // model's pick exactly as it was.
+  let conditionUnresolved = false;
+  if (categoryId) {
+    try {
+      const { conditionIds } = await getItemConditionPolicies(categoryId);
+      const resolved = resolveDraftCondition(listing.ebay_condition, conditionIds);
+      conditionUnresolved = resolved.unresolved;
+      if (resolved.changed) {
+        console.log(
+          `[AI Listing] condition "${listing.ebay_condition}" resolved to ` +
+            `"${resolved.condition}" for category ${categoryId} (item ${itemId})`,
+        );
+        listing.ebay_condition = resolved.condition;
+      } else if (resolved.unresolved) {
+        console.warn(
+          `[AI Listing] category ${categoryId} accepts no honest stand-in for ` +
+            `condition "${listing.ebay_condition}" (item ${itemId}) — draft sent to review`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        "[AI Listing] condition-policy resolve (non-blocking):",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
   // 6. US-312: second pass — constrain item_specifics VALUES (not just names)
   //    to the category's allowed aspect set via extractEbayAspects' dynamic
   //    tool schema. Photos + the AI-generated specifics ("known aspects")
@@ -2621,9 +2666,12 @@ export async function generateListing(
   // US-541: route low-confidence drafts to review.
   // US-828: also flag the draft when reconciliation left aspects unmatched —
   // the seller must reconcile them before they silently drop at publish.
+  // US-3031: and when the category accepts no honest condition for this item,
+  // which is the one case step 5b cannot settle on the seller's behalf.
   const needsReview =
     listingNeedsReview(listing.confidence, fieldConfidence) ||
-    aspectReview.length > 0;
+    aspectReview.length > 0 ||
+    conditionUnresolved;
 
   // US-956: record the price confidence under listing_price so the estimated-flag
   // gate (and any future surface) can read it. Added AFTER needsReview so it does

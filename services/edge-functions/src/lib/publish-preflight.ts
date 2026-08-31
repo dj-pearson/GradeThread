@@ -373,6 +373,122 @@ export function remapConditionForCategory(
   return best ? best.cond : null;
 }
 
+// ── US-3031: legacy used ladder → 2025 pre-loved apparel ladder ──────────────
+//
+// remapConditionForCategory compares conditionIds by NUMBER, which is only
+// meaningful inside one family. eBay's legacy used ladder has four tiers
+// (3000/4000/5000/6000) and the apparel pre-loved ladder has three
+// (2990/3000/3010), and every apparel id sorts "better" than every legacy one.
+// Rank alone therefore collapses a legacy "Very good" onto "Pre-owned - Fair",
+// two tiers down, which sandbags a good garment and prices it accordingly.
+//
+// So translate across families by MEANING instead. The equivalences are read
+// straight off the two grade maps below, which already agree on what each tier
+// means in grade points: USED_EXCELLENT and PRE_OWNED_EXCELLENT both start at
+// 7.5, and the apparel band covering the legacy Very good / Good range
+// (4.5-7.5) is "Pre-owned - Good" (3000). Only the bottom legacy tier lands on
+// "Pre-owned - Fair".
+const LEGACY_TO_APPAREL_CONDITION: Partial<Record<EbayCondition, EbayCondition>> = {
+  // 2750 → 2990. "Like new" has no apparel id; Excellent is the closest tier
+  // that exists, and it is the conservative direction.
+  LIKE_NEW: "PRE_OWNED_EXCELLENT",
+  // 4000 → 3000 ("Pre-owned - Good"): grade band 6.0-7.5 maps there.
+  USED_VERY_GOOD: "USED_EXCELLENT",
+  // 5000 → 3000. Same words, same band midpoint (5.25 sits above the 5.0 Good
+  // floor). Not an upgrade — the apparel ladder simply has no fourth tier.
+  USED_GOOD: "USED_EXCELLENT",
+  // 6000 → 3010 ("Pre-owned - Fair"): the bottom of both ladders.
+  USED_ACCEPTABLE: "PRE_OWNED_FAIR",
+  // 7000 has no apparel equivalent; a for-parts garment is Fair at best, and
+  // sellers should be reading the composer warning rather than auto-listing it.
+};
+
+/**
+ * The WORST condition a category allows, but only when that floor is itself a
+ * genuinely PRE-OWNED tier (2990 or worse). Categories whose floor is still in
+ * the new/like-new family return null: calling a worn garment "Like new" to
+ * satisfy an allow-list is exactly the overstatement this module exists to
+ * prevent, and it earns an INAD return rather than a sale.
+ */
+function worstPreOwnedAllowed(
+  allowedConditionIds: string[],
+): EbayCondition | null {
+  const preOwnedFloorRank = CONDITION_QUALITY_ORDER.indexOf("2990");
+  let worst: { rank: number; cond: EbayCondition } | null = null;
+  for (const id of allowedConditionIds) {
+    const rank = CONDITION_QUALITY_ORDER.indexOf(id);
+    const cond = CONDITION_ID_TO_ENUM[id];
+    if (rank < preOwnedFloorRank || !cond) continue;
+    if (worst === null || rank > worst.rank) worst = { rank, cond };
+  }
+  return worst ? worst.cond : null;
+}
+
+export interface DraftConditionResolution {
+  /** The condition to store on the draft. */
+  condition: EbayCondition;
+  /** True when it differs from what the model picked. */
+  changed: boolean;
+  /**
+   * True when NO allowed condition can honestly stand in for the pick — the
+   * category accepts only better or unrepresentable tiers. The draft keeps the
+   * model's value and goes to review; the composer's own warning and the
+   * publish blocker then do their job.
+   */
+  unresolved: boolean;
+}
+
+/**
+ * US-3031: settle a GENERATED draft's eBay condition against the resolved
+ * category's allow-list, at generation time.
+ *
+ * The listing model chooses from the full condition enum with no idea which
+ * leaf it will land in. Clothing leaves accept only {1000, 1500, 1750, 2990,
+ * 3000, 3010} and reject the legacy USED_VERY_GOOD / USED_GOOD /
+ * USED_ACCEPTABLE and LIKE_NEW tiers — which are precisely the ones a model
+ * reaches for on a worn garment. Left alone the draft carries a value eBay
+ * bounces at publish, and the seller meets it as a red warning in the composer
+ * instead of a listing.
+ *
+ * The ladder, in order:
+ *   1. The pick is allowed, or the allow-list is unknown → keep it.
+ *   2. On an apparel pre-loved leaf, the cross-family translation above.
+ *   3. Nearest ALLOWED condition of equal-or-worse quality (rank remap) — the
+ *      non-apparel path, unchanged.
+ *   4. The category's pre-owned floor, when it has one.
+ *   5. Otherwise keep the pick and mark it unresolved.
+ */
+export function resolveDraftCondition(
+  aiCondition: string,
+  allowedConditionIds: string[],
+): DraftConditionResolution {
+  const original = aiCondition as EbayCondition;
+  const settled = (cond: EbayCondition): DraftConditionResolution => ({
+    condition: cond,
+    changed: cond !== original,
+    unresolved: false,
+  });
+  if (!allowedConditionIds || allowedConditionIds.length === 0) {
+    return settled(original);
+  }
+  const desiredId = CONDITION_ENUM_TO_ID[original];
+  if (!desiredId || allowedConditionIds.includes(desiredId)) {
+    return settled(original);
+  }
+  if (isApparelPrelovedCategory(allowedConditionIds)) {
+    const translated = LEGACY_TO_APPAREL_CONDITION[original];
+    const translatedId = translated ? CONDITION_ENUM_TO_ID[translated] : undefined;
+    if (translated && translatedId && allowedConditionIds.includes(translatedId)) {
+      return settled(translated);
+    }
+  }
+  const remapped = remapConditionForCategory(original, allowedConditionIds);
+  if (remapped) return settled(remapped);
+  const floor = worstPreOwnedAllowed(allowedConditionIds);
+  if (floor) return settled(floor);
+  return { condition: original, changed: false, unresolved: true };
+}
+
 // ── US-1894: grade → eBay 2025 pre-loved apparel condition mapping ───────────
 //
 // eBay split apparel "Used" into a 3-tier PRE-OWNED scale in Jan-2025:
