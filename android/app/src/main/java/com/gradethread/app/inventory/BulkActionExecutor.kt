@@ -1,9 +1,12 @@
 package com.gradethread.app.inventory
 
+import com.gradethread.app.R
 import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.workspace.WorkspaceScope
 import com.gradethread.app.sync.db.GradeThreadDb
 import com.gradethread.app.sync.db.InventoryItemEntity
+import com.gradethread.app.ui.UiMessage
+import com.gradethread.app.ui.components.StatusStyle
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
@@ -22,13 +25,9 @@ import javax.inject.Singleton
  * caught, attributed to its item, and reported alongside the successes.
  */
 @Singleton
-class BulkActionExecutor @Inject constructor(
-    private val client: SupabaseClient,
-    private val db: GradeThreadDb,
-) {
+class BulkActionExecutor @Inject constructor(private val client: SupabaseClient, private val db: GradeThreadDb) {
 
-    private fun ownerId(): String? =
-        client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
+    private fun ownerId(): String? = client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
 
     data class Outcome(val result: BulkActionResult, val undo: BulkUndo?)
 
@@ -39,7 +38,7 @@ class BulkActionExecutor @Inject constructor(
                     action = action,
                     succeeded = 0,
                     failures = itemIds.map {
-                        BulkActionResult.Failure(it, "You're signed out.")
+                        BulkActionResult.Failure(it, UiMessage(R.string.bulk_error_signed_out))
                     },
                 ),
                 undo = null,
@@ -53,14 +52,20 @@ class BulkActionExecutor @Inject constructor(
         for (id in itemIds) {
             val item = db.items().byId(id)
             if (item == null) {
-                failures += BulkActionResult.Failure(id, "Not on this device yet.")
+                failures += BulkActionResult.Failure(
+                    id,
+                    UiMessage(R.string.bulk_error_not_synced),
+                )
                 continue
             }
             val outcome = runCatching { apply(action, item, owner, statusSnapshot, priceSnapshot) }
             outcome.fold(
                 onSuccess = { skippedReason ->
-                    if (skippedReason == null) succeeded++
-                    else failures += BulkActionResult.Failure(id, skippedReason)
+                    if (skippedReason == null) {
+                        succeeded++
+                    } else {
+                        failures += BulkActionResult.Failure(id, skippedReason)
+                    }
                 },
                 onFailure = { error ->
                     failures += BulkActionResult.Failure(id, message(error))
@@ -70,7 +75,11 @@ class BulkActionExecutor @Inject constructor(
 
         val undo = if (action.reversible && (statusSnapshot.isNotEmpty() || priceSnapshot.isNotEmpty())) {
             BulkUndo(
-                label = "${action.label} · $succeeded updated",
+                label = UiMessage(
+                    R.plurals.bulk_undo_label,
+                    args = listOf(action.label, succeeded),
+                    quantity = succeeded,
+                ),
                 statuses = statusSnapshot,
                 targetPrices = priceSnapshot,
             )
@@ -88,7 +97,7 @@ class BulkActionExecutor @Inject constructor(
         owner: String,
         statusSnapshot: MutableMap<String, String>,
         priceSnapshot: MutableMap<String, Double?>,
-    ): String? = when (action) {
+    ): UiMessage? = when (action) {
         BulkAction.CreateDraft -> setStatus(item, owner, "drafted", statusSnapshot)
         BulkAction.MarkShipped -> setStatus(item, owner, "shipped", statusSnapshot)
 
@@ -97,7 +106,7 @@ class BulkActionExecutor @Inject constructor(
             if (next == null) {
                 // Named rather than silently skipped: "nothing happened" on
                 // some rows and not others is indistinguishable from a bug.
-                "No target price to drop."
+                UiMessage(R.string.bulk_error_no_target_price)
             } else {
                 // Snapshot BEFORE the write, and only for rows that get this
                 // far — reverting one that failed would write a value it
@@ -124,7 +133,7 @@ class BulkActionExecutor @Inject constructor(
         }
 
         // Intercepted by the list before it reaches the executor.
-        BulkAction.Grade -> "Grading is handled by the grade sheet."
+        BulkAction.Grade -> UiMessage(R.string.bulk_error_grade_sheet)
     }
 
     private suspend fun setStatus(
@@ -132,12 +141,18 @@ class BulkActionExecutor @Inject constructor(
         owner: String,
         target: String,
         snapshot: MutableMap<String, String>,
-    ): String? {
+    ): UiMessage? {
         if (item.status == target) return null // already there; not a failure
         if (!ItemPatch.allowsStatus(item.status, target)) {
             // Reuses the canvas's guard so one rule decides what a legal
             // transition is, rather than two that can drift.
-            return "Can't move a ${item.status} item to $target."
+            // US-2976: both statuses are nested UiMessages rather than raw
+            // slugs. "Can't move a drafted item to shipped" was showing the
+            // WIRE value in a sentence a seller reads, in every language.
+            return UiMessage(
+                R.string.bulk_error_illegal_move,
+                args = listOf(StatusStyle.message(item.status), StatusStyle.message(target)),
+            )
         }
         snapshot[item.id] = item.status
         update(item.id, owner, mapOf("status" to JsonPrimitive(target)))
@@ -181,10 +196,12 @@ class BulkActionExecutor @Inject constructor(
         }
     }
 
-    private fun message(error: Throwable): String =
-        (error as? EdgeApiError)?.userMessage()
-            ?: error.message
-            ?: "Couldn't update this item."
+    private fun message(error: Throwable): UiMessage = UiMessage(
+        R.string.bulk_error_generic,
+        // The server's sentence wins when there is one: it is usually the
+        // only thing that says what actually went wrong.
+        detail = (error as? EdgeApiError)?.userMessage() ?: error.message,
+    )
 
     private companion object {
         const val TABLE = "inventory_items"

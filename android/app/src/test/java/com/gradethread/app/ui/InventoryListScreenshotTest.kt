@@ -4,6 +4,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.gradethread.app.R
+import com.gradethread.app.ui.components.StatusStyle
 import com.gradethread.app.inventory.BulkAction
 import com.gradethread.app.inventory.BulkActionResult
 import com.gradethread.app.inventory.BulkUndo
@@ -183,7 +185,19 @@ class InventoryListScreenshotTest {
                     action = BulkAction.MarkShipped,
                     succeeded = 2,
                     failures = listOf(
-                        BulkActionResult.Failure("i3", "No tracking number on this listing."),
+                        // US-2976: a failure the executor can actually produce.
+                        // The fixture used to say "No tracking number on this
+                        // listing.", which no code path generates.
+                        BulkActionResult.Failure(
+                            "i3",
+                            UiMessage(
+                                R.string.bulk_error_illegal_move,
+                                args = listOf(
+                                    StatusStyle.message("drafted"),
+                                    StatusStyle.message("shipped"),
+                                ),
+                            ),
+                        ),
                     ),
                 ),
             ),
@@ -196,7 +210,12 @@ class InventoryListScreenshotTest {
         Content(
             ui(
                 bulkUndo = BulkUndo(
-                    label = "Marked 3 shipped",
+                    // The real shape: the action's own label, then the count.
+                    label = UiMessage(
+                        R.plurals.bulk_undo_label,
+                        args = listOf(BulkAction.MarkShipped.label, 3),
+                        quantity = 3,
+                    ),
                     statuses = mapOf("i1" to "listed", "i2" to "listed", "i3" to "listed"),
                 ),
             ),

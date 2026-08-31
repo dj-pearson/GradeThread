@@ -2840,4 +2840,15 @@
         <item quantity="one">%1$d of %2$d payout doesn\'t match.</item>
         <item quantity="other">%1$d of %2$d payouts don\'t match.</item>
     </plurals>
+    <string name="status_other">Status</string>
+    <string name="bulk_error_signed_out">You\'re signed out.</string>
+    <string name="bulk_error_not_synced">Not on this device yet.</string>
+    <string name="bulk_error_no_target_price">No target price to drop.</string>
+    <string name="bulk_error_grade_sheet">Grading is handled by the grade sheet.</string>
+    <string name="bulk_error_illegal_move">Can\'t move a %1$s item to %2$s.</string>
+    <string name="bulk_error_generic">Couldn\'t update this item.</string>
+    <plurals name="bulk_undo_label">
+        <item quantity="one">%1$s &#183; %2$d updated</item>
+        <item quantity="other">%1$s &#183; %2$d updated</item>
+    </plurals>
 </resources>

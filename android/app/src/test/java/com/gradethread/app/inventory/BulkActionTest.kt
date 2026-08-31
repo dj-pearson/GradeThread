@@ -1,6 +1,7 @@
 package com.gradethread.app.inventory
 
 import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -65,9 +66,10 @@ class BulkActionTest {
 
     @Test
     fun `an undo with nothing to restore is empty`() {
-        assertTrue(BulkUndo("x").isEmpty)
-        assertFalse(BulkUndo("x", statuses = mapOf("a" to "sold")).isEmpty)
-        assertFalse(BulkUndo("x", targetPrices = mapOf("a" to null)).isEmpty)
+        val label = UiMessage(R.plurals.bulk_undo_label, quantity = 1)
+        assertTrue(BulkUndo(label).isEmpty)
+        assertFalse(BulkUndo(label, statuses = mapOf("a" to "sold")).isEmpty)
+        assertFalse(BulkUndo(label, targetPrices = mapOf("a" to null)).isEmpty)
     }
 
     // ── the summary ──────────────────────────────────────────────────────
@@ -79,7 +81,7 @@ class BulkActionTest {
         val result = BulkActionResult(
             action = BulkAction.MarkShipped,
             succeeded = 7,
-            failures = List(2) { BulkActionResult.Failure("i$it", "No target price to drop.") },
+            failures = List(2) { BulkActionResult.Failure("i$it", UiMessage(R.string.bulk_error_no_target_price)) },
         )
         // Succeeded, total, failed - in that order. Reversed, "Updated 9 of 7"
         // is nonsense and "2 of 9 failed" is a different batch.
@@ -109,7 +111,7 @@ class BulkActionTest {
         val result = BulkActionResult(
             action = BulkAction.MarkShipped,
             succeeded = 0,
-            failures = List(4) { BulkActionResult.Failure("i$it", "nope") },
+            failures = List(4) { BulkActionResult.Failure("i$it", UiMessage(R.string.bulk_error_generic)) },
         )
         // A DIFFERENT resource from the partial case, so "all of them failed"
         // can never be worded as a partial success.

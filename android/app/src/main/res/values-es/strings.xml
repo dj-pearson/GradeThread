@@ -2706,4 +2706,15 @@
         <item quantity="one">%1$d de %2$d pago no coincide.</item>
         <item quantity="other">%1$d de %2$d pagos no coinciden.</item>
     </plurals>
+    <string name="status_other">Estado</string>
+    <string name="bulk_error_signed_out">Has cerrado sesi&#243;n.</string>
+    <string name="bulk_error_not_synced">Todav&#237;a no est&#225; en este dispositivo.</string>
+    <string name="bulk_error_no_target_price">No hay precio objetivo que bajar.</string>
+    <string name="bulk_error_grade_sheet">La evaluaci&#243;n se hace desde la hoja de evaluaci&#243;n.</string>
+    <string name="bulk_error_illegal_move">No se puede pasar un art&#237;culo %1$s a %2$s.</string>
+    <string name="bulk_error_generic">No se pudo actualizar este art&#237;culo.</string>
+    <plurals name="bulk_undo_label">
+        <item quantity="one">%1$s &#183; %2$d actualizado</item>
+        <item quantity="other">%1$s &#183; %2$d actualizados</item>
+    </plurals>
 </resources>

@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.ui.theme.BrandPalette
 import com.gradethread.app.ui.theme.CornerRadius
 import com.gradethread.app.ui.theme.GradeThreadTheme
@@ -69,6 +70,19 @@ object StatusStyle {
         .split('_')
         .filter { it.isNotEmpty() }
         .joinToString(" ") { part -> part.replaceFirstChar { it.uppercaseChar() } }
+
+    /**
+     * The status as something showable, from a class with no Context.
+     *
+     * US-2976: a status we know is one of OUR words and translates. A status
+     * we do not know is the SERVER's word, and it rides as `detail` so it is
+     * shown exactly as sent - untranslated is the honest outcome for a value
+     * that shipped ahead of its string. Same split as
+     * PassportFormat.eventLabel.
+     */
+    fun message(status: String): UiMessage = labelRes(status)
+        ?.let { UiMessage(it) }
+        ?: UiMessage(R.string.status_other, detail = label(status))
 
     /** Pipeline-phase tone. Pure; unit-tested. */
     fun tone(status: String): Color = when (status) {

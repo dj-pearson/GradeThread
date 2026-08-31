@@ -120,7 +120,14 @@ sealed class BulkAction {
 
 /** What a batch did. */
 data class BulkActionResult(val action: BulkAction, val succeeded: Int, val failures: List<Failure> = emptyList()) {
-    data class Failure(val itemId: String, val message: String)
+    /**
+     * US-2976: [message] is a UiMessage because the two sources of this
+     * sentence are different. A skip we decided ("No target price to drop.")
+     * is our copy and translates; a server rejection is the server's own words
+     * and rides as `detail`. Flattening both to String made the second look
+     * like the first.
+     */
+    data class Failure(val itemId: String, val message: UiMessage)
 
     val total: Int get() = succeeded + failures.size
 
@@ -165,7 +172,7 @@ data class BulkActionResult(val action: BulkAction, val succeeded: Int, val fail
  * value it never had.
  */
 data class BulkUndo(
-    val label: String,
+    val label: UiMessage,
     val statuses: Map<String, String> = emptyMap(),
     val targetPrices: Map<String, Double?> = emptyMap(),
 ) {

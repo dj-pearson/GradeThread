@@ -144,7 +144,7 @@ fun BulkUndoBar(undo: BulkUndo, onUndo: () -> Unit, onDismiss: () -> Unit, modif
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            undo.label,
+            undo.label.text(),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.inverseOnSurface,
             modifier = Modifier.weight(1f),
@@ -184,7 +184,7 @@ fun BulkResultBar(result: BulkActionResult, onDismiss: () -> Unit, modifier: Mod
         // which three and why.
         result.failures.take(4).forEach { failure ->
             Text(
-                "• ${failure.message}",
+                "\u2022 ${failure.message.text()}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
