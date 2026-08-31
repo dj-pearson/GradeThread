@@ -16,8 +16,30 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { pollMarketplaceEventsForUser } = await import("../lib/marketplace-event-poll.ts");
-import type { MarketplacePollDeps } from "../lib/marketplace-event-poll.ts";
+const { pollMarketplaceEventsForUser, sweepMarketplaceEvents } = await import(
+  "../lib/marketplace-event-poll.ts"
+);
+import type {
+  MarketplacePollDeps,
+  MarketplacePollResult,
+} from "../lib/marketplace-event-poll.ts";
+
+// A poll result with every counter at zero — the sweep tests below vary exactly
+// one field off this, so a new counter added to the interface cannot silently
+// leave a test asserting over a partial object.
+const emptyPollResult: MarketplacePollResult = {
+  offers: 0,
+  returns: 0,
+  disputes: 0,
+  cancellations: 0,
+  inquiries: 0,
+  cases: 0,
+  reminders: 0,
+  linked: 0,
+  snadSignals: 0,
+  digests: 0,
+  errors: [],
+};
 
 // A claim backed by an in-memory Set: returns true the first time a key is seen
 // (insert succeeds) and false thereafter (unique-violation) — exactly the DB
@@ -493,4 +515,59 @@ Deno.test("a SELLER-initiated cancellation is still recorded, only not notified"
   await pollMarketplaceEventsForUser("u1", deps);
   assert(recorded.includes("cancellation:c-seller"));
   assertEquals(fired.cancellation, 0);
+});
+
+// ── US-2977: the sweep must NAME its failures ────────────────────────────
+//
+// `marketplace-events` ran at 100% error for four days (2026-08-27 12:15 UTC
+// onward, ~330 consecutive runs) and no surface anywhere could say what the
+// error was: the sweep summed `r.errors.length` into a count and dropped the
+// messages on the floor. The cron_runs ledger stored `{"failures":{"errors":1}}`
+// every fifteen minutes and the operator had a number with no noun.
+//
+// A count is an alert; a message is a fix. These two pin the message onto a log
+// line, and the counter-assertion pins that a clean sweep stays silent — a
+// warn on every tick is a warn nobody reads.
+Deno.test("the sweep logs the error MESSAGES, not just how many", async () => {
+  const lines: string[] = [];
+  const realWarn = console.warn;
+  console.warn = (l: unknown) => void lines.push(String(l));
+  try {
+    const res = await sweepMarketplaceEvents(
+      () => Promise.resolve(["owner-a"]),
+      () =>
+        Promise.resolve({
+          ...emptyPollResult,
+          errors: ["returns: eBay 403 Insufficient permissions for scope sell.fulfillment"],
+        }),
+    );
+    assertEquals(res.errors, 1, "the count still reports, unchanged");
+  } finally {
+    console.warn = realWarn;
+  }
+  const warn = lines.find((l) => l.includes("marketplace_events.poll_failed"));
+  assert(warn, `expected a poll_failed warn line, got: ${JSON.stringify(lines)}`);
+  assert(
+    warn.includes("Insufficient permissions for scope sell.fulfillment"),
+    `the MESSAGE must reach the log, not only the count: ${warn}`,
+  );
+  assert(warn.includes("owner-a"), "the failing owner must be nameable");
+});
+
+Deno.test("a clean sweep logs nothing — the warn means something", async () => {
+  const lines: string[] = [];
+  const realWarn = console.warn;
+  console.warn = (l: unknown) => void lines.push(String(l));
+  try {
+    await sweepMarketplaceEvents(
+      () => Promise.resolve(["owner-a", "owner-b"]),
+      () => Promise.resolve({ ...emptyPollResult, offers: 2 }),
+    );
+  } finally {
+    console.warn = realWarn;
+  }
+  assertEquals(
+    lines.filter((l) => l.includes("marketplace_events.poll_failed")).length,
+    0,
+  );
 });

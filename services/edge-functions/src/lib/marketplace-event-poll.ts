@@ -29,6 +29,7 @@ import { recordSnadObservations } from "./grade-snad-signal.ts";
 import { sendOfferDigestForUser, utcDayStamp } from "./offer-digest.ts";
 import { loadRankedOfferCandidates } from "./offer-candidates-load.ts";
 import { isNegotiationScopeAvailable } from "./ebay-client.ts";
+import { logEvent } from "./observability.ts";
 import {
   incomingOfferToInput,
   loadListPricesByItemId,
@@ -552,6 +553,12 @@ export async function pollMarketplaceEventsForUser(
 
 // ── Cron ────────────────────────────────────────────────────────────
 
+/** US-2977: how many of one owner's error messages reach the log per sweep. */
+const MAX_LOGGED_ERRORS = 5;
+/** US-2977: per-message ceiling — eBay error bodies can run to kilobytes. */
+const MAX_ERROR_CHARS = 400;
+
+
 /**
  * Sweep every active eBay connection and poll its owner's marketplace events.
  * Distinct owners only (a workspace's eBay connection lives on the owner). The
@@ -559,6 +566,8 @@ export async function pollMarketplaceEventsForUser(
  */
 export async function sweepMarketplaceEvents(
   loadOwnerIds: () => Promise<string[]>,
+  poll: (ownerId: string) => Promise<MarketplacePollResult> =
+    pollMarketplaceEventsForUser,
 ): Promise<
   {
     users: number;
@@ -588,7 +597,31 @@ export async function sweepMarketplaceEvents(
   let digests = 0;
   let errors = 0;
   for (const ownerId of ownerIds) {
-    const r = await pollMarketplaceEventsForUser(ownerId);
+    const r = await poll(ownerId);
+    // US-2977: NAME the failure. pollMarketplaceEventsForUser never throws — it
+    // collects each per-source failure into `errors` as a string — and this loop
+    // used to sum only `.length`, so the messages died here and the cron_runs
+    // ledger recorded a bare `{"failures":{"errors":1}}`. That is what a
+    // four-day 100%-error streak looked like from every surface the operator
+    // has: a number with no noun, unactionable at any hour.
+    //
+    // Warn, not error: the sweep itself succeeded and the other owners were
+    // polled. Per owner rather than per sweep, because the remedy is usually
+    // one seller's scope or token and the owner id is how you find them.
+    // logEvent redacts on the way out, so a message carrying a credential is
+    // scrubbed by the same path every other log line uses.
+    if (r.errors.length > 0) {
+      logEvent("warn", "marketplace_events.poll_failed", {
+        ownerId,
+        count: r.errors.length,
+        // Bounded and truncated: a seller with a hundred failing offers would
+        // otherwise emit a hundred lines of an eBay error body every fifteen
+        // minutes, and the first few say the same thing as the last few.
+        errors: r.errors.slice(0, MAX_LOGGED_ERRORS).map((e) =>
+          e.length > MAX_ERROR_CHARS ? `${e.slice(0, MAX_ERROR_CHARS)}...` : e
+        ),
+      });
+    }
     offers += r.offers;
     returns += r.returns;
     disputes += r.disputes;
