@@ -104,10 +104,17 @@ function nativeSpecs(
   src: string,
   lang: "swift" | "kotlin",
 ): Map<string, { label: string; unit: string }> {
+  // US-2976 (e0253a37b) split the Android label into a wire value and a
+  // localized display resource, so the Kotlin Spec gained a third argument:
+  //   Spec("chest", "Chest (pit to pit)", R.string.measurement_chest, Kind.LENGTH)
+  // The `label` this file compares against the web is still the SECOND
+  // argument, which is the English wire value both platforms key on. The
+  // `R.string` reference is what a Spanish reader actually sees and is checked
+  // by the Android localization guards, not here.
   const re =
     lang === "swift"
       ? /Spec\(key: "([a-z_]+)", label: "([^"]*)", kind: \.([a-z]+)\)/g
-      : /Spec\("([a-z_]+)", "([^"]*)", Kind\.([A-Z]+)\)/g;
+      : /Spec\("([a-z_]+)", "([^"]*)", R\.string\.[a-z_]+, Kind\.([A-Z]+)\)/g;
   return new Map(
     [...src.matchAll(re)].map((m) => [m[1]!, { label: m[2]!, unit: m[3]!.toLowerCase() }]),
   );

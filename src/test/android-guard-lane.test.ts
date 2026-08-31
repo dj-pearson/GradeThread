@@ -45,9 +45,24 @@ function ciScripts(): string[] {
   return [...found];
 }
 
+/** Shared modules that a guard IMPORTS rather than something anyone invokes.
+ *
+ *  `label_rule.py` (US-2976 AC9) is the positional label rule. It is imported
+ *  by `no-unlocalized-copy.py`, which both the lane and CI run, and its own
+ *  `self_test()` is called on every one of those runs. Counting it as an
+ *  unrun guard would be wrong: it is covered, just not from a command line.
+ *
+ *  The value is the guard that must import it, and the test below re-proves
+ *  that link on every run, so an entry here cannot outlive its reason. */
+const IMPORTED_MODULES: Record<string, string> = {
+  "label_rule.py": "no-unlocalized-copy.py",
+};
+
 /** Every Python guard actually on disk. */
 function onDisk(): string[] {
-  return readdirSync(ANDROID_SCRIPTS).filter((f) => f.endsWith(".py"));
+  return readdirSync(ANDROID_SCRIPTS)
+    .filter((f) => f.endsWith(".py"))
+    .filter((f) => !(f in IMPORTED_MODULES));
 }
 
 describe("the Android Python guards run in both places", () => {
@@ -84,6 +99,23 @@ describe("the Android Python guards run in both places", () => {
     const present = new Set(onDisk());
     for (const script of laneScripts()) {
       expect(present.has(script), `verify.mjs runs ${script} and android/scripts has no such file`).toBe(true);
+    }
+  });
+
+  it("every exempt module is still imported by a guard that still runs", () => {
+    const run = new Set([...laneScripts(), ...ciScripts()]);
+    for (const [module, importer] of Object.entries(IMPORTED_MODULES)) {
+      const stem = module.replace(/\.py$/, "");
+      const src = readFileSync(join(ANDROID_SCRIPTS, importer), "utf8");
+      expect(
+        src.includes(`import ${stem}`),
+        `${importer} no longer imports ${module}, so the exemption is stale: ` +
+          "either delete the module or wire it up as a guard of its own.",
+      ).toBe(true);
+      expect(
+        run.has(importer),
+        `${module} is exempt because ${importer} imports it, but nothing runs ${importer}.`,
+      ).toBe(true);
     }
   });
 

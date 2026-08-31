@@ -15,12 +15,21 @@ code_refs:
   - services/edge-functions/src/lib/ebay-webhook-topics.ts
   - services/edge-functions/src/lib/ebay-notification-subscriptions.ts
   - services/edge-functions/src/routes/flipdesk-webhooks.ts
-reviewed: 2026-08-28
+reviewed: 2026-08-31
 tags: [ebay, listings, sync, gotcha]
 summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error - and to keep WHICH of those it was, since ended and removed-by-eBay need opposite actions.
 ---
 
 # Reconciling eBay-ended and policy-removed listings
+
+> **Re-reviewed 2026-08-31.** Drift flagged `ebay-client.ts` for `fb9de8279`,
+> the numeric-id coercion. The whole change to this file is one additive hunk
+> at the end adding `ebayId()`; the callers it repairs are the post-order
+> modules (inquiries, cases, disputes, returns), none of which is a lifecycle
+> verb and none of which is a `code_ref` here. Nothing about ending, relisting,
+> policy removal or the reconciliation sweep moved. Re-verified while here: the
+> "already not live is the desired end state" branch is still at
+> `ebay-client.ts:3230`, and the seller-side-end comment at `:2819`.
 
 > **Re-reviewed 2026-08-28.** Drift flagged `flipdesk-ebay.ts` for US-2974,
 > which adds an optional `item_id` query param to the COMPS SEARCH endpoint and
