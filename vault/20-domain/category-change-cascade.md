@@ -10,10 +10,25 @@ code_refs:
   - src/lib/garment-mapping.ts
   - src/lib/grading-readiness.ts
   - src/lib/measurement-templates.ts
-reviewed: 2026-08-27
+reviewed: 2026-08-30
 tags: [flipdesk, grading, ebay, contract]
 summary: An item carries three category axes that must agree; correcting one cascades into the others, and the specifics a change cannot carry are set aside rather than destroyed.
 ---
+
+> **Re-reviewed 2026-08-30.** Drift flagged `src/lib/ebay-category-map.ts` for
+> `c1b5a3ca7` — US-3016 teaching `ebayPathToItemCategory` to classify
+> non-apparel from its ROOT segment. **This one DOES change the contract**, so
+> §"The cascade" above was rewritten rather than merely re-read. Before it, a
+> non-garment eBay path returned null and therefore cascaded nothing: pick "Toys
+> & Hobbies" and `item_category` simply stayed as it was. Now the same pick
+> returns `collectibles`, the cascade fires, and because `deriveGarmentType`
+> maps non-garment categories to `null`, the family test sees a change and
+> `garmentPatchForCategoryChange` re-derives the garment axis **to null** —
+> clearing `garment_type`/`garment_category` on an item that had them. That is
+> the intended behaviour (an item that is no longer a garment should not keep a
+> garment rubric), and it is exactly why callers must SPREAD the patch rather
+> than filter its nulls out. A whole class of path that used to be inert is now
+> live, which is the sort of thing this note exists to say out loud.
 
 > **Re-reviewed 2026-08-23.** Drift flagged `src/lib/ebay-prefill.ts` for
 > `e28975d32` — US-2796's shoe-scale rule reaching the composer prefill. The
@@ -42,10 +57,28 @@ grades against the wrong rubric.
 ## The cascade
 
 **eBay leaf → coarse → garment.** `ebayPathToItemCategory(breadcrumb)`
-(`src/lib/ebay-category-map.ts`) reverse-maps the chosen eBay path. It reads the
-**descendant** segments, because the root "Clothing, Shoes & Accessories" names
-several verticals at once, and it **returns null when unsure** rather than
-guessing. The composer then writes `item_category` in the same save, plus
+(`src/lib/ebay-category-map.ts`) reverse-maps the chosen eBay path, and it reads
+**two different parts of the path depending on the root** (US-3016):
+
+- **Apparel** is classified from the **descendant** segments, because the root
+  "Clothing, Shoes & Accessories" names three verticals at once and settles
+  nothing.
+- **Everything else** is classified from the **root** segment, in
+  `rootVertical()`. Every non-apparel root — "Collectibles", "Antiques", "Toys
+  & Hobbies", "Books" — names exactly one thing, and their descendants actively
+  mislead: "Collectibles › Advertising › Shoes" is a tin sign and "Toys &
+  Hobbies › Action Figures › Accessories" is a plastic sword. Running the
+  apparel regexes over those tails would not be conservative, it would be wrong.
+- **Two roots straddle our enum** and let the tail break the tie: "Jewelry &
+  Watches" splits on the word *watch*, and "Sports Mem" splits cards from
+  autographs.
+- An **unrecognised root falls through to the descendant logic**, which is
+  load-bearing rather than tidy: `category_name` in the aspect cache is not
+  always a full root-first breadcrumb, and plenty of rows start at "Pants" or
+  "Sweaters".
+
+It still **returns null when unsure** rather than guessing. The composer then
+writes `item_category` in the same save, plus
 `garment_type`/`garment_category` — but **only when the coarse FAMILY changes**
 (`deriveGarmentType(next) !== deriveGarmentType(current)`), so a same-family
 correction keeps the seller's own garment pick.

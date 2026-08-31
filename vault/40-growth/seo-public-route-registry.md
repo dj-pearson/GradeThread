@@ -9,12 +9,27 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-08-28
+reviewed: 2026-08-30
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
 
 # SEO — the public route registry
+
+> **Re-reviewed 2026-08-30.** Drift flagged `src/routes/index.tsx` for
+> `8f9719281` (US-3019), which adds `/dashboard/flipdesk/analytics/team`.
+> Private, like the last one: the `<ProtectedRoute>` subtree opens at
+> `src/routes/index.tsx:526` and this route sits inside it, and
+> `src/lib/seo/public-routes.ts` contains no `/dashboard` entry at all. None of
+> the wiring points below apply and nothing here changed.
+>
+> **Two of these in a row is the pattern, not a coincidence.** Every new
+> dashboard route trips this note's drift guard, because the guard watches the
+> whole of `routes/index.tsx` and cannot see that a route is behind an auth
+> boundary. That is the guard being blunt rather than wrong — it would rather
+> ask twice than miss a public page — but the check is always the same two
+> facts: is the path inside the `ProtectedRoute` subtree, and is it absent from
+> `PUBLIC_ROUTES`. Both yes means bump `reviewed` and move on.
 
 > **Re-reviewed 2026-08-28.** Drift flagged `src/routes/index.tsx` for
 > `f58bc8cdd` (US-2961), which adds `/dashboard/flipdesk/settings/blocks`. That
