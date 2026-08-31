@@ -4,6 +4,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.gradethread.app.R
 import com.gradethread.app.support.SupportMessage
 import com.gradethread.app.support.SupportThread
 import com.gradethread.app.support.SupportThreadActions
@@ -115,7 +116,12 @@ class SupportThreadScreenshotTest {
     @Test
     fun loadFailed_dark() = capture("screen-supportthread-error-dark", dark = true) {
         SupportThreadContent(
-            SupportThreadViewModel.State(loadError = "Could not reach the server."),
+            SupportThreadViewModel.State(
+                loadError = UiMessage(
+                    R.string.support_error_load_one,
+                    detail = "Could not reach the server.",
+                ),
+            ),
             SupportThreadActions(),
         )
     }
@@ -124,7 +130,12 @@ class SupportThreadScreenshotTest {
     @Test
     fun sendFailed_dark() = capture("screen-supportthread-send-error-dark", dark = true) {
         SupportThreadContent(
-            open.copy(reply = "Still nothing on the 30th.", sendError = "That reply did not send."),
+            open.copy(
+                reply = "Still nothing on the 30th.",
+                // No server detail: the seller sees OUR sentence, which is the
+                // case the fixture "That reply did not send." never covered.
+                sendError = UiMessage(R.string.support_error_send_reply),
+            ),
             SupportThreadActions(),
         )
     }

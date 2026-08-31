@@ -2925,4 +2925,12 @@
     <string name="sale_status_refunded">Refunded</string>
     <string name="sale_status_cancelled">Cancelled</string>
     <string name="sale_status_other">Status</string>
+    <string name="support_error_load_list">Couldn\'t load your requests.</string>
+    <string name="support_error_load_one">Couldn\'t load that request.</string>
+    <string name="support_error_send">Couldn\'t send that. Try again in a moment.</string>
+    <string name="support_error_send_reply">Couldn\'t send your reply. Try again in a moment.</string>
+    <string name="workspace_subtitle_loading">Loading&#8230;</string>
+    <string name="workspace_subtitle_personal">Your own inventory and sales</string>
+    <string name="workspace_subtitle_shared">Shared workspace &#8212; you\'re a member</string>
+    <string name="workspace_access_revoked">You no longer have access to that workspace. You\'re back in your own.</string>
 </resources>

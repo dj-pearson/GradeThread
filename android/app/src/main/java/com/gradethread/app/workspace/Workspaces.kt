@@ -1,5 +1,9 @@
 package com.gradethread.app.workspace
 
+import com.gradethread.app.ui.UiMessage
+
+import com.gradethread.app.R
+
 /**
  * US-1388 (iOS `WorkspaceSummary` / `WorkspaceContext`): a workspace the
  * signed-in user can work inside.
@@ -7,11 +11,7 @@ package com.gradethread.app.workspace
  * `ownerId` is the TENANT, not the member — every scoped read and every
  * `X-Workspace-Owner` header carries it.
  */
-data class WorkspaceSummary(
-    val ownerId: String,
-    val name: String,
-    val isPersonal: Boolean,
-)
+data class WorkspaceSummary(val ownerId: String, val name: String, val isPersonal: Boolean)
 
 /**
  * US-1388: the switcher's rules.
@@ -36,11 +36,7 @@ object Workspaces {
      * a list that could come back empty would leave the switcher with nothing
      * to switch to when a membership lapses.
      */
-    fun build(
-        selfId: String,
-        memberOwnerIds: List<String>,
-        ownerNames: Map<String, String?>,
-    ): List<WorkspaceSummary> {
+    fun build(selfId: String, memberOwnerIds: List<String>, ownerNames: Map<String, String?>): List<WorkspaceSummary> {
         val personal = WorkspaceSummary(selfId, PERSONAL_NAME, isPersonal = true)
         val shared = memberOwnerIds
             // A membership row pointing at yourself is not a second workspace.
@@ -73,8 +69,7 @@ object Workspaces {
         return workspaces.none { it.ownerId == activeOwnerId }
     }
 
-    fun active(workspaces: List<WorkspaceSummary>, activeOwnerId: String?, selfId: String):
-        WorkspaceSummary? {
+    fun active(workspaces: List<WorkspaceSummary>, activeOwnerId: String?, selfId: String): WorkspaceSummary? {
         val target = activeOwnerId ?: selfId
         return workspaces.firstOrNull { it.ownerId == target }
     }
@@ -86,12 +81,10 @@ object Workspaces {
      * edge defaults the tenant to the caller, and sending a header that names
      * yourself is a different code path on the server for the same result.
      */
-    fun scopeValue(ownerId: String, selfId: String): String? =
-        ownerId.takeIf { it != selfId && it.isNotBlank() }
+    fun scopeValue(ownerId: String, selfId: String): String? = ownerId.takeIf { it != selfId && it.isNotBlank() }
 
     /** Shown once after an involuntary switch, so it doesn't look like a bug. */
-    const val ACCESS_REVOKED =
-        "You no longer have access to that workspace. You're back in your own."
+    val ACCESS_REVOKED = UiMessage(R.string.workspace_access_revoked)
 
     /**
      * The line under the switcher.
@@ -100,9 +93,9 @@ object Workspaces {
      * looking at" is the question this control exists to answer, and a control
      * that disappears when the answer is "yours" makes it ambiguous.
      */
-    fun subtitle(active: WorkspaceSummary?): String = when {
-        active == null -> "Loading…"
-        active.isPersonal -> "Your own inventory and sales"
-        else -> "Shared workspace — you're a member"
+    fun subtitle(active: WorkspaceSummary?): UiMessage = when {
+        active == null -> UiMessage(R.string.workspace_subtitle_loading)
+        active.isPersonal -> UiMessage(R.string.workspace_subtitle_personal)
+        else -> UiMessage(R.string.workspace_subtitle_shared)
     }
 }

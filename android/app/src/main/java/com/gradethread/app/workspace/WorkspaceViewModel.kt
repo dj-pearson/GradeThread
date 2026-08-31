@@ -1,5 +1,7 @@
 package com.gradethread.app.workspace
 
+import com.gradethread.app.ui.UiMessage
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.auth.AuthRepository
@@ -33,7 +35,7 @@ class WorkspaceViewModel @Inject constructor(
         val activeOwnerId: String? = null,
         val switching: Boolean = false,
         val pickerOpen: Boolean = false,
-        val notice: String? = null,
+        val notice: UiMessage? = null,
         /**
          * US-2685: the edge refused with `workspace_mfa_required`.
          *
@@ -48,7 +50,7 @@ class WorkspaceViewModel @Inject constructor(
 
         val hasChoice: Boolean get() = Workspaces.hasChoice(workspaces)
 
-        val subtitle: String get() = Workspaces.subtitle(active)
+        val subtitle: UiMessage get() = Workspaces.subtitle(active)
     }
 
     private val _state = MutableStateFlow(State())

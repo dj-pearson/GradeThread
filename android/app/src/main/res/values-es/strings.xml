@@ -2791,4 +2791,12 @@
     <string name="sale_status_refunded">Reembolsada</string>
     <string name="sale_status_cancelled">Cancelada</string>
     <string name="sale_status_other">Estado</string>
+    <string name="support_error_load_list">No se pudieron cargar tus solicitudes.</string>
+    <string name="support_error_load_one">No se pudo cargar esa solicitud.</string>
+    <string name="support_error_send">No se pudo enviar. Int&#233;ntalo de nuevo en un momento.</string>
+    <string name="support_error_send_reply">No se pudo enviar tu respuesta. Int&#233;ntalo de nuevo en un momento.</string>
+    <string name="workspace_subtitle_loading">Cargando&#8230;</string>
+    <string name="workspace_subtitle_personal">Tu propio inventario y tus ventas</string>
+    <string name="workspace_subtitle_shared">Espacio compartido &#8212; eres miembro</string>
+    <string name="workspace_access_revoked">Ya no tienes acceso a ese espacio. Has vuelto al tuyo.</string>
 </resources>

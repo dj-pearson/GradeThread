@@ -127,7 +127,7 @@ fun SupportContent(state: SupportViewModel.State, actions: SupportActions, modif
             ) { CircularProgressIndicator() }
 
             state.loadError != null -> Column(Modifier.fillMaxWidth().cardStyle()) {
-                Text(state.loadError!!, style = MaterialTheme.typography.bodyMedium)
+                Text(state.loadError!!.text(), style = MaterialTheme.typography.bodyMedium)
                 BrandSecondaryButton(
                     text = stringResource(R.string.common_try_again),
                     modifier = Modifier.padding(top = Spacing.sm),
@@ -225,7 +225,7 @@ private fun Composer(state: SupportViewModel.State, actions: SupportActions) {
         )
         state.sendError?.let {
             Text(
-                it,
+                it.text(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(top = Spacing.xs),

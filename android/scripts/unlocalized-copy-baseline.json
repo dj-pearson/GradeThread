@@ -95,7 +95,6 @@
     "settings/SettingsViewModel.kt": 6,
     "snap/SnapDisplay.kt": 4,
     "snap/SnapViewModel.kt": 2,
-    "support/SupportViewModel.kt": 4,
     "sync/BackgroundRefresh.kt": 3,
     "sync/MutationQueue.kt": 2,
     "sync/PersistenceHealth.kt": 1,
@@ -104,7 +103,6 @@
     "templates/TemplateApply.kt": 2,
     "templates/TemplateService.kt": 1,
     "templates/TemplatesViewModel.kt": 3,
-    "workspace/TeamViewModel.kt": 1,
-    "workspace/Workspaces.kt": 4
+    "workspace/TeamViewModel.kt": 1
   }
 }

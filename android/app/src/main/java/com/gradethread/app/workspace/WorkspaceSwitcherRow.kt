@@ -22,6 +22,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.Spacing
 
 /**
@@ -74,7 +75,7 @@ fun WorkspaceSwitcherRow(viewModel: WorkspaceViewModel = hiltViewModel()) {
             }
         }
         Text(
-            state.subtitle,
+            state.subtitle.text(),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -113,10 +114,10 @@ fun WorkspaceSwitcherRow(viewModel: WorkspaceViewModel = hiltViewModel()) {
                     ) {
                         Text(
                             if (selected) {
-                    stringResource(R.string.checked_prefix, workspace.name)
-                } else {
-                    workspace.name
-                },
+                                stringResource(R.string.checked_prefix, workspace.name)
+                            } else {
+                                workspace.name
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
@@ -152,7 +153,7 @@ fun WorkspaceSwitcherRow(viewModel: WorkspaceViewModel = hiltViewModel()) {
         AlertDialog(
             onDismissRequest = viewModel::dismissNotice,
             title = { Text(stringResource(R.string.workspace_access_changed)) },
-            text = { Text(notice) },
+            text = { Text(notice.text()) },
             confirmButton = {
                 TextButton(onClick = viewModel::dismissNotice) {
                     Text(stringResource(R.string.common_ok))

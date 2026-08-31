@@ -1,5 +1,11 @@
 package com.gradethread.app.workspace
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.gradethread.app.ui.text
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -13,7 +19,12 @@ import org.junit.Test
  * that decides WHICH tenant the app is scoped to is checked here rather than on
  * a device with two accounts.
  */
+@RunWith(RobolectricTestRunner::class)
 class WorkspacesTest {
+
+    // US-2976: the test is named "names whose data this is" - the claim is
+    // about the WORDS, so they render rather than being checked as ids.
+    private val context = ApplicationProvider.getApplicationContext<Context>()
 
     private val me = "user-self"
 
@@ -137,12 +148,12 @@ class WorkspacesTest {
 
         assertEquals(
             "Your own inventory and sales",
-            Workspaces.subtitle(Workspaces.active(list, null, me)),
+            Workspaces.subtitle(Workspaces.active(list, null, me)).text(context),
         )
         assertEquals(
             "Shared workspace — you're a member",
-            Workspaces.subtitle(Workspaces.active(list, "owner-a", me)),
+            Workspaces.subtitle(Workspaces.active(list, "owner-a", me)).text(context),
         )
-        assertEquals("Loading…", Workspaces.subtitle(null))
+        assertEquals("Loading…", Workspaces.subtitle(null).text(context))
     }
 }

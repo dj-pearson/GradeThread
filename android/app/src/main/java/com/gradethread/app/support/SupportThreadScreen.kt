@@ -90,7 +90,7 @@ fun SupportThreadContent(
             ) { CircularProgressIndicator() }
 
             state.loadError != null -> Column(Modifier.fillMaxWidth().cardStyle()) {
-                Text(state.loadError!!, style = MaterialTheme.typography.bodyMedium)
+                Text(state.loadError!!.text(), style = MaterialTheme.typography.bodyMedium)
                 Row(Modifier.padding(top = Spacing.sm)) {
                     BrandSecondaryButton(text = stringResource(R.string.common_back)) { actions.back() }
                     BrandSecondaryButton(
@@ -138,7 +138,10 @@ fun SupportThreadContent(
                     label = { Text(stringResource(R.string.support_reply_label)) },
                     minLines = 2,
                     supportingText = {
-                        Text(state.sendError ?: "${state.reply.length} / ${Support.MAX_BODY}")
+                        Text(
+                            state.sendError?.text()
+                                ?: "${state.reply.length} / ${Support.MAX_BODY}",
+                        )
                     },
                     isError = state.sendError != null,
                     modifier = Modifier.fillMaxWidth().padding(top = Spacing.xs),

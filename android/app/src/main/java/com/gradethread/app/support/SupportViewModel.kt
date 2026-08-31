@@ -4,6 +4,7 @@ import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.ui.UiMessage
+import com.gradethread.app.R
 import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.telemetry.Telemetry
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -20,12 +21,12 @@ class SupportViewModel @Inject constructor(private val service: SupportProviding
     data class State(
         val loading: Boolean = false,
         val tickets: List<SupportTicket> = emptyList(),
-        val loadError: String? = null,
+        val loadError: UiMessage? = null,
         val composerOpen: Boolean = false,
         val subject: String = "",
         val body: String = "",
         val sending: Boolean = false,
-        val sendError: String? = null,
+        val sendError: UiMessage? = null,
         /** Set when a ticket is opened; the screen navigates and clears it. */
         val openedTicketId: String? = null,
     ) {
@@ -52,8 +53,7 @@ class SupportViewModel @Inject constructor(private val service: SupportProviding
                 onFailure = { error ->
                     _state.value = _state.value.copy(
                         loading = false,
-                        loadError = (error as? EdgeApiError)?.userMessage()
-                            ?: "Couldn't load your requests.",
+                        loadError = supportError(error, R.string.support_error_load_list),
                     )
                 },
             )
@@ -106,8 +106,7 @@ class SupportViewModel @Inject constructor(private val service: SupportProviding
                 onFailure = { error ->
                     _state.value = _state.value.copy(
                         sending = false,
-                        sendError = (error as? EdgeApiError)?.userMessage()
-                            ?: "Couldn't send that. Try again in a moment.",
+                        sendError = supportError(error, R.string.support_error_send),
                     )
                 },
             )
@@ -126,10 +125,10 @@ class SupportThreadViewModel @Inject constructor(private val service: SupportPro
     data class State(
         val loading: Boolean = false,
         val thread: SupportThread? = null,
-        val loadError: String? = null,
+        val loadError: UiMessage? = null,
         val reply: String = "",
         val sending: Boolean = false,
-        val sendError: String? = null,
+        val sendError: UiMessage? = null,
     ) {
         val canSend: Boolean get() = Support.canReply(reply, sending)
 
@@ -156,8 +155,7 @@ class SupportThreadViewModel @Inject constructor(private val service: SupportPro
                         // A push can deep-link to a ticket this account no
                         // longer owns; the 404 has to read as that, not as a
                         // network blip they should retry forever.
-                        loadError = (error as? EdgeApiError)?.userMessage()
-                            ?: "Couldn't load that request.",
+                        loadError = supportError(error, R.string.support_error_load_one),
                     )
                 },
             )
@@ -185,11 +183,23 @@ class SupportThreadViewModel @Inject constructor(private val service: SupportPro
                 onFailure = { error ->
                     _state.value = _state.value.copy(
                         sending = false,
-                        sendError = (error as? EdgeApiError)?.userMessage()
-                            ?: "Couldn't send your reply. Try again in a moment.",
+                        sendError = supportError(error, R.string.support_error_send_reply),
                     )
                 },
             )
         }
     }
 }
+
+/**
+ * The server's sentence when it sent one, ours when it did not.
+ *
+ * US-2976: all four support failures had the same `userMessage() ?: literal`
+ * shape, and the two halves have different owners - EdgeApiError's is the
+ * server's own words and cannot be translated here, ours is copy that can.
+ * `detail` is exactly that split, so this is one helper rather than four
+ * repetitions of it. It becomes a pass-through when US-3025 converts
+ * userMessage() to a UiMessage.
+ */
+private fun supportError(error: Throwable, @StringRes fallback: Int) =
+    UiMessage(fallback, detail = (error as? EdgeApiError)?.userMessage())

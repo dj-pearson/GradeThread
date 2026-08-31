@@ -4,6 +4,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.gradethread.app.R
 import com.gradethread.app.support.SupportActions
 import com.gradethread.app.support.SupportContent
 import com.gradethread.app.support.SupportTicket
@@ -80,7 +81,14 @@ class SupportScreenshotTest {
     @Test
     fun loadFailed_dark() = capture("screen-support-error-dark", dark = true) {
         SupportContent(
-            SupportViewModel.State(loadError = "Could not reach the server."),
+            SupportViewModel.State(
+                // US-2976: the real shape - our sentence with the server's
+                // own words behind it, which is what supportError builds.
+                loadError = UiMessage(
+                    R.string.support_error_load_list,
+                    detail = "Could not reach the server.",
+                ),
+            ),
             SupportActions(),
         )
     }
