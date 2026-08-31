@@ -1,8 +1,8 @@
 package com.gradethread.app.automations
 
+import com.gradethread.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -35,41 +35,74 @@ class AutomationsTest {
 
     // ── how a rule reads ─────────────────────────────────────────────────────
 
+    // US-2976: these assert the resource and its NUMBERS, not the built
+    // sentence. Which condition a trigger describes, and which numbers land in
+    // it, is the whole risk - and both survive the move to strings.xml. What
+    // does not survive is the word order, which is a fact about English.
+
     @Test
     fun `each trigger reads as the condition it actually checks`() {
-        assertEquals(
-            "listed more than 30 days",
-            Automations.triggerSummary(AutomationTrigger("days_listed_gt", 30, 7)),
-        )
-        assertEquals(
-            "no views after 14 days",
-            Automations.triggerSummary(AutomationTrigger("no_views_in_days", 14, 7)),
-        )
-        assertEquals(
-            "fewer than 2 watchers after 21 days",
-            Automations.triggerSummary(AutomationTrigger("watchers_lt_after_days", 21, 7, 2)),
-        )
+        val listed = Automations.triggerSummary(AutomationTrigger("days_listed_gt", 30, 7))
+        assertEquals(R.string.automation_trigger_summary_days_listed, listed.res)
+        assertEquals(listOf<Any>(30), listed.args)
+
+        val views = Automations.triggerSummary(AutomationTrigger("no_views_in_days", 14, 7))
+        assertEquals(R.string.automation_trigger_summary_no_views, views.res)
+        assertEquals(listOf<Any>(14), views.args)
+
+        // Watchers first, then days: swap them and the rule reads as a
+        // different rule from the one that will run.
+        val watchers =
+            Automations.triggerSummary(AutomationTrigger("watchers_lt_after_days", 21, 7, 2))
+        assertEquals(R.string.automation_trigger_summary_watchers, watchers.res)
+        assertEquals(listOf<Any>(2, 21), watchers.args)
     }
 
     @Test
     fun `each action reads as what it does`() {
+        val drop = Automations.actionSummary(AutomationAction("price_drop_pct", 10.0, 10))
+        assertEquals(R.string.automation_action_summary_drop, drop.res)
+        assertEquals(listOf<Any>("10"), drop.args)
+
+        val promo = Automations.actionSummary(AutomationAction("set_promo_rate_pct", 7.5))
+        assertEquals(R.string.automation_action_summary_promo, promo.res)
+        assertEquals(listOf<Any>("7.5"), promo.args)
+
         assertEquals(
-            "drop price 10%",
-            Automations.actionSummary(AutomationAction("price_drop_pct", 10.0, 10)),
+            R.string.automation_action_summary_end,
+            Automations.actionSummary(AutomationAction("end_listing")).res,
         )
-        assertEquals(
-            "set promo rate to 7.5%",
-            Automations.actionSummary(AutomationAction("set_promo_rate_pct", 7.5)),
-        )
-        assertEquals("end the listing", Automations.actionSummary(AutomationAction("end_listing")))
     }
 
     @Test
-    fun `the whole rule reads as one sentence`() {
-        assertEquals(
-            "When listed more than 30 days, drop price 10% (all active listings).",
-            Automations.sentence(rule()),
+    fun `the whole rule is three clauses the screen joins`() {
+        val parts = Automations.sentenceParts(rule())
+        assertEquals(R.string.automation_trigger_summary_days_listed, parts.trigger.res)
+        assertEquals(R.string.automation_action_summary_drop, parts.action.res)
+        assertEquals(R.string.automation_scope_all, parts.scope.res)
+    }
+
+    @Test
+    fun `a filtered scope carries how many clauses it has`() {
+        val filtered = Automations.scopeSummary(
+            AutomationScope("filter", "and", listOf(AutomationScopeRule("brand", "eq", "Nike"))),
         )
+        assertEquals(R.string.automation_scope_filtered, filtered.res)
+        assertEquals(listOf<Any>(1), filtered.args)
+    }
+
+    @Test
+    fun `a wire key nobody has mapped gets no label rather than a wrong one`() {
+        // US-2976: label() used to fall back to the raw key. Returning null
+        // hands the caller the choice, and the screen shows the key - a
+        // dropdown reading `watchers_lt_after_days` is a visible bug report,
+        // where quietly showing the first option would arm the wrong rule.
+        assertEquals(
+            R.string.automation_op_isnull,
+            Automations.label(Automations.scopeOps, "isnull"),
+        )
+        assertNull(Automations.label(Automations.scopeOps, "regex_match"))
+        assertNull(Automations.label(Automations.triggerTypes, "price_below"))
     }
 
     @Test
@@ -77,7 +110,7 @@ class AutomationsTest {
         // It can take a seller's whole shop down on a timer. Legitimate to want,
         // catastrophic by accident.
         val danger = rule(action = AutomationAction("end_listing"), scope = AutomationScope("all"))
-        assertNotNull(Automations.scopeWarning(danger))
+        assertEquals(R.string.automation_scope_warning, Automations.scopeWarning(danger))
 
         val scoped = rule(
             action = AutomationAction("end_listing"),
@@ -97,16 +130,25 @@ class AutomationsTest {
 
     @Test
     fun `a rule needs a name`() {
-        assertEquals("Give the rule a name.", Automations.validationError(AutomationDraft(name = " ")))
+        assertEquals(
+            R.string.automation_error_name_required,
+            Automations.validationError(AutomationDraft(name = " "))?.res,
+        )
     }
 
     @Test
     fun `percentages respect the server's own ceilings`() {
+        // The CEILING is what has to reach the seller, and it is an argument
+        // now rather than a number baked into an English sentence.
         val bigDrop = AutomationDraft(name = "x", actionType = "price_drop_pct", actionPct = 95.0)
-        assertTrue(Automations.validationError(bigDrop)!!.contains("90"))
+        val dropError = Automations.validationError(bigDrop)!!
+        assertEquals(R.string.automation_error_price_drop_max, dropError.res)
+        assertEquals(listOf<Any>("90"), dropError.args)
 
         val bigPromo = AutomationDraft(name = "x", actionType = "set_promo_rate_pct", actionPct = 150.0)
-        assertTrue(Automations.validationError(bigPromo)!!.contains("100"))
+        val promoError = Automations.validationError(bigPromo)!!
+        assertEquals(R.string.automation_error_promo_max, promoError.res)
+        assertEquals(listOf<Any>("100"), promoError.args)
 
         assertNull(Automations.validationError(AutomationDraft(name = "x", actionPct = 10.0)))
     }
@@ -204,19 +246,21 @@ class AutomationsTest {
     @Test
     fun `a dry run says how much it would touch`() {
         assertEquals(
-            "No active listings to check.",
-            Automations.dryRunSummary(AutomationDryRunResult(0, emptyList())),
+            R.string.automation_dryrun_none,
+            Automations.dryRunSummary(AutomationDryRunResult(0, emptyList())).res,
         )
-        assertEquals(
-            "Checked 40. Nothing matches yet.",
-            Automations.dryRunSummary(AutomationDryRunResult(40, emptyList())),
+
+        val nothing = Automations.dryRunSummary(AutomationDryRunResult(40, emptyList()))
+        assertEquals(R.string.automation_dryrun_no_matches, nothing.res)
+        assertEquals(listOf<Any>(40), nothing.args)
+
+        // Matched first, scanned second. Reversed, a rule about to touch three
+        // listings reads as one about to touch forty.
+        val some = Automations.dryRunSummary(
+            AutomationDryRunResult(40, List(3) { AutomationDryRunMatch(listingId = "l$it") }),
         )
-        assertEquals(
-            "Would change 3 of 40.",
-            Automations.dryRunSummary(
-                AutomationDryRunResult(40, List(3) { AutomationDryRunMatch(listingId = "l$it") }),
-            ),
-        )
+        assertEquals(R.string.automation_dryrun_would_change, some.res)
+        assertEquals(listOf<Any>(3, 40), some.args)
     }
 
     @Test
@@ -227,7 +271,13 @@ class AutomationsTest {
             newPriceCents = 4400,
             floored = true,
         )
-        assertTrue(Automations.matchSummary(match).contains("margin floor"))
+        assertEquals(R.string.automation_match_price_floored, Automations.matchSummary(match).res)
+        // Unfloored is a DIFFERENT resource, so the reassurance cannot be
+        // printed on a drop that was not actually capped.
+        assertEquals(
+            R.string.automation_match_price,
+            Automations.matchSummary(match.copy(floored = false)).res,
+        )
     }
 
     @Test
@@ -237,17 +287,22 @@ class AutomationsTest {
             AutomationActionRow(id = "a1", ebaySynced = true),
             AutomationActionRow(id = "a2", ebaySynced = false),
         )
-        assertTrue(Automations.unsyncedWarning(rows)!!.contains("1 change"))
-        assertNull(Automations.unsyncedWarning(rows.take(1)))
+        assertEquals(1, Automations.unsyncedCount(rows))
+        assertNull(Automations.unsyncedCount(rows.take(1)))
     }
 
     @Test
     fun `a skipped run reports the server's reason`() {
+        val skipped = Automations.runSummary(
+            AutomationRunResult(ok = false, skipped = true, reason = "automations are turned off"),
+        )
+        assertEquals(R.string.automation_run_skipped_reason, skipped.res)
+        assertEquals(listOf<Any>("automations are turned off"), skipped.args)
+
+        // No reason is not a blank reason: a shorter sentence, not "Skipped: ".
         assertEquals(
-            "Skipped: automations are turned off",
-            Automations.runSummary(
-                AutomationRunResult(ok = false, skipped = true, reason = "automations are turned off"),
-            ),
+            R.string.automation_run_skipped,
+            Automations.runSummary(AutomationRunResult(ok = false, skipped = true, reason = " ")).res,
         )
     }
 

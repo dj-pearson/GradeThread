@@ -151,8 +151,62 @@ def split_args(text):
     return [arg.strip() for arg in args if arg.strip()]
 
 
+def blank_comments(source):
+    """Replace comment bodies with spaces, keeping every offset intact.
+
+    US-2976: a `//` comment sitting between two arguments broke the argument
+    COUNT, because a comma inside it is a comma at depth zero. That direction
+    is only noisy. The other direction is not: an unmatched `(` or `)` in a
+    comment moves the closing paren this scanner thinks it found, and a call
+    that then looks like it passes the right number of arguments is a silent
+    pass against a crash.
+
+    Offsets are preserved rather than the text removed, so the reported line
+    number still points at the real line.
+    """
+    out, i, n = [], 0, len(source)
+    while i < n:
+        char = source[i]
+        if char == '"':
+            # A `//` inside a string literal is a URL, not a comment.
+            triple = source.startswith('\"\"\"', i)
+            end = i + (3 if triple else 1)
+            close = '\"\"\"' if triple else '"'
+            while end < n:
+                if not triple and source[end] == "\\":
+                    end += 2
+                    continue
+                if source.startswith(close, end):
+                    end += len(close)
+                    break
+                if not triple and source[end] == "\n":
+                    break
+                end += 1
+            out.append(source[i:end])
+            i = end
+        elif source.startswith("//", i):
+            end = source.find("\n", i)
+            end = n if end == -1 else end
+            out.append(" " * (end - i))
+            i = end
+        elif source.startswith("/*", i):
+            end = source.find("*/", i + 2)
+            end = n if end == -1 else end + 2
+            # Newlines are kept so the line count does not shift.
+            out.append("".join("\n" if c == "\n" else " " for c in source[i:end]))
+            i = end
+        else:
+            out.append(char)
+            i += 1
+    return "".join(out)
+
+
 def scan(path, spec):
-    source = open(path, "r", encoding="utf-8").read()
+    return scan_source(open(path, "r", encoding="utf-8").read(), spec)
+
+
+def scan_source(raw, spec):
+    source = blank_comments(raw)
     failures = []
     for match in CALL.finditer(source):
         depth, end = 0, len(source)
@@ -184,6 +238,52 @@ def scan(path, spec):
             f"{key[1]} declares {expected} placeholder(s), call passes {supplied}",
         ))
     return failures
+
+
+def self_test():
+    """Prove blank_comments is doing the three things it is here to do.
+
+    A guard that quietly stops guarding reads exactly like a clean codebase, so
+    each case below is written to FAIL if the stripper is removed or reduced to
+    a no-op — the third one is the expensive direction, where a paren in a
+    comment moves the closing paren and a genuine mismatch is never reported.
+    """
+    spec = {("string", "two"): {1, 2}, ("string", "one"): {1}}
+    cases = [
+        (
+            "a comma in a comment is not an argument separator",
+            'stringResource(\n  R.string.two,\n  a,\n  // one, two, three\n  b,\n)',
+            0,
+        ),
+        (
+            "a // inside a string literal is a URL, not a comment",
+            'stringResource(R.string.two, "https://a.example", b)',
+            0,
+        ),
+        (
+            # The expensive direction: a stray `)` in a comment closes the call
+            # early, so a 3-argument call is measured as a 2-argument one and
+            # matches the resource exactly. Nothing is printed, and the app
+            # still throws the moment the screen draws.
+            "a stray paren in a comment does not truncate the call",
+            'stringResource(\n  R.string.two,\n  a,\n  b,\n  // trailing )\n  c,\n)',
+            1,
+        ),
+        (
+            # Same idea for /* */, and phrased as a comma rather than a paren:
+            # a leftover `/*` fragment would count as an argument by itself and
+            # make a paren case pass for the wrong reason.
+            "a comma in a block comment is not an argument separator either",
+            'stringResource(\n  R.string.two,\n  a, /* x, y */\n  b,\n)',
+            0,
+        ),
+    ]
+    broken = []
+    for name, source, expected in cases:
+        found = len(scan_source(source, spec))
+        if found != expected:
+            broken.append(f"{name}: expected {expected} failure(s), got {found}")
+    return broken
 
 
 #: A `'` that is not escaped, inside a <string> value.
@@ -219,6 +319,13 @@ def check_apostrophes():
 
 
 def main():
+    broken = self_test()
+    if broken:
+        print("check-string-formats: the scanner itself is broken\n", file=sys.stderr)
+        for message in broken:
+            print(f"  {message}", file=sys.stderr)
+        return 1
+
     spec, duplicates, ragged = load_spec()
     if ragged:
         print("check-string-formats: plural forms disagree on arguments\n", file=sys.stderr)

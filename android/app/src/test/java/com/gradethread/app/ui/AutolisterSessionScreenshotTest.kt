@@ -4,6 +4,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.gradethread.app.R
 import com.gradethread.app.autolister.AutolisterSessionActions
 import com.gradethread.app.autolister.AutolisterSessionContent
 import com.gradethread.app.autolister.AutolisterSessionState
@@ -163,7 +164,7 @@ class AutolisterSessionScreenshotTest {
     @Test
     fun error_dark() = capture("screen-autolister-error-dark", dark = true) {
         AutolisterSessionContent(
-            ready.copy(errorMessage = "Could not reach the server."),
+            ready.copy(errorMessage = UiMessage(R.string.autolister_unreachable)),
             AutolisterSessionActions(),
         )
     }

@@ -1,5 +1,6 @@
 package com.gradethread.app.autolister
 
+import com.gradethread.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -16,20 +17,15 @@ import org.junit.Test
  */
 class AutolisterTest {
 
-    private fun batch(
-        status: BatchStatus,
-        items: Int = 20,
-        ok: Int = 0,
-        failed: Int = 0,
-        error: String? = null,
-    ) = AutolisterBatch(
-        id = "b1",
-        status = status,
-        itemCount = items,
-        succeededCount = ok,
-        failedCount = failed,
-        error = error,
-    )
+    private fun batch(status: BatchStatus, items: Int = 20, ok: Int = 0, failed: Int = 0, error: String? = null) =
+        AutolisterBatch(
+            id = "b1",
+            status = status,
+            itemCount = items,
+            succeededCount = ok,
+            failedCount = failed,
+            error = error,
+        )
 
     // ── terminal states ──────────────────────────────────────────────────────
 
@@ -59,26 +55,36 @@ class AutolisterTest {
 
     @Test
     fun `a partial batch is not reported as done`() {
+        // US-2976: the resource and its two numbers. "Finished with 2 failures"
+        // is a DIFFERENT resource from "Done", which is the distinction this
+        // test exists for - and the failure count comes first, because a
+        // summary that reads "Finished with 18 failures" is worse than none.
         val summary = Autolister.summary(batch(BatchStatus.PARTIAL, items = 20, ok = 18, failed = 2))
-        assertTrue(summary.contains("2 failures"))
-        assertTrue(summary.contains("18 drafts ready"))
+        assertEquals(R.plurals.autolister_partial, summary.res)
+        assertEquals(listOf<Any>(2, 18), summary.args)
+        assertEquals(2, summary.quantity)
     }
 
     @Test
-    fun `one failure reads in the singular`() {
-        assertTrue(
-            Autolister.summary(batch(BatchStatus.PARTIAL, ok = 19, failed = 1))
-                .contains("1 failure —"),
-        )
+    fun `one failure picks the singular form`() {
+        val summary = Autolister.summary(batch(BatchStatus.PARTIAL, ok = 19, failed = 1))
+        assertEquals(R.plurals.autolister_partial, summary.res)
+        assertEquals(1, summary.quantity)
     }
 
     @Test
     fun `a failed batch surfaces the server's reason when it has one`() {
+        val withReason = Autolister.summary(batch(BatchStatus.FAILED, error = "quota exhausted"))
+        assertEquals(R.string.autolister_failed_reason, withReason.res)
+        assertEquals(listOf<Any>("quota exhausted"), withReason.args)
+
+        // No reason is not a blank reason: a shorter sentence, not a colon
+        // with nothing after it.
+        assertEquals(R.string.autolister_failed, Autolister.summary(batch(BatchStatus.FAILED)).res)
         assertEquals(
-            "The batch failed: quota exhausted",
-            Autolister.summary(batch(BatchStatus.FAILED, error = "quota exhausted")),
+            R.string.autolister_failed,
+            Autolister.summary(batch(BatchStatus.FAILED, error = "  ")).res,
         )
-        assertEquals("The batch failed.", Autolister.summary(batch(BatchStatus.FAILED)))
     }
 
     @Test
@@ -125,7 +131,15 @@ class AutolisterTest {
         // tell a seller their photos are terrible when we simply don't know.
         val errored = PhotoQaResult(itemId = "i1", score = -1, error = "vision timeout")
         assertEquals(Autolister.QaBand.UNKNOWN, Autolister.band(errored))
-        assertTrue(Autolister.qaSummary(errored).startsWith("Couldn't check"))
+
+        val summary = Autolister.qaSummary(errored)
+        assertEquals(Autolister.QaBand.UNKNOWN, summary.band)
+        assertEquals(R.string.autolister_qa_unchecked_reason, summary.detail.res)
+        assertEquals(listOf<Any>("vision timeout"), summary.detail.args)
+        // US-2976: and the score is NULL, not -1. A screen that renders a
+        // number here prints "-1/100", which is the exact reading this whole
+        // branch exists to prevent.
+        assertNull(summary.score)
     }
 
     @Test
@@ -146,7 +160,19 @@ class AutolisterTest {
             ),
         )
         assertEquals(1, Autolister.blockingIssues(result).size)
-        assertTrue(Autolister.qaSummary(result).contains("2 issues"))
+
+        // Two issues in the line, one of them blocking: the summary counts
+        // every issue, and only the blocking ones hold a listing back.
+        val summary = Autolister.qaSummary(result)
+        assertEquals(R.plurals.autolister_qa_issues, summary.detail.res)
+        assertEquals(2, summary.detail.quantity)
+        assertEquals(70, summary.score)
+
+        // No issues is its own resource rather than a "0 issues" plural.
+        assertEquals(
+            R.string.autolister_qa_no_issues,
+            Autolister.qaSummary(PhotoQaResult(itemId = "i2", score = 90)).detail.res,
+        )
     }
 
     @Test

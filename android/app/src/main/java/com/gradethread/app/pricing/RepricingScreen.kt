@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.theme.BrandPrimaryButton
@@ -119,10 +120,26 @@ fun RepricingContent(
         Text(stringResource(R.string.repricing_repricing), style = MaterialTheme.typography.titleLarge)
 
         state.errorMessage?.let {
-            InfoCard(stringResource(R.string.repricing_that_didn_t_work), it, tone = InfoTone.Error)
+            InfoCard(
+                stringResource(R.string.repricing_that_didn_t_work),
+                it.text(),
+                tone = InfoTone.Error,
+            )
         }
-        state.banner?.let { InfoCard(stringResource(R.string.repricing_scan), it, tone = InfoTone.Success) }
-        state.caveat?.let { InfoCard(stringResource(R.string.repricing_worth_knowing), it, tone = InfoTone.Warning) }
+        state.banner?.let {
+            InfoCard(stringResource(R.string.repricing_scan), it.text(), tone = InfoTone.Success)
+        }
+        state.caveat.takeIf { it.isNotEmpty() }?.let { caveats ->
+            InfoCard(
+                stringResource(R.string.repricing_worth_knowing),
+                // `map` is inline, so text() is still in a composable scope;
+                // joinToString is not, and a text() inside its lambda does
+                // not compile.
+                caveats.map { it.text() }
+                    .joinToString(stringResource(R.string.repricing_caveat_separator)),
+                tone = InfoTone.Warning,
+            )
+        }
 
         LazyColumn(
             Modifier.fillMaxWidth().weight(1f),
@@ -240,9 +257,12 @@ private fun SuggestionCard(
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.SemiBold,
         )
-        Text(Repricing.changeSummary(suggestion), style = MaterialTheme.typography.titleMedium)
         Text(
-            Repricing.reasonLabel(suggestion.reasonCode),
+            Repricing.changeSummary(suggestion).text(),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            Repricing.reasonLabel(suggestion.reasonCode).text(),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -250,7 +270,7 @@ private fun SuggestionCard(
         // a seller can weigh for themselves.
         Repricing.evidenceSummary(suggestion)?.let {
             Text(
-                it,
+                it.text(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -294,14 +314,26 @@ private fun RuleCard(
             )
             Switch(checked = rule.enabled, onCheckedChange = { onToggle() }, enabled = !busy)
         }
-        Text(Repricing.actionSummary(rule), style = MaterialTheme.typography.bodyMedium)
+        // US-2976: the separator is a resource, not a literal " - ", so a
+        // language that punctuates a list differently can say so. The
+        // clauses arrive as a list precisely because joining them is the
+        // step that has to be translatable.
+        val separator = stringResource(R.string.repricing_separator)
         Text(
-            Repricing.scopeSummary(rule),
+            Repricing.actionSummary(rule).map { it.text() }.joinToString(separator),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Text(
+            Repricing.scopeSummary(rule).map { it.text() }.joinToString(separator),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Repricing.floorWarning(rule)?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            Text(
+                stringResource(it),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
         Row {
             TextButton(onClick = onEdit, enabled = !busy) { Text(stringResource(R.string.repricing_edit)) }
@@ -382,7 +414,7 @@ private fun RuleEditorDialog(initial: RuleDraft, busy: Boolean, onDismiss: () ->
                 }
                 Repricing.validationError(draft)?.let {
                     Text(
-                        it,
+                        it.text(),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )

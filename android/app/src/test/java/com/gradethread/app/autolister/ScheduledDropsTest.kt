@@ -1,5 +1,6 @@
 package com.gradethread.app.autolister
 
+import com.gradethread.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -81,9 +82,14 @@ class ScheduledDropsTest {
         val instant = ScheduledDrops.toInstant(date, time, newYork)
         // java.time pushes it past the gap: 03:30 EDT = 07:30Z.
         assertEquals(Instant.parse("2026-03-08T07:30:00Z"), instant)
+        // US-2976: the resource id, plus the two times it names. WHICH hour
+        // the drop actually lands on is the number a seller acts on, and it
+        // travels as an argument now rather than inside an English sentence.
         val note = ScheduledDrops.scheduleNote(date, time, newYork)
         assertNotNull("a skipped hour must be explained", note)
-        assertTrue(note!!.contains("doesn't exist"))
+        assertEquals(R.string.schedule_dst_gap, note!!.res)
+        assertEquals(2, note.args.size)
+        assertEquals(ScheduledDrops.formatTime(LocalTime.of(3, 30)), note.args[1])
     }
 
     @Test
@@ -96,7 +102,8 @@ class ScheduledDropsTest {
         assertEquals(Instant.parse("2026-11-01T05:30:00Z"), instant)
         val note = ScheduledDrops.scheduleNote(date, time, newYork)
         assertNotNull(note)
-        assertTrue(note!!.contains("twice"))
+        assertEquals(R.string.schedule_dst_overlap, note!!.res)
+        assertEquals(listOf<Any>(ScheduledDrops.formatTime(time)), note.args)
     }
 
     @Test
@@ -124,14 +131,18 @@ class ScheduledDropsTest {
     fun `the status line distinguishes upcoming from overdue`() {
         val now = Instant.parse("2026-08-03T12:00:00Z")
         assertEquals(
-            "Not scheduled.",
-            ScheduledDrops.statusLine(null, newYork, now),
+            R.string.schedule_not_scheduled,
+            ScheduledDrops.statusLine(null, newYork, now).res,
         )
-        assertTrue(
-            ScheduledDrops.statusLine("2026-08-04T23:00:00Z", newYork, now).startsWith("Publishes"),
+        // Upcoming and overdue are SEPARATE resources. That is the distinction
+        // the line exists for, and asserting the id says it exactly.
+        assertEquals(
+            R.string.schedule_publishes,
+            ScheduledDrops.statusLine("2026-08-04T23:00:00Z", newYork, now).res,
         )
-        assertTrue(
-            ScheduledDrops.statusLine("2026-08-01T23:00:00Z", newYork, now).startsWith("Was due"),
+        assertEquals(
+            R.string.schedule_was_due,
+            ScheduledDrops.statusLine("2026-08-01T23:00:00Z", newYork, now).res,
         )
     }
 

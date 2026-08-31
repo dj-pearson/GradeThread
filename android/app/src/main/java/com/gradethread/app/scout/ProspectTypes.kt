@@ -1,5 +1,9 @@
 package com.gradethread.app.scout
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+
 import com.gradethread.app.money.Money
 import kotlinx.serialization.Serializable
 
@@ -33,6 +37,26 @@ data class ProspectResponse(
     val decision: ProspectDecision? = null,
     /** Deep link to eBay's completed-listing search for this item. */
     val ebaySoldSearchUrl: String? = null,
+    /**
+     * US-3026: the words that link searches for.
+     *
+     * Shown next to the link rather than hidden behind it. A link whose query is
+     * invisible is a link nobody can tell is broken, which is how a brand-only
+     * sold search survived: the seller tapped "See sold listings" and had to work
+     * out for themselves that they were looking at every We The Free garment ever
+     * listed instead of their cropped top.
+     */
+    val ebaySoldSearchQuery: String? = null,
+    /**
+     * The wider search: brand plus garment type, nothing else.
+     *
+     * Offered ALONGSIDE the specific one because precision can overshoot. eBay
+     * ANDs every term, so a well-described unusual garment can return an empty
+     * page, which reads as "nothing like this ever sold". Null when it would open
+     * the same page as the specific link.
+     */
+    val ebayBroadSearchUrl: String? = null,
+    val ebayBroadSearchQuery: String? = null,
     val source: String = "active",
     val disclaimer: String? = null,
     val note: String? = null,
@@ -44,17 +68,27 @@ data class ProspectItem(
     val title: String? = null,
     val keywords: List<String> = emptyList(),
     val identifyConfidence: Double = 0.0,
+    // US-3026: the identification in FIELDS rather than only as a title, so the
+    // catalog step stops asking the seller to re-type what we just read off the tag.
+    /** The head noun: "cropped top", "flannel shirt". */
+    val garmentType: String? = null,
+    /** The dominant colour, one word. */
+    val color: String? = null,
+    /** Main fabric, when the care label states it. */
+    val material: String? = null,
+    /** women | men | unisex | kids. */
+    val gender: String? = null,
+    /** Size as printed on the tag. */
+    val size: String? = null,
+    /** The brand's own product code off the tag. */
+    val styleCode: String? = null,
 )
 
 @Serializable
 data class ProspectCategory(val id: String = "", val path: String? = null)
 
 @Serializable
-data class ProspectGrade(
-    val value: Double = 0.0,
-    val tier: String? = null,
-    val confidence: Double = 0.0,
-)
+data class ProspectGrade(val value: Double = 0.0, val tier: String? = null, val confidence: Double = 0.0)
 
 @Serializable
 data class ProspectStats(
@@ -119,13 +153,14 @@ object ProspectDisplay {
     /** Two photos maximum: the front, and the brand/size tag. */
     const val MAX_PHOTOS = 2
 
-    fun verdictLabel(decision: ProspectDecision?): String = when (decision?.recommendation) {
-        "buy" -> "Buy it"
-        "skip" -> "Walk away"
-        "maybe" -> "Could go either way"
+    @StringRes
+    fun verdictLabel(decision: ProspectDecision?): Int = when (decision?.recommendation) {
+        "buy" -> R.string.prospect_verdict_buy
+        "skip" -> R.string.prospect_verdict_skip
+        "maybe" -> R.string.prospect_verdict_maybe
         // No cost typed means no verdict was possible. Saying "maybe" here would
         // dress up a missing input as a judgement.
-        else -> "Enter what it costs for a verdict"
+        else -> R.string.prospect_verdict_none
     }
 
     /**
@@ -134,52 +169,89 @@ object ProspectDisplay {
      * Two separate reasons to hedge, and they are not the same: too few comps
      * means the price itself is a guess, while low confidence means the verdict
      * built on it is.
+     *
+     * US-2976: a resource and, for the few-comps case, the COUNT - which goes
+     * through a plurals resource because the noun changes.
      */
-    fun caveat(response: ProspectResponse): String? {
+    fun caveat(response: ProspectResponse): UiMessage? {
         val stats = response.stats
         return when {
             stats == null -> null
             !stats.sufficient && stats.count == 0 ->
-                "No comparable sales found, so there's no price to work from."
-            !stats.sufficient ->
-                "Only ${stats.count} comparable ${if (stats.count == 1) "sale" else "sales"}. " +
-                    "Treat this as a rough guide."
+                UiMessage(R.string.prospect_caveat_no_comps)
+
+            !stats.sufficient -> UiMessage(
+                R.plurals.prospect_caveat_few_comps,
+                args = listOf(stats.count),
+                quantity = stats.count,
+            )
+
             response.decision?.confident == false ->
-                "The numbers behind this verdict are thin."
+                UiMessage(R.string.prospect_caveat_thin_verdict)
+
             else -> null
         }
     }
 
-    fun priceRange(stats: ProspectStats?): String {
-        if (stats == null || stats.medianCents == null) return "No price data"
-        val median = Money.format(stats.medianCents / 100.0)
+    /**
+     * The comp price, as a resource and the money strings it names.
+     *
+     * The amounts stay formatted here - Money.format already localizes the
+     * currency - but "median (usually low to high)" is a sentence and its word
+     * order is not ours to fix.
+     */
+    fun priceRange(stats: ProspectStats?): UiMessage {
+        val median = stats?.medianCents?.let { Money.format(it / 100.0) }
+            ?: return UiMessage(R.string.prospect_no_price_data)
         val low = stats.lowCents?.let { Money.format(it / 100.0) }
         val high = stats.highCents?.let { Money.format(it / 100.0) }
-        return if (low != null && high != null) "$median (usually $low to $high)" else median
+        return if (low != null && high != null) {
+            UiMessage(R.string.prospect_price_range, args = listOf(median, low, high))
+        } else {
+            UiMessage(R.string.prospect_price_median, args = listOf(median))
+        }
     }
 
-    fun sellThroughLabel(sellThrough: ProspectSellThrough?): String? {
+    /**
+     * How fast it sells.
+     *
+     * US-2976: `sellThrough.label` is a WIRE value - "fast", "slow", "unknown" -
+     * that was interpolated straight into an English sentence. It is mapped to a
+     * resource now, so a Spanish seller does not read "Sells fast".
+     */
+    fun sellThroughLabel(sellThrough: ProspectSellThrough?): SellThrough? {
         if (sellThrough == null || sellThrough.label == "unknown") return null
-        return "Sells ${sellThrough.label} · around ${sellThrough.daysLow} to " +
-            "${sellThrough.daysHigh} days"
+        val pace = when (sellThrough.label) {
+            "fast" -> R.string.prospect_sells_fast
+            "slow" -> R.string.prospect_sells_slow
+            else -> R.string.prospect_sells_average
+        }
+        return SellThrough(pace, sellThrough.daysLow, sellThrough.daysHigh)
     }
 
-    fun marginLabel(decision: ProspectDecision?): String? {
+    /** The pace word, and the day range around it. */
+    data class SellThrough(@StringRes val pace: Int, val daysLow: Int, val daysHigh: Int)
+
+    /** The profit line: the money, and the return percentage when there is one. */
+    fun marginLabel(decision: ProspectDecision?): Margin? {
         val margin = decision?.estMarginCents ?: return null
-        val roi = decision.roiPct?.let { " · ${Math.round(it)}% return" } ?: ""
-        return "About ${Money.format(margin / 100.0)} profit$roi"
+        return Margin(Money.format(margin / 100.0), decision.roiPct?.let { Math.round(it).toInt() })
     }
+
+    data class Margin(val profit: String, val roiPercent: Int?)
 
     /**
      * What the item is called when it goes into inventory.
      *
-     * Falls back through brand, then a plain placeholder — never an empty
-     * title, which would land in the list as a blank row nobody can find again.
+     * Falls back through brand, then a placeholder - never an empty title,
+     * which would land in the list as a blank row nobody can find again.
+     *
+     * US-2976: null rather than "Prospected item", because the placeholder is
+     * COPY and this is called from a ViewModel with no Context. The caller
+     * resolves R.string.prospect_untitled_item.
      */
-    fun buyTitle(item: ProspectItem): String =
-        item.title?.trim()?.takeIf { it.isNotEmpty() }
-            ?: item.brand?.trim()?.takeIf { it.isNotEmpty() }
-            ?: "Prospected item"
+    fun buyTitle(item: ProspectItem): String? = item.title?.trim()?.takeIf { it.isNotEmpty() }
+        ?: item.brand?.trim()?.takeIf { it.isNotEmpty() }
 
     /** Whether the "Add to inventory" action should be offered at all. */
     fun canBuy(response: ProspectResponse?): Boolean = response?.identified == true

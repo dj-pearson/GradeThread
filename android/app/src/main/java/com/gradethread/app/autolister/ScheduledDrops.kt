@@ -1,5 +1,7 @@
 package com.gradethread.app.autolister
 
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -38,8 +40,7 @@ object ScheduledDrops {
         ZonedDateTime.of(LocalDateTime.of(date, time), zone).toInstant()
 
     /** The UTC string the column takes. */
-    fun toWire(date: LocalDate, time: LocalTime, zone: ZoneId): String =
-        toInstant(date, time, zone).toString()
+    fun toWire(date: LocalDate, time: LocalTime, zone: ZoneId): String = toInstant(date, time, zone).toString()
 
     /** A stored instant back in the seller's own zone, or null if unparseable. */
     fun toLocal(iso: String?, zone: ZoneId): ZonedDateTime? {
@@ -55,18 +56,19 @@ object ScheduledDrops {
      * Only DST does this. Saying so beats a drop that quietly lands an hour off
      * the hour the seller chose.
      */
-    fun scheduleNote(date: LocalDate, time: LocalTime, zone: ZoneId): String? {
+    fun scheduleNote(date: LocalDate, time: LocalTime, zone: ZoneId): UiMessage? {
         val wanted = LocalDateTime.of(date, time)
         val resolved = ZonedDateTime.of(wanted, zone)
         if (resolved.toLocalDateTime() != wanted) {
             // The clocks skipped over this time entirely.
-            return "The clocks change that night, so ${formatTime(time)} doesn't exist — " +
-                "this will publish at ${formatTime(resolved.toLocalTime())} instead."
+            return UiMessage(
+                R.string.schedule_dst_gap,
+                args = listOf(formatTime(time), formatTime(resolved.toLocalTime())),
+            )
         }
         val rules = zone.rules
         if (rules.getValidOffsets(wanted).size > 1) {
-            return "The clocks change that night and ${formatTime(time)} happens twice — " +
-                "this will publish at the first one."
+            return UiMessage(R.string.schedule_dst_overlap, args = listOf(formatTime(time)))
         }
         return null
     }
@@ -74,15 +76,10 @@ object ScheduledDrops {
     /** A time already gone: the cron publishes it on its next pass, not never. */
     fun isDue(instant: Instant, now: Instant): Boolean = !instant.isAfter(now)
 
-    const val PAST_TIME_NOTE =
-        "That time has already passed, so this publishes on the next scheduled run " +
-            "— usually within a few minutes."
+    val PAST_TIME_NOTE = UiMessage(R.string.schedule_past_time)
 
     /** "Sun, 3 Aug 2026, 19:00" in the seller's own zone. */
-    fun formatLocal(
-        zoned: ZonedDateTime,
-        locale: Locale = Locale.getDefault(),
-    ): String = zoned.format(
+    fun formatLocal(zoned: ZonedDateTime, locale: Locale = Locale.getDefault()): String = zoned.format(
         DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
             .withLocale(locale),
     )
@@ -97,19 +94,20 @@ object ScheduledDrops {
      * future drop: it means the cron hasn't got to it yet, and a seller staring
      * at yesterday's timestamp deserves to know it's still coming.
      */
-    fun statusLine(
-        scheduledAt: String?,
-        zone: ZoneId,
-        now: Instant,
-        locale: Locale = Locale.getDefault(),
-    ): String {
-        val local = toLocal(scheduledAt, zone) ?: return "Not scheduled."
+    fun statusLine(scheduledAt: String?, zone: ZoneId, now: Instant, locale: Locale = Locale.getDefault()): UiMessage {
+        val local = toLocal(scheduledAt, zone) ?: return UiMessage(R.string.schedule_not_scheduled)
         val text = formatLocal(local, locale)
-        return if (isDue(local.toInstant(), now)) {
-            "Was due $text — publishing on the next run."
-        } else {
-            "Publishes $text."
-        }
+        // US-2976: two resources rather than one with a swapped verb. "Was due"
+        // and "Publishes" are the difference between a drop that is late and
+        // one that is coming, which is the whole point of the line.
+        return UiMessage(
+            if (isDue(local.toInstant(), now)) {
+                R.string.schedule_was_due
+            } else {
+                R.string.schedule_publishes
+            },
+            args = listOf(text),
+        )
     }
 
     /** Drafts with a schedule, soonest first; unscheduled ones after them. */

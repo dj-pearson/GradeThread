@@ -1,7 +1,10 @@
 package com.gradethread.app.ui
 
 import androidx.annotation.StringRes
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 
 /**
  * Something to tell the seller, from a class that cannot reach a Context.
@@ -29,4 +32,26 @@ data class UiMessage(
      * and [detail] is only the latter.
      */
     val args: List<Any> = emptyList(),
+    /**
+     * The count that picks a plural form, when [res] is a PLURALS resource.
+     *
+     * US-2976: three screens had each grown their own `res + count` pair
+     * within a day of one another. One shape means one renderer, and a
+     * screen cannot call stringResource on a plurals id by accident.
+     */
+    val quantity: Int? = null,
 )
+
+/**
+ * The sentence to show: the server's when there is one, ours otherwise.
+ *
+ * The precedence is the whole point of the type, so it belongs here once
+ * rather than at every call site - a screen that forgets `detail ?:` throws
+ * away the only line saying what actually went wrong.
+ */
+@Composable
+fun UiMessage.text(): String {
+    detail?.let { return it }
+    val count = quantity ?: return stringResource(res, *args.toTypedArray())
+    return pluralStringResource(res, count, *args.toTypedArray())
+}

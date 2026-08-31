@@ -2,6 +2,8 @@ package com.gradethread.app.automations
 
 import com.gradethread.app.platform.net.EdgeApi
 import com.gradethread.app.platform.net.EdgeApiError
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -13,9 +15,7 @@ import javax.inject.Singleton
  * accurately and offering the dry run BEFORE it goes live.
  */
 @Singleton
-class AutomationsService @Inject constructor(
-    @Named("shared") private val edge: EdgeApi,
-) {
+class AutomationsService @Inject constructor(@Named("shared") private val edge: EdgeApi) {
 
     companion object {
         private const val BASE = "/api/flipdesk/automations"
@@ -37,11 +37,10 @@ class AutomationsService @Inject constructor(
         edge.postRaw(RULES_PATH, body(draft)),
     ).rule
 
-    suspend fun update(id: String, draft: AutomationDraft): AutomationRule? =
-        edge.json.decodeFromString(
-            AutomationRuleResponse.serializer(),
-            edge.putRaw(rulePath(id), body(draft)),
-        ).rule
+    suspend fun update(id: String, draft: AutomationDraft): AutomationRule? = edge.json.decodeFromString(
+        AutomationRuleResponse.serializer(),
+        edge.putRaw(rulePath(id), body(draft)),
+    ).rule
 
     /**
      * Flip a rule on or off without re-sending the whole thing.
@@ -79,8 +78,15 @@ class AutomationsService @Inject constructor(
     private fun body(draft: AutomationDraft): String =
         edge.json.encodeToString(AutomationRuleInput.serializer(), Automations.input(draft))
 
-    fun message(error: Throwable): String =
-        (error as? EdgeApiError)?.userMessage()
-            ?: error.message
-            ?: "Couldn't reach the automations service."
+    /**
+     * US-2976: the server's sentence when it sent one, our resource otherwise.
+     *
+     * `error.message` is dropped rather than shown - it is a JVM exception
+     * string ("Failed to connect to /10.0.2.2:8787"), which is a developer's
+     * sentence in a language nobody chose.
+     */
+    fun message(error: Throwable): UiMessage = UiMessage(
+        R.string.automation_unreachable,
+        detail = (error as? EdgeApiError)?.userMessage(),
+    )
 }

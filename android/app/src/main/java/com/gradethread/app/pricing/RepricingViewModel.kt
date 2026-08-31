@@ -1,9 +1,12 @@
 package com.gradethread.app.pricing
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.sync.SyncService
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,10 +16,8 @@ import javax.inject.Inject
 
 /** US-1358: rules, suggestions, and the scan that fills them. */
 @HiltViewModel
-class RepricingViewModel @Inject constructor(
-    private val service: RepricingService,
-    private val sync: SyncService,
-) : ViewModel() {
+class RepricingViewModel @Inject constructor(private val service: RepricingService, private val sync: SyncService) :
+    ViewModel() {
 
     data class State(
         val loading: Boolean = true,
@@ -25,9 +26,9 @@ class RepricingViewModel @Inject constructor(
         val actions: List<RepricingAction> = emptyList(),
         val busy: Boolean = false,
         val scanning: Boolean = false,
-        val banner: String? = null,
-        val caveat: String? = null,
-        val errorMessage: String? = null,
+        val banner: UiMessage? = null,
+        val caveat: List<UiMessage> = emptyList(),
+        val errorMessage: UiMessage? = null,
     )
 
     private val _state = MutableStateFlow(State())
@@ -62,17 +63,17 @@ class RepricingViewModel @Inject constructor(
             _state.value = _state.value.copy(errorMessage = it)
             return
         }
-        act(if (draft.id == null) "Rule saved." else "Rule updated.") {
+        act(if (draft.id == null) R.string.repricing_rule_saved else R.string.repricing_rule_updated) {
             if (draft.id == null) service.createRule(draft) else service.updateRule(draft.id, draft)
             Telemetry.event("repricing_rule_saved", mapOf("new" to (draft.id == null)))
         }
     }
 
-    fun deleteRule(rule: RepricingRule) = act("Rule deleted.") { service.deleteRule(rule.id) }
+    fun deleteRule(rule: RepricingRule) = act(R.string.repricing_rule_deleted) { service.deleteRule(rule.id) }
 
     fun toggleRule(rule: RepricingRule) {
         val draft = RuleDraft.from(rule).copy(enabled = !rule.enabled)
-        act(if (draft.enabled) "Rule turned on." else "Rule turned off.") {
+        act(if (draft.enabled) R.string.repricing_rule_on else R.string.repricing_rule_off) {
             service.updateRule(rule.id, draft)
         }
     }
@@ -88,7 +89,12 @@ class RepricingViewModel @Inject constructor(
      */
     fun scan() {
         if (_state.value.scanning) return
-        _state.value = _state.value.copy(scanning = true, errorMessage = null, banner = null, caveat = null)
+        _state.value = _state.value.copy(
+            scanning = true,
+            errorMessage = null,
+            banner = null,
+            caveat = emptyList(),
+        )
         viewModelScope.launch {
             runCatching { service.scan() }
                 .onSuccess { result ->
@@ -112,7 +118,7 @@ class RepricingViewModel @Inject constructor(
     }
 
     fun apply(suggestion: RepricingSuggestion) {
-        act("Price updated on eBay.") {
+        act(R.string.repricing_applied) {
             service.apply(suggestion.id)
             Telemetry.event("repricing_suggestion_applied", mapOf("reason" to suggestion.reasonCode))
             // Applying moves a live price; pull so the listing row on this
@@ -135,16 +141,20 @@ class RepricingViewModel @Inject constructor(
     }
 
     fun dismissMessages() {
-        _state.value = _state.value.copy(banner = null, caveat = null, errorMessage = null)
+        _state.value =
+            _state.value.copy(banner = null, caveat = emptyList(), errorMessage = null)
     }
 
-    private fun act(successMessage: String?, action: suspend () -> Unit) {
+    private fun act(@StringRes successMessage: Int?, action: suspend () -> Unit) {
         if (_state.value.busy) return
         _state.value = _state.value.copy(busy = true, errorMessage = null, banner = null)
         viewModelScope.launch {
             runCatching { action() }
                 .onSuccess {
-                    _state.value = _state.value.copy(busy = false, banner = successMessage)
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        banner = successMessage?.let { UiMessage(it) },
+                    )
                     load()
                 }
                 .onFailure {

@@ -1,6 +1,9 @@
 package com.gradethread.app.automations
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
 import com.gradethread.app.money.Money
+import com.gradethread.app.ui.UiMessage
 import java.util.Locale
 
 /**
@@ -22,71 +25,106 @@ object Automations {
 
     // ── vocabulary ───────────────────────────────────────────────────────────
 
+    // US-2976: the WIRE key stays a string - the server compares it - and the
+    // words beside it are resource ids. The pairing is the point: these lists
+    // are both the picker contents and the wire vocabulary, so splitting them
+    // into two lists is how the two drift apart.
+
     val triggerTypes = listOf(
-        "days_listed_gt" to "Listed more than…",
-        "no_views_in_days" to "No views after…",
-        "watchers_lt_after_days" to "Few watchers after…",
+        "days_listed_gt" to R.string.automation_trigger_days_listed,
+        "no_views_in_days" to R.string.automation_trigger_no_views,
+        "watchers_lt_after_days" to R.string.automation_trigger_few_watchers,
     )
 
     val actionTypes = listOf(
-        "price_drop_pct" to "Drop price by %",
-        "set_promo_rate_pct" to "Set promo rate %",
-        "end_listing" to "End the listing",
+        "price_drop_pct" to R.string.automation_action_price_drop,
+        "set_promo_rate_pct" to R.string.automation_action_set_promo,
+        "end_listing" to R.string.automation_action_end_listing,
     )
 
     val scopeFields = listOf(
-        "brand" to "Brand",
-        "category" to "Category",
-        "size" to "Size",
-        "source" to "Source",
-        "cost" to "Cost",
-        "target_price" to "Target price",
-        "status" to "Status",
-        "grade" to "Grade",
-        "days_in_status" to "Days in status",
+        "brand" to R.string.automation_field_brand,
+        "category" to R.string.automation_field_category,
+        "size" to R.string.automation_field_size,
+        "source" to R.string.automation_field_source,
+        "cost" to R.string.automation_field_cost,
+        "target_price" to R.string.automation_field_target_price,
+        "status" to R.string.automation_field_status,
+        "grade" to R.string.automation_field_grade,
+        "days_in_status" to R.string.automation_field_days_in_status,
     )
 
     val scopeOps = listOf(
-        "eq" to "is",
-        "neq" to "is not",
-        "contains" to "contains",
-        "in" to "is any of",
-        "nin" to "is none of",
-        "gt" to ">",
-        "gte" to "≥",
-        "lt" to "<",
-        "lte" to "≤",
-        "isnull" to "is empty",
-        "notnull" to "is set",
+        "eq" to R.string.automation_op_eq,
+        "neq" to R.string.automation_op_neq,
+        "contains" to R.string.automation_op_contains,
+        "in" to R.string.automation_op_in,
+        "nin" to R.string.automation_op_nin,
+        // The comparison symbols are resources too. They read the same in
+        // Spanish, but a list where some entries are ids and some are literals
+        // is one nobody can render with a single call.
+        "gt" to R.string.automation_op_gt,
+        "gte" to R.string.automation_op_gte,
+        "lt" to R.string.automation_op_lt,
+        "lte" to R.string.automation_op_lte,
+        "isnull" to R.string.automation_op_isnull,
+        "notnull" to R.string.automation_op_notnull,
     )
 
     /** Operators that take NO value — "is empty" needs nothing to compare to. */
     val valuelessOps = setOf("isnull", "notnull")
 
-    fun label(pairs: List<Pair<String, String>>, value: String): String =
-        pairs.firstOrNull { it.first == value }?.second ?: value
+    /**
+     * The resource for a wire key, or null when the server sent one this build
+     * has never heard of.
+     *
+     * It used to fall back to the raw key, which put `watchers_lt_after_days`
+     * on screen. The caller decides what to show instead, and at least knows it
+     * is showing a fallback.
+     */
+    fun label(pairs: List<Pair<String, Int>>, value: String): Int? = pairs.firstOrNull { it.first == value }?.second
 
     // ── how a rule reads ─────────────────────────────────────────────────────
 
-    fun triggerSummary(trigger: AutomationTrigger): String = when (trigger.type) {
-        "no_views_in_days" -> "no views after ${trigger.days} days"
-        "watchers_lt_after_days" ->
-            "fewer than ${trigger.watchers ?: 0} watchers after ${trigger.days} days"
+    // US-2976: every summary below returns a UiMessage - a resource plus its
+    // numbers - rather than a built sentence. These are clauses that get
+    // dropped INTO another sentence, and clause order is the first thing a
+    // translation changes.
 
-        else -> "listed more than ${trigger.days} days"
+    fun triggerSummary(trigger: AutomationTrigger): UiMessage = when (trigger.type) {
+        "no_views_in_days" ->
+            UiMessage(R.string.automation_trigger_summary_no_views, args = listOf(trigger.days))
+
+        "watchers_lt_after_days" -> UiMessage(
+            R.string.automation_trigger_summary_watchers,
+            args = listOf(trigger.watchers ?: 0, trigger.days),
+        )
+
+        else -> UiMessage(
+            R.string.automation_trigger_summary_days_listed,
+            args = listOf(trigger.days),
+        )
     }
 
-    fun actionSummary(action: AutomationAction): String = when (action.type) {
-        "set_promo_rate_pct" -> "set promo rate to ${formatPct(action.pct ?: 0.0)}%"
-        "end_listing" -> "end the listing"
-        else -> "drop price ${formatPct(action.pct ?: 0.0)}%"
+    fun actionSummary(action: AutomationAction): UiMessage = when (action.type) {
+        "set_promo_rate_pct" -> UiMessage(
+            R.string.automation_action_summary_promo,
+            args = listOf(formatPct(action.pct ?: 0.0)),
+        )
+
+        "end_listing" -> UiMessage(R.string.automation_action_summary_end)
+        else -> UiMessage(
+            R.string.automation_action_summary_drop,
+            args = listOf(formatPct(action.pct ?: 0.0)),
+        )
     }
 
     /** Short badge for the action kind. */
-    fun actionLabel(action: AutomationAction): String = when (action.type) {
-        "set_promo_rate_pct" -> "Promo rate"
-        "end_listing" -> "End listing"
-        else -> "Price drop"
+    @StringRes
+    fun actionLabel(action: AutomationAction): Int = when (action.type) {
+        "set_promo_rate_pct" -> R.string.automation_action_badge_promo
+        "end_listing" -> R.string.automation_action_badge_end
+        else -> R.string.automation_action_badge_drop
     }
 
     /**
@@ -95,19 +133,29 @@ object Automations {
      * The unscoped case is spelled out: a rule with no filter reaches every live
      * listing the seller has, and one that ENDS listings deserves to say so.
      */
-    fun scopeSummary(scope: AutomationScope): String {
+    fun scopeSummary(scope: AutomationScope): UiMessage {
         val rules = scope.rules
         return if (scope.type == "filter" && !rules.isNullOrEmpty()) {
-            "Filtered (${rules.size})"
+            UiMessage(R.string.automation_scope_filtered, args = listOf(rules.size))
         } else {
-            "All active listings"
+            UiMessage(R.string.automation_scope_all)
         }
     }
 
-    /** The whole rule in one sentence: when → what → to which listings. */
-    fun sentence(rule: AutomationRule): String =
-        "When ${triggerSummary(rule.trigger)}, ${actionSummary(rule.action)} " +
-            "(${scopeSummary(rule.scope).lowercase()})."
+    /**
+     * The three clauses of the one-sentence summary.
+     *
+     * US-2976: the screen joins them with R.string.automation_sentence, which
+     * is where "When X, Y (z)." lives. English puts the trigger first; that is
+     * not a fact about automations, it is a fact about English.
+     */
+    fun sentenceParts(rule: AutomationRule): Sentence = Sentence(
+        trigger = triggerSummary(rule.trigger),
+        action = actionSummary(rule.action),
+        scope = scopeSummary(rule.scope),
+    )
+
+    data class Sentence(val trigger: UiMessage, val action: UiMessage, val scope: UiMessage)
 
     /**
      * The warning worth showing before a rule goes live.
@@ -116,11 +164,11 @@ object Automations {
      * timer. That is a legitimate thing to want and a catastrophic thing to do
      * by accident, so it is named rather than left to be discovered.
      */
-    fun scopeWarning(rule: AutomationRule): String? = when {
+    @StringRes
+    fun scopeWarning(rule: AutomationRule): Int? = when {
         !rule.isActive -> null
         rule.action.type == "end_listing" && rule.scope.type != "filter" ->
-            "This ends EVERY active listing that matches the trigger. Add a filter " +
-                "if you meant a subset."
+            R.string.automation_scope_warning
 
         else -> null
     }
@@ -132,18 +180,26 @@ object Automations {
     fun isValid(draft: AutomationDraft): Boolean = validationError(draft) == null
 
     /** Why the draft can't be saved, in the words the seller needs. */
-    fun validationError(draft: AutomationDraft): String? {
+    fun validationError(draft: AutomationDraft): UiMessage? {
         val name = draft.name.trim()
         return when {
-            name.isEmpty() -> "Give the rule a name."
-            name.length > NAME_MAX -> "That name is too long — keep it under $NAME_MAX characters."
+            name.isEmpty() -> UiMessage(R.string.automation_error_name_required)
+            name.length > NAME_MAX ->
+                UiMessage(R.string.automation_error_name_too_long, args = listOf(NAME_MAX))
+
             !needsPct(draft) -> null
-            draft.actionPct < 1 -> "Set a percentage of at least 1."
+            draft.actionPct < 1 -> UiMessage(R.string.automation_error_pct_min)
             draft.actionType == "price_drop_pct" && draft.actionPct > MAX_PRICE_DROP_PCT ->
-                "A price drop can't be more than ${formatPct(MAX_PRICE_DROP_PCT)}%."
+                UiMessage(
+                    R.string.automation_error_price_drop_max,
+                    args = listOf(formatPct(MAX_PRICE_DROP_PCT)),
+                )
 
             draft.actionType == "set_promo_rate_pct" && draft.actionPct > MAX_PROMO_RATE_PCT ->
-                "A promo rate can't be more than ${formatPct(MAX_PROMO_RATE_PCT)}%."
+                UiMessage(
+                    R.string.automation_error_promo_max,
+                    args = listOf(formatPct(MAX_PROMO_RATE_PCT)),
+                )
 
             else -> null
         }
@@ -210,40 +266,60 @@ object Automations {
 
     // ── dry run + activity ───────────────────────────────────────────────────
 
-    fun dryRunSummary(result: AutomationDryRunResult): String = when {
-        result.scanned == 0 -> "No active listings to check."
-        result.matches.isEmpty() -> "Checked ${result.scanned}. Nothing matches yet."
-        else -> "Would change ${result.matches.size} of ${result.scanned}."
+    fun dryRunSummary(result: AutomationDryRunResult): UiMessage = when {
+        result.scanned == 0 -> UiMessage(R.string.automation_dryrun_none)
+        result.matches.isEmpty() ->
+            UiMessage(R.string.automation_dryrun_no_matches, args = listOf(result.scanned))
+
+        else -> UiMessage(
+            R.string.automation_dryrun_would_change,
+            args = listOf(result.matches.size, result.scanned),
+        )
     }
 
-    /** "$48.00 → $43.20" for a price row; the promo rows read as percentages. */
-    fun matchSummary(match: AutomationDryRunMatch): String = when {
-        match.newPriceCents != null ->
-            "${money(match.currentPriceCents)} → ${money(match.newPriceCents)}" +
-                if (match.floored) " (stopped at your margin floor)" else ""
+    /** "$48.00 -> $43.20" for a price row; the promo rows read as percentages. */
+    fun matchSummary(match: AutomationDryRunMatch): UiMessage = when {
+        match.newPriceCents != null -> UiMessage(
+            if (match.floored) {
+                R.string.automation_match_price_floored
+            } else {
+                R.string.automation_match_price
+            },
+            args = listOf(money(match.currentPriceCents), money(match.newPriceCents)),
+        )
 
-        match.newPromoRatePct != null ->
-            "promo ${match.currentPromoRatePct ?: 0}% → ${match.newPromoRatePct}%"
+        match.newPromoRatePct != null -> UiMessage(
+            R.string.automation_match_promo,
+            args = listOf(match.currentPromoRatePct ?: 0, match.newPromoRatePct),
+        )
 
-        match.actionType == "end_listing" -> "would be ended"
-        else -> "would change"
+        match.actionType == "end_listing" -> UiMessage(R.string.automation_match_ended)
+        else -> UiMessage(R.string.automation_match_changed)
     }
 
-    fun runSummary(result: AutomationRunResult): String = when {
+    fun runSummary(result: AutomationRunResult): UiMessage = when {
         result.skipped == true ->
-            result.reason?.takeIf { it.isNotBlank() }?.let { "Skipped: $it" } ?: "Skipped."
+            result.reason?.takeIf { it.isNotBlank() }
+                ?.let { UiMessage(R.string.automation_run_skipped_reason, args = listOf(it)) }
+                ?: UiMessage(R.string.automation_run_skipped)
 
-        result.appliedCount == 0 -> "Checked ${result.scannedCount}. Nothing to change."
-        else -> "Changed ${result.appliedCount} of ${result.scannedCount}."
+        result.appliedCount == 0 ->
+            UiMessage(R.string.automation_run_nothing, args = listOf(result.scannedCount))
+
+        else -> UiMessage(
+            R.string.automation_run_changed,
+            args = listOf(result.appliedCount, result.scannedCount),
+        )
     }
 
-    /** A change the local row took but eBay didn't — the listing still shows the old value. */
-    fun unsyncedWarning(rows: List<AutomationActionRow>): String? {
-        val unsynced = rows.count { !it.ebaySynced }
-        if (unsynced == 0) return null
-        return "$unsynced ${if (unsynced == 1) "change" else "changes"} didn't reach eBay — " +
-            "those listings still show the old value."
-    }
+    /**
+     * How many changes the local rows took but eBay didn't - those listings
+     * still show the old value. Null when everything synced.
+     *
+     * US-2976: the COUNT, because singular versus plural is a plurals resource
+     * and Spanish cannot be picked by an `if (n == 1)` written in English.
+     */
+    fun unsyncedCount(rows: List<AutomationActionRow>): Int? = rows.count { !it.ebaySynced }.takeIf { it > 0 }
 
     // ── formatting (AC2: locale-aware) ───────────────────────────────────────
 
@@ -256,6 +332,5 @@ object Automations {
      * separators and symbol position — a hardcoded "$12.34" is wrong for most
      * of the world even when the amount is USD.
      */
-    fun money(cents: Int, locale: Locale = Locale.getDefault()): String =
-        Money.format(cents / 100.0, locale)
+    fun money(cents: Int, locale: Locale = Locale.getDefault()): String = Money.format(cents / 100.0, locale)
 }

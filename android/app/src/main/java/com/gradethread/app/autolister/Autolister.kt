@@ -1,5 +1,9 @@
 package com.gradethread.app.autolister
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+
 /**
  * US-1359: how the client reads a batch it doesn't own.
  *
@@ -46,24 +50,34 @@ object Autolister {
      * "Finished with 2 failures" rather than "completed", because the failures
      * are the part that still needs the seller.
      */
-    fun summary(batch: AutolisterBatch): String = when (batch.status) {
-        BatchStatus.PENDING -> "Queued — ${batch.itemCount} items."
-        BatchStatus.RUNNING -> "Generating ${done(batch)} of ${batch.itemCount}…"
-        BatchStatus.COMPLETED -> "Done — ${batch.succeededCount} drafts ready."
-        BatchStatus.PARTIAL ->
-            "Finished with ${batch.failedCount} ${failureNoun(batch.failedCount)} — " +
-                "${batch.succeededCount} drafts ready."
+    fun summary(batch: AutolisterBatch): UiMessage = when (batch.status) {
+        BatchStatus.PENDING ->
+            UiMessage(R.string.autolister_queued, args = listOf(batch.itemCount))
+
+        BatchStatus.RUNNING -> UiMessage(
+            R.string.autolister_generating,
+            args = listOf(done(batch), batch.itemCount),
+        )
+
+        BatchStatus.COMPLETED ->
+            UiMessage(R.string.autolister_done, args = listOf(batch.succeededCount))
+
+        // US-2976: "failure" versus "failures" was an `if (count == 1)` written
+        // in English. A plurals resource is the only form that survives a
+        // language with more than two.
+        BatchStatus.PARTIAL -> UiMessage(
+            R.plurals.autolister_partial,
+            args = listOf(batch.failedCount, batch.succeededCount),
+            quantity = batch.failedCount,
+        )
 
         BatchStatus.FAILED -> batch.error?.takeIf { it.isNotBlank() }
-            ?.let { "The batch failed: $it" }
-            ?: "The batch failed."
+            ?.let { UiMessage(R.string.autolister_failed_reason, args = listOf(it)) }
+            ?: UiMessage(R.string.autolister_failed)
     }
 
-    private fun failureNoun(count: Int) = if (count == 1) "failure" else "failures"
-
     /** Retry is worth offering only when something actually failed. */
-    fun canRetryFailed(batch: AutolisterBatch): Boolean =
-        batch.failedCount > 0 && batch.status.isTerminal
+    fun canRetryFailed(batch: AutolisterBatch): Boolean = batch.failedCount > 0 && batch.status.isTerminal
 
     /**
      * A batch that looks stuck.
@@ -75,29 +89,27 @@ object Autolister {
     fun isStalled(batch: AutolisterBatch, lastProgressMs: Long, nowMs: Long): Boolean =
         !batch.status.isTerminal && nowMs - lastProgressMs >= STALL_AFTER_MS
 
-    const val STALL_MESSAGE =
-        "This batch hasn't moved in a while. It may still finish on its own — " +
-            "Resume asks the server to pick the remaining items back up."
+    @StringRes
+    val STALL_MESSAGE: Int = R.string.autolister_stalled
 
     /** Failed jobs, which are the only ones a seller can act on. */
-    fun failedJobs(jobs: List<AutolisterJob>): List<AutolisterJob> =
-        jobs.filter { it.status == JobStatus.FAILED }
+    fun failedJobs(jobs: List<AutolisterJob>): List<AutolisterJob> = jobs.filter { it.status == JobStatus.FAILED }
 
     // ── photo QA ─────────────────────────────────────────────────────────────
 
     /** How a QA score reads. */
-    enum class QaBand(val label: String) {
+    enum class QaBand(@StringRes val label: Int) {
         /** Good enough to list. */
-        GREEN("Ready"),
+        GREEN(R.string.autolister_qa_ready),
 
         /** Listable, but the issues are worth fixing. */
-        AMBER("Worth a reshoot"),
+        AMBER(R.string.autolister_qa_worth_reshoot),
 
         /** Would make a poor listing. */
-        RED("Reshoot first"),
+        RED(R.string.autolister_qa_reshoot_first),
 
         /** QA itself failed — NOT the same as a bad photo. */
-        UNKNOWN("Couldn't check"),
+        UNKNOWN(R.string.autolister_qa_unknown),
     }
 
     fun band(result: PhotoQaResult): QaBand = when {
@@ -114,17 +126,48 @@ object Autolister {
     fun blockingIssues(result: PhotoQaResult): List<PhotoQaIssue> =
         result.issues.filter { it.severity.equals("error", ignoreCase = true) }
 
-    fun qaSummary(result: PhotoQaResult): String {
+    /**
+     * The QA line: the band, the score, and how many issues.
+     *
+     * US-2976: the tail clause ("no issues" / "2 issues") is its own message,
+     * because it is a plural in the middle of a sentence and the two cannot be
+     * one resource. The screen resolves both and joins with
+     * R.string.autolister_qa_score.
+     */
+    fun qaSummary(result: PhotoQaResult): QaSummary {
         val band = band(result)
         if (band == QaBand.UNKNOWN) {
-            return result.error?.takeIf { it.isNotBlank() }
-                ?.let { "Couldn't check these photos: $it" }
-                ?: "Couldn't check these photos."
+            return QaSummary(
+                band,
+                result.error?.takeIf { it.isNotBlank() }
+                    ?.let { UiMessage(R.string.autolister_qa_unchecked_reason, args = listOf(it)) }
+                    ?: UiMessage(R.string.autolister_qa_unchecked),
+            )
         }
         val issues = result.issues.size
-        val tail = if (issues == 0) "no issues" else "$issues ${if (issues == 1) "issue" else "issues"}"
-        return "${band.label} · ${result.score}/100 · $tail"
+        return QaSummary(
+            band,
+            if (issues == 0) {
+                UiMessage(R.string.autolister_qa_no_issues)
+            } else {
+                UiMessage(
+                    R.plurals.autolister_qa_issues,
+                    args = listOf(issues),
+                    quantity = issues,
+                )
+            },
+            score = result.score,
+        )
     }
+
+    /**
+     * A QA read.
+     *
+     * [score] is null when the check itself failed, which is the one case the
+     * screen must not render as a number - a -1 shown as a score reads as
+     * "your photos are terrible" rather than "we could not tell".
+     */
+    data class QaSummary(val band: QaBand, val detail: UiMessage, val score: Int? = null)
 
     /** Items a seller should look at before spending generation quota on them. */
     fun needsAttention(results: List<PhotoQaResult>): List<PhotoQaResult> =
@@ -141,6 +184,5 @@ object Autolister {
     fun role(response: ClassifyPhotosResponse, photoId: String): String? =
         response.roles[photoId]?.takeIf { it.isNotBlank() }
 
-    fun isCover(response: ClassifyPhotosResponse, photoId: String): Boolean =
-        response.coverId == photoId
+    fun isCover(response: ClassifyPhotosResponse, photoId: String): Boolean = response.coverId == photoId
 }

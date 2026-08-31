@@ -2,6 +2,8 @@ package com.gradethread.app.pricing
 
 import com.gradethread.app.platform.net.EdgeApi
 import com.gradethread.app.platform.net.EdgeApiError
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -14,9 +16,7 @@ import javax.inject.Singleton
  * rule accurately and act on what came back.
  */
 @Singleton
-class RepricingService @Inject constructor(
-    @Named("shared") private val edge: EdgeApi,
-) {
+class RepricingService @Inject constructor(@Named("shared") private val edge: EdgeApi) {
 
     companion object {
         private const val BASE = "/api/flipdesk/pricing"
@@ -36,17 +36,15 @@ class RepricingService @Inject constructor(
     suspend fun rules(): List<RepricingRule> =
         edge.json.decodeFromString(RulesResponse.serializer(), edge.getRaw(RULES_PATH)).rules
 
-    suspend fun createRule(draft: RuleDraft): RepricingRule? =
-        edge.json.decodeFromString(
-            RuleResponse.serializer(),
-            edge.postRaw(RULES_PATH, body(draft)),
-        ).rule
+    suspend fun createRule(draft: RuleDraft): RepricingRule? = edge.json.decodeFromString(
+        RuleResponse.serializer(),
+        edge.postRaw(RULES_PATH, body(draft)),
+    ).rule
 
-    suspend fun updateRule(id: String, draft: RuleDraft): RepricingRule? =
-        edge.json.decodeFromString(
-            RuleResponse.serializer(),
-            edge.putRaw(rulePath(id), body(draft)),
-        ).rule
+    suspend fun updateRule(id: String, draft: RuleDraft): RepricingRule? = edge.json.decodeFromString(
+        RuleResponse.serializer(),
+        edge.putRaw(rulePath(id), body(draft)),
+    ).rule
 
     suspend fun deleteRule(id: String) {
         edge.deleteRaw(rulePath(id))
@@ -58,24 +56,22 @@ class RepricingService @Inject constructor(
 
     // ── suggestions ──────────────────────────────────────────────────────────
 
-    suspend fun suggestions(): List<RepricingSuggestion> =
-        edge.json.decodeFromString(
-            SuggestionsResponse.serializer(),
-            edge.getRaw(SUGGESTIONS_PATH),
-        ).suggestions
+    suspend fun suggestions(): List<RepricingSuggestion> = edge.json.decodeFromString(
+        SuggestionsResponse.serializer(),
+        edge.getRaw(SUGGESTIONS_PATH),
+    ).suggestions
 
     /** Look for new suggestions now, instead of waiting for the nightly pass. */
-    suspend fun scan(limit: Int = Repricing.DEFAULT_SCAN_LIMIT): ScanResult =
-        edge.json.decodeFromString(
-            ScanResult.serializer(),
-            edge.postRaw(
-                SCAN_PATH,
-                edge.json.encodeToString(
-                    ScanRequest.serializer(),
-                    ScanRequest(Repricing.clampScanLimit(limit)),
-                ),
+    suspend fun scan(limit: Int = Repricing.DEFAULT_SCAN_LIMIT): ScanResult = edge.json.decodeFromString(
+        ScanResult.serializer(),
+        edge.postRaw(
+            SCAN_PATH,
+            edge.json.encodeToString(
+                ScanRequest.serializer(),
+                ScanRequest(Repricing.clampScanLimit(limit)),
             ),
-        )
+        ),
+    )
 
     suspend fun apply(suggestionId: String) {
         edge.postRaw(applyPath(suggestionId), "{}")
@@ -88,8 +84,14 @@ class RepricingService @Inject constructor(
     private fun body(draft: RuleDraft): String =
         edge.json.encodeToString(RuleRequest.serializer(), Repricing.request(draft))
 
-    fun message(error: Throwable): String =
-        (error as? EdgeApiError)?.userMessage()
-            ?: error.message
-            ?: "Couldn't reach the pricing service."
+    /**
+     * US-2976: the server's sentence when it sent one, our resource otherwise.
+     *
+     * `error.message` is dropped rather than shown - it is a JVM exception
+     * string, which is a developer's sentence in a language nobody chose.
+     */
+    fun message(error: Throwable): UiMessage = UiMessage(
+        R.string.repricing_unreachable,
+        detail = (error as? EdgeApiError)?.userMessage(),
+    )
 }

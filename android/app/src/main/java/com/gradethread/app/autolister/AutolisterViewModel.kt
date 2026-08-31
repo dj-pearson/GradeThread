@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.sync.SyncService
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -35,8 +37,8 @@ class AutolisterViewModel @Inject constructor(
         val drafts: List<DraftListing> = emptyList(),
         val selected: Set<String> = emptySet(),
         val busy: Boolean = false,
-        val banner: String? = null,
-        val errorMessage: String? = null,
+        val banner: UiMessage? = null,
+        val errorMessage: UiMessage? = null,
         /** US-2408: the per-platform drafts for one item, once asked for. */
         val platformFields: PlatformFieldsResponse? = null,
         val loadingPlatformFields: Boolean = false,
@@ -66,7 +68,7 @@ class AutolisterViewModel @Inject constructor(
                 .onFailure {
                     _state.value = _state.value.copy(
                         loading = false,
-                        errorMessage = it.message ?: "Couldn't load your drafts.",
+                        errorMessage = UiMessage(R.string.autolister_drafts_load_failed),
                     )
                 }
         }
@@ -83,7 +85,10 @@ class AutolisterViewModel @Inject constructor(
                     Telemetry.event("autolister_batch_started", mapOf("items" to it.itemCount))
                     _state.value = _state.value.copy(
                         busy = false,
-                        banner = "Generating ${it.itemCount} drafts. You can leave this screen.",
+                        banner = UiMessage(
+                            R.string.autolister_batch_started,
+                            args = listOf(it.itemCount),
+                        ),
                     )
                     watch(it.batchId)
                 }
@@ -138,7 +143,7 @@ class AutolisterViewModel @Inject constructor(
 
     fun retryFailed() {
         val batchId = _state.value.batch?.id ?: return
-        act("Retrying the failed items.") {
+        act(UiMessage(R.string.autolister_retrying)) {
             val result = service.retryFailed(batchId)
             if (result.retried > 0) watch(batchId)
         }
@@ -147,7 +152,7 @@ class AutolisterViewModel @Inject constructor(
     /** Nudge a stalled batch. Safe to repeat — the server re-dispatches open jobs. */
     fun resume() {
         val batchId = _state.value.batch?.id ?: return
-        act("Asked the server to pick it back up.") {
+        act(UiMessage(R.string.autolister_resumed)) {
             service.resume(batchId)
             watch(batchId)
         }
@@ -182,12 +187,15 @@ class AutolisterViewModel @Inject constructor(
         }
     }
 
-    private fun qaBanner(results: List<PhotoQaResult>): String {
+    private fun qaBanner(results: List<PhotoQaResult>): UiMessage {
         val attention = Autolister.needsAttention(results).size
         return if (attention == 0) {
-            "Photos look good on all ${results.size}."
+            UiMessage(R.string.autolister_qa_all_good, args = listOf(results.size))
         } else {
-            "$attention of ${results.size} could use better photos."
+            UiMessage(
+                R.string.autolister_qa_some_need,
+                args = listOf(attention, results.size),
+            )
         }
     }
 
@@ -207,7 +215,7 @@ class AutolisterViewModel @Inject constructor(
     }
 
     fun saveDraft(draft: DraftListing, title: String?, description: String?, priceText: String) {
-        act("Draft saved.") {
+        act(UiMessage(R.string.autolister_draft_saved)) {
             drafts.save(
                 draftId = draft.id,
                 title = title,
@@ -217,7 +225,7 @@ class AutolisterViewModel @Inject constructor(
         }
     }
 
-    fun deleteDraft(draft: DraftListing) = act("Draft deleted. The item is still here.") {
+    fun deleteDraft(draft: DraftListing) = act(UiMessage(R.string.autolister_draft_deleted)) {
         drafts.delete(draft.id)
     }
 
@@ -237,16 +245,16 @@ class AutolisterViewModel @Inject constructor(
                 null
             }
         act(
-            note ?: "Scheduled for ${
-                ScheduledDrops.formatLocal(instant.atZone(zone))
-            }.",
+            note ?: UiMessage(
+                R.string.autolister_scheduled_for,
+                args = listOf(ScheduledDrops.formatLocal(instant.atZone(zone))),
+            ),
         ) { drafts.schedule(draft.id, instant.toString()) }
     }
 
-    fun clearSchedule(draft: DraftListing) =
-        act("Schedule cleared. It stays a draft until you publish it.") {
-            drafts.schedule(draft.id, null)
-        }
+    fun clearSchedule(draft: DraftListing) = act(UiMessage(R.string.autolister_schedule_cleared)) {
+        drafts.schedule(draft.id, null)
+    }
 
     fun bulkPrice(change: DraftBulk.PriceChange) {
         val state = _state.value
@@ -254,7 +262,7 @@ class AutolisterViewModel @Inject constructor(
         act(null) {
             val updated = drafts.bulkPrice(state.drafts, state.selected, change)
             _state.value = _state.value.copy(
-                banner = "Updated $updated ${if (updated == 1) "draft" else "drafts"}.",
+                banner = updatedBanner(updated),
             )
         }
     }
@@ -265,7 +273,7 @@ class AutolisterViewModel @Inject constructor(
         act(null) {
             val updated = drafts.bulkText(selected, title, description)
             _state.value = _state.value.copy(
-                banner = "Updated $updated ${if (updated == 1) "draft" else "drafts"}.",
+                banner = updatedBanner(updated),
             )
         }
     }
@@ -303,7 +311,18 @@ class AutolisterViewModel @Inject constructor(
         _state.value = _state.value.copy(banner = null, errorMessage = null)
     }
 
-    private fun act(successMessage: String?, action: suspend () -> Unit) {
+    /**
+     * US-2976: "draft" versus "drafts" was an `if (n == 1)` written in
+     * English. A plurals resource is the only form that survives a language
+     * with more than two.
+     */
+    private fun updatedBanner(updated: Int) = UiMessage(
+        R.plurals.autolister_updated_drafts,
+        args = listOf(updated),
+        quantity = updated,
+    )
+
+    private fun act(successMessage: UiMessage?, action: suspend () -> Unit) {
         if (_state.value.busy) return
         _state.value = _state.value.copy(busy = true, errorMessage = null, banner = null)
         viewModelScope.launch {
@@ -336,8 +355,14 @@ class AutolisterViewModel @Inject constructor(
          * server refuses with "no eBay draft".
          */
         val CROSS_LIST_PLATFORMS = listOf(
-            "poshmark", "mercari", "depop", "grailed",
-            "etsy", "whatnot", "vinted", "facebook",
+            "poshmark",
+            "mercari",
+            "depop",
+            "grailed",
+            "etsy",
+            "whatnot",
+            "vinted",
+            "facebook",
         )
     }
 }

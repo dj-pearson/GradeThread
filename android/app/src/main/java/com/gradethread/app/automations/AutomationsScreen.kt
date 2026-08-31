@@ -36,6 +36,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.components.LabeledDropdown
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.cardStyle
@@ -130,10 +131,29 @@ fun AutomationsContent(
         )
 
         state.errorMessage?.let {
-            InfoCard(stringResource(R.string.automations_that_didn_t_work), it, tone = InfoTone.Error)
+            InfoCard(
+                stringResource(R.string.automations_that_didn_t_work),
+                it.text(),
+                tone = InfoTone.Error,
+            )
         }
-        state.warning?.let { InfoCard(stringResource(R.string.automations_worth_knowing), it, tone = InfoTone.Warning) }
-        state.banner?.let { InfoCard(stringResource(R.string.common_done), it, tone = InfoTone.Success) }
+        state.warning?.let {
+            InfoCard(
+                stringResource(R.string.automations_worth_knowing),
+                it.text(),
+                tone = InfoTone.Warning,
+            )
+        }
+        state.unsyncedCount?.let { count ->
+            InfoCard(
+                stringResource(R.string.automations_worth_knowing),
+                pluralStringResource(R.plurals.automation_unsynced, count, count),
+                tone = InfoTone.Warning,
+            )
+        }
+        state.banner?.let {
+            InfoCard(stringResource(R.string.common_done), it.text(), tone = InfoTone.Success)
+        }
 
         when {
             state.loading -> Hint(stringResource(R.string.automations_loading))
@@ -183,13 +203,13 @@ fun AutomationsContent(
                     Modifier.verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
                 ) {
-                    Text(Automations.dryRunSummary(result))
+                    Text(Automations.dryRunSummary(result).text())
                     result.matches.take(20).forEach { match ->
                         Text(
                             stringResource(
                                 R.string.automations_match_row,
                                 match.displayTitle,
-                                Automations.matchSummary(match),
+                                Automations.matchSummary(match).text(),
                             ),
                             style = MaterialTheme.typography.bodySmall,
                         )
@@ -265,7 +285,18 @@ private fun RuleCard(
             )
             Switch(checked = rule.isActive, onCheckedChange = { onToggle() }, enabled = !busy)
         }
-        Text(Automations.sentence(rule), style = MaterialTheme.typography.bodyMedium)
+        val parts = Automations.sentenceParts(rule)
+        // The scope clause is lowercased rather than given a second resource:
+        // it is the same words, just sitting mid-sentence.
+        Text(
+            stringResource(
+                R.string.automation_sentence,
+                parts.trigger.text(),
+                parts.action.text(),
+                parts.scope.text().lowercase(),
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+        )
         Text(
             pluralStringResource(
                 R.plurals.automations_cooldown,
@@ -276,7 +307,11 @@ private fun RuleCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Automations.scopeWarning(rule)?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            Text(
+                stringResource(it),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
         Row {
             TextButton(onClick = onDryRun, enabled = !busy) { Text(stringResource(R.string.automations_preview)) }
@@ -327,7 +362,7 @@ private fun RuleEditorDialog(
                     label = stringResource(R.string.automations_trigger),
                     selected = draft.triggerType,
                     options = Automations.triggerTypes.map { it.first },
-                    optionLabel = { Automations.label(Automations.triggerTypes, it) },
+                    optionLabel = { vocabularyLabel(Automations.label(Automations.triggerTypes, it), it) },
                     onSelect = { draft = draft.copy(triggerType = it) },
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -356,7 +391,7 @@ private fun RuleEditorDialog(
                     label = stringResource(R.string.automations_action),
                     selected = draft.actionType,
                     options = Automations.actionTypes.map { it.first },
-                    optionLabel = { Automations.label(Automations.actionTypes, it) },
+                    optionLabel = { vocabularyLabel(Automations.label(Automations.actionTypes, it), it) },
                     onSelect = { draft = draft.copy(actionType = it) },
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -436,7 +471,7 @@ private fun RuleEditorDialog(
                 }
                 Automations.validationError(draft)?.let {
                     Text(
-                        it,
+                        it.text(),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -453,6 +488,17 @@ private fun RuleEditorDialog(
     )
 }
 
+/**
+ * The words for a wire key.
+ *
+ * US-2976: falls back to the RAW KEY when the server sends a trigger or
+ * operator this build has never heard of. That is ugly on purpose - a
+ * dropdown showing `watchers_lt_after_days` is a visible bug report, and
+ * quietly showing the first option instead would arm the wrong rule.
+ */
+@Composable
+private fun vocabularyLabel(res: Int?, key: String): String = res?.let { stringResource(it) } ?: key
+
 @Composable
 private fun ScopeRuleRow(rule: ScopeRuleDraft, onChange: (ScopeRuleDraft) -> Unit, onRemove: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
@@ -460,7 +506,7 @@ private fun ScopeRuleRow(rule: ScopeRuleDraft, onChange: (ScopeRuleDraft) -> Uni
             label = stringResource(R.string.automations_field),
             selected = rule.field,
             options = Automations.scopeFields.map { it.first },
-            optionLabel = { Automations.label(Automations.scopeFields, it) },
+            optionLabel = { vocabularyLabel(Automations.label(Automations.scopeFields, it), it) },
             onSelect = { onChange(rule.copy(field = it)) },
             modifier = Modifier.fillMaxWidth(),
         )
@@ -468,7 +514,7 @@ private fun ScopeRuleRow(rule: ScopeRuleDraft, onChange: (ScopeRuleDraft) -> Uni
             label = stringResource(R.string.automations_text),
             selected = rule.op,
             options = Automations.scopeOps.map { it.first },
-            optionLabel = { Automations.label(Automations.scopeOps, it) },
+            optionLabel = { vocabularyLabel(Automations.label(Automations.scopeOps, it), it) },
             onSelect = { onChange(rule.copy(op = it)) },
             modifier = Modifier.fillMaxWidth(),
         )

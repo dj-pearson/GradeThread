@@ -37,6 +37,7 @@ import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.marketplaces.CustomTabsLauncher
 import com.gradethread.app.platform.rememberHapticFeedback
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.theme.BrandPrimaryButton
@@ -55,6 +56,8 @@ fun ProspectScreen(
     viewModel: ProspectViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
+    // Resolved here because the ViewModel that stores it has no Context.
+    val untitled = stringResource(R.string.prospect_untitled_item)
     val haptics = rememberHapticFeedback()
     val state by viewModel.state.collectAsState()
 
@@ -113,7 +116,7 @@ fun ProspectScreen(
             removePhoto = viewModel::removePhoto,
             setCost = viewModel::setCost,
             run = viewModel::run,
-            buy = viewModel::buy,
+            buy = { viewModel.buy(untitled) },
             reset = viewModel::reset,
             openItem = onOpenItem,
             close = onClose,
@@ -298,9 +301,10 @@ private fun ResultCard(response: ProspectResponse, state: ProspectViewModel.Stat
             return
         }
 
-        Text(state.verdict, style = MaterialTheme.typography.titleLarge)
+        Text(stringResource(state.verdict), style = MaterialTheme.typography.titleLarge)
         Text(
-            ProspectDisplay.buyTitle(response.item),
+            ProspectDisplay.buyTitle(response.item)
+                ?: stringResource(R.string.prospect_untitled_item),
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Medium,
         )
@@ -313,15 +317,31 @@ private fun ResultCard(response: ProspectResponse, state: ProspectViewModel.Stat
         }
 
         Text(
-            stringResource(R.string.prospect_sells_for, ProspectDisplay.priceRange(response.stats)),
+            stringResource(
+                R.string.prospect_sells_for,
+                ProspectDisplay.priceRange(response.stats).text(),
+            ),
             style = MaterialTheme.typography.bodyMedium,
         )
-        ProspectDisplay.marginLabel(response.decision)?.let {
-            Text(it, style = MaterialTheme.typography.bodyMedium)
-        }
-        ProspectDisplay.sellThroughLabel(response.sellThrough)?.let {
+        ProspectDisplay.marginLabel(response.decision)?.let { margin ->
+            val roi = margin.roiPercent
             Text(
-                it,
+                if (roi == null) {
+                    stringResource(R.string.prospect_margin, margin.profit)
+                } else {
+                    stringResource(R.string.prospect_margin_with_roi, margin.profit, roi)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        ProspectDisplay.sellThroughLabel(response.sellThrough)?.let { pace ->
+            Text(
+                stringResource(
+                    R.string.prospect_sell_through,
+                    stringResource(pace.pace),
+                    pace.daysLow,
+                    pace.daysHigh,
+                ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -346,7 +366,11 @@ private fun ResultCard(response: ProspectResponse, state: ProspectViewModel.Stat
         }
 
         state.caveat?.let {
-            InfoCard(stringResource(R.string.prospect_take_this_with_pinch_salt), it, tone = InfoTone.Warning)
+            InfoCard(
+                stringResource(R.string.prospect_take_this_with_pinch_salt),
+                it.text(),
+                tone = InfoTone.Warning,
+            )
         }
 
         response.ebaySoldSearchUrl?.let { url ->
@@ -356,6 +380,32 @@ private fun ResultCard(response: ProspectResponse, state: ProspectViewModel.Stat
             // opened GradeThread in the aisle.
             TextButton(onClick = { CustomTabsLauncher.openInMarketplaceApp(context, url) }) {
                 Text(stringResource(R.string.prospect_see_sold_listings))
+            }
+            // US-3026: the terms, on screen, before the tap. The link used to say
+            // only "See the sold listings", so a thin identification opened the
+            // completed search for the brand alone and nothing on the card said
+            // so - the seller found out on eBay's page, which is too late.
+            response.ebaySoldSearchQuery?.takeIf { it.isNotBlank() }?.let { terms ->
+                Text(
+                    stringResource(R.string.prospect_sold_search_terms, terms),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // The wider search. Two links because neither of us can tell in
+            // advance which garment eBay has ten of: five right words are right
+            // until they return an empty page, and an empty sold page reads as
+            // "nothing like this ever sold".
+            response.ebayBroadSearchUrl?.let { broadUrl ->
+                TextButton(onClick = { CustomTabsLauncher.openInMarketplaceApp(context, broadUrl) }) {
+                    Text(
+                        stringResource(
+                            R.string.prospect_search_wider,
+                            response.ebayBroadSearchQuery.orEmpty(),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         }
         response.disclaimer?.let {

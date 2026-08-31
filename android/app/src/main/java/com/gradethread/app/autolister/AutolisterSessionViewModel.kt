@@ -8,6 +8,8 @@ import com.gradethread.app.capture.PhotoImport
 import com.gradethread.app.capture.PhotoProcessor
 import com.gradethread.app.sync.db.AutolisterSessionEntity
 import com.gradethread.app.sync.db.GradeThreadDb
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,7 +48,7 @@ class AutolisterSessionViewModel @Inject constructor(
         val total: Int = 0,
         /** Photos that failed to upload; the batch continues without them. */
         val skipped: Int = 0,
-        val errorMessage: String? = null,
+        val errorMessage: UiMessage? = null,
         /** Batches already waiting on the shelf for a desktop to pick up. */
         val waiting: List<HandoffSummary> = emptyList(),
         val sentPhotoCount: Int? = null,
@@ -198,7 +200,7 @@ class AutolisterSessionViewModel @Inject constructor(
             errorMessage = null,
         )
         viewModelScope.launch {
-            var failure: String? = null
+            var failure: UiMessage? = null
             for (window in windows) {
                 val refs = window.map { GroupPhotoRef(it.id, it.storagePath) }
                 val response = runCatching { service.proposeGroups(refs) }
@@ -341,7 +343,7 @@ class AutolisterSessionViewModel @Inject constructor(
     private companion object {
         /** One in-flight batch — see AutolisterSessionEntity. */
         const val SESSION_ID = "active"
-        const val UPLOAD_FAILED = "None of those photos could be uploaded."
+        val UPLOAD_FAILED = UiMessage(R.string.autolister_upload_failed)
         val json = Json {
             ignoreUnknownKeys = true
             encodeDefaults = true

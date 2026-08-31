@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import com.gradethread.app.R
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -165,7 +166,7 @@ fun AutolisterSessionContent(
             item {
                 Column(Modifier.fillMaxWidth().cardStyle()) {
                     Text(
-                        message,
+                        message.text(),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.error,
                     )

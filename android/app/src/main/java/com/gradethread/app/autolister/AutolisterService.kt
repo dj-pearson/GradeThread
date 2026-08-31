@@ -2,6 +2,8 @@ package com.gradethread.app.autolister
 
 import com.gradethread.app.platform.net.EdgeApi
 import com.gradethread.app.platform.net.EdgeApiError
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -78,17 +80,16 @@ class AutolisterService @Inject constructor(
     }
 
     /** Which photo leads, and what each shows. One model call per photo. */
-    suspend fun classifyPhotos(photos: List<ClassifyPhoto>): ClassifyPhotosResponse =
-        aiEdge.json.decodeFromString(
-            ClassifyPhotosResponse.serializer(),
-            aiEdge.postRaw(
-                CLASSIFY_PATH,
-                aiEdge.json.encodeToString(
-                    ClassifyRequest.serializer(),
-                    ClassifyRequest(photos),
-                ),
+    suspend fun classifyPhotos(photos: List<ClassifyPhoto>): ClassifyPhotosResponse = aiEdge.json.decodeFromString(
+        ClassifyPhotosResponse.serializer(),
+        aiEdge.postRaw(
+            CLASSIFY_PATH,
+            aiEdge.json.encodeToString(
+                ClassifyRequest.serializer(),
+                ClassifyRequest(photos),
             ),
-        )
+        ),
+    )
 
     /** Score each item's photos BEFORE spending generation quota on them. */
     suspend fun photoQa(itemIds: List<String>): PhotoQaResponse = aiEdge.json.decodeFromString(
@@ -135,34 +136,31 @@ class AutolisterService @Inject constructor(
     }
 
     /** One billed AI action over at most 40 photos — see proposeWindows. */
-    suspend fun proposeGroups(photos: List<GroupPhotoRef>): ProposeResponse =
-        aiEdge.json.decodeFromString(
-            ProposeResponse.serializer(),
-            aiEdge.postRaw(
-                PROPOSE_GROUPS_PATH,
-                aiEdge.json.encodeToString(ProposeRequest.serializer(), ProposeRequest(photos)),
-            ),
-        )
+    suspend fun proposeGroups(photos: List<GroupPhotoRef>): ProposeResponse = aiEdge.json.decodeFromString(
+        ProposeResponse.serializer(),
+        aiEdge.postRaw(
+            PROPOSE_GROUPS_PATH,
+            aiEdge.json.encodeToString(ProposeRequest.serializer(), ProposeRequest(photos)),
+        ),
+    )
 
     /** One billed AI action; returns suggestions and applies nothing. */
-    suspend fun verifyGroups(groups: List<VerifyGroup>): VerifyResponse =
-        aiEdge.json.decodeFromString(
-            VerifyResponse.serializer(),
-            aiEdge.postRaw(
-                VERIFY_GROUPS_PATH,
-                aiEdge.json.encodeToString(VerifyRequest.serializer(), VerifyRequest(groups)),
-            ),
-        )
+    suspend fun verifyGroups(groups: List<VerifyGroup>): VerifyResponse = aiEdge.json.decodeFromString(
+        VerifyResponse.serializer(),
+        aiEdge.postRaw(
+            VERIFY_GROUPS_PATH,
+            aiEdge.json.encodeToString(VerifyRequest.serializer(), VerifyRequest(groups)),
+        ),
+    )
 
     /** Put the staged batch on the shelf the desktop reads from. */
-    suspend fun createHandoff(request: CreateHandoffRequest): CreatedHandoff =
-        edge.json.decodeFromString(
-            CreatedHandoff.serializer(),
-            edge.postRaw(
-                SESSIONS_PATH,
-                edge.json.encodeToString(CreateHandoffRequest.serializer(), request),
-            ),
-        )
+    suspend fun createHandoff(request: CreateHandoffRequest): CreatedHandoff = edge.json.decodeFromString(
+        CreatedHandoff.serializer(),
+        edge.postRaw(
+            SESSIONS_PATH,
+            edge.json.encodeToString(CreateHandoffRequest.serializer(), request),
+        ),
+    )
 
     /** Batches still waiting — open only, last 30 days, newest first. */
     suspend fun handoffs(): List<HandoffSummary> = edge.json.decodeFromString(
@@ -212,8 +210,14 @@ class AutolisterService @Inject constructor(
             ),
         )
 
-    fun message(error: Throwable): String =
-        (error as? EdgeApiError)?.userMessage()
-            ?: error.message
-            ?: "AutoLister couldn't be reached."
+    /**
+     * US-2976: the server's sentence when it sent one, our resource otherwise.
+     *
+     * `error.message` is dropped rather than shown - it is a JVM exception
+     * string, which is a developer's sentence in a language nobody chose.
+     */
+    fun message(error: Throwable): UiMessage = UiMessage(
+        R.string.autolister_unreachable,
+        detail = (error as? EdgeApiError)?.userMessage(),
+    )
 }

@@ -1,8 +1,11 @@
 package com.gradethread.app.automations
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.R
 import com.gradethread.app.platform.telemetry.Telemetry
+import com.gradethread.app.ui.UiMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,9 +15,7 @@ import javax.inject.Inject
 
 /** US-1362: the automations screen. */
 @HiltViewModel
-class AutomationsViewModel @Inject constructor(
-    private val service: AutomationsService,
-) : ViewModel() {
+class AutomationsViewModel @Inject constructor(private val service: AutomationsService) : ViewModel() {
 
     data class State(
         val loading: Boolean = true,
@@ -23,10 +24,12 @@ class AutomationsViewModel @Inject constructor(
         val dryRunFor: String? = null,
         val dryRun: AutomationDryRunResult? = null,
         val actions: List<AutomationActionRow> = emptyList(),
+        /** How many changes never reached eBay; the screen picks the plural. */
+        val unsyncedCount: Int? = null,
         val busy: Boolean = false,
-        val banner: String? = null,
-        val warning: String? = null,
-        val errorMessage: String? = null,
+        val banner: UiMessage? = null,
+        val warning: UiMessage? = null,
+        val errorMessage: UiMessage? = null,
     )
 
     private val _state = MutableStateFlow(State())
@@ -51,7 +54,7 @@ class AutomationsViewModel @Inject constructor(
             _state.value = _state.value.copy(errorMessage = it)
             return
         }
-        act(if (draft.id == null) "Rule saved." else "Rule updated.") {
+        act(if (draft.id == null) R.string.automation_saved else R.string.automation_updated) {
             if (draft.id == null) service.create(draft) else service.update(draft.id, draft)
             Telemetry.event(
                 "automation_rule_saved",
@@ -62,18 +65,17 @@ class AutomationsViewModel @Inject constructor(
         // Saying so at save time is the only moment it can still surprise them.
         if (Automations.scopeSilentlyWidened(draft)) {
             _state.value = _state.value.copy(
-                warning = "Those filters were empty, so this rule now applies to every " +
-                    "active listing.",
+                warning = UiMessage(R.string.automation_scope_widened),
             )
         }
     }
 
     fun setActive(rule: AutomationRule, isActive: Boolean) =
-        act(if (isActive) "Rule turned on." else "Rule turned off.") {
+        act(if (isActive) R.string.automation_turned_on else R.string.automation_turned_off) {
             service.setActive(rule.id, isActive)
         }
 
-    fun delete(rule: AutomationRule) = act("Rule deleted.") { service.delete(rule.id) }
+    fun delete(rule: AutomationRule) = act(R.string.automation_deleted) { service.delete(rule.id) }
 
     /**
      * Show what a rule would do, without doing it.
@@ -118,7 +120,7 @@ class AutomationsViewModel @Inject constructor(
                         actions = it,
                         // A change that never reached eBay is the one worth
                         // interrupting for: the buyer still sees the old value.
-                        warning = Automations.unsyncedWarning(it),
+                        unsyncedCount = Automations.unsyncedCount(it),
                     )
                 }
                 .onFailure { /* the feed is supporting detail; the rules still load */ }
@@ -138,13 +140,15 @@ class AutomationsViewModel @Inject constructor(
         _state.value = _state.value.copy(banner = null, warning = null, errorMessage = null)
     }
 
-    private fun act(successMessage: String?, action: suspend () -> Unit) {
+    private fun act(@StringRes successMessage: Int?, action: suspend () -> Unit) {
         if (_state.value.busy) return
         _state.value = _state.value.copy(busy = true, errorMessage = null, banner = null)
         viewModelScope.launch {
             runCatching { action() }
                 .onSuccess {
-                    successMessage?.let { _state.value = _state.value.copy(banner = it) }
+                    successMessage?.let {
+                        _state.value = _state.value.copy(banner = UiMessage(it))
+                    }
                     _state.value = _state.value.copy(busy = false)
                     load()
                 }

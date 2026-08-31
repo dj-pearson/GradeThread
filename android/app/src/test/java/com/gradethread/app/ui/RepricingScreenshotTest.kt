@@ -4,6 +4,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.gradethread.app.R
 import com.gradethread.app.pricing.RepricingActions
 import com.gradethread.app.pricing.RepricingContent
 import com.gradethread.app.pricing.RepricingRule
@@ -110,13 +111,25 @@ class RepricingScreenshotTest {
      * A finished scan, with the caveat it came back with. The caveat is a
      * warning tone on purpose: a scan that ran against thin comp data is not
      * the same answer as one that ran against plenty.
+     *
+     * US-2976: both are the sentences the app actually produces now. The old
+     * fixture said "Scanned 41 listings and found 1 worth changing." and "12
+     * listings had fewer than 5 comps, so they were skipped." - wording no
+     * code path here has ever generated, so the golden was pinning the layout
+     * against text a seller will never see.
      */
     @Test
     fun scanned_light() = capture("screen-repricing-scanned-light") {
         RepricingContent(
             loaded.copy(
-                banner = "Scanned 41 listings and found 1 worth changing.",
-                caveat = "12 listings had fewer than 5 comps, so they were skipped.",
+                banner = UiMessage(R.string.repricing_scan_actionable, args = listOf(41, 1)),
+                caveat = listOf(
+                    UiMessage(
+                        R.plurals.repricing_skipped_no_category,
+                        args = listOf(12),
+                        quantity = 12,
+                    ),
+                ),
             ),
             RepricingActions(),
         )
@@ -155,7 +168,7 @@ class RepricingScreenshotTest {
     @Test
     fun error_dark() = capture("screen-repricing-error-dark", dark = true) {
         RepricingContent(
-            loaded.copy(errorMessage = "Could not reach the server."),
+            loaded.copy(errorMessage = UiMessage(R.string.repricing_unreachable)),
             RepricingActions(),
         )
     }

@@ -1,5 +1,6 @@
 package com.gradethread.app.scout
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.capture.CurrencyAmount
@@ -47,9 +48,10 @@ class ProspectViewModel @Inject constructor(private val service: ScoutScanning) 
 
         val canRetry: Boolean get() = errorMessage != null && planWall == null
 
-        val verdict: String get() = ProspectDisplay.verdictLabel(response?.decision)
+        @get:StringRes
+        val verdict: Int get() = ProspectDisplay.verdictLabel(response?.decision)
 
-        val caveat: String? get() = response?.let { ProspectDisplay.caveat(it) }
+        val caveat: UiMessage? get() = response?.let { ProspectDisplay.caveat(it) }
     }
 
     private val _state = MutableStateFlow(State())
@@ -125,8 +127,14 @@ class ProspectViewModel @Inject constructor(private val service: ScoutScanning) 
         }
     }
 
-    /** Commit it to inventory at `sourced`. */
-    fun buy() {
+    /**
+     * Commit it to inventory at `sourced`.
+     *
+     * [untitled] is R.string.prospect_untitled_item, resolved by the screen.
+     * The title is stored on the row and read back later, so it has to be in
+     * the seller's language and this class has no Context to resolve it.
+     */
+    fun buy(untitled: String) {
         val current = _state.value
         val response = current.response ?: return
         if (!current.canBuy) return
@@ -136,7 +144,7 @@ class ProspectViewModel @Inject constructor(private val service: ScoutScanning) 
             runCatching {
                 service.buy(
                     ProspectBuyRequest(
-                        title = ProspectDisplay.buyTitle(response.item),
+                        title = ProspectDisplay.buyTitle(response.item) ?: untitled,
                         brand = response.item.brand,
                         costCents = current.costCents,
                         // The going rate becomes the target price — it is the

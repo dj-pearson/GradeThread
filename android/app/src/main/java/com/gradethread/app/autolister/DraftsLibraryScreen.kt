@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.money.Money
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.theme.BrandPrimaryButton
@@ -130,9 +131,15 @@ fun DraftsLibraryContent(
         Text(stringResource(R.string.drafts_draft_listings), style = MaterialTheme.typography.titleLarge)
 
         state.errorMessage?.let {
-            InfoCard(stringResource(R.string.drafts_that_didn_t_work), it, tone = InfoTone.Error)
+            InfoCard(
+                stringResource(R.string.drafts_that_didn_t_work),
+                it.text(),
+                tone = InfoTone.Error,
+            )
         }
-        state.banner?.let { InfoCard(stringResource(R.string.drafts_done), it, tone = InfoTone.Success) }
+        state.banner?.let {
+            InfoCard(stringResource(R.string.drafts_done), it.text(), tone = InfoTone.Success)
+        }
 
         state.batch?.let { batch -> BatchPanel(batch, state, actions) }
 
@@ -258,7 +265,7 @@ private fun BatchPanel(batch: AutolisterBatch, state: AutolisterViewModel.State,
         Modifier.fillMaxWidth().cardStyle(),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
-        Text(Autolister.summary(batch), style = MaterialTheme.typography.bodyMedium)
+        Text(Autolister.summary(batch).text(), style = MaterialTheme.typography.bodyMedium)
         if (!batch.status.isTerminal) {
             LinearProgressIndicator(
                 progress = { Autolister.progressFraction(batch) },
@@ -269,7 +276,7 @@ private fun BatchPanel(batch: AutolisterBatch, state: AutolisterViewModel.State,
             // The failure a progress bar hides: the worker died and the row
             // stopped moving. Say so, and offer the nudge.
             Text(
-                Autolister.STALL_MESSAGE,
+                stringResource(Autolister.STALL_MESSAGE),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -351,7 +358,7 @@ private fun DraftCard(
         // drop — the cron simply hasn't reached it yet.
         draft.scheduledPublishAt?.let {
             Text(
-                ScheduledDrops.statusLine(it, ZoneId.systemDefault(), Instant.now()),
+                ScheduledDrops.statusLine(it, ZoneId.systemDefault(), Instant.now()).text(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -707,7 +714,7 @@ private fun ScheduleDialog(
                 }
                 note?.let {
                     Text(
-                        it,
+                        it.text(),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

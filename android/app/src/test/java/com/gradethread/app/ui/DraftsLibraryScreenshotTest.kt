@@ -4,6 +4,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.gradethread.app.R
 import com.gradethread.app.autolister.AutolisterBatch
 import com.gradethread.app.autolister.AutolisterJob
 import com.gradethread.app.autolister.AutolisterViewModel
@@ -169,11 +170,23 @@ class DraftsLibraryScreenshotTest {
         )
     }
 
-    /** Something finished. */
+    /**
+     * Something finished.
+     *
+     * US-2976: the sentence the app actually produces. The old fixture said
+     * "Repriced 2 drafts.", which no code path here has ever generated - the
+     * bulk-price banner reads "Updated 2 drafts."
+     */
     @Test
     fun banner_light() = capture("screen-drafts-banner-light") {
         DraftsLibraryContent(
-            loaded.copy(banner = "Repriced 2 drafts."),
+            loaded.copy(
+                banner = UiMessage(
+                    R.plurals.autolister_updated_drafts,
+                    args = listOf(2),
+                    quantity = 2,
+                ),
+            ),
             DraftsLibraryActions(),
         )
     }
@@ -182,7 +195,7 @@ class DraftsLibraryScreenshotTest {
     @Test
     fun error_dark() = capture("screen-drafts-error-dark", dark = true) {
         DraftsLibraryContent(
-            loaded.copy(errorMessage = "Could not reach the server."),
+            loaded.copy(errorMessage = UiMessage(R.string.autolister_unreachable)),
             DraftsLibraryActions(),
         )
     }

@@ -4,6 +4,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.gradethread.app.R
 import com.gradethread.app.automations.AutomationAction
 import com.gradethread.app.automations.AutomationDraft
 import com.gradethread.app.automations.AutomationDryRunMatch
@@ -52,8 +53,11 @@ class AutomationsScreenshotTest {
         name = "Drop slow Patagonia 10%",
         trigger = AutomationTrigger(type = "days_listed_gt", days = 30, cooldownDays = 7),
         action = AutomationAction(type = "price_drop_pct", pct = 10.0, marginFloorPct = 15),
+        // US-2976: `filter`, not `rules`. Nothing produces or reads `rules`, so
+        // scopeSummary fell through to "All active listings" and the golden
+        // showed a Patagonia-only rule claiming it touched the whole shop.
         scope = AutomationScope(
-            type = "rules",
+            type = "filter",
             combinator = "and",
             rules = listOf(AutomationScopeRule(field = "brand", op = "eq", value = "Patagonia")),
         ),
@@ -61,12 +65,23 @@ class AutomationsScreenshotTest {
         lastRunAt = "2026-08-28T03:00:00Z",
     )
 
-    /** Switched off. Still listed, and visibly different from the one above. */
+    /**
+     * Switched off. Still listed, and visibly different from the one above.
+     *
+     * US-2976: the trigger and action types are the WIRE values now. They read
+     * `watchers_gt` and `promo_rate_pct`, which no server sends and no branch
+     * matches, so the golden showed this promo rule described as a price drop.
+     */
     private val pausedRule = AutomationRule(
         id = "a2",
         name = "Promote anything with watchers",
-        trigger = AutomationTrigger(type = "watchers_gt", days = 14, cooldownDays = 14, watchers = 3),
-        action = AutomationAction(type = "promo_rate_pct", pct = 4.0),
+        trigger = AutomationTrigger(
+            type = "watchers_lt_after_days",
+            days = 14,
+            cooldownDays = 14,
+            watchers = 3,
+        ),
+        action = AutomationAction(type = "set_promo_rate_pct", pct = 4.0),
         scope = AutomationScope(type = "all"),
         isActive = false,
     )
@@ -149,13 +164,21 @@ class AutomationsScreenshotTest {
         )
     }
 
-    /** A warning beside a success, which are different tones for a reason. */
+    /**
+     * A warning beside a success, which are different tones for a reason.
+     *
+     * US-2976: both are now the sentences the app actually produces. The old
+     * fixture said "Ran 2 rules and changed 6 listings." and "1 rule was
+     * skipped: it is still inside its cooldown." - neither of which any code
+     * path here has ever generated, so the golden was pinning the layout
+     * against wording nobody would ever see.
+     */
     @Test
     fun bannerAndWarning_light() = capture("screen-automations-banner-light") {
         AutomationsContent(
             loaded.copy(
-                banner = "Ran 2 rules and changed 6 listings.",
-                warning = "1 rule was skipped: it is still inside its cooldown.",
+                banner = UiMessage(R.string.automation_run_changed, args = listOf(6, 40)),
+                unsyncedCount = 2,
             ),
             AutomationsActions(),
         )
