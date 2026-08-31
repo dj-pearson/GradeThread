@@ -1,6 +1,11 @@
 // US-473 + US-566: publish pre-flight — image cap/de-dup/order, category
 // condition allow-list validation, and image reachability probing.
 
+// US-2379: publish-preflight.ts reaches lib/supabase.ts through its import
+// graph, and that module throws at import time without the service credentials.
+// This file passed only when some earlier test file had already set them, which
+// is a pass that depends on the run order.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   APPAREL_CONDITION_BANDS,
