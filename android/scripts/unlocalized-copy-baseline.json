@@ -44,8 +44,6 @@
     "grading/PhotoGradePayment.kt": 3,
     "grading/PhotoGradeUploader.kt": 4,
     "home/ActivationState.kt": 6,
-    "importer/ImportPlan.kt": 7,
-    "importer/ImportService.kt": 2,
     "importer/ImportViewModel.kt": 2,
     "importer/SheetsImportService.kt": 1,
     "intake/IntakeInbox.kt": 2,

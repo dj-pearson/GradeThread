@@ -12,6 +12,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.util.UUID
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,16 +36,11 @@ interface ImportCommitting {
  * replay on reconnect. Reporting it as failed would send a seller off to redo a
  * migration that is already going to land.
  */
-data class CommitResult(
-    val queued: List<Int> = emptyList(),
-    val failures: List<ImportRejection> = emptyList(),
-)
+data class CommitResult(val queued: List<Int> = emptyList(), val failures: List<ImportRejection> = emptyList())
 
 @Singleton
-class ImportService @Inject constructor(
-    private val client: SupabaseClient,
-    private val queue: OfflineMutationQueue,
-) : ImportCommitting {
+class ImportService @Inject constructor(private val client: SupabaseClient, private val queue: OfflineMutationQueue) :
+    ImportCommitting {
 
     override suspend fun existingSkus(): Set<String> {
         val ownerId = ownerId() ?: return emptySet()
@@ -72,7 +69,7 @@ class ImportService @Inject constructor(
     override suspend fun commit(drafts: List<ImportDraft>): CommitResult {
         val ownerId = ownerId() ?: return CommitResult(
             failures = drafts.map {
-                ImportRejection(it.sheetRow, "You're signed out — sign in and try again.")
+                ImportRejection(it.sheetRow, UiMessage(R.string.import_error_signed_out))
             },
         )
         val queued = mutableListOf<Int>()
@@ -96,7 +93,13 @@ class ImportService @Inject constructor(
                 } else {
                     failures += ImportRejection(
                         draft.sheetRow,
-                        error.message?.take(120) ?: "Couldn't save this row",
+                        // The server's own sentence when there is one - on a
+                        // 400-row migration it is usually the only thing that
+                        // says WHICH column the database rejected.
+                        UiMessage(
+                            R.string.import_error_row_not_saved,
+                            detail = error.message?.take(ERROR_DETAIL_CHARS),
+                        ),
                     )
                 }
             }
@@ -109,11 +112,13 @@ class ImportService @Inject constructor(
     }
 
     /** The active workspace, else the signed-in user — the standard scoping. */
-    private fun ownerId(): String? =
-        client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
+    private fun ownerId(): String? = client.auth.currentUserOrNull()?.id?.let { WorkspaceScope.tenantOwnerId(it) }
 
     companion object {
         const val TABLE = "inventory_items"
+
+        /** Enough of a database error to identify the column, not the stack. */
+        const val ERROR_DETAIL_CHARS = 120
         private val json = Json { encodeDefaults = true }
     }
 

@@ -2,6 +2,7 @@ package com.gradethread.app.ui
 
 import android.content.Context
 import androidx.annotation.StringRes
+import com.gradethread.app.R
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.res.pluralStringResource
@@ -77,3 +78,30 @@ fun UiMessage.text(context: Context): String {
     val count = quantity ?: return context.getString(res, *resolved)
     return context.resources.getQuantityString(res, count, *resolved)
 }
+
+/**
+ * Several facts on one line, joined by the separator for the reader's language.
+ *
+ * US-2976: the import summary built its line with `buildString` and a run of
+ * `if (x > 0) append(" - N skipped")`. That is not one sentence, it is a LIST,
+ * and a list assembled with += cannot be translated: each clause needs its own
+ * plural, and the separator itself is a typographic choice a language gets to
+ * make. So the clauses stay separate UiMessages and the join is a resource.
+ *
+ * Up to four parts, which is every caller today. A fifth would need a fifth
+ * resource rather than silently dropping one, so [join] throws instead.
+ */
+fun joinMessages(parts: List<UiMessage>): UiMessage {
+    if (parts.isEmpty()) error("joinMessages needs at least one part")
+    if (parts.size == 1) return parts[0]
+    val res = JOIN_RES.getOrNull(parts.size - 2)
+        ?: error("joinMessages joins at most ${JOIN_RES.size + 1} parts, got ${parts.size}")
+    return UiMessage(res, args = parts)
+}
+
+/** Indexed by `partCount - 2`: adding a fifth means adding a fifth resource. */
+private val JOIN_RES = intArrayOf(
+    R.string.ui_join_2,
+    R.string.ui_join_3,
+    R.string.ui_join_4,
+)

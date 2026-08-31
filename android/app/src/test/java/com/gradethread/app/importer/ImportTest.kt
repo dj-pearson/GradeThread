@@ -1,5 +1,14 @@
 package com.gradethread.app.importer
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+import com.gradethread.app.ui.text
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -13,7 +22,10 @@ import org.junit.Test
  * particular: getting it wrong puts a hundred-fold error into a cost basis that
  * then flows into every profit figure the seller sees.
  */
+@RunWith(RobolectricTestRunner::class)
 class ImportTest {
+
+    private val context = ApplicationProvider.getApplicationContext<Context>()
 
     // ── Parsing ──────────────────────────────────────────────────────────────
 
@@ -176,7 +188,7 @@ class ImportTest {
 
         assertEquals(1, plan.ready.size)
         assertEquals(listOf(3), plan.rejected.map { it.sheetRow })
-        assertEquals("No item title", plan.rejected.single().reason)
+        assertEquals("No item title", plan.rejected.single().reason.text(context))
     }
 
     @Test
@@ -186,7 +198,11 @@ class ImportTest {
 
         assertEquals(listOf("Boots"), plan.ready.map { it.title })
         assertEquals(1, plan.duplicates.size)
-        assertTrue(plan.duplicates.single().reason.contains("A1"))
+        // US-2976: the SKU is an ARGUMENT now, not spliced into the sentence,
+        // so assert it there. That also makes the check locale-free.
+        val duplicate = plan.duplicates.single().reason
+        assertEquals(R.string.import_reject_duplicate_sku, duplicate.res)
+        assertEquals("A1", duplicate.args[0])
     }
 
     @Test
@@ -233,22 +249,52 @@ class ImportTest {
         // BEFORE they commit, not after.
         val plan = ImportPlan(
             ready = List(388) { ImportDraft(sheetRow = it + 2, title = "x") },
-            duplicates = List(10) { ImportRejection(it, "dupe") },
-            rejected = List(2) { ImportRejection(it, "no title") },
+            duplicates = List(10) {
+                ImportRejection(it, UiMessage(R.string.import_reject_duplicate_sku, args = listOf("A$it")))
+            },
+            rejected = List(2) { ImportRejection(it, UiMessage(R.string.import_reject_no_title)) },
         )
 
         assertEquals(
             "388 of 400 rows ready · 10 already in your inventory · 2 missing a title",
-            Importer.summary(plan),
+            Importer.summary(plan).text(context),
         )
     }
 
     @Test
     fun `the outcome counts every kind of result`() {
-        assertEquals("Imported 1 item.", Importer.outcome(inserted = 1, skipped = 0))
+        // US-2976: no trailing full stop. The line is a LIST of clauses joined
+        // by a separator, and only this one of the two ever ended in one -
+        // summary() never did. A period belongs to a sentence.
         assertEquals(
-            "Imported 12 items · 3 skipped as duplicates · 1 couldn't be saved.",
-            Importer.outcome(inserted = 12, skipped = 3, failed = 1),
+            "Imported 1 item",
+            Importer.outcome(inserted = 1, skipped = 0).text(context),
+        )
+        assertEquals(
+            "Imported 12 items · 3 skipped as duplicates · 1 couldn't be saved",
+            Importer.outcome(inserted = 12, skipped = 3, failed = 1).text(context),
+        )
+    }
+
+    /**
+     * US-2976: the joined line, in the other language.
+     *
+     * The English clauses hide two mistakes a translator can make - a plural
+     * whose "one" form was left as the "other", and a separator that should
+     * have changed. This renders the four-clause worst case in Spanish, where
+     * both singular and plural forms differ.
+     */
+    @Test
+    @Config(qualifiers = "es")
+    fun `the Spanish outcome agrees with its own numbers`() {
+        assertEquals(
+            "1 art\u00edculo importado",
+            Importer.outcome(inserted = 1, skipped = 0).text(context),
+        )
+        assertEquals(
+            "12 art\u00edculos importados \u00b7 3 omitidos por duplicados \u00b7 " +
+                "1 no se pudo guardar",
+            Importer.outcome(inserted = 12, skipped = 3, failed = 1).text(context),
         )
     }
 
@@ -257,8 +303,8 @@ class ImportTest {
         // A queued row is going to land. Calling it a failure would send a
         // seller off to redo a migration that is already finishing itself.
         assertEquals(
-            "Imported 0 items · 40 waiting to send when you're back online.",
-            Importer.outcome(inserted = 0, skipped = 0, queued = 40),
+            "Imported 0 items · 40 waiting to send when you're back online",
+            Importer.outcome(inserted = 0, skipped = 0, queued = 40).text(context),
         )
     }
 }

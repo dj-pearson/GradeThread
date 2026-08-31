@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.gradethread.app.ui.UiMessage
 import javax.inject.Inject
 
 /**
@@ -35,16 +36,16 @@ class ImportViewModel @Inject constructor(
         val plan: ImportPlan? = null,
         val busy: Boolean = false,
         val error: String? = null,
-        val outcome: String? = null,
+        val outcome: UiMessage? = null,
         val failures: List<ImportRejection> = emptyList(),
         /** US-2410: the sheet link the seller is typing. */
         val sheetUrl: String = "",
     ) {
         val canFetchSheet: Boolean get() = sheetUrl.isNotBlank() && !busy
-        val mappingError: String? get() = Importer.mappingError(mapping)
+        val mappingError: UiMessage? get() = Importer.mappingError(mapping)
         val canPreview: Boolean get() = sheet != null && mappingError == null && !busy
         val canCommit: Boolean get() = (plan?.ready?.isNotEmpty() == true) && !busy
-        val summary: String? get() = plan?.let(Importer::summary)
+        val summary: UiMessage? get() = plan?.let(Importer::summary)
     }
 
     private val _state = MutableStateFlow(State())

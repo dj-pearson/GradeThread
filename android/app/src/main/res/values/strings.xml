@@ -2851,4 +2851,37 @@
         <item quantity="one">%1$s &#183; %2$d updated</item>
         <item quantity="other">%1$s &#183; %2$d updated</item>
     </plurals>
+    <string name="ui_join_2">%1$s &#183; %2$s</string>
+    <string name="ui_join_3">%1$s &#183; %2$s &#183; %3$s</string>
+    <string name="ui_join_4">%1$s &#183; %2$s &#183; %3$s &#183; %4$s</string>
+    <string name="import_mapping_needs_title">Point one column at &quot;Item title&quot; &#8212; we can\'t import a row without it.</string>
+    <string name="import_reject_no_title">No item title</string>
+    <string name="import_reject_duplicate_sku">SKU %1$s is already in your inventory</string>
+    <string name="import_summary_ready">%1$d of %2$d rows ready</string>
+    <plurals name="import_summary_duplicates">
+        <item quantity="one">%1$d already in your inventory</item>
+        <item quantity="other">%1$d already in your inventory</item>
+    </plurals>
+    <plurals name="import_summary_rejected">
+        <item quantity="one">%1$d missing a title</item>
+        <item quantity="other">%1$d missing a title</item>
+    </plurals>
+    <plurals name="import_outcome_inserted">
+        <item quantity="one">Imported %1$d item</item>
+        <item quantity="other">Imported %1$d items</item>
+    </plurals>
+    <plurals name="import_outcome_queued">
+        <item quantity="one">%1$d waiting to send when you\'re back online</item>
+        <item quantity="other">%1$d waiting to send when you\'re back online</item>
+    </plurals>
+    <plurals name="import_outcome_skipped">
+        <item quantity="one">%1$d skipped as a duplicate</item>
+        <item quantity="other">%1$d skipped as duplicates</item>
+    </plurals>
+    <plurals name="import_outcome_failed">
+        <item quantity="one">%1$d couldn\'t be saved</item>
+        <item quantity="other">%1$d couldn\'t be saved</item>
+    </plurals>
+    <string name="import_error_signed_out">You\'re signed out &#8212; sign in and try again.</string>
+    <string name="import_error_row_not_saved">Couldn\'t save this row</string>
 </resources>

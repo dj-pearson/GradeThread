@@ -1,5 +1,9 @@
 package com.gradethread.app.importer
 
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+import com.gradethread.app.ui.joinMessages
+
 /**
  * US-1389: a mapped row, ready to become an item.
  *
@@ -25,7 +29,7 @@ data class ImportDraft(
 )
 
 /** A row that cannot be imported, and why — reported, never dropped silently. */
-data class ImportRejection(val sheetRow: Int, val reason: String)
+data class ImportRejection(val sheetRow: Int, val reason: UiMessage)
 
 /** What a commit will do, decided before anything is written. */
 data class ImportPlan(
@@ -51,8 +55,7 @@ object Importer {
     const val PREVIEW_ROWS = 20
 
     /** Auto-mapping for a freshly-loaded sheet. */
-    fun guessMapping(headers: List<String>): List<ImportField> =
-        headers.map(ImportField::guess)
+    fun guessMapping(headers: List<String>): List<ImportField> = headers.map(ImportField::guess)
 
     /**
      * Whether the mapping can be committed at all.
@@ -61,12 +64,11 @@ object Importer {
      * and a Continue button that leads to "0 of 400 imported" is worse than a
      * disabled one that says why.
      */
-    fun mappingError(mapping: List<ImportField>): String? =
-        if (mapping.none { it == ImportField.TITLE }) {
-            "Point one column at \"Item title\" — we can't import a row without it."
-        } else {
-            null
-        }
+    fun mappingError(mapping: List<ImportField>): UiMessage? = if (mapping.none { it == ImportField.TITLE }) {
+        UiMessage(R.string.import_mapping_needs_title)
+    } else {
+        null
+    }
 
     /**
      * Build the plan.
@@ -83,11 +85,7 @@ object Importer {
      * the seller cannot see on this screen. Recorded rather than quietly
      * matched, so nobody "fixes" one to the other by accident.
      */
-    fun plan(
-        sheet: CsvParser.Sheet,
-        mapping: List<ImportField>,
-        existingSkus: Set<String>,
-    ): ImportPlan {
+    fun plan(sheet: CsvParser.Sheet, mapping: List<ImportField>, existingSkus: Set<String>): ImportPlan {
         val ready = mutableListOf<ImportDraft>()
         val duplicates = mutableListOf<ImportRejection>()
         val rejected = mutableListOf<ImportRejection>()
@@ -106,14 +104,22 @@ object Importer {
 
             val title = value(ImportField.TITLE)
             if (title == null) {
-                rejected += ImportRejection(sheetRow, "No item title")
+                rejected += ImportRejection(
+                    sheetRow,
+                    UiMessage(R.string.import_reject_no_title),
+                )
                 return@forEachIndexed
             }
 
             val sku = value(ImportField.SKU)
             val skuKey = sku?.lowercase()
             if (skuKey != null && skuKey in seen) {
-                duplicates += ImportRejection(sheetRow, "SKU $sku is already in your inventory")
+                duplicates += ImportRejection(
+                    sheetRow,
+                    // The SKU is the seller's own string, so it substitutes in
+                    // as an argument rather than being glued on.
+                    UiMessage(R.string.import_reject_duplicate_sku, args = listOf(sku)),
+                )
                 return@forEachIndexed
             }
             if (skuKey != null) seen += skuKey
@@ -148,14 +154,31 @@ object Importer {
      * migrating 400 rows needs to know 12 are being skipped before they commit,
      * not after.
      */
-    fun summary(plan: ImportPlan): String = buildString {
-        append("${plan.ready.size} of ${plan.total} rows ready")
+    fun summary(plan: ImportPlan): UiMessage {
+        // US-2976: a LIST of facts, not one sentence. buildString with a run of
+        // `if (n > 0) append(" · ...")` cannot be translated - each clause needs
+        // its own plural, and the separator is a choice a language makes.
+        val parts = mutableListOf(
+            UiMessage(
+                R.string.import_summary_ready,
+                args = listOf(plan.ready.size, plan.total),
+            ),
+        )
         if (plan.duplicates.isNotEmpty()) {
-            append(" · ${plan.duplicates.size} already in your inventory")
+            parts += UiMessage(
+                R.plurals.import_summary_duplicates,
+                args = listOf(plan.duplicates.size),
+                quantity = plan.duplicates.size,
+            )
         }
         if (plan.rejected.isNotEmpty()) {
-            append(" · ${plan.rejected.size} missing a title")
+            parts += UiMessage(
+                R.plurals.import_summary_rejected,
+                args = listOf(plan.rejected.size),
+                quantity = plan.rejected.size,
+            )
         }
+        return joinMessages(parts)
     }
 
     /**
@@ -165,12 +188,14 @@ object Importer {
      * is going to land, and calling it a failure would send someone off to redo
      * a migration that is already finishing itself.
      */
-    fun outcome(inserted: Int, skipped: Int, queued: Int = 0, failed: Int = 0): String =
-        buildString {
-            append("Imported $inserted ${if (inserted == 1) "item" else "items"}")
-            if (queued > 0) append(" · $queued waiting to send when you're back online")
-            if (skipped > 0) append(" · $skipped skipped as duplicates")
-            if (failed > 0) append(" · $failed couldn't be saved")
-            append(".")
-        }
+    fun outcome(inserted: Int, skipped: Int, queued: Int = 0, failed: Int = 0): UiMessage {
+        val parts = mutableListOf(plural(R.plurals.import_outcome_inserted, inserted))
+        if (queued > 0) parts += plural(R.plurals.import_outcome_queued, queued)
+        if (skipped > 0) parts += plural(R.plurals.import_outcome_skipped, skipped)
+        if (failed > 0) parts += plural(R.plurals.import_outcome_failed, failed)
+        return joinMessages(parts)
+    }
+
+    /** A plurals resource whose count is also the number in the clause. */
+    private fun plural(res: Int, count: Int) = UiMessage(res, args = listOf(count), quantity = count)
 }

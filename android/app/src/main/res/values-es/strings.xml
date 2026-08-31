@@ -2717,4 +2717,37 @@
         <item quantity="one">%1$s &#183; %2$d actualizado</item>
         <item quantity="other">%1$s &#183; %2$d actualizados</item>
     </plurals>
+    <string name="ui_join_2">%1$s &#183; %2$s</string>
+    <string name="ui_join_3">%1$s &#183; %2$s &#183; %3$s</string>
+    <string name="ui_join_4">%1$s &#183; %2$s &#183; %3$s &#183; %4$s</string>
+    <string name="import_mapping_needs_title">Asigna una columna a &quot;T&#237;tulo del art&#237;culo&quot;: no podemos importar una fila sin ella.</string>
+    <string name="import_reject_no_title">Falta el t&#237;tulo del art&#237;culo</string>
+    <string name="import_reject_duplicate_sku">El SKU %1$s ya est&#225; en tu inventario</string>
+    <string name="import_summary_ready">%1$d de %2$d filas listas</string>
+    <plurals name="import_summary_duplicates">
+        <item quantity="one">%1$d ya est&#225; en tu inventario</item>
+        <item quantity="other">%1$d ya est&#225;n en tu inventario</item>
+    </plurals>
+    <plurals name="import_summary_rejected">
+        <item quantity="one">a %1$d le falta el t&#237;tulo</item>
+        <item quantity="other">a %1$d les falta el t&#237;tulo</item>
+    </plurals>
+    <plurals name="import_outcome_inserted">
+        <item quantity="one">%1$d art&#237;culo importado</item>
+        <item quantity="other">%1$d art&#237;culos importados</item>
+    </plurals>
+    <plurals name="import_outcome_queued">
+        <item quantity="one">%1$d esperando a que vuelvas a tener conexi&#243;n</item>
+        <item quantity="other">%1$d esperando a que vuelvas a tener conexi&#243;n</item>
+    </plurals>
+    <plurals name="import_outcome_skipped">
+        <item quantity="one">%1$d omitido por duplicado</item>
+        <item quantity="other">%1$d omitidos por duplicados</item>
+    </plurals>
+    <plurals name="import_outcome_failed">
+        <item quantity="one">%1$d no se pudo guardar</item>
+        <item quantity="other">%1$d no se pudieron guardar</item>
+    </plurals>
+    <string name="import_error_signed_out">Has cerrado sesi&#243;n: inicia sesi&#243;n y vuelve a intentarlo.</string>
+    <string name="import_error_row_not_saved">No se pudo guardar esta fila</string>
 </resources>

@@ -35,6 +35,7 @@ import com.gradethread.app.money.Money
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -186,7 +187,7 @@ private fun MapStep(state: ImportViewModel.State, actions: ImportActions) {
         )
         state.mappingError?.let {
             Text(
-                it,
+                it.text(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -248,7 +249,7 @@ private fun PreviewStep(state: ImportViewModel.State, actions: ImportActions) {
     val plan = state.plan ?: return
     Column(Modifier.fillMaxWidth()) {
         state.summary?.let {
-            Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(it.text(), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
         }
 
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
@@ -289,7 +290,7 @@ private fun PreviewStep(state: ImportViewModel.State, actions: ImportActions) {
                     stringResource(
                         R.string.import_row_skipped,
                         rejection.sheetRow,
-                        rejection.reason,
+                        rejection.reason.text(),
                     ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -318,12 +319,16 @@ private fun PreviewStep(state: ImportViewModel.State, actions: ImportActions) {
 private fun DoneStep(state: ImportViewModel.State, actions: ImportActions) {
     Column(Modifier.fillMaxWidth()) {
         state.outcome?.let {
-            Text(it, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Text(it.text(), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
         }
         LazyColumn(Modifier.weight(1f)) {
             items(state.failures) { failure ->
                 Text(
-                    stringResource(R.string.import_row_failed, failure.sheetRow, failure.reason),
+                    stringResource(
+                        R.string.import_row_failed,
+                        failure.sheetRow,
+                        failure.reason.text(),
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(vertical = 2.dp),

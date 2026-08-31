@@ -10,6 +10,8 @@ import com.gradethread.app.importer.ImportContent
 import com.gradethread.app.importer.ImportDraft
 import com.gradethread.app.importer.ImportField
 import com.gradethread.app.importer.ImportPlan
+import com.gradethread.app.R
+import com.gradethread.app.importer.Importer
 import com.gradethread.app.importer.ImportRejection
 import com.gradethread.app.importer.ImportViewModel
 import com.gradethread.app.ui.theme.GradeThreadTheme
@@ -72,7 +74,15 @@ class ImportScreenshotTest {
                 acquiredPrice = 24.00 + i,
             )
         },
-        duplicates = listOf(ImportRejection(sheetRow = 8, reason = "SKU PAT-BS-M is already in your inventory")),
+        duplicates = listOf(
+            ImportRejection(
+                sheetRow = 8,
+                reason = UiMessage(
+                    R.string.import_reject_duplicate_sku,
+                    args = listOf("PAT-BS-M"),
+                ),
+            ),
+        ),
         // ⚠ ONLY ONE REJECTION REASON EXISTS AT THE PLAN STAGE, and it has to
         // be this one. Importer.summary hard-codes the wording - it counts
         // plan.rejected and calls every one of them "missing a title" - which
@@ -81,8 +91,8 @@ class ImportScreenshotTest {
         // and the golden read "2 missing a title" above a row that said
         // otherwise: a picture of a bug the app does not have.
         rejected = listOf(
-            ImportRejection(sheetRow = 9, reason = "No item title"),
-            ImportRejection(sheetRow = 12, reason = "No item title"),
+            ImportRejection(sheetRow = 9, reason = UiMessage(R.string.import_reject_no_title)),
+            ImportRejection(sheetRow = 12, reason = UiMessage(R.string.import_reject_no_title)),
         ),
     )
 
@@ -152,7 +162,11 @@ class ImportScreenshotTest {
             ImportViewModel.State(
                 step = ImportViewModel.Step.DONE,
                 plan = plan,
-                outcome = "Added 6 items.",
+                // US-2976: the sentence the app actually produces. The
+                // fixture said "Added 6 items." and no code path has ever
+                // begun that line with "Added" - see the warning above about
+                // the rejection reason, which was the same mistake.
+                outcome = Importer.outcome(inserted = 6, skipped = 0),
                 failures = plan.rejected,
             ),
             ImportActions(),
