@@ -8,12 +8,21 @@ code_refs:
   - services/edge-functions/src/lib/seller-credentials.ts
   - services/edge-functions/src/routes/jobs-credentials-refresh.ts
   - services/edge-functions/src/lib/ai-listing.ts
-reviewed: 2026-08-30
+reviewed: 2026-08-31
 tags: [ebay, publishing, listings, gotcha]
 summary: An eBay description is frozen text — eBay bans active content and off-eBay links — so anything time-varying in it goes stale until a scheduled revise re-renders it.
 ---
 
 # eBay descriptions cannot self-update — refresh by revise
+
+> **Re-reviewed 2026-08-31.** Drift flagged `ai-listing.ts` for `1ec50c48c`
+> (US-3031), which settles the generated eBay condition against the resolved
+> category's allow-list, placed before the comp search so pricing reflects the
+> condition that will actually publish. It writes `listing.ebay_condition` and
+> nothing else; the description path is untouched. Re-verified while here: the
+> description is still rendered from its own blocks by
+> `lib/description-blocks.ts` (`ai-listing.ts:596`) into the `RenderContext` at
+> `:2611`, and it is still frozen HTML once eBay has it.
 
 > **Re-reviewed 2026-08-28 (US-2959, US-2963).** A description is assembled from
 > `listings.description_blocks` now, so both refs moved for real. `ai-listing.ts`

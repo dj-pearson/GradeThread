@@ -119,12 +119,26 @@ done
   edge event-loop hang** ([[edge-hang-vs-crash-loop]]). Observed 2026-08-15: two
   `/health` probes returned 503 and the third 200, with `/health/ready` clean on
   five reads straight after. Nothing was wrong; that was the rollover.
-  <br>The cost is not the seconds of downtime, it is that a routine doc push
-  produces the same string as a real incident and teaches whoever sees it to
-  shrug. **The fix is a Coolify setting, not a repo change:** on the edge
-  resource, set **Watch Paths** to `services/edge-functions/**`. Nothing in this
-  repository can set it and nothing here can verify it — the check is to push a
-  doc-only commit and watch whether the container rolls.
+  <br>**Both halves are a cost.** A routine doc push produces the same string as
+  a real incident, which teaches whoever sees it to shrug. It also drops live
+  traffic for about twenty seconds, and the owner's judgement on 2026-08-31 is
+  that the seconds are the part that matters in production.
+  <br>⚠ **RESOLVED 2026-08-31 by turning auto-deploy OFF, and NOT by Watch
+  Paths.** This bullet used to prescribe setting **Watch Paths** to
+  `services/edge-functions/**` on the edge resource. **That field cannot be
+  reached from this application.** Coolify renders it only under
+  `is_github_based() && !is_public_repository()` (verified against
+  `resources/views/livewire/project/application/general.blade.php` on
+  `coollabsio/coolify` main, 2026-08-31), and this app's connected source is
+  **Public GitHub**, so the box never draws — on General, on Advanced, or
+  anywhere else. Half an hour was spent hunting a field that was not hidden by
+  the Compose build pack, as assumed, but by the source type. Reaching it would
+  mean re-pointing the app at the GitHub App source already registered in the
+  instance, which is a bigger change than the problem.
+  <br>**So the edge deploys MANUALLY now.** Auto deploy is off on the edge
+  resource, and a push no longer rolls the container. Whoever pushes an edge
+  change has to say so and then deploy it — see the deploy order at the top of
+  this note, and apply any migration BEFORE the push, not after.
 - **Scheduled tasks survive a redeploy:** Coolify Scheduled Tasks are configured
   on the *service*, not baked into the image, so they persist across redeploys.
   After a deploy, spot-check one with **Run Now** (see `vault/10-ops/launch-checklist.md` §3).

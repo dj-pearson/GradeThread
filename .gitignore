@@ -133,6 +133,9 @@ __pycache__/
 listings_rows.csv
 export/
 scripts/seed-demo-account.sql
+# Same generated file under any suffix. 1ec50c48c committed a `.local` copy
+# because the pattern above matched the exact name only (2026-08-31).
+scripts/seed-demo-account.sql*
 
 # Remotion product-guide project (video build artifacts + deps)
 remotion/node_modules/

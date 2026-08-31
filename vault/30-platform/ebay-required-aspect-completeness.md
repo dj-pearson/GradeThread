@@ -11,12 +11,20 @@ code_refs:
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-08-30
+reviewed: 2026-08-31
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
 
 # eBay required-aspect completeness on publish and revise
+
+> **Re-reviewed 2026-08-31.** Drift flagged `ai-listing.ts` for `1ec50c48c`
+> (US-3031), the condition-versus-category settlement described in
+> [[ebay-description-freshness]]'s callout of the same date. It touches the
+> condition field only. Re-verified while here: the aspect pipeline this note
+> describes still enters through the same five modules `ai-listing.ts` imports
+> at `:22` to `:91` — `aspect-registry`, `aspect-provenance`, `aspect-priority`
+> and `aspect-reconcile` — none of which that commit edits.
 
 > **Re-reviewed 2026-08-28.** Drift flagged both refs, for two commits that
 > leave aspects alone. US-2974 adds an `item_id` to the comps search and stamps

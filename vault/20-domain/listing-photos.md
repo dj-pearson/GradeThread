@@ -19,12 +19,19 @@ code_refs:
   - supabase/migrations/00587_item_photo_role_qualifier.sql
   - supabase/migrations/00589_submission_image_role.sql
   - services/edge-functions/src/routes/flipdesk-grading.ts
-reviewed: 2026-08-30
+reviewed: 2026-08-31
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
 
 # Listing photos — order, required set, and how edits reach eBay
+
+> **Re-reviewed 2026-08-31.** Drift flagged `publish-preflight.ts` for
+> `1ec50c48c` (US-3031), which adds the legacy-to-apparel CONDITION ladder
+> remap and `resolveDraftCondition`. It adds no photo logic and changes none:
+> the image half of that module is untouched. Re-verified while here:
+> `EBAY_MAX_IMAGES = 24` at `publish-preflight.ts:29` and `dedupeAndCapImages`
+> at `:46`, still defaulting the cap from the same constant.
 
 ## A tag is a TYPE plus a ROLE (US-2462, migration 00587)
 
