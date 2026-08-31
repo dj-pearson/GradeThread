@@ -122,9 +122,12 @@ private fun Carousel(state: OnboardingViewModel.State, onPage: (Int) -> Unit) {
                 Modifier.fillMaxSize().padding(horizontal = Spacing.md),
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text(content.title, style = MaterialTheme.typography.headlineMedium)
                 Text(
-                    content.body,
+                    stringResource(content.title),
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+                Text(
+                    stringResource(content.body),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = Spacing.sm),
@@ -191,12 +194,12 @@ private fun UseCaseStep(state: OnboardingViewModel.State, onPick: (OnboardingUse
                     .padding(Spacing.md),
             ) {
                 Text(
-                    useCase.title,
+                    stringResource(useCase.title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium,
                 )
                 Text(
-                    useCase.subtitle,
+                    stringResource(useCase.subtitle),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

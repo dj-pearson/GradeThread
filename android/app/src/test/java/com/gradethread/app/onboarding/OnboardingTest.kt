@@ -100,10 +100,18 @@ class OnboardingTest {
         // Every extra slide is another chance to close the app before seeing it
         // do anything.
         assertTrue(Onboarding.pages.size <= 4)
+        // US-2976: resource ids. 0 is what an unresolved R reference compiles
+        // to, so this is the id-level version of "the string is not blank".
         Onboarding.pages.forEach {
-            assertTrue(it.title.isNotBlank())
-            assertTrue(it.body.isNotBlank())
+            assertTrue(it.title != 0)
+            assertTrue(it.body != 0)
         }
+        // And every slide is its OWN slide - four copies of one id would pass
+        // the check above and ship a carousel that says the same thing 4 times.
+        assertEquals(
+            Onboarding.pages.size,
+            Onboarding.pages.map { it.title }.toSet().size,
+        )
     }
 
     // ── Activation checklist ─────────────────────────────────────────────────

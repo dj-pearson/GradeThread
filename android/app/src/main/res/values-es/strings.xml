@@ -2073,4 +2073,18 @@
     <string name="intake_status_keeping">Me lo quedo (personal)</string>
     <string name="intake_status_wearing">En uso (personal)</string>
     <string name="intake_title_required">Hace falta un título para guardar</string>
+    <string name="onboarding_use_case_reseller">Revendo a gran escala</string>
+    <string name="onboarding_use_case_reseller_sub">Fotografía un montón de prendas de una vez y deja que la IA escriba cada anuncio.</string>
+    <string name="onboarding_use_case_grader">Evalúo y vendo unas pocas</string>
+    <string name="onboarding_use_case_grader_sub">Haz una foto de una prenda y consigue una nota de estado certificada para venderla.</string>
+    <string name="onboarding_use_case_store">Tengo una tienda en eBay</string>
+    <string name="onboarding_use_case_store_sub">Conecta eBay para sincronizar anuncios, pedidos y pagos en ambos sentidos.</string>
+    <string name="onboarding_page_flow_title">Todo tu flujo de reventa</string>
+    <string name="onboarding_page_flow_body">Compra, registra, evalúa, publica y controla tus ventas en un solo sitio hecho para revendedores.</string>
+    <string name="onboarding_page_snap_title">Fotografía y registra</string>
+    <string name="onboarding_page_snap_body">Fotografía una prenda y la IA lee la marca, la talla, el color y el estado en la etiqueta. Revisa, ajusta y listo.</string>
+    <string name="onboarding_page_grade_title">Notas de estado certificadas</string>
+    <string name="onboarding_page_grade_body">Una nota estandarizada del 1 al 10 y un certificado que los compradores creen, para que vuelvan menos pedidos.</string>
+    <string name="onboarding_page_profit_title">Publica y controla tu beneficio</string>
+    <string name="onboarding_page_profit_body">Publica en eBay, sincroniza en ambos sentidos y mira qué se vendió, qué pago llega y cuál es tu beneficio real.</string>
 </resources>

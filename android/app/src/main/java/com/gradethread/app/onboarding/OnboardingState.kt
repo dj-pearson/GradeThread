@@ -1,5 +1,6 @@
 package com.gradethread.app.onboarding
 
+import androidx.annotation.StringRes
 import com.gradethread.app.R
 
 /**
@@ -11,42 +12,44 @@ import com.gradethread.app.R
  */
 enum class OnboardingUseCase(
     val wire: String,
-    val title: String,
-    val subtitle: String,
+    @StringRes val title: Int,
+    @StringRes val subtitle: Int,
     /** The nav route onboarding routes to when it finishes. */
     val firstActionRoute: String,
 ) {
     RESELLER(
         wire = "reseller",
-        title = "I resell at volume",
-        subtitle = "Batch-photograph a pile and let AI draft every listing at once.",
+        title = R.string.onboarding_use_case_reseller,
+        subtitle = R.string.onboarding_use_case_reseller_sub,
         firstActionRoute = "capture/autolister",
     ),
     GRADER(
         wire = "grader",
-        title = "I grade and sell a few",
-        subtitle = "Snap one garment, get a certified condition grade to sell with.",
+        title = R.string.onboarding_use_case_grader,
+        subtitle = R.string.onboarding_use_case_grader_sub,
         firstActionRoute = "capture/photos",
     ),
     STORE(
         wire = "store",
-        title = "I run an eBay store",
-        subtitle = "Connect eBay to sync listings, orders, and payouts both ways.",
+        title = R.string.onboarding_use_case_store,
+        subtitle = R.string.onboarding_use_case_store_sub,
         firstActionRoute = "marketplaces",
     ),
     ;
 
     companion object {
-        fun fromWire(value: String?): OnboardingUseCase? =
-            entries.firstOrNull { it.wire == value }
+        fun fromWire(value: String?): OnboardingUseCase? = entries.firstOrNull { it.wire == value }
     }
 }
 
-/** One slide in the first-run carousel. */
-data class OnboardingPage(
-    val title: String,
-    val body: String,
-)
+/**
+ * One slide in the first-run carousel.
+ *
+ * US-2976: resources. This is the FIRST screen a new seller sees, and it was
+ * four slides of English regardless of their phone's language - which is the
+ * worst possible place for it, because nothing has earned their patience yet.
+ */
+data class OnboardingPage(@StringRes val title: Int, @StringRes val body: Int)
 
 object Onboarding {
 
@@ -58,23 +61,20 @@ object Onboarding {
      */
     val pages: List<OnboardingPage> = listOf(
         OnboardingPage(
-            title = "Your whole reselling flow",
-            body = "Source, catalog, grade, list, and track sales in one place built for resellers.",
+            title = R.string.onboarding_page_flow_title,
+            body = R.string.onboarding_page_flow_body,
         ),
         OnboardingPage(
-            title = "Snap and catalog",
-            body = "Photograph a garment and AI reads the brand, size, colour, and condition " +
-                "off the tag. Review, tweak, done.",
+            title = R.string.onboarding_page_snap_title,
+            body = R.string.onboarding_page_snap_body,
         ),
         OnboardingPage(
-            title = "Certified condition grades",
-            body = "A standardised 1 to 10 grade and a shareable certificate buyers trust, " +
-                "so fewer orders come back.",
+            title = R.string.onboarding_page_grade_title,
+            body = R.string.onboarding_page_grade_body,
         ),
         OnboardingPage(
-            title = "List and track profit",
-            body = "Publish to eBay, sync both ways, and see what sold, what payout is coming, " +
-                "and your real profit.",
+            title = R.string.onboarding_page_profit_title,
+            body = R.string.onboarding_page_profit_body,
         ),
     )
 

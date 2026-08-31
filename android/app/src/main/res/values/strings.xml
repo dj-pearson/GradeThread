@@ -2204,4 +2204,18 @@
     <string name="intake_status_keeping">Keeping (personal)</string>
     <string name="intake_status_wearing">Wearing (personal)</string>
     <string name="intake_title_required">A title is required to save</string>
+    <string name="onboarding_use_case_reseller">I resell at volume</string>
+    <string name="onboarding_use_case_reseller_sub">Batch-photograph a pile and let AI draft every listing at once.</string>
+    <string name="onboarding_use_case_grader">I grade and sell a few</string>
+    <string name="onboarding_use_case_grader_sub">Snap one garment, get a certified condition grade to sell with.</string>
+    <string name="onboarding_use_case_store">I run an eBay store</string>
+    <string name="onboarding_use_case_store_sub">Connect eBay to sync listings, orders, and payouts both ways.</string>
+    <string name="onboarding_page_flow_title">Your whole reselling flow</string>
+    <string name="onboarding_page_flow_body">Source, catalog, grade, list, and track sales in one place built for resellers.</string>
+    <string name="onboarding_page_snap_title">Snap and catalog</string>
+    <string name="onboarding_page_snap_body">Photograph a garment and AI reads the brand, size, colour, and condition off the tag. Review, tweak, done.</string>
+    <string name="onboarding_page_grade_title">Certified condition grades</string>
+    <string name="onboarding_page_grade_body">A standardised 1 to 10 grade and a shareable certificate buyers trust, so fewer orders come back.</string>
+    <string name="onboarding_page_profit_title">List and track profit</string>
+    <string name="onboarding_page_profit_body">Publish to eBay, sync both ways, and see what sold, what payout is coming, and your real profit.</string>
 </resources>
