@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3029",
+  "nextId": "US-3030",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2881,6 +2881,22 @@
         "OPERATOR: after deploy, hit Run now on credentials-refresh at /admin/ops/jobs and read the new counters to find out what the 13 skipped listings actually are."
       ],
       "priority": 30
+    },
+    {
+      "id": "US-3029",
+      "passes": false,
+      "title": "Play billing copy is English, and Conflict.message is the head of the chain",
+      "description": "PlayPurchaseRules.Conflict.message returns a String, and it is the head of a chain that US-2976 could not convert file-by-file. Converting it to @StringRes was attempted on 2026-08-31 and REVERTED in the same session, on purpose: BillingRepository has no Context, so the Int cannot be resolved there, which forces PurchaseOutcome.Failed.message to become a UiMessage, which forces FIVE separate 'errorMessage: String?' state classes to follow - ConsumerCreditTopUpViewModel, CreditTopUpViewModel, PaywallViewModel, PlanStepHost and SubscriptionService - plus CreditTopUpFlow.State.Failed and the screens rendering each. Same family as US-3025 and the same reason for landing whole: the half still returning String compiles, renders, and looks correct. The four sentences are the ones that matter most to get right, because each names a way OUT of a dead end - manage the Stripe subscription on the web, manage the App Store one on an iPhone, sign in with the other account - and a buyer reading the generic 'something went wrong' instead will tap it forever. Two other literals in BillingRepository.kt are in the same chain: 'This purchase is still pending with Google Play.' and 'That purchase did not name a product we sell.' NOT IN SCOPE: the literal 'Google Play billing is not configured' inside PlayPurchaseRules.conflict is a WIRE MARKER matched against a plain-text response body, sent by the server; it must stay English and needs a LABEL_VOCABULARY entry rather than a resource.",
+      "acceptanceCriteria": [
+        "Conflict.message returns @StringRes Int; the four conflict sentences live in values/ and values-es/.",
+        "PurchaseOutcome.Failed.message becomes UiMessage, and all five errorMessage state fields plus CreditTopUpFlow.State.Failed follow in the SAME change. A half-converted chain is the failure mode.",
+        "The wire marker 'Google Play billing is not configured' stays an English literal and gains a LABEL_VOCABULARY entry in no-unlocalized-copy.py naming why - it is matched against the server's own response body, so translating it breaks the fallback exactly when it is needed.",
+        "no-unlocalized-copy's baseline for billing/PlayPurchaseRules.kt and billing/BillingRepository.kt reaches 0; check-string-formats passes across en and es.",
+        "Any test asserting the WORDS of a billing error moves its assertion to values/strings.xml rather than becoming assertEquals(R.string.x, ...)."
+      ],
+      "dependsOn": [
+        "US-3025"
+      ]
     }
   ]
 }

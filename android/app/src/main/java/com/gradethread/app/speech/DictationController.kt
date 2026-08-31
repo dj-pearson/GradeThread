@@ -9,6 +9,8 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -193,23 +195,31 @@ class DictationController(private val context: Context) {
 }
 
 /** Typed dictation failures (iOS `DictationError`). */
-sealed class DictationError(val message: String) {
+sealed class DictationError(val message: UiMessage) {
 
     object MicrophonePermissionDenied : DictationError(
-        "Microphone access is off. Turn it on in Settings to dictate notes.",
+        UiMessage(R.string.dictation_mic_denied),
     )
 
     object RecognizerUnavailable : DictationError(
-        "Speech recognition isn't available on this device.",
+        UiMessage(R.string.dictation_unavailable),
     )
 
-    object NoSpeechHeard : DictationError("Didn't catch that — try again.")
+    object NoSpeechHeard : DictationError(UiMessage(R.string.dictation_no_speech))
 
-    object Network : DictationError("Dictation needs a connection right now.")
+    object Network : DictationError(UiMessage(R.string.dictation_network))
 
-    class EngineFailure(detail: String) : DictationError(
-        if (detail.isBlank()) "Dictation stopped unexpectedly." else "Dictation failed: $detail",
-    )
+    class EngineFailure(detail: String) :
+        DictationError(
+            // US-2976: the engine's text is an ARGUMENT, not a `detail` override.
+            // "Dictation failed: X" is our sentence WRAPPING the engine's words,
+            // and the wrapper translates even though X does not.
+            if (detail.isBlank()) {
+                UiMessage(R.string.dictation_stopped)
+            } else {
+                UiMessage(R.string.dictation_failed_detail, args = listOf(detail))
+            },
+        )
 
     /** Only permission failures are Settings-recoverable (the iOS US-1201 split). */
     val isSettingsRecoverable: Boolean get() = this is MicrophonePermissionDenied

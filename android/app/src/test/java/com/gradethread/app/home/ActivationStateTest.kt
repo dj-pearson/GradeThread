@@ -2,8 +2,10 @@ package com.gradethread.app.home
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 /**
  * US-1370 AC2 / US-647: the activation checklist's visibility rules.
@@ -63,7 +65,26 @@ class ActivationStateTest {
     fun stepCopyIsValueFramedNotMechanical() {
         // US-647: the row explains WHY before the OS asks, which is the
         // difference between a considered yes and a reflexive no.
-        assertTrue(ActivationStep.NOTIFICATIONS.subtitle.contains("sells"))
-        assertTrue(ActivationStep.CONNECT_EBAY.subtitle.isNotBlank())
+        //
+        // US-2976: the copy is in strings.xml now, so this reads the XML in
+        // BOTH locales. Asserting the resource id instead would prove a
+        // subtitle exists and nothing about what it says - and a translator
+        // who wrote "Activa las notificaciones" for the subtitle would have
+        // dropped the US-647 claim with every test still green.
+        //
+        // The test working directory is app/, not android/.
+        for ((dir, sells) in listOf("values" to "sells", "values-es" to "venda")) {
+            val xml = File("src/main/res/$dir/strings.xml").readText()
+            val subtitle = value(xml, "activation_notifications_subtitle")
+            assertTrue("$dir says nothing about selling: $subtitle", subtitle.contains(sells))
+            assertTrue(dir, value(xml, "activation_connect_ebay_subtitle").isNotBlank())
+        }
+    }
+
+    /** The body of one `<string name="…">` from a strings.xml. */
+    private fun value(xml: String, name: String): String {
+        val line = xml.lines().firstOrNull { it.contains("\"$name\"") }
+        assertNotNull("missing $name", line)
+        return line!!.substringAfter(">").substringBefore("</string>")
     }
 }

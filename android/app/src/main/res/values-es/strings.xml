@@ -2750,4 +2750,16 @@
     </plurals>
     <string name="import_error_signed_out">Has cerrado sesi&#243;n: inicia sesi&#243;n y vuelve a intentarlo.</string>
     <string name="import_error_row_not_saved">No se pudo guardar esta fila</string>
+    <string name="activation_add_item_title">A&#241;ade tu primer art&#237;culo</string>
+    <string name="activation_add_item_subtitle">Haz unas fotos y deja que la IA lo cataloge.</string>
+    <string name="activation_connect_ebay_title">Conecta eBay</string>
+    <string name="activation_connect_ebay_subtitle">Sincroniza tus anuncios, pedidos y pagos.</string>
+    <string name="activation_step_notifications_title">Activa las notificaciones</string>
+    <string name="activation_notifications_subtitle">Ent&#233;rate en cuanto se venda algo o llegue un pago.</string>
+    <string name="dictation_mic_denied">El acceso al micr&#243;fono est&#225; desactivado. Act&#237;valo en Ajustes para dictar notas.</string>
+    <string name="dictation_unavailable">El reconocimiento de voz no est&#225; disponible en este dispositivo.</string>
+    <string name="dictation_no_speech">No te he entendido &#8212; int&#233;ntalo otra vez.</string>
+    <string name="dictation_network">El dictado necesita conexi&#243;n ahora mismo.</string>
+    <string name="dictation_stopped">El dictado se ha detenido de forma inesperada.</string>
+    <string name="dictation_failed_detail">El dictado ha fallado: %1$s</string>
 </resources>

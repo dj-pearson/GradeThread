@@ -15,6 +15,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.gradethread.app.ui.text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -48,6 +49,9 @@ fun NotesFieldWithDictation(
     dictation: DictationCallbacks,
     modifier: Modifier = Modifier,
 ) {
+    // US-2976: `context` also renders the dictation error below.
+    // LaunchedEffect is not a composable scope, so that one goes through
+    // UiMessage.text(context) rather than the composable renderer.
     val context = LocalContext.current
     val controller = remember { DictationController(context) }
     val available = remember { controller.isAvailable() }
@@ -82,7 +86,7 @@ fun NotesFieldWithDictation(
                     dictation.transcript(s.transcript, false)
                 }
             is DictationController.State.Failed -> {
-                dictation.error(s.error.message)
+                dictation.error(s.error.message.text(context))
                 dictation.end()
             }
             DictationController.State.Idle -> Unit

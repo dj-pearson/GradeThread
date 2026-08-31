@@ -1,5 +1,8 @@
 package com.gradethread.app.home
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 /**
  * US-1370 AC2 / US-647: what the activation checklist shows, and when.
  *
@@ -39,29 +42,34 @@ data class ActivationState(
 }
 
 data class ActivationStep(
+    /**
+     * ⚠ WIRE, NOT DISPLAY. [id] is persisted in DataStore and switched on by
+     * HomeScreen to decide what a tap does. Translating it would route a
+     * Spanish seller's tap nowhere.
+     */
     val id: String,
-    val title: String,
-    val subtitle: String,
+    @StringRes val title: Int,
+    @StringRes val subtitle: Int,
     val done: Boolean = false,
 ) {
     companion object {
         val ADD_ITEM = ActivationStep(
             id = "add_item",
-            title = "Add your first item",
-            subtitle = "Snap a few photos and let AI catalog it.",
+            title = R.string.activation_add_item_title,
+            subtitle = R.string.activation_add_item_subtitle,
         )
         val CONNECT_EBAY = ActivationStep(
             id = "connect_ebay",
-            title = "Connect eBay",
-            subtitle = "Sync your listings, orders and payouts.",
+            title = R.string.activation_connect_ebay_title,
+            subtitle = R.string.activation_connect_ebay_subtitle,
         )
         val NOTIFICATIONS = ActivationStep(
             id = "notifications",
             // Value-framed, per US-647: the copy explains WHY before Android
             // shows the system dialog, which is the difference between a
             // considered yes and a reflexive no.
-            title = "Turn on notifications",
-            subtitle = "Know the moment something sells or a payout lands.",
+            title = R.string.activation_step_notifications_title,
+            subtitle = R.string.activation_notifications_subtitle,
         )
     }
 }

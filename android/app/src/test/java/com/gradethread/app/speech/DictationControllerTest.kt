@@ -1,14 +1,16 @@
 package com.gradethread.app.speech
 
 import android.content.Context
-import android.speech.SpeechRecognizer
 import androidx.test.core.app.ApplicationProvider
+import com.gradethread.app.ui.text
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+
+import android.speech.SpeechRecognizer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.robolectric.RobolectricTestRunner
 
 /**
  * US-1331: the dictation lifecycle and error taxonomy. Robolectric supplies
@@ -18,8 +20,9 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class DictationControllerTest {
 
-    private fun controller() =
-        DictationController(ApplicationProvider.getApplicationContext<Context>())
+    private val context = ApplicationProvider.getApplicationContext<Context>()
+
+    private fun controller() = DictationController(context)
 
     @Test
     fun stopIsIdempotent_whenNeverStarted() {
@@ -106,8 +109,18 @@ class DictationControllerTest {
             DictationError.EngineFailure(""),
             DictationError.EngineFailure("boom"),
         )
-        for (e in errors) assertTrue(e.message.isNotBlank())
+        // US-2976: RENDERED, not asserted as resource ids. "carries a non-empty
+        // message" is a claim about what a seller reads, and an id is non-empty
+        // whether or not the resource behind it says anything.
+        for (e in errors) assertTrue(e.message.text(context).isNotBlank())
         // A blank detail must not produce a dangling "Dictation failed: ".
-        assertEquals("Dictation stopped unexpectedly.", DictationError.EngineFailure("").message)
+        assertEquals(
+            "Dictation stopped unexpectedly.",
+            DictationError.EngineFailure("").message.text(context),
+        )
+        assertEquals(
+            "Dictation failed: boom",
+            DictationError.EngineFailure("boom").message.text(context),
+        )
     }
 }

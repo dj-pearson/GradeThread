@@ -55,9 +55,8 @@ object PlayPurchaseRules {
      * paid yet, and verifying one just produces a failure the buyer can't act
      * on. Play delivers the completed purchase later.
      */
-    fun redeemable(purchase: PlayPurchase): Boolean =
-        purchase.state == PlayPurchaseState.PURCHASED &&
-            productType(purchase.productId) != null
+    fun redeemable(purchase: PlayPurchase): Boolean = purchase.state == PlayPurchaseState.PURCHASED &&
+        productType(purchase.productId) != null
 
     // ── What a failed verify actually means ──────────────────────────────────
 

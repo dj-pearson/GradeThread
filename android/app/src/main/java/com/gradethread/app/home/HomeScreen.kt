@@ -528,10 +528,11 @@ private fun ChecklistCard(state: ActivationState, onDismiss: () -> Unit, onStep:
             state.steps.forEach { step ->
                 // "Done" is spoken as part of the step, not left to the tick
                 // glyph — a checkmark drawn in a Canvas says nothing out loud.
+                val stepTitle = stringResource(step.title)
                 val spokenStep = if (step.done) {
-                    stringResource(R.string.home_step_done_spoken, step.title)
+                    stringResource(R.string.home_step_done_spoken, stepTitle)
                 } else {
-                    step.title
+                    stepTitle
                 }
                 Row(
                     Modifier
@@ -543,7 +544,7 @@ private fun ChecklistCard(state: ActivationState, onDismiss: () -> Unit, onStep:
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            step.title,
+                            stepTitle,
                             style = MaterialTheme.typography.bodyMedium,
                             // Strikethrough AND the spoken ", done" above —
                             // never a visual-only completion cue.
@@ -551,7 +552,7 @@ private fun ChecklistCard(state: ActivationState, onDismiss: () -> Unit, onStep:
                         )
                         if (!step.done) {
                             Text(
-                                step.subtitle,
+                                stringResource(step.subtitle),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
