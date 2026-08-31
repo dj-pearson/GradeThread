@@ -2629,4 +2629,17 @@
         <item quantity="one">%1$d de %2$d eslab&#243;n est&#225; verificado de forma independiente.</item>
         <item quantity="other">%1$d de %2$d eslabones est&#225;n verificados de forma independiente.</item>
     </plurals>
+    <string name="perf_untitled_listing">Anuncio sin t&#237;tulo</string>
+    <string name="perf_sort_views">Visitas</string>
+    <string name="perf_sort_watchers">Seguidores</string>
+    <string name="perf_sort_impressions">Impresiones (7 d)</string>
+    <string name="perf_sort_ctr">Clics por impresi&#243;n</string>
+    <string name="perf_sort_days_listed">D&#237;as publicado</string>
+    <string name="perf_sort_title">T&#237;tulo</string>
+    <string name="perf_no_listings">A&#250;n no hay anuncios activos de eBay con datos.</string>
+    <string name="perf_summary_stale">%1$s &#183; %2$d sin visitas tras dos semanas</string>
+    <plurals name="perf_active_listings">
+        <item quantity="one">%1$d anuncio activo &#183; %2$d visitas en total</item>
+        <item quantity="other">%1$d anuncios activos &#183; %2$d visitas en total</item>
+    </plurals>
 </resources>

@@ -1,5 +1,7 @@
 package com.gradethread.app.analytics
 
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -109,8 +111,14 @@ class ListingPerformanceTest {
     @Test
     fun `title sorts alphabetically and ignores case`() {
         val rows = listOf(row("a", title = "zebra"), row("b", title = "Apple"), row("c", title = null))
+        // US-2976: UNTITLED ROWS NOW GROUP FIRST rather than sorting under the
+        // placeholder's own first letter. The old order put "c" between Apple
+        // and zebra because "Untitled listing" starts with a U - which means
+        // the same three listings sorted DIFFERENTLY in Spanish, where the
+        // placeholder is "Anuncio sin titulo" and starts with an A. Grouping
+        // them is the same order in every language.
         assertEquals(
-            listOf("b", "c", "a"),
+            listOf("c", "b", "a"),
             ListingPerformance.resolve(
                 rows,
                 ListingPerformanceSort.TITLE,
@@ -147,19 +155,30 @@ class ListingPerformanceTest {
     @Test
     fun `the summary says how many listings are going nowhere`() {
         assertEquals(
-            "No active eBay listings with metrics yet.",
-            ListingPerformance.summary(emptyList(), now),
+            R.string.perf_no_listings,
+            ListingPerformance.summary(emptyList(), now).res,
         )
-        assertEquals(
-            "1 active listing · 12 total views",
-            ListingPerformance.summary(listOf(row("a", views = 12)), now),
+
+        // Nothing stale: the plural stands alone, with no empty clause after.
+        val clean = ListingPerformance.summary(listOf(row("a", views = 12)), now)
+        assertEquals(R.plurals.perf_active_listings, clean.res)
+        assertEquals(listOf<Any>(1, 12), clean.args)
+        assertEquals(1, clean.quantity)
+
+        // US-2976: the count line NESTS inside the stale line. Listings first,
+        // views second - reversed, "12 active listings · 2 total views" is a
+        // different and much worse week.
+        val stale = ListingPerformance.summary(
+            listOf(row("a", views = 12), row("b", views = 0, listedDaysAgo = 30)),
+            now,
         )
+        assertEquals(R.string.perf_summary_stale, stale.res)
         assertEquals(
-            "2 active listings · 12 total views · 1 with no views after two weeks",
-            ListingPerformance.summary(
-                listOf(row("a", views = 12), row("b", views = 0, listedDaysAgo = 30)),
-                now,
+            listOf<Any>(
+                UiMessage(R.plurals.perf_active_listings, args = listOf(2, 12), quantity = 2),
+                1,
             ),
+            stale.args,
         )
     }
 }

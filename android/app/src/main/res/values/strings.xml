@@ -2763,4 +2763,17 @@
         <item quantity="one">%1$d of %2$d link is independently verified.</item>
         <item quantity="other">%1$d of %2$d links are independently verified.</item>
     </plurals>
+    <string name="perf_untitled_listing">Untitled listing</string>
+    <string name="perf_sort_views">Views</string>
+    <string name="perf_sort_watchers">Watchers</string>
+    <string name="perf_sort_impressions">Impressions (7d)</string>
+    <string name="perf_sort_ctr">Click-through</string>
+    <string name="perf_sort_days_listed">Days listed</string>
+    <string name="perf_sort_title">Title</string>
+    <string name="perf_no_listings">No active eBay listings with metrics yet.</string>
+    <string name="perf_summary_stale">%1$s &#183; %2$d with no views after two weeks</string>
+    <plurals name="perf_active_listings">
+        <item quantity="one">%1$d active listing &#183; %2$d total views</item>
+        <item quantity="other">%1$d active listings &#183; %2$d total views</item>
+    </plurals>
 </resources>

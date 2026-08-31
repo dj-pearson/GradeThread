@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
 import com.gradethread.app.money.Money
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -100,7 +101,7 @@ fun ListingPerformanceContent(
             style = MaterialTheme.typography.titleLarge,
         )
         Text(
-            state.summary,
+            state.summary.text(),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -135,12 +136,18 @@ fun ListingPerformanceContent(
                         Text(
                             if (option == state.sort) {
                                 if (state.ascending) {
-                                    stringResource(R.string.perf_sort_ascending, option.label)
+                                    stringResource(
+                                        R.string.perf_sort_ascending,
+                                        stringResource(option.label),
+                                    )
                                 } else {
-                                    stringResource(R.string.perf_sort_descending, option.label)
+                                    stringResource(
+                                        R.string.perf_sort_descending,
+                                        stringResource(option.label),
+                                    )
                                 }
                             } else {
-                                option.label
+                                stringResource(option.label)
                             },
                         )
                     },
@@ -225,7 +232,7 @@ private fun PerformanceCard(row: ListingPerformanceRow, nowMs: Long, onOpenItem:
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
         Text(
-            row.displayTitle,
+            row.displayTitle.text(),
             style = MaterialTheme.typography.bodyLarge,
             fontWeight = FontWeight.Medium,
             maxLines = 2,

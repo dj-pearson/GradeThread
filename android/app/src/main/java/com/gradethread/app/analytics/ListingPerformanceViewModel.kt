@@ -2,6 +2,7 @@ package com.gradethread.app.analytics
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.platform.net.EdgeApiError
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,9 +20,7 @@ import javax.inject.Inject
  * than pretending to be offline-capable like the charts are.
  */
 @HiltViewModel
-class ListingPerformanceViewModel @Inject constructor(
-    private val service: ListingPerformanceProviding,
-) : ViewModel() {
+class ListingPerformanceViewModel @Inject constructor(private val service: ListingPerformanceProviding) : ViewModel() {
 
     data class State(
         val rows: List<ListingPerformanceRow> = emptyList(),
@@ -39,7 +38,7 @@ class ListingPerformanceViewModel @Inject constructor(
         val visible: List<ListingPerformanceRow>
             get() = ListingPerformance.resolve(rows, sort, ascending, noViewDays, nowMs)
 
-        val summary: String get() = ListingPerformance.summary(rows, nowMs)
+        val summary: UiMessage get() = ListingPerformance.summary(rows, nowMs)
     }
 
     private val _state = MutableStateFlow(State())
