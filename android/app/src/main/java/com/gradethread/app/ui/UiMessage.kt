@@ -52,6 +52,11 @@ data class UiMessage(
 @Composable
 fun UiMessage.text(): String {
     detail?.let { return it }
-    val count = quantity ?: return stringResource(res, *args.toTypedArray())
-    return pluralStringResource(res, count, *args.toTypedArray())
+    // US-2976: an argument may itself be a UiMessage - "Measure: %1$s"
+    // wraps a measurement name that is a resource in its own right, and
+    // which of the two is the fallback differs per key. `map` is inline,
+    // so the nested text() stays in a composable scope.
+    val resolved = args.map { if (it is UiMessage) it.text() else it }.toTypedArray()
+    val count = quantity ?: return stringResource(res, *resolved)
+    return pluralStringResource(res, count, *resolved)
 }

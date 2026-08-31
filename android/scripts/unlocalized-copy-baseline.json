@@ -25,7 +25,6 @@
     "billing/SubscriptionService.kt": 2,
     "capture/BarcodeAnalyzer.kt": 3,
     "capture/CapturePublisher.kt": 1,
-    "capture/FlipdeskPhotoType.kt": 36,
     "capture/PhotoProfile.kt": 53,
     "consignment/ConsignmentReport.kt": 2,
     "consignment/ConsignorService.kt": 2,

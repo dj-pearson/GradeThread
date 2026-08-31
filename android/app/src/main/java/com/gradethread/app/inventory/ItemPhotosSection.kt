@@ -43,6 +43,7 @@ import com.gradethread.app.capture.FlipdeskPhotoType
 import com.gradethread.app.capture.PhotoImport
 import com.gradethread.app.capture.PhotoProfile
 import com.gradethread.app.sync.db.ItemPhotoEntity
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 
@@ -134,7 +135,9 @@ fun ItemPhotosSection(
             Text(
                 stringResource(
                     R.string.photos_still_needed,
-                    missing.joinToString { it.label },
+                    // `map` is inline, so text() stays in a composable scope;
+                    // joinToString is not.
+                    missing.map { it.label.text() }.joinToString(),
                 ),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
@@ -236,7 +239,7 @@ private fun PhotoTile(
     // US-2469: the seller-facing name for this (type, role) pair. This used to
     // be `photo.photoType` rendered raw, which is how a measured chest showed
     // up under the tile as the literal string `measurement_chest`.
-    val tagLabel = FlipdeskPhotoType.label(photo.photoType, photo.photoRole, profile)
+    val tagLabel = FlipdeskPhotoType.label(photo.photoType, photo.photoRole, profile).text()
     // Resolved out here: `semantics { }` is not a composable scope, so a
     // stringResource call inside it does not compile.
     val spoken = stringResource(
@@ -385,7 +388,7 @@ private fun RetagSectionHeader(text: String) {
 private fun RetagChoice(choice: PhotoTagOptions.Choice, current: String, onPick: () -> Unit) {
     val isCurrent = choice.slot == current
     DropdownMenuItem(
-        text = { Text(choice.label) },
+        text = { Text(choice.label.text()) },
         enabled = !isCurrent,
         trailingIcon = if (isCurrent) {
             { Text(stringResource(R.string.photos_retag_current)) }

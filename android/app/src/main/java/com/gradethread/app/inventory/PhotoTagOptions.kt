@@ -1,5 +1,6 @@
 package com.gradethread.app.inventory
 
+import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.capture.FlipdeskPhotoType
 import com.gradethread.app.capture.GarmentGroup
 import com.gradethread.app.capture.PhotoProfile
@@ -26,11 +27,7 @@ import com.gradethread.app.capture.PhotoRoleVocabulary
 object PhotoTagOptions {
 
     /** One choice. [slot] is the (type, role) identity, not the type. */
-    data class Choice(
-        val type: String,
-        val role: String?,
-        val label: String,
-    ) {
+    data class Choice(val type: String, val role: String?, val label: UiMessage) {
         val slot: String get() = PhotoProfile.slotKey(type, role)
     }
 
@@ -54,11 +51,7 @@ object PhotoTagOptions {
      * label is written for this category ("Sweatband" on a hat, not
      * "Interior / Lining"), so it wins over the catalog's generic name.
      */
-    fun build(
-        photoType: String,
-        photoRole: String?,
-        profile: PhotoProfile,
-    ): Menu {
+    fun build(photoType: String, photoRole: String?, profile: PhotoProfile): Menu {
         val current = PhotoProfile.slotKey(photoType, photoRole)
 
         // The profile's own slots, deduped by slot key. A profile is server
@@ -71,7 +64,9 @@ object PhotoTagOptions {
             if (FlipdeskPhotoType.isRetired(r.type)) continue
             val key = PhotoProfile.slotKey(r.type, r.role)
             if (!seen.add(key)) continue
-            suggested += Choice(r.type, r.role, r.label)
+            // The profile's wording is the server's, so it goes through as
+            // `detail`; the type's own resource sits behind it as the fallback.
+            suggested += Choice(r.type, r.role, FlipdeskPhotoType.label(r.type, r.role, profile))
         }
 
         // US-2461: "All types" enumerates ROLES, not bare types.
@@ -95,7 +90,7 @@ object PhotoTagOptions {
                 val roles = PhotoRoleVocabulary.rolesFor(type, group)
                 when {
                     roles.isNotEmpty() ->
-                        roles.asSequence().map { (key, label) -> Choice(type, key, label) }
+                        roles.asSequence().map { (key, res) -> Choice(type, key, UiMessage(res)) }
                     // `measurement` takes roles, but only the profile knows
                     // which — so it contributes whatever the profile suggested
                     // and never a bare, unqualified measurement (which is the
@@ -105,9 +100,11 @@ object PhotoTagOptions {
                 }
             }
             .filterNot { it.slot in seen }
-            .sortedBy { it.label.lowercase() }
             .toList()
 
+        // US-2976: the alphabetical sort MOVED to the screen. It ordered by the
+        // display text, and display text is now per-language - sorting the
+        // English here would hand a Spanish seller a menu in English order.
         val offered = seen + allTypes.map { it.slot }
         val orphan = if (current in offered) {
             null

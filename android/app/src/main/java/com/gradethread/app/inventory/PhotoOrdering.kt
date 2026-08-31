@@ -1,5 +1,6 @@
 package com.gradethread.app.inventory
 
+import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.capture.FlipdeskPhotoType
 import com.gradethread.app.capture.PhotoProfile
 import com.gradethread.app.sync.db.ItemPhotoEntity
@@ -90,12 +91,7 @@ object PhotoOrdering {
      * a profile's measurement roles through it returns null every time and
      * silently drops every measurement slot the garment asked for.
      */
-    data class Slot(
-        val type: String,
-        val role: String?,
-        val label: String,
-        val required: Boolean,
-    ) {
+    data class Slot(val type: String, val role: String?, val label: UiMessage, val required: Boolean) {
         val key: String get() = PhotoProfile.slotKey(type, role)
     }
 
@@ -149,8 +145,7 @@ object PhotoOrdering {
         return PhotoProfile.slotKey(photo.photoType, photo.photoRole)
     }
 
-    private fun filledSlotKeys(photos: List<ItemPhotoEntity>): Set<String> =
-        photos.map { slotKeyOf(it) }.toSet()
+    private fun filledSlotKeys(photos: List<ItemPhotoEntity>): Set<String> = photos.map { slotKeyOf(it) }.toSet()
 
     /**
      * The next sort_order for a newly added photo — the end of the list.
@@ -159,6 +154,5 @@ object PhotoOrdering {
      * never silently become the cover, because that would change the main
      * image of a live listing without anyone asking for it.
      */
-    fun nextSortOrder(photos: List<ItemPhotoEntity>): Int =
-        (photos.maxOfOrNull { it.sortOrder } ?: -1) + 1
+    fun nextSortOrder(photos: List<ItemPhotoEntity>): Int = (photos.maxOfOrNull { it.sortOrder } ?: -1) + 1
 }

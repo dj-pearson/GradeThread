@@ -1,6 +1,9 @@
 package com.gradethread.app.capture
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
 import com.gradethread.app.inventory.MeasurementCatalog
+import com.gradethread.app.ui.UiMessage
 
 /**
  * US-2469: the server-side `item_photos.photo_type` vocabulary — the Kotlin
@@ -93,40 +96,57 @@ object FlipdeskPhotoType {
      * a de-underscored capitalization so a new server type never renders as raw
      * snake_case — which is the specific bug this file exists to end.
      */
-    fun label(serverType: String): String = when (serverType) {
-        "front" -> "Front"
-        "back" -> "Back"
-        "tag" -> "Garment Tag"
-        "tag_2" -> "Garment Tag 2"
-        "detail" -> "Detail 1"
-        "detail_2" -> "Detail 2"
-        "detail_3" -> "Detail 3"
-        "detail_4" -> "Detail 4"
-        "interior" -> "Interior / Lining"
-        "defect" -> "Defect"
-        "flatlay" -> "Flat lay"
-        "on_model" -> "On model"
-        "on_hanger" -> "On hanger"
-        "set_pair" -> "Set / pair"
-        "angle" -> "Angle / Profile"
-        "sole" -> "Sole"
-        "marking" -> "Markings / Hallmark"
-        "serial" -> "Serial / Model"
-        "accessory" -> "Accessories / Box"
-        "certificate" -> "Certificate / Label"
-        "corner" -> "Corners"
-        "surface" -> "Surface / Centering"
-        "measurement" -> "Measurement card (not listed)"
-        "measurement_overlay" -> "Measurements photo (generated)"
-        "measurement_chest" -> "Measure: Chest / Bust"
-        "measurement_waist" -> "Measure: Waist"
-        "measurement_length" -> "Measure: Length"
-        "measurement_sleeve" -> "Measure: Sleeve"
-        "measurement_inseam" -> "Measure: Inseam"
-        "internal" -> "Internal (not listed)"
-        else -> serverType.split("_").joinToString(" ") { part ->
-            part.replaceFirstChar { it.uppercase() }
-        }
+    @StringRes
+    private fun labelRes(serverType: String): Int? = when (serverType) {
+        "front" -> R.string.photo_type_front
+        "back" -> R.string.photo_type_back
+        "tag" -> R.string.photo_type_tag
+        "tag_2" -> R.string.photo_type_tag_2
+        "detail" -> R.string.photo_type_detail
+        "detail_2" -> R.string.photo_type_detail_2
+        "detail_3" -> R.string.photo_type_detail_3
+        "detail_4" -> R.string.photo_type_detail_4
+        "interior" -> R.string.photo_type_interior
+        "defect" -> R.string.photo_type_defect
+        "flatlay" -> R.string.photo_type_flatlay
+        "on_model" -> R.string.photo_type_on_model
+        "on_hanger" -> R.string.photo_type_on_hanger
+        "set_pair" -> R.string.photo_type_set_pair
+        "angle" -> R.string.photo_type_angle
+        "sole" -> R.string.photo_type_sole
+        "marking" -> R.string.photo_type_marking
+        "serial" -> R.string.photo_type_serial
+        "accessory" -> R.string.photo_type_accessory
+        "certificate" -> R.string.photo_type_certificate
+        "corner" -> R.string.photo_type_corner
+        "surface" -> R.string.photo_type_surface
+        "measurement" -> R.string.photo_type_measurement
+        "measurement_overlay" -> R.string.photo_type_measurement_overlay
+        "measurement_chest" -> R.string.photo_type_measurement_chest
+        "measurement_waist" -> R.string.photo_type_measurement_waist
+        "measurement_length" -> R.string.photo_type_measurement_length
+        "measurement_sleeve" -> R.string.photo_type_measurement_sleeve
+        "measurement_inseam" -> R.string.photo_type_measurement_inseam
+        "internal" -> R.string.photo_type_internal
+        else -> null
+    }
+
+    /**
+     * What a stored server photo type is called on screen.
+     *
+     * US-2976: a type this build has never seen still renders as words rather
+     * than as `made_in`, and that derived name arrives as `detail` - it came
+     * off the wire and is not ours to translate.
+     */
+    fun label(serverType: String): UiMessage {
+        val res = labelRes(serverType)
+            ?: return UiMessage(
+                R.string.photo_type_unknown,
+                detail = serverType.split("_").joinToString(" ") { part ->
+                    part.replaceFirstChar { it.uppercase() }
+                },
+            )
+        return UiMessage(res)
     }
 
     /**
@@ -139,9 +159,13 @@ object FlipdeskPhotoType {
      * picker prefers the profile's label ("Sweatband" on a hat, not
      * "Interior / Lining").
      */
-    fun label(serverType: String, role: String?, profile: PhotoProfile? = null): String {
+    fun label(serverType: String, role: String?, profile: PhotoProfile? = null): UiMessage {
         val match = profile?.roleFor(serverType, role)
-        if (match != null && match.role == role) return match.label
+        // The profile's wording comes from the server, so it is `detail` and is
+        // shown exactly as it arrived; the type's own resource sits behind it.
+        if (match != null && match.role == role) {
+            return UiMessage(labelRes(serverType) ?: R.string.photo_type_unknown, match.label)
+        }
         if (!role.isNullOrEmpty()) {
             return PhotoRoleVocabulary.label(serverType, role) ?: label(serverType)
         }
@@ -160,25 +184,25 @@ object FlipdeskPhotoType {
  */
 object PhotoRoleVocabulary {
 
-    val tagRoles: List<Pair<String, String>> = listOf(
-        "brand" to "Brand label",
-        "size" to "Size tag",
-        "care" to "Care & fabric",
-        "made_in" to "Made in / union label",
-        "size_alt" to "Trouser size tag",
+    val tagRoles: List<Pair<String, Int>> = listOf(
+        "brand" to R.string.photo_role_tag_brand,
+        "size" to R.string.photo_role_tag_size,
+        "care" to R.string.photo_role_tag_care,
+        "made_in" to R.string.photo_role_tag_made_in,
+        "size_alt" to R.string.photo_role_tag_size_alt,
     )
 
-    val detailRoles: List<Pair<String, String>> = listOf(
-        "fabric" to "Fabric close-up",
-        "hem" to "Hem & stitching",
-        "hardware" to "Hardware",
-        "pocket" to "Pocket",
-        "print" to "Print or graphic",
-        "collar" to "Collar or cuff",
-        "handles" to "Handles & straps",
-        "base" to "Base",
-        "ends_edges" to "Ends & edges",
-        "insole" to "Insole",
+    val detailRoles: List<Pair<String, Int>> = listOf(
+        "fabric" to R.string.photo_role_detail_fabric,
+        "hem" to R.string.photo_role_detail_hem,
+        "hardware" to R.string.photo_role_detail_hardware,
+        "pocket" to R.string.photo_role_detail_pocket,
+        "print" to R.string.photo_role_detail_print,
+        "collar" to R.string.photo_role_detail_collar,
+        "handles" to R.string.photo_role_detail_handles,
+        "base" to R.string.photo_role_detail_base,
+        "ends_edges" to R.string.photo_role_detail_ends_edges,
+        "insole" to R.string.photo_role_detail_insole,
     )
 
     /**
@@ -186,12 +210,20 @@ object PhotoRoleVocabulary {
      * server, so their keys are measurement field keys. Labelled from the shared
      * catalog rather than a second hand-maintained list.
      */
-    fun label(type: String, role: String): String? = when (type) {
-        "tag" -> tagRoles.firstOrNull { it.first == role }?.second
-        "detail" -> detailRoles.firstOrNull { it.first == role }?.second
+    fun label(type: String, role: String): UiMessage? = when (type) {
+        "tag" -> tagRoles.firstOrNull { it.first == role }?.second?.let { UiMessage(it) }
+        "detail" -> detailRoles.firstOrNull { it.first == role }?.second?.let { UiMessage(it) }
         // MeasurementCatalog already de-underscores unknown keys, so a role the
         // app has never seen still reads as words.
-        "measurement" -> "Measure: ${MeasurementCatalog.label(role)}"
+        //
+        // US-2976: `display`, not `label`. The wire label is what gets drawn
+        // into the buyer-facing overlay; this is what the SELLER reads, and it
+        // nests inside "Measure: %1$s" as a message in its own right.
+        "measurement" -> UiMessage(
+            R.string.photo_role_measure,
+            args = listOf(MeasurementCatalog.display(role)),
+        )
+
         else -> null
     }
 
@@ -225,7 +257,7 @@ object PhotoRoleVocabulary {
      * duplicating the template table on a third client would just create a way
      * for the two to disagree.
      */
-    fun rolesFor(type: String, group: GarmentGroup): List<Pair<String, String>> = when (type) {
+    fun rolesFor(type: String, group: GarmentGroup): List<Pair<String, Int>> = when (type) {
         "tag" -> (baseTagRoleKeys + (tagRoleKeysByGroup[group] ?: emptyList()))
             .mapNotNull { key -> tagRoles.firstOrNull { it.first == key } }
         "detail" -> (baseDetailRoleKeys + (detailRoleKeysByGroup[group] ?: emptyList()))
@@ -234,6 +266,5 @@ object PhotoRoleVocabulary {
     }
 
     /** True when [type] carries a qualifier at all — mirrors `typeTakesRole`. */
-    fun takesRole(type: String): Boolean =
-        type == "tag" || type == "detail" || type == "measurement"
+    fun takesRole(type: String): Boolean = type == "tag" || type == "detail" || type == "measurement"
 }

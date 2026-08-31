@@ -43,12 +43,8 @@ class PhotoOrderingTest {
         photo("tag", "tag", 2),
     )
 
-    private fun role(
-        type: String,
-        label: String,
-        role: String? = null,
-        required: Boolean = false,
-    ) = PhotoRole(type, label, "", required = required, icon = "x", role = role)
+    private fun role(type: String, label: String, role: String? = null, required: Boolean = false) =
+        PhotoRole(type, label, "", required = required, icon = "x", role = role)
 
     /**
      * A small four-slot clothing profile: front, back, one bare tag, one bare
@@ -221,14 +217,17 @@ class PhotoOrderingTest {
         // is the canvas hint, and grading needs front, back, label and at
         // least one detail. It was under-reporting.
         val onlyFront = listOf(photo("front", "front", 0))
+        // US-2976: the profile names these slots, so the wording is the
+        // server's and rides as `detail`. WHICH slots are missing is what the
+        // test is for, and that is unchanged.
         assertEquals(
             listOf("Back", "Garment Tag", "Detail"),
-            PhotoOrdering.missingRequiredSlots(onlyFront, clothing).map { it.label },
+            PhotoOrdering.missingRequiredSlots(onlyFront, clothing).map { it.label.detail },
         )
         // The front+back+tag strip still owes a detail shot.
         assertEquals(
             listOf("Detail"),
-            PhotoOrdering.missingRequiredSlots(strip, clothing).map { it.label },
+            PhotoOrdering.missingRequiredSlots(strip, clothing).map { it.label.detail },
         )
         assertTrue(
             PhotoOrdering.missingRequiredSlots(

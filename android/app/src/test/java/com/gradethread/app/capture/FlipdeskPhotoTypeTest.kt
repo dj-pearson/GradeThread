@@ -1,5 +1,8 @@
 package com.gradethread.app.capture
 
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -18,10 +21,14 @@ class FlipdeskPhotoTypeTest {
     fun `no server type renders as snake_case`() {
         // The bug this file exists to end. Every catalogued type must have a
         // label, and it must not be the wire value with underscores in it.
+        // US-2976: a catalogued type must resolve to a RESOURCE, not to the
+        // derived fallback. `detail` being non-null is what says the lookup
+        // missed - it is the wire value tidied up, which is exactly the
+        // snake_case leak this test was written to end.
         for (t in FlipdeskPhotoType.all) {
             val label = FlipdeskPhotoType.label(t)
-            assertFalse("$t rendered as snake_case: $label", label.contains('_'))
-            assertTrue("$t has no label", label.isNotBlank())
+            assertNull("$t fell through to the derived fallback", label.detail)
+            assertNotEquals("$t has no label", R.string.photo_type_unknown, label.res)
         }
     }
 
@@ -29,25 +36,50 @@ class FlipdeskPhotoTypeTest {
     fun `a type the app has never seen still reads as words`() {
         // New types ship from the server without a Play Store release, so the
         // fallback is load-bearing rather than defensive.
-        assertEquals("Provenance Card", FlipdeskPhotoType.label("provenance_card"))
+        val unknown = FlipdeskPhotoType.label("provenance_card")
+        assertEquals(R.string.photo_type_unknown, unknown.res)
+        // The derived name is `detail`: it came off the wire, so it is shown
+        // exactly as derived and is not ours to translate.
+        assertEquals("Provenance Card", unknown.detail)
     }
 
     @Test
     fun `the role carries the meaning, the type is the fallback`() {
         // A `detail` with role 'fabric' is a Fabric close-up, not "Detail 1".
-        assertEquals("Fabric close-up", FlipdeskPhotoType.label("detail", "fabric"))
-        assertEquals("Size tag", FlipdeskPhotoType.label("tag", "size"))
-        assertEquals("Detail 1", FlipdeskPhotoType.label("detail", null))
+        assertEquals(
+            R.string.photo_role_detail_fabric,
+            FlipdeskPhotoType.label("detail", "fabric").res,
+        )
+        assertEquals(R.string.photo_role_tag_size, FlipdeskPhotoType.label("tag", "size").res)
+        assertEquals(R.string.photo_type_detail, FlipdeskPhotoType.label("detail", null).res)
         // An unknown role falls back to the type rather than vanishing.
-        assertEquals("Detail 1", FlipdeskPhotoType.label("detail", "no_such_role"))
+        assertEquals(
+            R.string.photo_type_detail,
+            FlipdeskPhotoType.label("detail", "no_such_role").res,
+        )
     }
 
     @Test
     fun `measurement roles are labelled from the shared catalog`() {
-        assertEquals("Measure: Chest (pit to pit)", FlipdeskPhotoType.label("measurement", "chest"))
+        // US-2976: "Measure: %1$s" wrapping a measurement name that is a
+        // message in its own right. The nested one is resolved by text().
+        val chest = FlipdeskPhotoType.label("measurement", "chest")
+        assertEquals(R.string.photo_role_measure, chest.res)
+        assertEquals(
+            listOf<Any>(UiMessage(R.string.measurement_chest)),
+            chest.args,
+        )
+
         // A measurement key the catalog has never seen de-underscores rather
-        // than rendering raw — MeasurementCatalog already guarantees this.
-        assertEquals("Measure: Cuff Opening", FlipdeskPhotoType.label("measurement", "cuff_opening"))
+        // than rendering raw - MeasurementCatalog already guarantees this, and
+        // the derived name rides as `detail` on the nested message.
+        val unknown = FlipdeskPhotoType.label("measurement", "cuff_opening")
+        assertEquals(
+            listOf<Any>(
+                UiMessage(R.string.measurement_unknown, detail = "Cuff Opening"),
+            ),
+            unknown.args,
+        )
     }
 
     @Test
@@ -61,9 +93,12 @@ class FlipdeskPhotoTypeTest {
                 PhotoRole("interior", "Sweatband", "Inside the band", required = false, icon = "layers"),
             ),
         )
-        assertEquals("Sweatband", FlipdeskPhotoType.label("interior", null, hat))
+        // The profile's wording is the server's, so it arrives as `detail`.
+        assertEquals("Sweatband", FlipdeskPhotoType.label("interior", null, hat).detail)
         // A profile that does not cover the pair does not override the catalog.
-        assertEquals("Sole", FlipdeskPhotoType.label("sole", null, hat))
+        val sole = FlipdeskPhotoType.label("sole", null, hat)
+        assertEquals(R.string.photo_type_sole, sole.res)
+        assertNull(sole.detail)
     }
 
     @Test
@@ -77,8 +112,8 @@ class FlipdeskPhotoTypeTest {
                 PhotoRole("tag", "Trouser size tag", "", required = false, icon = "tag", role = "size_alt"),
             ),
         )
-        assertEquals("Trouser size tag", FlipdeskPhotoType.label("tag", "size_alt", suit))
-        assertEquals("Brand label", FlipdeskPhotoType.label("tag", "brand", suit))
+        assertEquals("Trouser size tag", FlipdeskPhotoType.label("tag", "size_alt", suit).detail)
+        assertEquals("Brand label", FlipdeskPhotoType.label("tag", "brand", suit).detail)
         // roleForServerType keys on the type alone and so picks the FIRST of
         // the three — which is exactly why roleFor exists.
         assertEquals("Brand label", suit.roleForServerType("tag")?.label)
@@ -92,7 +127,10 @@ class FlipdeskPhotoTypeTest {
         assertTrue(FlipdeskPhotoType.isRetired("measurement_chest"))
         assertTrue(FlipdeskPhotoType.isRetired("tag_2"))
         assertFalse(FlipdeskPhotoType.isRetired("tag"))
-        assertEquals("Measure: Chest / Bust", FlipdeskPhotoType.label("measurement_chest"))
+        assertEquals(
+            R.string.photo_type_measurement_chest,
+            FlipdeskPhotoType.label("measurement_chest").res,
+        )
         assertEquals(("measurement" to "chest"), FlipdeskPhotoType.retired["measurement_chest"])
         assertEquals(("tag" to null), FlipdeskPhotoType.retired["tag_2"])
     }
@@ -134,6 +172,6 @@ class FlipdeskPhotoTypeTest {
     @Test
     fun `an unknown type with a role does not invent a label`() {
         assertNull(PhotoRoleVocabulary.label("front", "anything"))
-        assertEquals("Front", FlipdeskPhotoType.label("front", "anything"))
+        assertEquals(R.string.photo_type_front, FlipdeskPhotoType.label("front", "anything").res)
     }
 }

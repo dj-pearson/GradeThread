@@ -2,6 +2,7 @@ package com.gradethread.app.inventory
 
 import com.gradethread.app.capture.PhotoProfile
 import com.gradethread.app.capture.PhotoRole
+import com.gradethread.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -58,23 +59,27 @@ class PhotoTagOptionsTest {
         // shoots in, so the next tag they want is the next one down. Sorting it
         // would put "Back" above "Front".
         val menu = PhotoTagOptions.build("front", null, suit)
+        // US-2976: the profile's own wording, which is server data and rides as
+        // `detail`. The ORDER is what this test is about and it is unchanged.
         assertEquals(
             listOf("Front", "Back", "Brand label", "Size tag", "Trouser size tag"),
-            menu.suggested.take(5).map { it.label },
+            menu.suggested.take(5).map { it.label.detail },
         )
     }
 
     @Test
-    fun `all types is alphabetical and excludes what is already suggested`() {
+    fun `all types excludes what is already suggested`() {
+        // US-2976: the alphabetical assertion MOVED with the sort. Ordering
+        // followed the display text, and display text is per-language now, so
+        // the screen sorts after resolving and this object no longer can.
         val menu = PhotoTagOptions.build("front", null, suit)
-        val labels = menu.allTypes.map { it.label }
-        assertEquals(labels.sortedBy { it.lowercase() }, labels)
+        val res = menu.allTypes.map { it.label.res }
         val suggestedSlots = menu.suggested.map { it.slot }.toSet()
         assertTrue(menu.allTypes.none { it.slot in suggestedSlots })
         // Demoted, never removed: a type the profile does not suggest is still
         // reachable, just further down.
-        assertTrue("Sole" in labels)
-        assertTrue("Certificate / Label" in labels)
+        assertTrue(R.string.photo_type_sole in res)
+        assertTrue(R.string.photo_type_certificate in res)
     }
 
     @Test
@@ -105,7 +110,7 @@ class PhotoTagOptionsTest {
         // nothing selected and the seller cannot tell what they are changing FROM.
         val menu = PhotoTagOptions.build("measurement_chest", null, suit)
         assertNotNull(menu.orphan)
-        assertEquals("Measure: Chest / Bust", menu.orphan?.label)
+        assertEquals(R.string.photo_type_measurement_chest, menu.orphan?.label?.res)
         assertEquals("measurement_chest", menu.current)
     }
 
@@ -145,10 +150,10 @@ class PhotoTagOptionsTest {
         // name. The suit profile below suggests `detail:fabric` and three of the
         // four tag roles — so before this, "Hem & stitching" and "Made in /
         // union label" were unreachable on Android and reachable on web.
-        val labels = PhotoTagOptions.build("front", null, suit).allTypes.map { it.label }
-        assertTrue("Hem & stitching" in labels)
-        assertTrue("Hardware" in labels)
-        assertTrue("Made in / union label" in labels)
+        val res = PhotoTagOptions.build("front", null, suit).allTypes.map { it.label.res }
+        assertTrue(R.string.photo_role_detail_hem in res)
+        assertTrue(R.string.photo_role_detail_hardware in res)
+        assertTrue(R.string.photo_role_tag_made_in in res)
     }
 
     @Test
@@ -174,13 +179,13 @@ class PhotoTagOptionsTest {
             label = "Bags",
             roles = listOf(role("front", "Front")),
         )
-        val bagLabels = PhotoTagOptions.build("front", null, bag).allTypes.map { it.label }
-        assertTrue("Handles & straps" in bagLabels)
-        assertFalse("Trouser size tag" in bagLabels)
+        val bagRes = PhotoTagOptions.build("front", null, bag).allTypes.map { it.label.res }
+        assertTrue(R.string.photo_role_detail_handles in bagRes)
+        assertFalse(R.string.photo_role_tag_size_alt in bagRes)
 
-        val suitLabels = PhotoTagOptions.build("front", null, suit).allTypes.map { it.label }
-        assertFalse("Handles & straps" in suitLabels)
-        assertFalse("Insole" in suitLabels)
+        val suitRes = PhotoTagOptions.build("front", null, suit).allTypes.map { it.label.res }
+        assertFalse(R.string.photo_role_detail_handles in suitRes)
+        assertFalse(R.string.photo_role_detail_insole in suitRes)
     }
 
     @Test
