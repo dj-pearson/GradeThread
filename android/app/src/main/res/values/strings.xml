@@ -2673,4 +2673,16 @@
     <string name="auth_password_needs_lower">Password must include a lower-case letter.</string>
     <string name="auth_password_needs_upper">Password must include an upper-case letter.</string>
     <string name="auth_password_needs_digit">Password must include a number.</string>
+    <string name="support_subject_required">Give it a subject so we know what it\'s about.</string>
+    <string name="support_subject_too_long">That subject is too long &#8212; keep it under %1$d characters.</string>
+    <string name="support_body_required">Tell us what\'s happening.</string>
+    <string name="support_body_too_long">That\'s longer than we can send &#8212; keep it under %1$d characters.</string>
+    <string name="support_status_open">Open</string>
+    <string name="support_status_with_support">With support</string>
+    <string name="support_status_in_progress">Being worked on</string>
+    <string name="support_status_resolved">Resolved</string>
+    <string name="support_status_closed">Closed</string>
+    <string name="support_status_unknown">Support request</string>
+    <string name="support_reply_reopens">Replying will reopen this request.</string>
+    <string name="support_no_requests">No requests yet. Open one and we\'ll get back to you by email too.</string>
 </resources>

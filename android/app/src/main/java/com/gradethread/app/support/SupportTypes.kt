@@ -1,5 +1,9 @@
 package com.gradethread.app.support
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -36,22 +40,13 @@ data class SupportMessage(
 }
 
 @Serializable
-data class SupportThread(
-    val ticket: SupportTicket = SupportTicket(),
-    val messages: List<SupportMessage> = emptyList(),
-)
+data class SupportThread(val ticket: SupportTicket = SupportTicket(), val messages: List<SupportMessage> = emptyList())
 
 @Serializable
-data class CreatedTicket(
-    val ok: Boolean = false,
-    @SerialName("ticket_id") val ticketId: String? = null,
-)
+data class CreatedTicket(val ok: Boolean = false, @SerialName("ticket_id") val ticketId: String? = null)
 
 @Serializable
-data class RepliedTicket(
-    val ok: Boolean = false,
-    val status: String? = null,
-)
+data class RepliedTicket(val ok: Boolean = false, val status: String? = null)
 
 /**
  * US-1386: the rules the support surface runs on.
@@ -67,15 +62,25 @@ object Support {
     const val MAX_SUBJECT = 200
     const val MAX_BODY = 4000
 
-    fun subjectError(subject: String): String? = when {
-        subject.isBlank() -> "Give it a subject so we know what it's about."
-        subject.length > MAX_SUBJECT -> "That subject is too long — keep it under $MAX_SUBJECT characters."
+    /**
+     * US-2976: the two "too long" messages carry the CAP, which is the whole
+     * point of them - a limit the seller cannot see is one they cannot work to.
+     * It travels as an argument so a change to MAX_SUBJECT or MAX_BODY cannot
+     * leave the sentence quoting a number the server stopped enforcing.
+     */
+    fun subjectError(subject: String): UiMessage? = when {
+        subject.isBlank() -> UiMessage(R.string.support_subject_required)
+        subject.length > MAX_SUBJECT ->
+            UiMessage(R.string.support_subject_too_long, args = listOf(MAX_SUBJECT))
+
         else -> null
     }
 
-    fun bodyError(body: String): String? = when {
-        body.isBlank() -> "Tell us what's happening."
-        body.length > MAX_BODY -> "That's longer than we can send — keep it under $MAX_BODY characters."
+    fun bodyError(body: String): UiMessage? = when {
+        body.isBlank() -> UiMessage(R.string.support_body_required)
+        body.length > MAX_BODY ->
+            UiMessage(R.string.support_body_too_long, args = listOf(MAX_BODY))
+
         else -> null
     }
 
@@ -96,13 +101,20 @@ object Support {
      * server can add one, and quietly calling it open would tell a seller their
      * closed ticket is still being worked.
      */
-    fun statusLabel(status: String): String = when (status.lowercase()) {
-        "open" -> "Open"
-        "pending", "awaiting_support" -> "With support"
-        "in_progress" -> "Being worked on"
-        "resolved" -> "Resolved"
-        "closed" -> "Closed"
-        else -> status.replace('_', ' ').replaceFirstChar { it.uppercase() }
+    fun statusLabel(status: String): UiMessage = when (status.lowercase()) {
+        "open" -> UiMessage(R.string.support_status_open)
+        "pending", "awaiting_support" -> UiMessage(R.string.support_status_with_support)
+        "in_progress" -> UiMessage(R.string.support_status_in_progress)
+        "resolved" -> UiMessage(R.string.support_status_resolved)
+        "closed" -> UiMessage(R.string.support_status_closed)
+        // US-2976: a status the server added and this build has not been
+        // taught rides as `detail` - it is the server's own word, tidied up
+        // and shown untranslated, which still beats calling a closed ticket
+        // open.
+        else -> UiMessage(
+            R.string.support_status_unknown,
+            detail = status.replace('_', ' ').replaceFirstChar { it.uppercase() },
+        )
     }
 
     /**
@@ -111,11 +123,10 @@ object Support {
      * The server orders by activity alone, which buries an open ticket under a
      * pile of resolved ones the moment support closes a few in a batch.
      */
-    fun sorted(tickets: List<SupportTicket>): List<SupportTicket> =
-        tickets.sortedWith(
-            compareByDescending<SupportTicket> { isOpen(it) }
-                .thenByDescending { it.lastMessageAt ?: it.createdAt ?: "" },
-        )
+    fun sorted(tickets: List<SupportTicket>): List<SupportTicket> = tickets.sortedWith(
+        compareByDescending<SupportTicket> { isOpen(it) }
+            .thenByDescending { it.lastMessageAt ?: it.createdAt ?: "" },
+    )
 
     /**
      * What a reply will do to a resolved ticket.
@@ -124,13 +135,15 @@ object Support {
      * any user reply, and someone adding "thanks, that worked" deserves to know
      * they are about to put it back in the queue.
      */
-    fun replyReopensNotice(ticket: SupportTicket): String? =
+    @StringRes
+    fun replyReopensNotice(ticket: SupportTicket): Int? =
         if (ticket.status.lowercase() in setOf("resolved", "closed")) {
-            "Replying will reopen this request."
+            R.string.support_reply_reopens
         } else {
             null
         }
 
     /** The empty inbox, said in a way that offers the next step. */
-    const val EMPTY = "No requests yet. Open one and we'll get back to you by email too."
+    @StringRes
+    val EMPTY: Int = R.string.support_no_requests
 }

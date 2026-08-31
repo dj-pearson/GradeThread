@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -134,7 +135,7 @@ fun SupportContent(state: SupportViewModel.State, actions: SupportActions, modif
             }
 
             state.isEmpty -> Text(
-                Support.EMPTY,
+                stringResource(Support.EMPTY),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.cardStyle(),
@@ -173,7 +174,7 @@ private fun TicketRow(ticket: SupportTicket, onClick: () -> Unit) {
             fontWeight = FontWeight.Medium,
         )
         Text(
-            Support.statusLabel(ticket.status),
+            Support.statusLabel(ticket.status).text(),
             style = MaterialTheme.typography.bodySmall,
             color = if (Support.isOpen(ticket)) {
                 MaterialTheme.colorScheme.primary
@@ -203,7 +204,7 @@ private fun Composer(state: SupportViewModel.State, actions: SupportActions) {
             label = { Text(stringResource(R.string.support_subject)) },
             singleLine = true,
             isError = state.subjectError != null,
-            supportingText = state.subjectError?.let { { Text(it) } },
+            supportingText = state.subjectError?.let { { Text(it.text()) } },
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
         )
         OutlinedTextField(
@@ -215,7 +216,10 @@ private fun Composer(state: SupportViewModel.State, actions: SupportActions) {
             // The counter is the point: the server slices past its cap, so
             // without this someone loses their last paragraph in silence.
             supportingText = {
-                Text(state.bodyError ?: "${state.body.length} / ${Support.MAX_BODY}")
+                Text(
+                    state.bodyError?.text()
+                        ?: "${state.body.length} / ${Support.MAX_BODY}",
+                )
             },
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.sm),
         )

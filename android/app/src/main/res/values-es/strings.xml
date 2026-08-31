@@ -2539,4 +2539,16 @@
     <string name="auth_password_needs_lower">La contrase&#241;a debe incluir una min&#250;scula.</string>
     <string name="auth_password_needs_upper">La contrase&#241;a debe incluir una may&#250;scula.</string>
     <string name="auth_password_needs_digit">La contrase&#241;a debe incluir un n&#250;mero.</string>
+    <string name="support_subject_required">Ponle un asunto para saber de qu&#233; se trata.</string>
+    <string name="support_subject_too_long">Ese asunto es demasiado largo &#8212; que no pase de %1$d caracteres.</string>
+    <string name="support_body_required">Cu&#233;ntanos qu&#233; est&#225; pasando.</string>
+    <string name="support_body_too_long">Eso es m&#225;s largo de lo que podemos enviar &#8212; que no pase de %1$d caracteres.</string>
+    <string name="support_status_open">Abierta</string>
+    <string name="support_status_with_support">Con soporte</string>
+    <string name="support_status_in_progress">En curso</string>
+    <string name="support_status_resolved">Resuelta</string>
+    <string name="support_status_closed">Cerrada</string>
+    <string name="support_status_unknown">Solicitud de soporte</string>
+    <string name="support_reply_reopens">Si respondes, la solicitud se reabrir&#225;.</string>
+    <string name="support_no_requests">A&#250;n no hay solicitudes. Abre una y tambi&#233;n te responderemos por correo.</string>
 </resources>

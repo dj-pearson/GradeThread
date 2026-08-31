@@ -1,7 +1,9 @@
 package com.gradethread.app.support
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.telemetry.Telemetry
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -13,9 +15,7 @@ import javax.inject.Inject
 
 /** US-1386: the support inbox and the "open a request" form. */
 @HiltViewModel
-class SupportViewModel @Inject constructor(
-    private val service: SupportProviding,
-) : ViewModel() {
+class SupportViewModel @Inject constructor(private val service: SupportProviding) : ViewModel() {
 
     data class State(
         val loading: Boolean = false,
@@ -29,8 +29,10 @@ class SupportViewModel @Inject constructor(
         /** Set when a ticket is opened; the screen navigates and clears it. */
         val openedTicketId: String? = null,
     ) {
-        val subjectError: String? get() = subject.takeIf { it.isNotEmpty() }?.let(Support::subjectError)
-        val bodyError: String? get() = body.takeIf { it.isNotEmpty() }?.let(Support::bodyError)
+        val subjectError: UiMessage?
+            get() = subject.takeIf { it.isNotEmpty() }?.let(Support::subjectError)
+        val bodyError: UiMessage?
+            get() = body.takeIf { it.isNotEmpty() }?.let(Support::bodyError)
         val canSend: Boolean get() = Support.canOpen(subject, body, sending)
         val isEmpty: Boolean get() = !loading && loadError == null && tickets.isEmpty()
     }
@@ -119,9 +121,7 @@ class SupportViewModel @Inject constructor(
 
 /** US-1386: one ticket's thread, and replying to it. */
 @HiltViewModel
-class SupportThreadViewModel @Inject constructor(
-    private val service: SupportProviding,
-) : ViewModel() {
+class SupportThreadViewModel @Inject constructor(private val service: SupportProviding) : ViewModel() {
 
     data class State(
         val loading: Boolean = false,
@@ -132,7 +132,9 @@ class SupportThreadViewModel @Inject constructor(
         val sendError: String? = null,
     ) {
         val canSend: Boolean get() = Support.canReply(reply, sending)
-        val reopenNotice: String?
+
+        @get:StringRes
+        val reopenNotice: Int?
             get() = thread?.ticket?.let(Support::replyReopensNotice)
     }
 

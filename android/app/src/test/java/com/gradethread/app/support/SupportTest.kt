@@ -1,7 +1,9 @@
 package com.gradethread.app.support
 
 import kotlinx.serialization.json.Json
+import com.gradethread.app.R
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -17,23 +19,23 @@ import org.junit.Test
  */
 class SupportTest {
 
-    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
-    private fun ticket(
-        id: String,
-        status: String = "open",
-        lastMessageAt: String? = null,
-    ) = SupportTicket(id = id, subject = "Subject $id", status = status, lastMessageAt = lastMessageAt)
+    private fun ticket(id: String, status: String = "open", lastMessageAt: String? = null) =
+        SupportTicket(id = id, subject = "Subject $id", status = status, lastMessageAt = lastMessageAt)
 
     // ── Validation ───────────────────────────────────────────────────────────
 
     @Test
     fun `an empty subject or body is refused, with words`() {
         assertEquals(
-            "Give it a subject so we know what it's about.",
-            Support.subjectError("   "),
+            R.string.support_subject_required,
+            Support.subjectError("   ")?.res,
         )
-        assertEquals("Tell us what's happening.", Support.bodyError(""))
+        assertEquals(R.string.support_body_required, Support.bodyError("")?.res)
         assertNull(Support.subjectError("Grade stuck"))
         assertNull(Support.bodyError("It's been spinning for an hour."))
     }
@@ -47,9 +49,18 @@ class SupportTest {
         assertEquals(4000, Support.MAX_BODY)
 
         assertNull(Support.bodyError("x".repeat(Support.MAX_BODY)))
-        assertTrue(Support.bodyError("x".repeat(Support.MAX_BODY + 1))!!.contains("longer than"))
         assertNull(Support.subjectError("s".repeat(Support.MAX_SUBJECT)))
-        assertTrue(Support.subjectError("s".repeat(Support.MAX_SUBJECT + 1))!!.contains("too long"))
+
+        // US-2976: the message carries the CAP, which is the point of it - a
+        // limit the seller cannot see is one they cannot work to. Asserting the
+        // argument is what keeps the sentence and the constant in step.
+        val longBody = Support.bodyError("x".repeat(Support.MAX_BODY + 1))!!
+        assertEquals(R.string.support_body_too_long, longBody.res)
+        assertEquals(listOf<Any>(Support.MAX_BODY), longBody.args)
+
+        val longSubject = Support.subjectError("s".repeat(Support.MAX_SUBJECT + 1))!!
+        assertEquals(R.string.support_subject_too_long, longSubject.res)
+        assertEquals(listOf<Any>(Support.MAX_SUBJECT), longSubject.args)
     }
 
     @Test
@@ -68,18 +79,25 @@ class SupportTest {
 
     @Test
     fun `statuses read as words`() {
-        assertEquals("Open", Support.statusLabel("open"))
-        assertEquals("With support", Support.statusLabel("pending"))
-        assertEquals("Being worked on", Support.statusLabel("in_progress"))
-        assertEquals("Resolved", Support.statusLabel("resolved"))
-        assertEquals("Closed", Support.statusLabel("closed"))
+        assertEquals(R.string.support_status_open, Support.statusLabel("open").res)
+        assertEquals(R.string.support_status_with_support, Support.statusLabel("pending").res)
+        assertEquals(
+            R.string.support_status_in_progress,
+            Support.statusLabel("in_progress").res,
+        )
+        assertEquals(R.string.support_status_resolved, Support.statusLabel("resolved").res)
+        assertEquals(R.string.support_status_closed, Support.statusLabel("closed").res)
     }
 
     @Test
     fun `an unknown status is shown, never quietly called open`() {
         // The server can add one. Calling it "Open" would tell a seller their
         // closed ticket is still being worked.
-        assertEquals("Needs info", Support.statusLabel("needs_info"))
+        // US-2976: the server's own word, tidied and shown as `detail`. It is
+        // NOT the open resource, which is the whole point of the branch.
+        val unknown = Support.statusLabel("needs_info")
+        assertEquals("Needs info", unknown.detail)
+        assertNotEquals(R.string.support_status_open, unknown.res)
         assertFalse(Support.isOpen(ticket("t", status = "needs_info")))
     }
 
@@ -129,11 +147,11 @@ class SupportTest {
         // The edge reopens on any user reply. Someone adding "thanks, that
         // worked" deserves to know it goes back in the queue.
         assertEquals(
-            "Replying will reopen this request.",
+            R.string.support_reply_reopens,
             Support.replyReopensNotice(ticket("t", status = "resolved")),
         )
         assertEquals(
-            "Replying will reopen this request.",
+            R.string.support_reply_reopens,
             Support.replyReopensNotice(ticket("t", status = "closed")),
         )
         assertNull(Support.replyReopensNotice(ticket("t", status = "open")))

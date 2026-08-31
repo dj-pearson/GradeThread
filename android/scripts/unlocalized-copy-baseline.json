@@ -112,7 +112,6 @@
     "snap/SnapDisplay.kt": 4,
     "snap/SnapViewModel.kt": 2,
     "speech/DictationController.kt": 6,
-    "support/SupportTypes.kt": 11,
     "support/SupportViewModel.kt": 4,
     "sync/BackgroundRefresh.kt": 3,
     "sync/MutationQueue.kt": 2,
