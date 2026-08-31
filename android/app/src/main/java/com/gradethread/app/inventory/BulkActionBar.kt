@@ -30,6 +30,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.gradethread.app.R
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.TestTags
 import com.gradethread.app.ui.theme.Spacing
 import kotlinx.coroutines.delay
@@ -81,7 +82,7 @@ fun BulkActionBar(
                     onClick = {
                         if (action.destructive) confirming = action else onAction(action)
                     },
-                    label = { Text(action.label) },
+                    label = { Text(action.label.text()) },
                 )
             }
         }
@@ -90,13 +91,13 @@ fun BulkActionBar(
     confirming?.let { action ->
         AlertDialog(
             onDismissRequest = { confirming = null },
-            title = { Text(action.confirmationTitle(selectedCount)) },
+            title = { Text(action.confirmationTitle(selectedCount).text()) },
             confirmButton = {
                 TextButton(onClick = {
                     confirming = null
                     onAction(action)
                 }) {
-                    Text(action.label)
+                    Text(action.label.text())
                 }
             },
             dismissButton = {
@@ -168,7 +169,7 @@ fun BulkResultBar(result: BulkActionResult, onDismiss: () -> Unit, modifier: Mod
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                result.summary,
+                result.summary.text(),
                 style = MaterialTheme.typography.bodySmall,
                 color = if (result.hasFailures) {
                     MaterialTheme.colorScheme.error

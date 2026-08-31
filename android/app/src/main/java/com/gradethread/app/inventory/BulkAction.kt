@@ -1,5 +1,8 @@
 package com.gradethread.app.inventory
 
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+
 /**
  * US-1348: one action offered in the multi-select bar.
  *
@@ -42,14 +45,17 @@ sealed class BulkAction {
             Delete -> "delete"
         }
 
-    val label: String
+    val label: UiMessage
         get() = when (this) {
-            CreateDraft -> "Create draft"
-            MarkShipped -> "Mark shipped"
-            is DropPrice -> "Drop -$percent%"
-            Grade -> "Grade"
-            Delete -> "Delete"
+            CreateDraft -> UiMessage(R.string.bulk_label_create_draft)
+            MarkShipped -> UiMessage(R.string.bulk_label_mark_shipped)
+            is DropPrice -> UiMessage(R.string.bulk_label_drop_price, args = listOf(percent))
+            Grade -> UiMessage(R.string.bulk_label_grade)
+            Delete -> UiMessage(R.string.bulk_label_delete)
         }
+
+    /** A plurals resource whose count is also the number in the sentence. */
+    private fun plural(res: Int, count: Int) = UiMessage(res, args = listOf(count), quantity = count)
 
     /** Destructive actions confirm before running. */
     val destructive: Boolean get() = this == Delete
@@ -68,15 +74,26 @@ sealed class BulkAction {
             Grade, Delete -> false
         }
 
-    fun confirmationTitle(count: Int): String {
-        val suffix = if (count == 1) "item" else "items"
-        return when (this) {
-            CreateDraft -> "Create $count $suffix as drafts?"
-            MarkShipped -> "Mark $count $suffix as shipped?"
-            is DropPrice -> "Drop price -$percent% on $count $suffix?"
-            Grade -> "Grade $count $suffix?"
-            Delete -> "Delete $count $suffix? Their photos go too, and this can't be undone."
-        }
+    /**
+     * US-2976: a plurals resource per action, with the COUNT as both the
+     * selector and the number in the sentence.
+     *
+     * The old `if (count == 1) "item" else "items"` is exactly the shape that
+     * does not survive translation - Spanish agrees the verb and the adjective
+     * with the noun too, so "Marcar 1 artículo como enviado" and "Marcar 3
+     * artículos como enviados" differ in three places, not one.
+     */
+    fun confirmationTitle(count: Int): UiMessage = when (this) {
+        CreateDraft -> plural(R.plurals.bulk_confirm_create_draft, count)
+        MarkShipped -> plural(R.plurals.bulk_confirm_mark_shipped, count)
+        is DropPrice -> UiMessage(
+            R.plurals.bulk_confirm_drop_price,
+            args = listOf(count, percent),
+            quantity = count,
+        )
+
+        Grade -> plural(R.plurals.bulk_confirm_grade, count)
+        Delete -> plural(R.plurals.bulk_confirm_delete, count)
     }
 
     companion object {
@@ -102,11 +119,7 @@ sealed class BulkAction {
 }
 
 /** What a batch did. */
-data class BulkActionResult(
-    val action: BulkAction,
-    val succeeded: Int,
-    val failures: List<Failure> = emptyList(),
-) {
+data class BulkActionResult(val action: BulkAction, val succeeded: Int, val failures: List<Failure> = emptyList()) {
     data class Failure(val itemId: String, val message: String)
 
     val total: Int get() = succeeded + failures.size
@@ -118,14 +131,27 @@ data class BulkActionResult(
      * that half-worked and reported "Done" is how a seller discovers two
      * unshipped orders a week later.
      */
-    val summary: String
-        get() {
-            val suffix = if (total == 1) "item" else "items"
-            return when {
-                failures.isEmpty() -> "Updated $succeeded $suffix."
-                succeeded == 0 -> "All ${failures.size} $suffix failed."
-                else -> "Updated $succeeded of $total $suffix; ${failures.size} failed."
-            }
+    val summary: UiMessage
+        get() = when {
+            failures.isEmpty() -> UiMessage(
+                R.plurals.bulk_result_updated,
+                args = listOf(succeeded),
+                quantity = succeeded,
+            )
+
+            succeeded == 0 -> UiMessage(
+                R.plurals.bulk_result_all_failed,
+                args = listOf(failures.size),
+                quantity = failures.size,
+            )
+
+            // The partial case pluralises on the TOTAL, which is the noun the
+            // sentence is about - "Updated 1 of 9 items" is nine items, not one.
+            else -> UiMessage(
+                R.plurals.bulk_result_partial,
+                args = listOf(succeeded, total, failures.size),
+                quantity = total,
+            )
         }
 
     val hasFailures: Boolean get() = failures.isNotEmpty()

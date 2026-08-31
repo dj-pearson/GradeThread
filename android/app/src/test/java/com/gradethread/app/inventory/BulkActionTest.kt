@@ -1,5 +1,6 @@
 package com.gradethread.app.inventory
 
+import com.gradethread.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -80,20 +81,27 @@ class BulkActionTest {
             succeeded = 7,
             failures = List(2) { BulkActionResult.Failure("i$it", "No target price to drop.") },
         )
-        assertEquals("Updated 7 of 9 items; 2 failed.", result.summary)
+        // Succeeded, total, failed - in that order. Reversed, "Updated 9 of 7"
+        // is nonsense and "2 of 9 failed" is a different batch.
+        assertEquals(R.plurals.bulk_result_partial, result.summary.res)
+        assertEquals(listOf<Any>(7, 9, 2), result.summary.args)
+        // Pluralised on the TOTAL: the sentence is about nine items, not seven.
+        assertEquals(9, result.summary.quantity)
         assertTrue(result.hasFailures)
     }
 
     @Test
     fun `a clean batch reads plainly and one item is singular`() {
-        assertEquals(
-            "Updated 3 items.",
-            BulkActionResult(BulkAction.CreateDraft, succeeded = 3).summary,
-        )
-        assertEquals(
-            "Updated 1 item.",
-            BulkActionResult(BulkAction.CreateDraft, succeeded = 1).summary,
-        )
+        // US-2976: singular versus plural is the plurals resource's job now,
+        // which is what Spanish needs - it agrees the verb too, so the two
+        // forms differ in more than an "s".
+        val many = BulkActionResult(BulkAction.CreateDraft, succeeded = 3).summary
+        assertEquals(R.plurals.bulk_result_updated, many.res)
+        assertEquals(3, many.quantity)
+
+        val one = BulkActionResult(BulkAction.CreateDraft, succeeded = 1).summary
+        assertEquals(R.plurals.bulk_result_updated, one.res)
+        assertEquals(1, one.quantity)
     }
 
     @Test
@@ -103,7 +111,10 @@ class BulkActionTest {
             succeeded = 0,
             failures = List(4) { BulkActionResult.Failure("i$it", "nope") },
         )
-        assertEquals("All 4 items failed.", result.summary)
+        // A DIFFERENT resource from the partial case, so "all of them failed"
+        // can never be worded as a partial success.
+        assertEquals(R.plurals.bulk_result_all_failed, result.summary.res)
+        assertEquals(listOf<Any>(4), result.summary.args)
     }
 
     // ── the price drop ───────────────────────────────────────────────────
@@ -132,20 +143,27 @@ class BulkActionTest {
 
     @Test
     fun `the delete confirmation names both consequences`() {
+        // US-2976: the two consequences live in the plurals resource now, and
+        // BOTH forms have to carry them - a singular that drops "and this
+        // can't be undone" is the whole warning gone for a one-item delete.
         val copy = BulkAction.Delete.confirmationTitle(3)
-        assertTrue(copy.contains("photos"))
-        assertTrue(copy.contains("can't be undone"))
+        assertEquals(R.plurals.bulk_confirm_delete, copy.res)
+        assertEquals(3, copy.quantity)
     }
 
     @Test
     fun `confirmation copy is singular for one item`() {
-        assertEquals(
-            "Mark 1 item as shipped?",
-            BulkAction.MarkShipped.confirmationTitle(1),
-        )
-        assertEquals(
-            "Drop price -10% on 5 items?",
-            BulkAction.DropPrice(10).confirmationTitle(5),
-        )
+        // The COUNT is the plural selector, so one item and five items pick
+        // different forms without this object choosing between them.
+        val one = BulkAction.MarkShipped.confirmationTitle(1)
+        assertEquals(R.plurals.bulk_confirm_mark_shipped, one.res)
+        assertEquals(1, one.quantity)
+
+        // Count first, percent second: reversed, "Drop price -5% on 10 items"
+        // is a different offer from the one the seller chose.
+        val many = BulkAction.DropPrice(10).confirmationTitle(5)
+        assertEquals(R.plurals.bulk_confirm_drop_price, many.res)
+        assertEquals(listOf<Any>(5, 10), many.args)
+        assertEquals(5, many.quantity)
     }
 }

@@ -2551,4 +2551,41 @@
     <string name="support_status_unknown">Solicitud de soporte</string>
     <string name="support_reply_reopens">Si respondes, la solicitud se reabrir&#225;.</string>
     <string name="support_no_requests">A&#250;n no hay solicitudes. Abre una y tambi&#233;n te responderemos por correo.</string>
+    <string name="bulk_label_create_draft">Crear borrador</string>
+    <string name="bulk_label_mark_shipped">Marcar enviado</string>
+    <string name="bulk_label_drop_price">Bajar -%1$d%%</string>
+    <string name="bulk_label_grade">Evaluar</string>
+    <string name="bulk_label_delete">Eliminar</string>
+    <plurals name="bulk_confirm_create_draft">
+        <item quantity="one">&#191;Crear %1$d art&#237;culo como borrador?</item>
+        <item quantity="other">&#191;Crear %1$d art&#237;culos como borradores?</item>
+    </plurals>
+    <plurals name="bulk_confirm_mark_shipped">
+        <item quantity="one">&#191;Marcar %1$d art&#237;culo como enviado?</item>
+        <item quantity="other">&#191;Marcar %1$d art&#237;culos como enviados?</item>
+    </plurals>
+    <plurals name="bulk_confirm_drop_price">
+        <item quantity="one">&#191;Bajar el precio un -%2$d%% en %1$d art&#237;culo?</item>
+        <item quantity="other">&#191;Bajar el precio un -%2$d%% en %1$d art&#237;culos?</item>
+    </plurals>
+    <plurals name="bulk_confirm_grade">
+        <item quantity="one">&#191;Evaluar %1$d art&#237;culo?</item>
+        <item quantity="other">&#191;Evaluar %1$d art&#237;culos?</item>
+    </plurals>
+    <plurals name="bulk_confirm_delete">
+        <item quantity="one">&#191;Eliminar %1$d art&#237;culo? Sus fotos tambi&#233;n se van, y esto no se puede deshacer.</item>
+        <item quantity="other">&#191;Eliminar %1$d art&#237;culos? Sus fotos tambi&#233;n se van, y esto no se puede deshacer.</item>
+    </plurals>
+    <plurals name="bulk_result_updated">
+        <item quantity="one">%1$d art&#237;culo actualizado.</item>
+        <item quantity="other">%1$d art&#237;culos actualizados.</item>
+    </plurals>
+    <plurals name="bulk_result_all_failed">
+        <item quantity="one">Fall&#243; %1$d art&#237;culo.</item>
+        <item quantity="other">Fallaron los %1$d art&#237;culos.</item>
+    </plurals>
+    <plurals name="bulk_result_partial">
+        <item quantity="one">%1$d de %2$d art&#237;culo actualizado; %3$d fallaron.</item>
+        <item quantity="other">%1$d de %2$d art&#237;culos actualizados; %3$d fallaron.</item>
+    </plurals>
 </resources>

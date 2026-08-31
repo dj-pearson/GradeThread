@@ -2685,4 +2685,41 @@
     <string name="support_status_unknown">Support request</string>
     <string name="support_reply_reopens">Replying will reopen this request.</string>
     <string name="support_no_requests">No requests yet. Open one and we\'ll get back to you by email too.</string>
+    <string name="bulk_label_create_draft">Create draft</string>
+    <string name="bulk_label_mark_shipped">Mark shipped</string>
+    <string name="bulk_label_drop_price">Drop -%1$d%%</string>
+    <string name="bulk_label_grade">Grade</string>
+    <string name="bulk_label_delete">Delete</string>
+    <plurals name="bulk_confirm_create_draft">
+        <item quantity="one">Create %1$d item as a draft?</item>
+        <item quantity="other">Create %1$d items as drafts?</item>
+    </plurals>
+    <plurals name="bulk_confirm_mark_shipped">
+        <item quantity="one">Mark %1$d item as shipped?</item>
+        <item quantity="other">Mark %1$d items as shipped?</item>
+    </plurals>
+    <plurals name="bulk_confirm_drop_price">
+        <item quantity="one">Drop price -%2$d%% on %1$d item?</item>
+        <item quantity="other">Drop price -%2$d%% on %1$d items?</item>
+    </plurals>
+    <plurals name="bulk_confirm_grade">
+        <item quantity="one">Grade %1$d item?</item>
+        <item quantity="other">Grade %1$d items?</item>
+    </plurals>
+    <plurals name="bulk_confirm_delete">
+        <item quantity="one">Delete %1$d item? Their photos go too, and this can\'t be undone.</item>
+        <item quantity="other">Delete %1$d items? Their photos go too, and this can\'t be undone.</item>
+    </plurals>
+    <plurals name="bulk_result_updated">
+        <item quantity="one">Updated %1$d item.</item>
+        <item quantity="other">Updated %1$d items.</item>
+    </plurals>
+    <plurals name="bulk_result_all_failed">
+        <item quantity="one">All %1$d item failed.</item>
+        <item quantity="other">All %1$d items failed.</item>
+    </plurals>
+    <plurals name="bulk_result_partial">
+        <item quantity="one">Updated %1$d of %2$d item; %3$d failed.</item>
+        <item quantity="other">Updated %1$d of %2$d items; %3$d failed.</item>
+    </plurals>
 </resources>

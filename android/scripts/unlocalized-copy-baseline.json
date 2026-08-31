@@ -52,7 +52,6 @@
     "importer/SheetsImportService.kt": 1,
     "intake/IntakeInbox.kt": 2,
     "inventory/AspectSpecService.kt": 1,
-    "inventory/BulkAction.kt": 8,
     "inventory/BulkActionExecutor.kt": 7,
     "inventory/CompsService.kt": 1,
     "inventory/DetailsIntakeViewModel.kt": 4,
