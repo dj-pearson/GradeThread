@@ -2642,4 +2642,32 @@
         <item quantity="one">%1$d anuncio activo &#183; %2$d visitas en total</item>
         <item quantity="other">%1$d anuncios activos &#183; %2$d visitas en total</item>
     </plurals>
+    <string name="community_confidence_high">Confianza alta</string>
+    <string name="community_confidence_medium">Confianza media</string>
+    <string name="community_confidence_low">Confianza baja</string>
+    <string name="community_source_brand_title">Consigue m&#225;s %1$s</string>
+    <string name="community_price_brand_title">Pon %1$s cerca de %2$s</string>
+    <string name="community_category_title">Sube la demanda en %1$s</string>
+    <string name="community_need_three">Publica al menos 3 art&#237;culos y podremos comparar tu ritmo de venta con el de la comunidad.</string>
+    <string name="community_no_peers">A&#250;n no hay suficientes vendedores con un ritmo comparable. Vuelve pronto.</string>
+    <plurals name="community_source_detail">
+        <item quantity="one">Se vende al %2$s entre %1$d vendedor</item>
+        <item quantity="other">Se vende al %2$s entre %1$d vendedores</item>
+    </plurals>
+    <plurals name="community_source_detail_avg">
+        <item quantity="one">Se vende al %2$s entre %1$d vendedor &#183; venta media %3$s</item>
+        <item quantity="other">Se vende al %2$s entre %1$d vendedores &#183; venta media %3$s</item>
+    </plurals>
+    <plurals name="community_price_detail">
+        <item quantity="one">Venta media de la comunidad entre %1$d vendedor</item>
+        <item quantity="other">Venta media de la comunidad entre %1$d vendedores</item>
+    </plurals>
+    <plurals name="community_price_detail_st">
+        <item quantity="one">Venta media de la comunidad entre %1$d vendedor &#183; %2$s de ritmo de venta</item>
+        <item quantity="other">Venta media de la comunidad entre %1$d vendedores &#183; %2$s de ritmo de venta</item>
+    </plurals>
+    <plurals name="community_category_detail">
+        <item quantity="one">Ventas al alza un %2$s en los &#250;ltimos 30 d&#237;as &#183; %1$d vendedor</item>
+        <item quantity="other">Ventas al alza un %2$s en los &#250;ltimos 30 d&#237;as &#183; %1$d vendedores</item>
+    </plurals>
 </resources>

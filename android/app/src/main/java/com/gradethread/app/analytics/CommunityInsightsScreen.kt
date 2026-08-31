@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.money.Money
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.components.RankedBars
@@ -223,7 +224,7 @@ private fun YouCard(state: CommunityInsightsViewModel.State, data: CommunityBenc
         )
         val standing = state.peerStanding
         Text(
-            standing ?: state.peerBlocker.orEmpty(),
+            standing ?: state.peerBlocker?.let { stringResource(it) }.orEmpty(),
             style = MaterialTheme.typography.bodySmall,
             color = if (standing != null) {
                 MaterialTheme.colorScheme.onSurface
@@ -254,14 +255,14 @@ private fun RecommendationCard(rec: CommunityRecommendation, onOpenBrand: (Strin
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                rec.title,
+                rec.title.text(),
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f),
             )
-            AssistChip(onClick = {}, label = { Text(rec.confidenceLevel.label) })
+            AssistChip(onClick = {}, label = { Text(stringResource(rec.confidenceLevel.label)) })
         }
         Text(
-            rec.detail,
+            rec.detail.text(),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

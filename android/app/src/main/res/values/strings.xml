@@ -2776,4 +2776,32 @@
         <item quantity="one">%1$d active listing &#183; %2$d total views</item>
         <item quantity="other">%1$d active listings &#183; %2$d total views</item>
     </plurals>
+    <string name="community_confidence_high">High confidence</string>
+    <string name="community_confidence_medium">Medium confidence</string>
+    <string name="community_confidence_low">Low confidence</string>
+    <string name="community_source_brand_title">Source more %1$s</string>
+    <string name="community_price_brand_title">Price %1$s near %2$s</string>
+    <string name="community_category_title">Demand rising in %1$s</string>
+    <string name="community_need_three">List at least 3 items and we can compare your sell-through with the community.</string>
+    <string name="community_no_peers">Not enough sellers with a comparable rate yet. Check back soon.</string>
+    <plurals name="community_source_detail">
+        <item quantity="one">Sells through at %2$s across %1$d seller</item>
+        <item quantity="other">Sells through at %2$s across %1$d sellers</item>
+    </plurals>
+    <plurals name="community_source_detail_avg">
+        <item quantity="one">Sells through at %2$s across %1$d seller &#183; avg sale %3$s</item>
+        <item quantity="other">Sells through at %2$s across %1$d sellers &#183; avg sale %3$s</item>
+    </plurals>
+    <plurals name="community_price_detail">
+        <item quantity="one">Community average sale across %1$d seller</item>
+        <item quantity="other">Community average sale across %1$d sellers</item>
+    </plurals>
+    <plurals name="community_price_detail_st">
+        <item quantity="one">Community average sale across %1$d seller &#183; %2$s sell-through</item>
+        <item quantity="other">Community average sale across %1$d sellers &#183; %2$s sell-through</item>
+    </plurals>
+    <plurals name="community_category_detail">
+        <item quantity="one">Sales up %2$s over the last 30 days &#183; %1$d seller</item>
+        <item quantity="other">Sales up %2$s over the last 30 days &#183; %1$d sellers</item>
+    </plurals>
 </resources>

@@ -1,5 +1,6 @@
 package com.gradethread.app.analytics
 
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.inventory.InventoryFilterRequests
@@ -20,9 +21,7 @@ import javax.inject.Inject
  * one is a judgement, the other is a wait.
  */
 @HiltViewModel
-class CommunityInsightsViewModel @Inject constructor(
-    private val service: CommunityInsightsProviding,
-) : ViewModel() {
+class CommunityInsightsViewModel @Inject constructor(private val service: CommunityInsightsProviding) : ViewModel() {
 
     sealed class Phase {
         object Loading : Phase()
@@ -63,7 +62,8 @@ class CommunityInsightsViewModel @Inject constructor(
         val peerStanding: String?
             get() = data?.you?.let { CommunityRecommendations.peerStanding(it) }
 
-        val peerBlocker: String?
+        @get:StringRes
+        val peerBlocker: Int?
             get() = data?.you?.let { CommunityRecommendations.peerStandingBlocker(it) }
     }
 

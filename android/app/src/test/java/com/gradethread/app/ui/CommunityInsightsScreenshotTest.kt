@@ -4,6 +4,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.gradethread.app.R
 import com.gradethread.app.analytics.BrandBenchmark
 import com.gradethread.app.analytics.CategoryTrend
 import com.gradethread.app.analytics.CommunityBenchmarks
@@ -168,8 +169,22 @@ class CommunityInsightsScreenshotTest {
         id = id,
         kind = kind,
         subject = subject,
-        title = if (kind == RecommendationKind.SOURCE) "Source more $subject" else "Reprice your $subject",
-        detail = "Across $cohort sellers, $subject is moving faster than your listings are.",
+        // US-2976: the sentences the app actually produces. The old fixture
+        // said "Reprice your X" and "Across N sellers, X is moving faster than
+        // your listings are." - neither of which any code path generates.
+        title = if (kind == RecommendationKind.SOURCE) {
+            UiMessage(R.string.community_source_brand_title, args = listOf(subject))
+        } else {
+            UiMessage(
+                R.string.community_price_brand_title,
+                args = listOf(subject, "$128.00"),
+            )
+        },
+        detail = UiMessage(
+            R.plurals.community_source_detail,
+            args = listOf(cohort, "62%"),
+            quantity = cohort,
+        ),
         confidence = confidence,
         confidenceLevel = level,
         cohortSize = cohort,

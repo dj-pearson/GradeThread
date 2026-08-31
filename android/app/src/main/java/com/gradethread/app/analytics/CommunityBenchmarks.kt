@@ -1,5 +1,9 @@
 package com.gradethread.app.analytics
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+
 import com.gradethread.app.money.Money
 import kotlinx.serialization.Serializable
 
@@ -74,10 +78,10 @@ data class CommunityBenchmarks(
 
 enum class RecommendationKind { SOURCE, PRICE }
 
-enum class ConfidenceLevel(val label: String) {
-    HIGH("High confidence"),
-    MEDIUM("Medium confidence"),
-    LOW("Low confidence"),
+enum class ConfidenceLevel(@StringRes val label: Int) {
+    HIGH(R.string.community_confidence_high),
+    MEDIUM(R.string.community_confidence_medium),
+    LOW(R.string.community_confidence_low),
 }
 
 data class CommunityRecommendation(
@@ -85,8 +89,8 @@ data class CommunityRecommendation(
     val kind: RecommendationKind,
     /** The brand or category this is about. */
     val subject: String,
-    val title: String,
-    val detail: String,
+    val title: UiMessage,
+    val detail: UiMessage,
     /** 0–1, from cohort size and signal strength. */
     val confidence: Double,
     val confidenceLevel: ConfidenceLevel,
@@ -123,8 +127,7 @@ object CommunityRecommendations {
      * "100% confidence" badge on someone else's aggregate would be a promise
      * this data cannot make.
      */
-    fun cohortConfidence(sellers: Int): Double =
-        clamp(0.4 + (sellers - MIN_SELLERS) * 0.03, 0.4, 0.95)
+    fun cohortConfidence(sellers: Int): Double = clamp(0.4 + (sellers - MIN_SELLERS) * 0.03, 0.4, 0.95)
 
     fun confidenceLevel(confidence: Double): ConfidenceLevel = when {
         confidence >= 0.75 -> ConfidenceLevel.HIGH
@@ -138,13 +141,29 @@ object CommunityRecommendations {
         val st = b.sellThrough ?: return null
         if (st < SOURCE_SELL_THROUGH_FLOOR) return null
         val confidence = clamp(cohortConfidence(b.sellers) * (0.6 + 0.4 * minOf(st, 1.0)), 0.0, 1.0)
-        val avg = b.avgSalePrice?.let { " · avg sale ${Money.format(it)}" } ?: ""
+        val avg = b.avgSalePrice
         return CommunityRecommendation(
             id = "source-brand:${b.brand}",
             kind = RecommendationKind.SOURCE,
             subject = b.brand,
-            title = "Source more ${b.brand}",
-            detail = "Sells through at ${pct(st)} across ${b.sellers} sellers$avg",
+            title = UiMessage(R.string.community_source_brand_title, args = listOf(b.brand)),
+            // US-2976: a WHOLE sentence per shape, not one with " · avg sale X"
+            // glued on. The optional clause is part of the sentence a
+            // translator sees, so they can move it, and the seller count picks
+            // the plural form for the whole line rather than for a fragment.
+            detail = if (avg == null) {
+                UiMessage(
+                    R.plurals.community_source_detail,
+                    args = listOf(b.sellers, pct(st)),
+                    quantity = b.sellers,
+                )
+            } else {
+                UiMessage(
+                    R.plurals.community_source_detail_avg,
+                    args = listOf(b.sellers, pct(st), Money.format(avg)),
+                    quantity = b.sellers,
+                )
+            },
             confidence = confidence,
             confidenceLevel = confidenceLevel(confidence),
             cohortSize = b.sellers,
@@ -157,13 +176,28 @@ object CommunityRecommendations {
         val avg = b.avgSalePrice ?: return null
         if (avg <= 0) return null
         val confidence = cohortConfidence(b.sellers)
-        val st = b.sellThrough?.let { " · ${pct(it)} sell-through" } ?: ""
+        val st = b.sellThrough
         return CommunityRecommendation(
             id = "price-brand:${b.brand}",
             kind = RecommendationKind.PRICE,
             subject = b.brand,
-            title = "Price ${b.brand} near ${Money.format(avg)}",
-            detail = "Community average sale across ${b.sellers} sellers$st",
+            title = UiMessage(
+                R.string.community_price_brand_title,
+                args = listOf(b.brand, Money.format(avg)),
+            ),
+            detail = if (st == null) {
+                UiMessage(
+                    R.plurals.community_price_detail,
+                    args = listOf(b.sellers),
+                    quantity = b.sellers,
+                )
+            } else {
+                UiMessage(
+                    R.plurals.community_price_detail_st,
+                    args = listOf(b.sellers, pct(st)),
+                    quantity = b.sellers,
+                )
+            },
             confidence = confidence,
             confidenceLevel = confidenceLevel(confidence),
             cohortSize = b.sellers,
@@ -181,8 +215,12 @@ object CommunityRecommendations {
             id = "source-category:${c.category}",
             kind = RecommendationKind.SOURCE,
             subject = c.category,
-            title = "Demand rising in ${c.category}",
-            detail = "Sales up ${pct(growth)} over the last 30 days · ${c.sellers} sellers",
+            title = UiMessage(R.string.community_category_title, args = listOf(c.category)),
+            detail = UiMessage(
+                R.plurals.community_category_detail,
+                args = listOf(c.sellers, pct(growth)),
+                quantity = c.sellers,
+            ),
             confidence = confidence,
             confidenceLevel = confidenceLevel(confidence),
             cohortSize = c.sellers,
@@ -233,12 +271,13 @@ object CommunityRecommendations {
      * The RPC needs three listed items before it will compute a rate at all,
      * which is a fixable state and worth naming rather than showing a blank.
      */
-    fun peerStandingBlocker(you: SellerSummary): String? {
+    @StringRes
+    fun peerStandingBlocker(you: SellerSummary): Int? {
         if (you.peerComparison?.yourSellThrough != null) return null
         return if (you.listed < 3) {
-            "List at least 3 items and we can compare your sell-through with the community."
+            R.string.community_need_three
         } else {
-            "Not enough sellers with a comparable rate yet. Check back soon."
+            R.string.community_no_peers
         }
     }
 }

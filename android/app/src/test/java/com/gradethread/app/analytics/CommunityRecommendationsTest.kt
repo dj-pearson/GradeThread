@@ -2,6 +2,7 @@ package com.gradethread.app.analytics
 
 import com.gradethread.app.inventory.InventoryFilterRequests
 import org.junit.After
+import com.gradethread.app.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -27,11 +28,8 @@ class CommunityRecommendationsTest {
         avgSalePrice: Double? = 85.0,
     ) = BrandBenchmark(name, sellers, listed, sold, sellThrough, avgSalePrice)
 
-    private fun category(
-        name: String = "Outerwear",
-        sellers: Int = 8,
-        growth: Double? = 0.25,
-    ) = CategoryTrend(name, sellers, soldRecent = 50, soldPrevious = 40, growth = growth)
+    private fun category(name: String = "Outerwear", sellers: Int = 8, growth: Double? = 0.25) =
+        CategoryTrend(name, sellers, soldRecent = 50, soldPrevious = 40, growth = growth)
 
     // ── Confidence ───────────────────────────────────────────────────────────
 
@@ -131,7 +129,15 @@ class CommunityRecommendationsTest {
         ).first()
 
         assertEquals("Carhartt", rec.brandFilter)
-        assertTrue(rec.detail.contains("sellers"))
+        // US-2976: the COHORT SIZE is what "sellers" was standing in for - the
+        // number a seller weighs the recommendation by. It is the first
+        // argument in every detail shape, and it picks the plural form.
+        //
+        // Deliberately NOT asserting which resource: `first()` is whichever
+        // recommendation ranks highest, and pinning that here would make this
+        // test fail whenever the SCORING changes, which is not what it is for.
+        assertEquals(rec.cohortSize, rec.detail.args[0])
+        assertEquals(rec.cohortSize, rec.detail.quantity)
     }
 
     @Test
@@ -199,11 +205,16 @@ class CommunityRecommendationsTest {
 
     @Test
     fun `a thin seller is told what would unlock the comparison`() {
-        val blocker = CommunityRecommendations.peerStandingBlocker(SellerSummary(listed = 1))!!
-        assertTrue(blocker.contains("3 items"))
-
-        val waiting = CommunityRecommendations.peerStandingBlocker(SellerSummary(listed = 40))!!
-        assertTrue(waiting.contains("Check back"))
+        // Two DIFFERENT resources: one names a thing the seller can do, the
+        // other says to wait. Telling them apart is the whole point.
+        assertEquals(
+            R.string.community_need_three,
+            CommunityRecommendations.peerStandingBlocker(SellerSummary(listed = 1)),
+        )
+        assertEquals(
+            R.string.community_no_peers,
+            CommunityRecommendations.peerStandingBlocker(SellerSummary(listed = 40)),
+        )
     }
 
     // ── Deep-link handoff ────────────────────────────────────────────────────
