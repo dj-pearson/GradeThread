@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
 import com.gradethread.app.sync.db.SaleEntity
+import com.gradethread.app.ui.text
 import com.gradethread.app.ui.components.InfoCard
 import com.gradethread.app.ui.components.InfoTone
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -116,7 +117,7 @@ fun PayoutReconciliationContent(
     ) {
         Text(stringResource(R.string.payouts_title), style = MaterialTheme.typography.titleLarge)
         Text(
-            PayoutReconciliation.summary(state.reconciled),
+            PayoutReconciliation.summary(state.reconciled).text(),
             style = MaterialTheme.typography.bodyMedium,
         )
         Text(
@@ -385,7 +386,7 @@ private fun PayoutCard(entry: PayoutReconciliation.Reconciled, onOpenItem: (Stri
             }
         }
         Text(
-            PayoutReconciliation.deltaLabel(entry),
+            PayoutReconciliation.deltaLabel(entry).text(),
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = if (entry.matched) FontWeight.Normal else FontWeight.SemiBold,
             color = if (entry.matched) {
@@ -406,7 +407,7 @@ private fun PayoutCard(entry: PayoutReconciliation.Reconciled, onOpenItem: (Stri
         )
         PayoutReconciliation.estimateNote(entry)?.let {
             Text(
-                it,
+                it.text(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

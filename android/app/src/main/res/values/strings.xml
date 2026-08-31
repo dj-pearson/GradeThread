@@ -2827,4 +2827,17 @@
         <item quantity="one">%2$s is waiting from %1$d sale.</item>
         <item quantity="other">%2$s is waiting from %1$d sales.</item>
     </plurals>
+    <string name="payout_delta_matches">Matches your records.</string>
+    <string name="payout_delta_less">%1$s less than recorded.</string>
+    <string name="payout_delta_more">%1$s more than recorded.</string>
+    <string name="payout_summary_none">No payouts synced yet.</string>
+    <string name="payout_estimate_note">Some of these sales had no reported payout, so their share was estimated from price minus fees.</string>
+    <plurals name="payout_summary_all_match">
+        <item quantity="one">All %1$d payout matches your records.</item>
+        <item quantity="other">All %1$d payouts match your records.</item>
+    </plurals>
+    <plurals name="payout_summary_mismatch">
+        <item quantity="one">%1$d of %2$d payout doesn\'t match.</item>
+        <item quantity="other">%1$d of %2$d payouts don\'t match.</item>
+    </plurals>
 </resources>

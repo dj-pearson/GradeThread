@@ -1,26 +1,35 @@
 package com.gradethread.app.money
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import com.gradethread.app.sync.db.PayoutEntity
+import com.gradethread.app.ui.text
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 /**
  * US-1365. These assertions are about money a seller will act on, so they check
  * the awkward cases rather than the happy path: a one-cent rounding gap, an
  * estimated share dressed up as a fact, a payout id that differs only by case,
  * and a cancelled order sneaking into a deposit total.
+ *
+ * US-2976: the wording lives in strings.xml now, so rendering it needs a
+ * Context and Robolectric supplies one. The sentences stay asserted WHOLE.
+ * These are numbers a seller acts on, and "less than recorded" and "more than
+ * recorded" differ by one word - a resource id would prove which branch ran
+ * and nothing about which direction the money went.
  */
+@RunWith(RobolectricTestRunner::class)
 class PayoutReconciliationTest {
 
-    private fun payout(
-        id: String,
-        payoutId: String = id,
-        amountCents: Int? = 0,
-        payoutDate: Long? = 0L,
-    ) = PayoutEntity(
+    private val context = ApplicationProvider.getApplicationContext<Context>()
+
+    private fun payout(id: String, payoutId: String = id, amountCents: Int? = 0, payoutDate: Long? = 0L) = PayoutEntity(
         id = id,
         payoutId = payoutId,
         amountCents = amountCents,
@@ -77,7 +86,7 @@ class PayoutReconciliationTest {
         // runner that isn't in the US. The sign wording is what's under test.
         assertEquals(
             Money.format(0.02) + " less than recorded.",
-            PayoutReconciliation.deltaLabel(result[0]),
+            PayoutReconciliation.deltaLabel(result[0]).text(context),
         )
     }
 
@@ -90,7 +99,7 @@ class PayoutReconciliationTest {
 
         assertEquals(
             Money.format(5.00) + " more than recorded.",
-            PayoutReconciliation.deltaLabel(result[0]),
+            PayoutReconciliation.deltaLabel(result[0]).text(context),
         )
     }
 
@@ -112,7 +121,9 @@ class PayoutReconciliationTest {
         assertTrue(result[0].estimated)
         // The note only appears when the estimate actually produced a mismatch —
         // a caveat on a clean row is noise.
-        assertTrue(PayoutReconciliation.estimateNote(result[0])!!.contains("estimated"))
+        assertTrue(
+            PayoutReconciliation.estimateNote(result[0])!!.text(context).contains("estimated"),
+        )
     }
 
     @Test
@@ -253,18 +264,31 @@ class PayoutReconciliationTest {
 
     @Test
     fun `summary counts the payouts that do not match`() {
-        assertEquals("No payouts synced yet.", PayoutReconciliation.summary(emptyList()))
+        assertEquals(
+            "No payouts synced yet.",
+            PayoutReconciliation.summary(emptyList()).text(context),
+        )
 
         val clean = PayoutReconciliation.reconcile(
             listOf(payout("p1", amountCents = 5000)),
             listOf(MoneyFixtures.sale("s1", "i1", payoutReference = "p1", payoutAmount = 50.0)),
         )
-        assertEquals("All 1 payouts match your records.", PayoutReconciliation.summary(clean))
+        // US-2976: "All 1 payout matches" - the old wording said "All 1
+        // payouts match", which nobody filed and everybody read past. A
+        // plurals resource has to be given the singular form to fill in, so
+        // writing one was not optional this time.
+        assertEquals(
+            "All 1 payout matches your records.",
+            PayoutReconciliation.summary(clean).text(context),
+        )
 
         val dirty = PayoutReconciliation.reconcile(
             listOf(payout("p1", amountCents = 5000), payout("p2", amountCents = 100)),
             listOf(MoneyFixtures.sale("s1", "i1", payoutReference = "p1", payoutAmount = 50.0)),
         )
-        assertEquals("1 of 2 payouts don't match.", PayoutReconciliation.summary(dirty))
+        assertEquals(
+            "1 of 2 payouts don't match.",
+            PayoutReconciliation.summary(dirty).text(context),
+        )
     }
 }

@@ -1,7 +1,9 @@
 package com.gradethread.app.money
 
+import com.gradethread.app.R
 import com.gradethread.app.sync.db.PayoutEntity
 import com.gradethread.app.sync.db.SaleEntity
+import com.gradethread.app.ui.UiMessage
 import kotlin.math.abs
 
 /**
@@ -98,8 +100,7 @@ object PayoutReconciliation {
     }
 
     /** Payouts that don't agree with the books — the only ones worth acting on. */
-    fun mismatches(reconciled: List<Reconciled>): List<Reconciled> =
-        reconciled.filterNot { it.matched }
+    fun mismatches(reconciled: List<Reconciled>): List<Reconciled> = reconciled.filterNot { it.matched }
 
     /**
      * Sales claiming a payout that isn't on this device.
@@ -108,10 +109,7 @@ object PayoutReconciliation {
      * haven't got the deposit yet. Saying "unmatched" instead of "missing
      * money" is the difference between a shrug and a support ticket.
      */
-    fun salesWithUnknownPayout(
-        payouts: List<PayoutEntity>,
-        sales: List<SaleEntity>,
-    ): List<SaleEntity> {
+    fun salesWithUnknownPayout(payouts: List<PayoutEntity>, sales: List<SaleEntity>): List<SaleEntity> {
         val known = payouts.map { it.payoutId }.toSet()
         return sales.filter {
             val reference = it.payoutReference
@@ -127,32 +125,45 @@ object PayoutReconciliation {
 
     // ── wording ──────────────────────────────────────────────────────────────
 
-    fun deltaLabel(entry: Reconciled): String {
+    fun deltaLabel(entry: Reconciled): UiMessage {
         val delta = entry.deltaCents
+        // US-2976: the amount goes in ALREADY FORMATTED. Money.format owns how
+        // a dollar figure is written, and letting the resource re-decide it
+        // would put two different renderings of the same number on one screen.
         val amount = Money.format(abs(delta) / 100.0)
         return when {
-            entry.matched -> "Matches your records."
-            delta < 0 -> "$amount less than recorded."
-            else -> "$amount more than recorded."
+            entry.matched -> UiMessage(R.string.payout_delta_matches)
+            delta < 0 -> UiMessage(R.string.payout_delta_less, args = listOf(amount))
+            else -> UiMessage(R.string.payout_delta_more, args = listOf(amount))
         }
     }
 
-    fun summary(reconciled: List<Reconciled>): String {
-        if (reconciled.isEmpty()) return "No payouts synced yet."
+    fun summary(reconciled: List<Reconciled>): UiMessage {
+        if (reconciled.isEmpty()) return UiMessage(R.string.payout_summary_none)
         val off = mismatches(reconciled).size
+        // Both lines pluralise on the TOTAL, which is the noun the sentence is
+        // about - "1 of 9 payouts" is nine payouts, not one. The old wording
+        // said "All 1 payouts match" on a single payout; the singular form is
+        // written now rather than being a rounding error nobody filed.
         return if (off == 0) {
-            "All ${reconciled.size} payouts match your records."
+            UiMessage(
+                R.plurals.payout_summary_all_match,
+                args = listOf(reconciled.size),
+                quantity = reconciled.size,
+            )
         } else {
-            "$off of ${reconciled.size} payouts don't match."
+            UiMessage(
+                R.plurals.payout_summary_mismatch,
+                args = listOf(off, reconciled.size),
+                quantity = reconciled.size,
+            )
         }
     }
 
     /** Names an estimate as an estimate, so a soft mismatch isn't read as hard. */
-    fun estimateNote(entry: Reconciled): String? =
-        if (entry.estimated && !entry.matched) {
-            "Some of these sales had no reported payout, so their share was estimated " +
-                "from price minus fees."
-        } else {
-            null
-        }
+    fun estimateNote(entry: Reconciled): UiMessage? = if (entry.estimated && !entry.matched) {
+        UiMessage(R.string.payout_estimate_note)
+    } else {
+        null
+    }
 }

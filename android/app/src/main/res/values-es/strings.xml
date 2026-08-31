@@ -2693,4 +2693,17 @@
         <item quantity="one">Faltan %2$s de %1$d venta.</item>
         <item quantity="other">Faltan %2$s de %1$d ventas.</item>
     </plurals>
+    <string name="payout_delta_matches">Coincide con tus registros.</string>
+    <string name="payout_delta_less">%1$s menos de lo registrado.</string>
+    <string name="payout_delta_more">%1$s m&#225;s de lo registrado.</string>
+    <string name="payout_summary_none">A&#250;n no se han sincronizado pagos.</string>
+    <string name="payout_estimate_note">Algunas de estas ventas no ten&#237;an un pago informado, as&#237; que su parte se estim&#243; a partir del precio menos las comisiones.</string>
+    <plurals name="payout_summary_all_match">
+        <item quantity="one">El %1$d pago coincide con tus registros.</item>
+        <item quantity="other">Los %1$d pagos coinciden con tus registros.</item>
+    </plurals>
+    <plurals name="payout_summary_mismatch">
+        <item quantity="one">%1$d de %2$d pago no coincide.</item>
+        <item quantity="other">%1$d de %2$d pagos no coinciden.</item>
+    </plurals>
 </resources>
