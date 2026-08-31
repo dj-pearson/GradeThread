@@ -2722,4 +2722,23 @@
         <item quantity="one">Updated %1$d of %2$d item; %3$d failed.</item>
         <item quantity="other">Updated %1$d of %2$d items; %3$d failed.</item>
     </plurals>
+    <string name="fulfillment_sold_today">Sold today</string>
+    <string name="fulfillment_sold_yesterday">Sold yesterday</string>
+    <string name="fulfillment_nothing_waiting">Nothing waiting to be posted.</string>
+    <string name="fulfillment_summary_late">%1$s &#183; %2$d past the %3$d-day window</string>
+    <string name="fulfillment_queued_named">Saved to %1$s. We\'ll tell eBay when you\'re back online.</string>
+    <string name="fulfillment_queued_unnamed">Saved for this order. We\'ll tell eBay when you\'re back online.</string>
+    <string name="fulfillment_shipped_named">Marked shipped to %1$s. No tracking recorded.</string>
+    <string name="fulfillment_shipped_unnamed">Marked shipped for this order. No tracking recorded.</string>
+    <string name="fulfillment_shipped_named_tracking">Marked shipped to %1$s with tracking %2$s.</string>
+    <string name="fulfillment_shipped_unnamed_tracking">Marked shipped for this order with tracking %1$s.</string>
+    <plurals name="fulfillment_waiting_days">
+        <item quantity="one">Waiting %1$d day</item>
+        <item quantity="other">Waiting %1$d days</item>
+    </plurals>
+    <plurals name="fulfillment_parcels">
+        <item quantity="one">%1$d parcel to post</item>
+        <item quantity="other">%1$d parcels to post</item>
+    </plurals>
+    <string name="fulfillment_waiting_with_buyer">%1$s &#183; %2$s</string>
 </resources>

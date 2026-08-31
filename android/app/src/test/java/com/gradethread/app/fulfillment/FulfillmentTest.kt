@@ -3,6 +3,8 @@ package com.gradethread.app.fulfillment
 import com.gradethread.app.money.MoneyFixtures
 import com.gradethread.app.sync.MutationKind
 import com.gradethread.app.sync.db.SaleEntity
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -42,8 +44,7 @@ class FulfillmentTest {
         trackingNumber = tracking,
     )
 
-    private fun order(sale: SaleEntity, title: String? = "A jacket") =
-        FulfillmentOrder(sale, title)
+    private fun order(sale: SaleEntity, title: String? = "A jacket") = FulfillmentOrder(sale, title)
 
     // ── The queue ────────────────────────────────────────────────────────────
 
@@ -140,15 +141,20 @@ class FulfillmentTest {
 
     @Test
     fun `the waiting label reads naturally`() {
-        assertEquals("Sold today", Fulfillment.waitingLabel(order(sale("s", saleDate = now)), now))
+        // Today and yesterday are their OWN resources, not "Waiting 0 days" -
+        // which is the whole reason this reads naturally.
         assertEquals(
-            "Sold yesterday",
-            Fulfillment.waitingLabel(order(sale("s", saleDate = daysAgo(1))), now),
+            R.string.fulfillment_sold_today,
+            Fulfillment.waitingLabel(order(sale("s", saleDate = now)), now).res,
         )
         assertEquals(
-            "Waiting 6 days",
-            Fulfillment.waitingLabel(order(sale("s", saleDate = daysAgo(6))), now),
+            R.string.fulfillment_sold_yesterday,
+            Fulfillment.waitingLabel(order(sale("s", saleDate = daysAgo(1))), now).res,
         )
+
+        val waiting = Fulfillment.waitingLabel(order(sale("s", saleDate = daysAgo(6))), now)
+        assertEquals(R.plurals.fulfillment_waiting_days, waiting.res)
+        assertEquals(6, waiting.quantity)
     }
 
     // ── Where the write goes ─────────────────────────────────────────────────
@@ -186,16 +192,34 @@ class FulfillmentTest {
 
     @Test
     fun `the summary names how many are late`() {
-        assertEquals("Nothing waiting to be posted.", Fulfillment.summary(emptyList(), now))
+        assertEquals(
+            R.string.fulfillment_nothing_waiting,
+            Fulfillment.summary(emptyList(), now).res,
+        )
 
+        // Nothing late: the plural stands alone, with no empty clause after it.
         val one = Fulfillment.queue(listOf(sale("a", saleDate = daysAgo(1))), emptyList())
-        assertEquals("1 parcel to post", Fulfillment.summary(one, now))
+        val onlyOne = Fulfillment.summary(one, now)
+        assertEquals(R.plurals.fulfillment_parcels, onlyOne.res)
+        assertEquals(1, onlyOne.quantity)
 
         val mixed = Fulfillment.queue(
             listOf(sale("a", saleDate = daysAgo(1)), sale("b", saleDate = daysAgo(9))),
             emptyList(),
         )
-        assertEquals("2 parcels to post · 1 past the 3-day window", Fulfillment.summary(mixed, now))
+        // US-2976: the count line NESTS inside the overdue line. The window is
+        // an argument too, so a change to SHIP_BY_DAYS cannot leave the
+        // sentence quoting the old number.
+        val late = Fulfillment.summary(mixed, now)
+        assertEquals(R.string.fulfillment_summary_late, late.res)
+        assertEquals(
+            listOf<Any>(
+                UiMessage(R.plurals.fulfillment_parcels, args = listOf(2), quantity = 2),
+                1,
+                Fulfillment.SHIP_BY_DAYS,
+            ),
+            late.args,
+        )
     }
 
     @Test
@@ -215,14 +239,20 @@ class FulfillmentTest {
     fun `a queued mark-shipped says it hasn't reached eBay yet`() {
         // Saying "done" would have someone stop chasing a notification that
         // never went out.
+        // US-2976: three DIFFERENT resources, which is what the distinction
+        // was always made of. A queued mark and a sent one sharing a resource
+        // is exactly the failure this test guards against.
         val queued = Fulfillment.confirmation(order(sale("s")), "1Z999", queued = true)
-        assertTrue(queued.contains("back online"))
+        assertEquals(R.string.fulfillment_queued_unnamed, queued.res)
 
         val sent = Fulfillment.confirmation(order(sale("s")), "1Z999", queued = false)
-        assertTrue(sent.contains("1Z999"))
+        assertEquals(R.string.fulfillment_shipped_unnamed_tracking, sent.res)
+        // The tracking number reaches the sentence, because a confirmation that
+        // omits it cannot be checked against the carrier.
+        assertEquals(listOf<Any>("1Z999"), sent.args)
 
         val noTracking = Fulfillment.confirmation(order(sale("s")), null, queued = false)
-        assertTrue(noTracking.contains("No tracking"))
+        assertEquals(R.string.fulfillment_shipped_unnamed, noTracking.res)
     }
 
     // ── The offline payload ──────────────────────────────────────────────────

@@ -32,7 +32,7 @@
     "disclosure/DisclosureService.kt": 1,
     "disclosure/DisclosureViewModel.kt": 4,
     "feedback/FeedbackViewModel.kt": 1,
-    "fulfillment/Fulfillment.kt": 8,
+    "fulfillment/Fulfillment.kt": 1,
     "fulfillment/FulfillmentService.kt": 1,
     "grading/BulkGradeMachine.kt": 2,
     "grading/BulkGradeViewModel.kt": 1,

@@ -1,5 +1,8 @@
 package com.gradethread.app.fulfillment
 
+import com.gradethread.app.R
+import com.gradethread.app.ui.UiMessage
+
 import com.gradethread.app.money.Money
 import com.gradethread.app.sync.db.InventoryItemEntity
 import com.gradethread.app.sync.db.SaleEntity
@@ -16,10 +19,7 @@ import com.gradethread.app.sync.db.SaleEntity
  * order id. A manually recorded sale still needs posting, and leaving it out of
  * the shipping queue is how a parcel gets forgotten.
  */
-data class FulfillmentOrder(
-    val sale: SaleEntity,
-    val itemTitle: String?,
-) {
+data class FulfillmentOrder(val sale: SaleEntity, val itemTitle: String?) {
     val id: String get() = sale.id
 
     val displayTitle: String
@@ -65,11 +65,7 @@ object Fulfillment {
     }
 
     /** Already shipped, most recent first — the "done" half of the surface. */
-    fun shipped(
-        sales: List<SaleEntity>,
-        items: List<InventoryItemEntity>,
-        limit: Int = 20,
-    ): List<FulfillmentOrder> {
+    fun shipped(sales: List<SaleEntity>, items: List<InventoryItemEntity>, limit: Int = 20): List<FulfillmentOrder> {
         val titleById = items.associate { it.id to it.title }
         return sales
             .filter { it.shippedAt != null }
@@ -79,8 +75,7 @@ object Fulfillment {
     }
 
     /** Days since it sold. Zero on a future timestamp rather than a negative. */
-    fun daysWaiting(order: FulfillmentOrder, nowMs: Long): Int =
-        maxOf(0, ((nowMs - order.soldAtMs) / DAY_MS).toInt())
+    fun daysWaiting(order: FulfillmentOrder, nowMs: Long): Int = maxOf(0, ((nowMs - order.soldAtMs) / DAY_MS).toInt())
 
     /**
      * Past the handling window.
@@ -89,15 +84,17 @@ object Fulfillment {
      * warning meaningless, and a seller who packs on Saturdays isn't late on
      * Friday.
      */
-    fun overdue(order: FulfillmentOrder, nowMs: Long): Boolean =
-        daysWaiting(order, nowMs) >= SHIP_BY_DAYS
+    fun overdue(order: FulfillmentOrder, nowMs: Long): Boolean = daysWaiting(order, nowMs) >= SHIP_BY_DAYS
 
-    fun waitingLabel(order: FulfillmentOrder, nowMs: Long): String =
-        when (val days = daysWaiting(order, nowMs)) {
-            0 -> "Sold today"
-            1 -> "Sold yesterday"
-            else -> "Waiting $days days"
-        }
+    fun waitingLabel(order: FulfillmentOrder, nowMs: Long): UiMessage = when (val days = daysWaiting(order, nowMs)) {
+        0 -> UiMessage(R.string.fulfillment_sold_today)
+        1 -> UiMessage(R.string.fulfillment_sold_yesterday)
+        else -> UiMessage(
+            R.plurals.fulfillment_waiting_days,
+            args = listOf(days),
+            quantity = days,
+        )
+    }
 
     /**
      * A tracking number, or null.
@@ -106,8 +103,7 @@ object Fulfillment {
      * labels wrap them, and a number that fails only because it was pasted with
      * a line break is a bad afternoon.
      */
-    fun trackingNumber(text: String): String? =
-        text.filterNot { it.isWhitespace() }.takeIf { it.isNotEmpty() }
+    fun trackingNumber(text: String): String? = text.filterNot { it.isWhitespace() }.takeIf { it.isNotEmpty() }
 
     /**
      * Whether marking shipped should go to eBay rather than only to our own row.
@@ -116,33 +112,70 @@ object Fulfillment {
      * none falls through to the local write. Sending it anyway would fail in a
      * way the seller can do nothing about.
      */
-    fun goesToEbay(order: FulfillmentOrder, tracking: String?): Boolean =
-        order.onEbay && !tracking.isNullOrBlank()
+    fun goesToEbay(order: FulfillmentOrder, tracking: String?): Boolean = order.onEbay && !tracking.isNullOrBlank()
 
     /** Total outstanding label cost across the queue. */
-    fun totalLabelCost(orders: List<FulfillmentOrder>): Double =
-        Money.sum(orders.map { it.sale.shippingCost ?: 0.0 })
+    fun totalLabelCost(orders: List<FulfillmentOrder>): Double = Money.sum(orders.map { it.sale.shippingCost ?: 0.0 })
 
     /** The line above the queue, so an empty one still says something. */
-    fun summary(orders: List<FulfillmentOrder>, nowMs: Long): String {
-        if (orders.isEmpty()) return "Nothing waiting to be posted."
+    fun summary(orders: List<FulfillmentOrder>, nowMs: Long): UiMessage {
+        if (orders.isEmpty()) return UiMessage(R.string.fulfillment_nothing_waiting)
+        val base = UiMessage(
+            R.plurals.fulfillment_parcels,
+            args = listOf(orders.size),
+            quantity = orders.size,
+        )
         val late = orders.count { overdue(it, nowMs) }
-        val parcels = if (orders.size == 1) "parcel" else "parcels"
-        val base = "${orders.size} $parcels to post"
-        return if (late == 0) base else "$base · $late past the ${SHIP_BY_DAYS}-day window"
+        if (late == 0) return base
+        // US-2976: the count line NESTS inside the overdue line rather than
+        // being concatenated onto it. "N parcels to post" is a plural in its
+        // own right, and a language that words the two clauses in the other
+        // order can now do so.
+        return UiMessage(
+            R.string.fulfillment_summary_late,
+            args = listOf(base, late, SHIP_BY_DAYS),
+        )
     }
 
     /** What to say after a successful mark-shipped. */
-    fun confirmation(order: FulfillmentOrder, tracking: String?, queued: Boolean): String {
+    /**
+     * What to say after a successful mark-shipped.
+     *
+     * US-2976: SIX whole sentences rather than three with a "to <buyer>" /
+     * "for this order" fragment glued in. The fragment is a prepositional
+     * phrase, and where it sits in the sentence - and which preposition it
+     * takes - is a fact about the language, not about the order. Spanish
+     * already wants "Marcado como enviado a Ana", which the concatenation
+     * could not produce.
+     */
+    fun confirmation(order: FulfillmentOrder, tracking: String?, queued: Boolean): UiMessage {
         val who = order.sale.buyerUsername?.takeIf { it.isNotBlank() }
-        val target = who?.let { "to $it" } ?: "for this order"
         return when {
             // Named as queued, not as done: the parcel is marked here but eBay
             // and the buyer haven't been told yet, and pretending otherwise is
             // how someone stops chasing a notification that never went out.
-            queued -> "Saved $target. We'll tell eBay when you're back online."
-            tracking == null -> "Marked shipped $target. No tracking recorded."
-            else -> "Marked shipped $target with tracking $tracking."
+            queued ->
+                who
+                    ?.let { UiMessage(R.string.fulfillment_queued_named, args = listOf(it)) }
+                    ?: UiMessage(R.string.fulfillment_queued_unnamed)
+
+            tracking == null ->
+                who
+                    ?.let { UiMessage(R.string.fulfillment_shipped_named, args = listOf(it)) }
+                    ?: UiMessage(R.string.fulfillment_shipped_unnamed)
+
+            else ->
+                who
+                    ?.let {
+                        UiMessage(
+                            R.string.fulfillment_shipped_named_tracking,
+                            args = listOf(it, tracking),
+                        )
+                    }
+                    ?: UiMessage(
+                        R.string.fulfillment_shipped_unnamed_tracking,
+                        args = listOf(tracking),
+                    )
         }
     }
 }

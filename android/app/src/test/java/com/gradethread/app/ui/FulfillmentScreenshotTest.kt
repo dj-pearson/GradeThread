@@ -4,6 +4,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import com.gradethread.app.R
 import com.gradethread.app.fulfillment.FulfillmentActions
 import com.gradethread.app.fulfillment.FulfillmentContent
 import com.gradethread.app.fulfillment.FulfillmentOrder
@@ -99,7 +100,13 @@ class FulfillmentScreenshotTest {
                     shipped = listOf(
                         order("o4", "Arc'teryx Beta LT", soldAt = now - 5 * day, shippedAt = now - day),
                     ),
-                    banner = "Marked 1 order as posted.",
+                    // US-2976: a sentence the app actually produces. The old
+                    // fixture said "Marked 1 order as posted.", which no code
+                    // path here has ever generated.
+                    banner = UiMessage(
+                        R.string.fulfillment_shipped_named_tracking,
+                        args = listOf("ana_b", "1Z999AA10123456784"),
+                    ),
                 ),
             ),
             FulfillmentActions(),

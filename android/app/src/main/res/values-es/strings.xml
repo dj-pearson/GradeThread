@@ -2588,4 +2588,23 @@
         <item quantity="one">%1$d de %2$d art&#237;culo actualizado; %3$d fallaron.</item>
         <item quantity="other">%1$d de %2$d art&#237;culos actualizados; %3$d fallaron.</item>
     </plurals>
+    <string name="fulfillment_sold_today">Vendido hoy</string>
+    <string name="fulfillment_sold_yesterday">Vendido ayer</string>
+    <string name="fulfillment_nothing_waiting">No hay nada pendiente de enviar.</string>
+    <string name="fulfillment_summary_late">%1$s &#183; %2$d fuera del plazo de %3$d d&#237;as</string>
+    <string name="fulfillment_queued_named">Guardado para %1$s. Se lo diremos a eBay cuando vuelvas a tener conexi&#243;n.</string>
+    <string name="fulfillment_queued_unnamed">Guardado para este pedido. Se lo diremos a eBay cuando vuelvas a tener conexi&#243;n.</string>
+    <string name="fulfillment_shipped_named">Marcado como enviado a %1$s. Sin n&#250;mero de seguimiento.</string>
+    <string name="fulfillment_shipped_unnamed">Marcado como enviado para este pedido. Sin n&#250;mero de seguimiento.</string>
+    <string name="fulfillment_shipped_named_tracking">Marcado como enviado a %1$s con el seguimiento %2$s.</string>
+    <string name="fulfillment_shipped_unnamed_tracking">Marcado como enviado para este pedido con el seguimiento %1$s.</string>
+    <plurals name="fulfillment_waiting_days">
+        <item quantity="one">Esperando %1$d d&#237;a</item>
+        <item quantity="other">Esperando %1$d d&#237;as</item>
+    </plurals>
+    <plurals name="fulfillment_parcels">
+        <item quantity="one">%1$d paquete por enviar</item>
+        <item quantity="other">%1$d paquetes por enviar</item>
+    </plurals>
+    <string name="fulfillment_waiting_with_buyer">%1$s &#183; %2$s</string>
 </resources>

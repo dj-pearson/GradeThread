@@ -23,6 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gradethread.app.ui.text
+import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.R
 import com.gradethread.app.money.Money
 import com.gradethread.app.platform.telemetry.Telemetry
@@ -63,16 +65,16 @@ class FulfillmentViewModel @Inject constructor(
         val shipped: List<FulfillmentOrder> = emptyList(),
         val nowMs: Long = 0L,
         val busyId: String? = null,
-        val banner: String? = null,
+        val banner: UiMessage? = null,
         val errorMessage: String? = null,
         val refreshing: Boolean = false,
     ) {
-        val summary: String get() = Fulfillment.summary(queue, nowMs)
+        val summary: UiMessage get() = Fulfillment.summary(queue, nowMs)
         val labelCost: Double get() = Fulfillment.totalLabelCost(queue)
     }
 
     private val busyId = MutableStateFlow<String?>(null)
-    private val banner = MutableStateFlow<String?>(null)
+    private val banner = MutableStateFlow<UiMessage?>(null)
     private val error = MutableStateFlow<String?>(null)
     private val refreshing = MutableStateFlow(false)
 
@@ -219,7 +221,7 @@ fun FulfillmentContent(uiState: FulfillmentUiState, actions: FulfillmentActions,
             stringResource(R.string.fulfillment_title),
             style = MaterialTheme.typography.titleLarge,
         )
-        Text(state.summary, style = MaterialTheme.typography.bodyMedium)
+        Text(state.summary.text(), style = MaterialTheme.typography.bodyMedium)
         if (state.labelCost > 0) {
             Text(
                 stringResource(R.string.fulfillment_label_cost, Money.format(state.labelCost)),
@@ -229,7 +231,11 @@ fun FulfillmentContent(uiState: FulfillmentUiState, actions: FulfillmentActions,
         }
 
         state.banner?.let {
-            InfoCard(stringResource(R.string.fulfillment_banner_done), it, tone = InfoTone.Success)
+            InfoCard(
+                stringResource(R.string.fulfillment_banner_done),
+                it.text(),
+                tone = InfoTone.Success,
+            )
         }
         state.errorMessage?.let {
             InfoCard(stringResource(R.string.common_that_didnt_work), it, tone = InfoTone.Error)
@@ -306,9 +312,16 @@ private fun QueueCard(
             )
             Text(Money.format(order.sale.salePrice), style = MaterialTheme.typography.bodyMedium)
         }
+        // US-2976: the buyer's name sits BESIDE the waiting label through a
+        // resource, not glued on with a separator this side chose.
+        val waiting = Fulfillment.waitingLabel(order, nowMs).text()
+        val buyer = order.sale.buyerUsername
         Text(
-            Fulfillment.waitingLabel(order, nowMs) +
-                (order.sale.buyerUsername?.let { " · $it" } ?: ""),
+            if (buyer.isNullOrBlank()) {
+                waiting
+            } else {
+                stringResource(R.string.fulfillment_waiting_with_buyer, waiting, buyer)
+            },
             style = MaterialTheme.typography.bodySmall,
             color = if (overdue) {
                 MaterialTheme.colorScheme.error
