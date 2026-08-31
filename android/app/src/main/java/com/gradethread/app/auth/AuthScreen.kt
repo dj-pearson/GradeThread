@@ -207,7 +207,7 @@ fun AuthContent(state: AuthViewModel.State, actions: AuthActions, modifier: Modi
 
         state.errorMessage?.let { message ->
             Text(
-                message,
+                stringResource(message),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.error,
             )

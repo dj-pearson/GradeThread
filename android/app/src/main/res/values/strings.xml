@@ -2234,4 +2234,13 @@
     <string name="cert_integrity_unverifiable_detail">This grade predates tamper-proofing, so it can\'t be cryptographically verified.</string>
     <string name="cert_integrity_unavailable">Couldn\'t verify</string>
     <string name="cert_integrity_unavailable_detail">We couldn\'t reach the verification service. Check your connection and try again.</string>
+    <string name="auth_error_offline">You appear to be offline. Check your connection and try again.</string>
+    <string name="auth_error_invalid_credentials">That email or password doesn\'t match. Try again or reset your password.</string>
+    <string name="auth_error_email_not_confirmed">Confirm your email to sign in &#8212; check your inbox for the link we sent, or resend it below.</string>
+    <string name="auth_error_email_unverified">Please confirm your email to use this feature. Check your inbox for the verification link we sent when you signed up.</string>
+    <string name="auth_error_rate_limited">Too many attempts &#8212; wait a moment and try again.</string>
+    <string name="auth_error_user_already_exists">That email already has an account &#8212; sign in or reset your password.</string>
+    <string name="auth_error_weak_password">That password doesn\'t meet the requirements. Try a longer one with a mix of letters, numbers, and symbols.</string>
+    <string name="auth_error_expired_link">That link has expired or was already used. Request a fresh one &#8212; reset your password or sign in to resend the confirmation.</string>
+    <string name="auth_error_generic">Something went wrong. Please try again.</string>
 </resources>

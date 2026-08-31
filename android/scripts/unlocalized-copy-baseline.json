@@ -13,7 +13,6 @@
     "analytics/ListingPerformanceViewModel.kt": 1,
     "auth/AuthFormRules.kt": 8,
     "auth/AuthViewModel.kt": 2,
-    "auth/FriendlyAuthError.kt": 9,
     "autolister/Autolister.kt": 14,
     "autolister/AutolisterService.kt": 1,
     "autolister/AutolisterSessionViewModel.kt": 1,

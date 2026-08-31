@@ -1,5 +1,8 @@
 package com.gradethread.app.auth
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 import com.gradethread.app.platform.net.EdgeApiError
 
 /**
@@ -29,16 +32,24 @@ enum class FriendlyAuthError {
     ;
 
     /** User-facing copy — mirrors the iOS strings. */
-    fun message(): String = when (this) {
-        OFFLINE -> "You appear to be offline. Check your connection and try again."
-        INVALID_CREDENTIALS -> "That email or password doesn't match. Try again or reset your password."
-        EMAIL_NOT_CONFIRMED -> "Confirm your email to sign in — check your inbox for the link we sent, or resend it below."
-        EMAIL_UNVERIFIED -> "Please confirm your email to use this feature. Check your inbox for the verification link we sent when you signed up."
-        RATE_LIMITED -> "Too many attempts — wait a moment and try again."
-        USER_ALREADY_EXISTS -> "That email already has an account — sign in or reset your password."
-        WEAK_PASSWORD -> "That password doesn't meet the requirements. Try a longer one with a mix of letters, numbers, and symbols."
-        EXPIRED_LINK -> "That link has expired or was already used. Request a fresh one — reset your password or sign in to resend the confirmation."
-        GENERIC -> "Something went wrong. Please try again."
+    /**
+     * US-2976: a string RESOURCE, not a sentence.
+     *
+     * These are the nine things the app says when someone cannot get IN, so a
+     * seller who reads them in a language they do not have is stuck at the
+     * door with no way to tell an expired link from a wrong password.
+     */
+    @StringRes
+    fun message(): Int = when (this) {
+        OFFLINE -> R.string.auth_error_offline
+        INVALID_CREDENTIALS -> R.string.auth_error_invalid_credentials
+        EMAIL_NOT_CONFIRMED -> R.string.auth_error_email_not_confirmed
+        EMAIL_UNVERIFIED -> R.string.auth_error_email_unverified
+        RATE_LIMITED -> R.string.auth_error_rate_limited
+        USER_ALREADY_EXISTS -> R.string.auth_error_user_already_exists
+        WEAK_PASSWORD -> R.string.auth_error_weak_password
+        EXPIRED_LINK -> R.string.auth_error_expired_link
+        GENERIC -> R.string.auth_error_generic
     }
 
     companion object {
@@ -51,38 +62,56 @@ enum class FriendlyAuthError {
             val lower = (error.message ?: "").lowercase()
             return when {
                 listOf(
-                    "offline", "the internet connection", "not connected to the internet",
-                    "network connection was lost", "timed out", "unable to resolve host",
+                    "offline",
+                    "the internet connection",
+                    "not connected to the internet",
+                    "network connection was lost",
+                    "timed out",
+                    "unable to resolve host",
                     "failed to connect",
                 ).any { lower.contains(it) } -> OFFLINE
 
                 listOf(
-                    "invalid login credentials", "invalid_credentials",
-                    "invalid email or password", "incorrect email or password",
+                    "invalid login credentials",
+                    "invalid_credentials",
+                    "invalid email or password",
+                    "incorrect email or password",
                 ).any { lower.contains(it) } -> INVALID_CREDENTIALS
 
                 listOf(
-                    "email not confirmed", "email_not_confirmed", "not confirmed",
+                    "email not confirmed",
+                    "email_not_confirmed",
+                    "not confirmed",
                     "confirm your email",
                 ).any { lower.contains(it) } -> EMAIL_NOT_CONFIRMED
 
                 listOf(
-                    "rate limit", "rate_limit", "too many requests",
+                    "rate limit",
+                    "rate_limit",
+                    "too many requests",
                     "over_email_send_rate_limit",
                 ).any { lower.contains(it) } -> RATE_LIMITED
 
                 listOf(
-                    "user already registered", "already registered", "user_already_exists",
-                    "email_exists", "already been registered",
+                    "user already registered",
+                    "already registered",
+                    "user_already_exists",
+                    "email_exists",
+                    "already been registered",
                 ).any { lower.contains(it) } -> USER_ALREADY_EXISTS
 
                 listOf(
-                    "weak_password", "password should be", "password is too weak",
+                    "weak_password",
+                    "password should be",
+                    "password is too weak",
                     "password should contain",
                 ).any { lower.contains(it) } -> WEAK_PASSWORD
 
                 listOf(
-                    "otp_expired", "expired", "invalid flow state", "flow_state_not_found",
+                    "otp_expired",
+                    "expired",
+                    "invalid flow state",
+                    "flow_state_not_found",
                     "code verifier",
                 ).any { lower.contains(it) } -> EXPIRED_LINK
 

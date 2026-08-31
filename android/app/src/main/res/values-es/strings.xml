@@ -2103,4 +2103,13 @@
     <string name="cert_integrity_unverifiable_detail">Esta nota es anterior al sellado, así que no se puede verificar criptográficamente.</string>
     <string name="cert_integrity_unavailable">No se pudo verificar</string>
     <string name="cert_integrity_unavailable_detail">No pudimos contactar con el servicio de verificación. Revisa tu conexión e inténtalo de nuevo.</string>
+    <string name="auth_error_offline">Parece que no tienes conexión. Revísala e inténtalo de nuevo.</string>
+    <string name="auth_error_invalid_credentials">Ese correo o contraseña no coincide. Inténtalo otra vez o restablece tu contraseña.</string>
+    <string name="auth_error_email_not_confirmed">Confirma tu correo para entrar &#8212; busca en tu bandeja el enlace que te enviamos, o vuelve a enviarlo abajo.</string>
+    <string name="auth_error_email_unverified">Confirma tu correo para usar esta función. Busca en tu bandeja el enlace de verificación que te enviamos al registrarte.</string>
+    <string name="auth_error_rate_limited">Demasiados intentos &#8212; espera un momento e inténtalo de nuevo.</string>
+    <string name="auth_error_user_already_exists">Ese correo ya tiene una cuenta &#8212; entra o restablece tu contraseña.</string>
+    <string name="auth_error_weak_password">Esa contraseña no cumple los requisitos. Prueba una más larga que mezcle letras, números y símbolos.</string>
+    <string name="auth_error_expired_link">Ese enlace caducó o ya se usó. Pide uno nuevo &#8212; restablece tu contraseña o entra para reenviar la confirmación.</string>
+    <string name="auth_error_generic">Algo salió mal. Inténtalo de nuevo.</string>
 </resources>

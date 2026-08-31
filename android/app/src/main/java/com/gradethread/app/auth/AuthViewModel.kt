@@ -1,5 +1,7 @@
 package com.gradethread.app.auth
 
+import androidx.annotation.StringRes
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.platform.telemetry.Telemetry
@@ -19,9 +21,7 @@ import javax.inject.Inject
  * US-1310 — this is the first surface that reads it.
  */
 @HiltViewModel
-class AuthViewModel @Inject constructor(
-    private val auth: AuthRepository,
-) : ViewModel() {
+class AuthViewModel @Inject constructor(private val auth: AuthRepository) : ViewModel() {
 
     data class State(
         val mode: AuthFormRules.Mode = AuthFormRules.Mode.SIGN_IN,
@@ -55,7 +55,8 @@ class AuthViewModel @Inject constructor(
 
         val recovery: AuthFormRules.Recovery get() = AuthFormRules.recovery(error)
 
-        val errorMessage: String? get() = error?.message()
+        @get:StringRes
+        val errorMessage: Int? get() = error?.message()
 
         val isSignUp: Boolean get() = mode == AuthFormRules.Mode.SIGN_UP
 
@@ -98,8 +99,7 @@ class AuthViewModel @Inject constructor(
 
     fun setEmail(value: String) = update { it.copy(email = value, error = null, notice = null) }
 
-    fun setPassword(value: String) =
-        update { it.copy(password = value, error = null, notice = null) }
+    fun setPassword(value: String) = update { it.copy(password = value, error = null, notice = null) }
 
     fun setFullName(value: String) = update { it.copy(fullName = value) }
 
