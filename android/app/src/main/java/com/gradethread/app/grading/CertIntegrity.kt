@@ -1,5 +1,8 @@
 package com.gradethread.app.grading
 
+import androidx.annotation.StringRes
+import com.gradethread.app.R
+
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -70,42 +73,46 @@ object CertIntegrity {
         else -> CertVerification.Unverifiable
     }
 
-    /** Render-ready copy for a verdict. */
+    /**
+     * Render-ready copy for a verdict.
+     *
+     * US-2976: string RESOURCES. This banner is the one place the app says
+     * whether a certificate can be TRUSTED, so a Spanish buyer reading
+     * "Integrity check failed" in English is being shown the most important
+     * sentence on the screen in a language they may not have.
+     */
     fun display(verification: CertVerification): Display = when (verification) {
         CertVerification.Verifying -> Display(
-            title = "Verifying certificate…",
-            detail = "Confirming this grade matches its sealed record.",
+            title = R.string.cert_integrity_verifying,
+            detail = R.string.cert_integrity_verifying_detail,
             tone = Tone.NEUTRAL,
         )
 
         is CertVerification.Verified -> Display(
-            title = "Certificate verified",
+            title = R.string.cert_integrity_verified,
             detail = if (verification.signed) {
-                "Grade claims match the cryptographically signed record."
+                R.string.cert_integrity_verified_signed_detail
             } else {
-                "Grade claims match the sealed record."
+                R.string.cert_integrity_verified_detail
             },
             tone = Tone.VERIFIED,
         )
 
         CertVerification.Tampered -> Display(
-            title = "Integrity check failed",
-            detail = "These grade claims don't match the sealed record — don't trust " +
-                "this certificate.",
+            title = R.string.cert_integrity_tampered,
+            detail = R.string.cert_integrity_tampered_detail,
             tone = Tone.DANGER,
         )
 
         CertVerification.Unverifiable -> Display(
-            title = "Integrity record unavailable",
-            detail = "This grade predates tamper-proofing, so it can't be " +
-                "cryptographically verified.",
+            title = R.string.cert_integrity_unverifiable,
+            detail = R.string.cert_integrity_unverifiable_detail,
             tone = Tone.WARNING,
         )
 
         CertVerification.Unavailable -> Display(
-            title = "Couldn't verify",
-            detail = "We couldn't reach the verification service. Check your connection " +
-                "and try again.",
+            title = R.string.cert_integrity_unavailable,
+            detail = R.string.cert_integrity_unavailable_detail,
             tone = Tone.WARNING,
             retryable = true,
         )
@@ -114,8 +121,8 @@ object CertIntegrity {
     enum class Tone { VERIFIED, DANGER, WARNING, NEUTRAL }
 
     data class Display(
-        val title: String,
-        val detail: String,
+        @StringRes val title: Int,
+        @StringRes val detail: Int,
         val tone: Tone,
         val retryable: Boolean = false,
     )

@@ -378,9 +378,13 @@ private fun IntegrityBadge(verification: CertVerification, onRetry: () -> Unit) 
             .padding(Spacing.sm),
         verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
     ) {
-        Text(display.title, style = MaterialTheme.typography.labelLarge, color = toneColor(display.tone))
         Text(
-            display.detail,
+            stringResource(display.title),
+            style = MaterialTheme.typography.labelLarge,
+            color = toneColor(display.tone),
+        )
+        Text(
+            stringResource(display.detail),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

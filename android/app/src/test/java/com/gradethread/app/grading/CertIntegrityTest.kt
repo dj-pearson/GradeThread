@@ -1,7 +1,11 @@
 package com.gradethread.app.grading
 
+import com.gradethread.app.R
+import java.io.File
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -68,10 +72,35 @@ class CertIntegrityTest {
     fun `tamper copy tells the reader not to trust it`() {
         val display = CertIntegrity.display(CertVerification.Tampered)
         assertEquals(CertIntegrity.Tone.DANGER, display.tone)
-        assertTrue(display.detail.contains("don't trust"))
+        // US-2976: the copy is a resource now, so the WORDS are pinned in
+        // strings.xml and this asserts the right resource is chosen. The
+        // sentence itself is checked by the copy case below, which reads
+        // strings.xml rather than a literal.
+        assertEquals(R.string.cert_integrity_tampered_detail, display.detail)
         // Retrying a tamper verdict would only invite a second opinion on a
         // settled answer.
         assertFalse(display.retryable)
+    }
+
+    /**
+     * US-2976: the tamper sentence still tells the reader not to trust it.
+     *
+     * Reads strings.xml rather than a Kotlin literal, because that is where the
+     * words live now. A plain JUnit test cannot resolve a resource id, so this
+     * asserts against the file - which is also the only version a translator
+     * will ever edit.
+     */
+    @Test
+    fun `the tamper sentence still says do not trust it`() {
+        val xml = File("src/main/res/values/strings.xml").readText()
+        val detail = Regex(
+            """<string name="cert_integrity_tampered_detail">([^<]*)</string>""",
+        ).find(xml)?.groupValues?.get(1)
+        assertNotNull("the tamper detail string is gone from strings.xml", detail)
+        assertTrue(
+            "the tamper banner must tell the reader not to trust it: \"$detail\"",
+            detail!!.contains("don", ignoreCase = true) && detail.contains("trust"),
+        )
     }
 
     @Test

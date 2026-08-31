@@ -2092,4 +2092,15 @@
     <string name="activation_ebay_title">Conecta eBay</string>
     <string name="activation_ebay_detail">Sincroniza tus anuncios, pedidos y pagos en ambos sentidos.</string>
     <string name="onboarding_progress">%1$d de %2$d hechos</string>
+    <string name="cert_integrity_verifying">Verificando el certificado&#8230;</string>
+    <string name="cert_integrity_verifying_detail">Comprobando que esta nota coincide con su registro sellado.</string>
+    <string name="cert_integrity_verified">Certificado verificado</string>
+    <string name="cert_integrity_verified_signed_detail">La nota coincide con el registro firmado criptográficamente.</string>
+    <string name="cert_integrity_verified_detail">La nota coincide con el registro sellado.</string>
+    <string name="cert_integrity_tampered">Falló la comprobación de integridad</string>
+    <string name="cert_integrity_tampered_detail">Esta nota no coincide con el registro sellado &#8212; no te fíes de este certificado.</string>
+    <string name="cert_integrity_unverifiable">No hay registro de integridad</string>
+    <string name="cert_integrity_unverifiable_detail">Esta nota es anterior al sellado, así que no se puede verificar criptográficamente.</string>
+    <string name="cert_integrity_unavailable">No se pudo verificar</string>
+    <string name="cert_integrity_unavailable_detail">No pudimos contactar con el servicio de verificación. Revisa tu conexión e inténtalo de nuevo.</string>
 </resources>

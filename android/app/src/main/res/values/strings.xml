@@ -2223,4 +2223,15 @@
     <string name="activation_ebay_title">Connect eBay</string>
     <string name="activation_ebay_detail">Sync your listings, orders, and payouts both ways.</string>
     <string name="onboarding_progress">%1$d of %2$d done</string>
+    <string name="cert_integrity_verifying">Verifying certificate&#8230;</string>
+    <string name="cert_integrity_verifying_detail">Confirming this grade matches its sealed record.</string>
+    <string name="cert_integrity_verified">Certificate verified</string>
+    <string name="cert_integrity_verified_signed_detail">Grade claims match the cryptographically signed record.</string>
+    <string name="cert_integrity_verified_detail">Grade claims match the sealed record.</string>
+    <string name="cert_integrity_tampered">Integrity check failed</string>
+    <string name="cert_integrity_tampered_detail">These grade claims don\'t match the sealed record &#8212; don\'t trust this certificate.</string>
+    <string name="cert_integrity_unverifiable">Integrity record unavailable</string>
+    <string name="cert_integrity_unverifiable_detail">This grade predates tamper-proofing, so it can\'t be cryptographically verified.</string>
+    <string name="cert_integrity_unavailable">Couldn\'t verify</string>
+    <string name="cert_integrity_unavailable_detail">We couldn\'t reach the verification service. Check your connection and try again.</string>
 </resources>
