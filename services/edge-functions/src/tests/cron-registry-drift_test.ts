@@ -58,8 +58,16 @@ Deno.test("US-2447: a host-scheduled job route is declared in the host manifest,
 
 Deno.test("US-1561: every /api/jobs/* route in main.ts is registered (and none is stale)", async () => {
   const main = await Deno.readTextFile(MAIN_TS);
+  // `\s*` after the paren is load-bearing, not defensive tidying. A mount whose
+  // arguments no longer fit on one line is formatted as
+  // `app.post(\n  "/api/jobs/x",\n  ...)`, and the anchored form of this
+  // pattern matched neither it nor anything else about it — the route was
+  // simply absent from `routed`, which reads exactly like a repo with one
+  // fewer cron. /api/jobs/measurement-text-backfill shipped that way. Formatting
+  // is not a place a guard may lose a route, so every scan of main.ts in this
+  // file tolerates the break.
   const routed = new Set(
-    [...main.matchAll(/app\.post\("(\/api\/jobs\/[^"]+)"/g)].map((m) => m[1]),
+    [...main.matchAll(/app\.post\(\s*"(\/api\/jobs\/[^"]+)"/g)].map((m) => m[1]),
   );
   const registered = new Set(
     CRON_REGISTRY.map((d) => d.endpoint).filter((e) => e.startsWith("/api/jobs/")),
@@ -371,7 +379,10 @@ Deno.test("US-2617: every /api/jobs/* handler gates on the job secret", async ()
   const main = await Deno.readTextFile(MAIN_TS);
   // Read every jobs route with enough following text to cover an inline handler
   // or a one-line delegation to a named one.
-  const decls = [...main.matchAll(/app\.post\("(\/api\/jobs\/[^"]+)"\s*,/g)].map((m) => {
+  // Same `\s*`-after-the-paren rule as the registry scan above, and it matters
+  // more here: a route this pattern cannot see is not merely unregistered, it
+  // is never checked for gating on the job secret at all.
+  const decls = [...main.matchAll(/app\.post\(\s*"(\/api\/jobs\/[^"]+)"\s*,/g)].map((m) => {
     // Window ends at the NEXT top-level app.* declaration, not at a fixed
     // length. A fixed 700 characters spilled into the following routes, so a
     // NEIGHBOUR's handler name satisfied this route's check — sabotaging the
