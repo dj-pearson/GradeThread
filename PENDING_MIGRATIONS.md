@@ -1,6 +1,30 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> **TWO are outstanding right now: 00708, then 00709.** Apply in that order.
+> ## ✅ BOTH ARE APPLIED. Nothing is outstanding as of 2026-09-01.
+>
+> **Measured, not assumed.** `public.garment_measurements`,
+> `public.garment_measurement_stats` (00709) and
+> `public.registered_number_lookups` (00708) all answer `[]` on
+> `https://api.gradethread.com/rest/v1/...` with the anon key, where a table
+> that does not exist answers `42P01 relation ... does not exist` — checked
+> against a control name in the same session. `garment_measurements` also
+> accepts a select of `brand_key,style_key,field_key,inches,source` and rejects
+> a bogus column with `42703`, so it is 00709's shape and not a name collision.
+> The endpoint is really prod: `blog_posts` reports 159 rows.
+>
+> This entry is the [[pending-migrations-stale-both-ways]] failure caught early.
+> The two sections below were written while the files were genuinely held, and
+> they are kept because their **verify SQL is still worth running** — a read
+> through PostgREST cannot see policies, so "the table exists" is not "the RLS
+> landed". Run the `pg_policies` block in the 00709 section before trusting the
+> tenant scoping in production.
+>
+> `applied_migrations` is `42501 permission denied` to anon, so the recorded
+> version was NOT confirmed from outside. If the SQL was applied by hand rather
+> than through `scripts/apply-prod-migrations.sh`, check that both rows are
+> recorded, or the boot guard and the next apply will disagree with reality.
+
+> **~~TWO are outstanding right now: 00708, then 00709.~~** Apply in that order.
 > Neither depends on the other, but `apply-prod-migrations.sh` skips by MAXIMUM
 > recorded version rather than by membership, so applying 00709 first would
 > leave 00708 permanently skipped. That is exactly how `listings.draft_id` from
