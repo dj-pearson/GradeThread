@@ -138,6 +138,8 @@ import {
   alternativePath,
 } from "@/lib/seo/competitor-alternatives";
 import { CompetitorAlternativePage } from "@/pages/marketing/competitor-alternative";
+import { SWITCH_FROM_PAGES, switchFromPath } from "@/lib/seo/switch-from";
+import { SwitchFromPageView } from "@/pages/marketing/switch-from";
 import { CONDITION_CHART_PATH } from "@/lib/seo/condition-chart";
 import { CHANGELOG_PATH } from "@/lib/seo/changelog";
 import { ConditionChartPage } from "@/pages/marketing/condition-chart";
@@ -347,6 +349,13 @@ const PAGES: Record<string, React.ReactNode> = {
       <CompetitorAlternativePage slug={alt.slug} />,
     ]),
   ),
+  // US-9209: switch-from pages, generated from their data like the above.
+  ...Object.fromEntries(
+    SWITCH_FROM_PAGES.map((p) => [
+      switchFromPath(p.slug),
+      <SwitchFromPageView slug={p.slug} />,
+    ]),
+  ),
   // Free printable condition chart (US-1678).
   [CONDITION_CHART_PATH]: <ConditionChartPage />,
   [CHANGELOG_PATH]: <ChangelogPage />,
@@ -499,6 +508,9 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
       alternativePath(alt.slug),
       `${M}marketing/competitor-alternative`,
     ]),
+  ),
+  ...Object.fromEntries(
+    SWITCH_FROM_PAGES.map((p) => [switchFromPath(p.slug), `${M}marketing/switch-from`]),
   ),
   [CONDITION_CHART_PATH]: `${M}marketing/condition-chart`,
   [CHANGELOG_PATH]: `${M}marketing/changelog`,

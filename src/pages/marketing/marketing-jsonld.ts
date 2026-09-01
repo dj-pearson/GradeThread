@@ -108,6 +108,7 @@ import {
 import { FIT_CHECKER_META, FIT_CHECKER_PATH } from "@/lib/seo/fit-checker";
 import { RN_LOOKUP_META, RN_LOOKUP_PATH } from "@/lib/seo/rn-lookup";
 import { absoluteUrl } from "@/lib/seo/site";
+import { switchFromPath, type SwitchFromPage } from "@/lib/seo/switch-from";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/site";
 // US-2103: the canonical entity ids, so brand nodes here MERGE with the
@@ -2088,5 +2089,30 @@ export function verifiedJsonLd(): JsonLd[] {
       url: `${SITE_URL}/verified`,
       isPartOf: { "@type": "WebSite", "@id": WEBSITE_ID, name: "GradeThread", url: SITE_URL },
     } as JsonLd,
+  ];
+}
+
+// ── US-9209: switch-from pages ────────────────────────────────────────────
+const SWITCH_FROM_PUBLISHED = "2026-09-01";
+
+export function switchFromBreadcrumbItems(page: SwitchFromPage): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Reselling", url: `${SITE_URL}${RESELLING_PILLAR_PATH}` },
+    { name: `Switching from ${page.competitor}`, url: `${SITE_URL}${switchFromPath(page.slug)}` },
+  ];
+}
+
+/** Article + the FAQ. No ItemList: the page compares nothing, it lists what moves. */
+export function switchFromJsonLd(page: SwitchFromPage): JsonLd[] {
+  return [
+    articleLd({
+      headline: page.h1,
+      description: page.description,
+      url: absoluteUrl(switchFromPath(page.slug)),
+      datePublished: SWITCH_FROM_PUBLISHED,
+      dateModified: SWITCH_FROM_PUBLISHED,
+    }),
+    faqPageLd(page.faqs),
   ];
 }

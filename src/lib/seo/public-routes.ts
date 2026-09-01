@@ -32,6 +32,7 @@ import { platformStandardsRoutes } from "./platform-standards";
 import { whereToSellRoute } from "./where-to-sell";
 import { crosslistAppsRoute } from "./crosslisting-apps";
 import { competitorAlternativeRoutes } from "./competitor-alternatives";
+import { switchFromRoutes } from "./switch-from";
 import { conditionChartRoute } from "./condition-chart";
 import { changelogRoute } from "./changelog";
 import { gradeCheckerRoute } from "./grade-checker";
@@ -175,6 +176,8 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/reselling/vendoo-alternative": "2026-07-20",
   "/reselling/list-perfectly-alternative": "2026-07-20",
   "/reselling/crosslist-alternative": "2026-07-20",
+  "/reselling/switch-from-vendoo": "2026-09-01",
+  "/reselling/switch-from-list-perfectly": "2026-09-01",
   // Free printable condition chart (US-1678).
   "/grading/condition-chart": "2026-07-06",
   "/changelog": "2026-08-23",
@@ -687,6 +690,8 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   // Brand-modifier queries ("vendoo alternative") are the highest commercial
   // intent available to us and the roundup above does not rank for them.
   ...competitorAlternativeRoutes(),
+  // US-9209: what a switch from Vendoo or List Perfectly actually moves.
+  ...switchFromRoutes(),
   // Free printable condition chart (US-1678).
   conditionChartRoute(),
   changelogRoute(),

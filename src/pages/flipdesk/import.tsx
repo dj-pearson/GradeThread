@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -54,6 +55,13 @@ import {
   parseDate,
   type ImportField,
 } from "@/lib/import-mapping";
+import {
+  applyImportPreset,
+  detectImportPreset,
+  getImportPreset,
+  IMPORT_PRESETS,
+  type ImportPreset,
+} from "@/lib/import-presets";
 import { PageHelp } from "@/components/help/page-help";
 import {
   ClosetImportCard,
@@ -194,6 +202,9 @@ export function FlipdeskImportPage() {
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<ImportField[]>([]);
+  // US-9209: the competitor export the file looks like, so the mapping is
+  // already done when the seller reaches step 2. Null means a plain sheet.
+  const [preset, setPreset] = useState<ImportPreset | null>(null);
   const [importing, setImporting] = useState(false);
   // US-2518: the server's run, polled. `run` is the whole progress and result
   // surface now — a browser refresh mid-import picks it back up.
@@ -229,9 +240,15 @@ export function FlipdeskImportPage() {
     }
     setHeaders(h);
     setRows(r);
-    setMapping(h.map(guessField));
+    const found = detectImportPreset(h);
+    setPreset(found);
+    setMapping(found ? applyImportPreset(h, found) : h.map(guessField));
     setRun(null);
-    toast.success(`Detected ${h.length} columns, ${r.length} rows.`);
+    toast.success(
+      found
+        ? `Looks like a ${found.name}. ${h.length} columns mapped, ${r.length} rows.`
+        : `Detected ${h.length} columns, ${r.length} rows.`,
+    );
   }
 
   function handleDetect() {
@@ -651,6 +668,37 @@ A1	GT-0001	Lululemon Align Pant	..."
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {/* US-9209: a switching seller picks (or is handed) their old tool's
+                preset. "Plain spreadsheet" is the generic guess this page always
+                used; an unverified preset says so rather than promising. */}
+            <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
+              <Label htmlFor="import-preset">Exported from</Label>
+              <Select
+                value={preset?.id ?? "none"}
+                onValueChange={(v) => {
+                  const next = getImportPreset(v) ?? null;
+                  setPreset(next);
+                  setMapping(next ? applyImportPreset(headers, next) : headers.map(guessField));
+                }}
+              >
+                <SelectTrigger id="import-preset" className="w-56" aria-label="Exported from">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Plain spreadsheet</SelectItem>
+                  {IMPORT_PRESETS.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {preset && !preset.verified ? (
+                <span className="text-xs text-muted-foreground">
+                  Mapping from {preset.name.replace(" export", "")}'s documented columns, not yet checked against a real file. Look over step 2 before you import.
+                </span>
+              ) : null}
+            </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {headers.map((header, i) => (
                 <div key={i} className="space-y-1">

@@ -18,6 +18,7 @@ import {
   alternativeBreadcrumbItems,
 } from "@/pages/marketing/marketing-jsonld";
 import { NotFoundPage } from "@/pages/not-found";
+import { SWITCH_FROM_SLUGS, switchFromPath } from "@/lib/seo/switch-from-slugs";
 
 // Bottom-funnel competitor alternative pages. See the rationale block in
 // lib/seo/competitor-alternatives.ts — in short, "vendoo alternative" is a
@@ -65,6 +66,24 @@ function AlternativeBody({ alt }: { alt: CompetitorAlternative }) {
             Verified {COMPETITOR_ALTERNATIVES_VERIFIED} · features and pricing
             change — verify on each tool's site before switching.
           </p>
+        </div>
+      </section>
+
+      {/* US-9209: the reader who has decided goes to the page that says what
+          actually moves. Every alternative page links both, because the
+          crosslist reader may be leaving either of the other two. */}
+      <section className="border-t px-6 py-8">
+        <div className="mx-auto max-w-3xl text-sm text-muted-foreground">
+          Already decided?{" "}
+          {SWITCH_FROM_SLUGS.map((slug, i) => (
+            <span key={slug}>
+              {i > 0 ? " or " : ""}
+              <Link to={switchFromPath(slug)} className="underline underline-offset-2">
+                what transfers when you switch from {slug === "vendoo" ? "Vendoo" : "List Perfectly"}
+              </Link>
+            </span>
+          ))}
+          .
         </div>
       </section>
 
