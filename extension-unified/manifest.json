@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "GradeThread: Grade & List",
-  "version": "0.10.0",
+  "version": "1.0.9",
   "description": "Get an AI-powered condition read on a pre-owned clothing listing before you buy \u2014 plus one-click cross-listing for FlipDesk sellers.",
   "permissions": [
     "storage",
@@ -68,6 +68,7 @@
       "research/seller-memory.js",
       "research/compare-tray.js",
       "sync/selectors.js",
+      "closet-import/selectors.js",
       "sync/poll-plan.js",
       "background.js"
     ]
@@ -189,6 +190,26 @@
         "sync/selectors.js",
         "sync/observe.js",
         "sync/content.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://poshmark.com/closet/*",
+        "https://*.poshmark.com/closet/*",
+        "https://poshmark.com/listing/*",
+        "https://*.poshmark.com/listing/*",
+        "https://mercari.com/mypage/listings*",
+        "https://*.mercari.com/mypage/listings*",
+        "https://mercari.com/item/*",
+        "https://*.mercari.com/item/*",
+        "https://mercari.com/us/item/*",
+        "https://*.mercari.com/us/item/*"
+      ],
+      "js": [
+        "closet-import/selectors.js",
+        "closet-import/extract.js",
+        "closet-import/content.js"
       ],
       "run_at": "document_idle"
     },

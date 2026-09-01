@@ -1,3 +1,4 @@
+import { ExtensionInstallCta } from "@/components/marketing/extension-install-cta";
 import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -126,6 +127,9 @@ export function MarketingLayout({
             JSON-LD above, so the on-page hierarchy matches the structured data. */}
         <Breadcrumbs items={trail} className="mx-auto max-w-3xl px-6 pt-6" />
         {children}
+        {/* US-9210: the extension install call to action, on the pages whose
+            reader is about to visit a marketplace. Self-hides elsewhere. */}
+        <ExtensionInstallCta path={canonicalPath} />
       </main>
 
       {/* Footer — matches the landing page */}

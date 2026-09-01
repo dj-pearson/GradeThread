@@ -27,6 +27,8 @@ const mwSrc = Deno.readTextFileSync(
 const EXTENSION_CALLED_PREFIXES = [
   "/api/flipdesk/extension-queue",
   "/api/flipdesk/sync",
+  // US-9201: the closet read is posted by the extension with its own token.
+  "/api/flipdesk/closet-import",
 ];
 
 Deno.test("every route group the extension calls accepts an extension token", () => {

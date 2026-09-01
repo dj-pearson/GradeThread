@@ -1,3 +1,4 @@
+import { isClosedAspect } from "@/lib/aspect-normalize";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, Search, X, Check, AlertCircle, Sparkles } from "lucide-react";
 import {
@@ -519,12 +520,12 @@ export function EbayCategoryPicker({
     for (const a of aspectList) {
       const name = (a.localizedAspectName ?? "").trim();
       if (!name) continue;
-      categoryAspects[name] =
-        a.aspectConstraint?.aspectMode === "SELECTION_ONLY"
-          ? (a.aspectValues ?? [])
-              .map((v) => v.localizedValue ?? "")
-              .filter((v) => v.length > 0)
-          : [];
+      const listed = (a.aspectValues ?? [])
+        .map((v) => v.localizedValue ?? "")
+        .filter((v) => v.length > 0);
+      categoryAspects[name] = isClosedAspect(name, a.aspectConstraint?.aspectMode, listed.length)
+        ? listed
+        : [];
     }
     const { aspects: forced, cleared } = forceMeasurementAspects(
       measurements ?? {},
@@ -1128,7 +1129,16 @@ function AspectField({
   onChange: (v: string, intent: "toggle" | "set") => void;
 }) {
   const cardinality = aspect.aspectConstraint.itemToAspectCardinality ?? "SINGLE";
-  const mode = aspect.aspectConstraint.aspectMode ?? "FREE_TEXT";
+  // eBay standardized sizes (2026-09): a size aspect with a list is a
+  // dropdown, whatever mode the cached spec reports, so the seller can only
+  // pick a value eBay will accept.
+  const mode = isClosedAspect(
+    aspect.localizedAspectName,
+    aspect.aspectConstraint.aspectMode,
+    (aspect.aspectValues ?? []).length,
+  )
+    ? "SELECTION_ONLY"
+    : (aspect.aspectConstraint.aspectMode ?? "FREE_TEXT");
   // While the free-text field is focused, show exactly what the user is typing
   // (`draft`) rather than the canonical stored value. Measurement aspects are
   // two-way-synced with the Measurements section, which re-formats the value

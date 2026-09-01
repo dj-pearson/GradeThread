@@ -17,6 +17,7 @@ import type {
   ListingStatus,
   ItemCategory,
   ItemStatus,
+  PriceSetBy,
 } from "@/types/database";
 import type { ListingFormatValue } from "@/components/flipdesk/listing-format-controls";
 
@@ -48,6 +49,16 @@ export type ComposerListingState = {
   shippingPolicyId: string | null;
   paymentPolicyId: string | null;
   returnPolicyId: string | null;
+  /**
+   * US-9205: who set the price and the graded price that was offered. Optional
+   * so the older callers and tests that build this state by hand keep working;
+   * a save without it leaves the three columns untouched.
+   */
+  priceProvenance?: {
+    price_set_by: PriceSetBy | null;
+    graded_price_cents: number | null;
+    graded_price_why: string | null;
+  };
 };
 
 /** eBay's hard cap on a listing title. Enforced on the input, not at save. */
@@ -152,6 +163,9 @@ export function buildListingFields(
     // Saving = a human reviewed the price, so it's no longer an unverified
     // AI estimate.
     price_is_estimated: false,
+    // US-9205: graded / comp_median / seller, and the graded price kept beside
+    // an override so the two can be compared with the sale price later.
+    ...(state.priceProvenance ?? {}),
     // 00432: an explicit per-listing override — saving the composer is a
     // deliberate decision, so it no longer inherits the seller default.
     // promo_opt_out stays in sync for the legacy read sites (item page,

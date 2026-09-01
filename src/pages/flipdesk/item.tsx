@@ -63,6 +63,7 @@ import { RelistSuggestionCard } from "@/components/passport/relist-suggestion-ca
 import { gradeRoiHintWouldRender } from "@/lib/flipdesk-analytics";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import { safeHref } from "@/lib/safe-url";
+import { PendingReviseBanner } from "@/components/flipdesk/pending-revise-banner";
 
 // US-1075: dollar floor for the "grade this to boost trust" cross-surface nudge.
 // Below this, the extra grading cost is rarely worth it, so we stay quiet.
@@ -278,6 +279,10 @@ export function FlipdeskItemPage() {
           {/* US-1081: GradeThread-originated live listings — authority badge +
               non-blocking eBay-drift indicator with a "Re-push to eBay". */}
           <GradethreadListingCard itemId={item.id} itemTitle={item.item_title} />
+
+          {/* US-9202: this item's copies on Poshmark/Mercari/Vinted/Grailed that
+              an edit here has made stale, until the marketplace confirms. */}
+          <PendingReviseBanner itemId={item.id} />
 
           {/* US-150: per-listing opt-out from the price-drop/promo scheduler. */}
           <AutomationOptOutCard itemId={item.id} />

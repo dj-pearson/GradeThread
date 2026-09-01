@@ -17,6 +17,10 @@
 //   TEST_USER_A_SUBMISSION_ID   a flipdesk_grading_submissions.id
 //   TEST_USER_A_LISTING_ID      a listings.id
 //   TEST_USER_A_SYNC_LISTING_URL a poshmark listings.listing_url owned by A
+//   TEST_USER_A_CLOSET_LISTING_PID a poshmark listings.platform_listing_id owned
+//                               by A (closet import dedupe key, US-9201)
+//   TEST_USER_A_REVISE_LISTING_ID a live poshmark listing of A's carrying a
+//                               revise_pending marker (US-9202)
 //                               (US-2697 sold-sync; OPTIONAL - skips until the
 //                               seed script has been re-run)
 //   TEST_USER_A_API_KEY_ID      an api_keys.id
@@ -6895,6 +6899,201 @@ Deno.test({
   },
 });
 
+// US-9201: the closet import matches rows on (platform, platform_listing_id).
+// That key is chosen by whoever posts the batch, so the match MUST be owner-
+// scoped: B naming A's Poshmark id has to get a fresh row of B's own, never an
+// update of A's listing. The run reports which it did (inserted vs updated),
+// which is the assertion, and it needs only B's token to read.
+
+Deno.test({
+  name: "B's closet import naming A's Poshmark listing id creates B's own row, not A's",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CLOSET_LISTING_PID"),
+  fn: async () => {
+    const pid = Deno.env.get("TEST_USER_A_CLOSET_LISTING_PID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/closet-import/runs`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        platform: "poshmark",
+        listings: [{
+          listingUrl: `https://poshmark.com/listing/tenant-b-probe-${pid}`,
+          title: "Tenant-B-closet-probe",
+          priceCents: 1000,
+        }],
+      }),
+    });
+    // 402 is a pass: B on a plan without FlipDesk (or at its cap) is stopped
+    // before any row is read or written.
+    if (res.status === 402) {
+      await res.body?.cancel();
+      return;
+    }
+    assertEquals(res.status, 202, `closet import returned ${res.status}`);
+    const started = await res.json() as { run_id: string; known_rows: number };
+    assertEquals(
+      started.known_rows,
+      0,
+      "A's Poshmark id read as already-known to B: the dedupe lookup is not owner-scoped.",
+    );
+
+    // The worker runs in the background; one row finishes well inside this.
+    interface RunView {
+      status: string;
+      inserted_count: number;
+      updated_count: number;
+    }
+    let run: RunView | null = null;
+    for (let i = 0; i < 40; i++) {
+      const poll = await fetch(`${BASE}/api/flipdesk/import/runs/${started.run_id}`, {
+        headers: authHeaders(B_JWT!),
+      });
+      assertEquals(poll.status, 200, "B cannot read B's own closet import run");
+      const view = (await poll.json() as { run: RunView | null }).run;
+      run = view;
+      if (view && view.status !== "pending" && view.status !== "running") break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    assert(run, "no run row came back");
+    const done: RunView = run;
+    assertEquals(
+      done.updated_count,
+      0,
+      "B's closet import UPDATED an existing listing. The only listing with " +
+        "that Poshmark id is A's, so the worker matched across tenants.",
+    );
+    assertEquals(done.inserted_count, 1, `expected B's own row to be inserted; run: ${JSON.stringify(done)}`);
+
+    // Put B's catalog back so a re-run of the suite starts from the same place.
+    await fetch(`${BASE}/api/flipdesk/import/runs/${started.run_id}/undo`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    }).then((r) => r.body?.cancel());
+  },
+});
+
+// US-9202: the pending-revise queue. Three doors, three properties: B cannot
+// stamp A's item stale (revise-queue takes an item id from the body), B cannot
+// clear A's stale marker (revise-confirm takes a listing id and a bare
+// `applied: true` would tell A the marketplace confirmed an edit it never saw),
+// and A's stale listing never shows in B's queue (the read takes no id).
+
+Deno.test({
+  name: "B cannot queue a revise on A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/listings/revise-queue`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        inventory_item_id: Deno.env.get("TEST_USER_A_ITEM_ID")!,
+        fields: ["price", "title"],
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST revise-queue on a foreign item");
+  },
+});
+
+Deno.test({
+  name: "B cannot confirm a revise on A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_REVISE_LISTING_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/listings/revise-confirm`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        listing_id: Deno.env.get("TEST_USER_A_REVISE_LISTING_ID")!,
+        applied: true,
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST revise-confirm on a foreign listing");
+  },
+});
+
+Deno.test({
+  name: "B's pending-revise queue never contains A's stale listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_REVISE_LISTING_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/listings/pending-revises`, {
+      headers: authHeaders(B_JWT!),
+    });
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      return; // denied outright is also a pass
+    }
+    const body = await res.json() as { pending?: Array<{ listing_id: string }> };
+    const ids = (body.pending ?? []).map((p) => p.listing_id);
+    assert(
+      !ids.includes(Deno.env.get("TEST_USER_A_REVISE_LISTING_ID")!),
+      "B's pending-revise queue contained A's listing.",
+    );
+  },
+});
+
+// US-9203: relist on the extension channels. The single route takes a listing
+// id in the path and the bulk route takes ids in the body; both create a NEW
+// listings row for the copy on the caller's own tenant, so a foreign id must
+// be a 404 (single) or a per-row not-found (bulk), never a copy of A's row.
+
+Deno.test({
+  name: "B cannot start an extension relist of A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_REVISE_LISTING_ID"),
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/flipdesk/listings/${Deno.env.get("TEST_USER_A_REVISE_LISTING_ID")}/relist-extension`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST relist-extension on a foreign listing");
+  },
+});
+
+Deno.test({
+  name: "B's bulk relist never copies A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_REVISE_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_REVISE_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/bulk-relist`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listing_ids: [id] }),
+    });
+    // 402 is a pass: B without the autoRelist plan flag is stopped before any
+    // row is read.
+    if (res.status === 402 || DENIED.has(res.status)) {
+      await res.body?.cancel();
+      return;
+    }
+    assertEquals(res.status, 200, `bulk-relist returned ${res.status}`);
+    const body = await res.json() as { results: Array<{ listing_id: string; ok: boolean; error?: string }> };
+    const row = body.results.find((r) => r.listing_id === id);
+    assert(row && !row.ok && /not found/i.test(row.error ?? ""), `A's listing was not refused per-row: ${JSON.stringify(row)}`);
+  },
+});
+
+Deno.test({
+  name: "the closet import refuses a payload carrying buyer identity",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/closet-import/runs`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        platform: "poshmark",
+        listings: [{
+          listingUrl: "https://poshmark.com/listing/x-a1b2c3d4e5f60718293a4b5d",
+          title: "probe",
+          buyerName: "someone",
+        }],
+      }),
+    });
+    const text = await res.text();
+    assertEquals(res.status, 400, `expected the key to be refused; got ${res.status}: ${text}`);
+    assert(text.includes("FORBIDDEN_KEY"), `refused for some other reason: ${text}`);
+  },
+});
+
 Deno.test({
   name: "the sync route refuses a payload carrying buyer identity",
   ignore: !CONFIGURED,
@@ -7615,6 +7814,24 @@ Deno.test({
         await res.body?.cancel();
         assertDenied(res.status, path);
       }
+    }
+  },
+});
+
+// ── US-9207: the time-saved meter is the caller's own month, never a lookup ──
+
+Deno.test({
+  name: "US-9207: time-saved rejects a user or owner id outright",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    for (const param of ["user_id", "owner_id", "userId", "ownerId"]) {
+      const res = await fetch(
+        `${BASE}/api/flipdesk/time-saved?month=2026-09&${param}=${crypto.randomUUID()}`,
+        { headers: authHeaders(B_JWT!) },
+      );
+      await res.body?.cancel();
+      if (DENIED.has(res.status) || res.status === 402) continue;
+      assertEquals(res.status, 400, `time-saved accepted ?${param}=; a meter that takes an owner id is a read of someone else's month`);
     }
   },
 });

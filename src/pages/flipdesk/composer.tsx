@@ -153,7 +153,17 @@ import {
   useEbayReviseListing,
   useMigrateEbayListings,
   useRecommendedCoverage,
+  useGradeBandedPrice,
 } from "@/hooks/use-ebay";
+import { useAuthStore } from "@/stores/auth-store";
+import {
+  dollarsToCents,
+  draftPriceFrom,
+  gradedUpdateOffer,
+  overrideAuditRow,
+  priceProvenanceFor,
+  type DraftPricePrefill,
+} from "@/lib/draft-price";
 import { useCrossPush } from "@/hooks/use-cross-listing";
 import {
   useEndListing,
@@ -203,6 +213,7 @@ import {
   type ComposerListingState,
 } from "@/lib/composer-save";
 import { HelpLink } from "@/components/help/help-link";
+import { useQueueRevise } from "@/hooks/use-pending-revises";
 
 
 // Legacy rows can carry a coarse category string that predates ITEM_CATEGORIES.
@@ -262,6 +273,9 @@ export function FlipdeskComposerPage({
   const id = itemId ?? routeId;
   const navigate = useNavigate();
   const qc = useQueryClient();
+  // US-9202: a saved title/description marks the item's live copies on the
+  // extension channels stale, so the row says so until they are re-applied.
+  const queueRevise = useQueueRevise();
   const confirm = useConfirm();
   const endListing = useEndListing();
   // US-827/US-648: render description measurements in the seller's unit.
@@ -281,6 +295,11 @@ export function FlipdeskComposerPage({
   // US-542: which comp source produced the price (active_asking warrants a
   // distinct caveat — asking prices, not realized sales).
   const [priceCompSource, setPriceCompSource] = useState<string | null>(null);
+  // US-9205: what the price box was PREFILLED with (graded price, or the comp
+  // median before a grade exists) and why. Null when the seller opened a draft
+  // that already had a price, or nothing could be priced from.
+  const [pricePrefill, setPricePrefill] = useState<DraftPricePrefill | null>(null);
+  const authUser = useAuthStore((st) => st.user);
   const [scheduledAt, setScheduledAt] = useState("");
   // US-563: timezone the drop presets are evaluated in (peak buying times are
   // local, e.g. "Sunday 7 PM" in the seller's market). Defaults to the viewer's
@@ -960,6 +979,43 @@ export function FlipdeskComposerPage({
   // rather than the registry's first guess. Same queryKey the picker uses, so
   // React Query serves it from cache — this is not a second fetch.
   const specAspectsQuery = useEbayCategoryAspects(resolvedCategoryId);
+
+  // US-9205: the graded price is the draft price, not a suggestion. The same
+  // sold-comp, grade-banded recommendation the comps panel shows, asked for
+  // here so an EMPTY price box can be filled with it the moment it arrives.
+  // A box that already holds a price is never touched: the seller (or a
+  // rule, or an earlier save) decided that number.
+  const gradedPriceQuery = useGradeBandedPrice({
+    categoryId: resolvedCategoryId,
+    q: item?.item_title ?? undefined,
+    brand: item?.brand ?? undefined,
+    size: item?.size ?? undefined,
+    grade: item?.grade_value ?? null,
+  });
+  const gradedRecommendation = gradedPriceQuery.data ?? null;
+  // The graded price on OFFER: a draft priced from the comp median whose grade
+  // has since landed, or a price the seller typed. Offered, never applied.
+  const gradedOffer = useMemo(
+    () =>
+      gradedUpdateOffer(
+        { listing_price: price, price_set_by: listing?.price_set_by ?? null },
+        gradedRecommendation,
+        item?.grade_value ?? null,
+      ),
+    [price, listing?.price_set_by, gradedRecommendation, item?.grade_value],
+  );
+  const priceLockedToEbay = listing?.listing_origin === "ebay";
+  useEffect(() => {
+    if (!item || priceLockedToEbay || price.trim() !== "") return;
+    const prefill = draftPriceFrom(gradedRecommendation, item.grade_value ?? null);
+    if (!prefill) return;
+    setPrice(String(prefill.cents / 100));
+    setPricePrefill(prefill);
+    // Sold-backed is a real price; an ask-backed median still wears the
+    // "may run high" badge the comps panel would give it.
+    setPriceEstimated(!gradedRecommendation?.soldBacked);
+    setPriceCompSource(gradedRecommendation?.soldBacked ? null : "active_asking");
+  }, [item, priceLockedToEbay, price, gradedRecommendation]);
   const specAspects = useMemo(
     () => specAspectsQuery.data?.aspects.aspects ?? [],
     [specAspectsQuery.data],
@@ -1498,6 +1554,7 @@ export function FlipdeskComposerPage({
         if (listingErr) throw listingErr;
       }
       titleSavedRef.current = next;
+      queueRevise.mutate({ itemId: item.id, fields: ["title"] }, { onError: () => undefined });
       pendingTitleRef.current = null;
       // Stamp the RAW value the seller typed, not the trimmed one written: the
       // snapshot compares against form state, so stamping the trim would leave
@@ -1714,6 +1771,8 @@ export function FlipdeskComposerPage({
       resolvedCategoryId,
       resolvedAspects,
       resolvedSources,
+      // US-9205: graded / comp_median / seller, decided against the prefill.
+      priceProvenance: priceProvenanceFor(dollarsToCents(price), pricePrefill, gradedOffer),
       scheduledPublishAt: localInputToIso(scheduledAt),
       primaryPhotoId,
       promoteEnabled,
@@ -2080,8 +2139,33 @@ export function FlipdeskComposerPage({
       // description_blocks + listing_description in one update, which is why
       // `payload` above still carries the string: it is what the row holds if
       // this call fails, and it is overwritten byte for byte when it succeeds.
+      // US-9205 AC3: a price typed over the graded one is recorded as its own
+      // row (old = graded, new = seller's), so graded price, seller price and
+      // sale price can be compared later. Best effort and once per decision:
+      // a re-save of the same override writes nothing new.
+      const audit = overrideAuditRow({
+        userId: authUser?.id ?? "",
+        listingId,
+        inventoryItemId: item.id,
+        typedCents: dollarsToCents(price),
+        graded: pricePrefill?.basis === "graded" ? pricePrefill : gradedOffer,
+      });
+      const alreadyRecorded =
+        listing?.price_set_by === "seller" &&
+        audit != null &&
+        Math.round(Number(listing.listing_price) * 100) === audit.new_price_cents;
+      if (audit && authUser && !alreadyRecorded) {
+        const { error: auditErr } = await supabase
+          .from("repricing_actions")
+          .insert(audit as never);
+        if (auditErr && import.meta.env.DEV) {
+          console.warn("[composer] price override audit failed", auditErr);
+        }
+      }
+
       const rendered = await descriptionBlocks.save(listingId);
       if (rendered !== null) setDescription(rendered);
+      queueRevise.mutate({ itemId: item.id, fields: ["title", "description"] }, { onError: () => undefined });
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       // The row we actually wrote, which on a post-merge retry is not
@@ -3370,6 +3454,15 @@ export function FlipdeskComposerPage({
             setPriceEstimated={setPriceEstimated}
             priceCompSource={priceCompSource}
             setPriceCompSource={setPriceCompSource}
+            priceWhy={pricePrefill?.why ?? listing?.graded_price_why ?? null}
+            gradedOffer={gradedOffer}
+            onUseGradedPrice={() => {
+              if (!gradedOffer) return;
+              setPrice(String(gradedOffer.cents / 100));
+              setPricePrefill(gradedOffer);
+              setPriceEstimated(false);
+              setPriceCompSource(null);
+            }}
             quantity={quantity}
             setQuantity={setQuantity}
             quantityInvalid={quantityInvalid}

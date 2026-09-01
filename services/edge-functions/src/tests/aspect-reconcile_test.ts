@@ -280,3 +280,39 @@ Deno.test("generation: repairable NUMBER value is normalized with no review", ()
   assertEquals(r.aspects["Fabric Weight"], ["16"]);
   assertEquals(r.review, []);
 });
+
+// ── eBay standardized sizes (2026-09): the size family is a closed list even
+// when the cached Taxonomy payload still says SUGGESTED or FREE_TEXT. ──────
+
+Deno.test("a size aspect with allowed values is closed whatever its cached mode", () => {
+  const specs: ReconcileSpec[] = [
+    { name: "Size Type", mode: "SUGGESTED", allowedValues: ["Regular", "Plus", "Petite"] },
+    { name: "Size", mode: "FREE_TEXT", allowedValues: ["S", "M", "L"] },
+    { name: "US Shoe Size", mode: "SUGGESTED", allowedValues: ["8", "8.5", "9"] },
+    { name: "Color", mode: "SUGGESTED", allowedValues: ["Black", "Blue"] },
+  ];
+  const r = reconcilePublishAspects(
+    { "Size Type": ["Standard"], Size: ["Large"], "US Shoe Size": ["8.5"], Color: ["Taupe"] },
+    specs,
+  );
+  assertEquals(r.aspects["Size Type"], ["Regular"]);
+  assertEquals(r.aspects["Size"], ["L"]);
+  assertEquals(r.aspects["US Shoe Size"], ["8.5"]);
+  assertEquals(r.aspects["Color"], ["Taupe"], "a non-size SUGGESTED aspect still passes free text");
+  assertEquals(r.omitted, []);
+});
+
+Deno.test("a custom size value that matches nothing is omitted and diagnosed, never sent", () => {
+  const specs: ReconcileSpec[] = [
+    { name: "Size Type", mode: "SUGGESTED", allowedValues: ["Regular", "Plus"] },
+  ];
+  const r = reconcilePublishAspects({ "Size Type": ["Misses"] }, specs);
+  assertEquals(r.aspects["Size Type"], undefined);
+  assertEquals(r.omitted, [{ aspect: "Size Type", omittedValues: ["Misses"], reason: "unmatched_value" }]);
+});
+
+Deno.test("a size aspect eBay shipped no values for still takes free text", () => {
+  const specs: ReconcileSpec[] = [{ name: "Size", mode: "FREE_TEXT", allowedValues: [] }];
+  const r = reconcilePublishAspects({ Size: ["32x30"] }, specs);
+  assertEquals(r.aspects["Size"], ["32x30"]);
+});

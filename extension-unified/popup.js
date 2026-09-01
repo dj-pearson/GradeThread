@@ -920,6 +920,90 @@ async function renderPendingDelists(caps) {
   }
 }
 
+// US-9202: edits waiting to reach an extension channel. Same shape as the
+// delist queue above, same honesty rules: an unknown count is not zero, and a
+// channel whose revise flow is not switched on says "by hand" with a link.
+const REVISE_FIELD_LABELS = { price: "price", title: "title", description: "description", photos: "photos" };
+
+async function renderPendingRevises(caps) {
+  const block = document.getElementById("reviseBlock");
+  if (!block) return;
+  if (!caps || !caps.sellerEnabled) {
+    block.hidden = true;
+    return;
+  }
+  const list = document.getElementById("reviseList");
+  const note = document.getElementById("reviseNote");
+  const count = document.getElementById("reviseCount");
+  list.textContent = "";
+
+  const res = await send({ type: "GT_GET_PENDING_REVISES" });
+  if (!res || !res.ok) {
+    const reason = (res && res.reason) || "error";
+    block.hidden = false;
+    count.textContent = "";
+    note.hidden = false;
+    note.textContent = DELIST_REASON[reason] || DELIST_REASON.error;
+    return;
+  }
+  const pending = Array.isArray(res.pending) ? res.pending : [];
+  if (!pending.length) {
+    block.hidden = true;
+    return;
+  }
+  block.hidden = false;
+  count.textContent = String(pending.length);
+
+  const SEL = (self.GT_LISTER_SELECTORS) || {};
+  const canRun = (p) => Boolean(
+    p.auto_revisable && SEL[p.platform] && SEL[p.platform].revise && SEL[p.platform].revise.enabled,
+  );
+  const manual = pending.filter((p) => !canRun(p)).length;
+  if (manual) {
+    note.hidden = false;
+    note.textContent = manual === pending.length
+      ? "These need updating by hand on the marketplace — edit sync isn't switched on for that channel yet, or GradeThread has no live link."
+      : manual + " of these need updating by hand.";
+  } else {
+    note.hidden = false;
+    note.textContent = "GradeThread applies these in a background tab within a few minutes.";
+  }
+
+  for (const p of pending) {
+    const li = document.createElement("li");
+    li.className = "pop-delist";
+    const left = document.createElement("div");
+    left.className = "pop-delist-body";
+    const title = document.createElement("span");
+    title.className = "pop-delist-title";
+    title.textContent = p.item_title || "Untitled item";
+    const meta = document.createElement("span");
+    meta.className = "pop-delist-meta";
+    const platform = PLATFORM_LABELS[p.platform] || p.platform || "marketplace";
+    const fields = (Array.isArray(p.fields) ? p.fields : []).map((f) => REVISE_FIELD_LABELS[f] || f).join(", ");
+    meta.textContent = platform + " · " + (fields || "edit") +
+      (p.queued_at ? " · stale " + timeAgo(p.queued_at) : "");
+    left.appendChild(title);
+    left.appendChild(meta);
+    li.appendChild(left);
+    if (p.listing_url) {
+      const open = document.createElement("a");
+      open.className = "pop-linkbtn";
+      open.href = p.listing_url;
+      open.target = "_blank";
+      open.rel = "noopener noreferrer";
+      open.textContent = canRun(p) ? "Open" : "Edit there";
+      li.appendChild(open);
+    } else {
+      const badge = document.createElement("span");
+      badge.className = "pop-status warn";
+      badge.textContent = "By hand";
+      li.appendChild(badge);
+    }
+    list.appendChild(li);
+  }
+}
+
 // US-1885 AC3: versioned + revocable consent.
 async function renderConsent() {
   const out = await ext.storage.local.get(["tosAcceptedAt", "tosVersion"]);
@@ -1376,6 +1460,7 @@ function renderSellerSections(caps) {
     renderPlatforms();
     renderLastJob();
     renderPendingDelists(caps);
+    renderPendingRevises(caps);
   void renderSyncStatus(caps);
   void renderPollConsent(caps);
     renderConsent();

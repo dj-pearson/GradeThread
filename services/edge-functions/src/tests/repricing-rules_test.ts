@@ -7,6 +7,7 @@ import {
   isDue,
   normalizeRuleInput,
   ruleMatchesListing,
+  ruleMayReprice,
 } from "../lib/repricing-rules.ts";
 
 // ── normalizeRuleInput ──────────────────────────────────────────────
@@ -149,4 +150,23 @@ Deno.test("decision: auto-accept clamped to floor, no-op if not a cut", () => {
     }),
     { newCents: 9_75, reason: "auto_accept" },
   );
+});
+
+// ── US-9205: manual prices are protected unless the rule says otherwise ──
+
+Deno.test("normalize defaults override_manual to false and only true turns it on", () => {
+  const off = normalizeRuleInput({ name: "Markdown", drop_pct: 10 });
+  assert(off.ok && off.value.override_manual === false);
+  const truthy = normalizeRuleInput({ name: "Markdown", drop_pct: 10, override_manual: "yes" });
+  assert(truthy.ok && truthy.value.override_manual === false, "a string is not consent");
+  const on = normalizeRuleInput({ name: "Markdown", drop_pct: 10, override_manual: true });
+  assert(on.ok && on.value.override_manual === true);
+});
+
+Deno.test("a rule never moves a seller-set price unless it may", () => {
+  assertEquals(ruleMayReprice({ override_manual: false }, { price_set_by: "seller" }), false);
+  assertEquals(ruleMayReprice({ override_manual: true }, { price_set_by: "seller" }), true);
+  for (const by of ["graded", "comp_median", "rule", null, undefined]) {
+    assertEquals(ruleMayReprice({ override_manual: false }, { price_set_by: by }), true, String(by));
+  }
 });

@@ -70,6 +70,39 @@ export const ANALYTICS_EVENTS = {
   "style_code_lookup": "A Lululemon style code was looked up on /style.",
   "style_code_submission": "A visitor told us what an unnamed Lululemon style code is.",
 
+  // ── Closet import (US-9201) ───────────────────────────────────────────────
+  // The switching-cost gap: a seller with a full Poshmark or Mercari closet
+  // will not move without bringing it. `closet_import_started` is the press;
+  // `closet_import_completed` is the run finishing, with `inserted`, `updated`
+  // and `platform`. `closet_import_first_item` fires ONCE per account, the
+  // first time a closet import creates an item, and carries
+  // `seconds_since_extension_install` (from the extension's own install
+  // timestamp, which otherwise never leaves the device). That number is the
+  // install-to-first-imported-item time the activation funnel reads; it is a
+  // duration, never a timestamp, so it cannot be joined back to an install.
+  "closet_import_started": "The seller pressed Import my closet. Property `platform`.",
+  "closet_import_completed":
+    "A closet import run finished. Properties `platform`, `status`, `inserted`, `updated`, `failed`.",
+  "closet_import_first_item":
+    "A closet import created this account's first imported item. Property `seconds_since_extension_install`.",
+
+  // ── Review flow (US-9204) ─────────────────────────────────────────────────
+  // The hours-saved number. `seconds_from_first_photo` is the time between the
+  // first photo (the file's capture time, else the moment it was staged) and
+  // the Approve press; `channels_now` and `channels_queued` are counts. A
+  // duration and two counts, never an item id, so nothing here joins back to a
+  // seller's inventory.
+  "review_approved":
+    "Approve was pressed on the one-screen review. Properties `seconds_from_first_photo`, `channels_now`, `channels_queued`, `source`.",
+
+  // ── Extension install funnel (US-9210) ────────────────────────────────────
+  // The click on an install call to action on the site. The install itself is
+  // a store-side fact; the join to a signup rides the campaign tag on the
+  // extension's first-run page (vault/40-growth/extension-funnel-attribution.md).
+  // Properties `page` (the path the CTA was on) and `store` (chrome | firefox).
+  "extension_install_cta_click":
+    "An install call to action for the browser extension was pressed. Properties `page`, `store`.",
+
   // ── Marketplace comparison handoff (US-9018) ──────────────────────────────
   // The two migration sections on /compare/{a}-vs-{b} answer "how do I move my
   // listings from X to Y" — 13 queries and 202 impressions of intent that had

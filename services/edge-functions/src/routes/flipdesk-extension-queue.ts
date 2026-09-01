@@ -1,5 +1,18 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import {
+  confirmRevise,
+  isExtensionRevisePlatform,
+  isRevisableField,
+  queueReviseForListing,
+  REVISABLE_FIELDS,
+} from "../lib/pending-revises.ts";
+import {
+  completeRelist,
+  createRelistDraft,
+  isExtensionRelistPlatform,
+  loadRelistSource,
+} from "../lib/extension-relist.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { resolveSellerEntitlement } from "../lib/buyer-entitlements.ts";
 import {
@@ -235,14 +248,63 @@ flipdeskExtensionQueueRoutes.post("/", async (c) => {
       .maybeSingle();
     if (!data) return c.json({ error: "Item not found." }, 404);
   }
+  let listingSnapshot: Record<string, unknown> | null = null;
   if (listingId) {
     const { data } = await supabaseAdmin
       .from("listings")
-      .select("id")
+      .select("id, platform, listing_status, listing_url, listing_title, listing_description, listing_price")
       .eq("id", listingId)
       .eq("user_id", ownerId) // US-268
       .maybeSingle();
     if (!data) return c.json({ error: "Listing not found." }, 404);
+    listingSnapshot = data as Record<string, unknown>;
+  }
+
+  // US-9202: a revise names a LIVE extension-channel listing and which fields
+  // changed. The listing's current values ride on the payload from the row the
+  // server just owner-checked, never from the phone, and the marker on the
+  // listing is stamped so the web reads "Stale on Poshmark since ..." the
+  // moment the phone saves, not when the desktop drains.
+  if (kind === "revise") {
+    if (!listingId || !listingSnapshot) {
+      return c.json({ error: "A revise needs the listing_id of the listing to bring up to date." }, 400);
+    }
+    if (String(listingSnapshot.platform) !== platform || !isExtensionRevisePlatform(platform)) {
+      return c.json({ error: `${platform} is not an extension channel this listing is on.` }, 400);
+    }
+    const fields = Array.isArray((body as { fields?: unknown }).fields)
+      ? ((body as { fields: unknown[] }).fields).filter(isRevisableField)
+      : [];
+    if (fields.length === 0) {
+      return c.json({ error: `fields must name at least one of: ${REVISABLE_FIELDS.join(", ")}.` }, 400);
+    }
+    if (listingSnapshot.listing_status !== "active" || !listingSnapshot.listing_url) {
+      return c.json({ error: "Only a live listing with a saved link can be revised by the extension." }, 409);
+    }
+    payload.value = {
+      ...payload.value,
+      fields,
+      listingUrl: listingSnapshot.listing_url,
+      title: listingSnapshot.listing_title ?? null,
+      description: listingSnapshot.listing_description ?? null,
+      price: listingSnapshot.listing_price ?? null,
+    };
+    await queueReviseForListing({ id: listingId, platform }, fields, "mobile");
+  }
+
+  // US-9203: a relist from the phone. The copy's row is created now so the
+  // item shows it, and the payload carries the OLD listing's URL (the drain
+  // host-pins it) plus the new row's id for the watch to confirm against.
+  if (kind === "relist") {
+    if (!listingId) return c.json({ error: "A relist needs the listing_id to copy from." }, 400);
+    if (!isExtensionRelistPlatform(platform)) {
+      return c.json({ error: `${platform} does not relist through the extension.` }, 400);
+    }
+    const old = await loadRelistSource(ownerId, listingId);
+    if (!old || old.platform !== platform) return c.json({ error: "Listing not found." }, 404);
+    const draft = await createRelistDraft(ownerId, old, "mobile");
+    if (!draft.ok) return c.json({ error: draft.error }, draft.status);
+    payload.value = { ...payload.value, ...draft.payload };
   }
 
   // US-2777: stamp the seller's country domain onto the job.
@@ -429,7 +491,7 @@ flipdeskExtensionQueueRoutes.post("/:id/complete", async (c) => {
     })
     .eq("id", id)
     .eq("user_id", ownerId) // US-268
-    .select("id, status")
+    .select("id, status, kind, listing_id")
     .maybeSingle();
 
   if (error) {
@@ -437,7 +499,36 @@ flipdeskExtensionQueueRoutes.post("/:id/complete", async (c) => {
   }
   if (!data) return c.json({ error: "Not found." }, 404);
 
-  return c.json({ updated: data });
+  // US-9202: a drained revise reports into the same marker the web reads. The
+  // row's own listing_id is used, owner-scoped through confirmRevise; nothing
+  // in the result envelope chooses which listing is confirmed.
+  const done = data as { id: string; status: string; kind: string; listing_id: string | null };
+  // US-9203: a drained relist whose copy went live. The new row's id is on the
+  // queue row's own payload (server-built), never on the result envelope.
+  if (done.kind === "relist" && ok) {
+    const { data: rowData } = await supabaseAdmin
+      .from("extension_work_queue")
+      .select("payload")
+      .eq("id", done.id)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    const newId = (rowData as { payload?: { newListingId?: unknown } } | null)?.payload?.newListingId;
+    const r = result.value as { listingUrl?: unknown };
+    if (typeof newId === "string" && typeof r.listingUrl === "string" && /^https:\/\//.test(r.listingUrl)) {
+      await completeRelist(ownerId, newId, r.listingUrl);
+    }
+  }
+  if (done.kind === "revise" && done.listing_id) {
+    const r = result.value as { manual?: unknown; unverified?: unknown; error?: unknown };
+    await confirmRevise(ownerId, done.listing_id, {
+      applied: ok,
+      manual: r.manual === true,
+      unverified: r.unverified === true,
+      error: typeof r.error === "string" ? r.error : null,
+    });
+  }
+
+  return c.json({ updated: { id: done.id, status: done.status } });
 });
 
 // DELETE /:id — the seller cancels a job they no longer want run.

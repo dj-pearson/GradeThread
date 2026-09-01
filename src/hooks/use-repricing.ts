@@ -255,6 +255,8 @@ export interface RepriceRule {
   interval_days: number;
   floor_price_cents: number | null;
   auto_accept_confidence: number | null;
+  /** US-9205: may the rule move a price the seller set by hand? */
+  override_manual: boolean;
   last_run_at: string | null;
 }
 
@@ -272,6 +274,7 @@ export interface RepriceRuleInput {
   interval_days: number;
   floor_price_cents: number | null;
   auto_accept_confidence: number | null;
+  override_manual: boolean;
 }
 
 export function ruleToInput(r: RepriceRule): RepriceRuleInput {
@@ -286,6 +289,7 @@ export function ruleToInput(r: RepriceRule): RepriceRuleInput {
     interval_days: r.interval_days,
     floor_price_cents: r.floor_price_cents,
     auto_accept_confidence: r.auto_accept_confidence,
+    override_manual: r.override_manual === true,
   };
 }
 

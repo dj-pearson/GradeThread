@@ -11,7 +11,9 @@ import {
   MARKETPLACE_TIER,
   MARKETPLACE_TIER_LABEL,
   MARKETPLACE_EXTENSION_FLOW,
+  MARKETPLACE_EXTENSION_FLOWS,
   MARKETPLACE_FLOW_LABEL,
+  MARKETPLACE_REVISE_LABEL,
   formatListingAllowance,
 } from "@/lib/constants";
 import { marketplaceDisclosureFor } from "@/lib/marketplace-disclosure";
@@ -192,7 +194,15 @@ describe("extension flow status matches the shipped selectors (US-2477..US-2480)
   );
 
   /** Evaluate the bundled selectors file and hand back its config object. */
-  function loadSelectors(): Record<string, { enabled: boolean; lastVerified: string | null }> {
+  function loadSelectors(): Record<
+    string,
+    {
+      enabled: boolean;
+      lastVerified: string | null;
+      delist?: { enabled: boolean; lastVerified: string | null };
+      revise?: { enabled: boolean; lastVerified: string | null };
+    }
+  > {
     const src = readFileSync(SELECTORS_PATH, "utf8");
     const ctx: Record<string, unknown> = {};
     // The file assigns to `self`; give it one and read the global back.
@@ -412,3 +422,61 @@ describe("listing allowance (US-2483)", () => {
     }
   });
 });
+
+// US-9202: the per-flow map has the same contract as the list-flow constant,
+// for all three flows. A "live" revise while selectors.js says
+// `revise.enabled: false` would tell a seller their edits reach Poshmark when
+// the extension would answer "edit manually".
+describe("MARKETPLACE_EXTENSION_FLOWS matches the shipped selectors (US-9202)", () => {
+  const SELECTORS_PATH = resolve(process.cwd(), "extension-unified/lister/selectors.js");
+  const src = readFileSync(SELECTORS_PATH, "utf8");
+  const ctx: Record<string, unknown> = {};
+  new Function("self", `${src}; return self.GT_LISTER_SELECTORS;`)(ctx);
+  const selectors = ctx.GT_LISTER_SELECTORS as Record<
+    string,
+    {
+      enabled: boolean;
+      delist?: { enabled: boolean; lastVerified: string | null };
+      revise?: { enabled: boolean; lastVerified: string | null };
+    }
+  >;
+
+  it("the list column agrees with MARKETPLACE_EXTENSION_FLOW", () => {
+    for (const p of EXTENSION_CROSS_LISTING_PLATFORMS) {
+      expect(MARKETPLACE_EXTENSION_FLOWS[p].list).toBe(MARKETPLACE_EXTENSION_FLOW[p]);
+    }
+  });
+
+  it("delist and revise agree with selectors.js, flow by flow", () => {
+    for (const p of EXTENSION_CROSS_LISTING_PLATFORMS) {
+      const e = selectors[p];
+      if (!e) throw new Error(`${p} has no selectors entry`);
+      for (const flow of ["delist", "revise"] as const) {
+        const cfg = e[flow];
+        const expected = cfg?.enabled ? "live" : "verifying";
+        expect(
+          MARKETPLACE_EXTENSION_FLOWS[p][flow],
+          `MARKETPLACE_EXTENSION_FLOWS.${p}.${flow} says "${MARKETPLACE_EXTENSION_FLOWS[p][flow]}" ` +
+            `but selectors.js has ${flow}.enabled: ${cfg?.enabled ?? "absent"}.`,
+        ).toBe(expected);
+        if (cfg?.enabled) {
+          expect(cfg.lastVerified, `${p}.${flow} is enabled with no lastVerified`).toBeTruthy();
+        }
+      }
+    }
+  });
+
+  it("every enabled list channel declares a revise flow", () => {
+    for (const p of EXTENSION_CROSS_LISTING_PLATFORMS) {
+      const e = selectors[p];
+      if (!e || !e.enabled) continue;
+      expect(e.revise, `${p} lists but declares no revise flow`).toBeDefined();
+    }
+  });
+
+  it("both revise labels exist", () => {
+    expect(MARKETPLACE_REVISE_LABEL.live).toBeTruthy();
+    expect(MARKETPLACE_REVISE_LABEL.verifying).toMatch(/by hand/);
+  });
+});
+

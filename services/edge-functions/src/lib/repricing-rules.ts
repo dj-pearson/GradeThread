@@ -17,6 +17,8 @@ export interface NormalizedRule {
   interval_days: number;
   floor_price_cents: number | null;
   auto_accept_confidence: number | null;
+  /** US-9205: may the rule move a price the seller set by hand? Default no. */
+  override_manual: boolean;
 }
 
 export type NormalizeResult =
@@ -77,6 +79,7 @@ export function normalizeRuleInput(body: unknown): NormalizeResult {
       interval_days: intOrDefault(b.interval_days, 7, 1),
       floor_price_cents: nonNegIntOrNull(b.floor_price_cents),
       auto_accept_confidence: auto,
+      override_manual: b.override_manual === true,
     },
   };
 }
@@ -181,4 +184,18 @@ export function decideNewPriceCents(i: RuleDecisionInput): RuleDecision | null {
   }
 
   return null;
+}
+
+/**
+ * US-9205: a repricing rule never overrides a manual price unless it says it
+ * may. `price_set_by = "seller"` is the seller's own decision on that listing
+ * (typed over the graded prefill, or set with no prefill at all); every other
+ * value, including NULL on rows older than the column, is fair game.
+ */
+export function ruleMayReprice(
+  rule: { override_manual: boolean },
+  listing: { price_set_by: string | null | undefined },
+): boolean {
+  if (listing.price_set_by !== "seller") return true;
+  return rule.override_manual === true;
 }

@@ -12,6 +12,13 @@ import {
   fillPatch,
   normalizeImportRows,
 } from "../lib/inventory-import.ts";
+import {
+  CLOSET_FILL_ITEM_FIELDS,
+  CLOSET_LISTING_FIELDS,
+  isClosetImportPlatform,
+} from "../lib/closet-import.ts";
+import { processClosetImportRun } from "../lib/closet-import-run.ts";
+import { ITEM_PHOTOS_BUCKET } from "../lib/item-photo-storage.ts";
 
 // US-2518 — durable, reversible CSV inventory import.
 //
@@ -219,9 +226,31 @@ export async function undoImportRun(
     if (e.action === "filled") {
       if (!e.previous || Object.keys(e.previous).length === 0) continue;
       // Restore only the columns this import wrote, to the values they held.
+      // US-9201: a closet re-read may also fill condition_notes and refresh the
+      // listing row (price, URL); those previous values sit under the same
+      // effect row, the listing half under `_listing`.
       const patch: Record<string, unknown> = {};
-      for (const field of FILL_ITEM_FIELDS) {
+      for (const field of [...FILL_ITEM_FIELDS, ...CLOSET_FILL_ITEM_FIELDS]) {
         if (field in e.previous) patch[field] = e.previous[field];
+      }
+      const listingPrevious = e.previous._listing;
+      if (
+        e.listing_id && listingPrevious && typeof listingPrevious === "object" &&
+        !Array.isArray(listingPrevious)
+      ) {
+        const listingPatch: Record<string, unknown> = {};
+        for (const field of CLOSET_LISTING_FIELDS) {
+          if (field in (listingPrevious as Record<string, unknown>)) {
+            listingPatch[field] = (listingPrevious as Record<string, unknown>)[field];
+          }
+        }
+        if (Object.keys(listingPatch).length > 0) {
+          await supabaseAdmin
+            .from("listings")
+            .update(listingPatch)
+            .eq("id", e.listing_id)
+            .eq("user_id", ownerId);
+        }
       }
       if (Object.keys(patch).length === 0) continue;
       const { error: upErr } = await supabaseAdmin
@@ -234,16 +263,39 @@ export async function undoImportRun(
     }
 
     // action === 'inserted'
-    const { data: published } = await supabaseAdmin
+    //
+    // US-9201: a closet import creates the listing row WITH its marketplace
+    // id, because the listing is live over there. That row is the import's
+    // own work and must not read as "the seller published this since", so it
+    // is excluded from the check; any OTHER listing carrying a marketplace id
+    // still keeps the item.
+    let publishedQuery = supabaseAdmin
       .from("listings")
       .select("id")
       .eq("inventory_item_id", e.inventory_item_id)
       .eq("user_id", ownerId)
-      .not("platform_listing_id", "is", null)
-      .limit(1);
+      .not("platform_listing_id", "is", null);
+    if (e.listing_id) publishedQuery = publishedQuery.neq("id", e.listing_id);
+    const { data: published } = await publishedQuery.limit(1);
     if ((published ?? []).length > 0) {
       keptPublished++;
       continue;
+    }
+
+    // US-9201: photos the closet import copied into item-photos go with the
+    // item. The rows cascade on delete; the objects do not, so remove them
+    // first (best-effort) rather than leave orphaned blobs in a public bucket.
+    const { data: photoRows } = await supabaseAdmin
+      .from("item_photos")
+      .select("storage_path, inventory_items!inner(user_id)")
+      .eq("inventory_item_id", e.inventory_item_id)
+      .eq("inventory_items.user_id", ownerId);
+    const paths = ((photoRows ?? []) as Array<{ storage_path: string | null }>)
+      .map((p) => p.storage_path)
+      .filter((p): p is string => typeof p === "string" && p.startsWith(`${ownerId}/`));
+    if (paths.length > 0) {
+      await supabaseAdmin.storage.from(ITEM_PHOTOS_BUCKET).remove(paths)
+        .then(() => {}, () => {});
     }
 
     if (e.sale_id) {
@@ -602,7 +654,7 @@ export async function handleImportReclaimCron(c: Context): Promise<Response> {
     const staleBefore = new Date(Date.now() - RUN_STALE_MS).toISOString();
     const { data: staleRows, error } = await supabaseAdmin
       .from("flipdesk_import_runs")
-      .select("id, attempts")
+      .select("id, attempts, origin")
       .eq("status", "running")
       .lt("updated_at", staleBefore)
       .limit(20);
@@ -611,7 +663,7 @@ export async function handleImportReclaimCron(c: Context): Promise<Response> {
       return c.json({ error: "Scan failed" }, 500);
     }
 
-    const stale = (staleRows ?? []) as Array<{ id: string; attempts: number }>;
+    const stale = (staleRows ?? []) as Array<{ id: string; attempts: number; origin: string }>;
     let resumed = 0;
     let abandoned = 0;
     for (const run of stale) {
@@ -639,7 +691,13 @@ export async function handleImportReclaimCron(c: Context): Promise<Response> {
         .select("id")
         .maybeSingle();
       if (!reset) continue; // lost the race
-      void processImportRun(run.id).catch((err) =>
+      // US-9201: a closet read shares the run table and the reclaim, and its
+      // own worker. Dispatch on origin so a stale closet run is resumed by the
+      // code that knows its payload shape, not re-read as a CSV.
+      const resume = isClosetImportPlatform(run.origin)
+        ? processClosetImportRun
+        : processImportRun;
+      void resume(run.id).catch((err) =>
         console.error("[flipdesk-import] reclaim resume crashed:", err)
       );
       resumed++;

@@ -47,6 +47,7 @@ import {
   type ListingFacts,
   normalizeRuleInput,
   ruleMatchesListing,
+  ruleMayReprice,
 } from "../lib/repricing-rules.ts";
 
 // Condition-aware dynamic repricing. The scan pulls condition-matched comps per
@@ -682,7 +683,7 @@ export async function handleRepriceScanCron(c: Context): Promise<Response> {
 const RULE_COLUMNS =
   "id, name, enabled, inventory_item_id, filter_brand, filter_category_id, " +
   "min_age_days, drop_pct, interval_days, floor_price_cents, " +
-  "auto_accept_confidence, last_run_at, created_at, updated_at";
+  "auto_accept_confidence, override_manual, last_run_at, created_at, updated_at";
 
 interface RuleRow {
   id: string;
@@ -695,12 +696,16 @@ interface RuleRow {
   interval_days: number;
   floor_price_cents: number | null;
   auto_accept_confidence: number | null;
+  /** US-9205: may this rule move a seller-set price? */
+  override_manual: boolean;
 }
 
 interface RuleListingRow {
   id: string;
   inventory_item_id: string;
   listing_price: number;
+  /** US-9205: who set the current price; "seller" is protected by default. */
+  price_set_by: string | null;
   listed_at: string;
   platform_offer_id: string | null;
   platform_listing_id: string | null;
@@ -775,7 +780,7 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
   const { data: listingRows } = await supabaseAdmin
     .from("listings")
     .select(
-      "id, inventory_item_id, listing_price, listed_at, platform_offer_id, platform_listing_id, platform_category_id, platform_fields, " +
+      "id, inventory_item_id, listing_price, price_set_by, listed_at, platform_offer_id, platform_listing_id, platform_category_id, platform_fields, " +
         "inventory_items!inner(user_id, brand, ebay_category_id)",
     )
     .eq("platform", "ebay")
@@ -836,9 +841,13 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
       ageDays: daysSince(listing.listed_at),
     };
 
+    // US-9205 AC4: a seller-set price is off limits to a rule that does not
+    // say it may move one. Checked inside the match so a second, permitted
+    // rule can still take the listing.
     const rule = rules.find(
       (r) =>
         ruleMatchesListing(r, facts) &&
+        ruleMayReprice(r, listing) &&
         isDue(
           lastActionByListing.get(listing.id) ?? null,
           listing.listed_at,
@@ -919,7 +928,7 @@ async function runRulesForOwner(ownerId: string): Promise<RuleRunResult> {
 
       const { error: updErr } = await supabaseAdmin
         .from("listings")
-        .update({ listing_price: newDollars, price_is_estimated: false })
+        .update({ listing_price: newDollars, price_is_estimated: false, price_set_by: "rule" })
         .eq("id", listing.id);
       if (updErr) {
         result.errors++;

@@ -544,6 +544,7 @@ describe("mergeBulkPriceResponses", () => {
     expect(merged).toEqual({
       ok: true,
       total: 0,
+      queued: 0,
       succeeded: 0,
       failed: 0,
       results: [],

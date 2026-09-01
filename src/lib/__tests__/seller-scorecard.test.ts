@@ -18,6 +18,8 @@ import {
   METRIC_ORDER,
   orderedMetrics,
   pickBiggestGap,
+  RETURN_SPLIT_MIN_SALES,
+  returnSplitLine,
   type Scorecard,
   type ScorecardMetric,
   type ScorecardRow,
@@ -159,5 +161,28 @@ describe("formatMetricValue", () => {
   it("renders a missing value as a dash, never as zero", () => {
     expect(formatMetricValue("sell_through", null)).toBe("—");
     expect(formatMetricValue("days_to_sell", Number.NaN)).toBe("—");
+  });
+});
+
+// US-9208 AC2: both rates and the sample size; under 20 sales a side, words.
+describe("returnSplitLine", () => {
+  it("the floor is twenty sales a side", () => {
+    expect(RETURN_SPLIT_MIN_SALES).toBe(20);
+  });
+  it("says not enough sales yet under the floor, never a percentage", () => {
+    const thin = returnSplitLine({ fulfilled: 19, returns: 0 }, "Graded at sale");
+    expect(thin.kind).toBe("thin");
+    expect(thin.text).toBe("Graded at sale: not enough sales yet (19 of 20)");
+    expect(thin.text).not.toMatch(/%/);
+    expect(returnSplitLine({ fulfilled: 0, returns: 0 }, "Ungraded").kind).toBe("thin");
+  });
+  it("at the floor it shows the rate and the sample", () => {
+    const line = returnSplitLine({ fulfilled: 20, returns: 1 }, "Graded at sale");
+    expect(line.kind).toBe("rate");
+    expect(line.text).toBe("Graded at sale: 5.0% of 20 sales");
+    expect(returnSplitLine({ fulfilled: 64, returns: 2 }, "Ungraded").text).toBe("Ungraded: 3.1% of 64 sales");
+  });
+  it("the empty scorecard carries a zero split so an older RPC renders as thin", () => {
+    expect(EMPTY_SCORECARD.returnSplit.graded).toEqual({ fulfilled: 0, returns: 0 });
   });
 });

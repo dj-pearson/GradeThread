@@ -1,6 +1,14 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { queueRevisesForItem } from "../lib/pending-revises.ts";
+import {
+  createRelistDraft,
+  enqueueRelistWork,
+  EXTENSION_RELIST_PLATFORMS,
+  isExtensionRelistPlatform,
+  type RelistSourceRow,
+} from "../lib/extension-relist.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { isFeatureEnabled } from "../lib/feature-flags.ts";
@@ -122,6 +130,14 @@ interface AutomationRuleRow {
 interface AutomationListingRow {
   id: string;
   inventory_item_id: string;
+  // US-9203: absent on the eBay rows loadOwnerListings returns (they are all
+  // eBay); set on the extension-channel rows relist rules also see.
+  platform?: string | null;
+  listing_status?: string | null;
+  listing_url?: string | null;
+  listing_title?: string | null;
+  listing_description?: string | null;
+  platform_fields?: Record<string, unknown> | null;
   listing_price: number;
   listed_at: string;
   watchers: number | null;
@@ -228,7 +244,39 @@ function listingFacts(
     priceCents: Math.round(l.listing_price * 100),
     compLowCents: l.price_range_low_cents,
     compHighCents: l.price_range_high_cents,
+    // US-9203: an extension-channel row has no performance sync, so "no
+    // views" is unknowable there and must never fire (see triggerMatches).
+    viewsKnown: l.platform == null || l.platform === "ebay",
   };
+}
+
+/**
+ * US-9203: the owner's LIVE extension-channel listings, for relist rules only.
+ * Kept out of loadOwnerListings on purpose: a price-drop or promo rule must not
+ * start acting on rows it cannot push to. Only the columns the relist path and
+ * the age/scope facts read.
+ */
+async function loadOwnerExtensionListings(
+  ownerId: string,
+): Promise<AutomationListingRow[]> {
+  const { data, error } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "id, inventory_item_id, platform, listing_status, listing_url, listing_title, listing_description, platform_fields, " +
+        "listing_price, listed_at, watchers, views, last_metrics_synced_at, platform_offer_id, platform_listing_id, promo_rate_pct, " +
+        "compliance_violation_count, price_range_low_cents, price_range_high_cents, draft_id, marketplace_connection_id, " +
+        "inventory_items!inner(user_id, title, brand, size, item_category, garment_category, acquired_price, target_price, status, grade_value, updated_at, exclude_from_automations, sources(name))",
+    )
+    .in("platform", [...EXTENSION_RELIST_PLATFORMS])
+    .eq("listing_status", "active")
+    .not("listing_url", "is", null)
+    .eq("inventory_items.user_id", ownerId)
+    .limit(OWNER_LISTING_LIMIT);
+  if (error) {
+    console.error("[automations] extension listing query failed:", error.message);
+    return [];
+  }
+  return (data ?? []) as unknown as AutomationListingRow[];
 }
 
 async function loadOwnerListings(
@@ -784,6 +832,25 @@ async function applyMatch(
     if (error) return false;
     before = { price_cents: currentCents };
     after = { price_cents: planned.newCents, floored: planned.floored };
+    // US-9202: the same garment's copies on Poshmark, Mercari or Vinted cannot
+    // be repriced from here; they are marked stale and the desktop extension
+    // applies the drop. Recorded on the action so the log says QUEUED for those
+    // channels rather than counting them as applied. Their local price follows
+    // the eBay one, so the extension writes the number the seller sees here.
+    const siblings = await queueRevisesForItem(
+      ownerId,
+      listing.inventory_item_id,
+      ["price"],
+      "automation",
+    );
+    if (siblings.listingIds.length > 0) {
+      await supabaseAdmin
+        .from("listings")
+        .update({ listing_price: newDollars })
+        .in("id", siblings.listingIds)
+        .eq("user_id", ownerId);
+      after.queued_revises = siblings.platforms;
+    }
   } else if (planned.kind === "set_promo_rate") {
     // US-2232: push the new Promoted Listings bid to eBay FIRST (US-467), then
     // record local state — so a rule can never report an "applied" promo rate
@@ -1009,6 +1076,50 @@ async function applyMatch(
     // undo on an automated bulk action (US-2172). Ending and handing it back is
     // the reversible half.
     const isRelist = planned.kind === "relist";
+    // US-9203: a relist on an extension channel is a copy made in the seller's
+    // browser. Create the copy's row and queue the job for their desktop;
+    // the old row is ended only once the copy is live (completeRelist). The
+    // action row says QUEUED, and the log reads it that way.
+    if (isRelist && isExtensionRelistPlatform(listing.platform)) {
+      const src: RelistSourceRow = {
+        id: listing.id,
+        inventory_item_id: listing.inventory_item_id,
+        platform: listing.platform ?? null,
+        listing_status: listing.listing_status ?? null,
+        listing_url: listing.listing_url ?? null,
+        listing_title: listing.listing_title ?? null,
+        listing_description: listing.listing_description ?? null,
+        listing_price: listing.listing_price,
+        draft_id: listing.draft_id,
+        platform_fields: listing.platform_fields ?? null,
+      };
+      const draft = await createRelistDraft(ownerId, src, "automation");
+      if (!draft.ok) {
+        console.warn("[automations] extension relist skipped for", listing.id, draft.error);
+        return false;
+      }
+      const q = await enqueueRelistWork(ownerId, draft.payload, "automation");
+      if (!q.ok) return false;
+      before = { listing_status: "active", price_cents: currentCents };
+      after = {
+        listing_status: "active",
+        relist: true,
+        queued: true,
+        platform: listing.platform,
+        new_listing_id: draft.newListingId,
+      };
+      await supabaseAdmin.from("flipdesk_automation_actions").insert({
+        rule_id: rule.id,
+        user_id: ownerId,
+        listing_id: listing.id,
+        inventory_item_id: listing.inventory_item_id,
+        action_type: rule.action_json.type,
+        before_json: before,
+        after_json: after,
+        ebay_synced: false,
+      });
+      return true;
+    }
     if (hasLiveOffer) {
       try {
         await withdrawOffer(ownerId, offerId!);
@@ -1180,9 +1291,17 @@ async function runRulesForOwner(ownerId: string): Promise<AutomationRunResult> {
   }
 
   const listings = await loadOwnerListings(ownerId);
-  result.listings_scanned = listings.length;
+  // US-9203: relist rules also see the live extension-channel listings, so
+  // days_listed_gt fires on the closet where most of it lives. Only those
+  // rules: every other action is an eBay call.
+  const relistRules = rules.filter((r) => r.action_json.type === "relist");
+  const extListings = relistRules.length > 0 ? await loadOwnerExtensionListings(ownerId) : [];
+  result.listings_scanned = listings.length + extListings.length;
 
   const matches = await evaluateRules(ownerId, rules, listings);
+  if (extListings.length > 0) {
+    matches.push(...await evaluateRules(ownerId, relistRules, extListings));
+  }
   for (const m of matches) {
     const ok = await applyMatch(ownerId, m);
     if (ok) result.applied++;
@@ -1331,6 +1450,11 @@ flipdeskAutomationsRoutes.post("/rules/:id/dry-run", async (c) => {
   if (!ruleRow) return jsonError(c, 404, "Rule not found");
   const rule = ruleRow as unknown as AutomationRuleRow;
   const listings = await loadOwnerListings(ownerId);
+  // US-9203: a relist rule's preview includes the extension-channel rows it
+  // would queue, so the count the seller sees is the count that will run.
+  if (rule.action_json.type === "relist") {
+    listings.push(...await loadOwnerExtensionListings(ownerId));
+  }
   const matches = await evaluateRules(ownerId, [rule], listings);
   return c.json({
     dry_run: true,

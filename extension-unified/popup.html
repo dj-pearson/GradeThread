@@ -152,6 +152,19 @@
           <ul class="pop-delist-list" id="syncList"></ul>
         </div>
 
+        <!-- US-9202: edits made in FlipDesk that are waiting to reach an
+             extension channel. Shown as a count the way delists are: a stale
+             price the seller believes is live is the failure this exists for,
+             and the popup is the one surface the drain shares a browser with. -->
+        <div class="pop-delists" id="reviseBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Needs updating</span>
+            <span class="pop-lastjob-when" id="reviseCount"></span>
+          </div>
+          <p class="pop-delist-note" id="reviseNote" hidden></p>
+          <ul class="pop-delist-list" id="reviseList"></ul>
+        </div>
+
         <div class="pop-delists" id="delistBlock" hidden>
           <div class="pop-lastjob-head">
             <span class="pop-lastjob-label">Needs ending</span>

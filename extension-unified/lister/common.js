@@ -922,6 +922,277 @@
     return { ok: true, delisted: true, verifiedBy: evidence, version: delistFlow.version };
   };
 
+  // US-9202: bring a live listing up to date with what FlipDesk holds.
+  //
+  // Same contract as runDelistFlow, and the same shape on the page: `edit` on
+  // the listing is a LINK into the marketplace's editor (`navigatesTo`), the
+  // fill happens on the far page, and the run continues there with the stage
+  // recorded on the job first. Returns:
+  //   { ok:true, revised:true, fields, verifiedBy, version }  — the editor saved
+  //   { ok:false, manual:true, error, version }                — degraded; edit by hand
+  //   { ok:false, manual:true, unverified:true, error }        — clicked save, no proof
+  //   { deferred:true }                                        — following the edit link
+  //
+  // NEVER reports applied without evidence. A revise that "succeeded" while the
+  // editor silently rejected the price leaves FlipDesk showing a number the
+  // marketplace never took, which is the staleness this flow exists to end,
+  // wearing a green badge.
+  GT.runReviseFlow = async function (reviseFlow, payload) {
+    const label = payload.platformLabel || payload.platform;
+    const wanted = Array.isArray(payload.fields) ? payload.fields : [];
+    if (!reviseFlow || !reviseFlow.enabled) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + " edit sync isn't enabled yet — please update this listing manually on " +
+          label + ".",
+        version: reviseFlow && reviseFlow.version,
+      };
+    }
+    if (wanted.length === 0) {
+      return {
+        ok: false,
+        manual: true,
+        error: "Nothing to update on " + label + ".",
+        version: reviseFlow.version,
+      };
+    }
+
+    const t = reviseFlow.timeouts || {};
+    const controlMs = typeof t.control === "number" ? t.control : 6000;
+    const verifyMs = typeof t.verify === "number" ? t.verify : 8000;
+    const navigatesTo = reviseFlow.navigatesTo || null;
+    const hasNavigated = payload.stage === "navigated";
+
+    // ── page 2: the editor ─────────────────────────────────────────────
+    if (!navigatesTo || hasNavigated) {
+      if (navigatesTo && !new RegExp(navigatesTo, "i").test(location.origin + location.pathname)) {
+        return {
+          ok: false,
+          manual: true,
+          error: label + " didn't open its listing editor, so GradeThread stopped rather " +
+            "than typing into an unexpected page. Please update the listing manually.",
+          version: reviseFlow.version,
+        };
+      }
+      const f = reviseFlow.fields || {};
+      const startUrl = location.href;
+      const written = [];
+      const missed = [];
+      // Photos are not written by this flow: a marketplace gallery is a file
+      // input plus a drag order, and re-uploading blind would duplicate what is
+      // there. They are reported as missed so the seller does them by hand,
+      // and the row stays honest about it.
+      for (const field of wanted) {
+        if (field === "photos") {
+          missed.push("photos");
+          continue;
+        }
+        const sel = f[field];
+        const value = field === "price" ? payload.price : payload[field];
+        if (!sel || value === null || value === undefined || value === "") {
+          missed.push(field);
+          continue;
+        }
+        const el = await GT.waitFor(sel, controlMs);
+        if (!el) {
+          missed.push(field);
+          continue;
+        }
+        const ok = GT.fill(sel, field === "price" ? String(value) : String(value));
+        if (ok) written.push(field);
+        else missed.push(field);
+      }
+      if (written.length === 0) {
+        return {
+          ok: false,
+          manual: true,
+          error: label + "'s editor changed (revise selector v" + reviseFlow.version +
+            " couldn't write: " + missed.join(", ") + "). Please update the listing manually.",
+          version: reviseFlow.version,
+        };
+      }
+      const save = await GT.waitFor(reviseFlow.save, controlMs);
+      if (!save) {
+        return {
+          ok: false,
+          manual: true,
+          error: label + "'s save control didn't appear — the fields were typed but " +
+            "nothing was saved. Finish the edit manually.",
+          version: reviseFlow.version,
+        };
+      }
+      GT.showBanner("GradeThread is updating this " + label + " listing.");
+      save.click();
+      const evidence = await GT.verifyRevise(reviseFlow, { startUrl: startUrl }, verifyMs);
+      if (!evidence) {
+        return {
+          ok: false,
+          manual: true,
+          unverified: true,
+          error: "GradeThread saved the " + label + " edit but couldn't confirm it took. " +
+            "Check the listing there.",
+          version: reviseFlow.version,
+        };
+      }
+      // A partial write is NOT applied: the seller must know which fields did
+      // not make it, and the marker must stay armed for them.
+      if (missed.length > 0) {
+        return {
+          ok: false,
+          manual: true,
+          partial: true,
+          fields: written,
+          error: label + " took " + written.join(", ") + " but not " + missed.join(", ") +
+            " — update " + (missed.length === 1 ? "that" : "those") + " manually.",
+          version: reviseFlow.version,
+        };
+      }
+      GT.log("revise verified on " + payload.platform + " via " + evidence);
+      return { ok: true, revised: true, fields: written, verifiedBy: evidence, version: reviseFlow.version };
+    }
+
+    // ── page 1: the listing ────────────────────────────────────────────
+    const missing = await GT.probe({ required: reviseFlow.required, fields: { edit: reviseFlow.edit } });
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + "'s page changed (revise selector v" + reviseFlow.version +
+          " can't find: " + missing.join(", ") + "). Please update the listing manually.",
+        version: reviseFlow.version,
+      };
+    }
+    const edit = document.querySelector(reviseFlow.edit);
+    if (!edit) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + "'s edit control didn't open — update the listing manually.",
+        version: reviseFlow.version,
+      };
+    }
+    try {
+      await Promise.resolve(chrome.runtime.sendMessage({
+        type: "GT_LISTER_STAGE",
+        jobId: payload.jobId,
+        stage: "navigated",
+      }));
+    } catch (_e) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + " edit couldn't be tracked across its editor — update the listing manually.",
+        version: reviseFlow.version,
+      };
+    }
+    edit.click();
+    GT.log(payload.platform + ": following the editor link; the revise continues after the page loads");
+    return { deferred: true };
+  };
+
+  // US-9203: relist by copying. Two-page like delist and revise: `copy` on the
+  // listing is a link into the create form prefilled from the original; on
+  // that page the seller reviews and posts, and the background's live-URL
+  // watch records the new listing (the server then ends the old row and
+  // queues its removal). Returns:
+  //   { ok:true, copied:true, version }                 — the copy's form is open
+  //   { ok:false, manual:true, error, version }          — degraded; copy by hand
+  //   { deferred:true }                                  — following the copy link
+  GT.runRelistFlow = async function (relistFlow, payload) {
+    const label = payload.platformLabel || payload.platform;
+    if (!relistFlow || !relistFlow.enabled) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + " relist isn't enabled yet — copy this listing manually on " + label + ".",
+        version: relistFlow && relistFlow.version,
+      };
+    }
+    const navigatesTo = relistFlow.navigatesTo || null;
+    const hasNavigated = payload.stage === "navigated";
+
+    if (hasNavigated) {
+      if (navigatesTo && !new RegExp(navigatesTo, "i").test(location.origin + location.pathname)) {
+        return {
+          ok: false,
+          manual: true,
+          error: label + " didn't open the copy's form, so GradeThread stopped rather than " +
+            "acting on an unexpected page. Copy the listing manually.",
+          version: relistFlow.version,
+        };
+      }
+      GT.showBanner(
+        "GradeThread copied this " + label + " listing — review it and post. The old " +
+          "listing is ended once this one is live.",
+      );
+      return { ok: true, copied: true, version: relistFlow.version };
+    }
+
+    const missing = await GT.probe({ required: relistFlow.required, fields: { copy: relistFlow.copy } });
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + "'s page changed (relist selector v" + relistFlow.version +
+          " can't find: " + missing.join(", ") + "). Copy the listing manually.",
+        version: relistFlow.version,
+      };
+    }
+    const copy = document.querySelector(relistFlow.copy);
+    if (!copy) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + "'s copy control didn't open — copy the listing manually.",
+        version: relistFlow.version,
+      };
+    }
+    try {
+      await Promise.resolve(chrome.runtime.sendMessage({
+        type: "GT_LISTER_STAGE",
+        jobId: payload.jobId,
+        stage: "navigated",
+      }));
+    } catch (_e) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + " relist couldn't be tracked across the copy's form — copy the listing manually.",
+        version: relistFlow.version,
+      };
+    }
+    copy.click();
+    GT.log(payload.platform + ": following the copy link; the relist continues on the form");
+    return { deferred: true };
+  };
+
+  // US-9202: positive proof the editor saved. The same three-signal shape as
+  // verifyDelist: the page left the editor (urlChanged), the marketplace's own
+  // confirmation rendered (toast), or a saved witness the config names.
+  GT.verifyRevise = function (reviseFlow, ctx, timeoutMs) {
+    const v = reviseFlow.verify || {};
+    const startUrl = ctx && ctx.startUrl;
+    return new Promise(function (resolve) {
+      const deadline = Date.now() + (timeoutMs || 8000);
+      (function tick() {
+        if (v.urlChanged && startUrl && location.href !== startUrl) return resolve("navigated");
+        if (v.toast) {
+          try {
+            if (document.querySelector(v.toast)) return resolve("toast");
+          } catch (_e) { /* bad selector: no evidence from it */ }
+        }
+        if (v.saved) {
+          try {
+            if (document.querySelector(v.saved)) return resolve("saved");
+          } catch (_e) { /* ditto */ }
+        }
+        if (Date.now() >= deadline) return resolve(null);
+        setTimeout(tick, 250);
+      })();
+    });
+  };
+
   // US-1875 AC2: watch for positive proof that the delete took effect. Returns the
   // NAME of the evidence found (for diagnostics), or null if none arrived in time.
   //
@@ -1002,12 +1273,23 @@
     try {
       partial = job.kind === "delist"
         ? await GT.runDelistFlow(cfg.delist, payload)
+        : job.kind === "revise"
+        ? await GT.runReviseFlow(cfg.revise, payload)
+        : job.kind === "relist"
+        ? await GT.runRelistFlow(cfg.relist, payload)
         : await GT.runFlow(cfg, payload);
     } catch (err) {
       partial = {
         ok: false,
         manual: true,
-        error: label + " " + (job.kind === "delist" ? "delist" : "listing") +
+        error: label + " " +
+          (job.kind === "delist"
+            ? "delist"
+            : job.kind === "revise"
+            ? "edit sync"
+            : job.kind === "relist"
+            ? "relist"
+            : "listing") +
           " failed: " + (err && err.message ? err.message : String(err)),
         version: cfg.version,
       };

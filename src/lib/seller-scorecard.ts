@@ -36,19 +36,69 @@ export interface ScorecardRow {
   ownPercentile: number | null;
 }
 
+/** US-9208: fulfilled and refunded counts on one side of the graded split. */
+export interface ReturnSplitSide {
+  fulfilled: number;
+  returns: number;
+}
+
+export interface ReturnSplit {
+  /** The sold listing carried a grade when it sold. */
+  graded: ReturnSplitSide;
+  ungraded: ReturnSplitSide;
+}
+
 export interface Scorecard {
   periodStart: string | null;
   minSellers: number;
   minActivity: number;
   metrics: ScorecardRow[];
+  /** US-9208 (migration 00717). Zero counts when the RPC predates the key. */
+  returnSplit: ReturnSplit;
 }
+
+export const EMPTY_RETURN_SPLIT: ReturnSplit = {
+  graded: { fulfilled: 0, returns: 0 },
+  ungraded: { fulfilled: 0, returns: 0 },
+};
 
 export const EMPTY_SCORECARD: Scorecard = {
   periodStart: null,
   minSellers: 5,
   minActivity: 5,
   metrics: [],
+  returnSplit: EMPTY_RETURN_SPLIT,
 };
+
+/**
+ * US-9208 AC2: sales a side needs before a return percentage is shown. Below
+ * it the card says "not enough sales yet", and the aggregate that feeds the
+ * data report holds the same floor (src/lib/resale-report.ts).
+ */
+export const RETURN_SPLIT_MIN_SALES = 20;
+
+export type ReturnSplitLine =
+  | { kind: "rate"; rate: number; fulfilled: number; text: string }
+  | { kind: "thin"; fulfilled: number; text: string };
+
+/** One side of the split as the card prints it. Never a percentage under the floor. */
+export function returnSplitLine(side: ReturnSplitSide, label: string): ReturnSplitLine {
+  const fulfilled = Math.max(0, Math.floor(side.fulfilled));
+  if (fulfilled < RETURN_SPLIT_MIN_SALES) {
+    return {
+      kind: "thin",
+      fulfilled,
+      text: `${label}: not enough sales yet (${fulfilled} of ${RETURN_SPLIT_MIN_SALES})`,
+    };
+  }
+  const rate = Math.max(0, side.returns) / fulfilled;
+  return {
+    kind: "rate",
+    rate,
+    fulfilled,
+    text: `${label}: ${(rate * 100).toFixed(1)}% of ${fulfilled} sales`,
+  };
+}
 
 /** Display order, and the tie-break order for pickBiggestGap. */
 export const METRIC_ORDER: readonly ScorecardMetric[] = [

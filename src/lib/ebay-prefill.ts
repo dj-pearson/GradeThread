@@ -11,7 +11,7 @@
 
 import type { EbayAspect } from "@/hooks/use-ebay";
 import registry from "@/lib/ebay-aspect-registry.json";
-import { normalizeAspectValue } from "@/lib/aspect-normalize";
+import { isClosedAspect, normalizeAspectValue } from "@/lib/aspect-normalize";
 import type { AspectSourceMap } from "@/lib/aspect-provenance";
 import { type Measurements, resolveMeasurementAspects } from "@/lib/measurements";
 import { statedShoeSizeScale } from "@/lib/shoe-size-scale";
@@ -183,10 +183,15 @@ function fillAspect(
   const allowMulti =
     entryMulti &&
     aspect.aspectConstraint?.itemToAspectCardinality === "MULTI";
-  if (aspect.aspectConstraint?.aspectMode === "SELECTION_ONLY") {
-    const allowed = (aspect.aspectValues ?? [])
-      .map((v) => v.localizedValue ?? "")
-      .filter((v) => v.length > 0);
+  const allowedForMode = (aspect.aspectValues ?? [])
+    .map((v) => v.localizedValue ?? "")
+    .filter((v) => v.length > 0);
+  // eBay standardized sizes (2026-09): Size / Size Type are closed lists
+  // whenever eBay ships values, whatever the cached mode says.
+  if (
+    isClosedAspect(aspect.localizedAspectName, aspect.aspectConstraint?.aspectMode, allowedForMode.length)
+  ) {
+    const allowed = allowedForMode;
     const matched: string[] = [];
     const rewrites: AspectRewrite[] = [];
     for (const v of values) {

@@ -563,4 +563,29 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
       "do you need a lightbox to photograph clothes",
     ],
   },
+  // ── switch-from pages (US-9209): the reader has decided to move ─────
+  {
+    path: "/reselling/switch-from-vendoo",
+    cluster: "reseller-tools",
+    intent: "transactional",
+    primary: "switching from vendoo",
+    secondary: ["vendoo export csv", "vendoo to flipdesk", "move inventory from vendoo"],
+    questions: [
+      "how do i export my inventory from vendoo",
+      "do my photos transfer when i leave vendoo",
+      "how long does switching from vendoo take",
+    ],
+  },
+  {
+    path: "/reselling/switch-from-list-perfectly",
+    cluster: "reseller-tools",
+    intent: "transactional",
+    primary: "switching from list perfectly",
+    secondary: ["list perfectly export csv", "list perfectly to flipdesk", "move inventory from list perfectly"],
+    questions: [
+      "how do i export my inventory from list perfectly",
+      "do my photos transfer when i leave list perfectly",
+      "how long does switching from list perfectly take",
+    ],
+  },
 ] as const;

@@ -103,3 +103,28 @@ export function marketplaceDisclosureFor(
     facts: note ? [...facts, note] : facts,
   };
 }
+
+// US-9201: what "Import my closet" reads, said before the first run.
+//
+// Same rule as the per-channel block above: the sentences the seller sees
+// come from ONE place, so a test can hold them and a screen cannot quietly
+// drop the one that says the read happens in their own signed-in tab.
+export const CLOSET_IMPORT_PLATFORMS = ["poshmark", "mercari"] as const;
+export type ClosetImportPlatform = (typeof CLOSET_IMPORT_PLATFORMS)[number];
+
+export function closetImportDisclosureFor(
+  platform: ClosetImportPlatform,
+): MarketplaceDisclosure {
+  const label = MARKETPLACE_LABELS[platform];
+  return {
+    title: `Reads your ${label} closet in your own tab`,
+    facts: [
+      `Open your own ${label} closet in another tab first. The extension reads the listings on that page when you press Import, and only then. Nothing runs on a schedule and no tab is opened for you.`,
+      `It runs in the ${label} tab you are already signed in to. GradeThread's servers never receive your ${label} password or session, and the extension has no permission to read a cookie.`,
+      `Per listing it reads the title, description, price, size, brand, your stated condition, the photos and the listing address. It cannot read a buyer's name or address; the field list is fixed in code and the server refuses anything else.`,
+      `Photos are copied into your GradeThread storage, never linked from ${label}. Every imported listing counts as a live listing on your plan, the same as a pulled eBay listing.`,
+      "Reading a closet twice updates the listings you already have instead of duplicating them. The whole import is one Undo away from the same page.",
+    ],
+  };
+}
+

@@ -1626,8 +1626,29 @@ export async function getCategoryName(
   return { id: categoryId, name: bc.name, path: bc.path };
 }
 
-// Aspect cache TTL: aspects change rarely. Keep entries warm for 30 days.
-const ASPECT_TTL_MS = 30 * 24 * 60 * 60_000;
+// Aspect cache TTL. This was 30 days on the reasoning that aspects change
+// rarely. eBay's standardized-size enforcement (rolling out by site from
+// 2026-08-31 through 2026-10-20) is the counter-example: Size and Size Type
+// flipped from SUGGESTED to closed lists site by site, and a month-old cached
+// mode let a custom value through to a publish that eBay then rejected. Seven
+// days bounds how long a flipped aspect can be misread; the publish path also
+// refreshes a category on the spot when eBay rejects a custom value
+// (lib/ebay-size-enforcement.ts).
+const ASPECT_TTL_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * Drop a category's cached Taxonomy payload so the next read fetches it live.
+ * Used when eBay's own answer proves the cache stale (a custom-value rejection
+ * for an aspect the cache still calls free text).
+ */
+export async function invalidateCategoryAspects(categoryId: string): Promise<void> {
+  await supabaseAdmin
+    .from("ebay_category_aspects")
+    .delete()
+    .eq("marketplace_id", getMarketplaceId())
+    .eq("category_tree_id", getCategoryTreeId())
+    .eq("category_id", categoryId);
+}
 
 export interface AspectMetadata {
   // Verbatim from eBay's getItemAspectsForCategory. Shape:
@@ -1638,7 +1659,8 @@ export interface AspectMetadata {
 }
 
 export async function getCategoryAspects(
-  categoryId: string
+  categoryId: string,
+  opts: { fresh?: boolean } = {},
 ): Promise<AspectMetadata> {
   const marketplaceId = getMarketplaceId();
   const treeId = getCategoryTreeId();
@@ -1653,6 +1675,7 @@ export async function getCategoryAspects(
     .maybeSingle();
 
   if (
+    !opts.fresh &&
     cached &&
     Date.now() - new Date(cached.fetched_at as string).getTime() < ASPECT_TTL_MS
   ) {

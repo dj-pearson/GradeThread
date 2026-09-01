@@ -52,6 +52,7 @@ if (typeof importScripts === "function") {
     // US-2701: the poll's decisions and the adapters it reads them against.
     // The DRIVER is in this file; these two only decide and describe.
     "sync/selectors.js",
+    "closet-import/selectors.js",
     "sync/poll-plan.js",
   );
 }
@@ -78,6 +79,11 @@ const ENTITLEMENTS_ENDPOINT = "https://functions.gradethread.com/api/grading/pub
 // FlipDesk gate rather than the anonymous public quota.
 const SYNC_OBSERVE_ENDPOINT =
   "https://functions.gradethread.com/api/flipdesk/sync/observations";
+// US-9201: closet import intake. Also a SELLER endpoint: the seller pressed
+// "Import my closet" on the web, the reader ran in their own closet tab, and
+// this is where what it read becomes a durable, reversible import run.
+const CLOSET_IMPORT_ENDPOINT =
+  "https://functions.gradethread.com/api/flipdesk/closet-import/runs";
 // The popup's door onto the SAME projection the Marketplaces page reads. The
 // extension speaks an HMAC token, not a Supabase JWT, so it cannot reach the
 // JWT-guarded /api/flipdesk/sync/status.
@@ -91,6 +97,17 @@ const SELECTOR_HEALTH_ENDPOINT =
 const USAGE_ENDPOINT = "https://functions.gradethread.com/api/grading/public/usage";
 const PENDING_DELISTS_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/pending-delists";
+// US-9202: the pending-revise queue — listings an edit in FlipDesk has made
+// stale on Poshmark/Mercari/Vinted/Grailed. Read for the popup's count and for
+// the drain; confirmed back per listing with the outcome.
+const PENDING_REVISES_ENDPOINT =
+  "https://functions.gradethread.com/api/grading/public/pending-revises";
+const REVISE_CONFIRM_ENDPOINT =
+  "https://functions.gradethread.com/api/grading/public/revise-confirm";
+// US-9203: the relist COPY went live; the server activates the new row and
+// ends the old one.
+const RELIST_LISTED_ENDPOINT =
+  "https://functions.gradethread.com/api/grading/public/relist-listed";
 // US-1808: hand ONE listing the shopper is looking at to their own saved-search
 // alerts. Signed-in only (the server 401s without a token) — the whole point is
 // that the listing is checked against THAT buyer's criteria, so there is no
@@ -255,6 +272,150 @@ async function getPendingDelists() {
   } catch (_e) {
     // Offline or blocked. NOT an empty queue — see above.
     return { ok: false, reason: "error", pending: [] };
+  }
+}
+
+// ── US-9202: pending revises ──────────────────────────────────────────────
+//
+// Same reading discipline as getPendingDelists: not cached, and every non-200
+// is a distinct state the popup renders rather than "nothing pending".
+async function getPendingRevises() {
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
+    return { ok: false, reason: "signed-out", pending: [] };
+  }
+  try {
+    const resp = await fetch(PENDING_REVISES_ENDPOINT, {
+      headers: { Authorization: "Bearer " + gtBuyerToken },
+      cache: "no-store",
+    });
+    if (resp.status === 401) return { ok: false, reason: "signed-out", pending: [] };
+    if (resp.status === 403) return { ok: false, reason: "no-plan", pending: [] };
+    if (!resp.ok) return { ok: false, reason: "error", pending: [] };
+    const json = await resp.json();
+    return { ok: true, pending: Array.isArray(json.pending) ? json.pending : [] };
+  } catch (_e) {
+    return { ok: false, reason: "error", pending: [] };
+  }
+}
+
+/** Report a revise outcome for one listing. Applied ONLY when the flow proved it. */
+async function confirmRevise(listingId, result) {
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string" || !listingId) return null;
+  try {
+    const resp = await fetch(REVISE_CONFIRM_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + gtBuyerToken,
+      },
+      body: JSON.stringify({
+        listing_id: listingId,
+        applied: Boolean(result && result.ok === true && result.revised === true),
+        manual: Boolean(result && result.manual),
+        unverified: Boolean(result && result.unverified),
+        error: result && typeof result.error === "string" ? result.error.slice(0, 300) : null,
+      }),
+    });
+    return resp.ok;
+  } catch (_e) {
+    return null;
+  }
+}
+
+/** US-9203: tell the server the relist copy is live at `url`. */
+async function confirmRelistListed(newListingId, url) {
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string" || !newListingId) return null;
+  try {
+    const resp = await fetch(RELIST_LISTED_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + gtBuyerToken,
+      },
+      body: JSON.stringify({ new_listing_id: newListingId, listing_url: url }),
+    });
+    return resp.ok;
+  } catch (_e) {
+    return null;
+  }
+}
+
+/**
+ * Turn one pending revise into the payload a revise job runs with. The URL is
+ * the listing's own (host-pinned by isValidRevisePayload before a tab opens);
+ * the values are the CURRENT FlipDesk ones the server sent, never anything
+ * from a page.
+ */
+function revisePayloadFor(p) {
+  return {
+    platform: p.platform,
+    listingUrl: p.listing_url,
+    listingId: p.listing_id,
+    itemId: p.item_id,
+    fields: Array.isArray(p.fields) ? p.fields.slice() : [],
+    title: typeof p.listing_title === "string" ? p.listing_title : null,
+    description: typeof p.listing_description === "string" ? p.listing_description : null,
+    price: typeof p.listing_price === "number" ? p.listing_price : null,
+  };
+}
+
+let reviseDrainInFlight = false;
+
+/**
+ * Drain the pending-revise queue: ONE job per tick, oldest first, in a tab
+ * that is not focused. Rides the same 5-minute sweep as the mobile queue, and
+ * the same gates as an interactive edit: seller entitlement, the Lister
+ * clickwrap, and the bundled selectors' `revise.enabled` (a channel whose
+ * revise flow is off is left for the seller, and the popup says so).
+ */
+async function drainPendingRevises() {
+  if (reviseDrainInFlight) return;
+  reviseDrainInFlight = true;
+  try {
+    if (!(await sellerAllowed())) return;
+    if (!(await tosAccepted())) return;
+    const res = await getPendingRevises();
+    if (!res.ok || res.pending.length === 0) return;
+
+    // One marketplace tab at a time: a revise never starts while any Lister
+    // job (list, delist or revise) is still working in this browser.
+    const jobs = await withJobs(async (j) => ({ value: j }));
+    const busy = Object.keys(jobs || {}).some((id) => self.GT_LISTER_JOBS.isPending(jobs[id]));
+    if (busy) return;
+
+    const SEL = self.GT_LISTER_SELECTORS;
+    const next = res.pending.find((p) =>
+      p && p.auto_revisable && SEL[p.platform] && SEL[p.platform].revise &&
+      SEL[p.platform].revise.enabled
+    );
+    if (!next) return;
+    const payload = revisePayloadFor(next);
+    if (!isValidRevisePayload(payload)) return;
+
+    let tab;
+    try {
+      tab = await ext.tabs.create({ url: payload.listingUrl, active: false });
+    } catch (_e) {
+      return;
+    }
+    const job = self.GT_LISTER_JOBS.makeJob({
+      jobId: makeJobId(),
+      clientRef: null,
+      tabId: tab.id,
+      saasTabId: null,
+      platform: payload.platform,
+      kind: "revise",
+      payload: payload,
+      reviseListingId: payload.listingId,
+      now: Date.now(),
+    });
+    await withJobs(async (j) => ({ jobs: self.GT_LISTER_JOBS.put(j, job) }));
+    await scheduleJobAlarm(job);
+  } finally {
+    reviseDrainInFlight = false;
   }
 }
 
@@ -851,6 +1012,147 @@ async function notePollResult(batch) {
   await ext.storage.local.remove("syncPollTab");
 }
 
+// ── US-9201: closet import ────────────────────────────────────────────────
+//
+// The whole flow, so the constraints read in one place:
+//   1. the seller presses "Import my closet" on /dashboard/flipdesk/import;
+//   2. the page messages here (GT_CLOSET_IMPORT, over the bridge or
+//      externally_connectable), naming the marketplace;
+//   3. this finds a tab the seller ALREADY HAS OPEN on their own closet or one
+//      of their own listings. tabs.query is a read; it never opens, focuses or
+//      navigates a tab, and if there is none the honest answer is "open your
+//      closet first" rather than opening it for them (that would be the
+//      scheduled poll's behaviour under another name, and the poll carries its
+//      own consent);
+//   4. the content script in that tab reads the page on request and answers
+//      with the batch closet-import/extract.js allowlisted;
+//   5. this posts the batch with the seller token and hands the run id back to
+//      the page, which polls the ordinary import endpoints from there.
+//
+// The same seller gate as the Lister, by calling the same function. Fail-safe:
+// a lookup gap resolves to anonymous and nothing is read or posted.
+
+/** Tab URL patterns for one marketplace's closet and listing pages. */
+function closetImportTabPatterns(platform) {
+  const SEL = self.GT_CLOSET_IMPORT_SELECTORS;
+  const cfg = SEL && SEL[platform];
+  if (!cfg || !cfg.enabled) return [];
+  const out = [];
+  for (const host of cfg.hosts || []) {
+    out.push("https://" + host + "/*");
+    out.push("https://*." + host + "/*");
+  }
+  return out;
+}
+
+async function runClosetImport(msg) {
+  const platform = msg && typeof msg.platform === "string" ? msg.platform.toLowerCase() : "";
+  const patterns = closetImportTabPatterns(platform);
+  if (patterns.length === 0) {
+    return { ok: false, reason: "unsupported", error: "Closet import supports Poshmark and Mercari." };
+  }
+  if (!(await sellerAllowed())) {
+    return { ok: false, status: 402, reason: "seller_locked", error: "Closet import is a FlipDesk seller feature." };
+  }
+  const { gtBuyerToken, installedAt } = await ext.storage.local.get(["gtBuyerToken", "installedAt"]);
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
+    return { ok: false, status: 401, reason: "needs_sign_in", needsSignIn: true, error: "Sign in to GradeThread in the extension first." };
+  }
+
+  let tabs = [];
+  try {
+    tabs = await ext.tabs.query({ url: patterns });
+  } catch (_e) {
+    tabs = [];
+  }
+  // Most recently used first: the tab the seller was just looking at is the
+  // one they mean. `lastAccessed` is Chrome 121+ / Firefox; absent, order is
+  // whatever the browser gave us.
+  tabs = (tabs || []).filter((t) => t && t.id != null).sort(function (a, b) {
+    return (Number(b.lastAccessed) || 0) - (Number(a.lastAccessed) || 0) || (b.active ? 1 : 0) - (a.active ? 1 : 0);
+  });
+  if (tabs.length === 0) {
+    return { ok: false, reason: "no_tab", error: "Open your own closet on the marketplace in another tab, then press Import again." };
+  }
+
+  // Ask each candidate tab in turn; the first that reads a listing wins. A tab
+  // on the wrong page says so and the next is tried, so a seller with their
+  // closet AND a search results tab open is not told to close the search.
+  let last = null;
+  for (const tab of tabs) {
+    let answered = null;
+    try {
+      answered = await ext.tabs.sendMessage(tab.id, { type: "GT_CLOSET_IMPORT_READ" });
+    } catch (_e) {
+      answered = null; // no reader on that page (still loading, or not a matched path)
+    }
+    if (!answered) continue;
+    if (answered.ok && answered.batch) {
+      last = answered;
+      break;
+    }
+    if (answered.reason === "human_check" || answered.reason === "not_signed_in") {
+      // Stop rather than try another tab: the marketplace asked for a person,
+      // or there is nobody signed in, and either is the seller's to resolve.
+      return { ok: false, reason: answered.reason, error: closetImportReasonText(answered.reason) };
+    }
+    last = answered;
+  }
+  if (!last) {
+    return { ok: false, reason: "no_reader", error: "The closet tab has not finished loading. Give it a moment and press Import again." };
+  }
+  if (!last.ok) {
+    return { ok: false, reason: last.reason || "nothing_read", error: closetImportReasonText(last.reason) };
+  }
+
+  const instanceId = await getInstanceId();
+  let resp;
+  try {
+    resp = await fetch(CLOSET_IMPORT_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-GT-Extension-Id": instanceId,
+        Authorization: "Bearer " + gtBuyerToken,
+      },
+      body: JSON.stringify(last.batch),
+    });
+  } catch (_e) {
+    return { ok: false, status: 0, reason: "offline", error: "Couldn't reach GradeThread." };
+  }
+  let json = null;
+  try { json = await resp.json(); } catch (_e) { /* empty body */ }
+  return {
+    ok: resp.ok,
+    status: resp.status,
+    reason: resp.ok ? null : "server",
+    result: json,
+    page: last.batch.page,
+    listingsRead: last.batch.listings.length,
+    coverage: last.batch.coverage,
+    // Local only until now; the web page uses it for one number, the time
+    // from install to the first imported item, and never sends it elsewhere.
+    installedAt: typeof installedAt === "string" ? installedAt : null,
+  };
+}
+
+function closetImportReasonText(reason) {
+  switch (reason) {
+    case "human_check":
+      return "The marketplace is asking you to prove you are a person. Finish that in the tab, then press Import again.";
+    case "not_signed_in":
+      return "You are signed out of the marketplace in that tab. Sign in there, then press Import again.";
+    case "not_own_closet":
+      return "That closet is not yours. Open your own closet page, then press Import again.";
+    case "not_own_listing":
+      return "That listing is not yours. Open your own closet, or one of your own listings, then press Import again.";
+    case "wrong_page":
+      return "Open your own closet page (or one of your own listings) in that tab, then press Import again.";
+    default:
+      return "Nothing on that page read as one of your listings. Scroll so your listings are on screen, then press Import again.";
+  }
+}
+
 async function postSyncObservations(msg) {
   const batch = msg && msg.batch;
   if (!batch || typeof batch !== "object" || !batch.platform) {
@@ -1220,6 +1522,14 @@ async function reportJob(job, result) {
     delete pendingExternal[job.jobId];
   }
   await pushToSaasTab(job, result);
+  // US-9202: a revise reports into the marker the web reads, whether it was
+  // started from a page, drained from the queue, or picked up by the sweep.
+  // The listing id is the job's own (from the server's pending list or the
+  // page's payload, both owner-checked server-side), never from the result.
+  if (job.kind === "revise" && job.reviseListingId) {
+    await confirmRevise(job.reviseListingId, result);
+    void drainPendingRevises();
+  }
   // US-2481: a DRAINED job has no originating GradeThread tab to push to — the
   // seller queued it from their phone, possibly hours ago and on another
   // network. Its outcome goes back to the queue row instead, which is the only
@@ -1338,6 +1648,42 @@ function isValidDelistPayload(p) {
   );
 }
 
+// US-9202: a revise names a live listing (host-pinned like a delist) and at
+// least one field to bring up to date.
+function isValidRevisePayload(p) {
+  return (
+    p &&
+    typeof p === "object" &&
+    typeof p.platform === "string" &&
+    SUPPORTED_LISTER[p.platform] &&
+    Array.isArray(p.fields) &&
+    p.fields.length > 0 &&
+    self.GT_LISTER_GUARD.isAllowedDelistUrl(
+      self.GT_LISTER_SELECTORS,
+      p.platform,
+      p.listingUrl,
+    )
+  );
+}
+
+// US-9203: a relist names a live listing to copy from (host-pinned like a
+// delist) and the NEW row the server created for the copy.
+function isValidRelistPayload(p) {
+  return (
+    p &&
+    typeof p === "object" &&
+    typeof p.platform === "string" &&
+    SUPPORTED_LISTER[p.platform] &&
+    typeof p.newListingId === "string" &&
+    p.newListingId.length > 0 &&
+    self.GT_LISTER_GUARD.isAllowedDelistUrl(
+      self.GT_LISTER_SELECTORS,
+      p.platform,
+      p.listingUrl,
+    )
+  );
+}
+
 // US-2482: everything the engagement gate needs, read fresh.
 //
 // Read on EVERY gate call rather than cached, because the three things it holds
@@ -1388,7 +1734,14 @@ async function startJob(kind, payload, sender, sendResponse, clientRef) {
         ok: false,
         error:
           "The GradeThread extension hit an unexpected error starting this " +
-          (kind === "delist" ? "delist" : "cross-post") + ". Try again.",
+          (kind === "delist"
+            ? "delist"
+            : kind === "revise"
+            ? "edit sync"
+            : kind === "relist"
+            ? "relist"
+            : "cross-post") +
+          ". Try again.",
       });
     } catch (_e) { /* port already gone */ }
      
@@ -1425,7 +1778,9 @@ async function beginJob(kind, payload, sender, sendResponse, clientRef) {
   // navigation. The delist target is the payload URL, already host-pinned to the
   // platform by isValidDelistPayload before we got here.
   let url;
-  if (isDelist) {
+  if (isDelist || kind === "revise" || kind === "relist") {
+    // US-9202 / US-9203: a revise or relist opens the listing itself,
+    // host-pinned by its validator exactly as a delist URL is.
     url = payload.listingUrl;
   } else {
     // US-2479: locale-aware for the multi-domain platforms (Vinted), unchanged
@@ -1477,6 +1832,10 @@ async function beginJob(kind, payload, sender, sendResponse, clientRef) {
     platform: payload.platform,
     kind: kind,
     payload: payload,
+    // US-9202: which marker to confirm when the job settles.
+    reviseListingId: kind === "revise" && typeof payload.listingId === "string"
+      ? payload.listingId
+      : null,
     now: Date.now(),
   });
 
@@ -1587,14 +1946,14 @@ async function drainQueue() {
         row.platform,
         row.payload && row.payload.locale,
       );
-      const target = row.kind === "delist"
+      const target = row.kind === "delist" || row.kind === "revise" || row.kind === "relist"
         ? (row.payload && row.payload.listingUrl)
         : url;
-      // The same guard as an interactive job: a delist URL must be https and
-      // host-match its platform, and a list URL always comes from the bundled
-      // config. A queue row is server-supplied, which makes it no more trusted
-      // than a message from a page.
-      const allowed = row.kind === "delist"
+      // The same guard as an interactive job: a delist or revise URL must be
+      // https and host-match its platform, and a list URL always comes from the
+      // bundled config. A queue row is server-supplied, which makes it no more
+      // trusted than a message from a page.
+      const allowed = row.kind === "delist" || row.kind === "revise" || row.kind === "relist"
         ? self.GT_LISTER_GUARD.isAllowedDelistUrl(
             self.GT_LISTER_SELECTORS, row.platform, target,
           )
@@ -1647,6 +2006,16 @@ function handleDelistRequest(payload, sender, sendResponse, clientRef) {
   return startJob("delist", payload, sender, sendResponse, clientRef);
 }
 
+// US-9202: the web's "Apply now" on a stale listing.
+function handleReviseRequest(payload, sender, sendResponse, clientRef) {
+  return startJob("revise", payload, sender, sendResponse, clientRef);
+}
+
+// US-9203: the web's Relist on an extension row.
+function handleRelistRequest(payload, sender, sendResponse, clientRef) {
+  return startJob("relist", payload, sender, sendResponse, clientRef);
+}
+
 // ── alarms: timeouts + the terminal-job sweep ─────────────────────────────
 // Registration is GUARDED for the same reason onMessageExternal is below: reading
 // .addListener off an undefined namespace throws at load and takes the ENTIRE
@@ -1678,6 +2047,9 @@ if (ext.alarms && ext.alarms.onAlarm) {
       // queued at lunchtime without the seller doing anything, and one more
       // periodic alarm for that would be a second thing to get wrong.
       void drainQueue();
+      // US-9202: and the edits FlipDesk is waiting to apply on extension
+      // channels. One per tick, unfocused, gated like everything else.
+      void drainPendingRevises();
       return;
     }
 
@@ -1711,6 +2083,10 @@ const EXTERNAL_TYPES = new Set([
   "GT_CLEAR_TOKEN",
   "GT_LISTER_LIST",
   "GT_LISTER_DELIST",
+  // US-9202: apply a FlipDesk edit to a live extension-channel listing.
+  "GT_LISTER_REVISE",
+  // US-9203: copy a live extension-channel listing into a fresh one.
+  "GT_LISTER_RELIST",
   // US-2701: the Marketplaces page reads the scheduled poll's state, turns it
   // OFF, and changes its cadence.
   //
@@ -1724,6 +2100,10 @@ const EXTERNAL_TYPES = new Set([
   "GT_WEB_POLL_STATE",
   "GT_WEB_POLL_REVOKE",
   "GT_WEB_POLL_INTERVAL",
+  // US-9201: "Import my closet" on the web. The page cannot read a Poshmark
+  // tab; it asks the extension, which reads the closet tab the seller already
+  // has open and posts the result with its own token.
+  "GT_CLOSET_IMPORT",
 ]);
 
 function handleExternalMessage(msg, sender, sendResponse) {
@@ -1835,6 +2215,17 @@ function handleExternalMessage(msg, sender, sendResponse) {
     return true;
   }
 
+  if (msg.type === "GT_CLOSET_IMPORT") {
+    (async () => {
+      try {
+        sendResponse(await runClosetImport(msg));
+      } catch (_e) {
+        sendResponse({ ok: false, reason: "failed", error: "Could not read the closet." });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === "GT_LISTER_DELIST") {
     const dp = msg.payload;
     if (!isValidDelistPayload(dp)) {
@@ -1842,6 +2233,26 @@ function handleExternalMessage(msg, sender, sendResponse) {
       return false;
     }
     handleDelistRequest(dp, sender, sendResponse, msg.clientRef);
+    return true;
+  }
+
+  if (msg.type === "GT_LISTER_REVISE") {
+    const rp = msg.payload;
+    if (!isValidRevisePayload(rp)) {
+      sendResponse({ ok: false, error: "Invalid or unsupported revise payload." });
+      return false;
+    }
+    handleReviseRequest(rp, sender, sendResponse, msg.clientRef);
+    return true;
+  }
+
+  if (msg.type === "GT_LISTER_RELIST") {
+    const lp = msg.payload;
+    if (!isValidRelistPayload(lp)) {
+      sendResponse({ ok: false, error: "Invalid or unsupported relist payload." });
+      return false;
+    }
+    handleRelistRequest(lp, sender, sendResponse, msg.clientRef);
     return true;
   }
 
@@ -2251,6 +2662,9 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         // Only for a fill: a delist has no listing to capture, and a failed fill has
         // no form for the seller to submit.
         if (job.kind === "list" && out.ok && out.filled) await startListedWatch(job);
+        // US-9203: the copy's form is open; the live-URL watch records the
+        // new listing when the seller posts it.
+        if (job.kind === "relist" && out.ok && out.copied) await startListedWatch(job);
       } else {
         // AC4: the job already went terminal (we timed out, or the tab closed) and
         // the fill finished anyway. Report it as a LATE result rather than dropping
@@ -2403,6 +2817,10 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       case "GT_GET_PENDING_DELISTS":
         sendResponse(await getPendingDelists());
         break;
+      // US-9202: the popup's "Needs updating" count.
+      case "GT_GET_PENDING_REVISES":
+        sendResponse(await getPendingRevises());
+        break;
       // US-1873: popup + content scripts read the resolved capability map.
       case "GT_GET_CAPABILITIES":
         sendResponse(await getCapabilities(Boolean(msg.force)));
@@ -2432,6 +2850,9 @@ async function startListedWatch(job) {
     clientRef: job.clientRef,
     platform: job.platform,
     itemId: job.payload && job.payload.itemId,
+    // US-9203: which server row the captured URL belongs to, for a relist.
+    relistNewListingId: job.kind === "relist" && job.payload ? job.payload.newListingId : null,
+    queueId: job.kind === "relist" ? (job.queueId || null) : null,
     now: Date.now(),
   });
   await withWatches(async (w) => ({ watches: self.GT_LISTER_JOBS.putWatch(w, watch) }));
@@ -2455,6 +2876,18 @@ if (ext.tabs.onUpdated && ext.tabs.onUpdated.addListener) {
       // One capture per fill: drop the watch BEFORE pushing, so a redirect chain
       // through two listing-shaped URLs can't report twice.
       await withWatches(async (w) => ({ watches: self.GT_LISTER_JOBS.removeWatch(w, tabId) }));
+      // US-9203: a relist copy went live. Confirm to the server directly — a
+      // drained relist has no GradeThread tab to push to, and the server is
+      // where the old row is ended and its removal queued.
+      if (watch.relistNewListingId) {
+        await confirmRelistListed(watch.relistNewListingId, url);
+        if (watch.queueId) {
+          await queueFetch("/" + watch.queueId + "/complete", {
+            method: "POST",
+            body: JSON.stringify({ ok: true, result: { listingUrl: url, copied: true } }),
+          });
+        }
+      }
       try {
         await ext.tabs.sendMessage(watch.saasTabId, {
           type: "GT_LISTER_LISTED",

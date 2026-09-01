@@ -57,6 +57,18 @@ import {
   type OverviewStaleRow,
 } from "@/hooks/use-flipdesk-overview";
 import type { ItemStatus } from "@/types/database";
+import { useReviewApproveMedian } from "@/hooks/use-review-flow";
+import { useTimeSaved } from "@/hooks/use-time-saved";
+import { formatMinutes, TIME_SAVED_LABELS } from "@/lib/time-saved";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { formatDuration } from "@/lib/review-flow";
 
 // How many rows each list card shows before "show all" (US-2547). The aggregate
 // returns up to OVERVIEW_LIST_LIMIT, so "all" means "all it sent" — the copy
@@ -149,6 +161,15 @@ export function FlipdeskOverviewPage() {
       repriceByItem.set(s.inventory_item_id, s.message);
     }
   }
+
+  // US-9204: the seller's median seconds from first photo to Approve. Shown
+  // only once an item has gone through the review screen; a dash for a number
+  // nobody has produced yet would read as a broken stat.
+  const { data: reviewMedian } = useReviewApproveMedian();
+  // US-9207: hours FlipDesk saved this month, summed by the server from the
+  // rows each automated task left behind. Zero is shown as zero: a seller who
+  // has not used the automations yet should see what the number is for.
+  const { data: timeSaved } = useTimeSaved();
 
   const agingRows = metrics?.agingItems ?? [];
   const staleRows = metrics?.staleListings ?? [];
@@ -265,6 +286,22 @@ export function FlipdeskOverviewPage() {
             }
             to="/dashboard/flipdesk/items?tab=sold"
           />
+          {timeSaved ? (
+            <TimeSavedTile
+              totalMinutes={timeSaved.totalMinutes}
+              lines={timeSaved.lines}
+              month={timeSaved.month}
+            />
+          ) : null}
+          {reviewMedian?.median != null ? (
+            <StatCard
+              icon={<Clock className="h-5 w-5" />}
+              label="Photos to Approve"
+              value={formatDuration(reviewMedian.median)}
+              sub={`median over ${reviewMedian.count} reviewed item${reviewMedian.count === 1 ? "" : "s"}`}
+              to="/dashboard/flipdesk/intake"
+            />
+          ) : null}
         </div>
       )}
 
@@ -617,6 +654,68 @@ function AgingRow({ row }: { row: OverviewAgingRow }) {
         {row.days}d
       </div>
     </li>
+  );
+}
+
+// US-9207: the time-saved tile. The number is the seller's own; the breakdown
+// on click names each task and how many times FlipDesk did it. A task the
+// seller skipped is not in the list, because the server never counted it.
+function TimeSavedTile({
+  totalMinutes,
+  lines,
+  month,
+}: {
+  totalMinutes: number;
+  lines: { task: keyof typeof TIME_SAVED_LABELS; count: number; minutes: number }[];
+  month: string;
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          className="group rounded-lg border bg-card p-4 text-left transition-colors hover:border-brand-navy"
+          aria-label={`You saved ${formatMinutes(totalMinutes)} this month. Show the breakdown.`}
+        >
+          <div className="flex items-center justify-between text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs font-medium">
+              <Clock className="h-5 w-5" />
+              Time saved
+            </div>
+            <ArrowRight className="h-3 w-3 opacity-0 transition-opacity group-hover:opacity-60" />
+          </div>
+          <div className="mt-2 text-2xl font-bold tabular-nums">{formatMinutes(totalMinutes)}</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {totalMinutes > 0 ? "this month, on work FlipDesk did for you" : "nothing automated yet this month"}
+          </div>
+        </button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>You saved {formatMinutes(totalMinutes)} in {month}</DialogTitle>
+          <DialogDescription>
+            Only work FlipDesk actually did is counted. Anything you skipped or did by hand is not here.
+          </DialogDescription>
+        </DialogHeader>
+        {lines.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No automated tasks ran this month. Edit a photo, read measurements from a photo, write a listing with AI, price from comps or cross-list an item and it shows up here.
+          </p>
+        ) : (
+          <ul className="space-y-1 text-sm">
+            {lines.map((l) => (
+              <li key={l.task} className="flex items-center justify-between gap-3">
+                <span>
+                  {TIME_SAVED_LABELS[l.task]}
+                  <span className="text-muted-foreground"> x{l.count}</span>
+                </span>
+                <span className="tabular-nums">{formatMinutes(l.minutes)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -37,6 +37,126 @@
 > confirmation. A boot failure naming the schema version means the row is missing
 > and needs inserting by hand.
 
+## 00717 — scorecard return split (US-9208) — NOT YET APPLIED
+
+**Risk: low.** `create or replace` of `public.seller_scorecard(date)`, the
+same function as 00654 with a join to `grade_reports` and a `returnSplit` key
+in the payload. No table or column changes; the two grants are re-issued.
+Idempotent. **Apply order:** after 00716; the edge boot guard expects `00717`.
+
+**`NOTIFY pgrst, 'reload schema';`** recommended (a replaced function keeps
+its signature, so the cache is not strictly stale, but the reload is harmless).
+
+**Frontend:** the scorecard card reads `returnSplit` and treats a missing key
+as zero counts, which renders "not enough sales yet" on both sides. The
+auto-deploy is safe ahead of the apply.
+
+**Verify after applying:** `select public.seller_scorecard(null) -> 'returnSplit'`
+as an authenticated user answers an object with `graded` and `ungraded`.
+
+## 00716 — graded draft price (US-9205) — NOT YET APPLIED
+
+**Risk: low.** Three nullable columns on `listings` (`price_set_by` with a
+CHECK, `graded_price_cents`, `graded_price_why`), one defaulted boolean on
+`repricing_rules` (`override_manual`, default false) and one INSERT policy on
+`repricing_actions` limited to `reason = 'seller_override'`. No backfill,
+nothing dropped. Idempotent. **Apply order:** after 00715; the edge boot guard
+expects `00716`.
+
+**`NOTIFY pgrst, 'reload schema';` IS required** (new columns).
+
+**Frontend reads and writes these columns directly and auto-deploys on push.**
+The composer and the review screen write `price_set_by` on save; until the
+column exists that save fails with `42703`, so apply this BEFORE the push
+lands or the composer's Save draft breaks. The rules runner reads
+`override_manual` and `price_set_by` through the service role, so the edge
+must be redeployed after the apply.
+
+**Verify after applying:** `select price_set_by from listings limit 1` and
+`select override_manual from repricing_rules limit 1` both answer through
+PostgREST.
+
+## 00715 — review flow columns (US-9204) — NOT YET APPLIED
+
+**Risk: low.** Three nullable columns, no backfill, nothing dropped:
+`inventory_items.review_approve_seconds integer`,
+`inventory_items.review_approved_at timestamptz`,
+`flipdesk_settings.review_flow_enabled boolean`. Idempotent (`ADD COLUMN IF NOT
+EXISTS`). **Apply order:** after 00714; the edge boot guard expects `00715`.
+
+**`NOTIFY pgrst, 'reload schema';` IS required** (new columns must reach the
+PostgREST schema cache).
+
+**Frontend reads these columns directly and auto-deploys on push.** Both reads
+tolerate the column being absent (a failed read resolves to "decide by account
+age" and "no median yet"), and the Approve stamp is best effort, so the window
+between the push and the apply costs nothing but the switch and the stat. The
+review screen's Approve itself needs no new schema.
+
+**Verify after applying:** `select review_flow_enabled from flipdesk_settings
+limit 1` and `select review_approve_seconds from inventory_items limit 1` both
+answer through PostgREST (a `42703` means the reload did not happen).
+
+## 00714 — extension queue relist kind (US-9203) — NOT YET APPLIED
+
+**Risk: low.** The same `CHECK` on `extension_work_queue.kind` re-added with
+`relist`. Nothing else. Idempotent. **Apply order:** after 00713; the edge
+boot guard expects `00714`. No PostgREST reload needed. Nothing in the
+frontend reads the new kind directly.
+
+## 00713 — extension queue revise kind (US-9202) — NOT YET APPLIED
+
+**Risk: low.** One `CHECK` constraint on `extension_work_queue.kind` is dropped
+and re-added with a third value (`revise`) and the column comment is updated.
+No table, column, function or policy changes; no backfill; nothing dropped.
+Idempotent (drop-if-exists then add).
+
+**Apply order:** after 00712. `scripts/apply-prod-migrations.sh` picks both up.
+
+**`NOTIFY pgrst, 'reload schema';`** not required (a CHECK is not in the schema
+cache); harmless if run.
+
+**The edge boot guard expects `00713`.** Apply 00712 and 00713, then deploy the
+edge. The pending-revise queue itself needs NO migration: it is a jsonb marker
+on `listings.platform_fields` (`revise_pending`), the same shape as
+`delist_unresolved`.
+
+**Frontend:** the listings table and item page read the marker only through the
+edge (`GET /api/flipdesk/listings/pending-revises`), so the Cloudflare Pages
+auto-deploy is safe on its own; until the edge is redeployed the new routes 404
+and the pages show no stale badges.
+
+**Verify after applying:** a service-role insert into `extension_work_queue`
+with `kind = 'revise'` succeeds (roll it back); `kind = 'share'` still fails
+with `23514`.
+
+## 00712 — closet import origins (US-9201) — NOT YET APPLIED
+
+**Risk: low.** One `CHECK` constraint on `flipdesk_import_runs.origin` is
+dropped and re-added with two more values (`poshmark`, `mercari`) and the
+column comment is updated. No table, column, function or policy changes; no
+backfill; nothing dropped. Idempotent (drop-if-exists then add).
+
+**Apply order:** one file, `00712_closet_import_origins.sql`, after 00711.
+`scripts/apply-prod-migrations.sh` picks it up as the next version.
+
+**`NOTIFY pgrst, 'reload schema';`** is not required (a CHECK constraint is not
+part of the PostgREST schema cache) but is harmless if run.
+
+**The edge boot guard expects `00712`** (`EXPECTED_SCHEMA_VERSION`), so the
+Coolify edge deploy after this push refuses to start until the row is
+recorded. Apply the SQL first, then deploy the edge.
+
+**Nothing in the frontend reads the new origin values directly.** The import
+page shows `run.origin` only after the edge returns it, so the Cloudflare Pages
+auto-deploy is safe on its own; until the edge is redeployed the new
+`/api/flipdesk/closet-import/runs` route simply does not exist and the
+extension's "Import my closet" reports the server error.
+
+**Verify after applying:** a service-role insert into `flipdesk_import_runs`
+with `origin = 'poshmark'` succeeds (roll it back), and one with
+`origin = 'bogus'` still fails with `23514`.
+
 ### Reference: what 00711 contained, and what still has to be scheduled
 
 **Applied 2026-09-01.**

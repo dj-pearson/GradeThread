@@ -230,6 +230,36 @@ export function extensionWebStoreUrl(): string | null {
 }
 
 /**
+ * US-9210: the Firefox Add-ons listing, or null when not configured. Kept as
+ * its own variable rather than derived: AMO slugs are chosen at submission and
+ * have nothing to do with the Chrome id.
+ */
+export function extensionAmoUrl(): string | null {
+  const explicit = (import.meta.env.VITE_EXTENSION_AMO_URL as string | undefined)?.trim();
+  return explicit || null;
+}
+
+/** Firefox and its forks say so in the user agent; nothing else does. */
+export function isFirefoxUserAgent(ua: string | null | undefined): boolean {
+  return /\bFirefox\/\d|\bFxiOS\/|\bSeamonkey\//.test(ua ?? "");
+}
+
+/**
+ * The store this browser installs from: AMO on Firefox when a listing is
+ * configured, else the Chrome Web Store, else null (nothing to link to).
+ */
+export function extensionStoreUrlFor(ua: string | null | undefined): string | null {
+  if (isFirefoxUserAgent(ua)) return extensionAmoUrl() ?? extensionWebStoreUrl();
+  return extensionWebStoreUrl() ?? extensionAmoUrl();
+}
+
+/** Same, for the browser this code is running in. */
+export function extensionStoreUrl(): string | null {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : null;
+  return extensionStoreUrlFor(ua);
+}
+
+/**
  * WHY cross-listing is unavailable, when it is. (US-2720)
  *
  * `isListerAvailable()` collapses two very different situations into one
@@ -301,6 +331,61 @@ export function buildListerPayload(opts: {
 // US-717: ask the extension to END a live listing on the seller's marketplace
 // (cross-listing auto-delist after the item sold elsewhere). Mirrors sendToLister
 // but carries the live listing URL instead of a draft payload.
+// ── US-9202: edit sync ────────────────────────────────────────────────────
+//
+// A revise carries the listing's CURRENT FlipDesk values and which of them
+// changed. The URL is the listing's own and the extension host-pins it before
+// a tab opens, exactly as it does for a delist.
+export interface ListerRevisePayload {
+  platform: ListerPlatform;
+  listingUrl: string;
+  listingId: string;
+  itemId?: string | null;
+  fields: Array<"price" | "title" | "description" | "photos">;
+  title?: string | null;
+  description?: string | null;
+  price?: number | null;
+}
+
+export interface ListerReviseResult extends ListerResult {
+  revised?: boolean;
+  unverified?: boolean;
+  partial?: boolean;
+  fields?: string[];
+}
+
+export function sendReviseToLister(
+  payload: ListerRevisePayload,
+): Promise<ListerReviseResult> {
+  return sendListerJob<ListerReviseResult>({ type: "GT_LISTER_REVISE", payload });
+}
+
+// ── US-9203: relist by copying ───────────────────────────────────────────
+//
+// The server created the copy's row and built this payload; the extension
+// opens the OLD listing (host-pinned), follows its copy control, and the
+// live-URL watch confirms the new listing to the server when it is posted.
+export interface ListerRelistPayload {
+  platform: ListerPlatform;
+  listingUrl: string;
+  listingId: string;
+  newListingId: string;
+  itemId: string;
+  title?: string | null;
+  description?: string | null;
+  price?: number | null;
+}
+
+export interface ListerRelistResult extends ListerResult {
+  copied?: boolean;
+}
+
+export function sendRelistToLister(
+  payload: ListerRelistPayload,
+): Promise<ListerRelistResult> {
+  return sendListerJob<ListerRelistResult>({ type: "GT_LISTER_RELIST", payload });
+}
+
 export interface ListerDelistPayload {
   platform: ListerPlatform;
   platformLabel: string;
@@ -680,3 +765,101 @@ export function onListerListed(cb: (e: ListerListedEvent) => void): () => void {
   window.addEventListener("message", handler);
   return () => window.removeEventListener("message", handler);
 }
+
+// ── US-9201: closet import ────────────────────────────────────────────────
+//
+// The page cannot read a Poshmark tab. It asks the extension, which reads the
+// closet tab the seller already has open, posts the batch with its own token,
+// and hands back the run id; the page polls the ordinary import endpoints from
+// there. `reason` is the extension's word for why nothing was read, and the
+// `error` beside it is already the sentence to show.
+
+export type ClosetImportReason =
+  | "unsupported"
+  | "seller_locked"
+  | "needs_sign_in"
+  | "no_tab"
+  | "no_reader"
+  | "human_check"
+  | "not_signed_in"
+  | "not_own_closet"
+  | "not_own_listing"
+  | "wrong_page"
+  | "nothing_read"
+  | "offline"
+  | "server"
+  | "failed";
+
+export interface ClosetImportResponse extends ExtensionResponse {
+  status?: number;
+  reason?: ClosetImportReason | null;
+  needsSignIn?: boolean;
+  /** The server's body: run_id, total_rows, new_rows, known_rows, plan_warning, or an error. */
+  result?: {
+    run_id?: string;
+    platform?: string;
+    total_rows?: number;
+    new_rows?: number;
+    known_rows?: number;
+    plan_warning?: string | null;
+    error?: string;
+    message?: string;
+    cap?: string;
+    used?: number;
+    limit?: number;
+  } | null;
+  page?: "closet" | "detail";
+  listingsRead?: number;
+  coverage?: { tilesRead: number; reachedEnd: boolean };
+  /** ISO time the extension was installed, kept locally by it until now. */
+  installedAt?: string | null;
+}
+
+export function sendClosetImport(platform: "poshmark" | "mercari"): Promise<ClosetImportResponse> {
+  return sendExtensionMessage<ClosetImportResponse>({ type: "GT_CLOSET_IMPORT", platform });
+}
+
+/**
+ * The sentence for a closet-import failure, from the reason code alone.
+ *
+ * The extension answers with its own sentence too, and the two agree on
+ * purpose; this copy exists so the page never prints a string that arrived over
+ * messaging (US-2869 AC4), and so an older extension build's wording cannot
+ * leak onto a newer page.
+ */
+export function closetImportFailureText(
+  reason: ClosetImportReason | null,
+  platform: "poshmark" | "mercari",
+): string {
+  const label = platform === "poshmark" ? "Poshmark" : "Mercari";
+  switch (reason) {
+    case "unsupported":
+      return "Closet import supports Poshmark and Mercari.";
+    case "seller_locked":
+      return "Closet import is part of a paid FlipDesk plan.";
+    case "needs_sign_in":
+      return "Sign in to GradeThread in the extension first, then press Import again.";
+    case "no_tab":
+      return `Open your own ${label} closet in another tab, then press Import again.`;
+    case "no_reader":
+      return `The ${label} tab has not finished loading. Give it a moment and press Import again.`;
+    case "human_check":
+      return `${label} is asking you to prove you are a person. Finish that in the tab, then press Import again.`;
+    case "not_signed_in":
+      return `You are signed out of ${label} in that tab. Sign in there, then press Import again.`;
+    case "not_own_closet":
+      return `That closet is not yours. Open your own ${label} closet, then press Import again.`;
+    case "not_own_listing":
+      return `That listing is not yours. Open your own ${label} closet, or one of your own listings, then press Import again.`;
+    case "wrong_page":
+      return `Open your own ${label} closet page (or one of your own listings) in that tab, then press Import again.`;
+    case "offline":
+      return "Couldn't reach GradeThread. Check your connection and press Import again.";
+    case "server":
+    case "failed":
+      return "Could not start the import. Try again in a moment.";
+    default:
+      return `Nothing on that page read as one of your ${label} listings. Scroll so your listings are on screen, then press Import again.`;
+  }
+}
+

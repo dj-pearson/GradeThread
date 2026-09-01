@@ -10,6 +10,7 @@ import {
   COMPETITOR_ALTERNATIVE_SLUGS,
   alternativePath,
 } from "@/lib/seo/competitor-alternative-slugs";
+import { SWITCH_FROM_SLUGS, switchFromPath } from "@/lib/seo/switch-from-slugs";
 
 // RootLayout stays eager (it renders on the first paint of every route). The
 // authenticated layouts + auth guards are lazy: they pull Supabase, react-query
@@ -108,6 +109,7 @@ const PlatformStandardPage = lazy(() => import("@/pages/marketing/platform-stand
 const WhereToSellPage = lazy(() => import("@/pages/marketing/where-to-sell").then(m => ({ default: m.WhereToSellPage })));
 const CrosslistingAppsPage = lazy(() => import("@/pages/marketing/crosslisting-apps").then(m => ({ default: m.CrosslistingAppsPage })));
 const CompetitorAlternativePage = lazy(() => import("@/pages/marketing/competitor-alternative").then(m => ({ default: m.CompetitorAlternativePage })));
+const SwitchFromPageView = lazy(() => import("@/pages/marketing/switch-from").then(m => ({ default: m.SwitchFromPageView })));
 const ConditionChartPage = lazy(() => import("@/pages/marketing/condition-chart").then(m => ({ default: m.ConditionChartPage })));
 const ChangelogPage = lazy(() => import("@/pages/marketing/changelog").then(m => ({ default: m.ChangelogPage })));
 // US-2506: SPA renderers for the public Condition Index. Prod serves the
@@ -190,6 +192,7 @@ const FlipdeskInventoryPage = lazy(() => import("@/pages/flipdesk/inventory").th
 const FlipdeskItemPage = lazy(() => import("@/pages/flipdesk/item").then(m => ({ default: m.FlipdeskItemPage })));
 const FlipdeskAnalyticsPage = lazy(() => import("@/pages/flipdesk/analytics").then(m => ({ default: m.FlipdeskAnalyticsPage })));
 const FlipdeskIntakePage = lazy(() => import("@/pages/flipdesk/intake").then(m => ({ default: m.FlipdeskIntakePage })));
+const FlipdeskReviewPage = lazy(() => import("@/pages/flipdesk/review").then(m => ({ default: m.FlipdeskReviewPage })));
 const FlipdeskImportPage = lazy(() => import("@/pages/flipdesk/import").then(m => ({ default: m.FlipdeskImportPage })));
 const FlipdeskMarketplacesPage = lazy(() => import("@/pages/flipdesk/marketplaces").then(m => ({ default: m.FlipdeskMarketplacesPage })));
 const FlipdeskMeasureCardPage = lazy(() => import("@/pages/flipdesk/measure-card").then(m => ({ default: m.FlipdeskMeasureCardPage })));
@@ -376,6 +379,11 @@ export const router = createBrowserRouter([
       ...COMPETITOR_ALTERNATIVE_SLUGS.map((slug) => ({
         path: alternativePath(slug),
         element: <SuspenseWrapper><CompetitorAlternativePage slug={slug} /></SuspenseWrapper>,
+      })),
+      // US-9209: switch-from pages, explicit for the same reason as the above.
+      ...SWITCH_FROM_SLUGS.map((slug) => ({
+        path: switchFromPath(slug),
+        element: <SuspenseWrapper><SwitchFromPageView slug={slug} /></SuspenseWrapper>,
       })),
       { path: "/reselling/:slug", element: <SuspenseWrapper><ResellingGuidePage /></SuspenseWrapper> },
       // US-1667: marketplace comparison hub + pages.
@@ -587,6 +595,7 @@ export const router = createBrowserRouter([
               // ?focus=) still point here, and they all keep working.
               { path: "/dashboard/flipdesk/items/:id/draft", element: <SuspenseWrapper><FlipdeskItemPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/intake", element: <SuspenseWrapper><FlipdeskIntakePage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/review/:id", element: <SuspenseWrapper><FlipdeskReviewPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/prep", element: <InventoryModeRedirect mode="prep" /> },
               { path: "/dashboard/flipdesk/import", element: <SuspenseWrapper><FlipdeskImportPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/autolister", element: <SuspenseWrapper><FlipdeskAutolisterHostPage /></SuspenseWrapper> },

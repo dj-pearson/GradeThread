@@ -64,6 +64,12 @@ import { itemPhotoThumb } from "@/lib/images";
 import { itemDisplayTitle, itemRowLabel } from "@/lib/item-row-label";
 import { needsSignedDisplayUrl } from "@/lib/item-photo-url";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
+import type { ListingPlatform } from "@/types/database";
+import { staleSinceLabel, usePendingRevises } from "@/hooks/use-pending-revises";
+import { useRelistExtension } from "@/hooks/use-relist-extension";
+import { MARKETPLACE_MECHANISM } from "@/lib/constants";
+import { toast } from "sonner";
+import { toastError } from "@/lib/toast-error";
 import type { useEbayConnection } from "@/hooks/use-ebay";
 
 // The per-row detail maps come straight off the shared query hook rather than
@@ -239,6 +245,40 @@ export function ListingsTable({
   ebayConnection,
   navigate,
 }: Props) {
+  // US-9202: which items have an edit that has not reached an extension
+  // channel yet. One shared read; the badge says which channel and since when.
+  const { data: pendingRevises = [] } = usePendingRevises();
+  // US-9203: relist a Poshmark/Mercari/Vinted row by copying it through the
+  // extension (or the desktop queue). eBay rows keep their publish dialog.
+  const relistExt = useRelistExtension();
+  const isExtensionRow = (row: ItemFullRow) =>
+    !!row.listing_platform &&
+    MARKETPLACE_MECHANISM[row.listing_platform] === "extension" &&
+    !!row.listing_id;
+  async function relistExtensionRow(row: ItemFullRow) {
+    if (!row.listing_id || !row.listing_platform) return;
+    try {
+      const res = await relistExt.mutateAsync({ listingId: row.listing_id, platform: row.listing_platform });
+      if (res.queued) {
+        toast.info("Queued for your desktop extension. The old listing is ended once the copy is live.", { duration: 10_000 });
+      } else if (res.copied) {
+        toast.success("The copy's form is open in a new tab. Review and post it; the old listing is ended once it is live.", { duration: 10_000 });
+      } else {
+        toast.warning("Copy this listing by hand on the marketplace; the extension could not open the copy.", { duration: 10_000 });
+      }
+    } catch (err) {
+      toastError(err, "Could not start the relist.");
+    }
+  }
+  const staleByItem = new Map<string, { platform: string; label: string }[]>();
+  for (const p of pendingRevises) {
+    const list = staleByItem.get(p.item_id) ?? [];
+    list.push({
+      platform: p.platform,
+      label: staleSinceLabel(p, MARKETPLACE_LABELS[p.platform as ListingPlatform] ?? p.platform),
+    });
+    staleByItem.set(p.item_id, list);
+  }
   return (
       <div
         ref={tableScrollRef}
@@ -721,6 +761,17 @@ export function ListingsTable({
                           {Number(it.grade_value).toFixed(1)}
                         </Badge>
                       )}
+                      {/* US-9202: never "applied" before the marketplace confirms. */}
+                      {(staleByItem.get(it.id) ?? []).map((stale) => (
+                        <Badge
+                          key={stale.platform}
+                          variant="outline"
+                          className="shrink-0 border-amber-400 px-1.5 py-0 text-[10px] text-amber-700 dark:text-amber-300"
+                          title="An edit made here has not reached this marketplace yet. The extension applies it, or edit it there."
+                        >
+                          {stale.label}
+                        </Badge>
+                      ))}
                     </div>
                   </TableCell>
                   <TableCell className="max-w-[120px] truncate font-mono text-[11px] tabular-nums text-muted-foreground">
@@ -1129,6 +1180,20 @@ export function ListingsTable({
                             <RotateCcw className="h-3.5 w-3.5" />
                           </Button>
                         )}
+                        {/* US-9203: a live extension-channel row relists by copying. */}
+                        {isExtensionRow(it) && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            disabled={relistExt.isPending}
+                            onClick={() => void relistExtensionRow(it)}
+                            aria-label={`Relist ${rowLabel} by copying it`}
+                            title="Copy this listing into a fresh one; the old one is ended once the copy is live"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
                         <Button
                           variant="outline"
                           size="sm"
@@ -1217,6 +1282,23 @@ export function ListingsTable({
                         })()}
                         {(() => {
                           const isRelist = it.listing_status === "ended";
+                          // US-9203: an ended extension-channel row relists by
+                          // copying through the extension, not the eBay dialog.
+                          if (isRelist && isExtensionRow(it)) {
+                            return (
+                              <Button
+                                size="sm"
+                                className="h-6 px-2 text-[10px]"
+                                disabled={relistExt.isPending}
+                                onClick={() => void relistExtensionRow(it)}
+                                aria-label={`Relist: ${rowLabel}`}
+                                title="Copy this listing into a fresh one through the extension; the old one is ended once the copy is live"
+                              >
+                                <RotateCcw className="mr-1 h-3 w-3" />
+                                Relist
+                              </Button>
+                            );
+                          }
                           if (ebayConnection) {
                             return (
                               <>

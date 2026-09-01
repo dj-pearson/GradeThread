@@ -23,6 +23,12 @@ export interface ListingPriceResponse {
   price: number;
   /** false only when the listing was never published to a marketplace. */
   pushed: boolean;
+  /**
+   * US-9202: the listing is live on an extension channel, so the price was
+   * saved here and the desktop extension applies it there. Until it confirms,
+   * the marketplace still shows the old price and the row says "Stale".
+   */
+  queued?: boolean;
 }
 
 export interface ListingEndResponse {
@@ -46,6 +52,8 @@ export interface BulkPriceRowResult {
   price?: number;
   previous_price?: number | null;
   pushed?: boolean;
+  /** US-9202: live on an extension channel; the desktop extension applies it. */
+  queued?: boolean;
   error?: string;
 }
 
@@ -54,6 +62,8 @@ export interface BulkPriceResponse {
   total: number;
   succeeded: number;
   failed: number;
+  /** US-9202: successes waiting on the desktop extension. */
+  queued?: number;
   results: BulkPriceRowResult[];
 }
 
@@ -189,6 +199,7 @@ export function mergeBulkPriceResponses(
     total: results.length,
     succeeded: results.filter((r) => r.ok).length,
     failed: results.filter((r) => !r.ok).length,
+    queued: results.filter((r) => r.ok && r.queued).length,
     results,
   };
 }

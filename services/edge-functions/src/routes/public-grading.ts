@@ -63,6 +63,8 @@ import {
 } from "../lib/buyer-entitlements.ts";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
+import { confirmRevise, loadPendingRevises } from "../lib/pending-revises.ts";
+import { completeRelist } from "../lib/extension-relist.ts";
 import { loadSyncStatus } from "../lib/sync-status.ts";
 // US-1808: extension-fed marketplace listing ingestion. The pure half (the
 // marketplace allowlist that IS the anti-crawl boundary, URL canonicalization,
@@ -410,6 +412,104 @@ publicGradingRoutes.get("/entitlements", async (c) => {
 //
 // AUTHORIZATION IS RE-RESOLVED HERE, not inherited from the popup's registry
 // gating: a token minted before a plan lapsed would still draw seller UI.
+// ── US-9202: pending revises for the extension (popup count + the drain) ──
+//
+// GET /pending-revises and POST /revise-confirm are the extension's doors onto
+// lib/pending-revises.ts, for the same reason pending-delists has one here: the
+// extension speaks an HMAC token, not a Supabase JWT. The read and the state
+// machine are shared with the JWT routes so the two doors cannot disagree about
+// what is stale or what counts as applied.
+//
+// TENANCY (US-268): ownerId comes from the signed token and never from the
+// request. Serves the token holder's OWN tenant only. Authorization is
+// re-resolved here (seller entitlement), not inherited from the popup.
+async function extensionSellerId(
+  c: { req: { header: (name: string) => string | undefined } },
+): Promise<
+  { ok: true; userId: string } | { ok: false; status: 401 | 403 | 503; error: string }
+> {
+  const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
+  if (!verified) return { ok: false, status: 401, error: "Sign in to GradeThread first." };
+  let ent: { sellerEnabled: boolean };
+  try {
+    ent = await getExtensionEntitlements(verified.userId);
+  } catch (err) {
+    console.error(
+      "public-grading revise entitlements:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return { ok: false, status: 503, error: "Could not verify your plan. Try again." };
+  }
+  if (!ent.sellerEnabled) return { ok: false, status: 403, error: "FlipDesk plan required." };
+  return { ok: true, userId: verified.userId };
+}
+
+publicGradingRoutes.get("/pending-revises", async (c) => {
+  const who = await extensionSellerId(c);
+  if (!who.ok) return c.json({ error: who.error }, who.status, { "Cache-Control": "no-store" });
+  const { pending, error } = await loadPendingRevises(who.userId, { limit: 50 });
+  if (error) {
+    console.error(
+      "public-grading /pending-revises:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return c.json({ error: "Could not load pending edits." }, 500, { "Cache-Control": "no-store" });
+  }
+  return c.json({ pending }, 200, { "Cache-Control": "no-store" });
+});
+
+publicGradingRoutes.post("/revise-confirm", async (c) => {
+  const who = await extensionSellerId(c);
+  if (!who.ok) return c.json({ error: who.error }, who.status, { "Cache-Control": "no-store" });
+  let body: { listing_id?: unknown; applied?: unknown; manual?: unknown; unverified?: unknown; error?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const listingId = typeof body.listing_id === "string" ? body.listing_id : "";
+  if (!listingId) return c.json({ error: "listing_id is required." }, 400);
+  const res = await confirmRevise(who.userId, listingId, {
+    applied: body.applied === true,
+    manual: body.manual === true,
+    unverified: body.unverified === true,
+    error: typeof body.error === "string" ? body.error : null,
+  });
+  if (!res.ok) return c.json({ error: res.error }, res.status);
+  return c.json(
+    { ok: true, listing_id: listingId, cleared: res.cleared, attempts: res.attempts },
+    200,
+    { "Cache-Control": "no-store" },
+  );
+});
+
+// US-9203: the extension's watch saw the relist COPY go live. The new row's
+// id came from the server (createRelistDraft) on the job the extension ran;
+// the URL is the one the tab navigated to, host-pinned by isLiveListingUrl
+// before it was sent. completeRelist owner-scopes the row through its item.
+publicGradingRoutes.post("/relist-listed", async (c) => {
+  const who = await extensionSellerId(c);
+  if (!who.ok) return c.json({ error: who.error }, who.status, { "Cache-Control": "no-store" });
+  let body: { new_listing_id?: unknown; listing_url?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const newId = typeof body.new_listing_id === "string" ? body.new_listing_id : "";
+  const url = typeof body.listing_url === "string" && /^https:\/\//.test(body.listing_url)
+    ? body.listing_url.slice(0, 500)
+    : "";
+  if (!newId || !url) return c.json({ error: "new_listing_id and an https listing_url are required." }, 400);
+  const done = await completeRelist(who.userId, newId, url);
+  if (!done.ok) return c.json({ error: done.error }, done.status);
+  return c.json(
+    { ok: true, listing_id: newId, relisted_from: done.old_listing_id, old_delist_queued: done.old_delist_queued },
+    200,
+    { "Cache-Control": "no-store" },
+  );
+});
+
 publicGradingRoutes.get("/sync-status", async (c) => {
   const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
   if (!verified) {
