@@ -171,6 +171,14 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "abuse-scan", label: "Abuse-signal scan", schedule: "0 */6 * * *", category: "safety", endpoint: "/api/jobs/abuse-scan", recorded: true },
   // US-1124: Garment Passport backfill/repair — seed passports for grade_reports left NULL by the live-seed race window.
   { name: "passport-backfill", label: "Garment Passport backfill", schedule: "*/15 * * * *", category: "maintenance", endpoint: "/api/jobs/passport-backfill", recorded: true, oneOff: true },
+  // US-3035: drain synced listing text into the Fit & Measurement Index. Same
+  // shape as passport-backfill — it runs often until the backlog is read, then
+  // reports `drained: true` and can drop to daily. The ?reset / ?purge switches
+  // are operator actions for a parser fix; a schedule must never send them.
+  { name: "measurement-text-backfill", label: "Measurement listing-text backfill", schedule: "*/15 * * * *", category: "flipdesk", endpoint: "/api/jobs/measurement-text-backfill", recorded: true, oneOff: true, healthy: "200 with {ok:true, scanned, withMeasurements, ingested, drained}; scanned 0 with drained:true once the backlog is read" },
+  // US-3036: nightly rollup of garment_measurements into the numbers a public
+  // page may print. `sufficient` is the count the US-3037 coverage gate reads.
+  { name: "measurement-aggregate", label: "Fit & Measurement Index rollup", schedule: "40 3 * * *", category: "flipdesk", endpoint: "/api/jobs/measurement-aggregate", recorded: true, healthy: "200 with {ok:true, cohorts, sufficient, upserted, retired}; every count can be 0 before any garment is measured" },
   { name: "listing-prompt-promote", label: "Listing-prompt auto-promote", schedule: "0 9 * * *", category: "grading", endpoint: "/api/jobs/listing-prompt-promote", recorded: true },
   { name: "ebay-pending-webhooks", label: "eBay parked-webhook drain", schedule: "*/15 * * * *", category: "sync", endpoint: "/api/jobs/ebay-pending-webhooks", recorded: true },
   // US-1965: order-sync backstop — sweeps the stalest active eBay connections
