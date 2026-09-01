@@ -110,18 +110,34 @@ export function PendingReviseBanner({ itemId }: { itemId?: string }) {
                 <div className="flex flex-wrap items-center gap-2">
                   {item.listing_url && (
                     <Button asChild size="sm" variant="outline">
-                      <a href={item.listing_url} target="_blank" rel="noopener noreferrer">
+                      <a
+                        href={item.listing_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`Edit ${item.item_title ?? "this item"} on ${platformLabel(item.platform)}`}
+                      >
                         Edit there
                       </a>
                     </Button>
                   )}
                   {live && extensionReady && (
-                    <Button size="sm" disabled={busy} onClick={() => void handleApply(item)}>
+                    <Button
+                      size="sm"
+                      disabled={busy}
+                      aria-label={`Apply the edits to ${item.item_title ?? "this item"} now`}
+                      onClick={() => void handleApply(item)}
+                    >
                       {runRevise.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       Apply now
                     </Button>
                   )}
-                  <Button size="sm" variant="ghost" disabled={busy} onClick={() => void handleDone(item)}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    aria-label={`I updated ${item.item_title ?? "this item"} myself`}
+                    onClick={() => void handleDone(item)}
+                  >
                     I updated it
                   </Button>
                 </div>

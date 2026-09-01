@@ -269,7 +269,9 @@ export function FlipdeskReviewPage() {
   async function approve() {
     if (!item || !user) return;
     if (blockers.length > 0) {
-      toast.error(blockers[0]?.message ?? "Fix the blocked items first.");
+      // Our own sentence from draft-quality.ts, not a server's.
+      const why = blockerSentence(blockers);
+      toast.error(why);
       return;
     }
     if (!title.trim()) {
@@ -459,7 +461,7 @@ export function FlipdeskReviewPage() {
                   </Badge>
                   <span className="font-medium">{o.label}</span>
                   {o.url ? (
-                    <a href={o.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 underline underline-offset-2">
+                    <a href={o.url} target="_blank" rel="noopener noreferrer" aria-label={`View the ${o.label} listing`} className="inline-flex items-center gap-1 underline underline-offset-2">
                       View <ExternalLink className="h-3 w-3" />
                     </a>
                   ) : null}
@@ -686,7 +688,7 @@ export function FlipdeskReviewPage() {
                     <AlertCircle className="h-4 w-4 text-destructive" />
                     <span>{b.message}</span>
                     {b.fix === "price" ? null : (
-                      <Link to={itemPath} className="underline underline-offset-2">Edit details</Link>
+                      <Link to={itemPath} aria-label={`Edit details: ${b.message}`} className="underline underline-offset-2">Edit details</Link>
                     )}
                   </li>
                 ))}
@@ -729,6 +731,10 @@ export function FlipdeskReviewPage() {
       </p>
     </div>
   );
+}
+
+function blockerSentence(list: ReviewBlocker[]): string {
+  return list.map((b) => b.message).join(" ") || "Fix the blocked items first.";
 }
 
 function EditLink({ to, label = "Edit details" }: { to: string; label?: string }) {
