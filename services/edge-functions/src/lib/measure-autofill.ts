@@ -39,6 +39,7 @@ import {
   extractMeasurements,
   mergeMeasurementsFillOnly,
 } from "./measure-extract.ts";
+import { ingestMeasureCardObservations } from "./measurement-ingest.ts";
 import {
   MEASUREMENT_TEMPLATES,
   measurementGroupForItem,
@@ -48,11 +49,16 @@ import {
 
 /** The inventory_items columns this pass reads. Kept as one string so the two
  *  callers cannot drift into selecting different things. */
+// US-3034 added `brand` and `style`: the Fit & Measurement Index keys a cohort
+// on (brand, style, department, group, size, field), and without these two the
+// pass can measure a garment perfectly and have nowhere to file the result.
 export const MEASURE_ITEM_COLUMNS =
-  "id, title, size, measurements, ai_field_sources, item_category, garment_category, garment_type";
+  "id, title, brand, style, size, measurements, ai_field_sources, item_category, garment_category, garment_type";
 
 export interface MeasureItemRow extends GarmentDescriptorSource {
   id: string;
+  brand: string | null;
+  style: string | null;
   size: string | null;
   measurements: Record<string, unknown> | null;
   ai_field_sources: Record<string, unknown> | null;
@@ -477,6 +483,20 @@ async function runAutofill(
     if (upErr) {
       console.error("[measure-autofill] persist failed:", upErr.message);
     }
+
+    // US-3034: contribute the values that actually landed on the item to the
+    // Fit & Measurement Index. Best-effort by contract and awaited only so a
+    // failure is logged in order — it can never fail the seller's own save.
+    await ingestMeasureCardObservations({
+      userId: ownerId,
+      itemId,
+      brand: item.brand,
+      style: item.style,
+      size: item.size,
+      group,
+      extracted: result.measurements,
+      written: merged.written,
+    });
   }
 
   try {

@@ -1866,6 +1866,12 @@ export async function generateListing(
     const measured = await autofillMeasurementsFromCard(itemId, ownerId, {
       id: item.id,
       title: item.title,
+      // US-3034: the pass now files what it measures into the Fit &
+      // Measurement Index, and a cohort is keyed on brand and style. Passing
+      // them through is what lets a listing generated here contribute; leaving
+      // them null would measure the garment and drop the result on the floor.
+      brand: item.brand ?? null,
+      style: (item as { style?: string | null }).style ?? null,
       size: item.size,
       measurements: itemMeasurements,
       ai_field_sources: itemAiSources,

@@ -39,6 +39,7 @@ import {
   MEASURE_ITEM_COLUMNS,
   type MeasureItemRow,
 } from "../lib/measure-autofill.ts";
+import { ingestMeasureCardObservations } from "../lib/measurement-ingest.ts";
 import {
   cardBBoxPx,
   chooseCropRect,
@@ -362,6 +363,20 @@ flipdeskMeasureRoutes.post("/extract", async (c) => {
       if (upErr) {
         console.error("[flipdesk-measure] extract persist failed:", upErr.message);
       }
+
+      // US-3034: contribute the values that actually landed on the item to the
+      // Fit & Measurement Index. Best-effort by contract — it can never fail
+      // the seller's own save, which is the primary action here.
+      await ingestMeasureCardObservations({
+        userId: ownerId,
+        itemId: item.id,
+        brand: item.brand,
+        style: item.style,
+        size: item.size,
+        group,
+        extracted: result.measurements,
+        written: merged.written,
+      });
     }
 
     // Spend log (usage parity with the other vision passes).

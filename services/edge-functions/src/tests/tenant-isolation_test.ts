@@ -3974,6 +3974,46 @@ Deno.test({
   },
 });
 
+// ── US-3034: the measure passes now also write garment_measurements ──────────
+//
+// Both /extract and /autofill contribute what they measured to the Fit &
+// Measurement Index, which is a NEW multi-tenant table. That changes what a
+// successful call does, so the isolation question has to be re-asked rather
+// than inherited from the case above.
+//
+// Two things make it safe, and they are different things:
+//
+//   THE WRITE IS SCOPED BY CONSTRUCTION. `ingestMeasureCardObservations` takes
+//   its `user_id` from the handler's `workspaceOwnerId ?? userId`, never from
+//   the request body, and its `item_id` from an item row that was already
+//   loaded `.eq("user_id", ownerId)`. There is no path from an attacker-typed
+//   id to a row in this table.
+//
+//   THE UPSERT CANNOT CROSS A TENANT. It conflicts on (item_id, field_key),
+//   and item_id is tenant-owned, so B cannot overwrite A's observation even
+//   though the service-role client bypasses RLS to do the write.
+//
+// Both /extract and /autofill are covered: a non-member is rejected by
+// workspaceMiddleware before either handler runs, so no row is written at all.
+Deno.test({
+  name: "US-3034: non-member B cannot write garment_measurements through A's item",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    for (const path of ["extract", "autofill"]) {
+      const res = await fetch(`${BASE}/api/flipdesk/measure/${path}`, {
+        method: "POST",
+        headers: foreignWorkspaceHeaders(),
+        body: JSON.stringify({
+          item_id: crypto.randomUUID(),
+          photo_id: crypto.randomUUID(),
+        }),
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, `POST measure ${path} as non-member`);
+    }
+  },
+});
+
 // ── US-1790: B2B batch-grading status (public /api/v1, API-KEY auth) ──────────
 //
 // GET /api/v1/grades/batch/:id scopes the grading_batches read by the calling
