@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "claude/seo-strategy-options-evftv2",
   "description": "SEO rebuild backlog, held OUT of prd.json entirely so the Ralph loop can never collide with it. Derived from vault/40-growth/seo-strategy-options-2026-08.md and the 2026-08-18 Keyword Planner pull (docs/seo/keyword-pull-2026-08-results.csv). Build order is Path 3 (calculators, 127,100/mo seller intent), then Path 7 (conversion + comparisons), then Path 1 (damage and care, 295,750/mo, authority engine only). Path 2 (returns) and Path 4 (resale value) were killed by the pull and are deliberately absent. IDS USE A RESERVED HIGH BLOCK (US-9001+) RATHER THAN prd.json.nextId: an earlier attempt reserved US-2674..US-2689 by bumping prd.json.nextId, and PR #275 merged the same block to main first, so the reservation both conflicted and failed. prd.json is now never touched by this file. Ralph allocates sequentially from US-2684 and will not reach 9001. On merge back, renumber into the live sequence and re-rank priorities, which are local to this file.",
-  "nextId": "US-9036",
+  "nextId": "US-9037",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -719,6 +719,30 @@
         "US-9031",
         "US-9032",
         "US-9033"
+      ]
+    },
+    {
+      "id": "US-9036",
+      "passes": false,
+      "title": "The blank RN page stops being a dead end, and every miss becomes a work item",
+      "description": "As someone who typed a number we have not indexed, I get a page that tells me we cannot help and gives me nowhere to go, which after the first seed run is nearly every visitor: the seeder reaches a few hundred numbers and the FTC register holds over 100,000. And as the person running the seeder, I rank its queue by a guess at which brands matter, because a lookup miss was a pure read that recorded nothing. Two changes, one decision: link the search we have not run without ever calling it our evidence, and count the misses in their own table.",
+      "acceptanceCriteria": [
+        "publicRegisteredNumber exposes searchUrl, always set, built from the canonical digits rather than what was typed, so two spellings of one number do not send two readers to two FTC queries",
+        "sourceUrl keeps its meaning unchanged: provenance for a claim we made, null until a company is resolved",
+        "A resolved page links the record and says 'See the FTC record'; a blank page links the search and says plainly that we have not indexed it, never using provenance language",
+        "renderRnBody branches on companyName rather than sourceUrl, with a test proving a payload carrying a stale source without a company cannot print it",
+        "Migration 00708 creates registered_number_lookups: one row per number, a count, a resolved flag, deny-all RLS, and an increment-or-insert RPC in one statement so concurrent lookups cannot lose a count",
+        "It is a SEPARATE table from registered_number_sightings, because a sighting is a claim that OCR read the number off a real tag and the page prints that count; a typed lookup is demand, not evidence",
+        "GET /registered-numbers/:number records a lookup ONLY on a miss, fire-and-forget after the payload is built, and a failed write is logged rather than costing the reader their answer",
+        "registered_number_lookups is registered in SERVICE_ROLE_ONLY in rls-guard_test.ts",
+        "The RPC carries NO REVOKE and is not SECURITY DEFINER (US-2403): copying 00501's pair would segfault the backend on an anon call, so authorization comes from the deny-all RLS on the table instead",
+        "The US-1108 triple holds: idempotent SQL, EXPECTED_SCHEMA_VERSION at 00708 in the same commit, self-record footer, manifest regenerated",
+        "OPERATOR: apply 00708 to prod and NOTIFY pgrst before the push, per PENDING_MIGRATIONS.md"
+      ],
+      "priority": 3,
+      "dependsOn": [
+        "US-9031",
+        "US-9034"
       ]
     }
   ]

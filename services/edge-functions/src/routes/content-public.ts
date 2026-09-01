@@ -829,6 +829,29 @@ contentPublicRoutes.get("/registered-numbers/:number", async (c) => {
     sightings: sightingRes.data ? Number(sightingRes.data.sighting_count) : null,
   });
   if (!payload) return c.json({ error: "That is not a registered identification number" }, 400);
+
+  // US-9036: a number we could not answer is the most useful thing this
+  // endpoint learns. Until now a miss was a pure read, so somebody telling us
+  // exactly which registrant they wanted taught us nothing, and the seeder went
+  // on ranking its queue by our guess at which brands matter.
+  //
+  // NOT a sighting. record_registered_number_sighting means "our OCR read this
+  // off a real garment tag", and /rn/:number prints that count as the one line
+  // a mirror site cannot print. A typed number is demand, not evidence, so it
+  // gets its own counter in 00708.
+  //
+  // Fire-and-forget, after the payload is built: nobody waits on bookkeeping,
+  // and a failed write must never cost a reader the answer we already have.
+  if (!payload.companyName) {
+    const { error: lookupErr } = await supabaseAdmin.rpc(
+      "record_registered_number_lookup",
+      { p_registry_key: key, p_kind: parsed.kind, p_digits: parsed.digits },
+    );
+    if (lookupErr) {
+      console.warn("[registered-numbers] lookup counter write failed (ignored):", lookupErr.message);
+    }
+  }
+
   return c.json(payload);
 });
 

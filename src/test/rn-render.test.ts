@@ -25,6 +25,7 @@ const resolved: PublicRegisteredNumber = {
   brands: ["Nike"],
   productLines: [],
   sourceUrl: "https://www.ftc.gov/rn-database/search?search=56323",
+  searchUrl: "https://www.ftc.gov/rn-database/search?search=56323",
   sightings: 12,
   indexable: true,
 };
@@ -37,6 +38,8 @@ const blank: PublicRegisteredNumber = {
   companyName: null,
   brands: [],
   sourceUrl: null,
+  // Always set, including here — that is the whole point of the field.
+  searchUrl: "https://www.ftc.gov/rn-database/search?search=999999",
   sightings: null,
   indexable: false,
 };
@@ -92,9 +95,30 @@ describe("rn-render", () => {
     expect(renderRnBody({ ...resolved, sightings: 0 })).not.toMatch(/0 garment tags/);
   });
 
-  it("links the FTC record when there is one, and never a dead one", () => {
+  it("links the FTC record when there is one", () => {
     expect(renderRnBody(resolved)).toContain("https://www.ftc.gov/rn-database/search?search=56323");
-    expect(renderRnBody(blank)).not.toContain("ftc.gov");
+    expect(renderRnBody(resolved)).toContain("See the FTC record");
+  });
+
+  // US-9036 replaced the old rule here, which was "a blank page links no
+  // ftc.gov at all". That rule was written to stop us dressing a query up as
+  // evidence, and it was right about that. It also made the blank page a dead
+  // end: it told somebody we could not help and gave them nowhere to go, and
+  // after the first seed run that is nearly every visitor. The distinction the
+  // page actually needs is between the two KINDS of link.
+  it("offers the search on a blank page, and never calls it our record", () => {
+    const html = renderRnBody(blank);
+    expect(html).toContain("https://www.ftc.gov/rn-database/search?search=999999");
+    expect(html).toContain("we have not indexed yet");
+    // Provenance language belongs to a claim we made, and we made none here.
+    expect(html).not.toContain("See the FTC record");
+  });
+
+  it("never prints a resolved number's stored source on an unresolved one", () => {
+    // sourceUrl is gated on companyName in the payload; this holds the renderer
+    // to it too, so a future edit cannot leak one row's evidence onto a blank.
+    const leaky = { ...blank, sourceUrl: "https://www.ftc.gov/rn-database/search?search=56323" };
+    expect(renderRnBody(leaky)).not.toContain("search=56323");
   });
 
   it("sends the reader to the tag reader with the number prefilled", () => {

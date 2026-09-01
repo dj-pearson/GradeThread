@@ -1,6 +1,70 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ▶ OUTSTANDING RIGHT NOW — none
+## ▶ OUTSTANDING RIGHT NOW: 00708_registered_number_lookups.sql (US-9036 — count the RN lookups we could not answer)
+
+**Not yet applied.** Held per the standing rule: apply the SQL to prod, then OK
+the push.
+
+**Risk: low.** One NEW table, one NEW function, two new indexes and one trigger.
+Nothing existing is altered, dropped or backfilled. `registered_number_sightings`
+is deliberately untouched — see below for why this is a separate table rather
+than a column on that one.
+
+**⚠ Needs `NOTIFY pgrst, 'reload schema';`** — a new table and a new RPC, so
+PostgREST will 404 on both until it is told.
+
+**Apply order: after 00501 and 00502**, both long since applied. Order against
+00700-00707 does not matter. It is the highest file, so
+`scripts/apply-prod-migrations.sh` picks it up on its own.
+
+**What it does.** Creates `public.registered_number_lookups`: one row per
+RN/CA number that somebody looked up and we could not answer, with a count, a
+`resolved` flag and first/last seen timestamps. Plus
+`record_registered_number_lookup(text, text, text)`, an increment-or-insert RPC
+in one statement so two concurrent lookups cannot lose a count. Deny-all RLS
+with zero policies, matching `registered_number_sightings`; registered in
+`SERVICE_ROLE_ONLY` in `rls-guard_test.ts`.
+
+**No REVOKE, and NOT `SECURITY DEFINER` (US-2403).** 00501's RPC is both, and
+copying that pair here would have been a database-restart bug: on this Postgres
+image supautils decorates a permission-denied error with a GRANT hint, and
+building it segfaults the backend on a FUNCTION denial, taking every other
+session with it. `anon` is the key in the browser bundle. Authorization comes
+from the table instead — the function is `SECURITY INVOKER`, service_role
+bypasses the deny-all RLS and writes, anon hits an ordinary row-level refusal on
+the INSERT. Caught by `us2403-function-revoke-gate.test.ts`, whose allowlist is
+shrink-only and which this file is deliberately NOT added to.
+
+**Why not a column on `registered_number_sightings`.** A sighting means our OCR
+read the number off a real garment tag, and `/rn/:number` prints that count as
+the one line a mirror site cannot print. A typed lookup is demand, not evidence,
+and folding them together would inflate the number the page's credibility rests
+on. `00501`'s own `CHECK (sighting_count > 0)` also makes a lookup-only row
+impossible to represent there honestly.
+
+**Does client code read it before the apply?** NO, and this is the part to be
+sure of. Nothing in the SPA touches it. The only caller is the edge service, in
+`GET /api/content/public/registered-numbers/:number`, and that call is
+**fire-and-forget after the payload is built**: the RPC result is checked, a
+failure is logged with `console.warn` and the reader still gets their answer. So
+if the frontend auto-deploys before the SQL lands, the RN pages keep working and
+the edge logs a warning per miss until the apply. The `EXPECTED_SCHEMA_VERSION`
+bump to `00708` means the edge boot guard will refuse to start on an unapplied
+database, which is the real ordering constraint: apply first, then redeploy the
+edge.
+
+**Verify after applying:**
+
+```sql
+select count(*) from public.registered_number_lookups;                 -- 0
+select proname from pg_proc where proname = 'record_registered_number_lookup';
+```
+Then the edge boot log should print
+`[schema-version] OK — DB at 00708 matches expected 00708`.
+
+---
+
+## ✅ Previously held
 
 00706 and 00707 were held here while already applied to prod, so the gate
 blocked every push for something that was done. Both are recorded below with the

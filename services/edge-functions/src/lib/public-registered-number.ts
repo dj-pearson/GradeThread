@@ -58,8 +58,14 @@ export interface PublicRegisteredNumber {
   brands: string[];
   /** Product lines as the FTC records them. Display only. */
   productLines: string[];
-  /** The FTC record this came from, so a reader can check us. */
+  /** The FTC record this came from, so a reader can check us. Null until a
+   *  company is resolved, because provenance is for a claim we made. */
   sourceUrl: string | null;
+  /** Where a reader can run the search themselves. ALWAYS set, including on a
+   *  number we cannot answer, which is the case where it does the most work.
+   *  Distinct from sourceUrl on purpose: one says "here is our evidence", the
+   *  other says "we have not looked, and here is where to". */
+  searchUrl: string;
   /** How many real garment tags we have read this number off. Null when we
    *  have never seen it, which is different from having seen it zero times. */
   sightings: number | null;
@@ -121,12 +127,30 @@ export function publicRegisteredNumber(args: {
     brands: companyName ? (brandNames ?? []).filter(Boolean) : [],
     productLines: companyName ? productLinesFromNotes(registry?.notes) : [],
     sourceUrl: companyName ? (registry?.source_url ?? null) : null,
+    searchUrl: ftcSearchUrlFor(digits),
     sightings,
     // A number we cannot name has nothing a search result could usefully show,
     // and thousands of those is thin content that costs the whole domain rather
     // than just this section.
     indexable: companyName !== null,
   };
+}
+
+/**
+ * The signed-out FTC search for one number.
+ *
+ * Built rather than stored, which is the whole reason it can exist on an
+ * unresolved page: `source_url` is written by the seeder only when a search
+ * ACTUALLY matched, so a number nothing has answered has none and never will
+ * until the seeder reaches it. This URL needs no prior run — it is the query a
+ * reader would type, and it resolves either way.
+ *
+ * Mirrors ftcSearchUrl() in lib/ftc-rn-search.ts. Duplicated deliberately: that
+ * module is the seeder's, it carries the fetching, and this one is pure shaping
+ * that the Pages renderer's type mirrors. One string, two callers, no coupling.
+ */
+export function ftcSearchUrlFor(digits: string): string {
+  return `https://www.ftc.gov/rn-database/search?search=${encodeURIComponent(digits)}`;
 }
 
 function registryKeyFor(kind: "RN" | "CA", digits: string): string {

@@ -159,3 +159,38 @@ Deno.test("CA is the one deliberate asymmetry: it indexes, and is not sitemapped
   assertEquals(page.indexable, true);
   assertEquals(indexableNumbers([row]), []);
 });
+
+Deno.test("US-9036: searchUrl is set even when nothing answers the number", () => {
+  // The field exists FOR this case. sourceUrl is provenance for a claim and
+  // stays null; searchUrl is where a reader goes when we have no claim to make.
+  const page = publicRegisteredNumber({
+    requested: "999999",
+    registry: null,
+    sightings: null,
+  })!;
+  assertEquals(page.companyName, null);
+  assertEquals(page.sourceUrl, null);
+  assertEquals(page.searchUrl, "https://www.ftc.gov/rn-database/search?search=999999");
+});
+
+Deno.test("US-9036: searchUrl uses the canonical digits, not what was typed", () => {
+  // "RN 056323" and "56323" must not send two readers to two different FTC
+  // queries for the same garment tag.
+  const page = publicRegisteredNumber({
+    requested: "RN 056323",
+    registry: null,
+    sightings: null,
+  })!;
+  assertEquals(page.digits, "56323");
+  assertEquals(page.searchUrl, "https://www.ftc.gov/rn-database/search?search=56323");
+});
+
+Deno.test("US-9036: a resolved number carries both, and they are different things", () => {
+  const page = publicRegisteredNumber({
+    requested: "56323",
+    registry: resolved,
+    sightings: null,
+  })!;
+  assertEquals(page.sourceUrl, resolved.source_url);
+  assertEquals(page.searchUrl, "https://www.ftc.gov/rn-database/search?search=56323");
+});

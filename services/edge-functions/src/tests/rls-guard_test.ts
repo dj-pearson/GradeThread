@@ -207,6 +207,12 @@ const SERVICE_ROLE_ONLY = new Set([
   // tag. Incremented by the edge service-role client, worked by admin routes.
   "registered_number_sightings",
   "registered_number_registry",
+  // US-9036 (00708): which numbers people ASKED for and we could not answer.
+  // Deliberately NOT a column on the sightings table — a sighting is a claim
+  // that OCR read the number off a real tag, and the page prints that count.
+  // Same aggregate shape: one row per registry number, no owner column and no
+  // request identity, so a row cannot say who looked a number up.
+  "registered_number_lookups",
   // US-2246 (00503): learned style-code → product titles. Brand + code + public
   // listing title/URL only; no owner, no seller/buyer identity, no prices.
   // Written during identification verify, read during extraction — both
