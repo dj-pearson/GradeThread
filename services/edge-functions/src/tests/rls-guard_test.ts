@@ -55,6 +55,13 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-9212: creator tax identities (the W-9 equivalent). Deny-all in both
+  // directions. Readable, it is a list of legal names, addresses and the last
+  // four digits of a taxpayer id; writable, a caller could certify a form for
+  // someone else and point the payout at their own Stripe account. The
+  // creator's own view goes through an authenticated edge route that returns a
+  // status and the last four digits, never the ciphertext.
+  "affiliate_tax_profiles",
   // US-9122: the connector's OAuth authorization server. All five are deny-all
   // in both directions. Readable, they are a map of which sellers connected
   // what and when, plus the material to impersonate them; writable, a caller

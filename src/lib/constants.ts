@@ -666,6 +666,36 @@ export function higherBuyerPlan(a: BuyerPlanKey, b: BuyerPlanKey): BuyerPlanKey 
 // code; PLAN_MATRIX exists so the pricing doc can reference a stable name.
 export const PLAN_MATRIX = FLIPDESK_PLANS;
 
+// ── Creator affiliate programme (US-9212) ───────────────────────────────────
+//
+// Decided 2026-09-01 (vault/60-decisions/adr-referral-cash-payout.md section
+// 6): reseller creators are paid CASH on the subscription revenue of the
+// accounts they refer. USER referral is unchanged and stays credits-only —
+// nothing here applies to it.
+//
+// These numbers are a CONTRACT with vault/50-business/pricing.md and the edge's
+// DEFAULT_AFFILIATE_PAYOUT_CONFIG (services/edge-functions/src/lib/
+// affiliate-payout-math.ts). src/test/creator-affiliate.test.ts parses all
+// three and fails when any of them drifts.
+export const CREATOR_AFFILIATE = {
+  /** Percent of the referred account's first-year subscription revenue. */
+  commissionPct: 25,
+  /** The band the founder set; an override outside it is clamped, not honoured. */
+  commissionMinPct: 20,
+  commissionMaxPct: 30,
+  /** Most one referred account can ever earn a creator, in USD. */
+  capUsd: 250,
+  /** How many months of that account's subscription revenue count. */
+  windowMonths: 12,
+  /**
+   * Days a commission is held before it may be paid. NOT a subscription refund
+   * window — pricing.md settled on 2026-08-02 that there is none. This is the
+   * 60-day BILLING-ERROR window from refund.tsx section 3, the only window a
+   * paid invoice can actually be reversed in.
+   */
+  holdDays: 60,
+} as const;
+
 // No FLIPDESK_UPGRADE_TRIGGERS here, and vault/50-business/pricing.md no longer
 // says there is. US-2436 deleted it: nothing had ever read it, while the soft
 // warn threshold really lives as SOFT_WARN_PCT in the edge's plan-gate.ts (which

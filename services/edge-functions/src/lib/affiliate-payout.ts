@@ -161,6 +161,27 @@ interface AffiliateAccount {
   payouts_enabled: boolean | null;
 }
 
+/**
+ * US-9212: is a certified tax profile on file for this creator?
+ *
+ * Fails CLOSED. A read error answers false, which queues the balance instead of
+ * paying it — the ADR's gate is "no cash without the form", and a database blip
+ * is not evidence the form exists.
+ */
+export async function hasCertifiedTaxProfile(userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("affiliate_tax_profiles")
+      .select("certified_at")
+      .eq("owner_user_id", userId)
+      .maybeSingle();
+    if (error) return false;
+    return Boolean((data as { certified_at?: string | null } | null)?.certified_at);
+  } catch {
+    return false;
+  }
+}
+
 async function loadAccount(
   affiliateUserId: string,
 ): Promise<AffiliateAccount | null> {
@@ -199,14 +220,19 @@ export async function processAffiliatePayout(
     account?.stripe_connect_account_id && account?.payouts_enabled && stripe,
   );
 
+  // US-9212 / ADR section 4.5: no cash moves without a certified tax profile.
   const plan = planPayout({
     eligibleBalanceCents: balance,
     minimum: config.minimum_payout,
     onboarded,
+    taxProfileComplete: await hasCertifiedTaxProfile(affiliateUserId),
   });
   if (plan.action === "skip") {
+    // A missing tax profile QUEUES rather than skips: the balance is real and
+    // keeps accruing, and the creator gets paid the moment the form is on file.
+    const queued = plan.reason === "not_onboarded" || plan.reason === "tax_profile_missing";
     return {
-      outcome: plan.reason === "not_onboarded" ? "queued" : "skipped",
+      outcome: queued ? "queued" : "skipped",
       affiliateUserId,
       reason: plan.reason,
     };
@@ -338,6 +364,16 @@ async function retryAffiliatePayout(
       affiliateUserId,
       payoutId,
       reason: "not_onboarded",
+    };
+  }
+  // US-9212: the same gate on the transfer path. A payout row created before
+  // the form was required must not fire now that it is.
+  if (!(await hasCertifiedTaxProfile(affiliateUserId))) {
+    return {
+      outcome: "queued",
+      affiliateUserId,
+      payoutId,
+      reason: "tax_profile_missing",
     };
   }
 

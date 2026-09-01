@@ -1,6 +1,6 @@
 // US-1295: affiliate payout pure math + accrual/payout decision logic. No env/DB
 // needed — affiliate-payout-math.ts is dependency-free by design.
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import {
   type AffiliatePayoutConfig,
   centsToDollars,
@@ -13,9 +13,17 @@ import {
   normalizeAffiliatePayoutConfig,
   planAccrual,
   planPayout,
+  clampCommissionPct,
+  commissionForSubscriptionInvoice,
+  isWithinCommissionWindow,
+  CREATOR_COMMISSION_MIN_PCT,
+  CREATOR_COMMISSION_MAX_PCT,
 } from "../lib/affiliate-payout-math.ts";
 
 const active: AffiliatePayoutConfig = {
+  // US-9212 added four creator-model fields; spread the default so this fixture
+  // stays about the mode it is testing rather than restating the whole config.
+  ...DEFAULT_AFFILIATE_PAYOUT_CONFIG,
   mode: "batched",
   commission_per_conversion: 5,
   minimum_payout: 25,
@@ -105,14 +113,14 @@ Deno.test("planAccrual: an already-accrued conversion is a no-op (idempotent)", 
 
 Deno.test("planPayout: an onboarded balance over the minimum pays out (cents)", () => {
   assertEquals(
-    planPayout({ eligibleBalanceCents: 3000, minimum: 25, onboarded: true }),
+    planPayout({ eligibleBalanceCents: 3000, minimum: 25, onboarded: true, taxProfileComplete: true }),
     { action: "pay", amount: 3000 }, // $30.00 balance, $25.00 minimum
   );
 });
 
 Deno.test("planPayout: a balance exactly at the minimum pays out (inclusive)", () => {
   assertEquals(
-    planPayout({ eligibleBalanceCents: 2500, minimum: 25, onboarded: true }),
+    planPayout({ eligibleBalanceCents: 2500, minimum: 25, onboarded: true, taxProfileComplete: true }),
     { action: "pay", amount: 2500 },
   );
 });
@@ -200,6 +208,7 @@ Deno.test("normalizeAffiliatePayoutConfig: coerces garbage to safe defaults", ()
       tax_threshold_usd: 600,
     }),
     {
+      ...DEFAULT_AFFILIATE_PAYOUT_CONFIG,
       mode: "off",
       commission_per_conversion: DEFAULT_AFFILIATE_PAYOUT_CONFIG.commission_per_conversion,
       minimum_payout: DEFAULT_AFFILIATE_PAYOUT_CONFIG.minimum_payout,
@@ -217,4 +226,81 @@ Deno.test("normalizeAffiliatePayoutConfig: a null/garbage blob yields defaults",
   for (const raw of [null, undefined, 42, "x"]) {
     assertEquals(normalizeAffiliatePayoutConfig(raw), DEFAULT_AFFILIATE_PAYOUT_CONFIG);
   }
+});
+
+// ── US-9212: the creator commission model and the tax gate ──────────────────
+
+Deno.test("US-9212: the default config carries the decided creator economics", () => {
+  const d = DEFAULT_AFFILIATE_PAYOUT_CONFIG;
+  assertEquals(d.mode, "off", "the programme still ships dark");
+  assertEquals(d.commission_model, "subscription_pct");
+  assertEquals(d.commission_pct, 25);
+  assertEquals(d.commission_cap_usd, 250);
+  assertEquals(d.commission_window_months, 12);
+  assert(
+    d.commission_pct >= CREATOR_COMMISSION_MIN_PCT && d.commission_pct <= CREATOR_COMMISSION_MAX_PCT,
+    "the default must sit inside the 20-30 band the founder set",
+  );
+});
+
+Deno.test("US-9212: a config override is clamped into the band, never honoured outside it", () => {
+  assertEquals(clampCommissionPct(30, 25), 30);
+  assertEquals(clampCommissionPct(300, 25), 30, "a typo must not pay 300%");
+  assertEquals(clampCommissionPct(0, 25), 20, "nor must it pay nothing");
+  assertEquals(clampCommissionPct("nonsense", 25), 25);
+  const cfg = normalizeAffiliatePayoutConfig({ commission_pct: 99, commission_model: "flat" });
+  assertEquals(cfg.commission_pct, 30);
+  assertEquals(cfg.commission_model, "flat", "the legacy flat model stays reachable");
+});
+
+Deno.test("US-9212: one invoice earns its percentage, rounded down, under the cap", () => {
+  // Pro at $59: 25% is $14.75.
+  assertEquals(
+    commissionForSubscriptionInvoice({ invoiceAmountCents: 5900, pct: 25, alreadyAccruedCents: 0, capUsd: 250 }),
+    1475,
+  );
+  // 25% of 333 is 83.25 -> 83, never 84.
+  assertEquals(
+    commissionForSubscriptionInvoice({ invoiceAmountCents: 333, pct: 25, alreadyAccruedCents: 0, capUsd: 250 }),
+    83,
+  );
+  assertEquals(
+    commissionForSubscriptionInvoice({ invoiceAmountCents: -5900, pct: 25, alreadyAccruedCents: 0, capUsd: 250 }),
+    0,
+    "a refund earns nothing",
+  );
+  // The cap truncates the invoice that crosses it, and pays nothing after.
+  assertEquals(
+    commissionForSubscriptionInvoice({ invoiceAmountCents: 9900, pct: 25, alreadyAccruedCents: 24_900, capUsd: 250 }),
+    100,
+  );
+  assertEquals(
+    commissionForSubscriptionInvoice({ invoiceAmountCents: 9900, pct: 25, alreadyAccruedCents: 25_000, capUsd: 250 }),
+    0,
+  );
+});
+
+Deno.test("US-9212: only the referred account's first year counts", () => {
+  const start = "2026-01-15T00:00:00Z";
+  assert(isWithinCommissionWindow(start, "2026-01-15T00:00:00Z", 12));
+  assert(isWithinCommissionWindow(start, "2026-12-31T23:59:59Z", 12));
+  assert(!isWithinCommissionWindow(start, "2027-01-15T00:00:00Z", 12), "month 13 earns nothing");
+  assert(!isWithinCommissionWindow(start, "2025-12-01T00:00:00Z", 12), "an invoice before the start is not ours");
+});
+
+Deno.test("US-9212: no cash without a certified tax profile, and the default is refusal", () => {
+  const base = { eligibleBalanceCents: 10_000, minimum: 25, onboarded: true };
+  assertEquals(planPayout({ ...base, taxProfileComplete: true }), { action: "pay", amount: 10_000 });
+  assertEquals(planPayout({ ...base, taxProfileComplete: false }), {
+    action: "skip",
+    reason: "tax_profile_missing",
+  });
+  // A caller that forgets the gate must not pay.
+  assertEquals(planPayout(base), { action: "skip", reason: "tax_profile_missing" });
+  // The earlier gates still win: nothing to pay, or not onboarded, come first.
+  assertEquals(planPayout({ ...base, eligibleBalanceCents: 0, taxProfileComplete: true }).action, "skip");
+  assertEquals(
+    planPayout({ ...base, onboarded: false, taxProfileComplete: true }),
+    { action: "skip", reason: "not_onboarded" },
+  );
 });

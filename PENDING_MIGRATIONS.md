@@ -37,6 +37,32 @@
 > confirmation. A boot failure naming the schema version means the row is missing
 > and needs inserting by hand.
 
+## 00718 — creator tax profiles (US-9212) — NOT YET APPLIED
+
+**Risk: low.** One new deny-all table, `affiliate_tax_profiles` (owner column
+`owner_user_id`, RLS enabled with NO policies, so only the service role reads
+it), one partial index, one `updated_at` trigger, and a `jsonb ||` merge that
+adds four creator-commission keys to the existing `affiliate_payout_config`
+default. Nothing is dropped and no existing value is replaced: a deployment
+that already edited `mode` or `minimum_payout` keeps what it set. Idempotent.
+**Apply order:** after 00717; the edge boot guard expects `00718`.
+
+**`NOTIFY pgrst, 'reload schema';`** required (a new table).
+
+**Frontend:** nothing reads the new table from the browser by design. The web
+change is `CREATOR_AFFILIATE` in `src/lib/constants.ts`, which is a constant,
+so the Cloudflare auto-deploy is safe on its own.
+
+**Behaviour change worth knowing:** with the edge redeployed, the affiliate
+payout engine will not send cash to any creator without a certified row in the
+new table, and it fails closed on a read error. The programme is still gated
+`off` in `affiliate_payout_config`, so nothing was paying today either way.
+
+**Verify after applying:** `select owner_user_id from affiliate_tax_profiles
+limit 1` answers through PostgREST as the service role and is refused to anon;
+`select default_value -> 'commission_pct' from system_settings where key =
+'affiliate_payout_config'` answers `25`.
+
 ## 00717 — scorecard return split (US-9208) — NOT YET APPLIED
 
 **Risk: low.** `create or replace` of `public.seller_scorecard(date)`, the
