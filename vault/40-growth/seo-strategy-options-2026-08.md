@@ -4,7 +4,7 @@ type: decision
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-18
+reviewed: 2026-09-01
 revisit_by: 2026-11-18
 tags: [seo, geo, strategy, growth, options]
 summary: Eight candidate paths for a new SEO strategy after the grading-first plan failed to produce traction, scored against the 2026-08-18 Keyword Planner pull, which cleared the damage-and-care and calculator paths and killed the returns spine.
@@ -294,6 +294,8 @@ is that it does not have a business model attached yet. Do not lead with it.
 ### Path 7: reposition the funnel around FlipDesk
 
 > [!success] Small volume, largest bids in the whole pull (54.90, 50.19, 39.17 dollars). Keep as the revenue leg.
+
+> [!note] Decided 2026-09-01: GradeThread stays the front door, cross-listing is the capture leg, no rename. See "Decision, 2026-09-01" under "Path 7 and the competitor question" below.
 
 **The bet.** This is not a content path, it is a positioning one, and it may
 be the real problem underneath all of the above. The site leads with grading.
@@ -624,6 +626,47 @@ Where the head terms do pay is bid economics. Ranking organically for
 inventory management software` (39.17 dollars) is worth that much per click in
 avoided spend, on volume too small for anyone to fight hard over. Build them
 once, well, and stop.
+
+### Decision, 2026-09-01: GradeThread is the front door, cross-listing is the capture leg
+
+Path 7 as written asked whether the homepage, nav and sitemap should lead with
+FlipDesk. Decided by Dj on 2026-09-01: **no rename. GradeThread stays the
+identity and the front door; the reseller workflow, cross-listing in
+particular, is the leg that captures search; grading is the differentiator
+inside the product and never the search front door.** The hero already reads
+this way ("Photograph it. We'll write the listing." under the GradeThread
+name), so what changes is what the site captures, not what it is called.
+
+Three readings from the 2026-09-01 Search Console export in `keyword/`
+(`Queries.csv`, 366 queries, 1,859 impressions, 8 clicks) shape the
+"rely heavily on cross-listing" half, and they narrow it:
+
+- **The cross-listing head terms are not the higher-searched leg.**
+  `cross listing software`, `cross listing app`, `best cross listing app` and
+  38 phrasings like them: 161 impressions, zero clicks, positions 42 to 64,
+  all landing on the listicle. `docs/seo/crosslisting-cluster-diagnosis.md`
+  explains why a vendor's own "best apps" page cannot rank there. Do not
+  chase them.
+- **The cross-listing task queries are.** 27 marketplace-pair queries
+  (`mercari to grailed`, `grailed to poshmark`, `whatnot to poshmark`,
+  `import mercari to grailed`): 225 impressions, zero clicks, positions 11 to
+  24, and every one lands on a blog post rather than a page that does the
+  thing. That is the family to build (US-9214 in `prd-crosslisting.json`):
+  one honest page per pair, mechanism stated from `MARKETPLACE_TIER`, the
+  extension install and `/flipdesk/crosslisting` as the answer. The
+  marketplace-versus-marketplace comparisons (15,000 a month, 88 percent of
+  this path, above) stay the volume leg beside it.
+- **Grading vocabulary confirms the split a fourth time.** 44 grading and
+  condition queries earned 486 impressions and one click in this export, and
+  the 2026-08-31 tool-noun pull (`docs/seo/keyword-pull-toolnouns-2026-08-31.md`)
+  returned zero for all five condition-tool terms. Grading sells as the thing
+  Vendoo cannot do, on every product page; it does not bring the visitor.
+
+What this changes in the build: the SaaS head-term pages keep the conversion
+job described above; the pair family and the extension install funnel
+(US-9210) become the reseller capture leg; the listicle is reframed or retired
+per the diagnosis. Nothing in the sequencing moves: Path 3 still goes first
+and Path 1 stays the authority engine.
 
 ### Another already-built page for the Search Console test
 

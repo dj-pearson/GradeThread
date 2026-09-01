@@ -1,24 +1,80 @@
 {
   "project": "GradeThread",
   "branchName": "claude/cross-listing-platform-analysis-8rbauz",
-  "description": "Cross-listing competitiveness backlog, held OUT of prd.json so the Ralph loop can never collide with it. Written 2026-09-01 from a code and vault audit answering three questions: what FlipDesk is missing against Vendoo, Crosslist, List Perfectly and Nifty; what makes the whole flow save a reseller hours; and what gets GradeThread seen. Revision from the chat answer that preceded it: the unified extension IS live on the Chrome Web Store and Firefox AMO at v1.0.9, so nothing here asks for it to be published; US-9210 assumes it is. IDS USE A RESERVED HIGH BLOCK (US-9201+) like prd-seo.json (9001+) and prd-connector.json (9101+); prd.json.nextId is never touched. Priorities are local to this file, ascending. Stories that already exist in prd.json are NOT duplicated here; the ones this programme leans on are listed in relatedOpenStories with the reason. On merge back, renumber into the live sequence and re-rank.",
-  "nextId": "US-9214",
+  "description": "Cross-listing competitiveness backlog, held OUT of prd.json so the Ralph loop can never collide with it. Written 2026-09-01 from a code and vault audit answering three questions: what FlipDesk is missing against Vendoo, Crosslist, List Perfectly and Nifty; what makes the whole flow save a reseller hours; and what gets GradeThread seen. Revision from the chat answer that preceded it: the unified extension IS live on the Chrome Web Store and Firefox AMO at v1.0.9, so nothing here asks for it to be published; US-9210 assumes it is. IDS USE A RESERVED HIGH BLOCK (US-9201+) like prd-seo.json (9001+) and prd-connector.json (9101+); prd.json.nextId is never touched. Priorities are local to this file, ascending. Stories that already exist in prd.json are NOT duplicated here; the ones this programme leans on are listed in relatedOpenStories with the reason. On merge back, renumber into the live sequence and re-rank. REVISION 2 (2026-09-01): Dj decided both open calls. US-9211 was rewritten after reading keyword/ (Search Console export of 2026-09-01 and the 2026-08-31 Planner pull): GradeThread stays the identity and front door, cross-listing is the search-capture leg, no rename. US-9214 added for the marketplace-pair pages that leg needs. US-9212 is a GO and its ACs are now the build.",
+  "nextId": "US-9215",
   "archive": "prd.archive.json",
   "relatedOpenStories": [
-    { "id": "US-2104", "file": "prd.json", "why": "Blog and social engine is built and cold: no cron, four unpublished drafts, webhooks NULL. Turning it on is a growth lever with no build." },
-    { "id": "US-2095", "file": "prd.json", "why": "Google Search Console and Bing verification never confirmed. Gate for every content story." },
-    { "id": "US-2619", "file": "prd.json", "why": "Link preview (OG) image endpoints return empty bodies, so every share lands without a picture." },
-    { "id": "US-9017", "file": "prd-seo.json", "why": "The 19-page click-rate rewrite. Site ranks (156 of 270 URLs top 10) and gets 0.85% clicks." },
-    { "id": "US-1949", "file": "prd.json", "why": "FlipDesk never shown publicly and a 'Join waitlist' CTA reads as vaporware. US-9211 depends on it." },
-    { "id": "US-2473", "file": "prd.json", "why": "Depop go-live: connector built, DEPOP_ENABLED off, waiting on platform approval. Table stakes for clothing." },
-    { "id": "US-2474", "file": "prd.json", "why": "Etsy go-live: same shape as Depop." },
-    { "id": "US-2479", "file": "prd.json", "why": "Vinted delist is unverified; list works." },
-    { "id": "US-2480", "file": "prd.json", "why": "Facebook Marketplace lister selectors unverified; the live form has no accessible names." },
-    { "id": "US-2472", "file": "prd.json", "why": "The marketplace-coverage epic these product stories extend. Its 'without copying Nifty' rule holds here." },
-    { "id": "US-1881", "file": "prd.json", "why": "Firefox is done at v1.0.9; the Edge Add-ons half is folded into US-9210." },
-    { "id": "US-1757", "file": "prd.json", "why": "STALE: AC1 (publish to Chrome and Firefox) is done as of v1.0.9. Close or rewrite; US-9210 carries the funnel half." },
-    { "id": "US-1691", "file": "prd.json", "why": "The twice-yearly data report. US-9208 feeds it the graded-vs-ungraded return number." },
-    { "id": "US-2894", "file": "prd.json", "why": "Play Store listing has no icon, graphics or screenshots." }
+    {
+      "id": "US-2104",
+      "file": "prd.json",
+      "why": "Blog and social engine is built and cold: no cron, four unpublished drafts, webhooks NULL. Turning it on is a growth lever with no build."
+    },
+    {
+      "id": "US-2095",
+      "file": "prd.json",
+      "why": "Google Search Console and Bing verification never confirmed. Gate for every content story."
+    },
+    {
+      "id": "US-2619",
+      "file": "prd.json",
+      "why": "Link preview (OG) image endpoints return empty bodies, so every share lands without a picture."
+    },
+    {
+      "id": "US-9017",
+      "file": "prd-seo.json",
+      "why": "The 19-page click-rate rewrite. Site ranks (156 of 270 URLs top 10) and gets 0.85% clicks."
+    },
+    {
+      "id": "US-1949",
+      "file": "prd.json",
+      "why": "FlipDesk never shown publicly and a 'Join waitlist' CTA reads as vaporware. US-9211 depends on it."
+    },
+    {
+      "id": "US-2473",
+      "file": "prd.json",
+      "why": "Depop go-live: connector built, DEPOP_ENABLED off, waiting on platform approval. Table stakes for clothing."
+    },
+    {
+      "id": "US-2474",
+      "file": "prd.json",
+      "why": "Etsy go-live: same shape as Depop."
+    },
+    {
+      "id": "US-2479",
+      "file": "prd.json",
+      "why": "Vinted delist is unverified; list works."
+    },
+    {
+      "id": "US-2480",
+      "file": "prd.json",
+      "why": "Facebook Marketplace lister selectors unverified; the live form has no accessible names."
+    },
+    {
+      "id": "US-2472",
+      "file": "prd.json",
+      "why": "The marketplace-coverage epic these product stories extend. Its 'without copying Nifty' rule holds here."
+    },
+    {
+      "id": "US-1881",
+      "file": "prd.json",
+      "why": "Firefox is done at v1.0.9; the Edge Add-ons half is folded into US-9210."
+    },
+    {
+      "id": "US-1757",
+      "file": "prd.json",
+      "why": "STALE: AC1 (publish to Chrome and Firefox) is done as of v1.0.9. Close or rewrite; US-9210 carries the funnel half."
+    },
+    {
+      "id": "US-1691",
+      "file": "prd.json",
+      "why": "The twice-yearly data report. US-9208 feeds it the graded-vs-ungraded return number."
+    },
+    {
+      "id": "US-2894",
+      "file": "prd.json",
+      "why": "Play Store listing has no icon, graphics or screenshots."
+    }
   ],
   "userStories": [
     {
@@ -181,31 +237,51 @@
     },
     {
       "id": "US-9211",
-      "title": "Finish the FlipDesk-first funnel: nav, footer, pricing order, previews",
-      "description": "As GradeThread, we want the site to lead with reseller workflow and present grading as the reason to pick us, because grading has near-zero search demand while reseller-tool terms carry the highest ad prices in the keyword pull (vault/40-growth/seo-strategy-options-2026-08.md, Path 7). The hero already leads with listing ('Photograph it. We'll write the listing.' in src/pages/landing.tsx); the rest of the site does not follow.",
+      "title": "GradeThread stays the front door; cross-listing becomes the search-capture leg",
+      "description": "As GradeThread, we keep the brand as the identity and the front door, point the reseller workflow (cross-listing first) at the search demand that exists, and present grading as the differentiator on every product page rather than as the reason to visit. Decided by Dj on 2026-09-01 after reading keyword/ (Search Console export and the 2026-08-31 Planner pull): grading vocabulary earns impressions and no clicks (44 queries, 486 impressions, 1 click), the cross-listing head terms are unwinnable for a vendor page (161 impressions, positions 42 to 64), and the cross-listing task queries rank 11 to 24 on blog posts (27 queries, 225 impressions, 0 clicks). The hero already reads this way; the rest of the site does not.",
       "acceptanceCriteria": [
-        "Audit and record in this story's notes what still leads with grading: primary nav, footer, /pricing card order, link-preview images (US-2619), sitemap priority, the /flipdesk landing's position in the nav.",
-        "Nav and footer lead with FlipDesk; grading is one link phrased as the reason to pick us, not the product.",
+        "The decision is recorded under Path 7 in vault/40-growth/seo-strategy-options-2026-08.md: the site is NOT renamed FlipDesk-first; GradeThread is the identity, reseller workflow is the capture leg, grading the in-product differentiator (done 2026-09-01 in the commit that rewrote this story).",
+        "Primary nav and footer: FlipDesk (cross-listing and one-flow listing) is one click from the home page under the GradeThread name; grading appears on /flipdesk/* pages and /pricing as the grade Vendoo cannot give, not as a top-level destination competing with the product.",
+        "Audit and record in this story's notes what still leads with grading (/pricing card order, link-preview images per US-2619, sitemap priority) before changing any of it; then change what the audit names.",
         "The waitlist gate is confirmed closed in prod (src/hooks/use-waitlist-gating.ts, US-1949) and the form removed when it is.",
-        "Dj's decision on Path 7 is recorded in the decision line of vault/40-growth/seo-strategy-options-2026-08.md with the reviewed date bumped."
+        "This story builds no pages. The capture leg is US-9214 (pair pages) plus US-9210 (install funnel)."
       ],
       "priority": 11,
       "passes": false,
-      "notes": "[2026-09-01][CROSSLISTING][GROWTH][DECISION] Recommendation: yes. A moat around a market with no traffic is not a moat; grading sells better as the thing Vendoo cannot do."
+      "notes": "[2026-09-01][CROSSLISTING][GROWTH] DECIDED by Dj 2026-09-01, with the narrowing above. Rewritten from 'lead the site with FlipDesk' after checking keyword/: the identity stays GradeThread, and the 'higher-searched' cross-listing terms worth chasing are the marketplace-pair task queries and the marketplace-vs-marketplace comparisons, not the 'cross listing software' head terms."
     },
     {
-      "id": "US-9212",
-      "title": "[DECISION] Creator affiliate programme with cash payouts",
-      "description": "As GradeThread growth, we want reseller YouTube and TikTok creators promoting FlipDesk, because that is how Vendoo and List Perfectly grew. Our referral programme pays grade credits only, and vault/60-decisions/adr-referral-cash-payout.md says cash is a NO-GO until three conditions hold. Creators do not promote for credits. This story is the decision, then the build that follows it.",
+      "id": "US-9214",
+      "title": "Cross-listing pair pages: one honest page per marketplace pair, pointing at the extension",
+      "description": "As a reseller searching 'mercari to grailed' or 'import grailed to mercari', I want a page that says how to move a listing between those two marketplaces and offers the tool that does it, so that I stop landing on a blog post. Search Console (keyword/Queries.csv, 2026-09-01 export): 27 marketplace-pair queries, 225 impressions, zero clicks, positions 11 to 24, every one landing on a blog post. The commercial head terms (cross listing software, best cross listing app: 161 impressions, positions 42 to 64) are the wrong target per docs/seo/crosslisting-cluster-diagnosis.md; the pairs are the winnable half of the cross-listing leg Dj chose on 2026-09-01.",
       "acceptanceCriteria": [
-        "Dj decides. The ADR's three conditions (a cohort asking for cash, referrals as a measured channel, ops capacity for KYC and 1099) are checked against today's numbers and the ADR is revised either way, with the reviewed date bumped.",
-        "If GO: a creator programme separate from user referral (credits stay for users). Stripe Connect Express payouts so Stripe carries tax forms; 20 to 30 percent of first-year subscription revenue paid monthly after the refund window, capped per referred account; a /partners landing page registered in public-routes.ts; links reuse src/lib/affiliate.ts 30-day last-touch; a creator dashboard with clicks, signups, paid, owed.",
-        "If NO-GO: a non-cash creator kit (12 months of Business free, co-marketing, early features) using the same links and dashboard, so the channel is still measured.",
-        "Either way, the first ten creators are sourced from the reseller YouTube and TikTok list and the outreach is logged."
+        "A route family /reselling/crosslist/{from}-to-{to} over ordered pairs of eBay, Poshmark, Mercari, Grailed, Vinted, Depop and Whatnot, built only for pairs with an impression in the export or a live mechanism (never all 42); registered in src/lib/seo/public-routes.ts AND src/prerender/entry-server.tsx (the CI guard fails otherwise), with its own sitemap segment.",
+        "Each page states the mechanism honestly from MARKETPLACE_TIER and MARKETPLACE_EXTENSION_FLOW in src/lib/constants.ts (API, extension, list manually, coming soon) and never claims a channel the constants do not; src/lib/__tests__/marketplace-mechanism.test.ts covers the copy.",
+        "Each page answers the task in prose first (what transfers, what the destination requires, photo and size differences), then offers the extension install (US-9210) and /flipdesk/crosslisting; the graded listing is shown as the thing that travels with the item.",
+        "The listicle /reselling/best-crosslisting-apps is reframed or retired per the diagnosis, and the pair pages plus /flipdesk/crosslisting take its internal links.",
+        "Keyword-target rows in src/lib/seo/keyword-targets.ts for the ten pair queries with the most impressions, under the existing CI drift test; a `^/reselling/crosslist/` row added to the cluster table in vault/40-growth/seo-distribution-and-measurement.md in the same commit.",
+        "Measured at 90 days: clicks on the pair queries above zero and the position of the top ten pairs. If the family earns nothing, say so in this story's notes rather than adding pairs."
       ],
       "priority": 12,
       "passes": false,
-      "notes": "[2026-09-01][CROSSLISTING][GROWTH][DECISION] Recommendation: GO, capped, because the channel is how the incumbents were built and credits have not produced creators."
+      "notes": "[2026-09-01][CROSSLISTING][GROWTH] The 'rely heavily on cross-listing for the higher-searched terms' half of Dj's 2026-09-01 decision, narrowed to the queries that can actually be won. Blog posts currently catching these: mercari-vs-poshmark-crosslisting-when-to-list-same-item-on-both and multi-platform-crosslisting-without-overselling."
+    },
+    {
+      "id": "US-9212",
+      "title": "Creator affiliate programme with cash payouts (GO, decided 2026-09-01)",
+      "description": "As GradeThread growth, we want reseller YouTube and TikTok creators promoting FlipDesk for a cash commission, because that is how Vendoo and List Perfectly grew and creators do not promote for grade credits. Dj decided GO on 2026-09-01; vault/60-decisions/adr-referral-cash-payout.md section 6 records it. User referral stays credits-only. The build mirrors the consignor Stripe Connect pattern the ADR's section 4 already lays out.",
+      "acceptanceCriteria": [
+        "The ADR vault/60-decisions/adr-referral-cash-payout.md records the GO for creators and credits-only for users, with a 2027-03-01 revisit (done 2026-09-01 in the commit that rewrote this story).",
+        "A creator programme separate from user referral: creators get cash, users keep grade credits; it has its own terms and a separate consent.",
+        "Payout rails mirror the consignor pattern (US-1112) per ADR section 4: Stripe Connect Express onboarding, an affiliate_payouts ledger registered in rls-guard SERVICE_ROLE_ONLY with an owner_user_id column, a pure split-math lib with unit tests, a batched sweep cron, and a system_settings.affiliate_payout_mode gate that ships off.",
+        "Commission: 20 to 30 percent of first-year subscription revenue, paid monthly after the refund window, capped per referred account; the numbers live in vault/50-business/pricing.md and src/lib/constants.ts in the same commit.",
+        "No cash moves before W-9 capture and 1099 threshold tracking exist, and no copy advertises cash before that (ADR sections 4.5 and 4.6).",
+        "A /partners landing page registered in src/lib/seo/public-routes.ts and src/prerender/entry-server.tsx; links reuse src/lib/affiliate.ts 30-day last-touch; a creator dashboard shows clicks, signups, paid and owed.",
+        "The first ten creators are sourced from the reseller YouTube and TikTok list, the outreach is logged, and the channel is measured in the referral funnel."
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][GROWTH] DECIDED GO by Dj 2026-09-01; ADR revised the same day. Recommendation was GO, capped, because the channel is how the incumbents were built and credits have not produced creators."
     },
     {
       "id": "US-9213",
@@ -217,7 +293,7 @@
         "Two reseller podcasts or newsletters pitched with the data report (US-1691) as the hook.",
         "Measured monthly: referring domains in Search Console, and one run of the 25-prompt AI citation panel in that note."
       ],
-      "priority": 13,
+      "priority": 14,
       "passes": false,
       "notes": "[2026-09-01][CROSSLISTING][GROWTH][OPERATOR] Needs a human with accounts; no code."
     }
