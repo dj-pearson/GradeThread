@@ -321,6 +321,7 @@ import {
   reconcilePublishAspects,
   type ReconcileSpec,
 } from "../lib/aspect-reconcile.ts";
+import { healCustomValueRejection } from "../lib/ebay-size-enforcement.ts";
 import {
   buildConsentUrl,
   createInventoryLocation,
@@ -9070,6 +9071,12 @@ async function reviseOneListing(
       // US-1079: persist the failure on the listing (publish_error/
       // publish_failed_at) so the UI can surface it + offer a retry on reload.
       await persistReviseFailure(listingId, reported);
+      const healedDetail = (await healCustomValueRejection({
+        err,
+        categoryId: reviseCategoryId,
+        itemId,
+        listingId,
+      }))?.message;
       // 422 (not 502): an eBay business-rule rejection is a data problem, not a
       // gateway failure. A 5xx gets intercepted by the Traefik/Coolify error page
       // (which strips CORS headers — see main.ts), so the browser sees a bare
@@ -9080,7 +9087,7 @@ async function reviseOneListing(
           // US-1511: mapped/human detail only (mirrors the publish path's
           // US-567 contract) — the raw eBay blob stays in the log above.
           detail:
-            ebayFailureDetail(err, EBAY_PUBLISH_GENERIC_FIX) +
+            (healedDetail ?? ebayFailureDetail(err, EBAY_PUBLISH_GENERIC_FIX)) +
             (categoryBridgeError
               ? " This listing's eBay category could not be changed first" +
                 ` (${categoryBridgeError}), so eBay checked your item specifics` +
@@ -9125,13 +9132,19 @@ async function reviseOneListing(
       // US-1079: persist the failure on the listing (publish_error/
       // publish_failed_at) so the UI can surface it + offer a retry on reload.
       await persistReviseFailure(listingId, err);
+      const healedOfferDetail = (await healCustomValueRejection({
+        err,
+        categoryId: reviseCategoryId,
+        itemId,
+        listingId,
+      }))?.message;
       // 422 (not 502): see the inventory_item branch above — an eBay rejection is
       // a data problem; a 5xx loses its CORS headers to the proxy error page.
       return jsonResult(
         {
           error: "eBay rejected the offer revision.",
           // US-1511: mapped/human detail only — raw blob stays in the log above.
-          detail: ebayFailureDetail(err, EBAY_PUBLISH_GENERIC_FIX),
+          detail: healedOfferDetail ?? ebayFailureDetail(err, EBAY_PUBLISH_GENERIC_FIX),
         },
         422
       );
@@ -10514,7 +10527,17 @@ export async function publishItemForOwner(
     const ebayErrorIds = (err as { ebayErrorIds?: number[] }).ebayErrorIds;
     // Surface eBay's REAL reason (25002 is overloaded — "Inseam is missing" et al.)
     const fix = resolveEbayFix(err, EBAY_PUBLISH_GENERIC_FIX);
-    const userMessage = fix.message;
+    // eBay standardized sizes (2026-09): a custom-value rejection means our
+    // cached spec is stale. Refetch it, repair the stored specifics against
+    // the fresh list, and tell the seller what changed or what to pick.
+    const healed = await healCustomValueRejection({
+      err,
+      categoryId: ctx.summary.categoryId,
+      itemId,
+      listingId: listing?.id ?? null,
+    });
+    const userMessage = healed?.message ?? fix.message;
+    if (healed && !fix.field) fix.field = "specifics";
     // US-321: persist the failure on the draft listing so the queue/UI can
     // surface "last failed: X" on reload, and US-325 retry can target it. Store
     // the user-facing message (not the raw eBay blob).

@@ -932,3 +932,23 @@ export function normalizeAspectValue(
 
   return noMatch;
 }
+
+/**
+ * eBay standardized size enforcement (rollout by site from 2026-08-31, US on
+ * 2026-09-22): the size aspects take only eBay's own values whenever eBay
+ * ships a list, whatever aspectMode the cached Taxonomy payload reports. The
+ * name is the durable signal. Mirrors the edge's aspect-reconcile.ts.
+ */
+export function isSizeAspect(name: string | null | undefined): boolean {
+  return (name ?? "").toLowerCase().replace(/[^a-z0-9]/g, "").includes("size");
+}
+
+/** True when the picker and the prefill must treat the aspect as a closed list. */
+export function isClosedAspect(
+  name: string | null | undefined,
+  mode: string | null | undefined,
+  allowedCount: number,
+): boolean {
+  if (allowedCount <= 0) return false;
+  return mode === "SELECTION_ONLY" || isSizeAspect(name);
+}

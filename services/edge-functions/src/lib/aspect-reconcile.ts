@@ -93,15 +93,35 @@ function buildSpecIndex(specs: ReconcileSpec[]): Map<string, ReconcileSpec> {
   return idx;
 }
 
-// A SELECTION_ONLY aspect WITH a non-empty allowed list is the only case where
-// a value can be "invalid" — everything else (FREE_TEXT / SUGGESTED / a
-// SELECTION_ONLY aspect eBay returned no values for) accepts free text.
-function isClosedList(spec: ReconcileSpec): boolean {
+/**
+ * eBay's standardized size enforcement (developer notice, rollout by site from
+ * 2026-08-31 through 2026-10-20; US 2026-09-22): Apparel and Footwear listings
+ * must carry eBay's own values for the size aspects, and a custom value is
+ * rejected at publish with "The product aspects for this category no longer
+ * support custom values for Size Type." The Taxonomy payload we cache for a
+ * category can be up to a month old, so its aspectMode for Size / Size Type
+ * may still read SUGGESTED or FREE_TEXT after eBay closed the list. The name
+ * is the durable signal: any aspect whose name carries "size" is treated as a
+ * closed list whenever eBay shipped values for it, whatever the cached mode.
+ */
+export function isSizeAspect(name: string | null | undefined): boolean {
+  return looseName(name ?? "").includes("size");
+}
+
+function hasAllowedValues(spec: ReconcileSpec): boolean {
   return (
-    spec.mode === "SELECTION_ONLY" &&
     Array.isArray(spec.allowedValues) &&
     spec.allowedValues.filter((v) => v && v.trim().length > 0).length > 0
   );
+}
+
+// A SELECTION_ONLY aspect WITH a non-empty allowed list is where a value can be
+// "invalid" — everything else (FREE_TEXT / SUGGESTED / a SELECTION_ONLY aspect
+// eBay returned no values for) accepts free text. The one exception is the
+// size family above, which eBay now enforces regardless of the mode it reports.
+function isClosedList(spec: ReconcileSpec): boolean {
+  if (!hasAllowedValues(spec)) return false;
+  return spec.mode === "SELECTION_ONLY" || isSizeAspect(spec.name);
 }
 
 /** eBay parses this aspect's value as a number, not a string. */
@@ -338,9 +358,11 @@ export function reconcilePublishAspects(
     const kept: string[] = [];
     const drop: string[] = [];
     for (const v of values) {
+      // The list is closed here (mode, or the size family): the normalizer
+      // must refuse a miss rather than hand the raw value back.
       const norm = normalizeAspectValue(v, {
         name: spec.name,
-        mode: spec.mode,
+        mode: "SELECTION_ONLY",
         allowedValues: spec.allowedValues,
       });
       if (norm != null) {
