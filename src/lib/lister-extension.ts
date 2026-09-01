@@ -734,3 +734,47 @@ export function sendClosetImport(platform: "poshmark" | "mercari"): Promise<Clos
   return sendExtensionMessage<ClosetImportResponse>({ type: "GT_CLOSET_IMPORT", platform });
 }
 
+/**
+ * The sentence for a closet-import failure, from the reason code alone.
+ *
+ * The extension answers with its own sentence too, and the two agree on
+ * purpose; this copy exists so the page never prints a string that arrived over
+ * messaging (US-2869 AC4), and so an older extension build's wording cannot
+ * leak onto a newer page.
+ */
+export function closetImportFailureText(
+  reason: ClosetImportReason | null,
+  platform: "poshmark" | "mercari",
+): string {
+  const label = platform === "poshmark" ? "Poshmark" : "Mercari";
+  switch (reason) {
+    case "unsupported":
+      return "Closet import supports Poshmark and Mercari.";
+    case "seller_locked":
+      return "Closet import is part of a paid FlipDesk plan.";
+    case "needs_sign_in":
+      return "Sign in to GradeThread in the extension first, then press Import again.";
+    case "no_tab":
+      return `Open your own ${label} closet in another tab, then press Import again.`;
+    case "no_reader":
+      return `The ${label} tab has not finished loading. Give it a moment and press Import again.`;
+    case "human_check":
+      return `${label} is asking you to prove you are a person. Finish that in the tab, then press Import again.`;
+    case "not_signed_in":
+      return `You are signed out of ${label} in that tab. Sign in there, then press Import again.`;
+    case "not_own_closet":
+      return `That closet is not yours. Open your own ${label} closet, then press Import again.`;
+    case "not_own_listing":
+      return `That listing is not yours. Open your own ${label} closet, or one of your own listings, then press Import again.`;
+    case "wrong_page":
+      return `Open your own ${label} closet page (or one of your own listings) in that tab, then press Import again.`;
+    case "offline":
+      return "Couldn't reach GradeThread. Check your connection and press Import again.";
+    case "server":
+    case "failed":
+      return "Could not start the import. Try again in a moment.";
+    default:
+      return `Nothing on that page read as one of your ${label} listings. Scroll so your listings are on screen, then press Import again.`;
+  }
+}
+

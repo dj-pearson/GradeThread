@@ -6935,24 +6935,31 @@ Deno.test({
     );
 
     // The worker runs in the background; one row finishes well inside this.
-    let run: { status: string; inserted_count: number; updated_count: number } | null = null;
+    interface RunView {
+      status: string;
+      inserted_count: number;
+      updated_count: number;
+    }
+    let run: RunView | null = null;
     for (let i = 0; i < 40; i++) {
       const poll = await fetch(`${BASE}/api/flipdesk/import/runs/${started.run_id}`, {
         headers: authHeaders(B_JWT!),
       });
       assertEquals(poll.status, 200, "B cannot read B's own closet import run");
-      run = (await poll.json() as { run: typeof run }).run;
-      if (run && run.status !== "pending" && run.status !== "running") break;
+      const view = (await poll.json() as { run: RunView | null }).run;
+      run = view;
+      if (view && view.status !== "pending" && view.status !== "running") break;
       await new Promise((r) => setTimeout(r, 250));
     }
     assert(run, "no run row came back");
+    const done: RunView = run;
     assertEquals(
-      run!.updated_count,
+      done.updated_count,
       0,
       "B's closet import UPDATED an existing listing. The only listing with " +
         "that Poshmark id is A's, so the worker matched across tenants.",
     );
-    assertEquals(run!.inserted_count, 1, `expected B's own row to be inserted; run: ${JSON.stringify(run)}`);
+    assertEquals(done.inserted_count, 1, `expected B's own row to be inserted; run: ${JSON.stringify(done)}`);
 
     // Put B's catalog back so a re-run of the suite starts from the same place.
     await fetch(`${BASE}/api/flipdesk/import/runs/${started.run_id}/undo`, {

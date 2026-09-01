@@ -16,7 +16,7 @@ import {
   type ClosetImportPlatform,
 } from "@/lib/marketplace-disclosure";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
-import { sendClosetImport } from "@/lib/lister-extension";
+import { closetImportFailureText, sendClosetImport } from "@/lib/lister-extension";
 import { track } from "@/lib/analytics";
 
 // US-9201: pull a seller's existing Poshmark or Mercari closet into FlipDesk.
@@ -95,10 +95,12 @@ export function ClosetImportCard({ disabled, onStarted }: Props) {
         );
         return;
       }
-      toast.error(
-        res.error || result?.message || result?.error || "Could not read your closet.",
-        { duration: 10_000 },
-      );
+      // Our own sentence for the extension's reason code, never the wire text
+      // (US-2869 AC4). The extension carries the same sentences, but the web
+      // must not print whatever arrived.
+      toast.error(closetImportFailureText(res.reason ?? null, platform), {
+        duration: 10_000,
+      });
     } finally {
       setBusy(null);
     }

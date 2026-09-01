@@ -69,7 +69,9 @@ describe("closet import analytics", () => {
 
   it("the first-item event carries a duration, never the install timestamp", () => {
     const page = read("src/pages/flipdesk/import.tsx");
-    const block = page.slice(page.indexOf("function recordClosetCompletion"));
+    const at = page.indexOf("recordClosetCompletion = useCallback");
+    expect(at, "recordClosetCompletion is no longer where this test looks").toBeGreaterThan(-1);
+    const block = page.slice(at);
     expect(block).toMatch(/seconds_since_extension_install/);
     expect(block).not.toMatch(/installed_at:/);
     expect(block).not.toMatch(/installedAt:/);
