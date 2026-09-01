@@ -230,6 +230,36 @@ export function extensionWebStoreUrl(): string | null {
 }
 
 /**
+ * US-9210: the Firefox Add-ons listing, or null when not configured. Kept as
+ * its own variable rather than derived: AMO slugs are chosen at submission and
+ * have nothing to do with the Chrome id.
+ */
+export function extensionAmoUrl(): string | null {
+  const explicit = (import.meta.env.VITE_EXTENSION_AMO_URL as string | undefined)?.trim();
+  return explicit || null;
+}
+
+/** Firefox and its forks say so in the user agent; nothing else does. */
+export function isFirefoxUserAgent(ua: string | null | undefined): boolean {
+  return /\bFirefox\/\d|\bFxiOS\/|\bSeamonkey\//.test(ua ?? "");
+}
+
+/**
+ * The store this browser installs from: AMO on Firefox when a listing is
+ * configured, else the Chrome Web Store, else null (nothing to link to).
+ */
+export function extensionStoreUrlFor(ua: string | null | undefined): string | null {
+  if (isFirefoxUserAgent(ua)) return extensionAmoUrl() ?? extensionWebStoreUrl();
+  return extensionWebStoreUrl() ?? extensionAmoUrl();
+}
+
+/** Same, for the browser this code is running in. */
+export function extensionStoreUrl(): string | null {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : null;
+  return extensionStoreUrlFor(ua);
+}
+
+/**
  * WHY cross-listing is unavailable, when it is. (US-2720)
  *
  * `isListerAvailable()` collapses two very different situations into one

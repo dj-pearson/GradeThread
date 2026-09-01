@@ -1,3 +1,5 @@
+import { ExtensionInstallCta } from "@/components/marketing/extension-install-cta";
+import { BUYER_HOME_CTA } from "@/lib/seo/extension-cta-copy";
 import { useEffect } from "react";
 import { Link, Navigate } from "react-router";
 import { Bell, Gift, Leaf, Share2, ShieldCheck, Shirt } from "lucide-react";
@@ -130,6 +132,10 @@ export function BuyerHomePage() {
           they had an account, waiting to become an alert or a closet entry.
           Renders nothing when there's no parked claim. */}
       <ClaimedResultCard />
+
+      {/* US-9210: the buyer home is where a reader lands after a free read;
+          the extension is the next read, on the marketplace itself. */}
+      <ExtensionInstallCta path="/buyer" copy={BUYER_HOME_CTA} className="" />
 
       <TrustLevelCard />
 

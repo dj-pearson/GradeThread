@@ -95,6 +95,14 @@ export const ANALYTICS_EVENTS = {
   "review_approved":
     "Approve was pressed on the one-screen review. Properties `seconds_from_first_photo`, `channels_now`, `channels_queued`, `source`.",
 
+  // ── Extension install funnel (US-9210) ────────────────────────────────────
+  // The click on an install call to action on the site. The install itself is
+  // a store-side fact; the join to a signup rides the campaign tag on the
+  // extension's first-run page (vault/40-growth/extension-funnel-attribution.md).
+  // Properties `page` (the path the CTA was on) and `store` (chrome | firefox).
+  "extension_install_cta_click":
+    "An install call to action for the browser extension was pressed. Properties `page`, `store`.",
+
   // ── Marketplace comparison handoff (US-9018) ──────────────────────────────
   // The two migration sections on /compare/{a}-vs-{b} answer "how do I move my
   // listings from X to Y" — 13 queries and 202 impressions of intent that had

@@ -1,7 +1,13 @@
-# Store submission kit — GradeThread unified extension v0.10.0
+# Store submission kit — GradeThread unified extension v1.0.9
 
 Copy-paste source for the Chrome Web Store + Firefox AMO listings. Artifacts:
-`dist-ext/gradethread-v0.10.0-chrome.zip` · `dist-ext/gradethread-v0.10.0-firefox.zip`.
+`dist-ext/gradethread-v1.0.9-chrome.zip` · `dist-ext/gradethread-v1.0.9-firefox.zip`.
+
+> **Version record (US-9210, 2026-09-01).** The Chrome Web Store and Firefox AMO
+> serve v1.0.9 while this manifest read 0.10.0; the manifest now says 1.0.9 so
+> the repo and the stores agree. The next upload must be higher (1.0.10 or
+> 1.1.0): both stores refuse a version they already hold. The commit that
+> produced the shipped 1.0.9 build is not recorded here; tag it when known.
 
 ## Shared fields
 
@@ -242,7 +248,7 @@ event page (background.scripts); page↔extension messaging uses the gradethread
 content script gt-bridge.js (postMessage) in place of externally_connectable.
 ```
 
-## Version / release notes (v0.10.0)
+## Version / release notes (v1.0.9)
 
 ```
 Cross-listing fills more of the form, and tells you the truth about the rest.
