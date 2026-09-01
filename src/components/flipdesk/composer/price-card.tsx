@@ -34,6 +34,11 @@ export interface PriceCardProps {
   setPriceEstimated: (next: boolean) => void;
   priceCompSource: string | null;
   setPriceCompSource: (next: string | null) => void;
+  /** US-9205: the one line under a prefilled price: grade, comps used, days to sell. */
+  priceWhy?: string | null;
+  /** US-9205: the graded price on offer once a grade lands on a comp-median draft. */
+  gradedOffer?: { cents: number; why: string } | null;
+  onUseGradedPrice?: () => void;
   quantity: string;
   setQuantity: (next: string) => void;
   quantityInvalid: boolean;
@@ -93,6 +98,9 @@ export function PriceCard({
   setPriceEstimated,
   priceCompSource,
   setPriceCompSource,
+  priceWhy = null,
+  gradedOffer = null,
+  onUseGradedPrice,
   quantity,
   setQuantity,
   quantityInvalid,
@@ -254,6 +262,24 @@ export function PriceCard({
               />
             )}
           </div>
+          {/* US-9205: the graded price is the draft price. Say why in one line,
+              and when a grade lands after the draft was priced from the comp
+              median, OFFER the graded price; never move the number by itself. */}
+          {priceWhy && !gradedOffer && (
+            <p className="text-xs text-muted-foreground">{priceWhy}</p>
+          )}
+          {gradedOffer && !isEbayOrigin && (
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <button
+                type="button"
+                className="rounded-md border px-2 py-1 font-medium hover:bg-muted"
+                onClick={onUseGradedPrice}
+              >
+                Use graded price ${(gradedOffer.cents / 100).toFixed(2)}
+              </button>
+              <span className="text-muted-foreground">{gradedOffer.why}</span>
+            </div>
+          )}
           {/* US-2634: the price no longer waits for the Save button. Announced
               politely so a screen reader hears the save without losing the caret. */}
           {!isEbayOrigin && priceSaveState !== "idle" && (

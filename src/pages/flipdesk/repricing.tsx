@@ -224,6 +224,8 @@ function ruleSummary(r: RepriceRule): string {
   if (r.filter_brand) parts.push(r.filter_brand);
   if (r.min_age_days > 0) parts.push(`${r.min_age_days}d+ old`);
   if (r.floor_price_cents != null) parts.push(`floor ${money(r.floor_price_cents)}`);
+  // US-9205: say which rules may move a price the seller set by hand.
+  parts.push(r.override_manual ? "may move hand-set prices" : "skips hand-set prices");
   return parts.join(" · ");
 }
 
@@ -241,8 +243,11 @@ function CreateRuleDialog() {
   const [brand, setBrand] = useState("");
   const [minAge, setMinAge] = useState("0");
   const [floor, setFloor] = useState("");
+  // US-9205 AC4: off by default. A price the seller typed is theirs.
+  const [overrideManual, setOverrideManual] = useState(false);
 
   function reset() {
+    setOverrideManual(false);
     setName("");
     setDropPct("10");
     setIntervalDays("14");
@@ -272,6 +277,7 @@ function CreateRuleDialog() {
           ? Math.round(floorDollars * 100)
           : null,
       auto_accept_confidence: null,
+      override_manual: overrideManual,
     };
     create.mutate(input, {
       onSuccess: () => {
@@ -360,6 +366,19 @@ function CreateRuleDialog() {
               onChange={(e) => setBrand(e.target.value)}
               placeholder="All brands"
             />
+          </div>
+          <div className="flex items-start gap-2 text-sm">
+            <Checkbox
+              id="rule-override-manual"
+              checked={overrideManual}
+              onCheckedChange={(v) => setOverrideManual(v === true)}
+            />
+            <div>
+              <Label htmlFor="rule-override-manual">May move prices I set by hand</Label>
+              <p className="text-xs text-muted-foreground">
+                Off means the rule skips any listing whose price you typed over the graded price.
+              </p>
+            </div>
           </div>
         </div>
         <DialogFooter>

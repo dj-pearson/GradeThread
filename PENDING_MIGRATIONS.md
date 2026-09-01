@@ -37,6 +37,28 @@
 > confirmation. A boot failure naming the schema version means the row is missing
 > and needs inserting by hand.
 
+## 00716 — graded draft price (US-9205) — NOT YET APPLIED
+
+**Risk: low.** Three nullable columns on `listings` (`price_set_by` with a
+CHECK, `graded_price_cents`, `graded_price_why`), one defaulted boolean on
+`repricing_rules` (`override_manual`, default false) and one INSERT policy on
+`repricing_actions` limited to `reason = 'seller_override'`. No backfill,
+nothing dropped. Idempotent. **Apply order:** after 00715; the edge boot guard
+expects `00716`.
+
+**`NOTIFY pgrst, 'reload schema';` IS required** (new columns).
+
+**Frontend reads and writes these columns directly and auto-deploys on push.**
+The composer and the review screen write `price_set_by` on save; until the
+column exists that save fails with `42703`, so apply this BEFORE the push
+lands or the composer's Save draft breaks. The rules runner reads
+`override_manual` and `price_set_by` through the service role, so the edge
+must be redeployed after the apply.
+
+**Verify after applying:** `select price_set_by from listings limit 1` and
+`select override_manual from repricing_rules limit 1` both answer through
+PostgREST.
+
 ## 00715 — review flow columns (US-9204) — NOT YET APPLIED
 
 **Risk: low.** Three nullable columns, no backfill, nothing dropped:

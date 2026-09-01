@@ -1407,6 +1407,11 @@ export interface ListingRow {
   price_range_high_cents: number | null;
   price_confidence: number | null;
   price_comp_source: string | null;
+  // US-9205 (migration 00716): who set the current price, the graded price
+  // that was offered (kept through an override) and its one-line reason.
+  price_set_by: PriceSetBy | null;
+  graded_price_cents: number | null;
+  graded_price_why: string | null;
   // Per-field winning source for cross-source sync conflicts, e.g.
   // {"price": "flipdesk"} (US-148, migration 00133). A field pinned to a
   // non-eBay source is protected from the eBay pull's default overwrite.
@@ -3124,6 +3129,9 @@ export interface InventoryItemInsert {
   exclude_from_automations?: boolean;
 }
 
+/** US-9205: who set a listing's current price. */
+export type PriceSetBy = "graded" | "comp_median" | "seller" | "rule";
+
 export interface ListingInsert {
   inventory_item_id: string;
   // Optional: derived from inventory_item_id by the set_listings_tenant trigger
@@ -3173,6 +3181,9 @@ export interface ListingInsert {
   price_range_high_cents?: number | null;
   price_confidence?: number | null;
   price_comp_source?: string | null;
+  price_set_by?: PriceSetBy | null;
+  graded_price_cents?: number | null;
+  graded_price_why?: string | null;
   // US-1077: provenance marker. Omit to accept the DB default ('gradethread');
   // the eBay import/match path stamps 'ebay' explicitly.
   listing_origin?: ListingOrigin;

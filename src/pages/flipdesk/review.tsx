@@ -13,6 +13,7 @@ import {
   Zap,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import type { PriceSetBy } from "@/types/database";
 import { useAuthStore } from "@/stores/auth-store";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,14 @@ import { useShopifyConnection } from "@/hooks/use-shopify";
 import { useListingCopy } from "@/hooks/use-ai-extract";
 import { QUEUED_NOTICE, useEnqueueExtensionWork } from "@/hooks/use-extension-queue";
 import { recordReviewApprove, reviewMedianKey, useSetReviewFlow } from "@/hooks/use-review-flow";
+import {
+  dollarsToCents,
+  draftPriceFrom,
+  gradedUpdateOffer,
+  overrideAuditRow,
+  priceProvenanceFor,
+  type DraftPricePrefill,
+} from "@/lib/draft-price";
 
 // US-9204: one review card, one Approve.
 //
@@ -99,6 +108,8 @@ interface ReviewListingRow {
   listing_description: string | null;
   listing_price: number | string | null;
   listing_url: string | null;
+  price_set_by: PriceSetBy | null;
+  graded_price_why: string | null;
   created_at: string;
 }
 
@@ -132,7 +143,7 @@ function useReviewItem(itemId: string | undefined) {
         supabase
           .from("listings")
           .select(
-            "id, platform, listing_status, listing_title, listing_description, listing_price, listing_url, created_at",
+            "id, platform, listing_status, listing_title, listing_description, listing_price, listing_url, price_set_by, graded_price_why, created_at",
           )
           .eq("inventory_item_id", itemId as string)
           .order("created_at", { ascending: false }),
@@ -222,10 +233,30 @@ export function FlipdeskReviewPage() {
     size: item?.size ?? undefined,
     grade: item?.grade_value ?? null,
   });
-  const suggestedPrice =
-    suggestion.data?.recommendedCents != null
-      ? Math.round(suggestion.data.recommendedCents) / 100
-      : null;
+  // US-9205: the graded price is the draft price. An empty box is filled the
+  // moment the recommendation arrives, with the one-line why; a box that
+  // already holds a price (the composer wrote one) keeps it and gets the
+  // graded price as an offer instead.
+  const [pricePrefill, setPricePrefill] = useState<DraftPricePrefill | null>(null);
+  const gradedOffer = useMemo(
+    () =>
+      gradedUpdateOffer(
+        { listing_price: price, price_set_by: ebayDraft?.price_set_by ?? null },
+        suggestion.data ?? null,
+        item?.grade_value ?? null,
+      ),
+    [price, ebayDraft?.price_set_by, suggestion.data, item?.grade_value],
+  );
+  useEffect(() => {
+    if (!item || seededFor !== item.id || price.trim() !== "") return;
+    const prefill = draftPriceFrom(suggestion.data ?? null, item.grade_value ?? null);
+    if (!prefill) return;
+    setPrice(String(prefill.cents / 100));
+    setPricePrefill(prefill);
+  }, [item, seededFor, price, suggestion.data]);
+  const priceWhy = pricePrefill && dollarsToCents(price) === pricePrefill.cents
+    ? pricePrefill.why
+    : ebayDraft?.graded_price_why ?? null;
 
   const category = item?.ebay_category_id ?? item?.item_category ?? item?.garment_category ?? null;
   const blockers: ReviewBlocker[] = item
@@ -298,6 +329,9 @@ export function FlipdeskReviewPage() {
       //    still a draft, create one when there is none, leave a live one alone.
       let draftId = ebayDraft?.id ?? null;
       const draftLive = ebayDraft?.listing_status === "active";
+      // US-9205: who set this price, and the graded price kept beside an override.
+      const typedCents = dollarsToCents(price);
+      const provenance = priceProvenanceFor(typedCents, pricePrefill, gradedOffer);
       if (ebayDraft && !draftLive) {
         const { error } = await supabase
           .from("listings")
@@ -305,6 +339,7 @@ export function FlipdeskReviewPage() {
             listing_title: title.trim(),
             listing_description: description,
             listing_price: priceNum,
+            ...provenance,
             reviewed_at: new Date().toISOString(),
           } as never)
           .eq("id", ebayDraft.id);
@@ -320,6 +355,7 @@ export function FlipdeskReviewPage() {
             listing_title: title.trim(),
             listing_description: description,
             listing_price: priceNum,
+            ...provenance,
             listing_origin: "gradethread",
             reviewed_at: new Date().toISOString(),
           } as never)
@@ -327,6 +363,20 @@ export function FlipdeskReviewPage() {
           .single();
         if (error) throw error;
         draftId = (created as { id: string }).id;
+      }
+
+      // US-9205 AC3: an override is its own audit row (old = graded, new = seller's).
+      const audit = draftId
+        ? overrideAuditRow({
+            userId: user.id,
+            listingId: draftId,
+            inventoryItemId: item.id,
+            typedCents,
+            graded: pricePrefill?.basis === "graded" ? pricePrefill : gradedOffer,
+          })
+        : null;
+      if (audit) {
+        await supabase.from("repricing_actions").insert(audit as never);
       }
 
       // 3. API channels run now. eBay through its own push (it validates the
@@ -614,15 +664,26 @@ export function FlipdeskReviewPage() {
             <Label htmlFor="review-price">Price (USD)</Label>
             <div className="flex flex-wrap items-center gap-2">
               <Input id="review-price" type="number" inputMode="decimal" min={0} step={0.01} value={price} onChange={(e) => setPrice(e.target.value)} className="w-36" disabled={approving || !!outcome} />
-              {suggestedPrice != null && suggestedPrice > 0 ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => setPrice(String(suggestedPrice))} disabled={approving || !!outcome}>
-                  Use ${suggestedPrice.toFixed(2)}
-                  <span className="ml-1 text-muted-foreground">
-                    {suggestion.data?.soldBacked ? "from sold comps" : "from asks"}
-                  </span>
+              {gradedOffer ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setPrice(String(gradedOffer.cents / 100));
+                    setPricePrefill(gradedOffer);
+                  }}
+                  disabled={approving || !!outcome}
+                >
+                  Use graded price ${(gradedOffer.cents / 100).toFixed(2)}
                 </Button>
               ) : null}
             </div>
+            {gradedOffer ? (
+              <p className="text-xs text-muted-foreground">{gradedOffer.why}</p>
+            ) : priceWhy ? (
+              <p className="text-xs text-muted-foreground">{priceWhy}</p>
+            ) : null}
           </div>
         </CardContent>
       </Card>
