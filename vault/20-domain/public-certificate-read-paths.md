@@ -8,12 +8,14 @@ code_refs:
   - services/edge-functions/src/routes/content-public.ts
   - src/pages/certificate.tsx
   - src/test/public-grade-report-view-parity.test.ts
-reviewed: 2026-08-31
+reviewed: 2026-09-01
 tags: [certificates, public, schema, gotcha]
 summary: A public certificate is served by two independent projections — an edge column allowlist and a Postgres view — and adding a column to one has twice shipped as "done" while the other stayed silent.
 ---
 
 # Public certificate read paths
+
+> **Re-reviewed 2026-09-01.** Drift flagged `content-public.ts`, which gained the RN lookup-demand counter (US-9036) in its registered-numbers handler. Nothing to carry: that handler is unrelated to certificates and no read path described here changed. The flag is file-level on a large shared route module.
 
 > **Re-reviewed 2026-08-31.** Drift flagged `content-public.ts` for US-9030, the two new registered-number
 > endpoints. They are additive and read only the RN reference tables; no

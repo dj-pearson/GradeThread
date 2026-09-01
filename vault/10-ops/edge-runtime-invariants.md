@@ -7,7 +7,7 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-08-30
+reviewed: 2026-09-01
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
@@ -79,6 +79,11 @@ version at boot, with a **grace window** for exactly that race — the edge
 container may start moments before the migration step completes.
 
 The rule this creates for authors is already enforced by the `migrations` skill:
+> **Re-reviewed 2026-09-01.** Drift flagged `schema-version.ts` for
+> `EXPECTED_SCHEMA_VERSION` 00707 -> 00708 with migration 00708 (US-9036).
+> Nothing to carry: that is one more instance of the same-commit rule below
+> rather than a change to it, and this note quotes no current version.
+
 bump `EXPECTED_SCHEMA_VERSION` in the **same commit** as the migration. The
 grace window tolerates a race of seconds, not a missing bump.
 

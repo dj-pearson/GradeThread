@@ -48,7 +48,12 @@
 //   deno run --allow-net --allow-env scripts/seed-registered-numbers.ts --dry-run --limit 5
 //   deno run --allow-net --allow-env scripts/seed-registered-numbers.ts --apply
 //
-// --dry-run is the default. Nothing writes without --apply.
+// --dry-run is the default. Nothing writes without --apply. Note that a DRY RUN
+// still needs the database: it reads brand_knowledge and the sighting queue to
+// decide what it WOULD search. Required env:
+//
+//   SUPABASE_URL                e.g. https://api.gradethread.com
+//   SUPABASE_SERVICE_ROLE_KEY   (SUPABASE_SERVICE_KEY is accepted too)
 
 import { supabaseAdmin } from "../src/lib/supabase.ts";
 import {
@@ -204,6 +209,37 @@ async function resolveSighting(registryKey: string): Promise<void> {
   }
 }
 
+/**
+ * Say what we need, before a transitive import says it for us.
+ *
+ * US-2661 made lib/supabase.ts build its client on first USE rather than at
+ * import, so a script that never queries no longer dies on the import alone.
+ * This one DOES query — the very first thing main() does is read the registry —
+ * so without this check the failure surfaces from inside supabase.ts as
+ * "SUPABASE_URL is not set", with a stack through existingKeys() and no hint
+ * that a dry run needs a database at all. operator-scripts-start.test.mjs holds
+ * every script in this directory to naming its own requirements.
+ */
+function requireDatabaseEnv(): void {
+  const missing: string[] = [];
+  if (!Deno.env.get("SUPABASE_URL")) missing.push("SUPABASE_URL");
+  if (
+    !Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") &&
+    !Deno.env.get("SUPABASE_SERVICE_KEY")
+  ) {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY");
+  }
+  if (missing.length === 0) return;
+
+  console.error(
+    `[seed] Missing env: ${missing.join(", ")}.\n` +
+      "This script reads brand_knowledge and registered_number_sightings to " +
+      "decide what to search, so it needs the database even for --dry-run.\n" +
+      "  deno run --allow-net --allow-env scripts/seed-registered-numbers.ts --dry-run",
+  );
+  Deno.exit(1);
+}
+
 async function main(): Promise<void> {
   const args = new Set(Deno.args);
   const apply = args.has("--apply");
@@ -218,6 +254,8 @@ async function main(): Promise<void> {
       Deno.exit(2);
     }
   }
+
+  requireDatabaseEnv();
 
   const known = await existingKeys();
   const candidates = [...await brandCandidates(), ...await sightingCandidates(known)];

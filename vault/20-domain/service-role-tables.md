@@ -6,7 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-08-30
+reviewed: 2026-09-01
 tags: [security, rls, tenant-isolation, contract]
 summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration.
 ---
@@ -26,6 +26,14 @@ delete from anon, authenticated`, and zero policies.
 > This note is about TABLES. For `SECURITY DEFINER` functions the edge calls,
 > see [[admin-rpc-guards]] — `is_admin()` is always false for the service role,
 > so a bare `is_admin()` guard rejects every call the edge makes.
+
+> **Re-reviewed 2026-09-01.** Drift flagged `rls-guard_test.ts` for a new
+> operator table, `registered_number_lookups` (00708, US-9036): which RN/CA
+> numbers people looked up and we could not answer. It follows the rule as
+> written rather than bending it — aggregate counters, no owner column, no
+> `user_id` token anywhere in the `CREATE TABLE` block, RLS on with zero
+> policies, registered in `SERVICE_ROLE_ONLY`. Nothing in the rule or the
+> exemption list changed; the table is one more instance of the first case.
 
 > **Re-reviewed 2026-08-30.** Drift flagged `rls-guard_test.ts` again. The
 > change is one new entry, `qbo_oauth_states` (US-2997, migration 00704), and

@@ -2,6 +2,12 @@
 //
 //   deno test --allow-read src/tests/public-registered-number_test.ts
 
+// US-2379: public-registered-number.ts imports registered-numbers.ts, which
+// imports lib/supabase.ts, so this file cannot LOAD without the service
+// credentials. It passed only when some earlier test file had already set them,
+// which is a pass that depends on the run order — and the command in the header
+// above runs this file ALONE.
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import {
   indexableNumbers,

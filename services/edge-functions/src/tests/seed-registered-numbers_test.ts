@@ -9,6 +9,10 @@
 //
 //   deno test --allow-read src/tests/seed-registered-numbers_test.ts
 
+// US-2379: the seeder imports lib/supabase.ts for its reads, so this file
+// reaches that module through its static import graph and cannot load without
+// the credentials set first. sightingCandidatesFrom itself touches nothing.
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import { sightingCandidatesFrom } from "../../scripts/seed-registered-numbers.ts";
 

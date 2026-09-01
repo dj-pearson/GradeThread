@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/scripts/seed-registered-numbers.ts
   - functions/_shared/rn-render.ts
   - supabase/migrations/00708_registered_number_lookups.sql
-reviewed: 2026-08-31
+reviewed: 2026-09-01
 tags: [seo, rn, brands, contract]
 summary: The FTC public RN search needs no account (00466 says otherwise and is wrong), a number is indexable only once a company is resolved, and an RN may never be presented as proof of a brand or of authenticity.
 ---
@@ -244,6 +244,37 @@ is `SECURITY INVOKER`, the service-role client bypasses the deny-all RLS and
 writes, and anon hits an ordinary row-level refusal on the INSERT — a table
 denial, which takes the normal path every deny-all table here already uses.
 Worth reading before modelling anything else on 00501.
+
+## Three more, found only when CI finally ran the whole thing
+
+The branch merged 17 seconds after its PR opened, with 14 of 16 checks still in
+flight. Three lanes then went red on main, and all three are lanes that could
+not be run while the work was being done: the edge suite needs `deno.land`, and
+the scripts lane needs the operator scripts to actually start.
+
+**Two edge test files did not load `_env.ts` first (US-2379).**
+`public-registered-number_test.ts` reaches `lib/supabase.ts` through
+`registered-numbers.ts`, and `seed-registered-numbers_test.ts` reaches it
+through the seeder. That module throws at import without the service
+credentials, so both files passed only when some earlier file in the run had
+already set them. Ordering was load-bearing, and the command in each file's own
+header runs it ALONE. `import "./_env.ts";` goes first, before anything that can
+reach `lib/supabase.ts`.
+
+**The seeder died inside `lib/supabase.ts` instead of naming what it needs.**
+`operator-scripts-start.test.mjs` holds every script in that directory to
+starting without a database credential and saying which variable it wants in its
+own usage line. `main()` called `existingKeys()` immediately, so a run without
+env surfaced `SUPABASE_URL is not set` from a transitive import, with no hint
+that a run needs a database at all. It now checks up front and says so, and the
+usage block records the non-obvious part: **`--dry-run` still needs the
+database**, because it reads `brand_knowledge` and the sighting queue to decide
+what it would search.
+
+Neither was caused by the dead-end work; both date from the first RN commit and
+had simply never been run. The lesson is not "be more careful" — it is that a
+branch whose CI has never completed is unverified however many local suites
+pass.
 
 ## The tag reader, and the count it earns
 
