@@ -191,6 +191,7 @@ import { watchdogHeartbeatHandler } from "./routes/jobs-watchdog-heartbeat.ts";
 import { handlePassportIntegrityScanCron } from "./routes/jobs-passport-integrity-scan.ts";
 import { handlePassportBackfillCron } from "./routes/jobs-passport-backfill.ts";
 import { handleMeasurementTextBackfillCron } from "./routes/jobs-measurement-text-backfill.ts";
+import { handleMeasurementAggregateCron } from "./routes/jobs-measurement-aggregate.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
 import { handleExemplarAssemblyCron } from "./routes/jobs-exemplar-assembly.ts";
 import { handleConfidenceCalibrationCron } from "./routes/jobs-confidence-calibration.ts";
@@ -1775,6 +1776,8 @@ app.post(
   "/api/jobs/measurement-text-backfill",
   (c) => handleMeasurementTextBackfillCron(c),
 );
+// US-3036: nightly rollup into the numbers a public page may print.
+app.post("/api/jobs/measurement-aggregate", (c) => handleMeasurementAggregateCron(c));
 // US-905 scheduled audit-log anomaly scan (role-change bursts, mass refunds,
 // off-hours destructive actions). Thresholds in the settings registry; raises
 // an ops alert + admin_audit_anomalies finding. Enforces the job secret itself.

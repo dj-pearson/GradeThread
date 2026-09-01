@@ -1605,6 +1605,50 @@ Deno.test({
   },
 });
 
+// ── US-3036: the measurement aggregate reads every tenant's observations ────
+//
+// It rolls up garment_measurements across ALL tenants into the deny-all stats
+// table that public pages read, so it is the job that decides what the site
+// says about a garment. Reachable by a user JWT, any signed-in account could
+// force a republish at a moment of their choosing. The job secret is the only
+// boundary, and it is pinned in both directions.
+Deno.test({
+  name: "US-3036: measurement-aggregate rejects a user JWT (must use job secret)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/measurement-aggregate`, {
+      method: "POST",
+      headers: authHeaders(A_JWT!),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/measurement-aggregate with a user JWT should 401, got ${status}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "US-3036: measurement-aggregate rejects a bogus X-Internal-Job-Secret",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/measurement-aggregate`, {
+      method: "POST",
+      headers: {
+        "X-Internal-Job-Secret": "wrong-secret-value",
+        "Content-Type": "application/json",
+      },
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/measurement-aggregate with a bogus job secret should 401, got ${status}`,
+    );
+  },
+});
+
 // ── US-3035: the measurement text backfill sweeps every tenant's items ──────
 //
 // It reads inventory_items and listings across ALL tenants by design, resolving
