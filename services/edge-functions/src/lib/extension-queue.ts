@@ -39,7 +39,10 @@
 // names a listing the desktop opens; unlike delist it also carries which fields
 // changed, and the values are read off the listing row when the job is built
 // so a second edit before the drain never sends a stale number.
-export const EXTENSION_QUEUE_KINDS = ["list", "delist", "revise"] as const;
+// US-9203: `relist` copies a live extension-channel listing into a fresh one
+// and ends the old once the copy is live. Carries the old listing's URL and
+// the new draft row's id; the copy's values ride on the payload.
+export const EXTENSION_QUEUE_KINDS = ["list", "delist", "revise", "relist"] as const;
 export type ExtensionQueueKind = (typeof EXTENSION_QUEUE_KINDS)[number];
 
 /**

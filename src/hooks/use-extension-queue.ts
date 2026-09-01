@@ -26,7 +26,7 @@ export const QUEUED_NOTICE =
 // `share` was a third kind until US-2497. It is gone because nothing could run
 // it: an engagement pass needs a human at the browser to take the tab back when
 // Poshmark asks for a check, and a queue drained hours later has nobody there.
-export type ExtensionQueueKind = "list" | "delist";
+export type ExtensionQueueKind = "list" | "delist" | "revise" | "relist";
 
 export interface ExtensionQueueItem {
   id: string;

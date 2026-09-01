@@ -35,6 +35,7 @@
 // This module owns the IO and the reporting around them.
 
 import type { QueryClient } from "@tanstack/react-query";
+import type { BulkRelistResponse } from "@/hooks/use-relist-extension";
 import { toast } from "sonner";
 import { toastError, toastWarning } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
@@ -134,6 +135,8 @@ export interface ListingsActionDeps {
     BulkPriceResponse
   >;
   bulkEnd: MutationLike<{ listingIds: string[] }, BulkEndResponse>;
+  /** US-9203: relist a selection; eBay under its offer, extension rows queued. */
+  bulkRelist: MutationLike<{ listingIds: string[] }, BulkRelistResponse>;
   bulkRevise: MutationLike<
     { listingIds: string[]; onProgress?: (done: number, total: number) => void },
     BulkReviseResponse
@@ -518,6 +521,53 @@ export function makeListingsActions(d: ListingsActionDeps) {
         return;
       }
       toastError(e, "End failed.");
+    }
+  }
+
+  // US-9203: relist the selection. eBay rows are relisted under their offer at
+  // once; Poshmark/Mercari rows get a copy row and a job for the desktop
+  // extension, and are NOT relisted until the copy goes live, which the toast
+  // says. Pro-gated server-side under the autoRelist plan flag (a 402 opens
+  // the upgrade dialog through edgeFetch).
+  async function bulkRelist() {
+    if (selected.size === 0) return;
+    const listingIds = Array.from(selected)
+      .map((id) => items.find((i) => i.id === id)?.listing_id)
+      .filter((id): id is string => Boolean(id));
+    if (listingIds.length === 0) {
+      toast.error("None of the selected items have a listing to relist.");
+      return;
+    }
+    // A native confirm rather than the page's dialogs: relist is not undoable
+    // (a relisted eBay listing pays its insertion fee again), and the sentence
+    // has to be read before the request goes out.
+    const ok = window.confirm(
+      `Relist ${listingIds.length} listing${listingIds.length === 1 ? "" : "s"}?\n\n` +
+        "eBay listings are relisted now under their existing offer. Poshmark, Mercari and Vinted " +
+        "listings are copied by your desktop extension; the old copy is ended once the new one is live.",
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const res = await bulkRelist.mutateAsync({ listingIds });
+      setSelected(new Set());
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      const queuedNote = res.queued > 0
+        ? ` ${res.queued} wait for your desktop extension to copy them.`
+        : "";
+      if (res.failed === 0) {
+        toast.success(`Relisted ${res.succeeded - res.queued} on eBay.${queuedNote}`, { duration: 12_000 });
+      } else {
+        const first = res.results.find((r) => !r.ok);
+        toast.warning(
+          `Relisted ${res.succeeded - res.queued}, ${res.failed} refused${first?.error ? ` (${first.error})` : ""}.${queuedNote}`,
+          { duration: 14_000 },
+        );
+      }
+    } catch (err) {
+      toastError(err, "Bulk relist failed.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -1045,6 +1095,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
     updateItemNotes,
     endListing,
     bulkPriceDrop,
+    bulkRelist,
     bulkPublishToEbay,
     bulkDeleteItems,
     bulkEndListings,

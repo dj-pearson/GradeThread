@@ -37,6 +37,13 @@
 > confirmation. A boot failure naming the schema version means the row is missing
 > and needs inserting by hand.
 
+## 00714 — extension queue relist kind (US-9203) — NOT YET APPLIED
+
+**Risk: low.** The same `CHECK` on `extension_work_queue.kind` re-added with
+`relist`. Nothing else. Idempotent. **Apply order:** after 00713; the edge
+boot guard expects `00714`. No PostgREST reload needed. Nothing in the
+frontend reads the new kind directly.
+
 ## 00713 — extension queue revise kind (US-9202) — NOT YET APPLIED
 
 **Risk: low.** One `CHECK` constraint on `extension_work_queue.kind` is dropped

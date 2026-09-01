@@ -24,6 +24,14 @@ import {
 import { delistMethodFor } from "../lib/cross-listing-sale.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
 import {
+  createRelistDraft,
+  enqueueRelistWork,
+  isExtensionRelistPlatform,
+  loadRelistSource,
+  completeRelist,
+} from "../lib/extension-relist.ts";
+import { ebayPublisher } from "../lib/ebay-publish-port.ts";
+import {
   confirmRevise,
   isExtensionRevisePlatform,
   isRevisableField,
@@ -494,7 +502,7 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
   // duplicate listing for a platform that already has one.
   const { data: existingRow, error: existingErr } = await supabaseAdmin
     .from("listings")
-    .select("id, listing_status, listing_url, listed_at")
+    .select("id, listing_status, listing_url, listed_at, platform_fields")
     .eq("inventory_item_id", itemId)
     .eq("platform", platform)
     .order("created_at", { ascending: false })
@@ -506,8 +514,30 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
       listing_status: string | null;
       listing_url: string | null;
       listed_at: string | null;
+      platform_fields: Record<string, unknown> | null;
     }
     | null;
+
+  // US-9203: the latest row is a relist COPY and the seller just posted it.
+  // Completing the relist activates the copy, ends the old row and queues the
+  // old listing's removal; treating it as an ordinary writeback would leave
+  // two rows and the stale one live.
+  if (
+    published && listingUrl && existing &&
+    typeof existing.platform_fields?.relist_of === "string"
+  ) {
+    const done = await completeRelist(ownerId, existing.id, listingUrl);
+    if (!done.ok) return c.json({ error: done.error }, done.status);
+    return c.json({
+      ok: true,
+      listing_id: existing.id,
+      platform,
+      created: false,
+      published: true,
+      relisted_from: done.old_listing_id,
+      old_delist_queued: done.old_delist_queued,
+    });
+  }
   if (existingErr) {
     return failSafe(
       c,
@@ -819,6 +849,122 @@ flipdeskListingsRoutes.post("/revise-confirm", async (c) => {
   });
   if (!res.ok) return c.json({ error: res.error }, res.status);
   return c.json({ ok: true, listing_id: listingId, cleared: res.cleared, attempts: res.attempts });
+});
+
+// ── US-9203: relist on the extension channels ──────────────────────────────
+//
+// eBay relists under its existing offer (flipdesk-ebay.ts /listings/:id/relist).
+// Poshmark and Mercari relist by the seller's browser copying the live listing
+// into a fresh one; the server's half is lib/extension-relist.ts: a NEW row
+// for the copy now, the old row ended (and its marketplace removal queued)
+// only once the copy is live, so sold-sync never matches the stale listing.
+
+// POST /:id/relist-extension — the Relist button on an extension row. Creates
+// the copy's row and returns the job the page hands to the extension; a page
+// without the extension queues the same payload for the desktop instead.
+flipdeskListingsRoutes.post("/:id/relist-extension", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("id");
+  if (!listingId) return c.json({ error: "listing id is required." }, 400);
+  const old = await loadRelistSource(ownerId, listingId);
+  if (!old) return c.json({ error: "Listing not found." }, 404);
+  if (!isExtensionRelistPlatform(old.platform)) {
+    return c.json({ error: `${platformName(old.platform)} relists through its own connection, not the extension.` }, 409);
+  }
+  const capGate = await requireFlipdesk(c, {
+    capacity: { kind: "activeListings", delta: old.listing_status === "active" ? 0 : 1 },
+    userId: ownerId,
+  });
+  if (capGate) return capGate;
+  const draft = await createRelistDraft(ownerId, old, "button");
+  if (!draft.ok) return c.json({ error: draft.error }, draft.status);
+  let queueId: string | null = null;
+  if (c.req.query("queue") === "1") {
+    const q = await enqueueRelistWork(ownerId, draft.payload, "web");
+    if (!q.ok) return c.json({ error: q.error }, 500);
+    queueId = q.queue_id;
+  }
+  return c.json({ ok: true, new_listing_id: draft.newListingId, payload: draft.payload, queue_id: queueId });
+});
+
+// POST /bulk-relist — a SELECTION, each on its own marketplace. Pro-gated
+// under the autoRelist plan flag (the first server code path behind it). eBay
+// rows go through the eBay publisher's relist; extension rows get a copy row
+// and a queued job for the desktop. Per-row results, chunked by the caller
+// like bulk-price (MAX_BULK_EDIT_ITEMS here).
+flipdeskListingsRoutes.post("/bulk-relist", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const gate = await requireFlipdesk(c, { feature: "autoRelist", userId: ownerId });
+  if (gate) return gate;
+
+  let body: { listing_ids?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const ids = Array.isArray(body.listing_ids)
+    ? [...new Set(body.listing_ids.filter((x): x is string => typeof x === "string"))]
+    : [];
+  if (ids.length === 0) return c.json({ error: "listing_ids is required." }, 400);
+  if (ids.length > MAX_BULK_EDIT_ITEMS) {
+    return c.json({ error: `Too many listings (max ${MAX_BULK_EDIT_ITEMS}).` }, 400);
+  }
+
+  interface RowResult {
+    listing_id: string;
+    ok: boolean;
+    /** eBay relisted under its offer; extension rows are queued for the desktop. */
+    mode?: "ebay" | "queued";
+    new_listing_id?: string;
+    error?: string;
+  }
+  const results: RowResult[] = [];
+  for (const id of ids) {
+    const old = await loadRelistSource(ownerId, id);
+    if (!old) {
+      results.push({ listing_id: id, ok: false, error: "Listing not found." });
+      continue;
+    }
+    if (old.platform === "ebay") {
+      const publisher = ebayPublisher();
+      if (!publisher) {
+        results.push({ listing_id: id, ok: false, error: "eBay is not configured on this server." });
+        continue;
+      }
+      const out = await publisher.relist(ownerId, id, 1);
+      results.push(
+        out.status >= 200 && out.status < 300
+          ? { listing_id: id, ok: true, mode: "ebay" }
+          : { listing_id: id, ok: false, error: String(out.body.error ?? "eBay refused the relist.") },
+      );
+      continue;
+    }
+    if (!isExtensionRelistPlatform(old.platform)) {
+      results.push({ listing_id: id, ok: false, error: `${platformName(old.platform)} cannot be relisted from here.` });
+      continue;
+    }
+    const draft = await createRelistDraft(ownerId, old, "bulk");
+    if (!draft.ok) {
+      results.push({ listing_id: id, ok: false, error: draft.error });
+      continue;
+    }
+    const q = await enqueueRelistWork(ownerId, draft.payload, "web");
+    results.push(
+      q.ok
+        ? { listing_id: id, ok: true, mode: "queued", new_listing_id: draft.newListingId }
+        : { listing_id: id, ok: false, error: q.error },
+    );
+  }
+  const succeeded = results.filter((r) => r.ok).length;
+  return c.json({
+    ok: true,
+    total: results.length,
+    succeeded,
+    failed: results.length - succeeded,
+    queued: results.filter((r) => r.mode === "queued").length,
+    results,
+  });
 });
 
 // Hard-delete an inventory item and everything that cascades from it (its

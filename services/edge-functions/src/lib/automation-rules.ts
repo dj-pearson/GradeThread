@@ -606,6 +606,11 @@ export interface ViewWindow {
 /** Everything a rule can look at for one active listing. */
 export interface AutomationFacts {
   ageDays: number;
+  /**
+   * US-9203: false on an extension-channel row, which has no performance
+   * sync; `no_views_in_days` must not fire on "no evidence". Absent = known.
+   */
+  viewsKnown?: boolean;
   /** Cumulative lifetime views (listings.views). Only the fallback path. */
   views: number;
   /**
@@ -722,6 +727,10 @@ export function triggerMatches(
     case "days_listed_gt":
       return f.ageDays > t.days;
     case "no_views_in_days":
+      // A row whose views are unknowable (no metrics sync on that channel) is
+      // not a row with no views; the rule cannot see its evidence, so it does
+      // not act (US-9203).
+      if (f.viewsKnown === false) return false;
       return f.ageDays > t.days && !hasViewsWithin(f, t.days);
     case "watchers_lt_after_days":
       return f.ageDays >= t.days && f.watchers < t.watchers;

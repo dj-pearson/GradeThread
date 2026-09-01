@@ -408,7 +408,7 @@ console.log("lister-jobs: all assertions passed");
     );
     assert.deepStrictEqual(
       Object.keys(J.RUNNABLE_QUEUE_KINDS).sort(),
-      ["delist", "list", "revise"],
+      ["delist", "list", "relist", "revise"],
       "adding a runnable kind here means teaching the drain to run it",
     );
   }

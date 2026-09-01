@@ -65,7 +65,13 @@
       platform: String(o.platform || ""),
       // US-9202: revise joins delist as a kind that targets a live listing.
       // Anything else is a list, as before.
-      kind: o.kind === "delist" ? "delist" : o.kind === "revise" ? "revise" : "list",
+      kind: o.kind === "delist"
+        ? "delist"
+        : o.kind === "revise"
+        ? "revise"
+        : o.kind === "relist"
+        ? "relist"
+        : "list",
       payload: o.payload || null,
       // US-9202: the listing whose pending-revise marker this job settles.
       // Ours, never the page's: set from the server's pending list or from a
@@ -220,6 +226,14 @@
             "Timed out updating the " + name +
             " listing. Check it there and edit it manually if the change didn't land.",
         }
+      : job.kind === "relist"
+      ? {
+          ok: false,
+          timedOut: true,
+          error:
+            "Timed out copying the " + name +
+            " listing. Copy it manually there if the form didn't open.",
+        }
       : {
           ok: false,
           timedOut: true,
@@ -243,6 +257,8 @@
           ? "listing was ended"
           : job.kind === "revise"
           ? "listing was updated"
+          : job.kind === "relist"
+          ? "listing was copied"
           : "form was filled") + ".",
     };
   }
@@ -303,6 +319,10 @@
       clientRef: typeof o.clientRef === "string" ? o.clientRef.slice(0, 64) : null,
       platform: String(o.platform || ""),
       itemId: typeof o.itemId === "string" ? o.itemId : null,
+      // US-9203: a relist watch confirms the copy against the NEW row the
+      // server created, and closes the queue row it came from, if any.
+      relistNewListingId: typeof o.relistNewListingId === "string" ? o.relistNewListingId : null,
+      queueId: typeof o.queueId === "string" ? o.queueId : null,
       createdAt: now,
       // 30 minutes: long enough for a seller to write a description and pick a
       // category, short enough that a tab reused for something else hours later
@@ -371,7 +391,7 @@
    * form and filled it. A seller who asked for their closet to be shared would
    * have got a duplicate listing. Unrunnable is reported now, per US-2165.
    */
-  var RUNNABLE_QUEUE_KINDS = { list: true, delist: true, revise: true };
+  var RUNNABLE_QUEUE_KINDS = { list: true, delist: true, revise: true, relist: true };
 
   /**
    * Decide which queued rows to start now.

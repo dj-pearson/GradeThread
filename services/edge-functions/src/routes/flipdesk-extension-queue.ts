@@ -7,6 +7,12 @@ import {
   queueReviseForListing,
   REVISABLE_FIELDS,
 } from "../lib/pending-revises.ts";
+import {
+  completeRelist,
+  createRelistDraft,
+  isExtensionRelistPlatform,
+  loadRelistSource,
+} from "../lib/extension-relist.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { resolveSellerEntitlement } from "../lib/buyer-entitlements.ts";
 import {
@@ -286,6 +292,21 @@ flipdeskExtensionQueueRoutes.post("/", async (c) => {
     await queueReviseForListing({ id: listingId, platform }, fields, "mobile");
   }
 
+  // US-9203: a relist from the phone. The copy's row is created now so the
+  // item shows it, and the payload carries the OLD listing's URL (the drain
+  // host-pins it) plus the new row's id for the watch to confirm against.
+  if (kind === "relist") {
+    if (!listingId) return c.json({ error: "A relist needs the listing_id to copy from." }, 400);
+    if (!isExtensionRelistPlatform(platform)) {
+      return c.json({ error: `${platform} does not relist through the extension.` }, 400);
+    }
+    const old = await loadRelistSource(ownerId, listingId);
+    if (!old || old.platform !== platform) return c.json({ error: "Listing not found." }, 404);
+    const draft = await createRelistDraft(ownerId, old, "mobile");
+    if (!draft.ok) return c.json({ error: draft.error }, draft.status);
+    payload.value = { ...payload.value, ...draft.payload };
+  }
+
   // US-2777: stamp the seller's country domain onto the job.
   //
   // HERE, not in the clients. Vinted is one app on 22 country domains, and
@@ -482,6 +503,21 @@ flipdeskExtensionQueueRoutes.post("/:id/complete", async (c) => {
   // row's own listing_id is used, owner-scoped through confirmRevise; nothing
   // in the result envelope chooses which listing is confirmed.
   const done = data as { id: string; status: string; kind: string; listing_id: string | null };
+  // US-9203: a drained relist whose copy went live. The new row's id is on the
+  // queue row's own payload (server-built), never on the result envelope.
+  if (done.kind === "relist" && ok) {
+    const { data: rowData } = await supabaseAdmin
+      .from("extension_work_queue")
+      .select("payload")
+      .eq("id", done.id)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    const newId = (rowData as { payload?: { newListingId?: unknown } } | null)?.payload?.newListingId;
+    const r = result.value as { listingUrl?: unknown };
+    if (typeof newId === "string" && typeof r.listingUrl === "string" && /^https:\/\//.test(r.listingUrl)) {
+      await completeRelist(ownerId, newId, r.listingUrl);
+    }
+  }
   if (done.kind === "revise" && done.listing_id) {
     const r = result.value as { manual?: unknown; unverified?: unknown; error?: unknown };
     await confirmRevise(ownerId, done.listing_id, {

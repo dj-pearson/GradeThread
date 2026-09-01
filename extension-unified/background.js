@@ -104,6 +104,10 @@ const PENDING_REVISES_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/pending-revises";
 const REVISE_CONFIRM_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/revise-confirm";
+// US-9203: the relist COPY went live; the server activates the new row and
+// ends the old one.
+const RELIST_LISTED_ENDPOINT =
+  "https://functions.gradethread.com/api/grading/public/relist-listed";
 // US-1808: hand ONE listing the shopper is looking at to their own saved-search
 // alerts. Signed-in only (the server 401s without a token) — the whole point is
 // that the listing is checked against THAT buyer's criteria, so there is no
@@ -313,6 +317,25 @@ async function confirmRevise(listingId, result) {
         unverified: Boolean(result && result.unverified),
         error: result && typeof result.error === "string" ? result.error.slice(0, 300) : null,
       }),
+    });
+    return resp.ok;
+  } catch (_e) {
+    return null;
+  }
+}
+
+/** US-9203: tell the server the relist copy is live at `url`. */
+async function confirmRelistListed(newListingId, url) {
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string" || !newListingId) return null;
+  try {
+    const resp = await fetch(RELIST_LISTED_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + gtBuyerToken,
+      },
+      body: JSON.stringify({ new_listing_id: newListingId, listing_url: url }),
     });
     return resp.ok;
   } catch (_e) {
@@ -1643,6 +1666,24 @@ function isValidRevisePayload(p) {
   );
 }
 
+// US-9203: a relist names a live listing to copy from (host-pinned like a
+// delist) and the NEW row the server created for the copy.
+function isValidRelistPayload(p) {
+  return (
+    p &&
+    typeof p === "object" &&
+    typeof p.platform === "string" &&
+    SUPPORTED_LISTER[p.platform] &&
+    typeof p.newListingId === "string" &&
+    p.newListingId.length > 0 &&
+    self.GT_LISTER_GUARD.isAllowedDelistUrl(
+      self.GT_LISTER_SELECTORS,
+      p.platform,
+      p.listingUrl,
+    )
+  );
+}
+
 // US-2482: everything the engagement gate needs, read fresh.
 //
 // Read on EVERY gate call rather than cached, because the three things it holds
@@ -1693,7 +1734,13 @@ async function startJob(kind, payload, sender, sendResponse, clientRef) {
         ok: false,
         error:
           "The GradeThread extension hit an unexpected error starting this " +
-          (kind === "delist" ? "delist" : kind === "revise" ? "edit sync" : "cross-post") +
+          (kind === "delist"
+            ? "delist"
+            : kind === "revise"
+            ? "edit sync"
+            : kind === "relist"
+            ? "relist"
+            : "cross-post") +
           ". Try again.",
       });
     } catch (_e) { /* port already gone */ }
@@ -1731,9 +1778,9 @@ async function beginJob(kind, payload, sender, sendResponse, clientRef) {
   // navigation. The delist target is the payload URL, already host-pinned to the
   // platform by isValidDelistPayload before we got here.
   let url;
-  if (isDelist || kind === "revise") {
-    // US-9202: a revise opens the listing itself, host-pinned by
-    // isValidRevisePayload exactly as a delist URL is.
+  if (isDelist || kind === "revise" || kind === "relist") {
+    // US-9202 / US-9203: a revise or relist opens the listing itself,
+    // host-pinned by its validator exactly as a delist URL is.
     url = payload.listingUrl;
   } else {
     // US-2479: locale-aware for the multi-domain platforms (Vinted), unchanged
@@ -1899,14 +1946,14 @@ async function drainQueue() {
         row.platform,
         row.payload && row.payload.locale,
       );
-      const target = row.kind === "delist" || row.kind === "revise"
+      const target = row.kind === "delist" || row.kind === "revise" || row.kind === "relist"
         ? (row.payload && row.payload.listingUrl)
         : url;
       // The same guard as an interactive job: a delist or revise URL must be
       // https and host-match its platform, and a list URL always comes from the
       // bundled config. A queue row is server-supplied, which makes it no more
       // trusted than a message from a page.
-      const allowed = row.kind === "delist" || row.kind === "revise"
+      const allowed = row.kind === "delist" || row.kind === "revise" || row.kind === "relist"
         ? self.GT_LISTER_GUARD.isAllowedDelistUrl(
             self.GT_LISTER_SELECTORS, row.platform, target,
           )
@@ -1962,6 +2009,11 @@ function handleDelistRequest(payload, sender, sendResponse, clientRef) {
 // US-9202: the web's "Apply now" on a stale listing.
 function handleReviseRequest(payload, sender, sendResponse, clientRef) {
   return startJob("revise", payload, sender, sendResponse, clientRef);
+}
+
+// US-9203: the web's Relist on an extension row.
+function handleRelistRequest(payload, sender, sendResponse, clientRef) {
+  return startJob("relist", payload, sender, sendResponse, clientRef);
 }
 
 // ── alarms: timeouts + the terminal-job sweep ─────────────────────────────
@@ -2033,6 +2085,8 @@ const EXTERNAL_TYPES = new Set([
   "GT_LISTER_DELIST",
   // US-9202: apply a FlipDesk edit to a live extension-channel listing.
   "GT_LISTER_REVISE",
+  // US-9203: copy a live extension-channel listing into a fresh one.
+  "GT_LISTER_RELIST",
   // US-2701: the Marketplaces page reads the scheduled poll's state, turns it
   // OFF, and changes its cadence.
   //
@@ -2189,6 +2243,16 @@ function handleExternalMessage(msg, sender, sendResponse) {
       return false;
     }
     handleReviseRequest(rp, sender, sendResponse, msg.clientRef);
+    return true;
+  }
+
+  if (msg.type === "GT_LISTER_RELIST") {
+    const lp = msg.payload;
+    if (!isValidRelistPayload(lp)) {
+      sendResponse({ ok: false, error: "Invalid or unsupported relist payload." });
+      return false;
+    }
+    handleRelistRequest(lp, sender, sendResponse, msg.clientRef);
     return true;
   }
 
@@ -2598,6 +2662,9 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         // Only for a fill: a delist has no listing to capture, and a failed fill has
         // no form for the seller to submit.
         if (job.kind === "list" && out.ok && out.filled) await startListedWatch(job);
+        // US-9203: the copy's form is open; the live-URL watch records the
+        // new listing when the seller posts it.
+        if (job.kind === "relist" && out.ok && out.copied) await startListedWatch(job);
       } else {
         // AC4: the job already went terminal (we timed out, or the tab closed) and
         // the fill finished anyway. Report it as a LATE result rather than dropping
@@ -2783,6 +2850,9 @@ async function startListedWatch(job) {
     clientRef: job.clientRef,
     platform: job.platform,
     itemId: job.payload && job.payload.itemId,
+    // US-9203: which server row the captured URL belongs to, for a relist.
+    relistNewListingId: job.kind === "relist" && job.payload ? job.payload.newListingId : null,
+    queueId: job.kind === "relist" ? (job.queueId || null) : null,
     now: Date.now(),
   });
   await withWatches(async (w) => ({ watches: self.GT_LISTER_JOBS.putWatch(w, watch) }));
@@ -2806,6 +2876,18 @@ if (ext.tabs.onUpdated && ext.tabs.onUpdated.addListener) {
       // One capture per fill: drop the watch BEFORE pushing, so a redirect chain
       // through two listing-shaped URLs can't report twice.
       await withWatches(async (w) => ({ watches: self.GT_LISTER_JOBS.removeWatch(w, tabId) }));
+      // US-9203: a relist copy went live. Confirm to the server directly — a
+      // drained relist has no GradeThread tab to push to, and the server is
+      // where the old row is ended and its removal queued.
+      if (watch.relistNewListingId) {
+        await confirmRelistListed(watch.relistNewListingId, url);
+        if (watch.queueId) {
+          await queueFetch("/" + watch.queueId + "/complete", {
+            method: "POST",
+            body: JSON.stringify({ ok: true, result: { listingUrl: url, copied: true } }),
+          });
+        }
+      }
       try {
         await ext.tabs.sendMessage(watch.saasTabId, {
           type: "GT_LISTER_LISTED",

@@ -1091,6 +1091,82 @@
     return { deferred: true };
   };
 
+  // US-9203: relist by copying. Two-page like delist and revise: `copy` on the
+  // listing is a link into the create form prefilled from the original; on
+  // that page the seller reviews and posts, and the background's live-URL
+  // watch records the new listing (the server then ends the old row and
+  // queues its removal). Returns:
+  //   { ok:true, copied:true, version }                 — the copy's form is open
+  //   { ok:false, manual:true, error, version }          — degraded; copy by hand
+  //   { deferred:true }                                  — following the copy link
+  GT.runRelistFlow = async function (relistFlow, payload) {
+    const label = payload.platformLabel || payload.platform;
+    if (!relistFlow || !relistFlow.enabled) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + " relist isn't enabled yet — copy this listing manually on " + label + ".",
+        version: relistFlow && relistFlow.version,
+      };
+    }
+    const navigatesTo = relistFlow.navigatesTo || null;
+    const hasNavigated = payload.stage === "navigated";
+
+    if (hasNavigated) {
+      if (navigatesTo && !new RegExp(navigatesTo, "i").test(location.origin + location.pathname)) {
+        return {
+          ok: false,
+          manual: true,
+          error: label + " didn't open the copy's form, so GradeThread stopped rather than " +
+            "acting on an unexpected page. Copy the listing manually.",
+          version: relistFlow.version,
+        };
+      }
+      GT.showBanner(
+        "GradeThread copied this " + label + " listing — review it and post. The old " +
+          "listing is ended once this one is live.",
+      );
+      return { ok: true, copied: true, version: relistFlow.version };
+    }
+
+    const missing = await GT.probe({ required: relistFlow.required, fields: { copy: relistFlow.copy } });
+    if (missing.length > 0) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + "'s page changed (relist selector v" + relistFlow.version +
+          " can't find: " + missing.join(", ") + "). Copy the listing manually.",
+        version: relistFlow.version,
+      };
+    }
+    const copy = document.querySelector(relistFlow.copy);
+    if (!copy) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + "'s copy control didn't open — copy the listing manually.",
+        version: relistFlow.version,
+      };
+    }
+    try {
+      await Promise.resolve(chrome.runtime.sendMessage({
+        type: "GT_LISTER_STAGE",
+        jobId: payload.jobId,
+        stage: "navigated",
+      }));
+    } catch (_e) {
+      return {
+        ok: false,
+        manual: true,
+        error: label + " relist couldn't be tracked across the copy's form — copy the listing manually.",
+        version: relistFlow.version,
+      };
+    }
+    copy.click();
+    GT.log(payload.platform + ": following the copy link; the relist continues on the form");
+    return { deferred: true };
+  };
+
   // US-9202: positive proof the editor saved. The same three-signal shape as
   // verifyDelist: the page left the editor (urlChanged), the marketplace's own
   // confirmation rendered (toast), or a saved witness the config names.
@@ -1199,13 +1275,21 @@
         ? await GT.runDelistFlow(cfg.delist, payload)
         : job.kind === "revise"
         ? await GT.runReviseFlow(cfg.revise, payload)
+        : job.kind === "relist"
+        ? await GT.runRelistFlow(cfg.relist, payload)
         : await GT.runFlow(cfg, payload);
     } catch (err) {
       partial = {
         ok: false,
         manual: true,
         error: label + " " +
-          (job.kind === "delist" ? "delist" : job.kind === "revise" ? "edit sync" : "listing") +
+          (job.kind === "delist"
+            ? "delist"
+            : job.kind === "revise"
+            ? "edit sync"
+            : job.kind === "relist"
+            ? "relist"
+            : "listing") +
           " failed: " + (err && err.message ? err.message : String(err)),
         version: cfg.version,
       };

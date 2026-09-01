@@ -1147,7 +1147,15 @@ function RuleActivity({ ruleId }: { ruleId: string }) {
               <span className="text-muted-foreground">ended</span>
             )}
             {/* US-2156: one line per new action, read off what was recorded. */}
-            {a.action_type === "relist" && (
+            {/* US-9203: on an extension channel the relist is a COPY queued for
+                the desktop extension; it is applied only when the copy goes
+                live, so the log must not read it as done. */}
+            {a.action_type === "relist" && a.after_json?.queued === true && (
+              <span className="text-amber-600 dark:text-amber-400">
+                queued on {String(a.after_json?.platform ?? "the marketplace")}
+              </span>
+            )}
+            {a.action_type === "relist" && a.after_json?.queued !== true && (
               <span className="text-muted-foreground">ended, back in Drafts</span>
             )}
             {a.action_type === "crosslist_to" && (

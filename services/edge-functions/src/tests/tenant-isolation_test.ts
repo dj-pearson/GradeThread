@@ -7031,6 +7031,47 @@ Deno.test({
   },
 });
 
+// US-9203: relist on the extension channels. The single route takes a listing
+// id in the path and the bulk route takes ids in the body; both create a NEW
+// listings row for the copy on the caller's own tenant, so a foreign id must
+// be a 404 (single) or a per-row not-found (bulk), never a copy of A's row.
+
+Deno.test({
+  name: "B cannot start an extension relist of A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_REVISE_LISTING_ID"),
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/flipdesk/listings/${Deno.env.get("TEST_USER_A_REVISE_LISTING_ID")}/relist-extension`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST relist-extension on a foreign listing");
+  },
+});
+
+Deno.test({
+  name: "B's bulk relist never copies A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_REVISE_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_REVISE_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/bulk-relist`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ listing_ids: [id] }),
+    });
+    // 402 is a pass: B without the autoRelist plan flag is stopped before any
+    // row is read.
+    if (res.status === 402 || DENIED.has(res.status)) {
+      await res.body?.cancel();
+      return;
+    }
+    assertEquals(res.status, 200, `bulk-relist returned ${res.status}`);
+    const body = await res.json() as { results: Array<{ listing_id: string; ok: boolean; error?: string }> };
+    const row = body.results.find((r) => r.listing_id === id);
+    assert(row && !row.ok && /not found/i.test(row.error ?? ""), `A's listing was not refused per-row: ${JSON.stringify(row)}`);
+  },
+});
+
 Deno.test({
   name: "the closet import refuses a payload carrying buyer identity",
   ignore: !CONFIGURED,

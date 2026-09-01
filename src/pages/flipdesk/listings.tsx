@@ -40,6 +40,7 @@ import { ItemCardList } from "@/components/flipdesk/item-card-list";
 import { ItemQuickEditSheet } from "@/components/flipdesk/item-quick-edit-sheet";
 import { PendingDelistBanner } from "@/components/flipdesk/pending-delist-banner";
 import { PendingReviseBanner } from "@/components/flipdesk/pending-revise-banner";
+import { useBulkRelist } from "@/hooks/use-relist-extension";
 import {
   Sheet,
   SheetContent,
@@ -273,6 +274,8 @@ export function FlipdeskListingsPage() {
   const bulkEnd = useBulkEndListings();
   // US-2404: bulk resubmit of the selected live eBay listings.
   const bulkRevise = useBulkReviseListings();
+  // US-9203: relist a selection across eBay and the extension channels.
+  const bulkRelistMut = useBulkRelist();
   const deleteItemApi = useDeleteItem();
   const publishApi = usePublishToEbay();
   const [bulkPublishProgress, setBulkPublishProgress] = useState<{
@@ -716,6 +719,7 @@ export function FlipdeskListingsPage() {
     updateItemNotes,
     endListing,
     bulkPriceDrop,
+    bulkRelist,
     bulkPublishToEbay,
     bulkDeleteItems,
     bulkEndListings,
@@ -750,6 +754,7 @@ export function FlipdeskListingsPage() {
     bulkPrice,
     bulkEnd,
     bulkRevise,
+    bulkRelist: bulkRelistMut,
     deleteItemApi,
     publishApi,
   });
@@ -1558,6 +1563,13 @@ export function FlipdeskListingsPage() {
                       Drop price
                     </Button>
                   )}
+                  {/* US-9203: relist the selection. eBay now; Poshmark, Mercari
+                      and Vinted through the desktop extension, old copy ended
+                      once the new one is live. Pro-gated (autoRelist). */}
+                  <Button variant="outline" onClick={bulkRelist} disabled={busy}>
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Relist
+                  </Button>
                   {/* US-2404: push the saved edits (specifics, category,
                       condition, photos) of every selected live listing back to
                       eBay — the bulk-bar form of the composer's "Save &

@@ -64,6 +64,7 @@ import {
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
 import { confirmRevise, loadPendingRevises } from "../lib/pending-revises.ts";
+import { completeRelist } from "../lib/extension-relist.ts";
 import { loadSyncStatus } from "../lib/sync-status.ts";
 // US-1808: extension-fed marketplace listing ingestion. The pure half (the
 // marketplace allowlist that IS the anti-crawl boundary, URL canonicalization,
@@ -477,6 +478,33 @@ publicGradingRoutes.post("/revise-confirm", async (c) => {
   if (!res.ok) return c.json({ error: res.error }, res.status);
   return c.json(
     { ok: true, listing_id: listingId, cleared: res.cleared, attempts: res.attempts },
+    200,
+    { "Cache-Control": "no-store" },
+  );
+});
+
+// US-9203: the extension's watch saw the relist COPY go live. The new row's
+// id came from the server (createRelistDraft) on the job the extension ran;
+// the URL is the one the tab navigated to, host-pinned by isLiveListingUrl
+// before it was sent. completeRelist owner-scopes the row through its item.
+publicGradingRoutes.post("/relist-listed", async (c) => {
+  const who = await extensionSellerId(c);
+  if (!who.ok) return c.json({ error: who.error }, who.status, { "Cache-Control": "no-store" });
+  let body: { new_listing_id?: unknown; listing_url?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const newId = typeof body.new_listing_id === "string" ? body.new_listing_id : "";
+  const url = typeof body.listing_url === "string" && /^https:\/\//.test(body.listing_url)
+    ? body.listing_url.slice(0, 500)
+    : "";
+  if (!newId || !url) return c.json({ error: "new_listing_id and an https listing_url are required." }, 400);
+  const done = await completeRelist(who.userId, newId, url);
+  if (!done.ok) return c.json({ error: done.error }, done.status);
+  return c.json(
+    { ok: true, listing_id: newId, relisted_from: done.old_listing_id, old_delist_queued: done.old_delist_queued },
     200,
     { "Cache-Control": "no-store" },
   );

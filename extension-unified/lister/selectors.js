@@ -332,6 +332,24 @@ const GT_LISTER_SELECTORS = {
       timeouts: { control: 6000, verify: 8000 },
     },
 
+    // ── US-9203: relist (copy the listing) ──────────────────────────────
+    //
+    // OFF; unchecked. Poshmark relists by "Copy Listing", an owner control in
+    // the listing's options that opens the create form prefilled from the
+    // original. The seller reviews and posts; the extension's live-URL watch
+    // records the new listing and the server ends the old row and queues its
+    // removal. Nobody has watched the copy control on a live owned listing,
+    // so until then the seller is told "copy it manually" with the link.
+    relist: {
+      enabled: false,
+      version: "2026.09.0-draft",
+      lastVerified: null,
+      required: ["copy"],
+      copy: '[data-et-name="copy_listing"], [data-test="copy-listing"], a[href*="/create-listing?copy"]',
+      navigatesTo: "^https://[^/]*poshmark\\.(com|ca)/create-listing",
+      timeouts: { control: 6000 },
+    },
+
     engage: {
       // ON as of 2026-08-11, at the seller's instruction and with the default
       // caps cut to 250/50/25 for the first live release (see LIMITS in
@@ -582,6 +600,22 @@ const GT_LISTER_SELECTORS = {
         toast: '[data-testid="Toast"], [role="alert"]',
       },
       timeouts: { control: 6000, verify: 8000 },
+    },
+
+    // ── US-9203: relist (copy the listing) ──────────────────────────────
+    //
+    // OFF; unchecked. Mercari's item page carries a "Relist" control for the
+    // owner on a deactivated listing and "Copy" on a live one, both into the
+    // sell form. Until a probe from a live owned listing confirms these, the
+    // seller is told "copy it manually" with the link.
+    relist: {
+      enabled: false,
+      version: "2026.09.0-draft",
+      lastVerified: null,
+      required: ["copy"],
+      copy: 'button[data-testid="RelistButton"], button[data-testid="CopyListingButton"], a[href*="/sell/?copy"]',
+      navigatesTo: "^https://[^/]*mercari\\.com/sell",
+      timeouts: { control: 6000 },
     },
   },
 

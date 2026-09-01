@@ -330,6 +330,32 @@ export function sendReviseToLister(
   return sendListerJob<ListerReviseResult>({ type: "GT_LISTER_REVISE", payload });
 }
 
+// ── US-9203: relist by copying ───────────────────────────────────────────
+//
+// The server created the copy's row and built this payload; the extension
+// opens the OLD listing (host-pinned), follows its copy control, and the
+// live-URL watch confirms the new listing to the server when it is posted.
+export interface ListerRelistPayload {
+  platform: ListerPlatform;
+  listingUrl: string;
+  listingId: string;
+  newListingId: string;
+  itemId: string;
+  title?: string | null;
+  description?: string | null;
+  price?: number | null;
+}
+
+export interface ListerRelistResult extends ListerResult {
+  copied?: boolean;
+}
+
+export function sendRelistToLister(
+  payload: ListerRelistPayload,
+): Promise<ListerRelistResult> {
+  return sendListerJob<ListerRelistResult>({ type: "GT_LISTER_RELIST", payload });
+}
+
 export interface ListerDelistPayload {
   platform: ListerPlatform;
   platformLabel: string;

@@ -104,6 +104,17 @@ function checkFlow(platform, flow, kind) {
     if (!flow.verify || (!flow.verify.urlChanged && !flow.verify.toast && !flow.verify.saved)) {
       fail(`${where}: no \`verify\` evidence. A revise reports applied ONLY with positive proof the editor saved; without a witness every run is unverified.`);
     }
+  } else if (kind === "relist") {
+    // US-9203: `copy` is the one control on the listing page; the copy's form
+    // is the create page, which the list flow already knows how to leave to
+    // the seller. The live-URL watch does the rest.
+    if (JSON.stringify(flow.required || []) !== JSON.stringify(["copy"])) {
+      fail(`${where}: \`required\` must be exactly ["copy"] — nothing else exists before the copy control is clicked.`);
+    }
+    if (!flow.copy) fail(`${where}: no \`copy\` selector.`);
+    if (!flow.navigatesTo) {
+      fail(`${where}: no \`navigatesTo\` — the flow cannot tell the copy's form from the listing page and would stop on the wrong one.`);
+    }
   } else if (kind === "engage") {
     for (const key of flow.required || []) {
       if (!flow[key]) {
@@ -241,6 +252,8 @@ function checkPlatform(platform, cfg) {
   if (cfg.delist) checkFlow(platform, cfg.delist, "delist");
   // US-9202: edit sync gets the same enable discipline as list and delist.
   if (cfg.revise) checkFlow(platform, cfg.revise, "revise");
+  // US-9203: and so does relist-by-copy.
+  if (cfg.relist) checkFlow(platform, cfg.relist, "relist");
 
   // US-2482: the engagement flow gets the same enable discipline as listing —
   // and one extra rule. Sharing runs thousands of times against a live closet,
@@ -495,6 +508,13 @@ console.log(
   `✓ verify-lister-selectors: revise ${reviseLive.length + revisePending.length} platform(s) — ` +
     `enabled: ${reviseLive.join(", ") || "none"}; ` +
     `awaiting live verification: ${revisePending.join(", ") || "none"}`,
+);
+const relistLive = platforms.filter(([, c]) => c.relist && c.relist.enabled).map(([p]) => p);
+const relistPending = platforms.filter(([, c]) => c.relist && !c.relist.enabled).map(([p]) => p);
+console.log(
+  `✓ verify-lister-selectors: relist ${relistLive.length + relistPending.length} platform(s) — ` +
+    `enabled: ${relistLive.join(", ") || "none"}; ` +
+    `awaiting live verification: ${relistPending.join(", ") || "none"}`,
 );
 console.log(
   `✓ verify-lister-selectors: sold-sync ${syncPlatforms.length} platform(s) — ` +
