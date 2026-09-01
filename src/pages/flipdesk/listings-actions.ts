@@ -116,7 +116,8 @@ export interface ListingsActionDeps {
 
   updatePrice: MutationLike<
     { listingId: string; price: number },
-    { pushed: boolean }
+    // US-9202: queued = live on an extension channel, waiting on the desktop.
+    { pushed: boolean; queued?: boolean }
   >;
   endListingApi: MutationLike<
     { listingId: string },
