@@ -1,4 +1,5 @@
 import { useId, useState } from "react";
+import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ExternalLink, Info } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -32,6 +33,18 @@ import {
   NO_SIZE_BANDS,
   sizeBandsQueryKey,
 } from "@/lib/size-bands";
+import {
+  indexDriftMessage,
+  NO_INDEX_STATS,
+  provenanceLine,
+  statFor,
+  suggestableFields,
+  type IndexStatsResponse,
+} from "@/lib/measurement-index";
+import {
+  fetchMeasurementStats,
+  measurementStatsQueryKey,
+} from "@/lib/measurement-stats-fetch";
 
 type MeasurementValues = Record<string, number | string>;
 
@@ -72,6 +85,13 @@ interface Props {
    * than a dead one.
    */
   onSizeChange?: (nextSize: string) => void;
+  /**
+   * US-3039: the item's style/model. Supplying it lets the Fit & Measurement
+   * Index resolve a STYLE cohort rather than the brand rollup, which is the
+   * difference between "other Levi's in 34" and "other Levi's 550 in W34".
+   * Omitted, the index still answers at brand level.
+   */
+  style?: string | null;
 }
 
 function unitSuffix(field: MeasurementField, lengthUnit: "in" | "cm"): string {
@@ -90,6 +110,7 @@ export function MeasurementForm({
   garmentCategory,
   gender,
   onSizeChange,
+  style,
 }: Props) {
   const user = useAuthStore((s) => s.user);
   const cohortKey = (garmentCategory ?? category ?? "").trim() || null;
@@ -120,6 +141,19 @@ export function MeasurementForm({
 
   const { unit, setUnit } = useMeasurementPrefs();
   const group = measurementGroupFor(category);
+
+  // US-3039: the published Fit & Measurement Index table for THIS brand, style
+  // and size. Same shape as the two lookups above: one request per distinct
+  // cohort, and every comparison below is pure arithmetic on the result, so it
+  // re-runs on each keystroke with no network call.
+  const styleKey = (style ?? "").trim() || null;
+  const { data: indexStats = NO_INDEX_STATS } = useQuery<IndexStatsResponse>({
+    queryKey: measurementStatsQueryKey(brandKey, styleKey, group, sizeKey, genderKey),
+    enabled: !!user && !!brandKey && !!sizeKey,
+    staleTime: 30 * 60 * 1000,
+    queryFn: () =>
+      fetchMeasurementStats(brandKey, styleKey, group, sizeKey, genderKey),
+  });
   const template = MEASUREMENT_TEMPLATES[group];
   // US-2335: the per-field <Label> was never linked to its input. useId rather
   // than a literal because this form renders on TWO surfaces (prep.tsx and the
@@ -127,6 +161,20 @@ export function MeasurementForm({
   // key is per FIELD as well, so a shared id would make every label point at
   // whichever input the browser saw first.
   const fieldIdBase = useId();
+
+  // US-3039: which published fields are still empty, and the line that says
+  // where the numbers came from. Both are null/empty for a garment with no
+  // published cohort, which is what keeps this surface ABSENT rather than
+  // showing an empty state to a seller who was not asking a question.
+  const suggestions = suggestableFields(indexStats, values);
+  const provenance = provenanceLine(indexStats, group);
+
+  function acceptAllSuggestions() {
+    if (suggestions.length === 0) return;
+    const next: MeasurementValues = { ...values };
+    for (const f of suggestions) next[f.field] = f.median;
+    onChange(next);
+  }
 
   const requiredKeys = template.filter((f) => f.required).map((f) => f.key);
   const filledRequired = requiredKeys.filter(
@@ -263,6 +311,44 @@ export function MeasurementForm({
         </p>
       )}
 
+      {suggestions.length > 0 && provenance && (
+        <div className="rounded-xl border border-border/60 bg-muted/40 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="space-y-0.5">
+              <p className="text-xs font-medium">
+                We know what this usually measures
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                {provenance}
+                {indexStats.cohort && !indexStats.cohort.styleMatched
+                  ? " across this brand"
+                  : ""}
+                . Nothing is filled in until you say so.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={acceptAllSuggestions}
+              className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-muted"
+            >
+              Use {suggestions.length === 1 ? "it" : "these"}
+            </button>
+          </div>
+          {/* US-3038 AC4: the disclosure sits where the contribution is
+              visible, not only in a settings screen nobody opens. One line,
+              one link, no modal. */}
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            Built from measurements sellers contribute, yours included.{" "}
+            <Link
+              to="/settings?tab=preferences"
+              className="underline underline-offset-2"
+            >
+              Manage sharing
+            </Link>
+          </p>
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2">
         {template.map((field) => {
           const ai = aiMetaFor(field.key);
@@ -270,11 +356,29 @@ export function MeasurementForm({
           // case diameter are different quantities. `null` from isOutsideBand
           // means "no band to check against", which is not a pass and renders
           // nothing rather than a reassurance.
-          const band =
-            field.unit === "length" && !dismissed.has(field.key)
-              ? bandFor(drift, field.key)
-              : null;
+          const checkable = field.unit === "length" && !dismissed.has(field.key);
           const raw = Number(values[field.key]);
+
+          // US-3039: TWO cohorts can answer, and only ONE warning may render.
+          //
+          // The US-2827 band groups by (garment category, size) with no brand
+          // at all — "is your medium everybody's medium". The index cohort is
+          // (brand, style, department, group, size), which is a sharper
+          // question and a better answer whenever it exists. So the index wins
+          // where it has something to say, and the older band covers the long
+          // tail of garments with no published cohort yet.
+          //
+          // Rendering both would put two notes under one input that disagree
+          // about what "normal" is, which is how a seller learns to ignore
+          // every note this form produces.
+          const indexStat = checkable ? statFor(indexStats, field.key) : undefined;
+          // Shown only while the input is EMPTY. A suggestion beside a value
+          // the seller already typed is second-guessing, not help, and the
+          // drift note below is the right surface for that.
+          const suggestion = suggestions.find((sg) => sg.field === field.key);
+          const indexNote = indexStat ? indexDriftMessage(indexStat, raw) : null;
+
+          const band = checkable && !indexStat ? bandFor(drift, field.key) : null;
           const outside = band ? isOutsideBand(raw, band) : null;
           return (
             <div key={field.key} className="space-y-1">
@@ -307,6 +411,39 @@ export function MeasurementForm({
                   {unitSuffix(field, unit)}
                 </span>
               </div>
+              {suggestion && (
+                <p className="text-[11px] text-muted-foreground">
+                  Usually{" "}
+                  <button
+                    type="button"
+                    className="underline underline-offset-2"
+                    aria-label={`Use ${suggestion.median} for ${field.label}`}
+                    onClick={() => set(field.key, String(suggestion.median))}
+                  >
+                    {suggestion.median}
+                    {unitSuffix(field, unit)}
+                  </button>{" "}
+                  ({suggestion.sampleCount} measured)
+                </p>
+              )}
+              {indexNote && (
+                <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                  <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                  <span>
+                    {indexNote}{" "}
+                    <button
+                      type="button"
+                      className="underline underline-offset-2"
+                      aria-label={`Dismiss the measurement check on ${field.label}`}
+                      onClick={() =>
+                        setDismissed((prev) => new Set(prev).add(field.key))
+                      }
+                    >
+                      Dismiss
+                    </button>
+                  </span>
+                </p>
+              )}
               {outside === true && band && (
                 <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
                   <Info className="mt-0.5 h-3 w-3 shrink-0" />

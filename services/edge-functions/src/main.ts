@@ -57,6 +57,7 @@ import { flipdeskRadarRoutes } from "./routes/flipdesk-radar.ts";
 import { flipdeskMeasureRoutes } from "./routes/flipdesk-measure.ts";
 import { flipdeskDescriptionRoutes } from "./routes/flipdesk-description.ts";
 import { flipdeskSizeBandsRoutes } from "./routes/flipdesk-size-bands.ts";
+import { flipdeskMeasurementStatsRoutes } from "./routes/flipdesk-measurement-stats.ts";
 import { flipdeskForecastRoutes } from "./routes/flipdesk-forecast.ts";
 import { flipdeskEquityRoutes } from "./routes/flipdesk-equity.ts";
 import { flipdeskProductRoutes } from "./routes/flipdesk-product.ts";
@@ -547,6 +548,7 @@ app.use("/api/flipdesk/description/*", authMiddleware);
 // exact, not a wildcard: the router has one route and nothing else belongs
 // under this prefix.
 app.use("/api/flipdesk/size-bands", authMiddleware);
+app.use("/api/flipdesk/measurement-stats", authMiddleware);
 app.use("/api/flipdesk/product/*", authMiddleware);
 app.use("/api/flipdesk/templates/*", authMiddleware);
 app.use("/api/flipdesk/autolister/*", authMiddleware);
@@ -1035,6 +1037,10 @@ app.use("/api/flipdesk/description/*", rateLimiter(120, 60_000, "flipdesk-descri
 // seller works a batch. Roomy enough for a 40-item AutoLister review that spans
 // a dozen brands, and the response is client-cacheable for half an hour.
 app.use("/api/flipdesk/size-bands", rateLimiter(60, 60_000, "flipdesk-size-bands"));
+app.use(
+  "/api/flipdesk/measurement-stats",
+  rateLimiter(60, 60_000, "flipdesk-measurement-stats"),
+);
 // US-598: barcode/UPC lookup is a single cheap eBay Browse call — roomy budget
 // so scanning a haul item-by-item never trips the limiter.
 app.use("/api/flipdesk/product/*", rateLimiter(40, 60_000, "flipdesk-product"));
@@ -1396,6 +1402,9 @@ app.route("/api/flipdesk/scout", flipdeskScoutRoutes);
 app.route("/api/flipdesk/radar", flipdeskRadarRoutes);
 app.route("/api/flipdesk/measure", flipdeskMeasureRoutes);
 app.route("/api/flipdesk/size-bands", flipdeskSizeBandsRoutes);
+// US-3039: the published measurement table. Reference-only, same class as
+// size-bands: no item id, no tenant table.
+app.route("/api/flipdesk/measurement-stats", flipdeskMeasurementStatsRoutes);
 // US-1104 Garment Passport resale-value & depreciation forecast — list price,
 // days-to-sell, 12-month resale projection + CI from the owner's SKU-class sale
 // ledger. Tenant-scoped; compPulls plan tier + passport_forecast kill-switch.

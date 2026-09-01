@@ -42,6 +42,7 @@ export function MeasurementsCard({
         <MeasurementForm
           category={category}
           brand={item.brand}
+          style={item.style}
           values={measurements}
           onChange={setMeasurements}
           aiSources={item.ai_field_sources ?? null}

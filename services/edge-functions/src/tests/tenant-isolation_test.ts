@@ -1605,6 +1605,50 @@ Deno.test({
   },
 });
 
+// ── US-3039: measurement-stats is a REFERENCE lookup and must stay one ──────
+//
+// It reads garment_measurement_stats, which is deny-all aggregate data with no
+// owner column, and it takes no item id. The risk is not that today's handler
+// leaks — it cannot, there is nothing tenant-shaped in it — but that a later
+// caller adds `itemId` to "scope" it and quietly turns a reference endpoint
+// into a tenant read through the service-role client.
+//
+// So the route REJECTS those params outright rather than ignoring them, which
+// is the flipdesk-size-bands.ts rule, and that refusal is asserted here rather
+// than assumed. A 400 is the whole point: silently dropping the param is what
+// lets the next person believe it did something.
+Deno.test({
+  name: "US-3039: measurement-stats rejects an item or user id outright",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    for (const param of ["itemId", "item_id", "userId", "user_id"]) {
+      const res = await fetch(
+        `${BASE}/api/flipdesk/measurement-stats?brand=Levi%27s&group=bottom&size=34X32&${param}=${crypto.randomUUID()}`,
+        { headers: authHeaders(A_JWT!) },
+      );
+      const status = res.status;
+      await res.body?.cancel();
+      assert(
+        status === 400,
+        `measurement-stats with ${param} should 400, got ${status}`,
+      );
+    }
+  },
+});
+
+Deno.test({
+  name: "US-3039: measurement-stats requires a session",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/flipdesk/measurement-stats?brand=Levi%27s&group=bottom&size=34X32`,
+    );
+    const status = res.status;
+    await res.body?.cancel();
+    assertDenied(status, "measurement-stats with no JWT");
+  },
+});
+
 // ── US-3036: the measurement aggregate reads every tenant's observations ────
 //
 // It rolls up garment_measurements across ALL tenants into the deny-all stats
