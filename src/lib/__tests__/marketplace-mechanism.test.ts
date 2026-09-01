@@ -450,7 +450,7 @@ describe("MARKETPLACE_EXTENSION_FLOWS matches the shipped selectors (US-9202)", 
   it("delist and revise agree with selectors.js, flow by flow", () => {
     for (const p of EXTENSION_CROSS_LISTING_PLATFORMS) {
       const e = selectors[p];
-      expect(e, `${p} has no selectors entry`).toBeDefined();
+      if (!e) throw new Error(`${p} has no selectors entry`);
       for (const flow of ["delist", "revise"] as const) {
         const cfg = e[flow];
         const expected = cfg?.enabled ? "live" : "verifying";
@@ -468,8 +468,9 @@ describe("MARKETPLACE_EXTENSION_FLOWS matches the shipped selectors (US-9202)", 
 
   it("every enabled list channel declares a revise flow", () => {
     for (const p of EXTENSION_CROSS_LISTING_PLATFORMS) {
-      if (!selectors[p].enabled) continue;
-      expect(selectors[p].revise, `${p} lists but declares no revise flow`).toBeDefined();
+      const e = selectors[p];
+      if (!e || !e.enabled) continue;
+      expect(e.revise, `${p} lists but declares no revise flow`).toBeDefined();
     }
   });
 
