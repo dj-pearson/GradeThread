@@ -219,6 +219,8 @@ import { handleEbayOrderBackstopCron } from "./routes/jobs-ebay-order-backstop.t
 import { handlePhotoArchiveCron } from "./routes/jobs-photo-archive.ts";
 import { handleReconciliationSweepCron } from "./routes/jobs-reconciliation-sweep.ts";
 import { handleEbayNotificationReconcileCron } from "./routes/jobs-ebay-notification-reconcile.ts";
+import { handleEbayRateLimitsCron } from "./routes/jobs-ebay-rate-limits.ts";
+import { handleEbayRetentionCron } from "./routes/jobs-ebay-retention.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
 import { adminRewardsRoutes } from "./routes/admin-rewards.ts";
@@ -1835,6 +1837,8 @@ app.post("/api/jobs/ebay-pending-webhooks", (c) => handleEbayPendingWebhooksCron
 app.post("/api/jobs/ebay-order-backstop", (c) => handleEbayOrderBackstopCron(c));
 app.post("/api/jobs/ebay-notification-reconcile", (c) =>
   handleEbayNotificationReconcileCron(c));
+app.post("/api/jobs/ebay-rate-limits", (c) => handleEbayRateLimitsCron(c));
+app.post("/api/jobs/ebay-retention", (c) => handleEbayRetentionCron(c));
 // US-2617: the nightly photo archive sweep. The registry used to point this at
 // /api/flipdesk/images/archive, a seller route behind authMiddleware, so the
 // Coolify task 401'd every night and left no ledger row (US-2310). It walks the

@@ -85,6 +85,7 @@ import { failSafe, jsonError } from "../lib/http-errors.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
 import { parseFix } from "../lib/radar-privacy.ts";
 import { voidRecordScanLocation } from "../lib/radar-events.ts";
+import { hydrateEbayListingBody } from "../lib/ebay-item-read.ts";
 
 export const flipdeskScoutRoutes = new Hono<{
   Variables: { userId: string; workspaceOwnerId: string };
@@ -559,6 +560,7 @@ flipdeskScoutRoutes.post("/appraise-url", async (c) => {
   if (!quota.ok) return c.json(quota.body, quota.status);
 
   let body: {
+    url?: unknown;
     imageUrls?: unknown;
     title?: unknown;
     brand?: unknown;
@@ -571,6 +573,19 @@ flipdeskScoutRoutes.post("/appraise-url", async (c) => {
     body = await c.req.json();
   } catch {
     return jsonError(c, 400, "Invalid JSON body");
+  }
+
+  // US-3042: when the caller names an eBay listing, its photos, title, brand and
+  // asking price are read from eBay's Browse API and REPLACE whatever came in
+  // the request. The extension used to scrape all four off the page and post
+  // them here, which is the thing eBay's license does not allow. Non-eBay
+  // marketplaces pass through untouched — they publish no API to read instead.
+  const hydrated = await hydrateEbayListingBody(body, MAX_APPRAISE_URLS);
+  if (hydrated.status === "unavailable") {
+    return jsonError(c, 404, "That eBay listing is no longer available.");
+  }
+  if (hydrated.status === "hydrated") {
+    body = hydrated.body as typeof body;
   }
 
   const parsedUrls = parseAppraiseUrls(body.imageUrls);

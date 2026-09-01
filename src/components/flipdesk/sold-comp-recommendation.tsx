@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { GradeBandedPrice } from "@/hooks/use-ebay";
 import { ValueBasisNote } from "@/components/value/value-basis-note";
+import { EbayAttribution } from "@/components/marketplace/ebay-attribution";
 
 // US-594 / US-1477: the sold-comp, grade-banded recommendation. Realized sales
 // win; an active-ask fallback is clearly flagged as an estimate. Always surfaces
@@ -152,6 +153,14 @@ export function SoldCompRecommendation({
           Use as target price
         </Button>
       </div>
+
+      {/* US-3042: attribution belongs on the surface showing the data. Only
+          when the number actually came from eBay — a price built from the
+          seller's OWN past sales is their data, and crediting eBay for it would
+          be a false statement rather than a cautious one. */}
+      {basis !== "private_sales" && (
+        <EbayAttribution what="Pricing comparables" className="mt-3" />
+      )}
     </div>
   );
 }

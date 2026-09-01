@@ -16,9 +16,9 @@
 // that scope must reconnect at /oauth/start or every call here returns
 // insufficient-scope.
 
-import { fetchWithTimeout } from "./circuit-breaker.ts";
 import {
   apiHost,
+  countedEbayFetch,
   ebayId,
   ebayResilientFetch,
   getMarketplaceId,
@@ -322,7 +322,9 @@ export async function uploadDisputeEvidenceFile(
   // Uint8Array<ArrayBufferLike> is a valid blob part at runtime.
   const blob = new Blob([file.bytes as BlobPart], { type: file.contentType });
   form.append("file", blob, file.filename);
-  const res = await fetchWithTimeout(
+  // US-3042: counted like every other eBay call (this multipart upload is the
+  // one Fulfillment path that does not go through fetchAuthed).
+  const res = await countedEbayFetch(
     `${apiHost()}/sell/fulfillment/v1/payment_dispute/${
       encodeURIComponent(disputeId)
     }/upload_evidence_file`,

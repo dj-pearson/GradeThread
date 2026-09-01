@@ -164,6 +164,15 @@ const SERVICE_ROLE_ONLY = new Set([
   // timestamp), and an anonymous writer means a readable table would be a free
   // public firehose.
   "extension_usage_pings",
+  // US-3042 eBay call accounting. Both are platform-wide traffic counts with no
+  // owner column, because the quota they describe belongs to the application's
+  // keyset rather than to any one seller — so there is no tenant scoping that
+  // would make them safely readable. Readable, they publish our aggregate
+  // business volume (calls per day is a close proxy for listings per day, which
+  // is a close proxy for revenue); writable, a seller could fabricate the usage
+  // evidence we hand eBay in a growth-check application.
+  "ebay_api_call_daily",
+  "ebay_rate_limit_snapshots",
   // US-1852 quest definitions. Product config, not tenant data — there is no
   // owner column because a quest belongs to the product. Deny-all matters in
   // both directions: readable, it would leak unlaunched challenges before their
@@ -655,7 +664,7 @@ const SERVICE_ROLE_ONLY = new Set([
   "comp_read_demand",
   "comp_read_batches",
   "comp_read_jobs",
-  // US-3033: the published half of the Fit & Measurement Index. One row per
+  // US-3042: the published half of the Fit & Measurement Index. One row per
   // brand-style-size-field cohort holding a median and its two quartiles, with
   // no owner column, because the row is a statement about a garment rather than
   // about whose closet the numbers came from. The observations it is computed
@@ -694,7 +703,7 @@ const SERVICE_ONLY_FORCED = [
   // at least one policy survives, and none of them is USING(true).
   "ai_prompt_versions",
   "ai_prompt_block_versions",
-  // US-3033. No owner column and no parent FK by design (see SERVICE_ROLE_ONLY
+  // US-3042. No owner column and no parent FK by design (see SERVICE_ROLE_ONLY
   // above), so hasUserId never discovers it and without this line the guard
   // would check nothing while appearing to pass.
   "garment_measurement_stats",

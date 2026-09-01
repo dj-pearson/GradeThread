@@ -190,6 +190,20 @@ export const CRON_REGISTRY: CronDef[] = [
   // topic subscriptions and warns on any required topic left unsubscribed. A
   // healthy config is a no-op, so this runs infrequently — it's drift detection.
   { name: "ebay-notification-reconcile", label: "eBay notification reconcile", schedule: "17 */6 * * *", category: "sync", endpoint: "/api/jobs/ebay-notification-reconcile", recorded: true, healthy: "200 with {ok:true, healthy:true, missingBuckets:[]}; created/enabled empty on a steady-state run" },
+  // US-3042: eBay's OWN account of how much of our quota we have consumed, read
+  // from the Developer Analytics getRateLimits endpoint and stored beside our
+  // self-count. HOURLY, not daily, and the reason matters: eBay's counters roll
+  // on a window, so a once-a-day read lands at an arbitrary point in it and
+  // never sees the PEAK — which is the number the Application Growth Check
+  // turns on, because hitting the ceiling at 4pm is what defers a publish to
+  // tomorrow. It also flushes our in-process call buffer first so the two
+  // numbers describe the same moment.
+  { name: "ebay-rate-limits", label: "eBay quota snapshot", schedule: "7 * * * *", category: "sync", endpoint: "/api/jobs/ebay-rate-limits", recorded: true, healthy: "200 with {ok:true, resourcesRecorded>0, tightest:{...}}; skipped:true with reason ebay_not_configured is healthy in an env with no keyset" },
+  // US-3042: the eBay data-retention sweep. The policy it applies is PUBLISHED
+  // on src/pages/legal/privacy.tsx and a test fails the build if the two
+  // disagree, so this task not running turns a public commitment into an untrue
+  // statement. A 500 here is a real incident, not a retry-tomorrow.
+  { name: "ebay-retention", label: "eBay data retention sweep", schedule: "40 3 * * *", category: "maintenance", endpoint: "/api/jobs/ebay-retention", recorded: true, healthy: "200 with {ok:true, results:[...]}; totalRows 0 is normal once the backlog drains. ok:false means a table was skipped and the published policy is only half-applied" },
   { name: "gsc-sync", label: "Search Console sync", schedule: "30 6 * * *", category: "seo", endpoint: "/api/jobs/gsc-sync", recorded: true },
   { name: "growth-dispatch", label: "Scheduled-campaign dispatch", schedule: "*/15 * * * *", category: "growth", endpoint: "/api/jobs/growth-dispatch", recorded: true },
   { name: "north-star-digest", label: "North Star weekly digest", schedule: "0 14 * * 1", category: "growth", endpoint: "/api/jobs/north-star-digest", recorded: true },

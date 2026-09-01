@@ -40,6 +40,12 @@ if (typeof importScripts === "function") {
     "lister/lister-guard.js",
     "lister/job-store.js",
     "lister/engagement.js",
+    // US-3042: the eBay item-id parser. Needed HERE and not only in the content
+    // script, because ingestListing consults it before letting a photo-less
+    // request through. NOTE: background-deps.test.cjs finds this call by
+    // scanning to the first close-paren, so a close-paren anywhere inside these
+    // comments truncates the dep list it parses. Keep them out.
+    "research/ebay-item-id.js",
     "registry.js",
     "research/seller-memory.js",
     "research/compare-tray.js",
@@ -445,9 +451,29 @@ function maxImagesFor(requested) {
 }
 
 async function gradeFromUrls(
-  { imageUrls, brand, title, condition, marketplace, price, maxImages: msgMaxImages },
+  {
+    imageUrls,
+    ebayItemId,
+    brand,
+    title,
+    condition,
+    marketplace,
+    price,
+    maxImages: msgMaxImages,
+  },
 ) {
-  if (!Array.isArray(imageUrls) || imageUrls.length === 0) {
+  // US-3042: two shapes, and only one of them carries page content.
+  //
+  // On eBay the content script sends an item id and nothing else, and the
+  // server reads the listing from eBay's Browse API. Everywhere else it sends
+  // the photos it found on the page, because no other marketplace here
+  // publishes an API to read instead.
+  //
+  // The id is the WHOLE request in that case: sending photos alongside it would
+  // hand the server page-scraped content to fall back on, which is the thing
+  // being removed.
+  const byEbayId = typeof ebayItemId === "string" && /^\d{9,15}$/.test(ebayItemId);
+  if (!byEbayId && (!Array.isArray(imageUrls) || imageUrls.length === 0)) {
     return { ok: false, status: 400, error: "No listing photos to grade." };
   }
   const instanceId = await getInstanceId();
@@ -464,17 +490,25 @@ async function gradeFromUrls(
     resp = await fetch(GRADE_ENDPOINT, {
       method: "POST",
       headers: headers,
-      body: JSON.stringify({
-        // US-2241: the caller's tier ceiling, clamped locally as well. The
-        // server trims to the real cap regardless — this only avoids posting
-        // URLs we already know it will drop.
-        imageUrls: imageUrls.slice(0, maxImagesFor(msgMaxImages)),
-        brand: brand || undefined,
-        title: title || undefined,
-        condition: condition || undefined,
-        marketplace: marketplace || undefined,
-        price: price || undefined,
-      }),
+      body: JSON.stringify(
+        byEbayId
+          ? {
+            ebayItemId: ebayItemId,
+            maxImages: maxImagesFor(msgMaxImages),
+            marketplace: "ebay",
+          }
+          : {
+            // US-2241: the caller's tier ceiling, clamped locally as well. The
+            // server trims to the real cap regardless — this only avoids
+            // posting URLs we already know it will drop.
+            imageUrls: imageUrls.slice(0, maxImagesFor(msgMaxImages)),
+            brand: brand || undefined,
+            title: title || undefined,
+            condition: condition || undefined,
+            marketplace: marketplace || undefined,
+            price: price || undefined,
+          },
+      ),
     });
   } catch (_e) {
     return { ok: false, status: 0, error: "Couldn't reach GradeThread. Check your connection." };
@@ -855,6 +889,17 @@ async function postSyncObservations(msg) {
   return { ok: resp.ok, status: resp.status, result: json };
 }
 
+/**
+ * US-3042: is this an eBay item URL? Used only to decide whether a photo-less
+ * request is legitimate — the server re-parses and re-validates the URL itself,
+ * so this is a UX check and never a trust boundary.
+ */
+function isEbayListingUrl(url) {
+  const EB = self.GT_EBAY_ITEM;
+  if (!EB) return false;
+  return !!EB.itemIdFromUrl(url);
+}
+
 async function ingestListing(msg) {
   const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
   if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
@@ -866,7 +911,11 @@ async function ingestListing(msg) {
     };
   }
   if (!msg.url) return { ok: false, status: 400, error: "No listing address to check." };
-  if (!Array.isArray(msg.imageUrls) || msg.imageUrls.length === 0) {
+  // US-3042: on eBay the content script sends the URL alone and the server
+  // resolves the listing through eBay's Browse API, so there are no photos to
+  // require here. Every other marketplace still sends what it read off the page.
+  const ingestByUrlOnly = !Array.isArray(msg.imageUrls) || msg.imageUrls.length === 0;
+  if (ingestByUrlOnly && !isEbayListingUrl(msg.url)) {
     return { ok: false, status: 400, error: "No listing photos to check." };
   }
   const instanceId = await getInstanceId();
@@ -881,7 +930,9 @@ async function ingestListing(msg) {
       },
       body: JSON.stringify({
         url: msg.url,
-        imageUrls: msg.imageUrls.slice(0, maxImagesFor(msg.maxImages)),
+        imageUrls: ingestByUrlOnly
+          ? undefined
+          : msg.imageUrls.slice(0, maxImagesFor(msg.maxImages)),
         title: msg.title || undefined,
         brand: msg.brand || undefined,
         condition: msg.condition || undefined,
@@ -924,7 +975,10 @@ async function appraiseListing(msg) {
   if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
     return { ok: false, status: 401, error: "Sign in to GradeThread to appraise listings." };
   }
-  if (!Array.isArray(msg.imageUrls) || msg.imageUrls.length === 0) {
+  // US-3042: on eBay the listing URL is the whole request and the server reads
+  // the photos, title and price from eBay's Browse API.
+  const byListingUrl = typeof msg.url === "string" && msg.url.length > 0;
+  if (!byListingUrl && (!Array.isArray(msg.imageUrls) || msg.imageUrls.length === 0)) {
     return { ok: false, status: 400, error: "No listing photos to appraise." };
   }
   let resp;
@@ -935,13 +989,17 @@ async function appraiseListing(msg) {
         "Content-Type": "application/json",
         Authorization: "Bearer " + gtBuyerToken,
       },
-      body: JSON.stringify({
-        imageUrls: msg.imageUrls.slice(0, 4),
-        title: msg.title || undefined,
-        brand: msg.brand || undefined,
-        priceCents: typeof msg.priceCents === "number" ? msg.priceCents : undefined,
-        marketplace: msg.marketplace || undefined,
-      }),
+      body: JSON.stringify(
+        byListingUrl
+          ? { url: msg.url, marketplace: msg.marketplace || undefined }
+          : {
+            imageUrls: msg.imageUrls.slice(0, 4),
+            title: msg.title || undefined,
+            brand: msg.brand || undefined,
+            priceCents: typeof msg.priceCents === "number" ? msg.priceCents : undefined,
+            marketplace: msg.marketplace || undefined,
+          },
+      ),
     });
   } catch (_e) {
     return { ok: false, status: 0, error: "Couldn't reach GradeThread. Check your connection." };

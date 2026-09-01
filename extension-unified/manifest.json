@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "GradeThread: Grade & List",
   "version": "0.10.0",
-  "description": "Get an AI-powered condition read on a pre-owned clothing listing before you buy — plus one-click cross-listing for FlipDesk sellers.",
+  "description": "Get an AI-powered condition read on a pre-owned clothing listing before you buy \u2014 plus one-click cross-listing for FlipDesk sellers.",
   "permissions": [
     "storage",
     "activeTab",
@@ -63,6 +63,7 @@
       "lister/lister-guard.js",
       "lister/job-store.js",
       "lister/engagement.js",
+      "research/ebay-item-id.js",
       "registry.js",
       "research/seller-memory.js",
       "research/compare-tray.js",
@@ -147,6 +148,7 @@
       "js": [
         "attribution.js",
         "usage-telemetry.js",
+        "research/ebay-item-id.js",
         "research/selectors.js",
         "research/image-utils.js",
         "research/condition-format.js",

@@ -22,6 +22,7 @@ import { useEbayComps, useGradeBandedPrice } from "@/hooks/use-ebay";
 import { SoldCompRecommendation } from "@/components/flipdesk/sold-comp-recommendation";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { EbayAttribution } from "@/components/marketplace/ebay-attribution";
 
 interface Props {
   itemId: string;
@@ -347,6 +348,11 @@ export function EbayCompsPanel({
             </>
           )}
         </p>
+
+        {/* US-3042: eBay requires attribution on the surface that shows their
+            data, not only on a legal page. Every comp above already deep-links
+            to its item on eBay; this is the other half. */}
+        <EbayAttribution />
       </CardContent>
     </Card>
   );

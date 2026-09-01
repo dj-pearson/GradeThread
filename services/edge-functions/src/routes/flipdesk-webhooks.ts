@@ -7,6 +7,7 @@ import type { ParsedPayoutRow } from "../lib/ebay-payouts-csv.ts";
 import { isDebugAllowed } from "../lib/env.ts";
 import { claimWebhookEvent, releaseWebhookEvent } from "../lib/webhook-idempotency.ts";
 import { verifyEbayNotification } from "../lib/ebay-notification-verify.ts";
+import { eraseEbayBuyer } from "../lib/ebay-buyer-erasure.ts";
 import { captureException, recordMetric } from "../lib/observability.ts";
 import { checkFreshness } from "../lib/webhook-freshness.ts";
 import { triggerEbaySyncForUser } from "./flipdesk-ebay.ts";
@@ -1460,6 +1461,18 @@ flipdeskWebhookRoutes.post("/ebay/account-deletion", async (c) => {
   }
   connectionsDeactivated = matchedIds.size;
 
+  // US-3042: deactivating the seller's connection is only half the requirement,
+  // and it is the half that applies to the RARER case. eBay addresses this
+  // notification to the application, and most of the accounts it names are
+  // BUYERS whose usernames we hold because they bought from one of our sellers.
+  // For those, everything above matches nothing and changes nothing. Erase them
+  // across every table that carries eBay buyer identity — including the `raw`
+  // eBay payloads, which name the person even after the username column is
+  // nulled. See lib/ebay-buyer-erasure.ts for why this one write is deliberately
+  // NOT tenant-scoped.
+  const erasure = await eraseEbayBuyer({ userId: ebayUserId, username });
+  for (const e of erasure.errors) deactivateErrors.push({ message: e.message });
+
   // US-1426: a destructive-mutation failure must NOT be acked as a clean 204.
   // Capture, release the idempotency claim so eBay's retry re-runs the
   // deactivation, and return non-2xx (eBay retries non-2xx) — otherwise the
@@ -1498,6 +1511,7 @@ flipdeskWebhookRoutes.post("/ebay/account-deletion", async (c) => {
       ebay_username: username ?? null,
       ebay_user_id: ebayUserId ?? null,
       connections_deactivated: connectionsDeactivated,
+      buyer_rows_erased: erasure.totalRows,
     });
   if (logErr && logErr.code !== "23505") {
     console.error(

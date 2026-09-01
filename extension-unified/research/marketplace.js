@@ -39,6 +39,25 @@
   // the four the gallery emits first — the flattering ones. The server trims to
   // the real cap regardless, so this is an optimisation, never the gate.
   const HARD_MAX_URLS = 8; // absolute ceiling, matching the edge's paid cap
+  // -- eBay reads nothing off the page (US-3042) ---------------------------
+  //
+  // Every other marketplace here is read by scraping, because none of them
+  // publishes an API a browser could ask instead. eBay does, and eBay's API
+  // License Agreement says their content comes through it. So on eBay this
+  // extension reads ONE thing off the page -- the item id, which is sitting in
+  // the URL -- and the server asks eBay for the photos, title, brand, price
+  // and condition.
+  //
+  // Callers use this as the branch: a non-null id means "send the id, extract
+  // nothing". test/ebay-no-scrape.test.cjs fails the build if an extractor is
+  // ever called on the eBay path again.
+  function ebayItemIdHere(url) {
+    if (!adapter || adapter.key !== "ebay") return null;
+    const EB = self.GT_EBAY_ITEM;
+    if (!EB) return null;
+    return EB.itemIdFromUrl(url || location.href);
+  }
+
   function capForAccount() {
     const n = caps && Number(caps.maxImages);
     return isFinite(n) && n > 0 ? Math.min(HARD_MAX_URLS, Math.floor(n)) : 4;
@@ -735,7 +754,15 @@
     btn.addEventListener("click", async () => {
       btn.disabled = true;
       btn.textContent = S.alertsChecking;
-      const res = await send({
+      // US-3042: same rule as the grade path. On eBay the server resolves the
+      // listing from the URL through Browse, so we send the URL and nothing
+      // else; scraping it here and posting it would be the same violation in a
+      // quieter place.
+      const ingestIsEbay = !!ebayItemIdHere(renderedUrl);
+      const res = await send(ingestIsEbay ? {
+        type: "GT_CC_INGEST",
+        url: renderedUrl,
+      } : {
         type: "GT_CC_INGEST",
         // The URL snapshotted at RENDER time, like the pin path — nothing inside
         // a rendered result may re-read location.href, because by the time a
@@ -869,8 +896,11 @@
 
   async function runAppraise() {
     if (appraising || !FLIP) return;
-    const imageUrls = extractImageUrls();
-    if (!imageUrls.length) {
+    // US-3042: on eBay the appraisal is resolved server-side from the listing
+    // URL, so there is nothing to find on the page and nothing to fail on.
+    const appraiseEbayId = ebayItemIdHere();
+    const imageUrls = appraiseEbayId ? [] : extractImageUrls();
+    if (!appraiseEbayId && !imageUrls.length) {
       renderFlipMessage("Couldn't find this listing's photos to appraise.");
       return;
     }
@@ -880,14 +910,22 @@
     // Same generation guard as a grade — and it matters more here, because the
     // panel is nested inside a result the shopper may have navigated away from.
     const myEpoch = epoch;
-    const res = await send({
-      type: "GT_CC_APPRAISE",
-      imageUrls: imageUrls,
-      title: extractTitle(),
-      brand: extractBrand(),
-      priceCents: FLIP.priceToCents(extractPrice()),
-      marketplace: (adapter && adapter.key) || "",
-    });
+    // US-1878 AC5: snapshot the URL BEFORE the await, like the grade path. Read
+    // after the round trip it is whatever the address bar says now, which is a
+    // different listing whenever the shopper navigated mid-appraisal.
+    const appraisedUrl = location.href;
+    const res = await send(
+      appraiseEbayId
+        ? { type: "GT_CC_APPRAISE", url: appraisedUrl, marketplace: "ebay" }
+        : {
+          type: "GT_CC_APPRAISE",
+          imageUrls: imageUrls,
+          title: extractTitle(),
+          brand: extractBrand(),
+          priceCents: FLIP.priceToCents(extractPrice()),
+          marketplace: (adapter && adapter.key) || "",
+        },
+    );
     if (myEpoch !== epoch) return;
     appraising = false;
 
@@ -996,15 +1034,22 @@
     // re-read, Alt+G, the image context menu, or an opt-in auto-run the shopper
     // switched on themselves), so nothing after this opens as a bar.
     userAsked();
-    const title = extractTitle();
-    const brand = extractBrand();
-    const condition = extractCondition();
+
+    // US-3042: on eBay the id IS the request. Nothing below this branch reads
+    // the page -- not the title, not the gallery, not the price.
+    const ebayItemId = ebayItemIdHere();
+    const title = ebayItemId ? "" : extractTitle();
+    const brand = ebayItemId ? "" : extractBrand();
+    const condition = ebayItemId ? "" : extractCondition();
     // US-2241: an explicitly chosen image (the right-click path) wins over the
-    // adapter's gallery.
-    const imageUrls = Array.isArray(explicitUrls) && explicitUrls.length
+    // adapter's gallery. Not on eBay: a right-clicked image is still an image
+    // URL lifted off eBay's page, so that path resolves to the item id too.
+    const imageUrls = ebayItemId
+      ? []
+      : Array.isArray(explicitUrls) && explicitUrls.length
       ? explicitUrls.slice(0, capForAccount())
       : extractImageUrls();
-    if (!imageUrls.length) {
+    if (!ebayItemId && !imageUrls.length) {
       // AC5 first: the honest degrade is rendered unconditionally and never
       // depends on telemetry succeeding, being consented to, or being reachable.
       renderError(
@@ -1027,17 +1072,29 @@
     const gradedMarketplace = (adapter && adapter.key) || "";
     const gradedSeller = extractSeller();
 
-    const res = await send({
-      type: "GT_CC_GRADE",
-      imageUrls,
-      maxImages: capForAccount(),
-      title,
-      brand,
-      condition,
-      price: extractPrice(),
-      marketplace: gradedMarketplace,
-      listingKey: listingKey(), // background caches the result under this key
-    });
+    const res = await send(
+      ebayItemId
+        ? {
+          type: "GT_CC_GRADE",
+          // The whole eBay payload. The server reads the listing from eBay's
+          // Browse API and ignores anything else a caller might send.
+          ebayItemId,
+          maxImages: capForAccount(),
+          marketplace: gradedMarketplace,
+          listingKey: listingKey(), // background caches the result under this key
+        }
+        : {
+          type: "GT_CC_GRADE",
+          imageUrls,
+          maxImages: capForAccount(),
+          title,
+          brand,
+          condition,
+          price: extractPrice(),
+          marketplace: gradedMarketplace,
+          listingKey: listingKey(),
+        },
+    );
 
     // The shopper moved on (or closed the overlay) while this was in flight. Drop
     // it on the floor: rendering would show the previous listing's grade on the new

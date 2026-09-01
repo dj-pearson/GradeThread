@@ -1,5 +1,92 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ▶ OUTSTANDING RIGHT NOW (1 of 1): 00711_ebay_api_call_accounting.sql (US-3042 — eBay growth-check compliance)
+
+**Not yet applied.** Held per the standing rule: apply the SQL to prod, then OK
+the push.
+
+**Risk: low.** Two NEW tables (`ebay_api_call_daily`,
+`ebay_rate_limit_snapshots`), one new SECURITY DEFINER function
+(`bump_ebay_api_calls`), four new indexes, and ONE column added to an existing
+table: `ebay_account_deletion_log.buyer_rows_erased INTEGER NOT NULL DEFAULT 0`.
+Nothing is dropped, altered in type, or backfilled. Both new tables are deny-all
+RLS with no policies, registered in `SERVICE_ROLE_ONLY` in `rls-guard_test.ts`.
+
+**⚠ Needs `NOTIFY pgrst, 'reload schema';`** — two new tables, a new RPC, and a
+new column on an existing table. Without it PostgREST answers `42703` on
+`buyer_rows_erased` and `PGRST202` on `bump_ebay_api_calls`.
+
+**⚠ THE EDGE MUST NOT DEPLOY BEFORE THE SQL IS IN, and this one is not merely a
+boot-guard formality.** `EXPECTED_SCHEMA_VERSION` is `00711`, so the boot guard
+refuses to start until the migration is recorded — that part is the usual
+protection. The reason to be careful anyway is what the new code does on the
+compliance path: the account-deletion handler now writes `buyer_rows_erased` on
+every notification, and an insert naming a column PostgREST has not reloaded
+fails. That insert is best-effort and would not break the acknowledgement, but
+it is the audit record we would hand eBay, so a window where it silently fails
+is a window with no evidence.
+
+**Nothing in the frontend reads either new table**, so the Cloudflare Pages
+auto-deploy on push is safe on its own. The frontend change in this commit is
+the privacy page's retention rows and the eBay attribution component, both
+static markup.
+
+**Apply order:** one file, so the usual maximum-version hazard does not apply.
+Still run it through `scripts/apply-prod-migrations.sh` rather than by hand, so
+`applied_migrations` is recorded the same way the boot guard reads it.
+
+**Verify after applying.** A PostgREST read proves the tables exist; it cannot
+see the function body or the grants, and the RPC is what the counter depends on.
+Run this as the operator:
+
+```sql
+-- the two tables and the new column
+select to_regclass('public.ebay_api_call_daily')       as call_daily,      -- expect not null
+       to_regclass('public.ebay_rate_limit_snapshots') as rate_snapshots;  -- expect not null
+
+select count(*) = 1 as column_added
+  from information_schema.columns
+ where table_schema = 'public'
+   and table_name   = 'ebay_account_deletion_log'
+   and column_name  = 'buyer_rows_erased';                                 -- expect t
+
+-- the RPC exists and increments rather than overwrites. Run it TWICE with the
+-- same row and confirm calls goes 5 -> 10; a second row at 5 means the
+-- ON CONFLICT clause did not take and every flush is silently discarding
+-- counts, which is invisible from the application side.
+select public.bump_ebay_api_calls(
+  '[{"day":"2000-01-01","api":"test","endpoint":"/verify","method":"GET",
+     "status_class":"2xx","calls":5}]'::jsonb);
+select public.bump_ebay_api_calls(
+  '[{"day":"2000-01-01","api":"test","endpoint":"/verify","method":"GET",
+     "status_class":"2xx","calls":5}]'::jsonb);
+select calls from public.ebay_api_call_daily
+ where day = '2000-01-01' and api = 'test';                                -- expect exactly one row, calls = 10
+delete from public.ebay_api_call_daily where day = '2000-01-01' and api = 'test';
+
+-- deny-all really is deny-all on both
+select tablename, count(*) as policies
+  from pg_policies
+ where schemaname = 'public'
+   and tablename in ('ebay_api_call_daily','ebay_rate_limit_snapshots')
+ group by tablename;                                                       -- expect ZERO rows
+```
+
+**After the deploy, schedule two new Coolify cron tasks.** Neither is created by
+the migration and neither self-starts; without them the retention policy the
+privacy page now publishes is not enforced, and the quota snapshots stay empty.
+
+| Path | Cadence | Why that cadence |
+|---|---|---|
+| `POST /api/jobs/ebay-rate-limits` | hourly | eBay's counters roll on a window, so a daily read misses the peak, and the peak is the number the growth check turns on. |
+| `POST /api/jobs/ebay-retention` | daily, off-peak | Deletes are bounded at 50k rows per rule per run. |
+
+Both take the standard job secret. Remember the curl gotcha from the edge image
+(see [[edge-cron-curl-gotcha]] in memory): a cron whose command is `curl` on an
+image without curl reports success and does nothing.
+
+---
+
 > ## ✅ 00708, 00709 AND 00710 ARE ALL APPLIED. Nothing is outstanding as of 2026-09-01.
 >
 > **00710 (US-3038, the measurement opt-out) confirmed by the same probe:**

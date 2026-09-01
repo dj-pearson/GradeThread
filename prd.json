@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3042",
+  "nextId": "US-3043",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2971,6 +2971,25 @@
       "dependsOn": [
         "US-3040"
       ]
+    },
+    {
+      "id": "US-3042",
+      "passes": false,
+      "title": "eBay Application Growth Check: close the compliance gaps before applying",
+      "description": "Audit of the eBay integration against the Application Growth Check found three blockers and four fix-firsts. (1) The buyer extension read eBay listing pages in the DOM and posted the photos, title, condition and price to our servers for grading, appraisal and alert-matching. eBay's API License Agreement is explicit that eBay content comes through the API, and a shopper's browser is not the API; this is the finding most likely to end the review and to put the existing production keyset at risk. (2) The MARKETPLACE_ACCOUNT_DELETION handler only deactivated the seller's marketplace_connections row and nulled its tokens. Most deletion notifications name BUYERS, whose usernames we hold across sales, flipdesk_ebay_orphan_sales, marketplace_post_sale_cases and marketplace_offers, three of which also keep eBay's raw order/case/offer payload naming the person. For those the handler matched nothing and acknowledged anyway. (3) No eBay API call was counted anywhere, so the call volume the application form asks for had no answer and eBay rejects applications with no measured usage. Fix-firsts: no retention limit on eBay-derived data beyond the 30-day category-aspect TTL; no eBay attribution on the surfaces that display eBay data; Marketplace Insights shipping written-but-dormant needs to be declared rather than discovered; and Logistics should be asked for separately from sold data so a weak ask does not sink a strong one.",
+      "acceptanceCriteria": [
+        "The extension sends only an eBay item id (grade) or the listing URL (ingest, appraise) on eBay hosts. The server resolves photos, title, brand, price and condition through Browse getItemByLegacyId and REPLACES rather than merges any client-supplied values. Other marketplaces are unchanged.",
+        "A source-level guard (extension-unified/test/ebay-no-scrape.test.cjs) fails the build if any DOM extractor is called on the eBay path in the content script, or if any scraped field reappears in the eBay request bodies in background.js.",
+        "The account-deletion handler erases the eBay user across every table holding eBay buyer identity, nulling the identity columns and redacting the raw eBay payloads, while keeping the sale rows themselves. An erasure error blocks the 204 and releases the idempotency claim so eBay retries.",
+        "A coverage test reads the migrations, finds every table declaring buyer_username, and fails if one is not in BUYER_ERASURE_TARGETS.",
+        "Every eBay HTTP call is counted through one choke point into a daily rollup (ebay_api_call_daily), with endpoints templated so cardinality stays bounded, 429 split out from 4xx, and no-response failures distinguished from eBay rejections.",
+        "An hourly cron records eBay's own getRateLimits response to ebay_rate_limit_snapshots so our count and eBay's can be compared.",
+        "A daily retention cron applies a published policy to eBay-derived data, and a test fails the build if a rule is not described on the privacy page or the privacy page promises a deletion no rule performs.",
+        "eBay attribution plus the non-endorsement notice appears on every surface that displays eBay data, not only on the trademarks page.",
+        "OPERATOR: apply migration 00711 to prod, NOTIFY pgrst, redeploy the edge, then schedule the two new Coolify crons (/api/jobs/ebay-rate-limits hourly, /api/jobs/ebay-retention daily).",
+        "OPERATOR: run the call counter for two weeks and read ebay_api_call_daily before submitting the growth check. Do not submit on an estimated number."
+      ],
+      "priority": 1
     }
   ]
 }

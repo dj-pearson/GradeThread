@@ -842,6 +842,53 @@ export function PrivacyPage() {
               account.
             </td>
           </tr>
+          {/* US-3042: the eBay retention policy. The `data-retention-rule`
+              attributes are not decoration — ebay-retention_test.ts reads this
+              file and fails if a rule in lib/ebay-retention.ts has no row here,
+              or if a row's day count stops matching the rule that enforces it.
+              An unpublished retention policy is the same as no policy, and a
+              published one the sweep no longer honors is worse than either. */}
+          <tr data-retention-rule="style_code_observations:90">
+            <td>
+              Links to individual eBay listings we used as evidence for a style
+              code
+            </td>
+            <td>
+              Removed after 90 days. What the code means (the brand and product
+              it identifies) is knowledge about a garment rather than about a
+              listing, so that is kept; the link to one seller&rsquo;s
+              individual item is not.
+            </td>
+          </tr>
+          <tr data-retention-rule="style_code_observations:540">
+            <td>Style-code observations learned from public marketplace listings</td>
+            <td>
+              Deleted if 18 months pass without the same code being seen again.
+              A code nobody has confirmed in that long is no longer evidence.
+            </td>
+          </tr>
+          <tr data-retention-rule="ebay_search_terms:400">
+            <td>eBay search-term reports for your own listings</td>
+            <td>
+              Kept for 400 days, so you can compare against the same season last
+              year, then deleted. Deleted sooner if you disconnect eBay or close
+              your account.
+            </td>
+          </tr>
+          <tr data-retention-rule="ebay_rate_limit_snapshots:180">
+            <td>eBay API quota snapshots (our own operational counters)</td>
+            <td>
+              Up to 180 days. These record how much of our marketplace API
+              allowance we have used and carry no account or listing.
+            </td>
+          </tr>
+          <tr data-retention-rule="ebay_api_call_daily:730">
+            <td>Daily marketplace API call counts</td>
+            <td>
+              Two years. Daily totals only, with no account, listing or buyer
+              attached to them.
+            </td>
+          </tr>
           {/* US-2643: this row used to read "Server & security logs — Up to 90
               days, then purged or aggregated", and no part of that was true of
               anything we store. Measured, not assumed: not one application audit

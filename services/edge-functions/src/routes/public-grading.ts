@@ -35,6 +35,12 @@ import {
 } from "../lib/extension-scan.ts";
 import { deriveFraudFlags } from "../lib/fraud-flags.ts";
 import { coverageGapForTitle } from "../lib/coverage-gap.ts";
+import {
+  type EbayListingRead,
+  hydrateEbayListingBody,
+  isValidEbayItemId,
+  readEbayListingForGrading,
+} from "../lib/ebay-item-read.ts";
 // US-9033: the free tag reader reuses the AutoLister's tag-OCR pass rather than
 // prompting for a second time. Same model call, anonymous caller.
 import {
@@ -1085,14 +1091,54 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
     }
     const gates = resolveExtensionGates(ent);
 
-    const parsed = parseGradeFromUrlBody(body, gates.maxImages);
+    // US-3042: the eBay path does NOT trust the page. When the caller sends an
+    // eBay item id, every gradeable field — photos, title, brand, price, claimed
+    // condition — is read from eBay's Browse API here, and whatever the client
+    // sent alongside it is ignored.
+    //
+    // This is the compliance fix, and it is a fix in both directions. eBay's
+    // license says their content comes through their API, and a shopper's
+    // browser is not their API. It also removes the one place a caller could
+    // hand us a title and price that did not match the listing they were
+    // pointing at, which is what the over-grade and price-fairness signals are
+    // computed against.
+    const ebayItemId = (body as { ebayItemId?: unknown })?.ebayItemId;
+    let listing: EbayListingRead | null = null;
+    if (ebayItemId !== undefined && ebayItemId !== null && ebayItemId !== "") {
+      if (!isValidEbayItemId(ebayItemId)) {
+        return c.json({ error: "That doesn't look like an eBay item." }, 400);
+      }
+      listing = await readEbayListingForGrading(ebayItemId.trim(), gates.maxImages);
+      if (!listing) {
+        // Ended, private, or on a marketplace our keyset cannot read. Say so
+        // plainly rather than falling back to client-supplied photos, which is
+        // the behaviour this whole branch exists to remove.
+        return c.json(
+          {
+            error:
+              "That eBay listing is no longer available, so there is nothing to grade.",
+          },
+          404,
+        );
+      }
+    }
+
+    const parsed = listing
+      ? ({ ok: true, urls: listing.imageUrls } as const)
+      : parseGradeFromUrlBody(body, gates.maxImages);
     if (!parsed.ok) return c.json({ error: parsed.error }, 400);
 
     // Optional garment context from the listing (title/brand) sharpens the grade.
-    const brand = typeof (body as { brand?: unknown })?.brand === "string"
+    // eBay's own values win when we have them; they are structured fields from
+    // eBay rather than text scraped off a page.
+    const brand = listing
+      ? (listing.brand?.slice(0, 80) ?? undefined)
+      : typeof (body as { brand?: unknown })?.brand === "string"
       ? (body as { brand: string }).brand.trim().slice(0, 80)
       : undefined;
-    const title = typeof (body as { title?: unknown })?.title === "string"
+    const title = listing
+      ? listing.title.slice(0, 200)
+      : typeof (body as { title?: unknown })?.title === "string"
       ? (body as { title: string }).title.trim().slice(0, 200)
       : undefined;
 
@@ -1130,8 +1176,16 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
     // US-1834: claimed-vs-objective discrepancy. Parse the seller's stated
     // condition (an eBay conditionId or a free-text label) and score it against
     // our objective grade so the extension can flag over-graded listings.
-    const rawCondition = (body as { condition?: unknown })?.condition;
-    const marketplace = typeof (body as { marketplace?: unknown })?.marketplace === "string"
+    // US-3042: on the eBay path the claimed condition is eBay's own conditionId,
+    // not a string read off the page. The discrepancy signal is a comparison
+    // against what the SELLER declared to eBay, so reading it from anywhere
+    // other than eBay was always the weaker source.
+    const rawCondition = listing
+      ? listing.conditionId ?? listing.conditionLabel
+      : (body as { condition?: unknown })?.condition;
+    const marketplace = listing
+      ? "ebay"
+      : typeof (body as { marketplace?: unknown })?.marketplace === "string"
       ? (body as { marketplace: string }).marketplace
       : null;
     const claimedGrade = claimedConditionToGrade(
@@ -1157,7 +1211,12 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
         console.error("public-grading /grade-from-url value:", err instanceof Error ? err.message : String(err));
       }
     }
-    const fairness = priceFairness(parsePriceCents((body as { price?: unknown })?.price), value);
+    const fairness = priceFairness(
+      listing
+        ? listing.priceCents
+        : parsePriceCents((body as { price?: unknown })?.price),
+      value,
+    );
     const fraudFlagsAll = extensionFraudFlagsEnabled() ? deriveFraudFlags(result.imageAuthenticity) : [];
 
     // US-1838: the tier gates resolved above decide which paid VALUE signals this
@@ -1727,7 +1786,26 @@ publicGradingRoutes.post("/ingest-listing", async (c) => {
     }
 
     const gates = resolveExtensionGates(ent);
-    const parsed = parseIngestBody(await c.req.json().catch(() => null), gates.maxImages);
+    const rawBody = await c.req.json().catch(() => null);
+
+    // US-3042: on eBay, the listing's content comes from eBay, not from the
+    // page. The extension sends only the URL; we replace the photo, title,
+    // brand, price and condition fields with what Browse returns before the
+    // body is validated, so the SAME validation runs on eBay-sourced values and
+    // there is no second code path to keep in step.
+    //
+    // Anything the client sent in those fields is discarded rather than merged.
+    // A merge would leave a caller able to influence the grade's inputs on the
+    // one marketplace where we have gone to the trouble of not letting them.
+    const ebayHydrated = await hydrateEbayListingBody(rawBody, gates.maxImages);
+    if (ebayHydrated.status === "unavailable") {
+      return c.json(
+        { error: "That eBay listing is no longer available." },
+        404,
+      );
+    }
+
+    const parsed = parseIngestBody(ebayHydrated.body, gates.maxImages);
     if (!parsed.ok) return c.json({ error: parsed.error }, 400);
     const listing = parsed.listing;
 

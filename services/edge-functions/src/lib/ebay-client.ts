@@ -31,6 +31,7 @@ import {
   TITLE_FILLER_TOKENS,
 } from "./title-tokens.ts";
 import { createSharedTokenCache, type SharedTokenCache } from "./coherent-cache.ts";
+import { recordEbayCall } from "./ebay-call-log.ts";
 
 // US-499: bounded deadline on every eBay HTTP call. eBay is occasionally slow;
 // without a deadline a bulk publish/sync can stall the container.
@@ -47,6 +48,38 @@ function ebayBreaker() {
   });
 }
 
+// US-3042: the ONE place an eBay request is counted. Every eBay HTTP call in
+// the service reaches the network through this function — ebayFetch,
+// ebayResilientFetch and fetchAuthedOnce all delegate here, and the side-channel
+// libs (feed, disputes' side path) call it directly. Putting the counter
+// anywhere else means a family gets added later and is silently uncounted,
+// which is exactly how we ended up with no numbers at all.
+//
+// The count is taken in a `finally` so a timeout or connection reset is counted
+// too (as status_class 'error'). It never throws — see lib/ebay-call-log.ts.
+export async function countedEbayFetch(
+  input: string | URL,
+  init: RequestInit = {},
+  timeoutMs: number = EBAY_TIMEOUT_MS,
+  // Trading API only: one URL serves every operation, so without the call name
+  // all of Trading collapses into a single indistinguishable row.
+  callName?: string,
+): Promise<Response> {
+  let status: number | null = null;
+  try {
+    const res = await fetchWithTimeout(input, init, timeoutMs);
+    status = res.status;
+    return res;
+  } finally {
+    recordEbayCall({
+      url: input,
+      method: init.method ?? "GET",
+      status,
+      callName,
+    });
+  }
+}
+
 // US-499: every eBay HTTP call goes through here so none can hang forever. The
 // token/taxonomy/browse paths use this directly; the authed Sell API path adds
 // the breaker on top (see fetchAuthed).
@@ -54,7 +87,7 @@ function ebayFetch(
   input: string | URL,
   init?: RequestInit,
 ): Promise<Response> {
-  return fetchWithTimeout(input, init ?? {}, EBAY_TIMEOUT_MS);
+  return countedEbayFetch(input, init ?? {}, EBAY_TIMEOUT_MS);
 }
 
 // US-1966: the main Sell path (fetchAuthed) has the breaker + withRetry +
@@ -112,9 +145,17 @@ export function ebayResilientFetch(
 ): Promise<Response> {
   const label = opts.label ??
     `${init.method ?? "GET"} ${typeof url === "string" ? url : url.toString()}`;
+  // US-3042: counted, and counted per ATTEMPT — the retry lives inside, so a
+  // call that succeeds on its third try is three calls against eBay's quota and
+  // is recorded as three. That gap between attempts and successes is the signal
+  // worth having when the daily number starts climbing.
+  const callName = typeof init.headers === "object" && init.headers !== null
+    ? (init.headers as Record<string, string>)["X-EBAY-API-CALL-NAME"]
+    : undefined;
   return ebayBreaker().execute(() =>
     fetchWithEbayRetry(
-      () => fetchWithTimeout(url, init, opts.timeoutMs ?? EBAY_TIMEOUT_MS),
+      () =>
+        countedEbayFetch(url, init, opts.timeoutMs ?? EBAY_TIMEOUT_MS, callName),
       { label, ...(opts.retry ?? {}) },
     )
   );
@@ -1851,7 +1892,7 @@ async function fetchAuthedOnce<T>(
     ? await getConnectionAccessToken(connectionId, userId)
     : await getUserAccessToken(userId);
   const locale = localeForMarketplace();
-  const res = await fetchWithTimeout(`${apiHost()}${path}`, {
+  const res = await countedEbayFetch(`${apiHost()}${path}`, {
     ...init,
     headers: {
       Authorization: `Bearer ${token}`,

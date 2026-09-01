@@ -25,8 +25,12 @@
 //      Keep a seller on ONE path; a threshold is stable per seller by design.
 
 import { XMLParser } from "fast-xml-parser";
-import { apiHost, getMarketplaceId, getUserAccessToken } from "./ebay-client.ts";
-import { fetchWithTimeout } from "./circuit-breaker.ts";
+import {
+  apiHost,
+  countedEbayFetch,
+  getMarketplaceId,
+  getUserAccessToken,
+} from "./ebay-client.ts";
 import { isRetryableError, withRetry } from "./retry.ts";
 import type { RemoteOrder, RemoteOrderLineItem } from "./ebay-client.ts";
 
@@ -89,7 +93,8 @@ function feedRequest(
 ): Promise<Response> {
   return withRetry(async () => {
     const token = await getUserAccessToken(userId);
-    const res = await fetchWithTimeout(
+    // US-3042: counted per attempt, inside withRetry.
+    const res = await countedEbayFetch(
       `${apiHost()}${path}`,
       {
         ...init,
