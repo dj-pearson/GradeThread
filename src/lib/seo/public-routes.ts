@@ -268,7 +268,10 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     description:
       "FlipDesk is GradeThread's reseller suite and works with eBay: grade, comp, list, reprice and reconcile in one place, with a verifiable grade per listing.",
     changefreq: "monthly",
-    priority: 0.8,
+    // US-9211: 0.9, level with /condition-grading and /pricing. It sat at 0.8
+    // while the grading pillar sat at 0.9, which told crawlers the opposite of
+    // the Path 7 decision — the reseller workflow is the capture leg.
+    priority: 0.9,
   },
   {
     path: "/sell-used-clothes-ebay",
@@ -725,6 +728,12 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
 // ./site.ts (re-exported above).
 
 export const ROUTE_OG_IMAGES: Record<string, { file: string; alt: string }> = {
+  // US-9211: the product page shares as itself rather than as the site
+  // default, which is what every grading pillar already did.
+  "/flipdesk": {
+    file: "/social/flipdesk.png",
+    alt: "FlipDesk by GradeThread — list everywhere from one place, with a verifiable condition grade on every listing.",
+  },
   "/how-it-works": {
     file: "/social/how-it-works.png",
     alt: "How GradeThread grades pre-owned clothing across five weighted factors.",

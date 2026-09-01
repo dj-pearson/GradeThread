@@ -91,12 +91,13 @@ export function MarketingLayout({
           <Link to="/for-resellers" viewTransition className="hover:text-foreground">
             For Resellers
           </Link>
-          <Link
-            to="/condition-grading"
-            viewTransition
-            className="hover:text-foreground"
-          >
-            Condition Grading
+          {/* US-9211: the product is one click from every public page. The
+              decision (Path 7, seo-strategy-options-2026-08.md) is that
+              GradeThread stays the identity and the reseller workflow is the
+              capture leg, so FlipDesk takes the nav slot and grading keeps its
+              pillar link in the footer rather than competing here. */}
+          <Link to="/flipdesk" viewTransition className="hover:text-foreground">
+            FlipDesk
           </Link>
           {/* US-1109: top-of-funnel lead magnet, promoted into the primary nav. */}
           <Link to="/whats-it-worth" viewTransition className="hover:text-foreground">
@@ -149,15 +150,19 @@ export function MarketingLayout({
             />
             <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:grid-cols-4">
               <FooterColumn title="Product">
+                {/* US-9211: FlipDesk first — it is the product the reseller
+                    came for. Condition Grading keeps its link one column over,
+                    so the pillar stays crawlable without leading the site. */}
+                <FooterLink to="/flipdesk">FlipDesk</FooterLink>
                 <FooterLink to="/how-it-works">How It Works</FooterLink>
                 <FooterLink to="/pricing">Pricing</FooterLink>
                 <FooterLink to="/for-resellers">For Resellers</FooterLink>
-                <FooterLink to="/condition-grading">Condition Grading</FooterLink>
               </FooterColumn>
               {/* US-291: surface the pSEO hubs so the long programmatic tail
                   (glossary, comparisons, standards, guides, tools) is reachable
                   by crawlers via the global footer, not only the XML sitemap. */}
               <FooterColumn title="Guides & Tools">
+                <FooterLink to="/condition-grading">Condition Grading</FooterLink>
                 <FooterLink to="/grading/scale">Grading Scale</FooterLink>
                 <FooterLink to="/grading/glossary">Condition Glossary</FooterLink>
                 <FooterLink to="/condition-index">Condition Index</FooterLink>
