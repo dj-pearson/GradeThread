@@ -1,4 +1,4 @@
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertRejects } from "@std/assert";
 import { Image } from "imagescript";
 import {
   bustedThumbnailUrl,
@@ -74,4 +74,25 @@ Deno.test("bustedThumbnailUrl keeps an existing query string intact", () => {
     bustedThumbnailUrl("https://x/y.jpg?token=abc", 9),
     "https://x/y.jpg?token=abc&v=9",
   );
+});
+
+// A photo whose upload left a ROW and no BYTES. Fifteen of these ran through the
+// backfill cron every five minutes in production, each costing a download and a
+// failed decode, because the job treated the throw as transient. ImageScript's
+// error for it is a RangeError about a DataView, which reads like a decoder bug
+// rather than an empty file — so the job checks the length itself and says so.
+Deno.test("generateThumbnail on an EMPTY object throws the DataView RangeError", async () => {
+  const err = await assertRejects(() => generateThumbnail(new Uint8Array(0)));
+  assertEquals(
+    (err as Error).message,
+    "Offset is outside the bounds of the DataView",
+  );
+});
+
+Deno.test("generateThumbnail rejects a few stray bytes, never silently succeeds", async () => {
+  // 4+ bytes take a different path inside ImageScript (an unknown container
+  // rather than a short read), which is why the job keys off LENGTH, not the
+  // message.
+  await assertRejects(() => generateThumbnail(new Uint8Array(3)));
+  await assertRejects(() => generateThumbnail(new Uint8Array(12)));
 });

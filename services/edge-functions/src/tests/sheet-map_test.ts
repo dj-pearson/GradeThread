@@ -10,6 +10,7 @@ import {
   parseCurrency,
   parseMappedValue,
   parseSheetDate,
+  planUnmatchedSkus,
   resolveMappedColumns,
   type ResolvedMappedColumn,
   type SheetMap,
@@ -309,4 +310,79 @@ Deno.test("validateSheetMap rejects missing/duplicate key, writable mirror, dup 
       keyColumn: "Wrong Header",
     }).some((e) => e.includes("keyColumn")),
   );
+});
+
+// ── planUnmatchedSkus: the deleted-item resurrection guard ────────────────
+// A deleted item's row stays in the seller's sheet, so create-from-sheet used to
+// re-insert it on the next five-minute merge. Forever.
+
+Deno.test("planUnmatchedSkus creates a SKU never synced before", () => {
+  const plan = planUnmatchedSkus({
+    sheetSkus: ["NEW-1"],
+    itemSkus: new Set<string>(),
+    snapshotSkus: new Set<string>(),
+  });
+  assertEquals(plan.create, ["NEW-1"]);
+  assertEquals(plan.deleted, []);
+  assertEquals(plan.staleSnapshots, []);
+});
+
+Deno.test("planUnmatchedSkus does NOT re-create an item deleted in FlipDesk", () => {
+  // The snapshot is the evidence: we synced this SKU, so its item existed.
+  const plan = planUnmatchedSkus({
+    sheetSkus: ["GONE-1"],
+    itemSkus: new Set<string>(),
+    snapshotSkus: new Set(["GONE-1"]),
+  });
+  assertEquals(plan.create, []);
+  assertEquals(plan.deleted, ["GONE-1"]);
+  // The sheet row is still there, so the snapshot is NOT stale yet — dropping it
+  // here would let the very next run resurrect the item.
+  assertEquals(plan.staleSnapshots, []);
+});
+
+Deno.test("planUnmatchedSkus leaves matched SKUs alone", () => {
+  const plan = planUnmatchedSkus({
+    sheetSkus: ["A", "B"],
+    itemSkus: new Set(["A", "B"]),
+    snapshotSkus: new Set(["A", "B"]),
+  });
+  assertEquals(plan.create, []);
+  assertEquals(plan.deleted, []);
+  assertEquals(plan.staleSnapshots, []);
+});
+
+Deno.test("planUnmatchedSkus drops a snapshot with no item and no sheet row", () => {
+  // Deleting the sheet row is the seller's lever: the snapshot goes, and the SKU
+  // is creatable again on a future run.
+  const plan = planUnmatchedSkus({
+    sheetSkus: ["A"],
+    itemSkus: new Set(["A"]),
+    snapshotSkus: new Set(["A", "ORPHAN"]),
+  });
+  assertEquals(plan.create, []);
+  assertEquals(plan.deleted, []);
+  assertEquals(plan.staleSnapshots, ["ORPHAN"]);
+});
+
+Deno.test("planUnmatchedSkus keeps a snapshot whose item is only missing from the sheet", () => {
+  // The item exists; the merge appends its row back. Nothing to clean up.
+  const plan = planUnmatchedSkus({
+    sheetSkus: [],
+    itemSkus: new Set(["A"]),
+    snapshotSkus: new Set(["A"]),
+  });
+  assertEquals(plan.staleSnapshots, []);
+});
+
+Deno.test("planUnmatchedSkus skips a renamed SKU instead of duplicating the item", () => {
+  // The seller changed an item's SKU in FlipDesk. The sheet still holds the old
+  // one, which used to create a SECOND item under the old SKU.
+  const plan = planUnmatchedSkus({
+    sheetSkus: ["OLD"],
+    itemSkus: new Set(["NEW"]),
+    snapshotSkus: new Set(["OLD"]),
+  });
+  assertEquals(plan.create, []);
+  assertEquals(plan.deleted, ["OLD"]);
 });

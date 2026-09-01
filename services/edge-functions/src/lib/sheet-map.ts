@@ -562,3 +562,54 @@ export function validateSheetMap(map: SheetMap): string[] {
   }
   return errors;
 }
+
+/** What create-from-sheet should do with every SKU that has no FlipDesk item,
+ *  plus the sync-state rows that no longer describe anything. */
+export interface UnmatchedSkuPlan {
+  /** Never synced before → a genuinely new sheet row. Create the item. */
+  create: string[];
+  /** Synced before, item gone → deleted in FlipDesk. Do NOT re-create it. */
+  deleted: string[];
+  /** A snapshot with neither an item nor a sheet row → drop the dead row. */
+  staleSnapshots: string[];
+}
+
+/**
+ * Decide the fate of every sheet SKU with no matching inventory item.
+ *
+ * THE BUG THIS FIXES: create-from-sheet used to insert an item for ANY sheet SKU
+ * it could not match, and deleting an item in FlipDesk never touched the seller's
+ * sheet. So the row stayed, the next scheduled merge (every 5 minutes) found a
+ * SKU with no item, and re-created it. The seller deleted the same four items
+ * over and over and watched them come back.
+ *
+ * A sync SNAPSHOT is the evidence that separates the two cases: we only ever
+ * write one for a SKU we have actually synced, so a snapshot means the item
+ * existed. Missing item + existing snapshot = deleted (or its SKU changed —
+ * which used to create a DUPLICATE under the old SKU, so the same skip is right
+ * there too). No snapshot = new in the sheet, which is what the feature is for.
+ *
+ * The seller's lever is the sheet row itself: delete it and the snapshot becomes
+ * stale (no item, no row), gets dropped here, and the SKU is free to be created
+ * again. That also keeps google_sheet_sync_state from growing forever.
+ */
+export function planUnmatchedSkus(args: {
+  /** SKUs present in the sheet (all of them, matched or not). */
+  sheetSkus: Iterable<string>;
+  /** SKUs of the tenant's inventory items. */
+  itemSkus: ReadonlySet<string>;
+  /** SKUs carrying a sync snapshot for this tab. */
+  snapshotSkus: ReadonlySet<string>;
+}): UnmatchedSkuPlan {
+  const plan: UnmatchedSkuPlan = { create: [], deleted: [], staleSnapshots: [] };
+  const inSheet = new Set<string>();
+  for (const sku of args.sheetSkus) {
+    inSheet.add(sku);
+    if (args.itemSkus.has(sku)) continue;
+    (args.snapshotSkus.has(sku) ? plan.deleted : plan.create).push(sku);
+  }
+  for (const sku of args.snapshotSkus) {
+    if (!args.itemSkus.has(sku) && !inSheet.has(sku)) plan.staleSnapshots.push(sku);
+  }
+  return plan;
+}

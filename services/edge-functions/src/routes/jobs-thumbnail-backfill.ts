@@ -64,11 +64,26 @@ import {
 // across runs; `remaining` tells it when to stop.
 const BATCH_LIMIT = 100;
 
+/** First 12 bytes as hex - enough to name the container (JPEG FFD8FF, PNG
+ *  89504E47, HEIC/HEIF `....ftypheic`, WebP RIFF....WEBP) when a decode fails. */
+function magicBytes(bytes: Uint8Array): string {
+  return Array.from(bytes.slice(0, 12))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 interface PhotoRow {
   id: string;
   storage_path: string | null;
   photo_type: string | null;
+  inventory_item_id: string | null;
 }
+
+/** Below this the stored object cannot be an image of any format - it is a
+ *  failed upload that left a row and no bytes. ImageScript's own error for it is
+ *  the RangeError "Offset is outside the bounds of the DataView" (reproduced at
+ *  0-3 bytes), which reads like a decoder bug instead of an empty file. */
+const MIN_DECODABLE_BYTES = 16;
 
 export async function handleThumbnailBackfillCron(c: Context): Promise<Response> {
   if (!(await requireJobSecret(c))) {
@@ -88,7 +103,7 @@ export async function handleThumbnailBackfillCron(c: Context): Promise<Response>
     // private slots explicitly (defense in depth).
     const { data, error } = await supabaseAdmin
       .from("item_photos")
-      .select("id, storage_path, photo_type")
+      .select("id, storage_path, photo_type, inventory_item_id")
       .is("thumbnail_url", null)
       .neq("photo_url", "")
       // A photo archived to R2 (flipdesk-images.ts) has its Supabase object
@@ -139,7 +154,55 @@ export async function handleThumbnailBackfillCron(c: Context): Promise<Response>
           continue;
         }
         const srcBytes = new Uint8Array(await dl.blob.arrayBuffer());
-        const thumb = await generateThumbnail(srcBytes);
+
+        // An EMPTY stored object is its own finding, not a decode error. The
+        // photo row exists and the bytes never landed - the failure mode
+        // vault/20-domain/ios-photo-upload.md documents (an aborted PUT, or the
+        // signed-URL mint that used to post no body). Name it, and name the ITEM,
+        // because the only real repair is the seller re-taking that photo: no
+        // thumbnail is recoverable from zero bytes.
+        if (srcBytes.length < MIN_DECODABLE_BYTES) {
+          await supabaseAdmin
+            .from("item_photos")
+            .update({ thumbnail_backfill_failed_at: new Date().toISOString() })
+            .eq("id", row.id);
+          console.warn(
+            `[jobs-thumbnail-backfill] EMPTY source object for ${row.id} ` +
+              `(${srcBytes.length} bytes, item ${row.inventory_item_id ?? "?"}, ` +
+              `path ${row.storage_path}) - the upload left a row and no image. ` +
+              `Marked terminal; the photo must be re-uploaded.`,
+          );
+          failed++;
+          continue;
+        }
+
+        // Any OTHER decode failure is TERMINAL, and telling it apart from a transient
+        // error is why this has its own try. Everything else in this loop is a
+        // network call that can succeed on the next tick; a decode reads bytes
+        // we already hold, so bytes ImageScript cannot read now it will not read
+        // in five minutes either. Fifteen photos sat in production failing here
+        // every five minutes - a full download and a failed decode each, forever
+        // - because the catch-all below treated them as retryable. Stamp them
+        // the same way a permanently-missing source object is stamped, and log
+        // the leading bytes so the next reader can see WHAT it is (a truncated
+        // file and a HEIC that kept a .jpg name fail identically here).
+        let thumb;
+        try {
+          thumb = await generateThumbnail(srcBytes);
+        } catch (decodeErr) {
+          await supabaseAdmin
+            .from("item_photos")
+            .update({ thumbnail_backfill_failed_at: new Date().toISOString() })
+            .eq("id", row.id);
+          console.warn(
+            `[jobs-thumbnail-backfill] undecodable image for ${row.id} ` +
+              `(${decodeErr instanceof Error ? decodeErr.message : String(decodeErr)}; ` +
+              `${srcBytes.length} bytes, magic ${magicBytes(srcBytes)}) - ` +
+              `marked terminal, will not retry`,
+          );
+          failed++;
+          continue;
+        }
 
         const thumbPath = thumbnailStoragePath(row.storage_path);
         const { error: upErr } = await supabaseAdmin.storage

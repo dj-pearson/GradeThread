@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/sheet-sync.ts
   - services/edge-functions/src/lib/sheet-map.ts
   - services/edge-functions/src/routes/flipdesk-google-sync.ts
-reviewed: 2026-08-22
+reviewed: 2026-09-01
 tags: [flipdesk, sync, google, contract]
 summary: One bidirectional 3-way merge where GradeThread wins conflicts, plus a mapped mode that writes into a seller's own spreadsheet and therefore carries hard safety rules.
 ---
@@ -88,6 +88,29 @@ need live Sheets plus Supabase.
 > [!warning] Validate mapped mode against a **copy** of the real sheet, with a
 > backup. There is no integration test standing between a mistake here and a
 > seller's own spreadsheet.
+
+## A deleted item must not come back from the sheet
+
+Deleting an item in FlipDesk does not touch the seller's sheet, so its row stays.
+Create-from-sheet used to insert an item for **any** unmatched SKU, and the merge
+is scheduled every five minutes, so the deletion undid itself before the seller
+finished the next one. Reported in production after four items were deleted four
+times each.
+
+The snapshot in `google_sheet_sync_state` is the evidence that separates the two
+cases, and it is the only one available: a snapshot is written **only** for a SKU
+that has actually synced, so a sheet SKU with a snapshot and no item is a
+**deleted** item, while one with no snapshot is genuinely new. `planUnmatchedSkus`
+(`lib/sheet-map.ts`) makes that call and also names the snapshots that describe
+neither an item nor a sheet row.
+
+- A **renamed** SKU takes the deleted path, which is also a fix: the old sheet row
+  used to create a SECOND item under the old SKU.
+- The seller's lever is the sheet row itself. Delete it and the snapshot goes
+  stale, gets dropped on the next run, and the SKU is creatable again. That is
+  why item deletion must **not** clear the snapshot - the snapshot is the tombstone.
+- Orphan rows are surfaced as run warnings (capped, then counted), because the
+  sheet is the only place the seller can clear them.
 
 ## Two failure shapes already fixed, worth not reintroducing
 

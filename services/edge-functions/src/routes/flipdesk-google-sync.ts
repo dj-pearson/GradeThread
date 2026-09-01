@@ -46,6 +46,7 @@ import {
   formatMappedValue,
   mappedPushCells,
   mergeMappedRow,
+  planUnmatchedSkus,
   resolveMappedColumns,
   type SheetMap,
   snapshotWritable,
@@ -103,6 +104,10 @@ const ALL_TAB_TITLES = [
 const VALUE_WRITE_CHUNK = 400; // ranges per values.batchUpdate call
 const APPEND_CHUNK = 500; // rows per values.append call
 const MAX_LOGGED_ERRORS = 20;
+/** Orphan sheet rows named individually in a run's warnings before they collapse
+ *  into a count. A seller who deletes a hundred items needs the first few names
+ *  and the number, not a hundred lines. */
+const MAX_DELETED_SKU_WARNINGS = 10;
 
 // US-1083: a sheet edit that was deliberately NOT applied because the cell is
 // an eBay-owned field on an eBay-originated (locked) listing.
@@ -1025,11 +1030,25 @@ async function runMappedMerge(
     (pushCells.length > 0 ? lateSnap : earlySnap).push(snapRow);
   }
 
-  // Create-from-sheet: a new unique SKU in the sheet → a new inventory item
+  // Create-from-sheet: a NEW unique SKU in the sheet → a new inventory item
   // (fill-only from the writable columns; requires a Title). Never overwrites.
+  //
+  // "New" is the load-bearing word, and it used to mean nothing more than
+  // "unmatched". Deleting an item in FlipDesk leaves its row in the seller's
+  // sheet, so the next scheduled merge — five minutes later — found a SKU with
+  // no item and created it again. Four items, deleted four times, back every
+  // time. planUnmatchedSkus separates a row we have never synced (create it)
+  // from one whose item we HAVE synced and is now gone (deleted — leave it),
+  // and names the sync-state rows that describe neither an item nor a sheet row.
+  const plan = planUnmatchedSkus({
+    sheetSkus: sheetBySku.keys(),
+    itemSkus: seen,
+    snapshotSkus: new Set(snapshots.keys()),
+  });
+
   if (map.createFromSheet) {
-    for (const [sku, entry] of sheetBySku) {
-      if (seen.has(sku)) continue;
+    for (const sku of plan.create) {
+      const entry = sheetBySku.get(sku)!;
       const built = buildCreateFromSheet(writableCols, keyCol, entry.cells, sku);
       if ("error" in built) {
         summary.warnings.push(built.error);
@@ -1045,6 +1064,34 @@ async function runMappedMerge(
       summary.pulled++;
       lateSnap.push({ user_id: userId, tab: map.tab, flipdesk_id: sku, snapshot: built.snapshot });
     }
+    // Tell the seller which rows are now orphans, because the sheet is the only
+    // place they can clear them — and clearing one is also what frees the SKU to
+    // be created again (the snapshot goes stale and is dropped below).
+    for (const sku of plan.deleted.slice(0, MAX_DELETED_SKU_WARNINGS)) {
+      summary.warnings.push(
+        `"${sku}" was deleted in FlipDesk — its sheet row was not re-imported. ` +
+          `Delete that row in "${map.tab}" to clear it.`,
+      );
+    }
+    if (plan.deleted.length > MAX_DELETED_SKU_WARNINGS) {
+      summary.warnings.push(
+        `And ${plan.deleted.length - MAX_DELETED_SKU_WARNINGS} more sheet rows ` +
+          `whose items were deleted in FlipDesk.`,
+      );
+    }
+  }
+
+  // Drop sync state for SKUs that describe neither an item nor a sheet row.
+  // Housekeeping, and the reason the skip above is not permanent: pull the row
+  // out of the sheet and the SKU is new again next run.
+  for (const batch of chunk(plan.staleSnapshots, 500)) {
+    const { error } = await supabaseAdmin
+      .from("google_sheet_sync_state")
+      .delete()
+      .eq("user_id", userId) // tenant scope (US-268)
+      .eq("tab", map.tab)
+      .in("flipdesk_id", batch);
+    if (error) summary.warnings.push(`Sync-state cleanup failed: ${error.message}`);
   }
 
   // Persist pure-pull snapshots BEFORE the Sheets writes (atomicity — same
