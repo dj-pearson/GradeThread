@@ -37,6 +37,27 @@
 > confirmation. A boot failure naming the schema version means the row is missing
 > and needs inserting by hand.
 
+## 00715 — review flow columns (US-9204) — NOT YET APPLIED
+
+**Risk: low.** Three nullable columns, no backfill, nothing dropped:
+`inventory_items.review_approve_seconds integer`,
+`inventory_items.review_approved_at timestamptz`,
+`flipdesk_settings.review_flow_enabled boolean`. Idempotent (`ADD COLUMN IF NOT
+EXISTS`). **Apply order:** after 00714; the edge boot guard expects `00715`.
+
+**`NOTIFY pgrst, 'reload schema';` IS required** (new columns must reach the
+PostgREST schema cache).
+
+**Frontend reads these columns directly and auto-deploys on push.** Both reads
+tolerate the column being absent (a failed read resolves to "decide by account
+age" and "no median yet"), and the Approve stamp is best effort, so the window
+between the push and the apply costs nothing but the switch and the stat. The
+review screen's Approve itself needs no new schema.
+
+**Verify after applying:** `select review_flow_enabled from flipdesk_settings
+limit 1` and `select review_approve_seconds from inventory_items limit 1` both
+answer through PostgREST (a `42703` means the reload did not happen).
+
 ## 00714 — extension queue relist kind (US-9203) — NOT YET APPLIED
 
 **Risk: low.** The same `CHECK` on `extension_work_queue.kind` re-added with

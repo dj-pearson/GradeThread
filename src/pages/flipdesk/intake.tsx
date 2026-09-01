@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -70,6 +70,10 @@ import {
 } from "@/components/flipdesk/intake-photo-stager";
 import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import { uploadItemPhoto } from "@/lib/item-photo-upload";
+import { Switch } from "@/components/ui/switch";
+import { useReviewFlowEnabled, useSetReviewFlow } from "@/hooks/use-review-flow";
+import { firstPhotoMsFrom, reviewPath } from "@/lib/review-flow";
+import { toastError } from "@/lib/toast-error";
 import {
   ITEM_CATEGORIES,
   ITEM_CATEGORY_LABELS,
@@ -167,6 +171,18 @@ export function FlipdeskIntakePage() {
   const [saving, setSaving] = useState(false);
   // US-2546 AC2: photos staged in memory until the item row exists.
   const [stagedPhotos, setStagedPhotos] = useState<StagedPhoto[]>([]);
+  // US-9204: when the first photo was staged. With the file's own capture time
+  // it is the start of "seconds from first photo to Approve" on the review
+  // screen. Cleared with the photos, so a batch does not inherit its first item's.
+  const [firstStagedAtMs, setFirstStagedAtMs] = useState<number | null>(null);
+  useEffect(() => {
+    if (stagedPhotos.length === 0) setFirstStagedAtMs(null);
+    else if (firstStagedAtMs == null) setFirstStagedAtMs(Date.now());
+  }, [stagedPhotos.length, firstStagedAtMs]);
+  // US-9204: the one-screen review flow. New accounts land on it after save;
+  // existing accounts get the switch below the header until they choose.
+  const reviewFlow = useReviewFlowEnabled();
+  const setReviewFlow = useSetReviewFlow();
   // US-2546 AC4: "measured" is a pipeline status with its own page, so intake
   // may as well capture the numbers when the garment is already on the table.
   const [measurements, setMeasurements] = useState<
@@ -488,11 +504,22 @@ export function FlipdeskIntakePage() {
       toast.success(`Added "${form.title.trim()}".`);
 
       if (goBackToList) {
-        navigate(
-          newId
-            ? `/dashboard/flipdesk/items?focus=${newId}`
-            : "/dashboard/flipdesk/items",
-        );
+        // US-9204: with the review flow on, the next screen is the review card,
+        // not the list. The first-photo time rides along in the URL.
+        if (newId && reviewFlow.enabled) {
+          navigate(
+            reviewPath(
+              newId,
+              firstPhotoMsFrom(stagedPhotos.map((p) => p.file), firstStagedAtMs),
+            ),
+          );
+        } else {
+          navigate(
+            newId
+              ? `/dashboard/flipdesk/items?focus=${newId}`
+              : "/dashboard/flipdesk/items",
+          );
+        }
       } else {
         // Reset to add another, keeping source + container + sourced_by
         // (most common scenario: cataloging a batch from the same trip)
@@ -567,6 +594,34 @@ export function FlipdeskIntakePage() {
           </Button>
         </div>
       </div>
+
+      {/* US-9204 AC7: existing accounts get the review flow as a one-time switch.
+          Shown only while it is off; the review screen carries the way back. */}
+      {!reviewFlow.enabled && !reviewFlow.isLoading ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+          <div>
+            <p className="font-medium">Try the new flow</p>
+            <p className="text-muted-foreground">
+              Save lands on one review card: grade, measurements, specifics, title, price and channels, with one Approve button.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="review-flow-switch"
+              checked={false}
+              disabled={setReviewFlow.isPending}
+              onCheckedChange={(v) =>
+                setReviewFlow.mutate(v, {
+                  onSuccess: () => toast.success("On. Save now lands on the review card."),
+                  onError: (err) => toastError(err, "Couldn't save that."),
+                })
+              }
+              aria-label="Try the new review flow"
+            />
+            <label htmlFor="review-flow-switch">Turn on</label>
+          </div>
+        </div>
+      ) : null}
 
       {/* PWA install prompt — surfaces once when the app is installable. */}
       <PwaInstallBanner />

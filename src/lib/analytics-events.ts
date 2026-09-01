@@ -86,6 +86,15 @@ export const ANALYTICS_EVENTS = {
   "closet_import_first_item":
     "A closet import created this account's first imported item. Property `seconds_since_extension_install`.",
 
+  // ── Review flow (US-9204) ─────────────────────────────────────────────────
+  // The hours-saved number. `seconds_from_first_photo` is the time between the
+  // first photo (the file's capture time, else the moment it was staged) and
+  // the Approve press; `channels_now` and `channels_queued` are counts. A
+  // duration and two counts, never an item id, so nothing here joins back to a
+  // seller's inventory.
+  "review_approved":
+    "Approve was pressed on the one-screen review. Properties `seconds_from_first_photo`, `channels_now`, `channels_queued`, `source`.",
+
   // ── Marketplace comparison handoff (US-9018) ──────────────────────────────
   // The two migration sections on /compare/{a}-vs-{b} answer "how do I move my
   // listings from X to Y" — 13 queries and 202 impressions of intent that had

@@ -57,6 +57,8 @@ import {
   type OverviewStaleRow,
 } from "@/hooks/use-flipdesk-overview";
 import type { ItemStatus } from "@/types/database";
+import { useReviewApproveMedian } from "@/hooks/use-review-flow";
+import { formatDuration } from "@/lib/review-flow";
 
 // How many rows each list card shows before "show all" (US-2547). The aggregate
 // returns up to OVERVIEW_LIST_LIMIT, so "all" means "all it sent" — the copy
@@ -149,6 +151,11 @@ export function FlipdeskOverviewPage() {
       repriceByItem.set(s.inventory_item_id, s.message);
     }
   }
+
+  // US-9204: the seller's median seconds from first photo to Approve. Shown
+  // only once an item has gone through the review screen; a dash for a number
+  // nobody has produced yet would read as a broken stat.
+  const { data: reviewMedian } = useReviewApproveMedian();
 
   const agingRows = metrics?.agingItems ?? [];
   const staleRows = metrics?.staleListings ?? [];
@@ -265,6 +272,15 @@ export function FlipdeskOverviewPage() {
             }
             to="/dashboard/flipdesk/items?tab=sold"
           />
+          {reviewMedian?.median != null ? (
+            <StatCard
+              icon={<Clock className="h-5 w-5" />}
+              label="Photos to Approve"
+              value={formatDuration(reviewMedian.median)}
+              sub={`median over ${reviewMedian.count} reviewed item${reviewMedian.count === 1 ? "" : "s"}`}
+              to="/dashboard/flipdesk/intake"
+            />
+          ) : null}
         </div>
       )}
 

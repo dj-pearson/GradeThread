@@ -190,6 +190,7 @@ const FlipdeskInventoryPage = lazy(() => import("@/pages/flipdesk/inventory").th
 const FlipdeskItemPage = lazy(() => import("@/pages/flipdesk/item").then(m => ({ default: m.FlipdeskItemPage })));
 const FlipdeskAnalyticsPage = lazy(() => import("@/pages/flipdesk/analytics").then(m => ({ default: m.FlipdeskAnalyticsPage })));
 const FlipdeskIntakePage = lazy(() => import("@/pages/flipdesk/intake").then(m => ({ default: m.FlipdeskIntakePage })));
+const FlipdeskReviewPage = lazy(() => import("@/pages/flipdesk/review").then(m => ({ default: m.FlipdeskReviewPage })));
 const FlipdeskImportPage = lazy(() => import("@/pages/flipdesk/import").then(m => ({ default: m.FlipdeskImportPage })));
 const FlipdeskMarketplacesPage = lazy(() => import("@/pages/flipdesk/marketplaces").then(m => ({ default: m.FlipdeskMarketplacesPage })));
 const FlipdeskMeasureCardPage = lazy(() => import("@/pages/flipdesk/measure-card").then(m => ({ default: m.FlipdeskMeasureCardPage })));
@@ -587,6 +588,7 @@ export const router = createBrowserRouter([
               // ?focus=) still point here, and they all keep working.
               { path: "/dashboard/flipdesk/items/:id/draft", element: <SuspenseWrapper><FlipdeskItemPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/intake", element: <SuspenseWrapper><FlipdeskIntakePage /></SuspenseWrapper> },
+              { path: "/dashboard/flipdesk/review/:id", element: <SuspenseWrapper><FlipdeskReviewPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/prep", element: <InventoryModeRedirect mode="prep" /> },
               { path: "/dashboard/flipdesk/import", element: <SuspenseWrapper><FlipdeskImportPage /></SuspenseWrapper> },
               { path: "/dashboard/flipdesk/autolister", element: <SuspenseWrapper><FlipdeskAutolisterHostPage /></SuspenseWrapper> },

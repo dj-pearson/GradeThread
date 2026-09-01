@@ -1151,6 +1151,11 @@ export interface InventoryItemRow {
   // consignment_split_pct snapshots the split at intake (null ⇒ use consignor's).
   consignor_id: string | null;
   consignment_split_pct: number | null;
+  // US-9204 (migration 00715): seconds from the first photo to the Approve
+  // press on the review screen, and when it was pressed. NULL for every item
+  // that never went through that screen.
+  review_approve_seconds: number | null;
+  review_approved_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -2742,6 +2747,9 @@ export interface FlipdeskSettingsRow {
   // edge's scout-decision.ts), which is also the threshold that decides whether
   // Scout calls an item a maybe.
   sourcing_target_roi_pct: number | null;
+  // US-9204 (migration 00715): the seller's own choice about the one-screen
+  // review flow. NULL means decide by account age (see src/lib/review-flow.ts).
+  review_flow_enabled: boolean | null;
   created_at: string;
   updated_at: string;
 }
