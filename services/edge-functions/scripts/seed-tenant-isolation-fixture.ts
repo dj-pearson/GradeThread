@@ -288,6 +288,23 @@ async function main(): Promise<void> {
   out.TEST_USER_A_SYNC_LISTING_ID = syncListingId;
   out.TEST_USER_A_SYNC_LISTING_URL = syncUrl;
 
+  // US-9201: a Poshmark listing of A's WITH a marketplace id, so the closet
+  // import isolation case can hand B a batch naming that id and prove B's run
+  // creates B's own row instead of touching A's. The id is the dedupe key the
+  // worker matches on, and the whole point of the case is that the match is
+  // owner-scoped. 24 hex characters, the shape listingIdFromUrl accepts.
+  const closetPid = "a1b2c3d4e5f60718293a4b5c";
+  await insert("listings", {
+    inventory_item_id: itemId,
+    platform: "poshmark",
+    platform_listing_id: closetPid,
+    listing_price: 42.0,
+    listing_title: "Tenant-A-closet-fixture",
+    listing_status: "active",
+    listing_url: `https://poshmark.com/listing/tenant-a-closet-fixture-${closetPid}`,
+  });
+  out.TEST_USER_A_CLOSET_LISTING_PID = closetPid;
+
   // US-2395 AC6: a MULTI-VARIATION listing, which the group-revise branch takes
   // a different path for. Deliberately seeded rather than classified as
   // unseeded: it needs nothing external — a listings row with `variations` set,

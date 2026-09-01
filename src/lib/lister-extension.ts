@@ -680,3 +680,57 @@ export function onListerListed(cb: (e: ListerListedEvent) => void): () => void {
   window.addEventListener("message", handler);
   return () => window.removeEventListener("message", handler);
 }
+
+// ── US-9201: closet import ────────────────────────────────────────────────
+//
+// The page cannot read a Poshmark tab. It asks the extension, which reads the
+// closet tab the seller already has open, posts the batch with its own token,
+// and hands back the run id; the page polls the ordinary import endpoints from
+// there. `reason` is the extension's word for why nothing was read, and the
+// `error` beside it is already the sentence to show.
+
+export type ClosetImportReason =
+  | "unsupported"
+  | "seller_locked"
+  | "needs_sign_in"
+  | "no_tab"
+  | "no_reader"
+  | "human_check"
+  | "not_signed_in"
+  | "not_own_closet"
+  | "not_own_listing"
+  | "wrong_page"
+  | "nothing_read"
+  | "offline"
+  | "server"
+  | "failed";
+
+export interface ClosetImportResponse extends ExtensionResponse {
+  status?: number;
+  reason?: ClosetImportReason | null;
+  needsSignIn?: boolean;
+  /** The server's body: run_id, total_rows, new_rows, known_rows, plan_warning, or an error. */
+  result?: {
+    run_id?: string;
+    platform?: string;
+    total_rows?: number;
+    new_rows?: number;
+    known_rows?: number;
+    plan_warning?: string | null;
+    error?: string;
+    message?: string;
+    cap?: string;
+    used?: number;
+    limit?: number;
+  } | null;
+  page?: "closet" | "detail";
+  listingsRead?: number;
+  coverage?: { tilesRead: number; reachedEnd: boolean };
+  /** ISO time the extension was installed, kept locally by it until now. */
+  installedAt?: string | null;
+}
+
+export function sendClosetImport(platform: "poshmark" | "mercari"): Promise<ClosetImportResponse> {
+  return sendExtensionMessage<ClosetImportResponse>({ type: "GT_CLOSET_IMPORT", platform });
+}
+

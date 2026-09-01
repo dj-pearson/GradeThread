@@ -70,6 +70,22 @@ export const ANALYTICS_EVENTS = {
   "style_code_lookup": "A Lululemon style code was looked up on /style.",
   "style_code_submission": "A visitor told us what an unnamed Lululemon style code is.",
 
+  // ── Closet import (US-9201) ───────────────────────────────────────────────
+  // The switching-cost gap: a seller with a full Poshmark or Mercari closet
+  // will not move without bringing it. `closet_import_started` is the press;
+  // `closet_import_completed` is the run finishing, with `inserted`, `updated`
+  // and `platform`. `closet_import_first_item` fires ONCE per account, the
+  // first time a closet import creates an item, and carries
+  // `seconds_since_extension_install` (from the extension's own install
+  // timestamp, which otherwise never leaves the device). That number is the
+  // install-to-first-imported-item time the activation funnel reads; it is a
+  // duration, never a timestamp, so it cannot be joined back to an install.
+  "closet_import_started": "The seller pressed Import my closet. Property `platform`.",
+  "closet_import_completed":
+    "A closet import run finished. Properties `platform`, `status`, `inserted`, `updated`, `failed`.",
+  "closet_import_first_item":
+    "A closet import created this account's first imported item. Property `seconds_since_extension_install`.",
+
   // ── Marketplace comparison handoff (US-9018) ──────────────────────────────
   // The two migration sections on /compare/{a}-vs-{b} answer "how do I move my
   // listings from X to Y" — 13 queries and 202 impressions of intent that had

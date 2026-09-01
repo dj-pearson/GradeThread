@@ -7,6 +7,7 @@ code_refs:
   - services/edge-functions/src/lib/plan-gate.ts
   - services/edge-functions/src/lib/active-listings.ts
   - services/edge-functions/src/tests/plan-gate-coverage_test.ts
+  - services/edge-functions/src/routes/flipdesk-closet-import.ts
   - src/lib/constants.ts
 reviewed: 2026-08-30
 tags: [flipdesk, plans, billing, contract]
@@ -100,6 +101,14 @@ meter read 0. The lifecycle now lives in `lib/active-listings.ts`
 much as the publish side: a route that ends a listing without reconciling the
 item leaves the slot consumed forever, which shrinks the seller's usable cap with
 no error anywhere.
+
+**Closet import counts on the way in (US-9201).** A listing pulled from the
+seller's own Poshmark or Mercari closet is live over there, so the intake
+(`routes/flipdesk-closet-import.ts`) gates `activeListings` with a delta equal
+to the number of listings the tenant does NOT already hold, before the run row
+is created. A re-read of the same closet has a delta of zero. Because the
+extension, not the browser, receives that response, the 80% header is also
+copied into the JSON body as `plan_warning` for the web page to toast.
 
 **Not backfilled, deliberately.** US-2179 fixed the write paths, not history.
 Items already live off-eBay stay in `drafted` until something re-publishes or ends

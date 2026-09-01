@@ -17,6 +17,8 @@
 //   TEST_USER_A_SUBMISSION_ID   a flipdesk_grading_submissions.id
 //   TEST_USER_A_LISTING_ID      a listings.id
 //   TEST_USER_A_SYNC_LISTING_URL a poshmark listings.listing_url owned by A
+//   TEST_USER_A_CLOSET_LISTING_PID a poshmark listings.platform_listing_id owned
+//                               by A (closet import dedupe key, US-9201)
 //                               (US-2697 sold-sync; OPTIONAL - skips until the
 //                               seed script has been re-run)
 //   TEST_USER_A_API_KEY_ID      an api_keys.id
@@ -6892,6 +6894,93 @@ Deno.test({
       1,
       "A's URL should be UNMATCHED for B - it is not in B's listings.",
     );
+  },
+});
+
+// US-9201: the closet import matches rows on (platform, platform_listing_id).
+// That key is chosen by whoever posts the batch, so the match MUST be owner-
+// scoped: B naming A's Poshmark id has to get a fresh row of B's own, never an
+// update of A's listing. The run reports which it did (inserted vs updated),
+// which is the assertion, and it needs only B's token to read.
+
+Deno.test({
+  name: "B's closet import naming A's Poshmark listing id creates B's own row, not A's",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CLOSET_LISTING_PID"),
+  fn: async () => {
+    const pid = Deno.env.get("TEST_USER_A_CLOSET_LISTING_PID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/closet-import/runs`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        platform: "poshmark",
+        listings: [{
+          listingUrl: `https://poshmark.com/listing/tenant-b-probe-${pid}`,
+          title: "Tenant-B-closet-probe",
+          priceCents: 1000,
+        }],
+      }),
+    });
+    // 402 is a pass: B on a plan without FlipDesk (or at its cap) is stopped
+    // before any row is read or written.
+    if (res.status === 402) {
+      await res.body?.cancel();
+      return;
+    }
+    assertEquals(res.status, 202, `closet import returned ${res.status}`);
+    const started = await res.json() as { run_id: string; known_rows: number };
+    assertEquals(
+      started.known_rows,
+      0,
+      "A's Poshmark id read as already-known to B: the dedupe lookup is not owner-scoped.",
+    );
+
+    // The worker runs in the background; one row finishes well inside this.
+    let run: { status: string; inserted_count: number; updated_count: number } | null = null;
+    for (let i = 0; i < 40; i++) {
+      const poll = await fetch(`${BASE}/api/flipdesk/import/runs/${started.run_id}`, {
+        headers: authHeaders(B_JWT!),
+      });
+      assertEquals(poll.status, 200, "B cannot read B's own closet import run");
+      run = (await poll.json() as { run: typeof run }).run;
+      if (run && run.status !== "pending" && run.status !== "running") break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    assert(run, "no run row came back");
+    assertEquals(
+      run!.updated_count,
+      0,
+      "B's closet import UPDATED an existing listing. The only listing with " +
+        "that Poshmark id is A's, so the worker matched across tenants.",
+    );
+    assertEquals(run!.inserted_count, 1, `expected B's own row to be inserted; run: ${JSON.stringify(run)}`);
+
+    // Put B's catalog back so a re-run of the suite starts from the same place.
+    await fetch(`${BASE}/api/flipdesk/import/runs/${started.run_id}/undo`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    }).then((r) => r.body?.cancel());
+  },
+});
+
+Deno.test({
+  name: "the closet import refuses a payload carrying buyer identity",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/closet-import/runs`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        platform: "poshmark",
+        listings: [{
+          listingUrl: "https://poshmark.com/listing/x-a1b2c3d4e5f60718293a4b5d",
+          title: "probe",
+          buyerName: "someone",
+        }],
+      }),
+    });
+    const text = await res.text();
+    assertEquals(res.status, 400, `expected the key to be refused; got ${res.status}: ${text}`);
+    assert(text.includes("FORBIDDEN_KEY"), `refused for some other reason: ${text}`);
   },
 });
 

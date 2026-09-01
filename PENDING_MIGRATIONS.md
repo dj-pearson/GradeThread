@@ -37,6 +37,33 @@
 > confirmation. A boot failure naming the schema version means the row is missing
 > and needs inserting by hand.
 
+## 00712 — closet import origins (US-9201) — NOT YET APPLIED
+
+**Risk: low.** One `CHECK` constraint on `flipdesk_import_runs.origin` is
+dropped and re-added with two more values (`poshmark`, `mercari`) and the
+column comment is updated. No table, column, function or policy changes; no
+backfill; nothing dropped. Idempotent (drop-if-exists then add).
+
+**Apply order:** one file, `00712_closet_import_origins.sql`, after 00711.
+`scripts/apply-prod-migrations.sh` picks it up as the next version.
+
+**`NOTIFY pgrst, 'reload schema';`** is not required (a CHECK constraint is not
+part of the PostgREST schema cache) but is harmless if run.
+
+**The edge boot guard expects `00712`** (`EXPECTED_SCHEMA_VERSION`), so the
+Coolify edge deploy after this push refuses to start until the row is
+recorded. Apply the SQL first, then deploy the edge.
+
+**Nothing in the frontend reads the new origin values directly.** The import
+page shows `run.origin` only after the edge returns it, so the Cloudflare Pages
+auto-deploy is safe on its own; until the edge is redeployed the new
+`/api/flipdesk/closet-import/runs` route simply does not exist and the
+extension's "Import my closet" reports the server error.
+
+**Verify after applying:** a service-role insert into `flipdesk_import_runs`
+with `origin = 'poshmark'` succeeds (roll it back), and one with
+`origin = 'bogus'` still fails with `23514`.
+
 ### Reference: what 00711 contained, and what still has to be scheduled
 
 **Applied 2026-09-01.**

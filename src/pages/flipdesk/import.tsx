@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   Upload,
@@ -55,6 +55,11 @@ import {
   type ImportField,
 } from "@/lib/import-mapping";
 import { PageHelp } from "@/components/help/page-help";
+import {
+  ClosetImportCard,
+  type ClosetImportStart,
+} from "@/components/flipdesk/closet-import-card";
+import { track } from "@/lib/analytics";
 
 type ImportRow = {
   raw: string[];
@@ -66,6 +71,10 @@ type ImportRow = {
 type ImportRun = {
   id: string;
   status: "pending" | "running" | "completed" | "failed" | "undone";
+  // US-9201: 'csv' | 'sheet' | 'paste' for a spreadsheet, or the marketplace a
+  // closet read came from. Present on polled runs; absent on the stub the page
+  // seeds while the first poll is in flight.
+  origin?: string;
   total_rows: number;
   processed_rows: number;
   inserted_count: number;
@@ -191,6 +200,10 @@ export function FlipdeskImportPage() {
   const [run, setRun] = useState<ImportRun | null>(null);
   const [undoing, setUndoing] = useState(false);
   const pollRef = useRef<number | null>(null);
+  // US-9201: the extension's install time, handed over with the run so the
+  // completion event can carry install-to-first-imported-item. A duration
+  // only; the timestamp itself is never sent.
+  const closetInstalledAtRef = useRef<string | null>(null);
   const fetchSheet = useFetchGoogleSheet();
 
   async function handleFetchSheet() {
@@ -347,6 +360,57 @@ export function FlipdeskImportPage() {
     }
   }
 
+  // US-9201: a closet import run started by the extension. Same polling, same
+  // results card, same undo; only the origin differs.
+  function handleClosetStarted(start: ClosetImportStart) {
+    closetInstalledAtRef.current = start.installedAt;
+    setImporting(true);
+    setRun({
+      id: start.runId,
+      status: "pending",
+      origin: start.platform,
+      total_rows: start.totalRows,
+      processed_rows: 0,
+      inserted_count: 0,
+      updated_count: 0,
+      skipped_count: 0,
+      failed_count: 0,
+    });
+  }
+
+  // US-9201: the two closet-import events. `closet_import_first_item` fires
+  // once per account per device, the first time a closet import creates an
+  // item, and carries only the seconds since the extension was installed.
+  const userId = user?.id;
+  const recordClosetCompletion = useCallback((finished: ImportRun) => {
+    const origin = finished.origin;
+    if (origin !== "poshmark" && origin !== "mercari") return;
+    track("closet_import_completed", {
+      platform: origin,
+      status: finished.status,
+      inserted: finished.inserted_count,
+      updated: finished.updated_count,
+      failed: finished.failed_count,
+    });
+    if (finished.inserted_count <= 0 || !userId) return;
+    const key = `gt.closet_import.first_item:${userId}`;
+    try {
+      if (window.localStorage.getItem(key)) return;
+      window.localStorage.setItem(key, new Date().toISOString());
+    } catch {
+      return; // no storage: skip rather than fire on every completion
+    }
+    const installedAt = closetInstalledAtRef.current
+      ? Date.parse(closetInstalledAtRef.current)
+      : NaN;
+    track("closet_import_first_item", {
+      platform: origin,
+      seconds_since_extension_install: Number.isFinite(installedAt)
+        ? Math.max(0, Math.round((Date.now() - installedAt) / 1000))
+        : null,
+    });
+  }, [userId]);
+
   // Poll the run until it terminalizes. The run is the source of truth, so a
   // refresh, a flaky connection or a closed laptop lid changes nothing about
   // whether the import finishes.
@@ -372,6 +436,7 @@ export function FlipdeskImportPage() {
         setRun(json.run);
         if (json.run.status !== "pending" && json.run.status !== "running") {
           setImporting(false);
+          recordClosetCompletion(json.run);
           if (json.run.failed_count > 0 || json.run.status === "failed") {
             toast.warning(
               `Imported ${json.run.inserted_count}, filled ${json.run.updated_count}, failed ${json.run.failed_count}.`,
@@ -400,7 +465,7 @@ export function FlipdeskImportPage() {
         pollRef.current = null;
       }
     };
-  }, [run?.id, run?.status]);
+  }, [run?.id, run?.status, recordClosetCompletion]);
 
   // US-2518 — put the catalog back. Items the run created are deleted, columns
   // it filled are restored to what they held, and anything since published to a
@@ -444,6 +509,13 @@ export function FlipdeskImportPage() {
         title="Import from spreadsheet"
         subtitle="Paste your Google Sheets data below. We'll auto-detect columns and you confirm the mapping before import."
               actions={<PageHelp slug="importing-your-inventory" />}
+      />
+
+      {/* US-9201: the extension-channel import. Renders only when the
+          extension is installed and the account has an active paid plan. */}
+      <ClosetImportCard
+        disabled={importing || !can("manage_inventory")}
+        onStarted={handleClosetStarted}
       />
 
       {/* Step 1: input — upload OR paste */}

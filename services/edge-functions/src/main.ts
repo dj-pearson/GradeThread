@@ -75,6 +75,7 @@ import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
 import { flipdeskExtensionQueueRoutes } from "./routes/flipdesk-extension-queue.ts";
 import { extensionOrUserAuthMiddleware } from "./middleware/extension-or-user-auth.ts";
 import { flipdeskSyncRoutes } from "./routes/flipdesk-sync.ts";
+import { flipdeskClosetImportRoutes } from "./routes/flipdesk-closet-import.ts";
 import { flipdeskExpensesRoutes } from "./routes/flipdesk-expenses.ts";
 import { qboRoutes } from "./routes/qbo.ts";
 import { qboAuthMiddleware, qboWorkspaceMiddleware } from "./middleware/qbo-auth.ts";
@@ -534,6 +535,13 @@ app.use("/api/flipdesk/sync/*", extensionOrUserAuthMiddleware);
 // would match a sold row against an empty set of listings.
 app.use("/api/flipdesk/sync", workspaceMiddleware);
 app.use("/api/flipdesk/sync/*", workspaceMiddleware);
+// US-9201: closet import intake. The extension posts what it read off the
+// seller's own closet tab with its signed token, so this takes the same wrapper
+// as sync and the queue; the web page never calls it directly.
+app.use("/api/flipdesk/closet-import", extensionOrUserAuthMiddleware);
+app.use("/api/flipdesk/closet-import/*", extensionOrUserAuthMiddleware);
+app.use("/api/flipdesk/closet-import", workspaceMiddleware);
+app.use("/api/flipdesk/closet-import/*", workspaceMiddleware);
 app.use("/api/flipdesk/reconciliation/*", authMiddleware);
 app.use("/api/flipdesk/sheets/*", authMiddleware);
 app.use("/api/flipdesk/import/*", authMiddleware);
@@ -1119,6 +1127,9 @@ app.use("/api/flipdesk/sync/*", rateLimiter(60, 60_000, "flipdesk-sync"));
 app.use("/api/flipdesk/reconciliation/*", rateLimiter(30, 60_000, "flipdesk-recon"));
 app.use("/api/flipdesk/sheets/*", rateLimiter(30, 60_000, "flipdesk-sheets"));
 app.use("/api/flipdesk/import/*", rateLimiter(30, 60_000, "flipdesk-import"));
+// US-9201: one closet read per press; 30/min bounds a stuck extension.
+app.use("/api/flipdesk/closet-import", rateLimiter(30, 60_000, "flipdesk-closet-import"));
+app.use("/api/flipdesk/closet-import/*", rateLimiter(30, 60_000, "flipdesk-closet-import"));
 app.use("/api/flipdesk/google/oauth/start", rateLimiter(10, 60_000, "google-oauth"));
 app.use("/api/flipdesk/google/sheet/*", rateLimiter(15, 60_000, "google-sheet"));
 app.use("/api/content/scheduler/*", rateLimiter(60, 60_000, "content-scheduler"));
@@ -1397,6 +1408,9 @@ app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
 // US-2518: durable CSV inventory import. The browser posts the mapped rows and
 // polls; the worker survives the tab closing and every run is reversible.
 app.route("/api/flipdesk/import", flipdeskImportRoutes);
+// US-9201: closet import through the extension. Same run/effect/undo tables as
+// the CSV import; a separate mount because it takes the extension token.
+app.route("/api/flipdesk/closet-import", flipdeskClosetImportRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 app.route("/api/flipdesk/scout", flipdeskScoutRoutes);
 // US-1863: Thrift Radar aggregates — venue list by bounding box + venue detail.

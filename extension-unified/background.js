@@ -52,6 +52,7 @@ if (typeof importScripts === "function") {
     // US-2701: the poll's decisions and the adapters it reads them against.
     // The DRIVER is in this file; these two only decide and describe.
     "sync/selectors.js",
+    "closet-import/selectors.js",
     "sync/poll-plan.js",
   );
 }
@@ -78,6 +79,11 @@ const ENTITLEMENTS_ENDPOINT = "https://functions.gradethread.com/api/grading/pub
 // FlipDesk gate rather than the anonymous public quota.
 const SYNC_OBSERVE_ENDPOINT =
   "https://functions.gradethread.com/api/flipdesk/sync/observations";
+// US-9201: closet import intake. Also a SELLER endpoint: the seller pressed
+// "Import my closet" on the web, the reader ran in their own closet tab, and
+// this is where what it read becomes a durable, reversible import run.
+const CLOSET_IMPORT_ENDPOINT =
+  "https://functions.gradethread.com/api/flipdesk/closet-import/runs";
 // The popup's door onto the SAME projection the Marketplaces page reads. The
 // extension speaks an HMAC token, not a Supabase JWT, so it cannot reach the
 // JWT-guarded /api/flipdesk/sync/status.
@@ -849,6 +855,147 @@ async function notePollResult(batch) {
     await ext.tabs.remove(rec.tabId);
   } catch (_e) { /* the seller may have closed it */ }
   await ext.storage.local.remove("syncPollTab");
+}
+
+// ── US-9201: closet import ────────────────────────────────────────────────
+//
+// The whole flow, so the constraints read in one place:
+//   1. the seller presses "Import my closet" on /dashboard/flipdesk/import;
+//   2. the page messages here (GT_CLOSET_IMPORT, over the bridge or
+//      externally_connectable), naming the marketplace;
+//   3. this finds a tab the seller ALREADY HAS OPEN on their own closet or one
+//      of their own listings. tabs.query is a read; it never opens, focuses or
+//      navigates a tab, and if there is none the honest answer is "open your
+//      closet first" rather than opening it for them (that would be the
+//      scheduled poll's behaviour under another name, and the poll carries its
+//      own consent);
+//   4. the content script in that tab reads the page on request and answers
+//      with the batch closet-import/extract.js allowlisted;
+//   5. this posts the batch with the seller token and hands the run id back to
+//      the page, which polls the ordinary import endpoints from there.
+//
+// The same seller gate as the Lister, by calling the same function. Fail-safe:
+// a lookup gap resolves to anonymous and nothing is read or posted.
+
+/** Tab URL patterns for one marketplace's closet and listing pages. */
+function closetImportTabPatterns(platform) {
+  const SEL = self.GT_CLOSET_IMPORT_SELECTORS;
+  const cfg = SEL && SEL[platform];
+  if (!cfg || !cfg.enabled) return [];
+  const out = [];
+  for (const host of cfg.hosts || []) {
+    out.push("https://" + host + "/*");
+    out.push("https://*." + host + "/*");
+  }
+  return out;
+}
+
+async function runClosetImport(msg) {
+  const platform = msg && typeof msg.platform === "string" ? msg.platform.toLowerCase() : "";
+  const patterns = closetImportTabPatterns(platform);
+  if (patterns.length === 0) {
+    return { ok: false, reason: "unsupported", error: "Closet import supports Poshmark and Mercari." };
+  }
+  if (!(await sellerAllowed())) {
+    return { ok: false, status: 402, reason: "seller_locked", error: "Closet import is a FlipDesk seller feature." };
+  }
+  const { gtBuyerToken, installedAt } = await ext.storage.local.get(["gtBuyerToken", "installedAt"]);
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
+    return { ok: false, status: 401, reason: "needs_sign_in", needsSignIn: true, error: "Sign in to GradeThread in the extension first." };
+  }
+
+  let tabs = [];
+  try {
+    tabs = await ext.tabs.query({ url: patterns });
+  } catch (_e) {
+    tabs = [];
+  }
+  // Most recently used first: the tab the seller was just looking at is the
+  // one they mean. `lastAccessed` is Chrome 121+ / Firefox; absent, order is
+  // whatever the browser gave us.
+  tabs = (tabs || []).filter((t) => t && t.id != null).sort(function (a, b) {
+    return (Number(b.lastAccessed) || 0) - (Number(a.lastAccessed) || 0) || (b.active ? 1 : 0) - (a.active ? 1 : 0);
+  });
+  if (tabs.length === 0) {
+    return { ok: false, reason: "no_tab", error: "Open your own closet on the marketplace in another tab, then press Import again." };
+  }
+
+  // Ask each candidate tab in turn; the first that reads a listing wins. A tab
+  // on the wrong page says so and the next is tried, so a seller with their
+  // closet AND a search results tab open is not told to close the search.
+  let last = null;
+  for (const tab of tabs) {
+    let answered = null;
+    try {
+      answered = await ext.tabs.sendMessage(tab.id, { type: "GT_CLOSET_IMPORT_READ" });
+    } catch (_e) {
+      answered = null; // no reader on that page (still loading, or not a matched path)
+    }
+    if (!answered) continue;
+    if (answered.ok && answered.batch) {
+      last = answered;
+      break;
+    }
+    if (answered.reason === "human_check" || answered.reason === "not_signed_in") {
+      // Stop rather than try another tab: the marketplace asked for a person,
+      // or there is nobody signed in, and either is the seller's to resolve.
+      return { ok: false, reason: answered.reason, error: closetImportReasonText(answered.reason) };
+    }
+    last = answered;
+  }
+  if (!last) {
+    return { ok: false, reason: "no_reader", error: "The closet tab has not finished loading. Give it a moment and press Import again." };
+  }
+  if (!last.ok) {
+    return { ok: false, reason: last.reason || "nothing_read", error: closetImportReasonText(last.reason) };
+  }
+
+  const instanceId = await getInstanceId();
+  let resp;
+  try {
+    resp = await fetch(CLOSET_IMPORT_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-GT-Extension-Id": instanceId,
+        Authorization: "Bearer " + gtBuyerToken,
+      },
+      body: JSON.stringify(last.batch),
+    });
+  } catch (_e) {
+    return { ok: false, status: 0, reason: "offline", error: "Couldn't reach GradeThread." };
+  }
+  let json = null;
+  try { json = await resp.json(); } catch (_e) { /* empty body */ }
+  return {
+    ok: resp.ok,
+    status: resp.status,
+    reason: resp.ok ? null : "server",
+    result: json,
+    page: last.batch.page,
+    listingsRead: last.batch.listings.length,
+    coverage: last.batch.coverage,
+    // Local only until now; the web page uses it for one number, the time
+    // from install to the first imported item, and never sends it elsewhere.
+    installedAt: typeof installedAt === "string" ? installedAt : null,
+  };
+}
+
+function closetImportReasonText(reason) {
+  switch (reason) {
+    case "human_check":
+      return "The marketplace is asking you to prove you are a person. Finish that in the tab, then press Import again.";
+    case "not_signed_in":
+      return "You are signed out of the marketplace in that tab. Sign in there, then press Import again.";
+    case "not_own_closet":
+      return "That closet is not yours. Open your own closet page, then press Import again.";
+    case "not_own_listing":
+      return "That listing is not yours. Open your own closet, or one of your own listings, then press Import again.";
+    case "wrong_page":
+      return "Open your own closet page (or one of your own listings) in that tab, then press Import again.";
+    default:
+      return "Nothing on that page read as one of your listings. Scroll so your listings are on screen, then press Import again.";
+  }
 }
 
 async function postSyncObservations(msg) {
@@ -1724,6 +1871,10 @@ const EXTERNAL_TYPES = new Set([
   "GT_WEB_POLL_STATE",
   "GT_WEB_POLL_REVOKE",
   "GT_WEB_POLL_INTERVAL",
+  // US-9201: "Import my closet" on the web. The page cannot read a Poshmark
+  // tab; it asks the extension, which reads the closet tab the seller already
+  // has open and posts the result with its own token.
+  "GT_CLOSET_IMPORT",
 ]);
 
 function handleExternalMessage(msg, sender, sendResponse) {
@@ -1831,6 +1982,17 @@ function handleExternalMessage(msg, sender, sendResponse) {
       await invalidateEntCache();
       await clearGradeCache();
       sendResponse({ ok: true, capabilities: await getCapabilities(true) });
+    })();
+    return true;
+  }
+
+  if (msg.type === "GT_CLOSET_IMPORT") {
+    (async () => {
+      try {
+        sendResponse(await runClosetImport(msg));
+      } catch (_e) {
+        sendResponse({ ok: false, reason: "failed", error: "Could not read the closet." });
+      }
     })();
     return true;
   }
