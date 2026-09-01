@@ -22,8 +22,11 @@ const {
   styleKeyFor,
   ingestMeasureCardObservations,
   mergeResolvedStyle,
+  buildListingTextObservations,
+  dropFieldsMeasuredByCard,
   MIN_INGEST_CONFIDENCE,
 } = await import("../lib/measurement-ingest.ts");
+const { LISTING_TEXT_CONFIDENCE } = await import("../lib/measurement-text-parse.ts");
 
 type Extracted = {
   key: string;
@@ -305,6 +308,58 @@ Deno.test("US-3034: with nothing stored, an empty style stays empty", () => {
     { field_key: "waist", style_key: "", department: "" },
   ]);
   assertEquals(rows[0]!.style_key, "");
+});
+
+// ── Evidence quality only ratchets up (US-3035) ─────────────────────────────
+
+Deno.test("US-3035: parsed text NEVER overwrites a calibrated measurement", () => {
+  // The unique key is (item_id, field_key) and knows nothing about sources, so
+  // without this guard a description saying "chest 22" would upsert straight
+  // over a card-plane measurement of the same garment — replacing the best
+  // evidence in the system with a hand-tape number, silently, on every sync.
+  const rows = buildListingTextObservations({
+    userId: "u1",
+    itemId: "i1",
+    cohort: COHORT,
+    parsed: [{ key: "waist", inches: 17 }, { key: "inseam", inches: 32 }],
+  });
+  const kept = dropFieldsMeasuredByCard(rows, [
+    { field_key: "waist", source: "measurecard" },
+    { field_key: "inseam", source: "listing_text" },
+  ]);
+  assertEquals(kept.map((r) => r.field_key), ["inseam"]);
+});
+
+Deno.test("US-3035: text DOES overwrite older text — the newest description wins", () => {
+  const rows = buildListingTextObservations({
+    userId: "u1",
+    itemId: "i1",
+    cohort: COHORT,
+    parsed: [{ key: "waist", inches: 18 }],
+  });
+  const kept = dropFieldsMeasuredByCard(rows, [
+    { field_key: "waist", source: "listing_text" },
+  ]);
+  assertEquals(kept.length, 1);
+  assertEquals(kept[0]!.inches, 18);
+});
+
+Deno.test("US-3035: text rows are stamped listing_text at the lower confidence", () => {
+  const rows = buildListingTextObservations({
+    userId: "u1",
+    itemId: "i1",
+    cohort: COHORT,
+    parsed: [{ key: "waist", inches: 17.004 }, { key: "hip", inches: 0 }],
+  });
+  // The non-positive value never becomes a row.
+  assertEquals(rows.map((r) => r.field_key), ["waist"]);
+  assertEquals(rows[0]!.source, "listing_text");
+  assertEquals(rows[0]!.confidence, LISTING_TEXT_CONFIDENCE);
+  assertEquals(rows[0]!.inches, 17);
+  assert(
+    LISTING_TEXT_CONFIDENCE < 0.9,
+    "text must rank below a calibrated measurement",
+  );
 });
 
 // ── Best-effort by contract ─────────────────────────────────────────────────

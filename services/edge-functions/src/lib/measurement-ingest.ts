@@ -47,6 +47,10 @@ import { supabaseAdmin } from "./supabase.ts";
 import { brandKeyForRaw } from "./brand-normalize.ts";
 import { resolveBrandKnowledgePack, type BrandStyleKnowledge } from "./brand-knowledge.ts";
 import { normalizeSizeLabel, normalizeDepartment, systemFromLabel } from "./size-systems.ts";
+import {
+  LISTING_TEXT_CONFIDENCE,
+  parseMeasurementsFromText,
+} from "./measurement-text-parse.ts";
 import type { ExtractedMeasurement } from "./measure-extract.ts";
 import type { MeasurementGroup } from "./measurement-templates.ts";
 
@@ -174,6 +178,61 @@ export function buildMeasureCardObservations(args: {
 }
 
 /**
+ * The rows a parsed listing description contributes.
+ *
+ * Same cohort, different evidence. Pure, and separate from the MeasureCard
+ * builder rather than a flag on it, because the two sources are filtered on
+ * different things and folding them together is how one source quietly
+ * inherits the other's rules.
+ */
+export function buildListingTextObservations(args: {
+  userId: string;
+  itemId: string;
+  cohort: MeasurementCohort;
+  parsed: readonly { key: string; inches: number }[];
+}): MeasurementObservationRow[] {
+  return args.parsed
+    .filter((p) => Number.isFinite(p.inches) && p.inches > 0)
+    .map((p) => ({
+      user_id: args.userId,
+      item_id: args.itemId,
+      brand_key: args.cohort.brandKey,
+      style_key: args.cohort.styleKey,
+      department: args.cohort.department,
+      measurement_group: args.cohort.measurementGroup,
+      size_label: args.cohort.sizeLabel,
+      size_system: args.cohort.sizeSystem,
+      field_key: p.key,
+      inches: Math.round(p.inches * 100) / 100,
+      source: "listing_text" as const,
+      confidence: LISTING_TEXT_CONFIDENCE,
+    }));
+}
+
+/**
+ * Drop any field a MeasureCard pass already measured.
+ *
+ * The unique key is (item_id, field_key), so without this a description saying
+ * "chest 22" would UPSERT straight over a calibrated card-plane measurement of
+ * the same garment — replacing the best evidence in the system with a
+ * hand-tape number, silently, on every sync.
+ *
+ * The reverse is deliberately not true: a card pass DOES overwrite parsed text,
+ * because that is a strict upgrade. Evidence quality only ratchets up.
+ *
+ * Pure and exported for the test.
+ */
+export function dropFieldsMeasuredByCard(
+  rows: MeasurementObservationRow[],
+  stored: readonly { field_key: string; source: string }[],
+): MeasurementObservationRow[] {
+  const byCard = new Set(
+    stored.filter((s) => s.source === "measurecard").map((s) => s.field_key),
+  );
+  return rows.filter((r) => !byCard.has(r.field_key));
+}
+
+/**
  * Decide, per field, whether a stored style beats the incoming one.
  *
  * Pure so the rule is testable on its own: an empty incoming style keeps the
@@ -289,6 +348,94 @@ export async function ingestMeasureCardObservations(args: {
   } catch (err) {
     console.error(
       "[measurement-ingest] ingest failed:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return 0;
+  }
+}
+
+/**
+ * Read a garment's own listing text and file whatever it states unambiguously.
+ *
+ * Best-effort on the same contract as the MeasureCard path: never throws,
+ * returns a count. `text` may be HTML — `listings.listing_description` holds an
+ * eBay body — and the caller is expected to have flattened it already, because
+ * flattening is the one step that needs no database and is worth doing once per
+ * item rather than once per listing.
+ *
+ * Two guards run before the write, and they protect different things:
+ *
+ *   dropFieldsMeasuredByCard stops a hand-tape number replacing a calibrated
+ *   one. Without it every sync would quietly downgrade the best evidence in the
+ *   system, because the upsert key does not know about sources.
+ *
+ *   carryForwardResolvedStyle stops a failed style match wiping a good one, the
+ *   same defect found on the MeasureCard path in US-3034.
+ */
+export async function ingestListingTextObservations(args: {
+  userId: string;
+  itemId: string;
+  brand: string | null | undefined;
+  style: string | null | undefined;
+  size: string | null | undefined;
+  group: MeasurementGroup;
+  text: string | null | undefined;
+}): Promise<number> {
+  try {
+    if (!args.text) return 0;
+
+    const parsed = parseMeasurementsFromText(args.text, args.group);
+    if (parsed.length === 0) return 0;
+
+    if (!brandKeyForRaw(args.brand)) return 0;
+    const pack = await resolveBrandKnowledgePack(args.brand);
+    const cohort = resolveMeasurementCohort({
+      brand: args.brand,
+      style: args.style,
+      size: args.size,
+      group: args.group,
+      styles: pack?.styles ?? [],
+    });
+    if (!cohort) return 0;
+
+    let rows = buildListingTextObservations({
+      userId: args.userId,
+      itemId: args.itemId,
+      cohort,
+      parsed,
+    });
+    if (rows.length === 0) return 0;
+
+    const { data: stored, error: readErr } = await supabaseAdmin
+      .from("garment_measurements")
+      .select("field_key, style_key, department, source")
+      .eq("item_id", args.itemId);
+    if (readErr) {
+      console.error("[measurement-ingest] prior read failed:", readErr.message);
+      return 0;
+    }
+    const priors = (stored ?? []) as unknown as {
+      field_key: string;
+      style_key: string;
+      department: string;
+      source: string;
+    }[];
+
+    rows = dropFieldsMeasuredByCard(rows, priors);
+    if (rows.length === 0) return 0;
+    mergeResolvedStyle(rows, priors);
+
+    const { error } = await supabaseAdmin
+      .from("garment_measurements")
+      .upsert(rows as never, { onConflict: "item_id,field_key" });
+    if (error) {
+      console.error("[measurement-ingest] listing-text upsert failed:", error.message);
+      return 0;
+    }
+    return rows.length;
+  } catch (err) {
+    console.error(
+      "[measurement-ingest] listing-text ingest failed:",
       err instanceof Error ? err.message : String(err),
     );
     return 0;

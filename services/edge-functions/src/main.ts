@@ -190,6 +190,7 @@ import { handleAbuseScanCron } from "./routes/jobs-abuse-scan.ts";
 import { watchdogHeartbeatHandler } from "./routes/jobs-watchdog-heartbeat.ts";
 import { handlePassportIntegrityScanCron } from "./routes/jobs-passport-integrity-scan.ts";
 import { handlePassportBackfillCron } from "./routes/jobs-passport-backfill.ts";
+import { handleMeasurementTextBackfillCron } from "./routes/jobs-measurement-text-backfill.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
 import { handleExemplarAssemblyCron } from "./routes/jobs-exemplar-assembly.ts";
 import { handleConfidenceCalibrationCron } from "./routes/jobs-confidence-calibration.ts";
@@ -1769,6 +1770,11 @@ app.post("/api/jobs/passport-integrity-scan", (c) => handlePassportIntegrityScan
 // certificated grade_report left with a NULL garment_id by the live-seed race
 // window. Idempotent; the handler enforces X-Internal-Job-Secret itself.
 app.post("/api/jobs/passport-backfill", (c) => handlePassportBackfillCron(c));
+// US-3035: drain synced listing text into the Fit & Measurement Index.
+app.post(
+  "/api/jobs/measurement-text-backfill",
+  (c) => handleMeasurementTextBackfillCron(c),
+);
 // US-905 scheduled audit-log anomaly scan (role-change bursts, mass refunds,
 // off-hours destructive actions). Thresholds in the settings registry; raises
 // an ops alert + admin_audit_anomalies finding. Enforces the job secret itself.

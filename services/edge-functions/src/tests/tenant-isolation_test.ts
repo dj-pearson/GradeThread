@@ -1605,6 +1605,52 @@ Deno.test({
   },
 });
 
+// ── US-3035: the measurement text backfill sweeps every tenant's items ──────
+//
+// It reads inventory_items and listings across ALL tenants by design, resolving
+// the owner from each row (item.user_id) rather than from the request, which is
+// the cron rule. That makes the job secret the only boundary it has, and it
+// carries two destructive switches behind the same door: ?reset=1 clears every
+// scan marker and ?purge=1 deletes every listing_text observation in the table.
+// A user JWT reaching this route would let any signed-in account wipe the
+// corpus, so both refusals are pinned rather than assumed.
+Deno.test({
+  name: "US-3035: measurement-text-backfill rejects a user JWT (must use job secret)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/measurement-text-backfill?purge=1`, {
+      method: "POST",
+      headers: authHeaders(A_JWT!),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/measurement-text-backfill with a user JWT should 401, got ${status}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "US-3035: measurement-text-backfill rejects a bogus X-Internal-Job-Secret",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/measurement-text-backfill?reset=1`, {
+      method: "POST",
+      headers: {
+        "X-Internal-Job-Secret": "wrong-secret-value",
+        "Content-Type": "application/json",
+      },
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/measurement-text-backfill with a bogus job secret should 401, got ${status}`,
+    );
+  },
+});
+
 // US-1965: the eBay order-sync backstop sweeps EVERY active tenant's connection
 // (it resolves the owner from each connection row, never from the request), so
 // it must be reachable ONLY by the cron with the matching job secret — never a
