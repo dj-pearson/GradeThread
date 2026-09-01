@@ -7817,3 +7817,21 @@ Deno.test({
     }
   },
 });
+
+// ── US-9207: the time-saved meter is the caller's own month, never a lookup ──
+
+Deno.test({
+  name: "US-9207: time-saved rejects a user or owner id outright",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    for (const param of ["user_id", "owner_id", "userId", "ownerId"]) {
+      const res = await fetch(
+        `${BASE}/api/flipdesk/time-saved?month=2026-09&${param}=${crypto.randomUUID()}`,
+        { headers: authHeaders(B_JWT!) },
+      );
+      await res.body?.cancel();
+      if (DENIED.has(res.status) || res.status === 402) continue;
+      assertEquals(res.status, 400, `time-saved accepted ?${param}=; a meter that takes an owner id is a read of someone else's month`);
+    }
+  },
+});

@@ -58,6 +58,7 @@ import { flipdeskMeasureRoutes } from "./routes/flipdesk-measure.ts";
 import { flipdeskDescriptionRoutes } from "./routes/flipdesk-description.ts";
 import { flipdeskSizeBandsRoutes } from "./routes/flipdesk-size-bands.ts";
 import { flipdeskMeasurementStatsRoutes } from "./routes/flipdesk-measurement-stats.ts";
+import { flipdeskTimeSavedRoutes } from "./routes/flipdesk-time-saved.ts";
 import { flipdeskForecastRoutes } from "./routes/flipdesk-forecast.ts";
 import { flipdeskEquityRoutes } from "./routes/flipdesk-equity.ts";
 import { flipdeskProductRoutes } from "./routes/flipdesk-product.ts";
@@ -559,6 +560,9 @@ app.use("/api/flipdesk/description/*", authMiddleware);
 // under this prefix.
 app.use("/api/flipdesk/size-bands", authMiddleware);
 app.use("/api/flipdesk/measurement-stats", authMiddleware);
+// US-9207: the time-saved meter reads the caller's own month only.
+app.use("/api/flipdesk/time-saved", authMiddleware);
+app.use("/api/flipdesk/time-saved", workspaceMiddleware);
 app.use("/api/flipdesk/product/*", authMiddleware);
 app.use("/api/flipdesk/templates/*", authMiddleware);
 app.use("/api/flipdesk/autolister/*", authMiddleware);
@@ -1421,6 +1425,7 @@ app.route("/api/flipdesk/size-bands", flipdeskSizeBandsRoutes);
 // US-3039: the published measurement table. Reference-only, same class as
 // size-bands: no item id, no tenant table.
 app.route("/api/flipdesk/measurement-stats", flipdeskMeasurementStatsRoutes);
+app.route("/api/flipdesk/time-saved", flipdeskTimeSavedRoutes);
 // US-1104 Garment Passport resale-value & depreciation forecast — list price,
 // days-to-sell, 12-month resale projection + CI from the owner's SKU-class sale
 // ledger. Tenant-scoped; compPulls plan tier + passport_forecast kill-switch.
