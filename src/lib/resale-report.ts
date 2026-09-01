@@ -1,3 +1,5 @@
+import { RETURN_SPLIT_MIN_SALES } from "@/lib/seller-scorecard";
+
 // Shared shape + "by the numbers" builder for the public State of Secondhand
 // Condition report (/resale-condition-report).
 //
@@ -142,7 +144,15 @@ export function byTheNumbers(report: ResaleConditionReport | undefined): ByTheNu
 
   const graded = report.return_rollup.graded;
   const ungraded = report.return_rollup.ungraded;
-  if (graded.return_rate !== null && ungraded.return_rate !== null) {
+  // US-9208 AC3: the public graded-vs-ungraded claim holds the same floor the
+  // seller scorecard does, twenty fulfilled sales a side, on top of the report's
+  // own null-under-thin-sample rule.
+  if (
+    graded.return_rate !== null &&
+    ungraded.return_rate !== null &&
+    graded.fulfilled_sales >= RETURN_SPLIT_MIN_SALES &&
+    ungraded.fulfilled_sales >= RETURN_SPLIT_MIN_SALES
+  ) {
     out.push({
       id: "graded-vs-ungraded-returns",
       stat: `Items sold with a standardized condition grade are returned at ${pct(graded.return_rate)}, versus ${pct(ungraded.return_rate)} for ungraded items.`,

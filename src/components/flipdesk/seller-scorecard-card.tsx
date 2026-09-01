@@ -17,6 +17,7 @@ import {
   pickBiggestGap,
   type Scorecard,
   type ScorecardMetric,
+  returnSplitLine,
 } from "@/lib/seller-scorecard";
 
 // US-2822: five percentiles and one sentence, at the top of Analytics.
@@ -154,6 +155,22 @@ export function SellerScorecardCard({
               </Link>
             );
           })}
+        </div>
+
+        {/* US-9208: the return rate split by whether the listing carried a grade
+            when it sold. This is the number grading is supposed to move, so it
+            gets its own two lines; under the floor it says so instead of a
+            percentage that two sales could produce. */}
+        <div className="rounded-xl bg-muted/50 p-3 text-sm">
+          <p className="text-xs text-muted-foreground">Returns, graded vs ungraded</p>
+          {[
+            returnSplitLine(data.returnSplit.graded, "Graded at sale"),
+            returnSplitLine(data.returnSplit.ungraded, "Ungraded"),
+          ].map((line) => (
+            <p key={line.text} className={cn("mt-1", line.kind === "thin" && "text-muted-foreground")}>
+              {line.text}
+            </p>
+          ))}
         </div>
 
         <p className="text-xs text-muted-foreground">

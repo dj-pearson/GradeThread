@@ -37,6 +37,23 @@
 > confirmation. A boot failure naming the schema version means the row is missing
 > and needs inserting by hand.
 
+## 00717 — scorecard return split (US-9208) — NOT YET APPLIED
+
+**Risk: low.** `create or replace` of `public.seller_scorecard(date)`, the
+same function as 00654 with a join to `grade_reports` and a `returnSplit` key
+in the payload. No table or column changes; the two grants are re-issued.
+Idempotent. **Apply order:** after 00716; the edge boot guard expects `00717`.
+
+**`NOTIFY pgrst, 'reload schema';`** recommended (a replaced function keeps
+its signature, so the cache is not strictly stale, but the reload is harmless).
+
+**Frontend:** the scorecard card reads `returnSplit` and treats a missing key
+as zero counts, which renders "not enough sales yet" on both sides. The
+auto-deploy is safe ahead of the apply.
+
+**Verify after applying:** `select public.seller_scorecard(null) -> 'returnSplit'`
+as an authenticated user answers an object with `graded` and `ungraded`.
+
 ## 00716 — graded draft price (US-9205) — NOT YET APPLIED
 
 **Risk: low.** Three nullable columns on `listings` (`price_set_by` with a
