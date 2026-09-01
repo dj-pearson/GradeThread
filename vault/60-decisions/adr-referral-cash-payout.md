@@ -4,13 +4,18 @@ type: decision
 status: accepted
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-09-01
+revisit_by: 2027-03-01
 tags: [decision, referrals, payouts, bizdev]
-summary: Whether referral rewards pay cash, and the compliance and abuse constraints that shaped the answer.
+summary: Whether referral rewards pay cash. Credits-only for user referral; since 2026-09-01, cash for a separate creator affiliate programme; and the compliance and abuse constraints that shape both.
 ---
 # Referral / Affiliate Program — Cash Payouts vs. Credits-Only (US-1141)
 
-> **Decision: NO-GO on cash payouts for now. Credits-only is INTENTIONAL.** The
+> **Revised 2026-09-01: GO for a creator affiliate programme paid in cash.
+> User referral stays credits-only. See section 6.** The original decision below
+> stands for user referral and is kept as written.
+>
+> **Decision (2026-06-21): NO-GO on cash payouts for now. Credits-only is INTENTIONAL.** The
 > affiliate/referral program rewards both parties in **grade credits** (via
 > `grant_grade_credits()`), not money. This is a `[NO-CODE]` spike/decision
 > deliverable — a documented founder decision, not shippable code. No production
@@ -184,6 +189,41 @@ it — never `max(id)+1`, since done stories live in `prd.archive.json`):
 | Re-evaluation trigger | A cash-demanding affiliate cohort + material referral channel + ops capacity for KYC/1099/fraud (see §3) |
 | If-GO blueprint | Mirror consignor Stripe Connect pattern (US-1112) — see §4 |
 | Next review | When the §3 trigger is met (no scheduled date — demand-driven) |
+| Revision 2026-09-01 | **GO for a creator affiliate programme paid in cash; user referral stays credits-only.** Decided by Founder (Dj Pearson). Story: US-9212 in `prd-crosslisting.json`. Next review 2027-03-01 (see section 6). |
+
+## 6. Revision, 2026-09-01: cash for creators, credits for users
+
+Decided by Dj on 2026-09-01 during the cross-listing competitiveness review
+(`prd-crosslisting.json`, US-9212). The section 3 trigger was written for the
+user referral programme, and none of its three conditions was measured before
+this call. The decision is strategic, and this note says so rather than
+pretending the trigger fired. The reasoning: reseller YouTube and TikTok
+creators are the channel Vendoo and List Perfectly were built on, creators do
+not promote for grade credits, and fourteen months of credits-only has
+produced no creators.
+
+What changes:
+
+- A **creator affiliate programme, separate from user referral,** pays cash:
+  20 to 30 percent of first-year subscription revenue, monthly, after the
+  refund window, capped per referred account. The numbers are set in the
+  story's acceptance criteria and land in [[pricing]] and `src/lib/constants.ts`
+  in the same commit once built.
+- **User referral stays credits-only.** Sections 1 to 3 still describe it and
+  nothing there changes.
+- **The build follows the section 4 blueprint unchanged:** mirror the
+  consignor Stripe Connect pattern, an `affiliate_payouts` ledger registered
+  as a service-role table, a batched engine, a config gate that ships off, and
+  W-9 capture plus 1099 threshold tracking before any copy advertises cash.
+
+What does not change: section 4.5 is still the gate. No cash moves before the
+tax plumbing exists, and the programme launches dark behind
+`affiliate_payout_mode` exactly as the consignor payouts did.
+
+Revisit 2027-03-01 against three numbers: creators signed, paid accounts they
+referred, and the monthly ops cost of payouts and tax handling. If the first
+two are near zero the programme goes back to a non-cash kit and this section
+records that.
 
 ## Related
 

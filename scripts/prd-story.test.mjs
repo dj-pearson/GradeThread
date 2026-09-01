@@ -211,12 +211,14 @@ describe("resolveBacklog", () => {
   it("accepts the shorthand", () => {
     expect(resolveBacklog("connector")).toBe(BACKLOGS.connector);
     expect(resolveBacklog("seo")).toBe(BACKLOGS.seo);
+    expect(resolveBacklog("crosslisting")).toBe(BACKLOGS.crosslisting);
     expect(resolveBacklog("main")).toBe(BACKLOGS.main);
   });
 
   it("accepts the filename, because both are things a person types", () => {
     expect(resolveBacklog("prd-connector.json")).toBe(BACKLOGS.connector);
     expect(resolveBacklog("prd-seo.json")).toBe(BACKLOGS.seo);
+    expect(resolveBacklog("prd-crosslisting.json")).toBe(BACKLOGS.crosslisting);
     expect(resolveBacklog("prd.json")).toBe(BACKLOGS.main);
   });
 
@@ -228,7 +230,7 @@ describe("resolveBacklog", () => {
     // The one failure mode worse than not having the flag: a typo silently
     // editing the main backlog. The message names the options.
     expect(() => resolveBacklog("nope")).toThrow(/unknown --backlog/);
-    expect(() => resolveBacklog("nope")).toThrow(/main, connector, seo, archive/);
+    expect(() => resolveBacklog("nope")).toThrow(/main, connector, seo, crosslisting, archive/);
     expect(() => resolveBacklog("../../etc/passwd")).toThrow(/unknown --backlog/);
   });
 

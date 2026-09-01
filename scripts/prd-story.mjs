@@ -56,6 +56,10 @@ export const BACKLOGS = {
   main: "../prd.json",
   connector: "../prd-connector.json",
   seo: "../prd-seo.json",
+  // Cross-listing competitiveness programme (US-9201+), 2026-09-01. Same
+  // reason as the other two siblings: held out of prd.json so Ralph never
+  // collides with it, and registered here so `show`/`note`/`done` can reach it.
+  crosslisting: "../prd-crosslisting.json",
   // WRITABLE BY `note` ONLY — see NOTE_ONLY_BACKLOGS below.
   //
   // Closing a story does not end the need to correct its record. US-2802's AC5

@@ -529,7 +529,7 @@ function rank(s) {
  * but it is not an integrity risk while the ranges stay apart. If a sibling
  * ever gets an id under 3000, that stops being true.
  */
-const BACKLOG_FILES = ["prd.json", "prd-seo.json", "prd-connector.json"];
+const BACKLOG_FILES = ["prd.json", "prd-seo.json", "prd-connector.json", "prd-crosslisting.json"];
 
 function loadBacklogs() {
   const stories = [];
