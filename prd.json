@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3033",
+  "nextId": "US-3042",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2910,6 +2910,190 @@
         "Do NOT bulk re-record. Any golden that is genuinely stale must be shown stale by a FILTERED run of its own class before it is re-recorded.",
         "Confirm which task the Android CI workflow invokes. If it is the unfiltered one, either fix the shared state or make CI run per-class, so that a red screenshot lane means something again.",
         "The 11 spinner-frame failures (loading/submitting/processing/running/saving) are a separate known class - freeze the frame or exclude them deliberately, with a comment saying which."
+      ]
+    },
+    {
+      "id": "US-3033",
+      "passes": false,
+      "title": "Measurement index foundation: the two tables and one normalized size key",
+      "description": "First story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). Every clothing brand publishes BODY size charts and almost nobody publishes flat-lay GARMENT measurements, which is what a resale listing is actually written with. Migration 00674 confirms this from inside the repo: all 292 seeded brand_size_charts rows are body-basis, and its own comment quotes the 00452 athleisure block saying 'All BODY measurements, never flat-garment'. This story builds the storage only. No ingestion, no aggregate, no page. Two tables in ONE migration. garment_measurements holds one row per garment per measured field: user_id, item_id, brand_key, style_key, department, measurement_group, size_label, size_system, field_key, inches numeric(5,2), source ('measurecard' or 'listing_text'), confidence, timestamps. Unique on (item_id, field_key) so re-measuring updates instead of double-counting. RLS is tenant-scoped, it is the user's own inventory data. garment_measurement_stats holds the published aggregate keyed by (brand_key, style_key, department, measurement_group, size_label, field_key) with sample_count, contributor_count, p25, median, p75, sufficient boolean, updated_at. RLS is DENY-ALL, read only through the service-role client, exactly as brand_size_charts does and for the reason given at the top of flipdesk-size-bands.ts: it is global reference data with no tenant to scope by. style_key and department are NOT NULL DEFAULT '' rather than nullable, for the reason 00389 states about brand_styles: PostgREST upsert onConflict cannot target an expression index, so the natural key has to be plain columns. The third piece is normalizeSizeLabel(raw, group) in size-systems.ts. It is the join key, so if 'W34 L32', '34x32' and '34X32' do not collapse to one label the corpus fragments into useless pieces and every downstream number is wrong.",
+      "acceptanceCriteria": [
+        "ONE migration creates garment_measurements and garment_measurement_stats, is idempotent, bumps EXPECTED_SCHEMA_VERSION in the SAME commit, and carries the self-record footer (US-1108 triple). Load the migrations skill first.",
+        "garment_measurements is unique on (item_id, field_key). Re-measuring the same garment updates the row rather than adding a second one, proven by a test.",
+        "garment_measurements RLS is tenant-scoped: a user can read and write only rows where user_id is their own. A tenant-isolation test case covers it.",
+        "garment_measurement_stats RLS is deny-all and the table is registered with rls-guard as a service-role table (see vault/20-domain/service-role-tables.md).",
+        "style_key and department are NOT NULL DEFAULT '' so the natural key is plain columns and PostgREST onConflict can target it.",
+        "Copy the no-revoke block from 00609. Do NOT write a fresh REVOKE: a denied anon/authenticated call segfaults production Postgres (US-2403, still open).",
+        "normalizeSizeLabel(raw, group) is added to size-systems.ts as a pure function. Rules in order: trim and collapse whitespace and uppercase; waist-by-inseam forms collapse to a single form such as 34X32; alpha sizes collapse to a canonical token so MEDIUM, MED and M all become M; numeric sizes keep the number and drop decorations; anything unrecognised is stored verbatim and NEVER merged with anything else.",
+        "normalizeSizeLabel has a table test covering each rule and proving an unrecognised label does not merge.",
+        "STOP after the migration is written. This commit carries a migration, so it waits for the owner's explicit OK before it goes anywhere (standing rule)."
+      ],
+      "priority": 70
+    },
+    {
+      "id": "US-3034",
+      "passes": false,
+      "title": "Ingest MeasureCard extractions into garment_measurements",
+      "description": "Second story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). measure-extract.ts already returns the highest-quality garment measurements available anywhere, including from the brands: real inches on the card plane via the US-1572 calibration homography, with a per-field model confidence and a flagged bit for values outside the size prior. Today those numbers land on inventory_items.measurements and stop there. Hook the ingestion where measurements are persisted, in flipdesk-measure.ts. Resolve the garment's identity through the same brand_styles path the composer already uses, run the size label through normalizeSizeLabel, and write one row per field with source 'measurecard' and the extraction's own confidence. An observation with no resolved style is still worth keeping: it stores with style_key '' and rolls up to a brand-level cohort, which is a weaker page but a real one. Do not drop it.",
+      "acceptanceCriteria": [
+        "Saving measurements on an item writes or updates one garment_measurements row per measured field, with source 'measurecard' and the extraction's per-field confidence.",
+        "Identity resolves through the existing brand_styles path. When no style resolves the row is still written with style_key '' rather than dropped.",
+        "size_label is written through normalizeSizeLabel and size_system through the existing size-systems helpers.",
+        "Re-measuring the same item updates its existing rows. A garment never counts twice, proven by a test.",
+        "Rows are written with the item's owning user_id so the tenant scope and the later opt-out delete both work.",
+        "A field the extractor marked flagged is NOT ingested. A value the extractor itself distrusts must not become a published median.",
+        "Ingestion failure never fails the measurement save. The seller's own save is the primary action and the corpus is a side effect.",
+        "A tenant-isolation test case covers the new write path (standing rule for every edge route change)."
+      ],
+      "priority": 71,
+      "dependsOn": [
+        "US-3033"
+      ]
+    },
+    {
+      "id": "US-3035",
+      "passes": false,
+      "title": "Parse measurements out of the listing descriptions FlipDesk already syncs",
+      "description": "Third story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). Resellers routinely write 'Pit to pit: 22\"' into their eBay descriptions, and FlipDesk already syncs and imports those descriptions for its users' own connected accounts (flipdesk-import.ts already carries description on imported rows). Reading measurements out of a user's own listings is unambiguously fine. Harvesting the whole public eBay corpus was considered and REJECTED on eBay's API license, which restricts storing and redisplaying listing data. Do not reintroduce it. This is the component most likely to be quietly wrong, and a silent parser defect is indistinguishable from real data once it lands. So the parser is deliberately paranoid, and every row it writes is tagged source 'listing_text' at a fixed lower confidence than measurecard, which means a parser defect is undone by deleting one source rather than rebuilding the corpus.",
+      "acceptanceCriteria": [
+        "A new PURE library parses labeled measurements out of listing description text. It takes a string and returns typed results. No network, no database, fully unit-testable.",
+        "A label AND a unit are both required. 'chest 22in', 'pit to pit: 22\"' and 'Inseam - 32 inches' are accepted. A bare number is rejected, and so is a number inside a sentence about anything else.",
+        "Each field_key has a plausible inch range (for example chest 12 to 40, inseam 20 to 40). A value outside its band is DROPPED, never clamped.",
+        "Centimetres are converted only when the unit is written. A unitless number is never assumed to be either unit.",
+        "The parser has a fixture of REAL listing description shapes including the ugly ones: several measurements on one line, ranges, cm, a table rendered as plain text, and prose containing numbers that mean nothing. This fixture is the story's main deliverable.",
+        "Rows are written with source 'listing_text' and a fixed confidence lower than measurecard's.",
+        "A one-time backfill runs the parser over descriptions already synced, is idempotent, and can be re-run safely after a parser fix.",
+        "Ambiguity resolves to dropping the value. A missing measurement costs nothing; a wrong one poisons every page it reaches."
+      ],
+      "priority": 72,
+      "dependsOn": [
+        "US-3033"
+      ]
+    },
+    {
+      "id": "US-3036",
+      "passes": false,
+      "title": "Nightly measurement aggregate, and the floor that decides what is publishable",
+      "description": "Fourth story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). Roll garment_measurements up into garment_measurement_stats. Model this directly on jobs-durability-aggregate.ts, which is very nearly the same job: job-secret gate, acquireJobLock, all real work in a pure lib, idempotent upsert on the natural key. Two floors, both required for a cohort to be publishable. MIN_MEASUREMENT_SAMPLE = 5 garments and MIN_MEASUREMENT_CONTRIBUTORS = 3 distinct sellers. The second is a privacy floor, not a quality floor, and it exists for a different reason than the first: a number backed by one seller's closet is a statement about that seller's inventory, and a number backed by three is a fact about the garment. These are lower than the condition index's MIN_INDEX_TOTAL_SAMPLE of 8 on purpose. Price variance across a cohort is large so a price claim needs more samples to be honest; flat measurements of one style in one size vary by a fraction of an inch, so five real garments already give a stable median. Both numbers are decisions rather than measurements, and the reasoning is written down so the next person argues with the reasoning instead of the number. Following the durability precedent, insufficient cohorts are STILL WRITTEN with sufficient=false so the read path filters rather than the write path hiding. That is what makes coverage measurable, which is exactly what the next story needs.",
+      "acceptanceCriteria": [
+        "POST /api/jobs/measurement-aggregate exists, gated by requireJobSecret and wrapped in acquireJobLock('measurement-aggregate', 600), returning a summary of cohorts, sufficient count and upserted count.",
+        "All computation lives in a new pure lib with unit tests. The route does auth, locking and persistence only.",
+        "Within a cohort, values past 1.5 IQR are dropped BEFORE the median and quartiles are computed. With small cohorts this matters: one fat-fingered 220 must not move a page.",
+        "MIN_MEASUREMENT_SAMPLE = 5 and MIN_MEASUREMENT_CONTRIBUTORS = 3 are named exported constants. sufficient is true only when BOTH pass.",
+        "contributor_count counts DISTINCT user_id, not rows. Five garments from one seller does not clear the contributor floor.",
+        "Insufficient cohorts are written with sufficient=false rather than skipped, so coverage is measurable.",
+        "The upsert is idempotent on the natural key. Running the job twice changes nothing the second time, proven by a test.",
+        "OPERATOR: the Coolify scheduled task has to be created by hand. US-2313 already records that nothing in version control creates the 73 production cron schedules, so say this in the story close rather than assuming the schedule exists."
+      ],
+      "priority": 73,
+      "dependsOn": [
+        "US-3034",
+        "US-3035"
+      ]
+    },
+    {
+      "id": "US-3037",
+      "passes": false,
+      "title": "[GATE] Measure real coverage before a single public measurement page is written",
+      "description": "Fifth story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md), and it is a gate rather than a build. The design names three things that would kill this feature, and two of them are only answerable once the aggregate has run over real data. Answer them here, before any page exists, because a public surface built on thin coverage is expensive to remove and embarrassing to leave up. Question one: how many brand-style-size cohorts actually clear 5 samples and 3 contributors. If the answer is fewer than a few dozen, the public pages (the two stories after the disclosure work) should NOT ship yet, and this story says so in its close. The product half of the feature still stands on its own. Question two: what share of observations resolved to a style at all. US-2216 already records that brand_styles covers only a fraction of the brand knowledge base. Observations with no resolved style fall back to brand-level cohorts, which make weaker pages. If the resolved share is low, US-2216 stops being a neighbour and becomes a prerequisite, and this story raises that. Report the numbers. Do not estimate them.",
+      "acceptanceCriteria": [
+        "Run the aggregate job against real data and report the actual count of cohorts with sufficient=true, broken down by measurement_group.",
+        "Report the share of garment_measurements rows that resolved to a non-empty style_key, and the share that fell back to brand level.",
+        "Report the top brands by cohort count, so the first public pages can be chosen on evidence rather than on which brand came to mind.",
+        "State a plain verdict on whether the public pages should ship now, later, or not at all, and say which number drove it.",
+        "If the resolved-style share is low, file the dependency on US-2216 explicitly rather than noting it in passing.",
+        "This story writes NO product code and NO pages. Its deliverable is numbers and a decision."
+      ],
+      "priority": 74,
+      "dependsOn": [
+        "US-3036"
+      ]
+    },
+    {
+      "id": "US-3038",
+      "passes": false,
+      "title": "Disclose the measurement aggregate before the first row is published, and build the opt-out",
+      "description": "Sixth story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). Contribution to the aggregate is OPT-OUT, and that only holds if it is disclosed properly. The existing privacy policy does NOT cover this. Its aggregate clause in src/pages/legal/privacy.tsx (the 'de-identified images and aggregated grading outputs' bullet) permits internal use for model accuracy, benchmarks and prompts. It says nothing about publishing an aggregate on a public page. That gap closes BEFORE the first observation is published, not after. US-2643 is the standing example of why this matters here: a retention row promised a purge that did not happen, and the fix was to make the words true rather than to soften them. Six pieces, and the settings toggle carries a landmine. 00526 made public.users self-updates deny-by-default via a write allowlist. A new preference column MUST restate the allowlist in the same migration, or the toggle renders, saves without an error, and changes nothing.",
+      "acceptanceCriteria": [
+        "Privacy policy gains a clause naming what is aggregated (garment measurements only, never photos, never seller identity), the floor of 5 garments from 3 distinct sellers, that the result appears on public pages, and how to stop contributing.",
+        "Terms section 4 ('Your content and licenses', the grant around line 107) is extended to cover publishing DERIVED AGGREGATE measurements. Narrow wording: measurements only, aggregate only. Do not broaden the grant while you are in there.",
+        "The retention table gains a row saying what happens to contributions on opt-out and on account deletion.",
+        "One line of in-product disclosure appears in the composer where the autofill shows, with the setting one click away. Not buried in a settings page nobody opens.",
+        "A settings toggle exists. Off means new measurements stop being contributed AND existing garment_measurements rows for that user are DELETED. The next nightly rebuild drops them from the published numbers.",
+        "The copy states plainly that already-published pages are recomputed rather than frozen. Do not imply a published number is retracted instantly.",
+        "MIGRATION: the users preference column restates the 00526 write allowlist in the SAME migration, or the toggle is a silent no-op. Verify the save actually persists rather than assuming it.",
+        "The migration follows the US-1108 triple and copies the no-revoke block from 00609.",
+        "The policy change is dated on /changelog.",
+        "No new subprocessor is involved, so subprocessors.tsx is untouched. Confirm rather than assume.",
+        "A test proves the opt-out removes rows from the AGGREGATE on the next rebuild, not merely that new ones stop arriving.",
+        "STOP after the migration is written. This commit carries a migration and waits for the owner's explicit OK (standing rule)."
+      ],
+      "priority": 75,
+      "dependsOn": [
+        "US-3033"
+      ]
+    },
+    {
+      "id": "US-3039",
+      "passes": false,
+      "title": "Composer autofill and the drift warning: the half of this feature sellers pay for",
+      "description": "Seventh story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). This is the product half, and it stands on its own with no public page in existence. Autofill: when an item has a resolved brand, style and size, its measurements are empty, and the aggregate has a sufficient cohort, render the medians as SUGGESTIONS. Ghosted in the fields, one line beneath reading something like 'Median of 14 measured pairs', one button to accept, and the seller can type over any of them. Nothing is written until the seller acts. A silent write is not acceptable here: a wrong measurement on a listing becomes a return, and returns are the problem this whole product exists to prevent. The drift warning may be the better half. 00658_measurement_drift already exists. When a seller's entered measurement sits far outside the cohort, flag it inline: most 550 W34s measure 17 inches at the waist and yours says 19. That is a mismeasure or a mislabeled item, and catching it before publish is worth more to a working reseller than the autofill is. Reads go through ONE new reference-only edge route that follows flipdesk-size-bands.ts exactly.",
+      "acceptanceCriteria": [
+        "GET /api/flipdesk/measurement-stats takes brand, style, department, group and size, and returns only cohorts with sufficient=true.",
+        "That route takes NO item id and reads NO tenant table. An itemId param is REJECTED rather than ignored, so a future caller cannot quietly turn a reference lookup into a tenant read. This is the flipdesk-size-bands.ts rule and it is asserted by a test, not assumed.",
+        "Autofill renders medians as ghosted suggestions, never as saved values. Nothing persists until the seller accepts or types.",
+        "The sample count is shown with the suggestion. A number with no provenance is worse than no number.",
+        "The seller can accept all, accept none, or overwrite any single field.",
+        "Drift warning fires inline when an entered value sits outside the cohort by a field-specific margin, naming the cohort median so the seller can judge it. It warns, it never blocks.",
+        "Both surfaces are absent and silent when no sufficient cohort exists. No empty state, no placeholder, no 'coming soon'.",
+        "A tenant-isolation test case covers the new route (standing rule).",
+        "The in-product disclosure line from the disclosure story appears here, since this is where the autofill shows."
+      ],
+      "priority": 76,
+      "dependsOn": [
+        "US-3036",
+        "US-3038"
+      ]
+    },
+    {
+      "id": "US-3040",
+      "passes": false,
+      "title": "The public measurement pages: hub, brand, and the style page that holds the whole size run",
+      "description": "Eighth story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). Three page tiers, deliberately NOT four. /measurements is the hub explaining what a flat measurement is and how to read the table. /measurements/:brand lists every published style. /measurements/:brand/:style is the money page and holds the full size run in one table. Per-size pages are excluded on purpose. vault/40-growth/seo-indexability.md records that about 79 percent of the static surface is already templated and that a large templated footprint on this domain invites suppression. A style page holding the whole size run is one strong page instead of twelve thin ones, and it matches how the query is actually typed: 'levis 550 measurements', not 'levis 550 w34 measurements'. Copy is seller-first. The 2026-08-18 finding is that 99 percent of this keyword universe's volume carries seller intent and buyer traffic has no monetization path attached yet. The page answers what measurements to put in the listing, the CTA is FlipDesk autofill, and a buyer-facing fit line sits below it linking to the existing /tools/fit-checker. Rendered at the edge because the data grows nightly and static prerender would need a deploy per change.",
+      "acceptanceCriteria": [
+        "functions/measurements/[[path]].ts plus a shared renderer in functions/_shared/ serve the three tiers as edge-SSR Cloudflare Pages Functions, following functions/style/[code].ts.",
+        "A pure shaping lib computes indexable ONCE, so the page and the sitemap cannot disagree. This is the public-style-code.ts rule and it is not optional.",
+        "A page with no sufficient cohort returns a real 404. Never a soft 404, never an empty table, never a placeholder row.",
+        "A field that has not cleared both floors is ABSENT from the table. A bottom page needs waist and inseam; rise, hip and leg opening appear only when they qualify.",
+        "Every page prints its sample count in visible copy, for example 'Median of 14 measured pairs'. This sentence is the entire competitive claim and no page ships without it.",
+        "Copy is seller-first with the FlipDesk autofill CTA, and carries a secondary buyer line linking to /tools/fit-checker.",
+        "Do NOT ship this until the US-3037 gate has reported enough cohorts. If that gate said wait, this story waits.",
+        "Run npm run ui:check. The enforced baseline is zero."
+      ],
+      "priority": 77,
+      "dependsOn": [
+        "US-3037",
+        "US-3038"
+      ]
+    },
+    {
+      "id": "US-3041",
+      "passes": false,
+      "title": "Wire the measurement pages into the SEO machine: own sitemap segment, Dataset JSON-LD, registry lockstep",
+      "description": "Ninth and last story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). The pages exist; this makes them findable and citable. Own sitemap segment, sitemap-measurements.xml, listed alongside the other commercial segments. A segment makes the cluster's indexation readable as one line in Search Console, which is the only way its success or failure is ever answerable. This is the reasoning US-9015 used for sitemap-care.xml. Interlinking goes in the EXISTING reselling hub. Do not add a Hub value to interlink-rules.ts. The audience is the same seller and links should flow both ways, which is the opposite of the one-way containment care needs. JSON-LD is Dataset with variableMeasured per field, plus BreadcrumbList. That is the correct type for a table of measured values and it is what an answer engine reads when deciding whether a number is worth citing, which is the whole point of the feature. The registry work is lockstep and CI-guarded, so a missed step fails the build rather than shipping quietly. See vault/40-growth/seo-public-route-registry.md.",
+      "acceptanceCriteria": [
+        "sitemap-measurements.xml exists as its own segment and is listed in the sitemap index alongside the commercial segments, not folded into sitemap-marketing.xml.",
+        "The sitemap lists exactly the pages that render. It reads the same indexable computation the page does, so the two cannot disagree.",
+        "The three route shapes are registered in src/lib/seo/public-routes.ts and src/prerender/entry-server.tsx. The CI guard test and the prerender sync-guard both pass.",
+        "JSON-LD is Dataset with variableMeasured per measured field, plus BreadcrumbList, injected via the SEO component AND mirrored in head-builder.ts jsonLdForRoute() per the standing rule.",
+        "No new Hub value in interlink-rules.ts. The pages join the existing reselling hub and links flow both ways.",
+        "No markup for data that does not exist. No aggregateRating, no placeholder fields.",
+        "Run BOTH seo test suites, not one. 'The tests passed' is a claim about the suite you actually ran.",
+        "Run npm run ui:check and npx tsc -b. The ui:check baseline is zero."
+      ],
+      "priority": 78,
+      "dependsOn": [
+        "US-3040"
       ]
     }
   ]
