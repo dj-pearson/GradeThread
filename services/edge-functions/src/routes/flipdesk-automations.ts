@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { queueRevisesForItem } from "../lib/pending-revises.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { isFeatureEnabled } from "../lib/feature-flags.ts";
@@ -784,6 +785,25 @@ async function applyMatch(
     if (error) return false;
     before = { price_cents: currentCents };
     after = { price_cents: planned.newCents, floored: planned.floored };
+    // US-9202: the same garment's copies on Poshmark, Mercari or Vinted cannot
+    // be repriced from here; they are marked stale and the desktop extension
+    // applies the drop. Recorded on the action so the log says QUEUED for those
+    // channels rather than counting them as applied. Their local price follows
+    // the eBay one, so the extension writes the number the seller sees here.
+    const siblings = await queueRevisesForItem(
+      ownerId,
+      listing.inventory_item_id,
+      ["price"],
+      "automation",
+    );
+    if (siblings.listingIds.length > 0) {
+      await supabaseAdmin
+        .from("listings")
+        .update({ listing_price: newDollars })
+        .in("id", siblings.listingIds)
+        .eq("user_id", ownerId);
+      after.queued_revises = siblings.platforms;
+    }
   } else if (planned.kind === "set_promo_rate") {
     // US-2232: push the new Promoted Listings bid to eBay FIRST (US-467), then
     // record local state — so a rule can never report an "applied" promo rate

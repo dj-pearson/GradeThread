@@ -19,6 +19,8 @@
 //   TEST_USER_A_SYNC_LISTING_URL a poshmark listings.listing_url owned by A
 //   TEST_USER_A_CLOSET_LISTING_PID a poshmark listings.platform_listing_id owned
 //                               by A (closet import dedupe key, US-9201)
+//   TEST_USER_A_REVISE_LISTING_ID a live poshmark listing of A's carrying a
+//                               revise_pending marker (US-9202)
 //                               (US-2697 sold-sync; OPTIONAL - skips until the
 //                               seed script has been re-run)
 //   TEST_USER_A_API_KEY_ID      an api_keys.id
@@ -6966,6 +6968,66 @@ Deno.test({
       method: "POST",
       headers: authHeaders(B_JWT!),
     }).then((r) => r.body?.cancel());
+  },
+});
+
+// US-9202: the pending-revise queue. Three doors, three properties: B cannot
+// stamp A's item stale (revise-queue takes an item id from the body), B cannot
+// clear A's stale marker (revise-confirm takes a listing id and a bare
+// `applied: true` would tell A the marketplace confirmed an edit it never saw),
+// and A's stale listing never shows in B's queue (the read takes no id).
+
+Deno.test({
+  name: "B cannot queue a revise on A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/listings/revise-queue`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        inventory_item_id: Deno.env.get("TEST_USER_A_ITEM_ID")!,
+        fields: ["price", "title"],
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST revise-queue on a foreign item");
+  },
+});
+
+Deno.test({
+  name: "B cannot confirm a revise on A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_REVISE_LISTING_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/listings/revise-confirm`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        listing_id: Deno.env.get("TEST_USER_A_REVISE_LISTING_ID")!,
+        applied: true,
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST revise-confirm on a foreign listing");
+  },
+});
+
+Deno.test({
+  name: "B's pending-revise queue never contains A's stale listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_REVISE_LISTING_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/listings/pending-revises`, {
+      headers: authHeaders(B_JWT!),
+    });
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      return; // denied outright is also a pass
+    }
+    const body = await res.json() as { pending?: Array<{ listing_id: string }> };
+    const ids = (body.pending ?? []).map((p) => p.listing_id);
+    assert(
+      !ids.includes(Deno.env.get("TEST_USER_A_REVISE_LISTING_ID")!),
+      "B's pending-revise queue contained A's listing.",
+    );
   },
 });
 

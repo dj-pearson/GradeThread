@@ -203,6 +203,7 @@ import {
   type ComposerListingState,
 } from "@/lib/composer-save";
 import { HelpLink } from "@/components/help/help-link";
+import { useQueueRevise } from "@/hooks/use-pending-revises";
 
 
 // Legacy rows can carry a coarse category string that predates ITEM_CATEGORIES.
@@ -262,6 +263,9 @@ export function FlipdeskComposerPage({
   const id = itemId ?? routeId;
   const navigate = useNavigate();
   const qc = useQueryClient();
+  // US-9202: a saved title/description marks the item's live copies on the
+  // extension channels stale, so the row says so until they are re-applied.
+  const queueRevise = useQueueRevise();
   const confirm = useConfirm();
   const endListing = useEndListing();
   // US-827/US-648: render description measurements in the seller's unit.
@@ -1498,6 +1502,7 @@ export function FlipdeskComposerPage({
         if (listingErr) throw listingErr;
       }
       titleSavedRef.current = next;
+      queueRevise.mutate({ itemId: item.id, fields: ["title"] }, { onError: () => undefined });
       pendingTitleRef.current = null;
       // Stamp the RAW value the seller typed, not the trimmed one written: the
       // snapshot compares against form state, so stamping the trim would leave
@@ -2082,6 +2087,7 @@ export function FlipdeskComposerPage({
       // this call fails, and it is overwritten byte for byte when it succeeds.
       const rendered = await descriptionBlocks.save(listingId);
       if (rendered !== null) setDescription(rendered);
+      queueRevise.mutate({ itemId: item.id, fields: ["title", "description"] }, { onError: () => undefined });
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       // The row we actually wrote, which on a post-merge retry is not

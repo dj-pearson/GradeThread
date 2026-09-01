@@ -64,6 +64,7 @@ function job(over) {
   assert.strictEqual(job({ clientRef: 42 }).clientRef, null, "a non-string clientRef is dropped");
   assert.strictEqual(job({ kind: "nonsense" }).kind, "list", "an unknown kind falls back to list");
   assert.strictEqual(job({ kind: "delist" }).kind, "delist", "delist is preserved");
+  assert.strictEqual(job({ kind: "revise" }).kind, "revise", "revise is preserved (US-9202)");
 }
 
 // ── findByTab: what the respawned content script asks ──────────────────────
@@ -407,7 +408,7 @@ console.log("lister-jobs: all assertions passed");
     );
     assert.deepStrictEqual(
       Object.keys(J.RUNNABLE_QUEUE_KINDS).sort(),
-      ["delist", "list"],
+      ["delist", "list", "revise"],
       "adding a runnable kind here means teaching the drain to run it",
     );
   }

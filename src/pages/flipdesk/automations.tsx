@@ -1134,6 +1134,15 @@ function RuleActivity({ ruleId }: { ruleId: string }) {
                 promo {beforeRate ?? 0}% → {afterRate}%
               </span>
             )}
+            {/* US-9202: the same drop on the item's extension-channel copies is
+                QUEUED for the desktop extension, never counted as applied. */}
+            {a.action_type === "price_drop_pct" &&
+              Array.isArray(a.after_json?.queued_revises) &&
+              (a.after_json.queued_revises as string[]).length > 0 && (
+                <span className="text-amber-600 dark:text-amber-400">
+                  queued on {(a.after_json.queued_revises as string[]).join(", ")}
+                </span>
+              )}
             {a.action_type === "end_listing" && (
               <span className="text-muted-foreground">ended</span>
             )}

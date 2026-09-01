@@ -285,6 +285,53 @@ const GT_LISTER_SELECTORS = {
     // solving service, and does not retry around it — that is a bright line in
     // vault/60-decisions/adr-no-server-side-marketplace-automation.md §3.2, and
     // it holds even though this runs in the seller's own browser.
+    // ── US-9202: revise (edit sync) ──────────────────────────────────────
+    //
+    // OFF, and every selector below is an UNCHECKED guess written from the
+    // same editor the delist flow walks through (`edit_listing` on the listing
+    // → /edit-listing/{id}, where 2026-08-11's probe named `delete`, `update`,
+    // `cancel`, `discard` and `save_draft` beside each other). Nobody has
+    // watched a price change land on a live listing through it, and until
+    // somebody does the flow reports "edit manually" with the listing link,
+    // never a guess. Enabling is two edits: `enabled: true` + a real
+    // `lastVerified`, and MARKETPLACE_EXTENSION_FLOWS.poshmark.revise in
+    // src/lib/constants.ts flips with it (marketplace-mechanism.test.ts).
+    //
+    // Two-page, like delist: `edit` on the listing page is a LINK
+    // (`navigatesTo`), and the fill happens on the editor. Only `edit` can
+    // exist before any interaction, so only `edit` is probed up front.
+    revise: {
+      enabled: false,
+      version: "2026.09.0-draft",
+      lastVerified: null,
+      required: ["edit"],
+      edit: '[data-et-name="edit_listing"], a[href*="/edit-listing/"], [data-test="edit-listing"]',
+      navigatesTo: "^https://[^/]*poshmark\\.(com|ca)/edit-listing/",
+      // The editor is the create wizard's fields under the same test names.
+      fields: {
+        title:
+          'input[data-test="listing-editor-title"], input[name="title"], input#title',
+        description:
+          'textarea[data-test="listing-editor-description"], textarea[name="description"], ' +
+          'textarea#description',
+        // The vee-validate model name, the one anchor that survived restyles
+        // on the create form (2026-08-20). Same dialog caveat as listing:
+        // where the editor keeps a price DIALOG the form field only opens it.
+        price: 'input[data-vv-name="listingPrice"], input[data-test="listing-editor-price"]',
+      },
+      // 2026-08-11's editor probe named `update` beside `delete`; the fallbacks
+      // are the wizard's primary-action shapes.
+      save:
+        '[data-et-name="update"], button[data-test="listing-editor-update"], ' +
+        'button[data-et-name="save"], button.btn--primary[type="submit"]',
+      verify: {
+        // Poshmark returns to the listing after Update.
+        urlChanged: true,
+        toast: '[data-test="toast"], [role="alert"], .toast',
+      },
+      timeouts: { control: 6000, verify: 8000 },
+    },
+
     engage: {
       // ON as of 2026-08-11, at the seller's instruction and with the default
       // caps cut to 250/50/25 for the first live release (see LIMITS in
@@ -510,6 +557,32 @@ const GT_LISTER_SELECTORS = {
         toast: '[data-testid="Toast"], [role="alert"]',
       },
     },
+    // ── US-9202: revise (edit sync) ──────────────────────────────────────
+    //
+    // OFF; unchecked. Mercari's editor is /sell/edit/{id}, reached from the
+    // item page's `EditListingButton`. Field ids on Mercari's React SPA churn
+    // monthly (see the note above the list flow), so treat every selector here
+    // as stale until a probe from a live editor says otherwise. Until then the
+    // seller is told "edit manually" with the listing link.
+    revise: {
+      enabled: false,
+      version: "2026.09.0-draft",
+      lastVerified: null,
+      required: ["edit"],
+      edit: 'button[data-testid="EditListingButton"], a[href*="/sell/edit/"], [data-testid="EditButton"]',
+      navigatesTo: "^https://[^/]*mercari\\.com/sell/edit/",
+      fields: {
+        title: 'input[data-testid="Name"], input[name="name"], input#name',
+        description: 'textarea[data-testid="Description"], textarea[name="description"]',
+        price: 'input[data-testid="Price"], input[name="price"], input#price',
+      },
+      save: 'button[data-testid="UpdateButton"], button[data-testid="SubmitButton"], button[type="submit"]',
+      verify: {
+        urlChanged: true,
+        toast: '[data-testid="Toast"], [role="alert"]',
+      },
+      timeouts: { control: 6000, verify: 8000 },
+    },
   },
 
   // ── Grailed — PHASE 3 (LIST enabled; delist deliberately not) ─────────
@@ -623,6 +696,33 @@ const GT_LISTER_SELECTORS = {
         gone: 'button[aria-label*="actions"], button.listing-actions',
         toast: '[data-role="toast"], [role="alert"]',
       },
+    },
+    // ── US-9202: revise (edit sync) ──────────────────────────────────────
+    //
+    // OFF; unchecked, and worth trying where delist never can be: Grailed's
+    // DELETE is confirmed by a native browser dialog nothing in a page can
+    // answer, but an EDIT saves through the site's own form. The listing page
+    // carries an "Edit" link for the owner into /sell/edit/{id}. Until a probe
+    // from a live owned listing confirms these, the seller is told "edit
+    // manually" with the listing link.
+    revise: {
+      enabled: false,
+      version: "2026.09.0-draft",
+      lastVerified: null,
+      required: ["edit"],
+      edit: 'a[href*="/sell/edit/"], a[href*="/listings/"][href$="/edit"], button[data-action="edit"]',
+      navigatesTo: "^https://[^/]*grailed\\.com/(sell/edit|listings/[^/]+/edit)",
+      fields: {
+        title: 'input[name="title"], input#title',
+        description: 'textarea[name="description"], textarea#description',
+        price: 'input[name="price"], input#price',
+      },
+      save: 'button[type="submit"], button[data-action="save"]',
+      verify: {
+        urlChanged: true,
+        toast: '[data-role="toast"], [role="alert"]',
+      },
+      timeouts: { control: 6000, verify: 8000 },
     },
   },
 
@@ -738,6 +838,32 @@ const GT_LISTER_SELECTORS = {
         gone: 'button[data-testid="item-action-menu"], button.item-actions',
         toast: '[data-testid="notification"], [role="alert"]',
       },
+    },
+    // ── US-9202: revise (edit sync) ──────────────────────────────────────
+    //
+    // OFF; unchecked. Vinted's item page carries an "Edit" control for the
+    // owner into /items/{id}/edit on the same country domain, and the editor
+    // is the sell form (locale-specific ids, same caveat as the list flow).
+    // Until a probe from a live owned listing confirms these, the seller is
+    // told "edit manually" with the listing link.
+    revise: {
+      enabled: false,
+      version: "2026.09.0-draft",
+      lastVerified: null,
+      required: ["edit"],
+      edit: 'a[data-testid="item-edit-button"], a[href$="/edit"], button[data-testid="item-edit"]',
+      navigatesTo: "^https://[^/]*vinted\\.[a-z.]+/items/[^/]+/edit",
+      fields: {
+        title: 'input[data-testid="title--input"], input[name="title"]',
+        description: 'textarea[data-testid="description--input"], textarea[name="description"]',
+        price: 'input[data-testid="price-input--input"], input[name="price"]',
+      },
+      save: 'button[data-testid="upload-form-save-button"], button[type="submit"]',
+      verify: {
+        urlChanged: true,
+        toast: '[data-testid="notification"], [role="alert"]',
+      },
+      timeouts: { control: 6000, verify: 8000 },
     },
   },
 

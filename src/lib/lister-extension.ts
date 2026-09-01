@@ -301,6 +301,35 @@ export function buildListerPayload(opts: {
 // US-717: ask the extension to END a live listing on the seller's marketplace
 // (cross-listing auto-delist after the item sold elsewhere). Mirrors sendToLister
 // but carries the live listing URL instead of a draft payload.
+// ── US-9202: edit sync ────────────────────────────────────────────────────
+//
+// A revise carries the listing's CURRENT FlipDesk values and which of them
+// changed. The URL is the listing's own and the extension host-pins it before
+// a tab opens, exactly as it does for a delist.
+export interface ListerRevisePayload {
+  platform: ListerPlatform;
+  listingUrl: string;
+  listingId: string;
+  itemId?: string | null;
+  fields: Array<"price" | "title" | "description" | "photos">;
+  title?: string | null;
+  description?: string | null;
+  price?: number | null;
+}
+
+export interface ListerReviseResult extends ListerResult {
+  revised?: boolean;
+  unverified?: boolean;
+  partial?: boolean;
+  fields?: string[];
+}
+
+export function sendReviseToLister(
+  payload: ListerRevisePayload,
+): Promise<ListerReviseResult> {
+  return sendListerJob<ListerReviseResult>({ type: "GT_LISTER_REVISE", payload });
+}
+
 export interface ListerDelistPayload {
   platform: ListerPlatform;
   platformLabel: string;

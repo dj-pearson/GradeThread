@@ -97,6 +97,13 @@ const SELECTOR_HEALTH_ENDPOINT =
 const USAGE_ENDPOINT = "https://functions.gradethread.com/api/grading/public/usage";
 const PENDING_DELISTS_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/pending-delists";
+// US-9202: the pending-revise queue — listings an edit in FlipDesk has made
+// stale on Poshmark/Mercari/Vinted/Grailed. Read for the popup's count and for
+// the drain; confirmed back per listing with the outcome.
+const PENDING_REVISES_ENDPOINT =
+  "https://functions.gradethread.com/api/grading/public/pending-revises";
+const REVISE_CONFIRM_ENDPOINT =
+  "https://functions.gradethread.com/api/grading/public/revise-confirm";
 // US-1808: hand ONE listing the shopper is looking at to their own saved-search
 // alerts. Signed-in only (the server 401s without a token) — the whole point is
 // that the listing is checked against THAT buyer's criteria, so there is no
@@ -261,6 +268,131 @@ async function getPendingDelists() {
   } catch (_e) {
     // Offline or blocked. NOT an empty queue — see above.
     return { ok: false, reason: "error", pending: [] };
+  }
+}
+
+// ── US-9202: pending revises ──────────────────────────────────────────────
+//
+// Same reading discipline as getPendingDelists: not cached, and every non-200
+// is a distinct state the popup renders rather than "nothing pending".
+async function getPendingRevises() {
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
+    return { ok: false, reason: "signed-out", pending: [] };
+  }
+  try {
+    const resp = await fetch(PENDING_REVISES_ENDPOINT, {
+      headers: { Authorization: "Bearer " + gtBuyerToken },
+      cache: "no-store",
+    });
+    if (resp.status === 401) return { ok: false, reason: "signed-out", pending: [] };
+    if (resp.status === 403) return { ok: false, reason: "no-plan", pending: [] };
+    if (!resp.ok) return { ok: false, reason: "error", pending: [] };
+    const json = await resp.json();
+    return { ok: true, pending: Array.isArray(json.pending) ? json.pending : [] };
+  } catch (_e) {
+    return { ok: false, reason: "error", pending: [] };
+  }
+}
+
+/** Report a revise outcome for one listing. Applied ONLY when the flow proved it. */
+async function confirmRevise(listingId, result) {
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string" || !listingId) return null;
+  try {
+    const resp = await fetch(REVISE_CONFIRM_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + gtBuyerToken,
+      },
+      body: JSON.stringify({
+        listing_id: listingId,
+        applied: Boolean(result && result.ok === true && result.revised === true),
+        manual: Boolean(result && result.manual),
+        unverified: Boolean(result && result.unverified),
+        error: result && typeof result.error === "string" ? result.error.slice(0, 300) : null,
+      }),
+    });
+    return resp.ok;
+  } catch (_e) {
+    return null;
+  }
+}
+
+/**
+ * Turn one pending revise into the payload a revise job runs with. The URL is
+ * the listing's own (host-pinned by isValidRevisePayload before a tab opens);
+ * the values are the CURRENT FlipDesk ones the server sent, never anything
+ * from a page.
+ */
+function revisePayloadFor(p) {
+  return {
+    platform: p.platform,
+    listingUrl: p.listing_url,
+    listingId: p.listing_id,
+    itemId: p.item_id,
+    fields: Array.isArray(p.fields) ? p.fields.slice() : [],
+    title: typeof p.listing_title === "string" ? p.listing_title : null,
+    description: typeof p.listing_description === "string" ? p.listing_description : null,
+    price: typeof p.listing_price === "number" ? p.listing_price : null,
+  };
+}
+
+let reviseDrainInFlight = false;
+
+/**
+ * Drain the pending-revise queue: ONE job per tick, oldest first, in a tab
+ * that is not focused. Rides the same 5-minute sweep as the mobile queue, and
+ * the same gates as an interactive edit: seller entitlement, the Lister
+ * clickwrap, and the bundled selectors' `revise.enabled` (a channel whose
+ * revise flow is off is left for the seller, and the popup says so).
+ */
+async function drainPendingRevises() {
+  if (reviseDrainInFlight) return;
+  reviseDrainInFlight = true;
+  try {
+    if (!(await sellerAllowed())) return;
+    if (!(await tosAccepted())) return;
+    const res = await getPendingRevises();
+    if (!res.ok || res.pending.length === 0) return;
+
+    // One marketplace tab at a time: a revise never starts while any Lister
+    // job (list, delist or revise) is still working in this browser.
+    const jobs = await withJobs(async (j) => ({ value: j }));
+    const busy = Object.keys(jobs || {}).some((id) => self.GT_LISTER_JOBS.isPending(jobs[id]));
+    if (busy) return;
+
+    const SEL = self.GT_LISTER_SELECTORS;
+    const next = res.pending.find((p) =>
+      p && p.auto_revisable && SEL[p.platform] && SEL[p.platform].revise &&
+      SEL[p.platform].revise.enabled
+    );
+    if (!next) return;
+    const payload = revisePayloadFor(next);
+    if (!isValidRevisePayload(payload)) return;
+
+    let tab;
+    try {
+      tab = await ext.tabs.create({ url: payload.listingUrl, active: false });
+    } catch (_e) {
+      return;
+    }
+    const job = self.GT_LISTER_JOBS.makeJob({
+      jobId: makeJobId(),
+      clientRef: null,
+      tabId: tab.id,
+      saasTabId: null,
+      platform: payload.platform,
+      kind: "revise",
+      payload: payload,
+      reviseListingId: payload.listingId,
+      now: Date.now(),
+    });
+    await withJobs(async (j) => ({ jobs: self.GT_LISTER_JOBS.put(j, job) }));
+    await scheduleJobAlarm(job);
+  } finally {
+    reviseDrainInFlight = false;
   }
 }
 
@@ -1367,6 +1499,14 @@ async function reportJob(job, result) {
     delete pendingExternal[job.jobId];
   }
   await pushToSaasTab(job, result);
+  // US-9202: a revise reports into the marker the web reads, whether it was
+  // started from a page, drained from the queue, or picked up by the sweep.
+  // The listing id is the job's own (from the server's pending list or the
+  // page's payload, both owner-checked server-side), never from the result.
+  if (job.kind === "revise" && job.reviseListingId) {
+    await confirmRevise(job.reviseListingId, result);
+    void drainPendingRevises();
+  }
   // US-2481: a DRAINED job has no originating GradeThread tab to push to — the
   // seller queued it from their phone, possibly hours ago and on another
   // network. Its outcome goes back to the queue row instead, which is the only
@@ -1485,6 +1625,24 @@ function isValidDelistPayload(p) {
   );
 }
 
+// US-9202: a revise names a live listing (host-pinned like a delist) and at
+// least one field to bring up to date.
+function isValidRevisePayload(p) {
+  return (
+    p &&
+    typeof p === "object" &&
+    typeof p.platform === "string" &&
+    SUPPORTED_LISTER[p.platform] &&
+    Array.isArray(p.fields) &&
+    p.fields.length > 0 &&
+    self.GT_LISTER_GUARD.isAllowedDelistUrl(
+      self.GT_LISTER_SELECTORS,
+      p.platform,
+      p.listingUrl,
+    )
+  );
+}
+
 // US-2482: everything the engagement gate needs, read fresh.
 //
 // Read on EVERY gate call rather than cached, because the three things it holds
@@ -1535,7 +1693,8 @@ async function startJob(kind, payload, sender, sendResponse, clientRef) {
         ok: false,
         error:
           "The GradeThread extension hit an unexpected error starting this " +
-          (kind === "delist" ? "delist" : "cross-post") + ". Try again.",
+          (kind === "delist" ? "delist" : kind === "revise" ? "edit sync" : "cross-post") +
+          ". Try again.",
       });
     } catch (_e) { /* port already gone */ }
      
@@ -1572,7 +1731,9 @@ async function beginJob(kind, payload, sender, sendResponse, clientRef) {
   // navigation. The delist target is the payload URL, already host-pinned to the
   // platform by isValidDelistPayload before we got here.
   let url;
-  if (isDelist) {
+  if (isDelist || kind === "revise") {
+    // US-9202: a revise opens the listing itself, host-pinned by
+    // isValidRevisePayload exactly as a delist URL is.
     url = payload.listingUrl;
   } else {
     // US-2479: locale-aware for the multi-domain platforms (Vinted), unchanged
@@ -1624,6 +1785,10 @@ async function beginJob(kind, payload, sender, sendResponse, clientRef) {
     platform: payload.platform,
     kind: kind,
     payload: payload,
+    // US-9202: which marker to confirm when the job settles.
+    reviseListingId: kind === "revise" && typeof payload.listingId === "string"
+      ? payload.listingId
+      : null,
     now: Date.now(),
   });
 
@@ -1734,14 +1899,14 @@ async function drainQueue() {
         row.platform,
         row.payload && row.payload.locale,
       );
-      const target = row.kind === "delist"
+      const target = row.kind === "delist" || row.kind === "revise"
         ? (row.payload && row.payload.listingUrl)
         : url;
-      // The same guard as an interactive job: a delist URL must be https and
-      // host-match its platform, and a list URL always comes from the bundled
-      // config. A queue row is server-supplied, which makes it no more trusted
-      // than a message from a page.
-      const allowed = row.kind === "delist"
+      // The same guard as an interactive job: a delist or revise URL must be
+      // https and host-match its platform, and a list URL always comes from the
+      // bundled config. A queue row is server-supplied, which makes it no more
+      // trusted than a message from a page.
+      const allowed = row.kind === "delist" || row.kind === "revise"
         ? self.GT_LISTER_GUARD.isAllowedDelistUrl(
             self.GT_LISTER_SELECTORS, row.platform, target,
           )
@@ -1794,6 +1959,11 @@ function handleDelistRequest(payload, sender, sendResponse, clientRef) {
   return startJob("delist", payload, sender, sendResponse, clientRef);
 }
 
+// US-9202: the web's "Apply now" on a stale listing.
+function handleReviseRequest(payload, sender, sendResponse, clientRef) {
+  return startJob("revise", payload, sender, sendResponse, clientRef);
+}
+
 // ── alarms: timeouts + the terminal-job sweep ─────────────────────────────
 // Registration is GUARDED for the same reason onMessageExternal is below: reading
 // .addListener off an undefined namespace throws at load and takes the ENTIRE
@@ -1825,6 +1995,9 @@ if (ext.alarms && ext.alarms.onAlarm) {
       // queued at lunchtime without the seller doing anything, and one more
       // periodic alarm for that would be a second thing to get wrong.
       void drainQueue();
+      // US-9202: and the edits FlipDesk is waiting to apply on extension
+      // channels. One per tick, unfocused, gated like everything else.
+      void drainPendingRevises();
       return;
     }
 
@@ -1858,6 +2031,8 @@ const EXTERNAL_TYPES = new Set([
   "GT_CLEAR_TOKEN",
   "GT_LISTER_LIST",
   "GT_LISTER_DELIST",
+  // US-9202: apply a FlipDesk edit to a live extension-channel listing.
+  "GT_LISTER_REVISE",
   // US-2701: the Marketplaces page reads the scheduled poll's state, turns it
   // OFF, and changes its cadence.
   //
@@ -2004,6 +2179,16 @@ function handleExternalMessage(msg, sender, sendResponse) {
       return false;
     }
     handleDelistRequest(dp, sender, sendResponse, msg.clientRef);
+    return true;
+  }
+
+  if (msg.type === "GT_LISTER_REVISE") {
+    const rp = msg.payload;
+    if (!isValidRevisePayload(rp)) {
+      sendResponse({ ok: false, error: "Invalid or unsupported revise payload." });
+      return false;
+    }
+    handleReviseRequest(rp, sender, sendResponse, msg.clientRef);
     return true;
   }
 
@@ -2564,6 +2749,10 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // US-1885 (AC1): the popup's pending-delist queue.
       case "GT_GET_PENDING_DELISTS":
         sendResponse(await getPendingDelists());
+        break;
+      // US-9202: the popup's "Needs updating" count.
+      case "GT_GET_PENDING_REVISES":
+        sendResponse(await getPendingRevises());
         break;
       // US-1873: popup + content scripts read the resolved capability map.
       case "GT_GET_CAPABILITIES":

@@ -23,6 +23,16 @@ import {
 } from "../lib/cross-push.ts";
 import { delistMethodFor } from "../lib/cross-listing-sale.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
+import {
+  confirmRevise,
+  isExtensionRevisePlatform,
+  isRevisableField,
+  loadPendingRevises,
+  queueReviseForListing,
+  queueRevisesForItem,
+  REVISABLE_FIELDS,
+  type ReviseSource,
+} from "../lib/pending-revises.ts";
 import { loadTitleConflictBaseDraft } from "../lib/title-conflict-base-draft.ts";
 import { readVariantWinnerForOwner } from "../lib/title-variant-ctr.ts";
 import { fetchComparableListings, findDuplicateTitles } from "../lib/title-similarity.ts";
@@ -733,6 +743,84 @@ flipdeskListingsRoutes.post("/delist-confirm", async (c) => {
   return c.json({ ok: true, listing_id: listingId });
 });
 
+// ── US-9202: the pending-revise queue ──────────────────────────────────────
+//
+// An edit made in FlipDesk reaches eBay and Shopify through their APIs and
+// nothing else. These three routes are the extension-channel half: the web
+// QUEUES a revise after a save (revise-queue), reads what is waiting
+// (pending-revises), and the extension CONFIRMS what it did (revise-confirm).
+// The queue itself is a marker on listings.platform_fields; see
+// lib/pending-revises.ts for the state machine and the never-mark-applied-
+// before-the-marketplace-confirms rule. The extension's own doors onto the same
+// two reads live in public-grading.ts under its HMAC token.
+
+// GET /pending-revises — listings stale on an extension channel, oldest first.
+// Tenant-scoped through inventory_items.user_id; no id from the request.
+flipdeskListingsRoutes.get("/pending-revises", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { pending, error } = await loadPendingRevises(ownerId);
+  if (error) {
+    return failSafe(c, 500, "Could not load pending edits.", error, "flipdesk.pending-revises");
+  }
+  return c.json({ pending });
+});
+
+// POST /revise-queue — the page saved a price, title, description or photo
+// change on an item; stamp every live extension-channel listing of that item.
+// The item id comes from the body and is owner-checked before anything is
+// written (US-268). An item with no extension listing queues nothing, which is
+// the ordinary case: { queued: [] }.
+flipdeskListingsRoutes.post("/revise-queue", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { inventory_item_id?: unknown; fields?: unknown; source?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const itemId = typeof body.inventory_item_id === "string" ? body.inventory_item_id : "";
+  if (!itemId) return c.json({ error: "inventory_item_id is required." }, 400);
+  const fields = Array.isArray(body.fields) ? body.fields.filter(isRevisableField) : [];
+  if (fields.length === 0) {
+    return c.json({ error: `fields must name at least one of: ${REVISABLE_FIELDS.join(", ")}.` }, 400);
+  }
+  const source: ReviseSource = body.source === "mobile" ? "mobile" : "edit";
+
+  const { data: item } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id")
+    .eq("id", itemId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (!item) return c.json({ error: "Item not found." }, 404);
+
+  const { platforms, listingIds } = await queueRevisesForItem(ownerId, itemId, fields, source);
+  return c.json({ ok: true, queued: platforms, listing_ids: listingIds, fields });
+});
+
+// POST /revise-confirm — the extension reports what happened on the
+// marketplace. Only `applied: true` clears the marker; a manual, unverified or
+// failed run keeps the listing stale and records the attempt.
+flipdeskListingsRoutes.post("/revise-confirm", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { listing_id?: unknown; applied?: unknown; manual?: unknown; unverified?: unknown; error?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const listingId = typeof body.listing_id === "string" ? body.listing_id : "";
+  if (!listingId) return c.json({ error: "listing_id is required." }, 400);
+  const res = await confirmRevise(ownerId, listingId, {
+    applied: body.applied === true,
+    manual: body.manual === true,
+    unverified: body.unverified === true,
+    error: typeof body.error === "string" ? body.error : null,
+  });
+  if (!res.ok) return c.json({ error: res.error }, res.status);
+  return c.json({ ok: true, listing_id: listingId, cleared: res.cleared, attempts: res.attempts });
+});
+
 // Hard-delete an inventory item and everything that cascades from it (its
 // listings, item_photos, autolister jobs, …). Used to remove a DUPLICATE the
 // seller never wants — distinct from End (which withdraws the eBay offer but
@@ -933,6 +1021,8 @@ flipdeskListingsRoutes.post("/:id/price", async (c) => {
     listing_id: listingId,
     price: res.price,
     pushed: res.pushed,
+    // US-9202: live on an extension channel, waiting on the desktop extension.
+    queued: res.queued === true,
   });
 });
 
@@ -1047,6 +1137,8 @@ flipdeskListingsRoutes.post("/bulk-price", async (c) => {
     price?: number;
     previous_price?: number | null;
     pushed?: boolean;
+    /** US-9202: live on an extension channel; the desktop extension applies it. */
+    queued?: boolean;
     error?: string;
   }
   const results: RowResult[] = [];
@@ -1123,6 +1215,39 @@ flipdeskListingsRoutes.post("/bulk-price", async (c) => {
       continue;
     }
 
+    // US-9202: an extension channel cannot be pushed to; the row takes the
+    // price and the listing is marked stale for the desktop extension to apply.
+    // Before this the adapter answered 501 and a bulk drop silently touched
+    // only the API channels.
+    if (isExtensionRevisePlatform(row.platform)) {
+      const { error: extErr } = await supabaseAdmin
+        .from("listings")
+        .update({ listing_price: next })
+        .eq("id", id);
+      if (extErr) {
+        results.push({ listing_id: id, ok: false, error: "Could not save the price." });
+        continue;
+      }
+      const live = row.listing_status === "active" && !!row.listing_url;
+      const queued = live ? await queueReviseForListing(row, ["price"], "bulk_price") : false;
+      if (row.inventory_item_id) {
+        await supabaseAdmin
+          .from("inventory_items")
+          .update({ target_price: next })
+          .eq("id", row.inventory_item_id)
+          .eq("user_id", ownerId);
+      }
+      results.push({
+        listing_id: id,
+        ok: true,
+        price: next,
+        previous_price: previous,
+        pushed: false,
+        queued,
+      });
+      continue;
+    }
+
     // Push FIRST, then record — same ordering as the single-listing route, so a
     // refused row keeps the price the marketplace actually has.
     const failure = await pushPriceUpstream(ownerId, row, next);
@@ -1167,6 +1292,9 @@ flipdeskListingsRoutes.post("/bulk-price", async (c) => {
     total: results.length,
     succeeded,
     failed: results.length - succeeded,
+    // US-9202: how many of the successes are waiting on the desktop extension,
+    // so the toast can say "queued" instead of counting them as applied.
+    queued: results.filter((r) => r.ok && r.queued).length,
     results,
   });
 });

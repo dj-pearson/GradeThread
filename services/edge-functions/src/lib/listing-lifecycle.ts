@@ -24,6 +24,7 @@
 // from a request never reaches a write without that check.
 
 import { supabaseAdmin } from "./supabase.ts";
+import { isExtensionRevisePlatform, queueReviseForListing } from "./pending-revises.ts";
 import { ebayOriginWriteLock } from "./sync-precedence.ts";
 import {
   isNoEbayConnectionError,
@@ -312,7 +313,11 @@ export async function endLocally(
  * a remote call failed.
  */
 export type ApplyPriceResult =
-  | { ok: true; price: number; pushed: boolean }
+  // US-9202: `queued` is the third honest answer. pushed:true means the
+  // marketplace has the price; pushed:false means there was nothing live to
+  // push to; queued:true means the listing IS live, on a channel only the
+  // seller's browser can write to, and the desktop extension will apply it.
+  | { ok: true; price: number; pushed: boolean; queued?: boolean }
   // One failure arm, not several: LifecycleStatus already includes 409, so
   // splitting the lock case into its own arm made `status === 409` fail to
   // narrow and hid lockedFields from every caller.
@@ -340,6 +345,32 @@ export async function applyListingPrice(
       error: String(lock.body.error),
       lockedFields: lock.body.locked_fields as string[] | undefined,
     };
+  }
+
+  // US-9202: an extension channel has no write API, so the push above would
+  // answer 501 and the seller would be told the marketplace refused. The local
+  // row takes the price now and the listing is marked stale on that channel;
+  // the seller's desktop extension re-applies it in their own tab and confirms.
+  // A draft there (never seen live) is a local write like any other draft.
+  if (isExtensionRevisePlatform(row.platform)) {
+    const { error } = await supabaseAdmin
+      .from("listings")
+      .update({ listing_price: price })
+      .eq("id", listingId)
+      .eq("user_id", ownerId);
+    if (error) {
+      return { ok: false, status: 500, error: "Could not save the price." };
+    }
+    const live = row.listing_status === "active" && !!row.listing_url;
+    const queued = live ? await queueReviseForListing(row, ["price"], "edit") : false;
+    if (row.inventory_item_id) {
+      await supabaseAdmin
+        .from("inventory_items")
+        .update({ target_price: price })
+        .eq("id", row.inventory_item_id)
+        .eq("user_id", ownerId);
+    }
+    return { ok: true, price, pushed: false, queued };
   }
 
   if (!wasPublishedUpstream(row)) {

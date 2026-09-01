@@ -305,6 +305,26 @@ async function main(): Promise<void> {
   });
   out.TEST_USER_A_CLOSET_LISTING_PID = closetPid;
 
+  // US-9202: a LIVE Poshmark listing of A's with a pending-revise marker, so the
+  // queue-read isolation case can prove it never appears in B's queue, and the
+  // confirm case has a stale row of A's for B to try to clear.
+  out.TEST_USER_A_REVISE_LISTING_ID = await insert("listings", {
+    inventory_item_id: itemId,
+    platform: "poshmark",
+    listing_price: 30.0,
+    listing_title: "Tenant-A-revise-fixture",
+    listing_status: "active",
+    listing_url: "https://poshmark.com/listing/tenant-a-revise-fixture-b1b2c3d4e5f60718293a4b5e",
+    platform_fields: {
+      revise_pending: {
+        fields: ["price"],
+        queued_at: "2026-09-01T00:00:00.000Z",
+        source: "edit",
+        attempts: 0,
+      },
+    },
+  });
+
   // US-2395 AC6: a MULTI-VARIATION listing, which the group-revise branch takes
   // a different path for. Deliberately seeded rather than classified as
   // unseeded: it needs nothing external — a listings row with `variations` set,

@@ -39,6 +39,7 @@ import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { ItemCardList } from "@/components/flipdesk/item-card-list";
 import { ItemQuickEditSheet } from "@/components/flipdesk/item-quick-edit-sheet";
 import { PendingDelistBanner } from "@/components/flipdesk/pending-delist-banner";
+import { PendingReviseBanner } from "@/components/flipdesk/pending-revise-banner";
 import {
   Sheet,
   SheetContent,
@@ -937,6 +938,8 @@ export function FlipdeskListingsPage() {
 
       {/* US-717: cross-listing auto-delist queue (extension marketplaces). */}
       <PendingDelistBanner />
+      {/* US-9202: edits waiting to reach an extension channel. */}
+      <PendingReviseBanner />
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as TabId)}>
         <TabsList className="flex flex-wrap">

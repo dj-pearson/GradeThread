@@ -89,12 +89,15 @@ Deno.test("non-objects normalize to an empty payload rather than throwing", () =
   }
 });
 
-Deno.test("the queue kinds are exactly the two the extension can run", () => {
-  // A third kind here with no branch in the extension would queue work that
+Deno.test("the queue kinds are exactly the three the extension can run", () => {
+  // A kind here with no branch in the extension would queue work that
   // silently never drains — which then expires and surfaces as a failure the
   // seller cannot act on. That is precisely what `share` did between US-2481 and
-  // US-2497, so this list is what stops it coming back on a hunch.
-  assertEquals([...EXTENSION_QUEUE_KINDS], ["list", "delist"]);
+  // US-2497, so this list is what stops it coming back on a hunch. `revise`
+  // (US-9202) has its branch: RUNNABLE_QUEUE_KINDS in
+  // extension-unified/lister/job-store.js and runReviseFlow in lister/common.js,
+  // pinned by extension-unified/test/revise-flow.test.cjs.
+  assertEquals([...EXTENSION_QUEUE_KINDS], ["list", "delist", "revise"]);
   assert(!(EXTENSION_QUEUE_KINDS as readonly string[]).includes("share"));
 });
 

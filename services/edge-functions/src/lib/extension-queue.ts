@@ -34,7 +34,12 @@
  *
  * So a share run stays a supervised action, started from the extension.
  */
-export const EXTENSION_QUEUE_KINDS = ["list", "delist"] as const;
+// US-9202: `revise` carries a FlipDesk edit (price, title, description,
+// photos) to a listing that is live on an extension channel. Like delist it
+// names a listing the desktop opens; unlike delist it also carries which fields
+// changed, and the values are read off the listing row when the job is built
+// so a second edit before the drain never sends a stale number.
+export const EXTENSION_QUEUE_KINDS = ["list", "delist", "revise"] as const;
 export type ExtensionQueueKind = (typeof EXTENSION_QUEUE_KINDS)[number];
 
 /**

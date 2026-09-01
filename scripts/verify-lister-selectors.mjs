@@ -83,6 +83,27 @@ function checkFlow(platform, flow, kind) {
     if (!(flow.required || []).includes("menu")) {
       fail(`${where}: must require "menu" — it is the one control that exists pre-interaction, and probing nothing means guessing.`);
     }
+  } else if (kind === "revise") {
+    // US-9202: the same shape as delist. `edit` is the one control on the
+    // listing page before any interaction; the fields and `save` only exist on
+    // the editor the click opens, so requiring them up front would make the
+    // probe unsatisfiable on every run.
+    if (!(flow.required || []).includes("edit")) {
+      fail(`${where}: must require "edit" — it is the one control that exists pre-interaction on the listing page, and probing nothing means guessing.`);
+    }
+    for (const key of flow.required || []) {
+      if (key === "edit") continue;
+      fail(`${where}: requires "${key}", which only exists on the editor after \`edit\` is clicked. The probe runs BEFORE that click.`);
+    }
+    if (!flow.edit) fail(`${where}: no \`edit\` selector.`);
+    if (!flow.save) fail(`${where}: no \`save\` selector — a fill nobody submits is a form the seller has to find and finish.`);
+    const f = flow.fields || {};
+    for (const key of ["title", "description", "price"]) {
+      if (!f[key]) fail(`${where}: no \`fields.${key}\` selector. A revise that cannot write a field reports it as not applied rather than skipping it, so every revisable field needs a selector.`);
+    }
+    if (!flow.verify || (!flow.verify.urlChanged && !flow.verify.toast && !flow.verify.saved)) {
+      fail(`${where}: no \`verify\` evidence. A revise reports applied ONLY with positive proof the editor saved; without a witness every run is unverified.`);
+    }
   } else if (kind === "engage") {
     for (const key of flow.required || []) {
       if (!flow[key]) {
@@ -218,6 +239,8 @@ function checkPlatform(platform, cfg) {
 
   checkFlow(platform, cfg, "list");
   if (cfg.delist) checkFlow(platform, cfg.delist, "delist");
+  // US-9202: edit sync gets the same enable discipline as list and delist.
+  if (cfg.revise) checkFlow(platform, cfg.revise, "revise");
 
   // US-2482: the engagement flow gets the same enable discipline as listing —
   // and one extra rule. Sharing runs thousands of times against a live closet,
@@ -465,6 +488,13 @@ console.log(
     `enabled: ${live.join(", ") || "none"}; ` +
     `awaiting live verification: ${pending.join(", ") || "none"}` +
     (warnings.length ? ` (${warnings.length} warning(s))` : ""),
+);
+const reviseLive = platforms.filter(([, c]) => c.revise && c.revise.enabled).map(([p]) => p);
+const revisePending = platforms.filter(([, c]) => c.revise && !c.revise.enabled).map(([p]) => p);
+console.log(
+  `✓ verify-lister-selectors: revise ${reviseLive.length + revisePending.length} platform(s) — ` +
+    `enabled: ${reviseLive.join(", ") || "none"}; ` +
+    `awaiting live verification: ${revisePending.join(", ") || "none"}`,
 );
 console.log(
   `✓ verify-lister-selectors: sold-sync ${syncPlatforms.length} platform(s) — ` +

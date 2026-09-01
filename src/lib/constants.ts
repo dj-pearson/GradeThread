@@ -1698,6 +1698,41 @@ export const MARKETPLACE_FLOW_LABEL: Record<MarketplaceFlowStatus, string> = {
   verifying: "Checking the form — list manually for now",
 };
 
+// ─── US-9202: the three flows a channel has, each with its own switch ───────
+//
+// MARKETPLACE_EXTENSION_FLOW above is the LIST flow. A channel also has a
+// delist flow and, as of US-9202, a revise (edit-sync) flow, and each is
+// verified and switched on separately in extension-unified/lister/selectors.js
+// (`delist.enabled`, `revise.enabled`). This map mirrors all three so a screen
+// can say "Ready to list · ends by hand · edits by hand" truthfully per channel.
+//
+// SAME RULE AS ABOVE: this must match the selectors file and cannot be derived
+// from it, so marketplace-mechanism.test.ts parses that file and fails the
+// build if any of the three drifts. Flipping a flow on is two edits or none.
+export type MarketplaceExtensionFlows = {
+  list: MarketplaceFlowStatus;
+  delist: MarketplaceFlowStatus;
+  revise: MarketplaceFlowStatus;
+};
+export const MARKETPLACE_EXTENSION_FLOWS: Record<
+  (typeof EXTENSION_CROSS_LISTING_PLATFORMS)[number],
+  MarketplaceExtensionFlows
+> = {
+  poshmark: { list: "live", delist: "live", revise: "verifying" },
+  mercari: { list: "live", delist: "live", revise: "verifying" },
+  // Grailed's delist is permanently off (native confirm dialog); revise may
+  // be possible because an edit saves through the site's own form. Off until
+  // verified either way.
+  grailed: { list: "live", delist: "verifying", revise: "verifying" },
+  vinted: { list: "live", delist: "verifying", revise: "verifying" },
+  facebook: { list: "verifying", delist: "verifying", revise: "verifying" },
+};
+
+export const MARKETPLACE_REVISE_LABEL: Record<MarketplaceFlowStatus, string> = {
+  live: "Edits reach the marketplace",
+  verifying: "Edits by hand for now — the row says when it is stale",
+};
+
 // Short, human-facing label for each tier — used by the Marketplaces UI badges
 // so web and iOS describe a channel's capability with identical wording.
 export const MARKETPLACE_TIER_LABEL: Record<MarketplaceTier, string> = {

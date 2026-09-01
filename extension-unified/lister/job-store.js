@@ -63,8 +63,14 @@
       // the result gets home once the sendResponse port is gone (AC3).
       saasTabId: typeof o.saasTabId === "number" ? o.saasTabId : null,
       platform: String(o.platform || ""),
-      kind: o.kind === "delist" ? "delist" : "list",
+      // US-9202: revise joins delist as a kind that targets a live listing.
+      // Anything else is a list, as before.
+      kind: o.kind === "delist" ? "delist" : o.kind === "revise" ? "revise" : "list",
       payload: o.payload || null,
+      // US-9202: the listing whose pending-revise marker this job settles.
+      // Ours, never the page's: set from the server's pending list or from a
+      // payload the server owner-checked, and read only by reportJob.
+      reviseListingId: typeof o.reviseListingId === "string" ? o.reviseListingId : null,
       // US-2481: the server-side queue row this job came from, when it was
       // DRAINED rather than started from an open GradeThread tab. It is how the
       // result finds its way back to a queue entry whose originating device — a
@@ -205,6 +211,15 @@
             "Timed out ending the " + name +
             " listing. End it manually if the tab didn't.",
         }
+      : job.kind === "revise"
+      ? {
+          ok: false,
+          timedOut: true,
+          unverified: true,
+          error:
+            "Timed out updating the " + name +
+            " listing. Check it there and edit it manually if the change didn't land.",
+        }
       : {
           ok: false,
           timedOut: true,
@@ -224,7 +239,11 @@
       tabClosed: true,
       error:
         "The " + name + " tab was closed before the " +
-        (job.kind === "delist" ? "listing was ended" : "form was filled") + ".",
+        (job.kind === "delist"
+          ? "listing was ended"
+          : job.kind === "revise"
+          ? "listing was updated"
+          : "form was filled") + ".",
     };
   }
 
@@ -352,7 +371,7 @@
    * form and filled it. A seller who asked for their closet to be shared would
    * have got a duplicate listing. Unrunnable is reported now, per US-2165.
    */
-  var RUNNABLE_QUEUE_KINDS = { list: true, delist: true };
+  var RUNNABLE_QUEUE_KINDS = { list: true, delist: true, revise: true };
 
   /**
    * Decide which queued rows to start now.
@@ -465,12 +484,14 @@
         listingId: row.listing_id || null,
       }),
       queueId: row.id,
+      reviseListingId: row.kind === "revise" ? (row.listing_id || null) : null,
       now: o.now,
       ttlMs: o.ttlMs,
     });
   }
 
   root.GT_LISTER_JOBS = {
+    isPending: isPending,
     DRAIN_MAX_CONCURRENT: DRAIN_MAX_CONCURRENT,
     RUNNABLE_QUEUE_KINDS: RUNNABLE_QUEUE_KINDS,
     planDrain: planDrain,

@@ -74,6 +74,7 @@ import {
 import { itemPhotoQueryKeys } from "@/lib/photo-query-keys";
 import { useEbayReviseListing } from "@/hooks/use-ebay";
 import { cn } from "@/lib/utils";
+import { useQueueRevise } from "@/hooks/use-pending-revises";
 import type {
   ItemPhotoRow,
   FlipdeskPhotoType,
@@ -198,10 +199,15 @@ export function PhotoManager({
   // Listings row thumbnail stays stale for up to its 5-min staleTime.
   // US-2888: the list lives in lib/photo-query-keys.ts. It used to be a
   // sequence of calls here and one of them was missing — see that module.
+  // US-9202: every photo write lands here. The item's copies on Poshmark,
+  // Mercari, Vinted and Grailed are marked stale for photos so the row says so
+  // and the seller re-uploads there (the extension does not write galleries).
+  const queueRevise = useQueueRevise();
   async function invalidatePhotos() {
     for (const queryKey of itemPhotoQueryKeys(itemId)) {
       await qc.invalidateQueries({ queryKey });
     }
+    queueRevise.mutate({ itemId, fields: ["photos"] }, { onError: () => undefined });
   }
 
   // Any pending/processing grading submission blocks deleting graded photos.

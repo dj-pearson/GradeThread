@@ -377,7 +377,16 @@ export function makeListingsActions(d: ListingsActionDeps) {
       // marketplace was never told — the row must come back from the server
       // rather than sitting on an optimistic number nobody else can see.
       await qc.invalidateQueries({ queryKey: ["items_full"] });
-      toast.success(res.pushed ? "Price updated on the marketplace." : "Price updated.");
+      // US-9202: an extension channel is queued, not pushed, and the seller
+      // must not read "updated" for a marketplace that still shows the old price.
+      if (res.queued) {
+        toast.info(
+          "Price saved. It reaches the marketplace when your desktop extension applies it; the row reads Stale until then.",
+          { duration: 8_000 },
+        );
+      } else {
+        toast.success(res.pushed ? "Price updated on the marketplace." : "Price updated.");
+      }
     } catch (err) {
       rollback();
       toastError(err, "Price update failed.");
@@ -556,6 +565,16 @@ export function makeListingsActions(d: ListingsActionDeps) {
       const res = mergeBulkPriceResponses(parts);
       const stopped = dropCancelled.current && res.total < listingIds.length;
       setSelected(new Set());
+
+      // US-9202: rows on Poshmark/Mercari/Vinted took the price locally and are
+      // waiting on the desktop extension; say so, because "repriced" would be
+      // a claim about a marketplace that still shows the old number.
+      if ((res.queued ?? 0) > 0) {
+        toast.info(
+          `${res.queued} of these are on extension channels and read Stale until your desktop extension applies the drop.`,
+          { duration: 12_000 },
+        );
+      }
 
       if (stopped) {
         // Be exact about what a mid-batch cancel means: the chunks already sent

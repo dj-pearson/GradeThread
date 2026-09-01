@@ -264,11 +264,18 @@ export function FlipdeskBulkPricingPage() {
       const res = await bulk.mutateAsync({ updates });
       const failed = res.results.filter((r) => !r.ok);
       setErrors(Object.fromEntries(failed.map((r) => [r.listing_id, r.error ?? "Failed"])));
+      // US-9202: rows on extension channels are QUEUED for the desktop
+      // extension, and the sentence has to say so rather than count them as
+      // updated on the marketplace.
+      const queued = res.results.filter((r) => r.ok && (r as { queued?: boolean }).queued).length;
+      const queuedNote = queued > 0
+        ? ` ${queued} on Poshmark/Mercari/Vinted wait for your desktop extension.`
+        : "";
       if (failed.length === 0) {
-        toast.success(`Updated ${res.succeeded} listing${res.succeeded === 1 ? "" : "s"}.`);
+        toast.success(`Updated ${res.succeeded} listing${res.succeeded === 1 ? "" : "s"}.${queuedNote}`);
         setSelected(new Set());
       } else {
-        toast.warning(`Updated ${res.succeeded}/${res.total}. ${failed.length} failed.`);
+        toast.warning(`Updated ${res.succeeded}/${res.total}. ${failed.length} failed.${queuedNote}`);
       }
       await refetch();
     } catch (e) {

@@ -64,6 +64,8 @@ import { itemPhotoThumb } from "@/lib/images";
 import { itemDisplayTitle, itemRowLabel } from "@/lib/item-row-label";
 import { needsSignedDisplayUrl } from "@/lib/item-photo-url";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
+import type { ListingPlatform } from "@/types/database";
+import { staleSinceLabel, usePendingRevises } from "@/hooks/use-pending-revises";
 import type { useEbayConnection } from "@/hooks/use-ebay";
 
 // The per-row detail maps come straight off the shared query hook rather than
@@ -239,6 +241,18 @@ export function ListingsTable({
   ebayConnection,
   navigate,
 }: Props) {
+  // US-9202: which items have an edit that has not reached an extension
+  // channel yet. One shared read; the badge says which channel and since when.
+  const { data: pendingRevises = [] } = usePendingRevises();
+  const staleByItem = new Map<string, { platform: string; label: string }[]>();
+  for (const p of pendingRevises) {
+    const list = staleByItem.get(p.item_id) ?? [];
+    list.push({
+      platform: p.platform,
+      label: staleSinceLabel(p, MARKETPLACE_LABELS[p.platform as ListingPlatform] ?? p.platform),
+    });
+    staleByItem.set(p.item_id, list);
+  }
   return (
       <div
         ref={tableScrollRef}
@@ -721,6 +735,17 @@ export function ListingsTable({
                           {Number(it.grade_value).toFixed(1)}
                         </Badge>
                       )}
+                      {/* US-9202: never "applied" before the marketplace confirms. */}
+                      {(staleByItem.get(it.id) ?? []).map((stale) => (
+                        <Badge
+                          key={stale.platform}
+                          variant="outline"
+                          className="shrink-0 border-amber-400 px-1.5 py-0 text-[10px] text-amber-700 dark:text-amber-300"
+                          title="An edit made here has not reached this marketplace yet. The extension applies it, or edit it there."
+                        >
+                          {stale.label}
+                        </Badge>
+                      ))}
                     </div>
                   </TableCell>
                   <TableCell className="max-w-[120px] truncate font-mono text-[11px] tabular-nums text-muted-foreground">

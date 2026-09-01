@@ -7,6 +7,7 @@ code_refs:
   - extension-unified/lister/selectors.js
   - extension-unified/lister/common.js
   - services/edge-functions/src/lib/cross-listing-sale.ts
+  - services/edge-functions/src/lib/pending-revises.ts
   - src/lib/constants.ts
 reviewed: 2026-08-11
 tags: [runbook, marketplaces, extension, process]
@@ -187,6 +188,34 @@ Two places, or the channel oversells:
 `'unsupported'` is not a soft landing. Since US-2165 it stamps a durable
 `delist_unresolved` marker and notifies the seller — which is correct, and is
 also a support ticket per sale.
+
+## Step 5b — add the revise path (US-9202)
+
+An edit made in FlipDesk (price, title, description, photos) reaches eBay and
+Shopify through their APIs and nothing else unless the channel has a **revise
+flow**. Add one in `selectors.js` beside `delist`, with its own `enabled`,
+`version` and `lastVerified`; `scripts/verify-lister-selectors.mjs` applies the
+same gate (an enabled flow needs a real `lastVerified`, and only `edit` may be
+required pre-interaction — the fields and `save` live on the editor the click
+opens).
+
+While the flow is off, an edit still does the right thing: the edge stamps
+`listings.platform_fields.revise_pending` (`lib/pending-revises.ts`), the
+Listings table and the item page read "Stale on Poshmark since <date>", the
+popup counts it under "Needs updating", and the seller is offered the listing
+link and "I updated it". Nothing anywhere says "applied" before the marketplace
+confirms: the extension reports `applied: true` only with positive evidence
+(the editor saved and the page left it, or the site's own confirmation), an
+unverified run keeps the marker and bumps `attempts`, and a partial write
+(some fields took, some did not) is reported as not applied naming the fields.
+
+Flipping it on is two edits: `revise.enabled: true` plus `lastVerified` in
+`selectors.js`, and `MARKETPLACE_EXTENSION_FLOWS.<channel>.revise: "live"` in
+`src/lib/constants.ts`; `marketplace-mechanism.test.ts` fails the build if the
+two disagree. Verify on the live editor with a real owned listing, and watch a
+price change actually land before recording the date. Photos are never written
+by the flow (a gallery is a file input plus a drag order; re-uploading blind
+duplicates), so a photo edit always reads "by hand".
 
 ## Step 6 — add the disclosure copy
 

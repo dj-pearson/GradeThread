@@ -37,6 +37,32 @@
 > confirmation. A boot failure naming the schema version means the row is missing
 > and needs inserting by hand.
 
+## 00713 — extension queue revise kind (US-9202) — NOT YET APPLIED
+
+**Risk: low.** One `CHECK` constraint on `extension_work_queue.kind` is dropped
+and re-added with a third value (`revise`) and the column comment is updated.
+No table, column, function or policy changes; no backfill; nothing dropped.
+Idempotent (drop-if-exists then add).
+
+**Apply order:** after 00712. `scripts/apply-prod-migrations.sh` picks both up.
+
+**`NOTIFY pgrst, 'reload schema';`** not required (a CHECK is not in the schema
+cache); harmless if run.
+
+**The edge boot guard expects `00713`.** Apply 00712 and 00713, then deploy the
+edge. The pending-revise queue itself needs NO migration: it is a jsonb marker
+on `listings.platform_fields` (`revise_pending`), the same shape as
+`delist_unresolved`.
+
+**Frontend:** the listings table and item page read the marker only through the
+edge (`GET /api/flipdesk/listings/pending-revises`), so the Cloudflare Pages
+auto-deploy is safe on its own; until the edge is redeployed the new routes 404
+and the pages show no stale badges.
+
+**Verify after applying:** a service-role insert into `extension_work_queue`
+with `kind = 'revise'` succeeds (roll it back); `kind = 'share'` still fails
+with `23514`.
+
 ## 00712 — closet import origins (US-9201) — NOT YET APPLIED
 
 **Risk: low.** One `CHECK` constraint on `flipdesk_import_runs.origin` is
