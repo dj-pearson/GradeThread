@@ -754,7 +754,7 @@ export function FlipdeskListingsPage() {
     bulkPrice,
     bulkEnd,
     bulkRevise,
-    bulkRelist: bulkRelistMut,
+    bulkRelistApi: bulkRelistMut,
     deleteItemApi,
     publishApi,
   });

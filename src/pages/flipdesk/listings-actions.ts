@@ -136,7 +136,7 @@ export interface ListingsActionDeps {
   >;
   bulkEnd: MutationLike<{ listingIds: string[] }, BulkEndResponse>;
   /** US-9203: relist a selection; eBay under its offer, extension rows queued. */
-  bulkRelist: MutationLike<{ listingIds: string[] }, BulkRelistResponse>;
+  bulkRelistApi: MutationLike<{ listingIds: string[] }, BulkRelistResponse>;
   bulkRevise: MutationLike<
     { listingIds: string[]; onProgress?: (done: number, total: number) => void },
     BulkReviseResponse
@@ -175,6 +175,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
     bulkPrice,
     bulkEnd,
     bulkRevise,
+    bulkRelistApi,
     deleteItemApi,
     publishApi,
   } = d;
@@ -549,7 +550,7 @@ export function makeListingsActions(d: ListingsActionDeps) {
     if (!ok) return;
     setBusy(true);
     try {
-      const res = await bulkRelist.mutateAsync({ listingIds });
+      const res = await bulkRelistApi.mutateAsync({ listingIds });
       setSelected(new Set());
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       const queuedNote = res.queued > 0
