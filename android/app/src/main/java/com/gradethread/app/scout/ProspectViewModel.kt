@@ -28,7 +28,14 @@ import javax.inject.Inject
 class ProspectViewModel @Inject constructor(private val service: ScoutScanning) : ViewModel() {
 
     data class State(
-        val photos: List<File> = emptyList(),
+        /**
+         * At most one photo per role, held in role order (US-3027).
+         *
+         * A list of PAIRS rather than a list of files plus a list of roles: the
+         * role is a property of the picture, and the two are never separated on
+         * this side of the wire.
+         */
+        val photos: List<ProspectPhoto> = emptyList(),
         val costText: String = "",
         val running: Boolean = false,
         val response: ProspectResponse? = null,
@@ -41,7 +48,9 @@ class ProspectViewModel @Inject constructor(private val service: ScoutScanning) 
 
         val canRun: Boolean get() = photos.isNotEmpty() && !running
 
-        val canAddMorePhotos: Boolean get() = photos.size < ProspectDisplay.MAX_PHOTOS
+        /** The photo in a slot, or null when that slot is still empty. */
+        fun photoFor(role: ProspectPhotoRole): File? =
+            photos.firstOrNull { it.role == role }?.file
 
         val canBuy: Boolean
             get() = ProspectDisplay.canBuy(response) && !buying && boughtItemId == null
@@ -58,16 +67,17 @@ class ProspectViewModel @Inject constructor(private val service: ScoutScanning) 
     val state: StateFlow<State> = _state.asStateFlow()
 
     /**
-     * Add a photo, up to the two the edge reads: the front, and the tag.
+     * Fill one named slot: the item photo, or the brand tag.
      *
-     * Silently ignoring a third would look broken, so the button that calls
-     * this is hidden once the limit is reached.
+     * Re-shooting a slot REPLACES it rather than adding a third picture, and the
+     * result is re-sorted into role order so the wire is deterministic whichever
+     * slot the seller filled first.
      */
-    fun addPhoto(file: File) {
+    fun setPhoto(role: ProspectPhotoRole, file: File) {
         val current = _state.value
-        if (!current.canAddMorePhotos) return
         _state.value = current.copy(
-            photos = current.photos + file,
+            photos = (current.photos.filterNot { it.role == role } + ProspectPhoto(role, file))
+                .sortedBy { it.role.ordinal },
             // A new photo invalidates the old read. Keeping the previous verdict
             // on screen next to a different picture is how someone buys the
             // wrong thing.
@@ -78,9 +88,9 @@ class ProspectViewModel @Inject constructor(private val service: ScoutScanning) 
         )
     }
 
-    fun removePhoto(file: File) {
+    fun removePhoto(role: ProspectPhotoRole) {
         _state.value = _state.value.copy(
-            photos = _state.value.photos.filterNot { it == file },
+            photos = _state.value.photos.filterNot { it.role == role },
             response = null,
             boughtItemId = null,
         )
@@ -97,11 +107,26 @@ class ProspectViewModel @Inject constructor(private val service: ScoutScanning) 
         val current = _state.value
         if (!current.canRun) return
         _state.value = current.copy(running = true, errorMessage = null, planWall = null)
-        Telemetry.event("prospect.started", mapOf("photos" to current.photos.size))
+        Telemetry.event(
+            "prospect.started",
+            mapOf(
+                "photos" to current.photos.size,
+                // Which slots were filled decides whether the edge can use visual
+                // search at all, so it is the number worth having when someone
+                // asks why a scan spent an AI action.
+                "roles" to current.photos.joinToString(",") { it.role.wire },
+            ),
+        )
 
         viewModelScope.launch {
             val bytes = withContext(Dispatchers.IO) {
-                current.photos.mapNotNull { file -> runCatching { file.readBytes() }.getOrNull() }
+                // mapNotNull over the PAIR: a photo that will not read off disk
+                // takes its role with it. Reading the files and the roles as two
+                // separate lists is what would slide the tag's role onto the
+                // front photo the moment one of them failed.
+                current.photos.mapNotNull { photo ->
+                    runCatching { ProspectPhotoBytes(photo.role, photo.file.readBytes()) }.getOrNull()
+                }
             }
             if (bytes.isEmpty()) {
                 _state.value = _state.value.copy(

@@ -2881,7 +2881,8 @@
         "The CRON_REGISTRY healthy string says unparseable and blocks_disagree must both be zero, and the generated cron tables in COOLIFY.md, CRON_SETUP.md and vault/10-ops/launch-checklist.md are regenerated to match.",
         "OPERATOR: after deploy, hit Run now on credentials-refresh at /admin/ops/jobs and read the new counters to find out what the 13 skipped listings actually are."
       ],
-      "priority": 30
+      "priority": 30,
+      "notes": "2026-09-01 loop check: AC1-AC5 are ALL implemented and green, and this story carried no notes at all, so it read as untouched. Verified rather than assumed: lib/seller-credentials.ts has CredentialBlockReason (absent | no-element | unclosed | scan-limit), locateSellerCredentialBlock returning the reason, findSellerCredentialBlock keeping its null signature for existing callers, and classifyRefreshSkip as the single never-inject site (AC1, AC2). routes/jobs-credentials-refresh.ts splits the counter into no_marker / unparseable / blocks_disagree with no_block kept as their sum (AC3), logs credentials_refresh.unparseable_block and .blocks_disagree per listing plus the run-level credentials_refresh.stale_blocks_unreachable warn (AC4). The healthy string naming 'unparseable + blocks_disagree must be 0' is regenerated into COOLIFY.md, CRON_SETUP.md and vault/10-ops/launch-checklist.md (AC5). 37 tests pass across tests/credentials-refresh-blocks_test.ts and tests/seller-credentials_test.ts. ONLY AC6 remains and it is OPERATOR: after the next edge deploy, hit Run now on credentials-refresh at /admin/ops/jobs and read the new counters to find out what the 13 skipped listings on 2026-08-30 actually were."
     },
     {
       "id": "US-3029",
@@ -2989,7 +2990,8 @@
         "OPERATOR: apply migration 00711 to prod, NOTIFY pgrst, redeploy the edge, then schedule the two new Coolify crons (/api/jobs/ebay-rate-limits hourly, /api/jobs/ebay-retention daily).",
         "OPERATOR: run the call counter for two weeks and read ebay_api_call_daily before submitting the growth check. Do not submit on an estimated number."
       ],
-      "priority": 1
+      "priority": 1,
+      "notes": "2026-09-01 loop check: all eight CODE acceptance criteria are implemented and green. Verified, not assumed: ebay-no-scrape.test.cjs passes (extension sends item id / URL only on eBay hosts); 27 edge tests pass across ebay-call-log_test.ts, ebay-retention_test.ts and ebay-buyer-erasure_test.ts (call rollup, published-retention-policy-matches-privacy-page, buyer erasure coverage over the migrations). Routes jobs-ebay-rate-limits.ts and jobs-ebay-retention.ts are registered in main.ts; lib/ebay-item-read.ts holds the Browse getItemByLegacyId server resolve. Migration 00711 is applied to prod and probed (see PENDING_MIGRATIONS.md, scripts/probe-00711.mjs). ONLY the two OPERATOR criteria remain: redeploy the edge, create the two Coolify cron tasks (POST /api/jobs/ebay-rate-limits hourly, POST /api/jobs/ebay-retention daily, standard job secret, and the image now has curl), then let the counter run two weeks before reading ebay_api_call_daily for the growth-check form. Story stays open on the operator half."
     }
   ]
 }

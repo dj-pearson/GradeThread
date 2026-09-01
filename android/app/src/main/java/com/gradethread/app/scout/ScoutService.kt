@@ -24,8 +24,14 @@ interface ScoutScanning {
 
     suspend fun scan(categoryId: String, q: String?, brand: String?, limit: Int): ScoutScanResponse
 
-    /** Identify and comp an item from one or two photos. */
-    suspend fun prospect(images: List<ByteArray>, costCents: Int?): ProspectResponse
+    /**
+     * Identify and comp an item from one or two photos.
+     *
+     * Each photo carries its own role. The edge decides who identifies the item
+     * from the roles alone, so a photo without one can never reach eBay visual
+     * search however good a garment shot it is (US-3027).
+     */
+    suspend fun prospect(photos: List<ProspectPhotoBytes>, costCents: Int?): ProspectResponse
 
     /** Commit a prospected item into inventory at `sourced`. */
     suspend fun buy(request: ProspectBuyRequest): ProspectBuyResponse
@@ -84,7 +90,7 @@ class ScoutService @Inject constructor(
     )
 
     override suspend fun prospect(
-        images: List<ByteArray>,
+        photos: List<ProspectPhotoBytes>,
         costCents: Int?,
     ): ProspectResponse = json.decodeFromString(
         ProspectResponse.serializer(),
@@ -92,7 +98,13 @@ class ScoutService @Inject constructor(
             PROSPECT_PATH,
             json.encodeToString(
                 ProspectRequest.serializer(),
-                ProspectRequest(images.map { dataUri(it) }, costCents),
+                // Both lists are built from the SAME list of pairs in one pass,
+                // which is the only reason they cannot drift out of step.
+                ProspectRequest(
+                    images = photos.map { dataUri(it.bytes) },
+                    imageRoles = photos.map { it.role.wire },
+                    costCents = costCents,
+                ),
             ),
         ),
     )

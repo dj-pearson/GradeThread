@@ -876,6 +876,10 @@
     <string name="prospect_adding">Adding\u2026</string>
     <string name="prospect_add_to_inventory">Add to inventory</string>
     <string name="prospect_retry_hint">Try a clearer shot of the brand tag, or a straight-on photo of the front.</string>
+    <string name="prospect_role_item_label">Item photo</string>
+    <string name="prospect_role_item_hint">The whole garment, flat or on a hanger</string>
+    <string name="prospect_role_tag_label">Brand tag</string>
+    <string name="prospect_role_tag_hint">The brand or size label, close up</string>
     <string name="prospect_sells_for">Sells for %1$s</string>
     <string name="prospect_graded">Graded %1$s \u00b7 %2$d%% confident</string>
 

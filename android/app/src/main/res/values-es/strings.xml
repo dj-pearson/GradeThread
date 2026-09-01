@@ -798,6 +798,10 @@
     <string name="prospect_adding">Añadiendo…</string>
     <string name="prospect_add_to_inventory">Añadir al inventario</string>
     <string name="prospect_retry_hint">Prueba con una foto más clara de la etiqueta de la marca, o una foto de frente del artículo.</string>
+    <string name="prospect_role_item_label">Foto del artículo</string>
+    <string name="prospect_role_item_hint">La prenda entera, extendida o en una percha</string>
+    <string name="prospect_role_tag_label">Etiqueta de la marca</string>
+    <string name="prospect_role_tag_hint">La etiqueta de marca o talla, de cerca</string>
     <string name="prospect_sells_for">Se vende por %1$s</string>
     <string name="prospect_graded">Calificado %1$s · %2$d%% de confianza</string>
     <string name="graderequest_sending">Enviando tu artículo…</string>

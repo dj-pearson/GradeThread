@@ -6,6 +6,7 @@ import com.gradethread.app.ui.UiMessage
 
 import com.gradethread.app.money.Money
 import kotlinx.serialization.Serializable
+import java.io.File
 
 /**
  * US-1374 (iOS `ProspectTypes`, US-1107): the thrift-aisle "snap it, don't type
@@ -17,10 +18,56 @@ import kotlinx.serialization.Serializable
  *
  * camelCase on the wire, matching the property names, same as Scout.
  */
+/**
+ * What a submitted photo SHOWS. Sent as `imageRoles`, parallel to `images`, and
+ * it is the ONLY thing that decides who identifies the item server-side
+ * (US-2759 `planProspectIdentification`).
+ *
+ * US-3027: this is why the capture screen has named slots rather than a generic
+ * strip of two. Guessing the role from a photo's POSITION is the tempting
+ * shortcut and it is the wrong one: a seller who photographs only the care
+ * label would have it labelled `front`, and US-2758 measured a care label
+ * returning a midi dress, joggers and a mini skirt with no expressed doubt.
+ *
+ * [wire] is the value the edge reads. It matches iOS `ProspectPhotoRole` and
+ * the server's own `IDENTIFYING_PHOTO_ROLES`; a role nobody recognises is not
+ * permission, it is the no-usable-role branch.
+ */
+enum class ProspectPhotoRole(
+    val wire: String,
+    @StringRes val label: Int,
+    @StringRes val hint: Int,
+) {
+    /** The garment itself. The case eBay visual search measured best on. */
+    FRONT("front", R.string.prospect_role_item_label, R.string.prospect_role_item_hint),
+
+    /** The brand or size tag. Text on the garment beats a similarity match. */
+    TAG("tag", R.string.prospect_role_tag_label, R.string.prospect_role_tag_hint),
+}
+
+/**
+ * One captured photo and what it shows, as ONE object.
+ *
+ * The role and the file are never carried in parallel lists on this side of the
+ * wire, because that is exactly where they come apart: a photo that fails to
+ * read off disk has to drop its role with it rather than let the remaining
+ * roles shift up onto the wrong pictures.
+ */
+data class ProspectPhoto(val role: ProspectPhotoRole, val file: File)
+
+/** The same pairing once the bytes are loaded, on the way to the edge. */
+class ProspectPhotoBytes(val role: ProspectPhotoRole, val bytes: ByteArray)
+
 @Serializable
 data class ProspectRequest(
     /** Base64 data URIs. The edge never stores them. */
     val images: List<String>,
+    /**
+     * Parallel to [images] and the same length. Empty means "we are not saying",
+     * which the edge treats as the no-usable-role case rather than as consent to
+     * guess.
+     */
+    val imageRoles: List<String> = emptyList(),
     /** What the seller would pay, in cents. Optional; unlocks the verdict. */
     val costCents: Int? = null,
 )
@@ -150,8 +197,13 @@ data class ProspectBuyResponse(val id: String = "", val status: String = "")
  */
 object ProspectDisplay {
 
-    /** Two photos maximum: the front, and the brand/size tag. */
-    const val MAX_PHOTOS = 2
+    /**
+     * Two photos maximum: the front, and the brand/size tag.
+     *
+     * Derived from the roles rather than typed, so adding a slot cannot leave
+     * the counter reading "2 of 2" next to three of them.
+     */
+    val MAX_PHOTOS = ProspectPhotoRole.entries.size
 
     @StringRes
     fun verdictLabel(decision: ProspectDecision?): Int = when (decision?.recommendation) {

@@ -10,6 +10,8 @@ import com.gradethread.app.scout.ProspectContent
 import com.gradethread.app.scout.ProspectDecision
 import com.gradethread.app.scout.ProspectGrade
 import com.gradethread.app.scout.ProspectItem
+import com.gradethread.app.scout.ProspectPhoto
+import com.gradethread.app.scout.ProspectPhotoRole
 import com.gradethread.app.scout.ProspectResponse
 import com.gradethread.app.scout.ProspectSellThrough
 import com.gradethread.app.scout.ProspectStats
@@ -46,7 +48,10 @@ import java.io.File
 @Config(qualifiers = RobolectricDeviceQualifiers.Pixel5)
 class ProspectScreenshotTest {
 
-    private val photos = listOf(File("front_0001.jpg"), File("tag_0002.jpg"))
+    private val photos = listOf(
+        ProspectPhoto(ProspectPhotoRole.FRONT, File("front_0001.jpg")),
+        ProspectPhoto(ProspectPhotoRole.TAG, File("tag_0002.jpg")),
+    )
 
     private val response = ProspectResponse(
         identified = true,
@@ -124,10 +129,36 @@ class ProspectScreenshotTest {
         )
     }
 
-    /** Nothing photographed yet. The resting state. */
+    /**
+     * Nothing photographed yet. The resting state, and US-3027's empty two-slot
+     * capture: the slot NAMES are what tell the seller which photo is which, and
+     * the role attached to each is the only thing that decides whether the scan
+     * can reach visual search at all. If the names ever stop rendering, the
+     * screen still looks fine and every scan quietly falls back to reading the
+     * tag - so the empty state is a golden.
+     */
     @Test
     fun idle_light() = capture("screen-prospect-idle-light") {
         ProspectContent(ProspectViewModel.State(), ProspectActions())
+    }
+
+    /** Both slots filled, before the check. The named-slot state in review. */
+    @Test
+    fun slotsFilled_light() = capture("screen-prospect-slots-light") {
+        ProspectContent(ProspectViewModel.State(photos = photos), ProspectActions())
+    }
+
+    /**
+     * A tag-only scan: one slot filled, one still offering its two buttons.
+     * Either slot alone is a valid scan and the screen has to say so without
+     * looking half-finished.
+     */
+    @Test
+    fun tagOnly_light() = capture("screen-prospect-tag-only-light") {
+        ProspectContent(
+            ProspectViewModel.State(photos = photos.filter { it.role == ProspectPhotoRole.TAG }),
+            ProspectActions(),
+        )
     }
 
     /** Mid-check, with both photos attached. */

@@ -64,6 +64,11 @@ fun ProspectScreen(
     // The system camera writes into our own cache dir behind a content:// grant
     // — nothing else on the device can read the shot.
     var pendingCapture by remember { mutableStateOf<File?>(null) }
+    // WHICH SLOT the seller tapped. The launchers come back with a file or a
+    // uri and no memory of what was asked for, so the role has to survive the
+    // round trip here or it gets guessed from position later, which is the bug
+    // this screen exists to stop (US-3027).
+    var pendingRole by remember { mutableStateOf(ProspectPhotoRole.FRONT) }
     var cameraDenied by remember { mutableStateOf(false) }
 
     val takePicture = rememberLauncherForActivityResult(
@@ -71,12 +76,12 @@ fun ProspectScreen(
     ) { saved ->
         val file = pendingCapture
         pendingCapture = null
-        if (saved && file != null) viewModel.addPhoto(file)
+        if (saved && file != null) viewModel.setPhoto(pendingRole, file)
     }
 
     fun launchCamera() {
         val dir = File(context.cacheDir, "prospect-capture").apply { mkdirs() }
-        val file = File(dir, "prospect_${System.nanoTime()}.jpg")
+        val file = File(dir, "prospect_${pendingRole.wire}_${System.nanoTime()}.jpg")
         pendingCapture = file
         takePicture.launch(
             FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file),
@@ -90,7 +95,7 @@ fun ProspectScreen(
     val pickPhoto = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
     ) { uri ->
-        uri?.let { viewModel.addPhoto(stageProspectPhoto(context, it)) }
+        uri?.let { viewModel.setPhoto(pendingRole, stageProspectPhoto(context, it)) }
     }
 
     ProspectContent(
@@ -100,17 +105,19 @@ fun ProspectScreen(
             // permission and a FileProvider grant, the other a photo picker.
             // Neither exists in a screenshot test, and neither belongs in a
             // body whose job is to lay out what has already been chosen.
-            takePhoto = {
+            takePhoto = { role ->
                 haptics.light()
                 cameraDenied = false
+                pendingRole = role
                 val granted = ContextCompat.checkSelfPermission(
                     context,
                     Manifest.permission.CAMERA,
                 ) == PackageManager.PERMISSION_GRANTED
                 if (granted) launchCamera() else requestCamera.launch(Manifest.permission.CAMERA)
             },
-            pickPhoto = {
+            pickPhoto = { role ->
                 haptics.light()
+                pendingRole = role
                 pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             },
             removePhoto = viewModel::removePhoto,
@@ -128,9 +135,9 @@ fun ProspectScreen(
 /** Everything this screen can be asked to do (US-2902 AC3). */
 @Immutable
 data class ProspectActions(
-    val takePhoto: () -> Unit = {},
-    val pickPhoto: () -> Unit = {},
-    val removePhoto: (File) -> Unit = {},
+    val takePhoto: (ProspectPhotoRole) -> Unit = {},
+    val pickPhoto: (ProspectPhotoRole) -> Unit = {},
+    val removePhoto: (ProspectPhotoRole) -> Unit = {},
     val setCost: (String) -> Unit = {},
     val run: () -> Unit = {},
     val buy: () -> Unit = {},
@@ -175,33 +182,8 @@ fun ProspectContent(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        state.photos.forEach { photo ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    photo.name,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = { actions.removePhoto(photo) }) {
-                    Text(stringResource(R.string.prospect_remove))
-                }
-            }
-        }
-
-        if (state.canAddMorePhotos) {
-            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                BrandSecondaryButton(
-                    text = stringResource(R.string.prospect_take_photo),
-                    modifier = Modifier.weight(1f),
-                    onClick = actions.takePhoto,
-                )
-                BrandSecondaryButton(
-                    text = stringResource(R.string.prospect_library),
-                    modifier = Modifier.weight(1f),
-                    onClick = actions.pickPhoto,
-                )
-            }
+        ProspectPhotoRole.entries.forEach { role ->
+            PhotoSlot(role, state.photoFor(role), actions)
         }
         if (cameraDenied) {
             InfoCard(
@@ -274,6 +256,58 @@ fun ProspectContent(
         }
         BrandSecondaryButton(text = stringResource(R.string.prospect_back), modifier = Modifier.fillMaxWidth()) {
             actions.close()
+        }
+    }
+}
+
+/**
+ * One named capture slot (US-3027).
+ *
+ * ⚠ THE NAME IS THE POINT, not decoration. The edge decides who identifies the
+ * item purely from the role attached to each photo, so a strip of two unlabelled
+ * pictures can never reach eBay visual search - it takes the no-usable-role
+ * branch and reads the tag. Naming the slot is how the seller tells us which is
+ * which; inferring it from position is what US-2758 measured going wrong, where
+ * a care label came back as a midi dress, joggers and a mini skirt.
+ *
+ * Both slots are optional and either one alone is a valid scan: a tag-only scan
+ * sends one photo whose role is `tag`.
+ */
+@Composable
+private fun PhotoSlot(role: ProspectPhotoRole, photo: File?, actions: ProspectActions) {
+    Column(
+        Modifier.fillMaxWidth().cardStyle(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
+    ) {
+        Text(stringResource(role.label), style = MaterialTheme.typography.titleSmall)
+        Text(
+            stringResource(role.hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (photo == null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                BrandSecondaryButton(
+                    text = stringResource(R.string.prospect_take_photo),
+                    modifier = Modifier.weight(1f),
+                ) { actions.takePhoto(role) }
+                BrandSecondaryButton(
+                    text = stringResource(R.string.prospect_library),
+                    modifier = Modifier.weight(1f),
+                ) { actions.pickPhoto(role) }
+            }
+        } else {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    photo.name,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { actions.removePhoto(role) }) {
+                    Text(stringResource(R.string.prospect_remove))
+                }
+            }
         }
     }
 }
