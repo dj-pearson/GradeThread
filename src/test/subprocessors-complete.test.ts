@@ -57,6 +57,13 @@ const NOT_A_PROCESSOR: Record<string, string> = {
   // the page by hand and cross-checked, which is the whole point of
   // docs/shipping/. No data of any kind goes to USPS.
   "pe.usps.com": "a cited source URL for published rates, never called",
+  // US-9029: the FTC's public RN register, read signed out by the seeder and
+  // cited as the provenance link on every /rn/:number page. Traffic goes ONE
+  // way and carries no personal data — the query string is a brand name or the
+  // digits printed on a garment care label, both of which are public facts
+  // about a product rather than about a person. We hold no FTC account and
+  // send them nothing about a seller, an item or a submission.
+  "www.ftc.gov": "a public government register we read; no personal data is sent",
   "schema.org": "a JSON-LD vocabulary, not a request",
   "store.myshopify.com": "the Shopify host pattern — Shopify is listed",
   "example.com": "documentation and test fixtures",

@@ -106,6 +106,7 @@ import {
   AUTHENTICITY_CHECK_PATH,
 } from "@/lib/seo/authenticity-check";
 import { FIT_CHECKER_META, FIT_CHECKER_PATH } from "@/lib/seo/fit-checker";
+import { RN_LOOKUP_META, RN_LOOKUP_PATH } from "@/lib/seo/rn-lookup";
 import { absoluteUrl } from "@/lib/seo/site";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/site";
@@ -1191,6 +1192,28 @@ export function fitCheckerJsonLd(): JsonLd[] {
     provider: { "@id": ORG_ID },
   };
   return [app, faqPageLd(FIT_CHECKER_META.faqs)];
+}
+
+// ── Free RN number lookup (US-9033) ──────────────────────────────────
+// US-2044's lesson, applied rather than repeated: a tool page that declares a
+// jsonLdType and never prerenders it has the markup in the SPA only, where no
+// non-JS crawler — Google's HTML pass, GPTBot, ClaudeBot, PerplexityBot — can
+// read it. WebApplication is what makes a free tool machine-readable as one,
+// and this is the highest-volume tool term we own.
+export function rnLookupJsonLd(): JsonLd[] {
+  const app: JsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: "Free RN Number Lookup",
+    url: absoluteUrl(RN_LOOKUP_PATH),
+    applicationCategory: "UtilitiesApplication",
+    operatingSystem: "Web",
+    description: RN_LOOKUP_META.description,
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    isAccessibleForFree: true,
+    provider: { "@id": ORG_ID },
+  };
+  return [app, faqPageLd(RN_LOOKUP_META.faqs)];
 }
 
 // -- The calculator family (US-9002/9007) ----------------------------

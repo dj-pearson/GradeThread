@@ -34,6 +34,7 @@ export interface PublicRegisteredNumber {
   brands: string[];
   productLines: string[];
   sourceUrl: string | null;
+  searchUrl: string;
   sightings: number | null;
   indexable: boolean;
 }
@@ -149,11 +150,34 @@ export function renderRnBody(payload: PublicRegisteredNumber): string {
   const sighting = sightingText(payload);
   const sightingHtml = sighting ? `<p class="sightings">${escape(sighting)}</p>` : "";
 
-  const source = payload.sourceUrl
+  // TWO DIFFERENT LINKS, and the difference is the point.
+  //
+  // With a company we link the record we actually read, which is provenance for
+  // a claim we made. Without one we have no such record and never will until the
+  // seeder reaches this number, so we link the SEARCH instead and say plainly
+  // that we have not run it. Printing sourceUrl on a blank page would dress a
+  // query up as evidence.
+  //
+  // The blank page used to carry neither, which made it a dead end: it told
+  // somebody we could not help and gave them nowhere to go, and after the first
+  // seed run that is nearly everyone. The page is noindex either way, so this
+  // costs no ranking; it costs a click we were losing anyway, and buys being
+  // useful on the way out.
+  // Branches on companyName, not on sourceUrl. The two page states are
+  // "we can name it" and "we cannot", and companyName IS that distinction —
+  // sourceUrl merely correlates because the payload gates it the same way.
+  // Reading the correlated field means a payload that ever carries a stale
+  // source without a company would print one row's evidence under another
+  // number, which is the single worst thing a provenance page can do.
+  const source = payload.companyName && payload.sourceUrl
     ? `<p class="evidence"><a href="${
       escape(payload.sourceUrl)
     }" rel="nofollow noopener" target="_blank">See the FTC record</a></p>`
-    : "";
+    : `<p class="evidence"><a href="${
+      escape(payload.searchUrl)
+    }" rel="nofollow noopener" target="_blank">Search the FTC register for ${
+      escape(numberLabel(payload))
+    }</a> &mdash; the official database, which we have not indexed yet.</p>`;
 
   return `<article class="rn-lookup">
   ${answer}

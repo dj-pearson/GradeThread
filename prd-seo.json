@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "claude/seo-strategy-options-evftv2",
   "description": "SEO rebuild backlog, held OUT of prd.json entirely so the Ralph loop can never collide with it. Derived from vault/40-growth/seo-strategy-options-2026-08.md and the 2026-08-18 Keyword Planner pull (docs/seo/keyword-pull-2026-08-results.csv). Build order is Path 3 (calculators, 127,100/mo seller intent), then Path 7 (conversion + comparisons), then Path 1 (damage and care, 295,750/mo, authority engine only). Path 2 (returns) and Path 4 (resale value) were killed by the pull and are deliberately absent. IDS USE A RESERVED HIGH BLOCK (US-9001+) RATHER THAN prd.json.nextId: an earlier attempt reserved US-2674..US-2689 by bumping prd.json.nextId, and PR #275 merged the same block to main first, so the reservation both conflicted and failed. prd.json is now never touched by this file. Ralph allocates sequentially from US-2684 and will not reach 9001. On merge back, renumber into the live sequence and re-rank priorities, which are local to this file.",
-  "nextId": "US-9034",
+  "nextId": "US-9037",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -679,6 +679,70 @@
       "priority": 7,
       "dependsOn": [
         "US-9031"
+      ]
+    },
+    {
+      "id": "US-9034",
+      "passes": false,
+      "title": "The RN seeder drains the sighting queue it reads",
+      "description": "As the operator about to run the seeder against prod for the first time, I need a second run to cost a handful of FTC requests rather than a full repeat of the first. registered_number_sightings.resolved is the work queue migration 00501 built, and until now only the admin resolve route ever set it: the bulk path left every number it answered sitting in the queue, so each run re-searched all of them at one request per two seconds and the cost grew with every tag the product read. The file header also described step 2 as searching by declared brand while the body searched by number.",
+      "acceptanceCriteria": [
+        "A queue row whose registry_key is already in registered_number_registry is dropped before an FTC request is spent",
+        "An --apply run sets registered_number_sightings.resolved = true for the number the FTC returned, keyed on the result rather than the term searched, so a brand candidate resolves a sighting nobody had tied to a company yet",
+        "A dry run still writes nothing at all, including the queue flag",
+        "The resolve write uses .eq() only and never .or(), per US-1552",
+        "A failed queue flag logs and does not halt the run, because the registry row is the deliverable and is already written",
+        "The drop rule is a pure exported function with tests, since a run that re-searches settled numbers looks identical to one that does not",
+        "A bare --limit with no value exits 2 instead of silently searching every candidate",
+        "The seeder header describes step 2 as searching by number, matching the body and vault/40-growth/rn-lookup.md"
+      ],
+      "priority": 3,
+      "dependsOn": [
+        "US-9029"
+      ]
+    },
+    {
+      "id": "US-9035",
+      "passes": false,
+      "title": "The RN lookup guards the branch never ran: routing, JSON-LD, snippet budget, subprocessors",
+      "description": "As the person about to deploy the RN family, I need the four repo guards that already cover this shape to be green, because three of the four failures leave every RN unit test passing and one of them means the whole feature answers with the SPA shell in production. Found by running the full vitest suite to completion on the branch for the first time.",
+      "acceptanceCriteria": [
+        "public/_routes.json includes /rn/* and /sitemap-rn.xml, so Cloudflare Pages routes them to the Functions rather than serving the SPA shell (US-424 guard)",
+        "The include+exclude rule count stays under Cloudflare's limit of 100",
+        "rnLookupJsonLd() emits WebApplication + FAQPage and is registered in BOTH src/pages/marketing/marketing-jsonld.ts and the head-builder route map, so a non-JS crawler sees it (US-2044 guard)",
+        "The /tools/rn-lookup meta description fits the 70-160 character snippet window without truncating the tag-reader clause (US-435 guard)",
+        "www.ftc.gov is accounted for in the subprocessor audit as a stated exception with its reason: one-way reads of a public register, no personal data sent (US-2527 guard)",
+        "The full npm test suite passes with zero failures"
+      ],
+      "priority": 2,
+      "dependsOn": [
+        "US-9031",
+        "US-9032",
+        "US-9033"
+      ]
+    },
+    {
+      "id": "US-9036",
+      "passes": false,
+      "title": "The blank RN page stops being a dead end, and every miss becomes a work item",
+      "description": "As someone who typed a number we have not indexed, I get a page that tells me we cannot help and gives me nowhere to go, which after the first seed run is nearly every visitor: the seeder reaches a few hundred numbers and the FTC register holds over 100,000. And as the person running the seeder, I rank its queue by a guess at which brands matter, because a lookup miss was a pure read that recorded nothing. Two changes, one decision: link the search we have not run without ever calling it our evidence, and count the misses in their own table.",
+      "acceptanceCriteria": [
+        "publicRegisteredNumber exposes searchUrl, always set, built from the canonical digits rather than what was typed, so two spellings of one number do not send two readers to two FTC queries",
+        "sourceUrl keeps its meaning unchanged: provenance for a claim we made, null until a company is resolved",
+        "A resolved page links the record and says 'See the FTC record'; a blank page links the search and says plainly that we have not indexed it, never using provenance language",
+        "renderRnBody branches on companyName rather than sourceUrl, with a test proving a payload carrying a stale source without a company cannot print it",
+        "Migration 00708 creates registered_number_lookups: one row per number, a count, a resolved flag, deny-all RLS, and an increment-or-insert RPC in one statement so concurrent lookups cannot lose a count",
+        "It is a SEPARATE table from registered_number_sightings, because a sighting is a claim that OCR read the number off a real tag and the page prints that count; a typed lookup is demand, not evidence",
+        "GET /registered-numbers/:number records a lookup ONLY on a miss, fire-and-forget after the payload is built, and a failed write is logged rather than costing the reader their answer",
+        "registered_number_lookups is registered in SERVICE_ROLE_ONLY in rls-guard_test.ts",
+        "The RPC carries NO REVOKE and is not SECURITY DEFINER (US-2403): copying 00501's pair would segfault the backend on an anon call, so authorization comes from the deny-all RLS on the table instead",
+        "The US-1108 triple holds: idempotent SQL, EXPECTED_SCHEMA_VERSION at 00708 in the same commit, self-record footer, manifest regenerated",
+        "OPERATOR: apply 00708 to prod and NOTIFY pgrst before the push, per PENDING_MIGRATIONS.md"
+      ],
+      "priority": 3,
+      "dependsOn": [
+        "US-9031",
+        "US-9034"
       ]
     }
   ]

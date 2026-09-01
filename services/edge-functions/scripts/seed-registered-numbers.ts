@@ -10,9 +10,23 @@
 //   1. brand_knowledge, by name. These are the tags resellers actually hold.
 //   2. registered_number_sightings that no registry row answers yet, most-seen
 //      first. The product has been recording these off real garment tags all
-//      along and nothing has ever resolved them. Step 2 searches by the brands
-//      DECLARED alongside the sighting, so it can only resolve a number whose
-//      owner someone already named.
+//      along and nothing has ever resolved them. Step 2 searches by the NUMBER,
+//      which the registry answers exactly, rather than by the brand a seller
+//      happened to type alongside it.
+//
+// ── IT DRAINS THE QUEUE IT READS ───────────────────────────────────────────
+//
+// registered_number_sightings.resolved is the work queue 00501 built, and until
+// US-9034 nothing but the admin resolve route ever set it. The bulk path — this
+// script — left every row it answered sitting in the queue, so a second run
+// re-searched all of them at one request per two seconds. That is the opposite
+// of the politeness the pacing exists to buy, and it grows with every tag read.
+//
+// So: a candidate whose registry key is already resolved is dropped BEFORE a
+// request is spent, and an --apply run flags the sighting it answered, keyed on
+// the number the FTC actually returned rather than on the term searched. That
+// is the same key the admin route uses (routes/admin-registered-numbers.ts), so
+// both writers take a number off the queue the same way.
 //
 // Nothing else. No speculative import of the wider register: a row we cannot
 // tie to a brand we know is a row nobody asked for.
@@ -47,7 +61,7 @@ import { registeredNumberKey } from "../src/lib/registered-numbers.ts";
 /** Milliseconds between FTC requests. Deliberately not configurable. */
 const PACE_MS = 2000;
 
-interface Candidate {
+export interface Candidate {
   /** The term to search the registry for. */
   term: string;
   /** brand_knowledge.brand_key values this term stands for, if any. */
@@ -58,7 +72,14 @@ interface Candidate {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Brands we know, minus any that already have a registry row. */
+/**
+ * Every brand we know, searched by name.
+ *
+ * Unfiltered on purpose, unlike the sighting queue: a brand carries no number
+ * until the FTC answers, so there is nothing to compare against the registry
+ * beforehand. The duplicate is caught after the search instead, and the row it
+ * would have written is a `[have ]` line.
+ */
 async function brandCandidates(): Promise<Candidate[]> {
   // canonical_brand, not brand_name — the display name lives in that column
   // (see lib/registered-numbers.ts, which reads the same pair).
@@ -77,8 +98,43 @@ async function brandCandidates(): Promise<Candidate[]> {
     }));
 }
 
+/**
+ * Turn queue rows into search candidates, dropping the ones the registry
+ * already answers.
+ *
+ * Pure and exported so the drop rule has a test: it is the whole of US-9034,
+ * and its failure mode is invisible — a run that re-searches settled numbers
+ * looks exactly like a run that works, only slower and ruder.
+ */
+export function sightingCandidatesFrom(
+  rows: ReadonlyArray<{ registry_key: unknown }>,
+  known: ReadonlySet<string>,
+): Candidate[] {
+  const out: Candidate[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const registryKey = String(row.registry_key ?? "");
+    // A sighting IS its registry key, so unlike a brand we can tell before
+    // searching whether the registry already answers it. A row can sit here
+    // with resolved=false and a registry row present — every run before
+    // US-9034 left exactly that behind — and re-searching it would spend two
+    // seconds of somebody else's public service to learn what we already know.
+    if (known.has(registryKey)) continue;
+    if (seen.has(registryKey)) continue;
+
+    // Searched by NUMBER rather than by declared brand. The registry answers a
+    // number exactly, where a declared brand is whatever a seller typed, so the
+    // number is both more precise and available for every sighting.
+    const digits = registryKey.split(":")[1] ?? "";
+    if (!digits) continue;
+    seen.add(registryKey);
+    out.push({ term: digits, brandKeys: [], origin: "sighting" });
+  }
+  return out;
+}
+
 /** Numbers seen on real tags that nothing has resolved yet, most-seen first. */
-async function sightingCandidates(): Promise<Candidate[]> {
+async function sightingCandidates(known: Set<string>): Promise<Candidate[]> {
   const { data, error } = await supabaseAdmin
     .from("registered_number_sightings")
     .select("registry_key, sighting_count, resolved")
@@ -87,16 +143,7 @@ async function sightingCandidates(): Promise<Candidate[]> {
     .limit(500);
   if (error) throw new Error(`sightings read failed: ${error.message}`);
 
-  const out: Candidate[] = [];
-  for (const row of data ?? []) {
-    // Searched by NUMBER rather than by declared brand. The registry answers a
-    // number exactly, where a declared brand is whatever a seller typed, so the
-    // number is both more precise and available for every sighting.
-    const digits = String(row.registry_key).split(":")[1] ?? "";
-    if (!digits) continue;
-    out.push({ term: digits, brandKeys: [], origin: "sighting" });
-  }
-  return out;
+  return sightingCandidatesFrom(data ?? [], known);
 }
 
 /** Registry keys already present, so a run never re-searches settled numbers. */
@@ -131,14 +178,49 @@ async function writeRow(record: FtcRnRecord, brandKeys: string[]): Promise<void>
   if (error) throw new Error(`upsert ${key} failed: ${error.message}`);
 }
 
+/**
+ * Take a number off the sighting queue.
+ *
+ * Keyed on the number the FTC RETURNED, not on the term searched: a brand
+ * candidate has no number until the search answers, and that answer may already
+ * be sitting unresolved in the queue because someone photographed the tag
+ * before we knew whose it was. Keying on the result resolves both origins.
+ *
+ * A miss is normal and silent — most registry rows come from brands nobody has
+ * photographed yet. A failure is logged and does not halt the run: the registry
+ * row is the deliverable and it is already written; the flag only saves the
+ * next run a request.
+ *
+ * One .eq() and no .or() — US-1552: prod PostgREST rejects logical operators on
+ * a mutation while the local stack accepts them, so CI cannot catch that.
+ */
+async function resolveSighting(registryKey: string): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("registered_number_sightings")
+    .update({ resolved: true } as never)
+    .eq("registry_key", registryKey);
+  if (error) {
+    console.error(`[warn ] ${registryKey}: registry row saved, queue flag failed: ${error.message}`);
+  }
+}
+
 async function main(): Promise<void> {
   const args = new Set(Deno.args);
   const apply = args.has("--apply");
   const limitArg = Deno.args.indexOf("--limit");
-  const limit = limitArg >= 0 ? Number(Deno.args[limitArg + 1]) : Infinity;
+  // A bare `--limit` used to become NaN, and `done >= NaN` is false, so the run
+  // silently searched every candidate instead of the few the operator asked for.
+  let limit = Infinity;
+  if (limitArg >= 0) {
+    limit = Number(Deno.args[limitArg + 1]);
+    if (!Number.isFinite(limit) || limit < 1) {
+      console.error("--limit needs a positive number, e.g. --limit 5");
+      Deno.exit(2);
+    }
+  }
 
   const known = await existingKeys();
-  const candidates = [...await brandCandidates(), ...await sightingCandidates()];
+  const candidates = [...await brandCandidates(), ...await sightingCandidates(known)];
 
   console.log(
     `[seed] ${candidates.length} candidate(s), ${known.size} registry row(s) already present. ` +
@@ -173,10 +255,18 @@ async function main(): Promise<void> {
       if (known.has(key)) {
         skipped++;
         console.log(`[have ] ${c.term}: ${key} already in the registry`);
+        // The registry answers it, so the queue should not still be asking.
+        // Reachable from a BRAND candidate whose number someone photographed
+        // before we knew whose it was; sighting candidates are filtered out
+        // above, before a request is spent.
+        if (apply) await resolveSighting(key);
       } else {
         written++;
         console.log(`[write] ${c.term}: ${key} ${decision.record.legalName}`);
-        if (apply) await writeRow(decision.record, c.brandKeys);
+        if (apply) {
+          await writeRow(decision.record, c.brandKeys);
+          await resolveSighting(key);
+        }
         known.add(key);
       }
     }

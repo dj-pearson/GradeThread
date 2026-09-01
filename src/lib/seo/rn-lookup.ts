@@ -24,7 +24,10 @@ export const RN_LOOKUP_META = {
   path: RN_LOOKUP_PATH,
   title: "RN Number Lookup — Find Who Made a Garment",
   description:
-    "Free RN number lookup. Type the RN from a clothing care label to find the company that made or imported it, or photograph the tag and we will read the number, size and fabric for you.",
+    // US-435 budget is 70-160 characters. The first draft ran to 183 and was
+    // truncated mid-clause in the snippet, which loses the tag reader — the
+    // half that separates this page from the free mirrors.
+    "Free RN number lookup. Type the RN from a clothing care label to find the company behind it, or photograph the tag and we will read it for you.",
   h1: "RN number lookup",
   intro:
     "Every clothing label sold in the US can carry an RN — a Registered Identification Number issued by the FTC to the company that made, imported, distributed or sold the item. Type it in to find that company. An RN names the company, never the brand on the tag, and because it is public a counterfeit can print a real one, so treat a match as corroboration rather than proof.",
