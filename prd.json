@@ -2932,52 +2932,6 @@
       "notes": "BLOCKED, not done. 2026-09-01, partial commit ae96e2039. The tooling is built and proven; the VERDICT cannot be produced yet, and filling it in with anything other than a real count would defeat the purpose of the story. WHAT SHIPPED: services/edge-functions/scripts/measurement-coverage-report.ts, read-only, safe against prod. Reports ACTUAL (cohorts clearing both floors, by group; style-resolved share vs brand-level fallback; top brands) and POTENTIAL, which is the half that matters before any ingestion has run: group every inventory_items row that has a brand AND a size by (brand, group, normalized size) and count the groups that already hold >= 5 garments from >= 3 distinct sellers. That is the ceiling the index can reach if every eligible garment were measured, so it answers 'is the floor reachable at all' without waiting for a backfill. Verified on the local stack with a seeded fixture: 12 Levi's in one size across 4 sellers reported reachable, 3 Nike tees from 1 seller correctly not, verdict branch fired, fixture removed. WHY IT CANNOT RUN YET, two independent reasons. (1) No prod service-role key is available in this environment - .env holds the literal placeholder '<Placeholder to Protect - DO NOT COMMIT>'. The anon key in .env.production DOES reach prod, but it is useless for this by construction: garment_measurements is tenant-scoped and garment_measurement_stats is deny-all, so anon reads [] whether the table is empty or full, which is the one answer this script must not give. (2) Even with a key the count would be zero: the ingestion code (US-3034/3035) and the aggregate job (US-3036) are committed to local main and NOT pushed, so nothing has ever written a row in prod. FINDING WORTH MORE THAN THE STORY: 00708 and 00709 are ALREADY APPLIED TO PRODUCTION. Measured, not assumed - garment_measurements, garment_measurement_stats and registered_number_lookups all answer [] through PostgREST where a control name answers 42P01 relation-does-not-exist; garment_measurements accepts a select of brand_key,style_key,field_key,inches,source and rejects a bogus column with 42703, so it is 00709's shape and not a name collision; blog_posts reports 159 rows so the endpoint is really prod. PENDING_MIGRATIONS.md said both were outstanding and has been corrected - this is pending-migrations-stale-both-ways caught early. NOT CONFIRMED: applied_migrations is 42501 permission-denied to anon, so whether the version rows were RECORDED is unknown, and a hand-applied migration that skipped the self-record footer would make the boot guard and the next apply disagree with reality. Also unconfirmed: RLS policies, which a PostgREST read cannot see - the pg_policies verify block in PENDING_MIGRATIONS.md is still worth running. TO UNBLOCK: push the branch so the edge redeploys with the ingestion, let the backfill and aggregate run, then run the script with a prod service-role key. US-3040 and US-3041 must not ship before this returns a number."
     },
     {
-      "id": "US-3038",
-      "passes": false,
-      "title": "Disclose the measurement aggregate before the first row is published, and build the opt-out",
-      "description": "Sixth story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). Contribution to the aggregate is OPT-OUT, and that only holds if it is disclosed properly. The existing privacy policy does NOT cover this. Its aggregate clause in src/pages/legal/privacy.tsx (the 'de-identified images and aggregated grading outputs' bullet) permits internal use for model accuracy, benchmarks and prompts. It says nothing about publishing an aggregate on a public page. That gap closes BEFORE the first observation is published, not after. US-2643 is the standing example of why this matters here: a retention row promised a purge that did not happen, and the fix was to make the words true rather than to soften them. Six pieces, and the settings toggle carries a landmine. 00526 made public.users self-updates deny-by-default via a write allowlist. A new preference column MUST restate the allowlist in the same migration, or the toggle renders, saves without an error, and changes nothing.",
-      "acceptanceCriteria": [
-        "Privacy policy gains a clause naming what is aggregated (garment measurements only, never photos, never seller identity), the floor of 5 garments from 3 distinct sellers, that the result appears on public pages, and how to stop contributing.",
-        "Terms section 4 ('Your content and licenses', the grant around line 107) is extended to cover publishing DERIVED AGGREGATE measurements. Narrow wording: measurements only, aggregate only. Do not broaden the grant while you are in there.",
-        "The retention table gains a row saying what happens to contributions on opt-out and on account deletion.",
-        "One line of in-product disclosure appears in the composer where the autofill shows, with the setting one click away. Not buried in a settings page nobody opens.",
-        "A settings toggle exists. Off means new measurements stop being contributed AND existing garment_measurements rows for that user are DELETED. The next nightly rebuild drops them from the published numbers.",
-        "The copy states plainly that already-published pages are recomputed rather than frozen. Do not imply a published number is retracted instantly.",
-        "MIGRATION: the users preference column restates the 00526 write allowlist in the SAME migration, or the toggle is a silent no-op. Verify the save actually persists rather than assuming it.",
-        "The migration follows the US-1108 triple and copies the no-revoke block from 00609.",
-        "The policy change is dated on /changelog.",
-        "No new subprocessor is involved, so subprocessors.tsx is untouched. Confirm rather than assume.",
-        "A test proves the opt-out removes rows from the AGGREGATE on the next rebuild, not merely that new ones stop arriving.",
-        "STOP after the migration is written. This commit carries a migration and waits for the owner's explicit OK (standing rule)."
-      ],
-      "priority": 75,
-      "dependsOn": [
-        "US-3033"
-      ]
-    },
-    {
-      "id": "US-3039",
-      "passes": false,
-      "title": "Composer autofill and the drift warning: the half of this feature sellers pay for",
-      "description": "Seventh story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). This is the product half, and it stands on its own with no public page in existence. Autofill: when an item has a resolved brand, style and size, its measurements are empty, and the aggregate has a sufficient cohort, render the medians as SUGGESTIONS. Ghosted in the fields, one line beneath reading something like 'Median of 14 measured pairs', one button to accept, and the seller can type over any of them. Nothing is written until the seller acts. A silent write is not acceptable here: a wrong measurement on a listing becomes a return, and returns are the problem this whole product exists to prevent. The drift warning may be the better half. 00658_measurement_drift already exists. When a seller's entered measurement sits far outside the cohort, flag it inline: most 550 W34s measure 17 inches at the waist and yours says 19. That is a mismeasure or a mislabeled item, and catching it before publish is worth more to a working reseller than the autofill is. Reads go through ONE new reference-only edge route that follows flipdesk-size-bands.ts exactly.",
-      "acceptanceCriteria": [
-        "GET /api/flipdesk/measurement-stats takes brand, style, department, group and size, and returns only cohorts with sufficient=true.",
-        "That route takes NO item id and reads NO tenant table. An itemId param is REJECTED rather than ignored, so a future caller cannot quietly turn a reference lookup into a tenant read. This is the flipdesk-size-bands.ts rule and it is asserted by a test, not assumed.",
-        "Autofill renders medians as ghosted suggestions, never as saved values. Nothing persists until the seller accepts or types.",
-        "The sample count is shown with the suggestion. A number with no provenance is worse than no number.",
-        "The seller can accept all, accept none, or overwrite any single field.",
-        "Drift warning fires inline when an entered value sits outside the cohort by a field-specific margin, naming the cohort median so the seller can judge it. It warns, it never blocks.",
-        "Both surfaces are absent and silent when no sufficient cohort exists. No empty state, no placeholder, no 'coming soon'.",
-        "A tenant-isolation test case covers the new route (standing rule).",
-        "The in-product disclosure line from the disclosure story appears here, since this is where the autofill shows."
-      ],
-      "priority": 76,
-      "dependsOn": [
-        "US-3036",
-        "US-3038"
-      ]
-    },
-    {
       "id": "US-3040",
       "passes": false,
       "title": "The public measurement pages: hub, brand, and the style page that holds the whole size run",
