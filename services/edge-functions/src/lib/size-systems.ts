@@ -267,3 +267,144 @@ export function usEquivalentForLabel(
   if (n === null) return null;
   return toUsSize(system, department, n);
 }
+
+// ── normalizeSizeLabel (US-3033) ────────────────────────────────────────────
+//
+// The join key for the Fit & Measurement Index. Every observation in one cohort
+// has to land on one label, because the cohort is what the sample floor counts.
+// If "W34 L32", "34x32" and "34X32" stay three labels, one style in one size
+// splits into three cohorts of two garments each, none of them clears the floor,
+// and the page that should exist never does. The failure is silent: coverage
+// just looks lower than it is.
+//
+// So this function MERGES aggressively where two labels mean one garment, and
+// refuses to merge anywhere they might not. Two cases are worth stating because
+// merging them looks tidy and would be wrong:
+//
+//   A NATIONAL SYSTEM IS NOT A DECORATION. "UK 10" and "10" are different
+//   garments. Only a "US" prefix is dropped, because a bare label is US here by
+//   convention. Every other system in SIZE_SYSTEMS is kept.
+//
+//   PETITE AND TALL ARE NOT DECORATIONS EITHER. "10P" is a different cut from
+//   "10", with different measurements, which is the entire point of the index.
+//   Only "R" (regular, the default) is dropped.
+//
+// Anything unrecognised is returned cleaned but otherwise verbatim, and so can
+// only ever merge with something spelled the same way. An unknown label makes a
+// small cohort; a wrongly merged one makes a wrong number.
+//
+// Pure — no network, no DB, no model.
+
+/** Alpha size words to their letter form, longest first so MEDIUM beats MED. */
+const ALPHA_WORDS: readonly (readonly [RegExp, string])[] = [
+  [/EXTRA/g, "X"],
+  [/XSMALL/g, "XS"],
+  [/XLARGE/g, "XL"],
+  [/SMALL/g, "S"],
+  [/MEDIUM/g, "M"],
+  [/MED/g, "M"],
+  [/LARGE/g, "L"],
+  [/LG/g, "L"],
+  [/SM/g, "S"],
+];
+
+/**
+ * Canonical alpha token, or null when the input is not an alpha size.
+ *
+ * Collapses the two ways every size past XL is written: XXL and 2XL are one
+ * size, and so are XXXL, 3X and 3XL. The numeric form wins because it extends
+ * without ambiguity — nobody can count the Xs in XXXXXL reliably, including us.
+ */
+function canonicalAlpha(token: string): string | null {
+  let t = token.replace(/[\s._-]/g, "");
+  for (const [pattern, replacement] of ALPHA_WORDS) t = t.replace(pattern, replacement);
+
+  if (t === "S" || t === "M" || t === "L") return t;
+  if (t === "XS") return "XS";
+  if (t === "XL") return "XL";
+
+  // X-runs: XXS -> 2XS, XXL -> 2XL, XXXL -> 3XL.
+  const run = t.match(/^(X{2,})(S|L)$/);
+  if (run) return `${run[1]!.length}X${run[2]!}`;
+
+  // Numeric forms: 2X, 2XL, 3XS. A bare "2X" means 2XL, which is the only way
+  // that token is ever printed on a garment.
+  const numeric = t.match(/^(\d)X(S|L)?$/);
+  if (numeric) {
+    const n = Number(numeric[1]);
+    const end = numeric[2] ?? "L";
+    // "1X" and "1XL" are XL written the other way, and there is no "2X"-style
+    // spelling below that, so a leading 0 is not a size.
+    if (n === 1) return `X${end}`;
+    if (n < 2 || n > 9) return null;
+    return `${n}X${end}`;
+  }
+
+  return null;
+}
+
+/**
+ * The canonical form of a size label, used as the cohort join key.
+ *
+ * `group` is accepted because waist-by-inseam only means what it looks like on
+ * a bottom, and is deliberately NOT used for anything else: a function whose
+ * output depends on the caller's category in ways the caller cannot predict is
+ * worse than one that ignores the hint.
+ *
+ * Returns "" for empty input. Never throws.
+ */
+export function normalizeSizeLabel(
+  raw: string | null | undefined,
+  group?: string | null,
+): string {
+  if (!raw) return "";
+
+  let s = raw.toUpperCase().replace(/\s+/g, " ").trim();
+  // A trailing restatement, as the chart corpus writes it: "UK 10 (US 6)".
+  s = s.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  // Leading/trailing punctuation, but not the separators the forms below need.
+  s = s.replace(/^[^A-Z0-9]+/, "").replace(/[^A-Z0-9]+$/, "").trim();
+  if (!s) return "";
+
+  s = s.replace(/^SIZE\s*[:#]?\s*/, "").trim();
+  if (!s) return "";
+
+  // One size, however it is spelled.
+  if (/^(ONE\s?SIZE|OS|OSFA|ONE\s?SIZE\s?FITS\s?ALL|FREE\s?SIZE)$/.test(s)) return "OS";
+
+  // A national system prefix is part of the identity, except US, which is the
+  // bare form here. Recurse on the remainder so "UK 10" gets the same cleanup.
+  const systemMatch = s.match(/^([A-Z]{2})\s*(.+)$/);
+  if (systemMatch) {
+    const token = systemMatch[1]!;
+    const rest = systemMatch[2]!;
+    if (token === "US") return normalizeSizeLabel(rest, group);
+    if ((SIZE_SYSTEMS as readonly string[]).includes(token)) {
+      const inner = normalizeSizeLabel(rest, group);
+      return inner ? `${token} ${inner}` : token;
+    }
+  }
+
+  // Waist by inseam: "W34 L32", "34x32", "34 X 32", "34/32", "34-32".
+  const wxl = s.match(/^W?\s*(\d{1,2})(?:\s*(?:X|\/|-)\s*|\s*L\s*)(\d{1,2})$/);
+  if (wxl) return `${wxl[1]}X${wxl[2]}`;
+
+  // Waist only: "W34" is the same garment as "34".
+  const waistOnly = s.match(/^W\s*(\d{1,2})$/);
+  if (waistOnly) return waistOnly[1]!;
+
+  // Numeric, with a length class that changes the cut. R is the default and is
+  // dropped; P (petite) and T (tall) are kept because they are different cuts.
+  const numeric = s.match(/^(\d{1,3})(?:\s*(R|P|T|L))?$/);
+  if (numeric) {
+    const suffix = numeric[2];
+    if (!suffix || suffix === "R") return numeric[1]!;
+    return `${numeric[1]}${suffix}`;
+  }
+
+  const alpha = canonicalAlpha(s);
+  if (alpha) return alpha;
+
+  // Unrecognised. Cleaned, never merged, and that is the safe outcome.
+  return s;
+}

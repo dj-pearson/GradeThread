@@ -1,6 +1,92 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ▶ OUTSTANDING RIGHT NOW: 00708_registered_number_lookups.sql (US-9036 — count the RN lookups we could not answer)
+> **TWO are outstanding right now: 00708, then 00709.** Apply in that order.
+> Neither depends on the other, but `apply-prod-migrations.sh` skips by MAXIMUM
+> recorded version rather than by membership, so applying 00709 first would
+> leave 00708 permanently skipped. That is exactly how `listings.draft_id` from
+> 00134 stayed missing for months (US-2726, US-2832). Run the script, or run
+> both files by hand in numeric order. One `NOTIFY pgrst, 'reload schema';`
+> after both is enough. `EXPECTED_SCHEMA_VERSION` is `00709`, so the edge boot
+> guard refuses to start until BOTH are in.
+
+## ▶ OUTSTANDING RIGHT NOW (2 of 2): 00709_garment_measurement_index.sql (US-3033 — the Fit & Measurement Index storage)
+
+**Not yet applied.** Held per the standing rule: apply the SQL to prod, then OK
+the push.
+
+**Risk: low.** Two NEW tables, five new indexes, two triggers, four policies.
+Nothing existing is altered, dropped or backfilled. No data is written by this
+migration and no code writes to either table yet — the ingestion lands in
+US-3034 and US-3035.
+
+**⚠ Needs `NOTIFY pgrst, 'reload schema';`** — two new tables, so PostgREST
+will 404 on both until it is told.
+
+**Apply order: after 00708.** See the note at the top of this file. It is the
+highest file, so `scripts/apply-prod-migrations.sh` picks it up on its own once
+00708 is recorded.
+
+**What it does.** Creates the storage for the Fit & Measurement Index (design:
+`docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md`).
+
+- `public.garment_measurements` — one row per garment per measured field.
+  **TENANT-SCOPED**, four policies in the `(select auth.uid())` initplan form:
+  a seller reads, inserts, updates and deletes only their own rows. DELETE is a
+  policy on purpose, because the US-3038 opt-out has to remove a seller's
+  contributions and they must be able to do that themselves. Unique on
+  `(item_id, field_key)`, so re-measuring a garment updates its row instead of
+  counting it twice.
+- `public.garment_measurement_stats` — the nightly rollup public pages will
+  read. **DENY-ALL, zero policies**, service-role only, same class and same
+  reasoning as `brand_size_charts`. No owner column at all: the row is a
+  statement about a garment, not about whose closet the numbers came from.
+  Registered in BOTH `SERVICE_ROLE_ONLY` and `SERVICE_ONLY_FORCED` in
+  `rls-guard_test.ts` — it has no owner column and no parent FK, so without the
+  second list the guard would check nothing while appearing to pass.
+
+**No REVOKE anywhere in the file (US-2403).** Copied forward from 00609 and
+00708. On this Postgres image supautils decorates a permission-denied error with
+a GRANT hint, and building that hint segfaults the backend on a FUNCTION denial,
+restarting every other session with it. There is no function in this migration
+at all, and authorization comes from the tables, so there is nothing to revoke
+and nothing that could build a hint.
+
+**Does client code read it before the apply?** NO. Nothing in the SPA, iOS or
+Android touches either table, and no edge route reads or writes them in this
+commit. The only thing in this commit that names them is `rls-guard_test.ts`,
+which parses the migration file on disk rather than querying the database. So a
+frontend auto-deploy ahead of the SQL changes nothing for any user. The real
+ordering constraint is the `EXPECTED_SCHEMA_VERSION` bump to `00709`: the edge
+boot guard will refuse to start on an unapplied database. Apply first, then
+redeploy the edge.
+
+**Verify after applying:**
+
+```sql
+-- both tables exist, both have RLS on
+select tablename, rowsecurity from pg_tables
+ where tablename like 'garment_measurement%';                      -- 2 rows, both t
+
+-- the tenant table has exactly its four policies; the stats table has none
+select tablename, policyname, cmd from pg_policies
+ where tablename like 'garment_measurement%' order by tablename, cmd;
+
+select count(*) from public.garment_measurements;                  -- 0
+select count(*) from public.garment_measurement_stats;             -- 0
+```
+
+Read the policies from `pg_policies`, not from this file. Then the edge boot log
+should print `[schema-version] OK — DB at 00709 matches expected 00709`.
+
+**Verified locally 2026-08-31** against the throwaway stack
+(`supabase_db_gradethread`): applies clean on top of 00708, applies clean a
+SECOND time (idempotent), `pg_policies` shows the four tenant policies and zero
+on the stats table, and a rolled-back transaction proved a re-measure of the
+same garment field updates the row rather than adding one.
+
+---
+
+## ▶ OUTSTANDING RIGHT NOW (1 of 2): 00708_registered_number_lookups.sql (US-9036 — count the RN lookups we could not answer)
 
 **Not yet applied.** Held per the standing rule: apply the SQL to prod, then OK
 the push.
@@ -49,9 +135,12 @@ sure of. Nothing in the SPA touches it. The only caller is the edge service, in
 failure is logged with `console.warn` and the reader still gets their answer. So
 if the frontend auto-deploys before the SQL lands, the RN pages keep working and
 the edge logs a warning per miss until the apply. The `EXPECTED_SCHEMA_VERSION`
-bump to `00708` means the edge boot guard will refuse to start on an unapplied
-database, which is the real ordering constraint: apply first, then redeploy the
-edge.
+bump means the edge boot guard will refuse to start on an unapplied database,
+which is the real ordering constraint: apply first, then redeploy the edge.
+
+**⚠ The expected version is now `00709`, not `00708`.** US-3033 landed on top of
+this entry. Applying 00708 alone will NOT satisfy the boot guard, and the edge
+will keep refusing to start until 00709 is in as well.
 
 **Verify after applying:**
 
@@ -59,8 +148,8 @@ edge.
 select count(*) from public.registered_number_lookups;                 -- 0
 select proname from pg_proc where proname = 'record_registered_number_lookup';
 ```
-Then the edge boot log should print
-`[schema-version] OK — DB at 00708 matches expected 00708`.
+Then, once 00709 is applied too, the edge boot log should print
+`[schema-version] OK — DB at 00709 matches expected 00709`.
 
 ---
 

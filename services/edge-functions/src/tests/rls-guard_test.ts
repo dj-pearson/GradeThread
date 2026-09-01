@@ -655,6 +655,15 @@ const SERVICE_ROLE_ONLY = new Set([
   "comp_read_demand",
   "comp_read_batches",
   "comp_read_jobs",
+  // US-3033: the published half of the Fit & Measurement Index. One row per
+  // brand-style-size-field cohort holding a median and its two quartiles, with
+  // no owner column, because the row is a statement about a garment rather than
+  // about whose closet the numbers came from. The observations it is computed
+  // from live in garment_measurements, which IS tenant-scoped and stays that
+  // way. Deny-all in both directions: writable, anyone could move the number a
+  // public page prints and a seller prices against; readable through the
+  // client, it would hand out the coverage map before the pages exist.
+  "garment_measurement_stats",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /
@@ -685,6 +694,10 @@ const SERVICE_ONLY_FORCED = [
   // at least one policy survives, and none of them is USING(true).
   "ai_prompt_versions",
   "ai_prompt_block_versions",
+  // US-3033. No owner column and no parent FK by design (see SERVICE_ROLE_ONLY
+  // above), so hasUserId never discovers it and without this line the guard
+  // would check nothing while appearing to pass.
+  "garment_measurement_stats",
 ];
 
 // Tokens that signal a policy is tenant/role scoped rather than wide open.

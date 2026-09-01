@@ -7,12 +7,17 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-08-30
+reviewed: 2026-09-01
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
 
 # Edge runtime invariants
+
+> **Re-reviewed 2026-09-01.** Bump-only again: 00708 -> 00709 for the Fit &
+> Measurement Index tables (US-3033). Nothing in the boot guard, the grace
+> window or the fail-open/fail-closed split moved. Seventh time. The 2026-08-23
+> callout below has now predicted every drift this note has had since.
 
 > **Re-reviewed 2026-08-29.** Bump-only again, twice: 00682 -> 00683 -> 00684
 > for the tax profile and the chart of accounts (US-2982, US-2983). Nothing in

@@ -6,7 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-08-30
+reviewed: 2026-09-01
 tags: [security, rls, tenant-isolation, contract]
 summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id; the same file also enforces the (select auth.uid()) initplan form, with a five-entry exemption list whose entries fall into two DIFFERENT cases - a negligible table, and a policy already superseded by a corrective migration.
 ---
@@ -26,6 +26,24 @@ delete from anon, authenticated`, and zero policies.
 > This note is about TABLES. For `SECURITY DEFINER` functions the edge calls,
 > see [[admin-rpc-guards]] — `is_admin()` is always false for the service role,
 > so a bare `is_admin()` guard rejects every call the edge makes.
+
+> **Re-reviewed 2026-09-01.** Drift flagged `rls-guard_test.ts`. The change is
+> one new entry, `garment_measurement_stats` (US-3033, migration 00709), added
+> by following the "no owner column at all" rule below rather than by changing
+> it: no owning column of any kind, deny-all, so it is registered in **both**
+> lists. Its grain is `(brand, style, department, group, size, field)` and the
+> row is a statement about a garment, not about whose closet the numbers came
+> from. The observations behind it live in `garment_measurements`, an ordinary
+> tenant table with four per-user policies, so identity stays exactly one table
+> away from the published aggregate. The rule this note states did not move.
+>
+> **Gap found while doing it, not fixed here.** `help_article_views` is in
+> `SERVICE_ROLE_ONLY` and NOT in `SERVICE_ONLY_FORCED`. It has no owner column
+> either — that is the whole point of the US-2592 callout below — so by this
+> note's own rule it is currently invisible to the guard, and dropping its RLS
+> would go unnoticed. Confirming it is genuinely deny-all and adding it needs
+> its own change; recorded here so the next reader does not assume the callout
+> below finished the job.
 
 > **Re-reviewed 2026-08-30.** Drift flagged `rls-guard_test.ts` again. The
 > change is one new entry, `qbo_oauth_states` (US-2997, migration 00704), and
