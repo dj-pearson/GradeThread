@@ -1,0 +1,225 @@
+{
+  "project": "GradeThread",
+  "branchName": "claude/cross-listing-platform-analysis-8rbauz",
+  "description": "Cross-listing competitiveness backlog, held OUT of prd.json so the Ralph loop can never collide with it. Written 2026-09-01 from a code and vault audit answering three questions: what FlipDesk is missing against Vendoo, Crosslist, List Perfectly and Nifty; what makes the whole flow save a reseller hours; and what gets GradeThread seen. Revision from the chat answer that preceded it: the unified extension IS live on the Chrome Web Store and Firefox AMO at v1.0.9, so nothing here asks for it to be published; US-9210 assumes it is. IDS USE A RESERVED HIGH BLOCK (US-9201+) like prd-seo.json (9001+) and prd-connector.json (9101+); prd.json.nextId is never touched. Priorities are local to this file, ascending. Stories that already exist in prd.json are NOT duplicated here; the ones this programme leans on are listed in relatedOpenStories with the reason. On merge back, renumber into the live sequence and re-rank.",
+  "nextId": "US-9214",
+  "archive": "prd.archive.json",
+  "relatedOpenStories": [
+    { "id": "US-2104", "file": "prd.json", "why": "Blog and social engine is built and cold: no cron, four unpublished drafts, webhooks NULL. Turning it on is a growth lever with no build." },
+    { "id": "US-2095", "file": "prd.json", "why": "Google Search Console and Bing verification never confirmed. Gate for every content story." },
+    { "id": "US-2619", "file": "prd.json", "why": "Link preview (OG) image endpoints return empty bodies, so every share lands without a picture." },
+    { "id": "US-9017", "file": "prd-seo.json", "why": "The 19-page click-rate rewrite. Site ranks (156 of 270 URLs top 10) and gets 0.85% clicks." },
+    { "id": "US-1949", "file": "prd.json", "why": "FlipDesk never shown publicly and a 'Join waitlist' CTA reads as vaporware. US-9211 depends on it." },
+    { "id": "US-2473", "file": "prd.json", "why": "Depop go-live: connector built, DEPOP_ENABLED off, waiting on platform approval. Table stakes for clothing." },
+    { "id": "US-2474", "file": "prd.json", "why": "Etsy go-live: same shape as Depop." },
+    { "id": "US-2479", "file": "prd.json", "why": "Vinted delist is unverified; list works." },
+    { "id": "US-2480", "file": "prd.json", "why": "Facebook Marketplace lister selectors unverified; the live form has no accessible names." },
+    { "id": "US-2472", "file": "prd.json", "why": "The marketplace-coverage epic these product stories extend. Its 'without copying Nifty' rule holds here." },
+    { "id": "US-1881", "file": "prd.json", "why": "Firefox is done at v1.0.9; the Edge Add-ons half is folded into US-9210." },
+    { "id": "US-1757", "file": "prd.json", "why": "STALE: AC1 (publish to Chrome and Firefox) is done as of v1.0.9. Close or rewrite; US-9210 carries the funnel half." },
+    { "id": "US-1691", "file": "prd.json", "why": "The twice-yearly data report. US-9208 feeds it the graded-vs-ungraded return number." },
+    { "id": "US-2894", "file": "prd.json", "why": "Play Store listing has no icon, graphics or screenshots." }
+  ],
+  "userStories": [
+    {
+      "id": "US-9201",
+      "title": "Closet import: pull a seller's existing Poshmark and Mercari listings through the extension",
+      "description": "As a reseller switching from Vendoo or List Perfectly, I want my existing Poshmark and Mercari closets pulled into FlipDesk so that I do not retype 800 listings. Every competitor starts onboarding with 'import your listings'. FlipDesk imports eBay (POST /listings/pull), Shopify (POST /shopify/listings/pull) and CSV (flipdesk-import.ts), and nothing from the extension channels, which is where clothing resellers keep most of their inventory. The extension already reads the seller's own closet pages for sold-sync (extension-unified/sync/), so the reading half is adjacent work.",
+      "acceptanceCriteria": [
+        "An 'Import my closet' action on /dashboard/flipdesk/import (src/pages/flipdesk/import.tsx) for Poshmark and Mercari, shown only when the extension is installed and the account has an active paid FlipDesk plan (the same gate as the lister in extension-unified/registry.js).",
+        "The extension reads only closet pages the seller opened themselves, under the same three refusals as extension-unified/sync/content.js: wrong host does nothing, a login wall reports not-signed-in and reads no rows, a human check stops and leaves the tab alone. No tabs.create, no navigation, no schedule (test/sync-manifest.test.cjs style guard).",
+        "Per listing it emits title, description, price, size, brand, the seller's stated condition, full-size photo URLs (through the adapter's URL-upgrade rule, verified per vault/10-ops/extension-adapter-verification.md so a thumbnail never passes as a photo), listing URL and platform listing id.",
+        "The server accepts the batch as a durable import run reusing the runs / effect rows / undo model in services/edge-functions/src/routes/flipdesk-import.ts, so a closed tab resumes and a bad import is one Undo away.",
+        "Each row creates an inventory_item with its origin recorded per src/lib/listing-origin.ts and one listings row (platform, listing_url, platform_listing_id, is_active). A re-run dedupes on (platform, platform_listing_id) and updates instead of duplicating.",
+        "Imported photos are copied into item-photos through validateImageUpload and stripImageMetadata (the CLAUDE.md storage rules), never hot-linked from the marketplace.",
+        "Imported live listings count against the plan's active-listing cap exactly as pulled eBay listings do (the cap check in flipdesk-listings.ts), and the 80% warning fires per vault/50-business/flipdesk-plan-gating.md.",
+        "Every new route has a case in services/edge-functions/src/tests/tenant-isolation_test.ts.",
+        "Disclosure copy before the first run says what is read and that it runs in the seller's own logged-in tab, added to src/lib/marketplace-disclosure.ts.",
+        "A PostHog event registered in src/lib/analytics-events.ts records install-to-first-imported-item time; the number appears on the activation funnel."
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][PRODUCT] The single biggest switching-cost gap. Vendoo, List Perfectly and Crosslist all import existing listings; a seller with a full closet will not move without it. Depop import follows once US-2473 flips DEPOP_ENABLED (the API can list the seller's own items)."
+    },
+    {
+      "id": "US-9202",
+      "title": "Edit sync on extension channels: a change in FlipDesk reaches Poshmark, Mercari and Vinted",
+      "description": "As a reseller, I want a price, title, description or photo change made in FlipDesk to reach my Poshmark, Mercari and Vinted listings so that I have one place to edit. Today an edit reaches eBay and Shopify (native API updateListing) and nothing else: extension channels have list and delist flows only, so every cross-listed item goes stale the first time it is repriced. Vendoo and Crosslist both propagate edits.",
+      "acceptanceCriteria": [
+        "extension-unified/lister/selectors.js gains a 'revise' flow per channel with its own enabled switch, version and lastVerified, under the same gate as list and delist (scripts/verify-lister-selectors.mjs refuses enabled:true without a lastVerified; the popup's 'Check selectors' covers the revise form).",
+        "MARKETPLACE_EXTENSION_FLOW in src/lib/constants.ts models revise alongside list and delist, and src/lib/__tests__/marketplace-mechanism.test.ts fails the build if the constant and selectors.js drift.",
+        "Saving a price, title, description or photo change on an item that has an extension-channel listing enqueues one revise job per channel in a pending-revise queue modeled on /listings/pending-delists, and the desktop extension drains it. Edits made on the phone go through the US-2481 mobile queue.",
+        "Until a revise is applied the listing row reads 'Stale on Poshmark since <date>' in src/pages/flipdesk/listings-table.tsx and item.tsx, and the extension popup shows the pending count. Never mark it applied before the marketplace confirms.",
+        "Bulk price drop (src/pages/flipdesk/listings-actions.ts, bulk-pricing.tsx) and the automation action price_drop_pct enqueue revises for extension channels instead of silently touching only API channels; the automation action log says queued vs applied.",
+        "Poshmark and Mercari verified first on live sell forms per vault/30-platform/closing-a-coverage-gap.md. Vinted and Grailed follow as their forms allow; an unverified channel reports 'edit manually' with a link to the listing, never a guess.",
+        "A queue state-machine test and a tenant-isolation_test.ts case for every new route."
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][PRODUCT] Grailed delist is permanently impossible (native confirm dialog); revise may be possible because it does not go through that dialog. Check before promising it."
+    },
+    {
+      "id": "US-9203",
+      "title": "Relist on extension channels, from the button and from automations",
+      "description": "As a reseller, I want stale Poshmark and Mercari listings relisted from FlipDesk so that the days_listed_gt automation and the Relist button work on the channels where most of my closet lives, not only on eBay. Relist of ended listings exists for eBay (flipdesk-ebay.ts) and the automations engine has a relist action; neither reaches an extension channel.",
+      "acceptanceCriteria": [
+        "Before building, record in this story's notes what the automations 'relist' action (services/edge-functions/src/routes/flipdesk-automations.ts) and the manual Relist button do today per channel, so the gap is stated from evidence.",
+        "An extension relist flow for Poshmark (their 'copy listing' relist) and Mercari, with the same switch / version / lastVerified model as list and delist.",
+        "The automations relist action and the days_listed_gt and no_views_in_days triggers enqueue extension relists; the action log distinguishes queued from applied.",
+        "A relist writes a new listings row and ends the old one, so sold-sync (services/edge-functions/src/lib/cross-listing-sale.ts) never matches the stale listing.",
+        "No bulk-relist endpoint exists today; add one that chunks like bulk-price and is Pro-gated under the existing autoRelist flag."
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][PRODUCT] Depends on the pending-queue shape from US-9202; build them in order."
+    },
+    {
+      "id": "US-9204",
+      "title": "Approve and list: phone photos in, one review card out, one button",
+      "description": "As a reseller, I want to shoot photos and get one screen that shows the grade, measurements, item specifics, title, description, price and channels, with one Approve button, so that listing an item takes minutes instead of a walk through nine stages. Every piece exists (AutoLister extract and photo grouping, measure autofill, extract-aspects, listing-copy, pricing suggestions, cross-push) across about fifty FlipDesk pages; what is missing is the spine that runs them in one pass. This is the hours-saved story and the demo that sells FlipDesk.",
+      "acceptanceCriteria": [
+        "A new default entry point: photos from web intake (src/pages/flipdesk/intake.tsx), iOS Capture and Android capture land on ONE review screen showing grade (or a 'grading, usually under a minute' state), measurements, item specifics, title, description, price (US-9205) and channel checkboxes.",
+        "One Approve publishes API channels (eBay, Shopify, Depop and Etsy once live) and queues extension channels. The screen says which run now and which wait for the desktop browser, in the words the US-2481 queue already uses.",
+        "Every block on the card links to 'Edit details' which opens the existing stage page; no stage page is removed.",
+        "Draft-quality checks (src/pages/flipdesk/draft-quality.ts) run before Approve and block only on hard failures: missing required photo, no price, no category.",
+        "An event registered in src/lib/analytics-events.ts records seconds from first photo to Approve; the overview page shows the seller's median.",
+        "Same flow on iOS and Android (run the parity-auditor agent before closing), because the phone is where photos start.",
+        "Default for accounts created after ship; existing accounts get a one-time 'Try the new flow' switch that can be turned back."
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][EASE] The pipeline page (source > catalog > measure > photograph > grade > comp > draft > list) stays as the power-user view. New sellers should never have to learn it."
+    },
+    {
+      "id": "US-9205",
+      "title": "The graded price is the draft price, not a suggestion",
+      "description": "As a reseller, I want a new draft to open with a price already set from the grade and condition-matched comps so that I stop researching every item. Grade to matched-condition comp to price is built (flipdesk-pricing.ts /price, /suggestions, /forecast) but arrives as a suggestion the seller has to apply. No crosslister can price from a grade; making it the default is the differentiator doing work.",
+      "acceptanceCriteria": [
+        "When a grade and a condition-matched comp set exist, the draft price is prefilled with a one-line 'why': grade, number of comps used, expected days to sell.",
+        "No grade yet: prefill from the comp median and say so; when the grade completes, offer the graded price as a one-click update, never a silent change.",
+        "The seller can override; the override is recorded on the listing (audit row) so a later analysis can compare graded price vs seller price vs sale price.",
+        "Repricing rules (src/pages/flipdesk/repricing.tsx, flipdesk-pricing.ts /rules) never override a manual price unless the rule says it may.",
+        "A test under src/pages/flipdesk/__tests__ covers the three states: graded, ungraded, overridden."
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][EASE] Pairs with US-9204; the card's price block is this story."
+    },
+    {
+      "id": "US-9206",
+      "title": "Condition card as the last listing photo",
+      "description": "As a reseller, I want a condition card image added to my listing photos so that buyers on Poshmark, Mercari and Vinted see the grade where they actually look. Today the grade lives in the description (the grade line, the facts block in services/edge-functions/src/lib/listing-facts-block.ts, the cert number). On photo-first marketplaces the description is truncated and buyers scroll pictures. This makes the certificate visible on every channel, including the ones that reject links.",
+      "acceptanceCriteria": [
+        "The server renders a 1000x1000 PNG at publish: overall grade, the five factor scores, the certificate short URL and its QR, and a 'Graded by GradeThread' mark. No seller PII and no label photo.",
+        "Built from the same facts as listing-facts-block.ts so the card and the description can never disagree.",
+        "Appended as the last photo on channels that truncate descriptions (Poshmark, Mercari, Vinted, Depop) and optional on eBay and Shopify. Per-seller toggle, default on for graded items.",
+        "Obeys vault/30-platform/grade-authority-on-listings.md: no card for a revoked grade, and a certificate revision regenerates the card per vault/20-domain/certificate-revision-provenance.md.",
+        "Stored in item-photos under {userId}/{itemId}/ (public bucket is correct here: no label, receipt or PII).",
+        "Channel photo caps are respected: the card never pushes a required front, back or detail photo out of the set.",
+        "The extension list flow uploads it like any other photo; the card is the first thing a switching seller sees that Vendoo cannot produce."
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][DIFFERENTIATOR] functions/badge/cert already renders a badge; this is a full photo-sized card, not a badge."
+    },
+    {
+      "id": "US-9207",
+      "title": "Time-saved meter on the dashboard",
+      "description": "As a reseller, I want to see how many hours FlipDesk saved me this month so that I know what I am paying for. As GradeThread, we want a number no crosslister can claim. The events for each automated task already exist; nothing adds them up.",
+      "acceptanceCriteria": [
+        "A contract note vault/50-business/time-saved-baseline.md states the manual minutes per task (photo edit, measurements, title and description, item specifics, comps, one cross-list, one delist, one relist) with a source for each number, and the code reads the same constants (a test fails on drift, the pricing.md pattern).",
+        "Per item the server sums minutes only for tasks the system actually did (the event exists), never for tasks the seller skipped or did by hand.",
+        "A tile on src/pages/flipdesk/overview.tsx: 'You saved 6h 40m this month', with a per-task breakdown on click. iOS and Android show the same number.",
+        "The aggregate median per seller may appear in marketing copy only under the claim rules (the src/test/return-analytics-claim-rules.test.ts pattern and vault/40-growth/copy-style-guide.md), with the sample size stated."
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][EASE][GROWTH] The number becomes the headline on the FlipDesk landing once it is real."
+    },
+    {
+      "id": "US-9208",
+      "title": "Return rate: graded listings vs ungraded listings",
+      "description": "As a reseller, I want to see whether my graded listings get fewer 'not as described' returns than my ungraded ones so that grading pays for itself in a number I can check. As GradeThread, this is the whole pitch against pure crosslisters, and the seller scorecard (migration 00654, src/lib/seller-scorecard.ts) already computes return_rate without the split.",
+      "acceptanceCriteria": [
+        "seller_scorecard return_rate is split by whether the sold listing carried a grade at sale time. The migration follows the migrations skill (idempotent, EXPECTED_SCHEMA_VERSION bump in the same commit, self-record footer).",
+        "The scorecard card (src/components/flipdesk/seller-scorecard-card.tsx) shows both rates and the sample size; below 20 sales in either bucket it says 'not enough sales yet' rather than a percentage.",
+        "The aggregate across sellers, with the same threshold, feeds the US-1691 data report and the returns row on the /compare pages only once the claim-rules test passes."
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][DIFFERENTIATOR] Grade accuracy guarantee context: vault/20-domain/grade-accuracy-guarantee.md."
+    },
+    {
+      "id": "US-9209",
+      "title": "Switch-from kit: Vendoo and List Perfectly import presets plus two landing pages",
+      "description": "As a reseller leaving Vendoo or List Perfectly, I want to drop in the CSV their export gives me and have the columns already mapped, and a page that tells me honestly what transfers, so that switching is an afternoon. The importer (flipdesk-import.ts) takes mapped rows; the mapping is the seller's job today.",
+      "acceptanceCriteria": [
+        "Column-mapping presets for the Vendoo and List Perfectly CSV exports, each verified against a real export file, with the mapping recorded in a vault note so a format change is a one-line fix.",
+        "/reselling/switch-from-vendoo and /reselling/switch-from-list-perfectly registered in src/lib/seo/public-routes.ts AND src/prerender/entry-server.tsx (the CI guard fails otherwise), following the honesty doctrine in src/lib/seo/competitor-alternatives.ts: no prices, no version numbers, no 'X is broken'.",
+        "Each page states what transfers (items, photos, prices, sizes) and what does not (live listings on extension channels until US-9201 ships), so nobody switches on a promise.",
+        "Keyword-target rows in src/lib/seo/keyword-targets.ts with the existing CI drift test."
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][GROWTH] The three existing alternative pages (vendoo, list-perfectly, crosslist) link to these."
+    },
+    {
+      "id": "US-9210",
+      "title": "The extension is live: make it the install funnel",
+      "description": "As GradeThread growth, I want the unified extension (Chrome Web Store and Firefox AMO, v1.0.9) treated as the top of the funnel so that every free buyer condition read becomes a seller lead. The buyer read works on six marketplaces with no account; that is a Honey-style install loop, and today the site barely points at it.",
+      "acceptanceCriteria": [
+        "VITE_EXTENSION_WEBSTORE_URL set in the Cloudflare Pages build env so src/lib/lister-extension.ts returns the real Chrome store URL; a Firefox AMO URL added beside it and chosen by user agent.",
+        "An install call-to-action on every /tools/* page, every /compare/* page, the /grading/* garment guides, the FlipDesk landing and the buyer home. The copy says what the extension does on the site the reader is about to visit, not what it is.",
+        "The install -> first read -> signup funnel joined by the campaign tag per vault/40-growth/extension-funnel-attribution.md, and a PostHog insight showing weekly installs, reads and signups.",
+        "Store listings link back to the site and carry a screenshot set from media-kit/; listing copy keeps the 'no marketplace brand names' rule from extension-unified/SUBMISSION.md, which is what got 0.3.5 rejected.",
+        "Edge Add-ons submission (the remaining half of US-1881).",
+        "Repo record reconciled: extension-unified/manifest.json says 0.10.0 while the stores serve 1.0.9. Tag the shipped commit, bump the manifest, and close or rewrite US-1757, whose AC1 is done."
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][GROWTH] Revised from the chat answer, which said the extension was unpublished. Dj confirmed Chrome and Firefox are live at v1.0.9 on 2026-09-01."
+    },
+    {
+      "id": "US-9211",
+      "title": "Finish the FlipDesk-first funnel: nav, footer, pricing order, previews",
+      "description": "As GradeThread, we want the site to lead with reseller workflow and present grading as the reason to pick us, because grading has near-zero search demand while reseller-tool terms carry the highest ad prices in the keyword pull (vault/40-growth/seo-strategy-options-2026-08.md, Path 7). The hero already leads with listing ('Photograph it. We'll write the listing.' in src/pages/landing.tsx); the rest of the site does not follow.",
+      "acceptanceCriteria": [
+        "Audit and record in this story's notes what still leads with grading: primary nav, footer, /pricing card order, link-preview images (US-2619), sitemap priority, the /flipdesk landing's position in the nav.",
+        "Nav and footer lead with FlipDesk; grading is one link phrased as the reason to pick us, not the product.",
+        "The waitlist gate is confirmed closed in prod (src/hooks/use-waitlist-gating.ts, US-1949) and the form removed when it is.",
+        "Dj's decision on Path 7 is recorded in the decision line of vault/40-growth/seo-strategy-options-2026-08.md with the reviewed date bumped."
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][GROWTH][DECISION] Recommendation: yes. A moat around a market with no traffic is not a moat; grading sells better as the thing Vendoo cannot do."
+    },
+    {
+      "id": "US-9212",
+      "title": "[DECISION] Creator affiliate programme with cash payouts",
+      "description": "As GradeThread growth, we want reseller YouTube and TikTok creators promoting FlipDesk, because that is how Vendoo and List Perfectly grew. Our referral programme pays grade credits only, and vault/60-decisions/adr-referral-cash-payout.md says cash is a NO-GO until three conditions hold. Creators do not promote for credits. This story is the decision, then the build that follows it.",
+      "acceptanceCriteria": [
+        "Dj decides. The ADR's three conditions (a cohort asking for cash, referrals as a measured channel, ops capacity for KYC and 1099) are checked against today's numbers and the ADR is revised either way, with the reviewed date bumped.",
+        "If GO: a creator programme separate from user referral (credits stay for users). Stripe Connect Express payouts so Stripe carries tax forms; 20 to 30 percent of first-year subscription revenue paid monthly after the refund window, capped per referred account; a /partners landing page registered in public-routes.ts; links reuse src/lib/affiliate.ts 30-day last-touch; a creator dashboard with clicks, signups, paid, owed.",
+        "If NO-GO: a non-cash creator kit (12 months of Business free, co-marketing, early features) using the same links and dashboard, so the channel is still measured.",
+        "Either way, the first ten creators are sourced from the reseller YouTube and TikTok list and the outreach is logged."
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][GROWTH][DECISION] Recommendation: GO, capped, because the channel is how the incumbents were built and credits have not produced creators."
+    },
+    {
+      "id": "US-9213",
+      "title": "[OPERATOR] Reseller community distribution: backlinks, Reddit, podcasts",
+      "description": "As GradeThread growth, we want the off-page work the vault already planned to actually run, because the site ranks and is not clicked, and the backlink target list and pitch templates in SEO/ have sat unused.",
+      "acceptanceCriteria": [
+        "Work SEO/GradeThread_Backlink_Targets.xlsx with SEO/GradeThread_Backlink_Pitches_Templates.docx: ten pitches a week, each logged in the sheet with date and outcome.",
+        "Reddit per vault/40-growth/seo-distribution-and-measurement.md: answer condition and returns questions in r/Flipping, r/poshmark, r/Mercari and r/Depop with the free tools, no drive-by links.",
+        "Two reseller podcasts or newsletters pitched with the data report (US-1691) as the hook.",
+        "Measured monthly: referring domains in Search Console, and one run of the 25-prompt AI citation panel in that note."
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": "[2026-09-01][CROSSLISTING][GROWTH][OPERATOR] Needs a human with accounts; no code."
+    }
+  ]
+}
