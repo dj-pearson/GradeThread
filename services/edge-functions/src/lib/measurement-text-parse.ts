@@ -159,7 +159,17 @@ export function parseMeasurementsFromText(
 
   // Normalize the separators sellers use so one pattern covers them all, but
   // keep line structure: a newline is a hard boundary between measurements.
-  const haystack = text.replace(/ /g, " ").replace(/[–—]/g, "-");
+  // Written as ESCAPES, not as the literal characters. Both classes below are
+  // routine in pasted listing text: a no-break space arrives from any
+  // rich-text editor, and en/em dashes from autocorrect, so the parser has to
+  // handle them. But a literal U+00A0 in this source looks exactly like a
+  // space, and the next person tidying whitespace would delete the one
+  // character the replace exists to catch. The repo guard
+  // (src/test/no-invisible-characters.test.ts) rejects it for that reason,
+  // and it rejected this line.
+  const haystack = text
+    .replace(/\u00A0/g, " ")
+    .replace(/[\u2013\u2014]/g, "-");
 
   const found = new Map<string, ParsedMeasurement>();
 

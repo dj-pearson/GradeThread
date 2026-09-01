@@ -436,6 +436,12 @@ export interface UserRow {
   // share_sale_outcomes would retroactively change what that consent meant.
   // Default false; VIEWING Radar is a separate consent and never gated on this.
   radar_contribute: boolean;
+  // Fit & Measurement Index contribution (US-3038, migration 00710). Its own
+  // toggle for the same reason as radar_contribute, but DEFAULT TRUE — this one
+  // is opt-OUT, disclosed in the privacy policy and Terms section 4. Turning it
+  // off deletes the account's garment_measurements rows through a database
+  // trigger, so no client has to remember to.
+  share_garment_measurements: boolean;
   // Pricing split (US-201): FlipDesk subscription state
   flipdesk_plan: FlipdeskPlan;
   flipdesk_interval: BillingInterval | null;

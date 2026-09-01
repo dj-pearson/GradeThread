@@ -1,6 +1,30 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> ## ✅ BOTH ARE APPLIED. Nothing is outstanding as of 2026-09-01.
+> ## ✅ 00708, 00709 AND 00710 ARE ALL APPLIED. Nothing is outstanding as of 2026-09-01.
+>
+> **00710 (US-3038, the measurement opt-out) confirmed by the same probe:**
+> `users.share_garment_measurements` selects clean through PostgREST while a
+> control name answers `42703 column ... does not exist`. `EXPECTED_SCHEMA_VERSION`
+> is `00710`.
+>
+> ⚠ **Two things the probe CANNOT see, and both matter more here than they did
+> for 00709.** 00710 replaces `guard_users_protected_columns()` and adds
+> `purge_garment_measurements_on_optout()`, and neither a function body nor a
+> trigger is visible from outside. If the guard did not take, the settings
+> toggle saves nothing and the user believes they opted out. If the trigger did
+> not take, opting out stops new measurements but never deletes the old ones,
+> which is the half the privacy copy promises. Run this as the operator:
+>
+> ```sql
+> -- the allowlist must contain the new column, or the toggle is a no-op
+> select position('share_garment_measurements' in prosrc) > 0 as allowlisted
+>   from pg_proc where proname = 'guard_users_protected_columns';   -- expect t
+>
+> -- the opt-out purge trigger must exist on users
+> select tgname from pg_trigger
+>  where tgrelid = 'public.users'::regclass
+>    and tgname = 'purge_garment_measurements_on_optout';           -- expect 1 row
+> ```
 >
 > **Measured, not assumed.** `public.garment_measurements`,
 > `public.garment_measurement_stats` (00709) and

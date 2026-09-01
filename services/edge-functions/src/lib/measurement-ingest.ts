@@ -57,6 +57,36 @@ import type { MeasurementGroup } from "./measurement-templates.ts";
 /** Confidence floor below which an extraction is not worth keeping at all. */
 export const MIN_INGEST_CONFIDENCE = 0.5;
 
+/**
+ * Is this account still contributing to the index? (US-3038)
+ *
+ * The 00710 trigger deletes what a user already contributed the moment they
+ * opt out. That handles the past and nothing else — without this check the very
+ * next MeasureCard pass would write the rows straight back, and the switch
+ * would look like it worked for exactly as long as nobody measured anything.
+ *
+ * Fails CLOSED. An unreadable preference returns false, so a database hiccup
+ * costs one observation rather than overriding somebody's privacy choice. That
+ * is the opposite of the usual best-effort default in this file, and
+ * deliberately so: everywhere else the cost of failing is a missing sample, and
+ * here it is contributing data a user asked us not to.
+ */
+export async function isContributingMeasurements(userId: string): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("users")
+    .select("share_garment_measurements")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error || !data) {
+    console.error(
+      "[measurement-ingest] could not read the sharing preference; treating as opted out",
+    );
+    return false;
+  }
+  return (data as unknown as { share_garment_measurements: boolean })
+    .share_garment_measurements === true;
+}
+
 export interface MeasurementCohort {
   brandKey: string;
   styleKey: string;
@@ -300,6 +330,9 @@ export async function ingestMeasureCardObservations(args: {
     const brandKey = brandKeyForRaw(args.brand);
     if (!brandKey) return 0;
 
+    // US-3038: the opt-out, checked before anything is written.
+    if (!(await isContributingMeasurements(args.userId))) return 0;
+
     const pack = await resolveBrandKnowledgePack(args.brand);
     const cohort = resolveMeasurementCohort({
       brand: args.brand,
@@ -388,6 +421,10 @@ export async function ingestListingTextObservations(args: {
     if (parsed.length === 0) return 0;
 
     if (!brandKeyForRaw(args.brand)) return 0;
+
+    // US-3038: the opt-out, checked before anything is written.
+    if (!(await isContributingMeasurements(args.userId))) return 0;
+
     const pack = await resolveBrandKnowledgePack(args.brand);
     const cohort = resolveMeasurementCohort({
       brand: args.brand,

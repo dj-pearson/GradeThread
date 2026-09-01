@@ -111,6 +111,26 @@ export function TermsPage() {
         and (d) use de-identified or aggregated derivatives to evaluate model
         quality and improve our products.
       </p>
+      {/* US-3038. Deliberately its own clause and deliberately narrow.
+          Clause (d) permits INTERNAL use of aggregated derivatives; publishing
+          one is a different act, and stretching (d) to cover it would be the
+          kind of reading that makes a licence mean whatever is convenient
+          later. Measurements only, aggregate only, floor stated, opt-out
+          stated. Do not broaden this to "Your Content" — the whole point is
+          that it reaches one field and stops. */}
+      <p>
+        <strong>Garment measurements.</strong> You additionally grant us a
+        license to publish <em>aggregate</em> garment measurements derived from
+        Your Content &mdash; that is, statistics such as a median and a range
+        computed across many sellers&rsquo; garments of the same brand, style
+        and size. This license covers measurements only. It does not extend to
+        your photos, prices, listings, or any material that identifies you, and
+        an aggregate is published only where at least five garments from at
+        least three different sellers support it. Measurement sharing is on by
+        default and you can turn it off at any time in Settings, which also
+        deletes the measurements you have already contributed. See{" "}
+        <Link to="/privacy">Privacy Policy</Link> Section 9.
+      </p>
       <p>
         You represent and warrant that you own or have the necessary rights to
         Your Content, that it does not infringe any third-party rights, and

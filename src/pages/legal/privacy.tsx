@@ -343,7 +343,7 @@ export function PrivacyPage() {
         <a href="mailto:privacy@gradethread.com">privacy@gradethread.com</a>{" "}
         — objecting does not affect your grades or certificates. QA access
         ends when your photos are deleted under the retention schedule in{" "}
-        <a href="#retention">Section 10</a> (or earlier on request); deleted
+        <a href="#retention">Section 11</a> (or earlier on request); deleted
         photos drop out of QA samples because reviewers always read the live
         stored photo, never a copy.
       </p>
@@ -588,7 +588,7 @@ export function PrivacyPage() {
         we do not go back and gather what happened while it was off. Your own
         sourcing history stays yours either way &mdash; it is not part of the
         shared map and is covered by your ordinary rights in{" "}
-        <a href="#your-rights">Section 11</a>.
+        <a href="#your-rights">Section 12</a>.
       </p>
       {/* US-1864: the personal layer. Stated here rather than left to the
           sentence above, because it is a SECOND record written from the same
@@ -606,7 +606,58 @@ export function PrivacyPage() {
         with your account.
       </p>
 
-      <h2 id="sharing">9. How we share information</h2>
+      {/* US-3038: the Fit & Measurement Index. This section is the consent, not
+          a summary of it — the toggle in Settings points here, and every claim
+          has to be checkable against what the code does.
+
+          It gets its own section for the same reason Radar does, and one more:
+          this is the only sharing on this page that is ON by default. The
+          existing aggregate clause in Section 4 permits INTERNAL use of
+          de-identified data for model accuracy and benchmarks. Publishing an
+          aggregate on a public page is a different thing, and reading it into
+          that clause would be exactly the kind of stretch US-2643 was written
+          to stop. */}
+      <h2 id="measurements">9. Garment measurements and the size guides</h2>
+      <p>
+        Clothing brands publish <em>body</em> size charts &mdash; the wearer&rsquo;s
+        chest, the wearer&rsquo;s waist. Almost nobody publishes what a garment
+        actually measures laid flat, which is the number a resale listing is
+        written with and the number a buyer asks for. We build that reference
+        from the measurements our sellers record.
+      </p>
+      <p>
+        <strong>
+          This one is on unless you turn it off, which makes it different from
+          everything else on this page.
+        </strong>{" "}
+        You can switch it off at any time under Settings &rarr; Preferences
+        &rarr; Measurement sharing.
+      </p>
+      <p>
+        <strong>What is shared.</strong> The measurements themselves, and the
+        brand, style and size they belong to. Not your photos, not your prices,
+        not your listings, not your name or account.
+      </p>
+      <p>
+        <strong>Nothing is published on the strength of your items alone.</strong>{" "}
+        A measurement appears on a public page only once at least five garments
+        from at least three different sellers support it. What we publish is the
+        middle value across those garments and the range around it, so no single
+        measurement can be picked out and none of them can be traced back to
+        you. A number that only your inventory supports is a fact about your
+        inventory, and we do not publish those.
+      </p>
+      <p>
+        <strong>If you turn it off,</strong> we stop taking new measurements and
+        delete the ones you have already contributed. Averages that included
+        them are recalculated on the next daily update rather than frozen, so a
+        page may still show the previous number for up to a day. If removing
+        your measurements leaves fewer than five garments behind a number, that
+        number stops being published at all. Deleting your account removes your
+        measurements the same way.
+      </p>
+
+      <h2 id="sharing">10. How we share information</h2>
       <p>
         We do not sell personal information. We share it only as follows. A
         complete, dated list of our subprocessors is on the{" "}
@@ -687,7 +738,7 @@ export function PrivacyPage() {
         </li>
       </ul>
 
-      <h2 id="retention">10. Data retention</h2>
+      <h2 id="retention">11. Data retention</h2>
       <p>
         We retain personal information for as long as your account is active
         and as needed to provide the Service, then delete or de-identify it
@@ -761,6 +812,28 @@ export function PrivacyPage() {
               to you at any point.
             </td>
           </tr>
+          {/* US-3038. Two rows, not one, because the observation and the
+              published average have genuinely different lifetimes and saying so
+              in a single row would require a sentence that is true of neither. */}
+          <tr>
+            <td>Garment measurements you contribute (Section 9)</td>
+            <td>
+              Kept while measurement sharing is on. Turning it off deletes them
+              immediately, and so does deleting your account.
+            </td>
+          </tr>
+          <tr>
+            <td>The published averages built from those measurements</td>
+            <td>
+              Kept indefinitely, because they are aggregate figures about a
+              garment rather than about you &mdash; they carry no account and no
+              single measurement can be recovered from them. They are
+              recalculated daily, so an average stops including your
+              measurements on the next update after you withdraw them, and stops
+              being published at all if fewer than five garments are left behind
+              it.
+            </td>
+          </tr>
           <tr>
             <td>Your own store history (which stores you scanned at)</td>
             <td>
@@ -807,7 +880,7 @@ export function PrivacyPage() {
         <a href="#your-rights">Your rights</a>).
       </p>
 
-      <h2 id="your-rights">11. Your rights and choices</h2>
+      <h2 id="your-rights">12. Your rights and choices</h2>
       <p>
         Depending on where you live, you may have rights to access, correct,
         delete, restrict, or port your personal information, and to object to
@@ -860,7 +933,7 @@ export function PrivacyPage() {
         for residents of these states as well.
       </p>
 
-      <h2 id="security">12. Security</h2>
+      <h2 id="security">13. Security</h2>
       <p>
         We use industry-standard administrative, technical, and physical
         safeguards to protect your information &mdash; including encryption in
@@ -870,7 +943,7 @@ export function PrivacyPage() {
         guarantee absolute security.
       </p>
 
-      <h2 id="international">13. International transfers</h2>
+      <h2 id="international">14. International transfers</h2>
       <p>
         Pearson Media LLC is based in the United States. If you access the
         Service from outside the U.S., your information will be transferred
@@ -879,7 +952,7 @@ export function PrivacyPage() {
         mechanisms such as the Standard Contractual Clauses.
       </p>
 
-      <h2 id="children">14. Children</h2>
+      <h2 id="children">15. Children</h2>
       <p>
         The Service is intended for adults. You must be at least 18 years old to
         use it (see our <Link to="/terms">Terms of Service</Link>). The Service
@@ -890,7 +963,7 @@ export function PrivacyPage() {
         we will delete it.
       </p>
 
-      <h2 id="changes">15. Changes to this policy</h2>
+      <h2 id="changes">16. Changes to this policy</h2>
       <p>
         We may update this Privacy Policy from time to time. When we make
         material changes, we will update the &ldquo;Effective date&rdquo;
@@ -899,7 +972,7 @@ export function PrivacyPage() {
         becomes effective constitutes acceptance of the updated policy.
       </p>
 
-      <h2 id="contact">16. Contact us</h2>
+      <h2 id="contact">17. Contact us</h2>
       <p>
         Pearson Media LLC
         <br />

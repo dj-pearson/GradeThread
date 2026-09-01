@@ -63,6 +63,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { MfaCard } from "@/components/settings/mfa-card";
 import { PushNotificationsCard } from "@/components/settings/push-notifications-card";
 import { QuietHoursCard } from "@/components/settings/quiet-hours-card";
+import { MeasurementSharingCard } from "@/components/settings/measurement-sharing-card";
 import { RadarContributionCard } from "@/components/settings/radar-contribution-card";
 
 const DELETE_CONFIRM_PHRASE = "DELETE MY ACCOUNT";
@@ -1127,6 +1128,11 @@ export function SettingsPage() {
       {/* US-1861: Thrift Radar contribution — its own consent, its own column,
           its own copy. Never fold it into the sale-outcome switch above. */}
       <RadarContributionCard />
+
+      {/* US-3038: measurement sharing. Same rule as Radar — its own consent and
+          its own column — but OPT-OUT rather than opt-in, which is why it is a
+          card with the full disclosure rather than one more switch in a list. */}
+      <MeasurementSharingCard />
 
         </TabsContent>
 
