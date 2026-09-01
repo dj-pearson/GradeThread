@@ -1,9 +1,45 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ▶ OUTSTANDING RIGHT NOW (1 of 1): 00711_ebay_api_call_accounting.sql (US-3042 — eBay growth-check compliance)
+> ## ✅ 00711 IS FULLY APPLIED. Measured 2026-09-01 through PostgREST, not assumed.
+>
+> Probed with the public anon key against two controls in the same session — a
+> name that does not exist answers `42P01`, and `blog_posts` answers `200` — so
+> the endpoint is really prod and each refusal means what it says. Repeatable:
+> `node scripts/probe-00711.mjs`.
+>
+> | Object | Answer | Reading |
+> |---|---|---|
+> | `ebay_api_call_daily` | `42501 permission denied` | exists, deny-all RLS working |
+> | `ebay_rate_limit_snapshots` | `42501 permission denied` | exists, deny-all RLS working |
+> | `rpc/bump_ebay_api_calls` | `42501 permission denied` | exists, the anon REVOKE took |
+> | `ebay_account_deletion_log.buyer_rows_erased` | `200 []` | exists; `[]` is RLS withholding rows, not an empty table |
+>
+> **⚠ IT LANDED IN TWO PASSES, AND THAT IS THE THING TO REMEMBER.** The first
+> apply brought in both tables and the function and MISSED the final
+> `ALTER TABLE`, which was appended to the file late in the session. Nothing
+> reported an error: the tables worked, the function worked, and the only symptom
+> was a `42703` on one column that a probe found and a person would not have.
+>
+> The consequence was narrow and exactly the wrong shape. Buyer erasure still ran
+> and eBay still got a correct acknowledgement; what failed was the best-effort
+> insert into `ebay_account_deletion_log`, which logs rather than throwing. So
+> deletions in that window were handled correctly and left NO audit row — the row
+> being the evidence an eBay compliance review asks for.
+>
+> **The lesson is the probe, not the column.** A migration applied by hand can be
+> a stale copy of the file, and "I applied it" is not the same claim as "the
+> schema matches the file". `scripts/apply-prod-migrations.sh` reads the file at
+> apply time and does not have this failure mode; a copy-paste does.
+>
+> ⚠ `applied_migrations` is `42501` to anon, so the RECORDED version could not be
+> confirmed from outside. The edge boot guard is the check: it refuses to start
+> unless `00711` is recorded, so a clean startup on the next Coolify deploy IS the
+> confirmation. A boot failure naming the schema version means the row is missing
+> and needs inserting by hand.
 
-**Not yet applied.** Held per the standing rule: apply the SQL to prod, then OK
-the push.
+### Reference: what 00711 contained, and what still has to be scheduled
+
+**Applied 2026-09-01.**
 
 **Risk: low.** Two NEW tables (`ebay_api_call_daily`,
 `ebay_rate_limit_snapshots`), one new SECURITY DEFINER function
@@ -16,8 +52,8 @@ RLS with no policies, registered in `SERVICE_ROLE_ONLY` in `rls-guard_test.ts`.
 new column on an existing table. Without it PostgREST answers `42703` on
 `buyer_rows_erased` and `PGRST202` on `bump_ebay_api_calls`.
 
-**⚠ THE EDGE MUST NOT DEPLOY BEFORE THE SQL IS IN, and this one is not merely a
-boot-guard formality.** `EXPECTED_SCHEMA_VERSION` is `00711`, so the boot guard
+**⚠ THE EDGE MUST NOT DEPLOY BEFORE THE SQL IS IN — now satisfied, kept because
+it explains what the boot guard is protecting.** `EXPECTED_SCHEMA_VERSION` is `00711`, so the boot guard
 refuses to start until the migration is recorded — that part is the usual
 protection. The reason to be careful anyway is what the new code does on the
 compliance path: the account-deletion handler now writes `buyer_rows_erased` on
@@ -32,8 +68,8 @@ the privacy page's retention rows and the eBay attribution component, both
 static markup.
 
 **Apply order:** one file, so the usual maximum-version hazard does not apply.
-Still run it through `scripts/apply-prod-migrations.sh` rather than by hand, so
-`applied_migrations` is recorded the same way the boot guard reads it.
+Run it through `scripts/apply-prod-migrations.sh` rather than by hand — see the
+two-pass note above for what a hand-copied file cost here.
 
 **Verify after applying.** A PostgREST read proves the tables exist; it cannot
 see the function body or the grants, and the RPC is what the counter depends on.
