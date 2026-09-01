@@ -140,6 +140,8 @@ import {
 import { CompetitorAlternativePage } from "@/pages/marketing/competitor-alternative";
 import { SWITCH_FROM_PAGES, switchFromPath } from "@/lib/seo/switch-from";
 import { SwitchFromPageView } from "@/pages/marketing/switch-from";
+import { CROSSLIST_PAIRS, crosslistPairPath } from "@/lib/seo/crosslist-pairs";
+import { CrosslistPairPage } from "@/pages/marketing/crosslist-pair";
 import { CONDITION_CHART_PATH } from "@/lib/seo/condition-chart";
 import { CHANGELOG_PATH } from "@/lib/seo/changelog";
 import { ConditionChartPage } from "@/pages/marketing/condition-chart";
@@ -356,6 +358,13 @@ const PAGES: Record<string, React.ReactNode> = {
       <SwitchFromPageView slug={p.slug} />,
     ]),
   ),
+  // US-9214: crosslist pair pages, likewise from their own data.
+  ...Object.fromEntries(
+    CROSSLIST_PAIRS.map((p) => [
+      crosslistPairPath(p.slug),
+      <CrosslistPairPage slug={p.slug} />,
+    ]),
+  ),
   // Free printable condition chart (US-1678).
   [CONDITION_CHART_PATH]: <ConditionChartPage />,
   [CHANGELOG_PATH]: <ChangelogPage />,
@@ -511,6 +520,9 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
   ),
   ...Object.fromEntries(
     SWITCH_FROM_PAGES.map((p) => [switchFromPath(p.slug), `${M}marketing/switch-from`]),
+  ),
+  ...Object.fromEntries(
+    CROSSLIST_PAIRS.map((p) => [crosslistPairPath(p.slug), `${M}marketing/crosslist-pair`]),
   ),
   [CONDITION_CHART_PATH]: `${M}marketing/condition-chart`,
   [CHANGELOG_PATH]: `${M}marketing/changelog`,

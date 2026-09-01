@@ -1,3 +1,4 @@
+import { CROSSLIST_PAIRS, crosslistPairPath } from "@/lib/seo/crosslist-pairs";
 import { Link } from "react-router";
 import { ArrowRight, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -178,6 +179,44 @@ export function CrosslistingAppsPage() {
         </div>
       </section>
 
+      {/* US-9214: the reader who already knows which two marketplaces they mean
+          is served by the pair page, not by a list of vendors. The diagnosis
+          (docs/seo/crosslisting-cluster-diagnosis.md) measured every
+          task-intent page on this site ranking 7 to 11 while this listicle
+          sits at 51, so the task links leave here deliberately. */}
+      <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-2xl font-bold sm:text-3xl">
+            Moving a listing between two marketplaces
+          </h2>
+          <p className="mt-3 text-muted-foreground">
+            If you already know the pair, skip the vendor comparison. Each page
+            below says what carries over, what the destination needs, and which
+            of the three mechanisms (an API, the browser extension, or your own
+            hands) actually puts the listing there.
+          </p>
+          <ul className="mt-6 grid gap-2 sm:grid-cols-2">
+            {CROSSLIST_PAIRS.map((p) => (
+              <li key={p.slug}>
+                <Link
+                  to={crosslistPairPath(p.slug)}
+                  className="text-sm font-medium text-brand-navy hover:underline dark:text-foreground"
+                >
+                  {p.fromLabel} to {p.toLabel}
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-6 text-sm text-muted-foreground">
+            Or see{" "}
+            <Link to="/flipdesk/crosslisting" className="font-medium underline underline-offset-2">
+              how FlipDesk cross-lists
+            </Link>{" "}
+            across all of them from one catalog.
+          </p>
+        </div>
+      </section>
+
       {/* FlipDesk differentiator */}
       <section className="border-t px-6 py-16">
         <div className="mx-auto max-w-3xl rounded-xl border bg-muted/30 p-6">
@@ -198,6 +237,11 @@ export function CrosslistingAppsPage() {
             — the piece other crosslisters leave to you.
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
+            {/* US-9214: task intent leaves this page for the pair pages. The
+                diagnosis (docs/seo/crosslisting-cluster-diagnosis.md) found
+                every task-intent page ranking 7 to 11 while this listicle sits
+                at 51, so the reader who knows which two marketplaces they mean
+                is better served there than here. */}
             <Link to="/flipdesk">
               <Button variant="outline" size="sm">
                 See FlipDesk

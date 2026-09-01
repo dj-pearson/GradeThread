@@ -11,6 +11,7 @@ import {
   alternativePath,
 } from "@/lib/seo/competitor-alternative-slugs";
 import { SWITCH_FROM_SLUGS, switchFromPath } from "@/lib/seo/switch-from-slugs";
+import { CROSSLIST_PAIR_SLUGS, crosslistPairPath } from "@/lib/seo/crosslist-pair-slugs";
 
 // RootLayout stays eager (it renders on the first paint of every route). The
 // authenticated layouts + auth guards are lazy: they pull Supabase, react-query
@@ -110,6 +111,7 @@ const WhereToSellPage = lazy(() => import("@/pages/marketing/where-to-sell").the
 const CrosslistingAppsPage = lazy(() => import("@/pages/marketing/crosslisting-apps").then(m => ({ default: m.CrosslistingAppsPage })));
 const CompetitorAlternativePage = lazy(() => import("@/pages/marketing/competitor-alternative").then(m => ({ default: m.CompetitorAlternativePage })));
 const SwitchFromPageView = lazy(() => import("@/pages/marketing/switch-from").then(m => ({ default: m.SwitchFromPageView })));
+const CrosslistPairPage = lazy(() => import("@/pages/marketing/crosslist-pair").then(m => ({ default: m.CrosslistPairPage })));
 const ConditionChartPage = lazy(() => import("@/pages/marketing/condition-chart").then(m => ({ default: m.ConditionChartPage })));
 const ChangelogPage = lazy(() => import("@/pages/marketing/changelog").then(m => ({ default: m.ChangelogPage })));
 // US-2506: SPA renderers for the public Condition Index. Prod serves the
@@ -379,6 +381,11 @@ export const router = createBrowserRouter([
       ...COMPETITOR_ALTERNATIVE_SLUGS.map((slug) => ({
         path: alternativePath(slug),
         element: <SuspenseWrapper><CompetitorAlternativePage slug={slug} /></SuspenseWrapper>,
+      })),
+      // US-9214: crosslist pair pages, explicit ahead of /reselling/:slug.
+      ...CROSSLIST_PAIR_SLUGS.map((slug) => ({
+        path: crosslistPairPath(slug),
+        element: <SuspenseWrapper><CrosslistPairPage slug={slug} /></SuspenseWrapper>,
       })),
       // US-9209: switch-from pages, explicit for the same reason as the above.
       ...SWITCH_FROM_SLUGS.map((slug) => ({

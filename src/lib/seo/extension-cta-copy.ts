@@ -9,6 +9,7 @@
 import { COMPARISONS, comparePath } from "./comparison-guides";
 import { GARMENT_GUIDES, guidePath } from "./garment-guides";
 import { FLIPDESK_LANDINGS } from "./flipdesk-landing";
+import { CROSSLIST_PAIRS, crosslistPairPath, destinationMechanism } from "./crosslist-pairs";
 
 export interface ExtensionCtaCopy {
   /** One line: what it does, where. */
@@ -35,6 +36,21 @@ export function extensionCtaFor(path: string): ExtensionCtaCopy | null {
 
   if (clean.startsWith("/tools/")) {
     return { does: TOOL_COPY[clean] ?? TOOL_DEFAULT, role: "buyer" };
+  }
+
+  // US-9214: the pair pages are the one surface where the reader has already
+  // decided to move a listing, so the copy names the two marketplaces and what
+  // the extension does on the destination.
+  const pair = CROSSLIST_PAIRS.find((p) => crosslistPairPath(p.slug) === clean);
+  if (pair) {
+    const mech = destinationMechanism(pair.to);
+    return {
+      does:
+        mech === "extension"
+          ? `The GradeThread extension fills ${pair.toLabel}'s own listing form from your ${pair.fromLabel} item, in your logged-in tab.`
+          : `The GradeThread extension reads your ${pair.fromLabel} listings and any listing's condition from its photos, while FlipDesk handles the ${pair.toLabel} side.`,
+      role: "seller",
+    };
   }
 
   const comparison = COMPARISONS.find((c) => comparePath(c.slug) === clean);

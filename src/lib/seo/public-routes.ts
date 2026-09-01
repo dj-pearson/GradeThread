@@ -33,6 +33,7 @@ import { whereToSellRoute } from "./where-to-sell";
 import { crosslistAppsRoute } from "./crosslisting-apps";
 import { competitorAlternativeRoutes } from "./competitor-alternatives";
 import { switchFromRoutes } from "./switch-from";
+import { crosslistPairRoutes } from "./crosslist-pairs";
 import { conditionChartRoute } from "./condition-chart";
 import { changelogRoute } from "./changelog";
 import { gradeCheckerRoute } from "./grade-checker";
@@ -177,6 +178,20 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/reselling/list-perfectly-alternative": "2026-07-20",
   "/reselling/crosslist-alternative": "2026-07-20",
   "/reselling/switch-from-vendoo": "2026-09-01",
+  "/reselling/crosslist/mercari-to-grailed": "2026-09-01",
+  "/reselling/crosslist/grailed-to-mercari": "2026-09-01",
+  "/reselling/crosslist/grailed-to-poshmark": "2026-09-01",
+  "/reselling/crosslist/ebay-to-grailed": "2026-09-01",
+  "/reselling/crosslist/whatnot-to-poshmark": "2026-09-01",
+  "/reselling/crosslist/mercari-to-vinted": "2026-09-01",
+  "/reselling/crosslist/poshmark-to-whatnot": "2026-09-01",
+  "/reselling/crosslist/poshmark-to-grailed": "2026-09-01",
+  "/reselling/crosslist/grailed-to-ebay": "2026-09-01",
+  "/reselling/crosslist/vinted-to-mercari": "2026-09-01",
+  "/reselling/crosslist/mercari-to-poshmark": "2026-09-01",
+  "/reselling/crosslist/whatnot-to-ebay": "2026-09-01",
+  "/reselling/crosslist/vinted-to-poshmark": "2026-09-01",
+  "/reselling/crosslist/depop-to-poshmark": "2026-09-01",
   "/reselling/switch-from-list-perfectly": "2026-09-01",
   // Free printable condition chart (US-1678).
   "/grading/condition-chart": "2026-07-06",
@@ -695,6 +710,8 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   ...competitorAlternativeRoutes(),
   // US-9209: what a switch from Vendoo or List Perfectly actually moves.
   ...switchFromRoutes(),
+  // US-9214: one page per marketplace pair that earned impressions.
+  ...crosslistPairRoutes(),
   // Free printable condition chart (US-1678).
   conditionChartRoute(),
   changelogRoute(),

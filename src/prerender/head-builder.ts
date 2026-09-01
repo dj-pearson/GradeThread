@@ -82,6 +82,8 @@ import {
   alternativeBreadcrumbItems,
   switchFromJsonLd,
   switchFromBreadcrumbItems,
+  crosslistPairJsonLd,
+  crosslistPairBreadcrumbItems,
   conditionChartJsonLd,
   conditionChartBreadcrumbItems,
   gradeCheckerJsonLd,
@@ -138,6 +140,7 @@ import { isWhereToSellPath } from "@/lib/seo/where-to-sell";
 import { isCrosslistAppsPath } from "@/lib/seo/crosslisting-apps";
 import { getAlternativeByPath } from "@/lib/seo/competitor-alternatives";
 import { getSwitchFromByPath } from "@/lib/seo/switch-from";
+import { getCrosslistPairByPath } from "@/lib/seo/crosslist-pairs";
 import { isConditionChartPath } from "@/lib/seo/condition-chart";
 import { isGradeCheckerPath } from "@/lib/seo/grade-checker";
 import { getFlawByPath, isFlawHubPath } from "@/lib/seo/flaw-library";
@@ -357,6 +360,16 @@ export function jsonLdForRoute(path: string): JsonLd[] {
   // Organization + 3-level breadcrumb + Article + ItemList + FAQ.
   // US-9209: switch-from pages, also under /reselling/, matched here for the
   // same reason. Organization + 3-level breadcrumb + Article + FAQ.
+  // US-9214: crosslist pair pages, also under /reselling/, matched before the
+  // guide lookup for the same reason.
+  const pair = getCrosslistPairByPath(path);
+  if (pair) {
+    return [
+      organizationLd(),
+      breadcrumbLd(crosslistPairBreadcrumbItems(pair)),
+      ...crosslistPairJsonLd(pair),
+    ];
+  }
   const switchFrom = getSwitchFromByPath(path);
   if (switchFrom) {
     return [
