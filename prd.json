@@ -2913,85 +2913,6 @@
       ]
     },
     {
-      "id": "US-3033",
-      "passes": false,
-      "title": "Measurement index foundation: the two tables and one normalized size key",
-      "description": "First story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). Every clothing brand publishes BODY size charts and almost nobody publishes flat-lay GARMENT measurements, which is what a resale listing is actually written with. Migration 00674 confirms this from inside the repo: all 292 seeded brand_size_charts rows are body-basis, and its own comment quotes the 00452 athleisure block saying 'All BODY measurements, never flat-garment'. This story builds the storage only. No ingestion, no aggregate, no page. Two tables in ONE migration. garment_measurements holds one row per garment per measured field: user_id, item_id, brand_key, style_key, department, measurement_group, size_label, size_system, field_key, inches numeric(5,2), source ('measurecard' or 'listing_text'), confidence, timestamps. Unique on (item_id, field_key) so re-measuring updates instead of double-counting. RLS is tenant-scoped, it is the user's own inventory data. garment_measurement_stats holds the published aggregate keyed by (brand_key, style_key, department, measurement_group, size_label, field_key) with sample_count, contributor_count, p25, median, p75, sufficient boolean, updated_at. RLS is DENY-ALL, read only through the service-role client, exactly as brand_size_charts does and for the reason given at the top of flipdesk-size-bands.ts: it is global reference data with no tenant to scope by. style_key and department are NOT NULL DEFAULT '' rather than nullable, for the reason 00389 states about brand_styles: PostgREST upsert onConflict cannot target an expression index, so the natural key has to be plain columns. The third piece is normalizeSizeLabel(raw, group) in size-systems.ts. It is the join key, so if 'W34 L32', '34x32' and '34X32' do not collapse to one label the corpus fragments into useless pieces and every downstream number is wrong.",
-      "acceptanceCriteria": [
-        "ONE migration creates garment_measurements and garment_measurement_stats, is idempotent, bumps EXPECTED_SCHEMA_VERSION in the SAME commit, and carries the self-record footer (US-1108 triple). Load the migrations skill first.",
-        "garment_measurements is unique on (item_id, field_key). Re-measuring the same garment updates the row rather than adding a second one, proven by a test.",
-        "garment_measurements RLS is tenant-scoped: a user can read and write only rows where user_id is their own. A tenant-isolation test case covers it.",
-        "garment_measurement_stats RLS is deny-all and the table is registered with rls-guard as a service-role table (see vault/20-domain/service-role-tables.md).",
-        "style_key and department are NOT NULL DEFAULT '' so the natural key is plain columns and PostgREST onConflict can target it.",
-        "Copy the no-revoke block from 00609. Do NOT write a fresh REVOKE: a denied anon/authenticated call segfaults production Postgres (US-2403, still open).",
-        "normalizeSizeLabel(raw, group) is added to size-systems.ts as a pure function. Rules in order: trim and collapse whitespace and uppercase; waist-by-inseam forms collapse to a single form such as 34X32; alpha sizes collapse to a canonical token so MEDIUM, MED and M all become M; numeric sizes keep the number and drop decorations; anything unrecognised is stored verbatim and NEVER merged with anything else.",
-        "normalizeSizeLabel has a table test covering each rule and proving an unrecognised label does not merge.",
-        "STOP after the migration is written. This commit carries a migration, so it waits for the owner's explicit OK before it goes anywhere (standing rule)."
-      ],
-      "priority": 70
-    },
-    {
-      "id": "US-3034",
-      "passes": false,
-      "title": "Ingest MeasureCard extractions into garment_measurements",
-      "description": "Second story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). measure-extract.ts already returns the highest-quality garment measurements available anywhere, including from the brands: real inches on the card plane via the US-1572 calibration homography, with a per-field model confidence and a flagged bit for values outside the size prior. Today those numbers land on inventory_items.measurements and stop there. Hook the ingestion where measurements are persisted, in flipdesk-measure.ts. Resolve the garment's identity through the same brand_styles path the composer already uses, run the size label through normalizeSizeLabel, and write one row per field with source 'measurecard' and the extraction's own confidence. An observation with no resolved style is still worth keeping: it stores with style_key '' and rolls up to a brand-level cohort, which is a weaker page but a real one. Do not drop it.",
-      "acceptanceCriteria": [
-        "Saving measurements on an item writes or updates one garment_measurements row per measured field, with source 'measurecard' and the extraction's per-field confidence.",
-        "Identity resolves through the existing brand_styles path. When no style resolves the row is still written with style_key '' rather than dropped.",
-        "size_label is written through normalizeSizeLabel and size_system through the existing size-systems helpers.",
-        "Re-measuring the same item updates its existing rows. A garment never counts twice, proven by a test.",
-        "Rows are written with the item's owning user_id so the tenant scope and the later opt-out delete both work.",
-        "A field the extractor marked flagged is NOT ingested. A value the extractor itself distrusts must not become a published median.",
-        "Ingestion failure never fails the measurement save. The seller's own save is the primary action and the corpus is a side effect.",
-        "A tenant-isolation test case covers the new write path (standing rule for every edge route change)."
-      ],
-      "priority": 71,
-      "dependsOn": [
-        "US-3033"
-      ]
-    },
-    {
-      "id": "US-3035",
-      "passes": false,
-      "title": "Parse measurements out of the listing descriptions FlipDesk already syncs",
-      "description": "Third story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). Resellers routinely write 'Pit to pit: 22\"' into their eBay descriptions, and FlipDesk already syncs and imports those descriptions for its users' own connected accounts (flipdesk-import.ts already carries description on imported rows). Reading measurements out of a user's own listings is unambiguously fine. Harvesting the whole public eBay corpus was considered and REJECTED on eBay's API license, which restricts storing and redisplaying listing data. Do not reintroduce it. This is the component most likely to be quietly wrong, and a silent parser defect is indistinguishable from real data once it lands. So the parser is deliberately paranoid, and every row it writes is tagged source 'listing_text' at a fixed lower confidence than measurecard, which means a parser defect is undone by deleting one source rather than rebuilding the corpus.",
-      "acceptanceCriteria": [
-        "A new PURE library parses labeled measurements out of listing description text. It takes a string and returns typed results. No network, no database, fully unit-testable.",
-        "A label AND a unit are both required. 'chest 22in', 'pit to pit: 22\"' and 'Inseam - 32 inches' are accepted. A bare number is rejected, and so is a number inside a sentence about anything else.",
-        "Each field_key has a plausible inch range (for example chest 12 to 40, inseam 20 to 40). A value outside its band is DROPPED, never clamped.",
-        "Centimetres are converted only when the unit is written. A unitless number is never assumed to be either unit.",
-        "The parser has a fixture of REAL listing description shapes including the ugly ones: several measurements on one line, ranges, cm, a table rendered as plain text, and prose containing numbers that mean nothing. This fixture is the story's main deliverable.",
-        "Rows are written with source 'listing_text' and a fixed confidence lower than measurecard's.",
-        "A one-time backfill runs the parser over descriptions already synced, is idempotent, and can be re-run safely after a parser fix.",
-        "Ambiguity resolves to dropping the value. A missing measurement costs nothing; a wrong one poisons every page it reaches."
-      ],
-      "priority": 72,
-      "dependsOn": [
-        "US-3033"
-      ]
-    },
-    {
-      "id": "US-3036",
-      "passes": false,
-      "title": "Nightly measurement aggregate, and the floor that decides what is publishable",
-      "description": "Fourth story of the Fit & Measurement Index (design: docs/superpowers/specs/2026-08-31-fit-measurement-index-design.md). Roll garment_measurements up into garment_measurement_stats. Model this directly on jobs-durability-aggregate.ts, which is very nearly the same job: job-secret gate, acquireJobLock, all real work in a pure lib, idempotent upsert on the natural key. Two floors, both required for a cohort to be publishable. MIN_MEASUREMENT_SAMPLE = 5 garments and MIN_MEASUREMENT_CONTRIBUTORS = 3 distinct sellers. The second is a privacy floor, not a quality floor, and it exists for a different reason than the first: a number backed by one seller's closet is a statement about that seller's inventory, and a number backed by three is a fact about the garment. These are lower than the condition index's MIN_INDEX_TOTAL_SAMPLE of 8 on purpose. Price variance across a cohort is large so a price claim needs more samples to be honest; flat measurements of one style in one size vary by a fraction of an inch, so five real garments already give a stable median. Both numbers are decisions rather than measurements, and the reasoning is written down so the next person argues with the reasoning instead of the number. Following the durability precedent, insufficient cohorts are STILL WRITTEN with sufficient=false so the read path filters rather than the write path hiding. That is what makes coverage measurable, which is exactly what the next story needs.",
-      "acceptanceCriteria": [
-        "POST /api/jobs/measurement-aggregate exists, gated by requireJobSecret and wrapped in acquireJobLock('measurement-aggregate', 600), returning a summary of cohorts, sufficient count and upserted count.",
-        "All computation lives in a new pure lib with unit tests. The route does auth, locking and persistence only.",
-        "Within a cohort, values past 1.5 IQR are dropped BEFORE the median and quartiles are computed. With small cohorts this matters: one fat-fingered 220 must not move a page.",
-        "MIN_MEASUREMENT_SAMPLE = 5 and MIN_MEASUREMENT_CONTRIBUTORS = 3 are named exported constants. sufficient is true only when BOTH pass.",
-        "contributor_count counts DISTINCT user_id, not rows. Five garments from one seller does not clear the contributor floor.",
-        "Insufficient cohorts are written with sufficient=false rather than skipped, so coverage is measurable.",
-        "The upsert is idempotent on the natural key. Running the job twice changes nothing the second time, proven by a test.",
-        "OPERATOR: the Coolify scheduled task has to be created by hand. US-2313 already records that nothing in version control creates the 73 production cron schedules, so say this in the story close rather than assuming the schedule exists."
-      ],
-      "priority": 73,
-      "dependsOn": [
-        "US-3034",
-        "US-3035"
-      ]
-    },
-    {
       "id": "US-3037",
       "passes": false,
       "title": "[GATE] Measure real coverage before a single public measurement page is written",
@@ -3007,7 +2928,8 @@
       "priority": 74,
       "dependsOn": [
         "US-3036"
-      ]
+      ],
+      "notes": "BLOCKED, not done. 2026-09-01, partial commit ae96e2039. The tooling is built and proven; the VERDICT cannot be produced yet, and filling it in with anything other than a real count would defeat the purpose of the story. WHAT SHIPPED: services/edge-functions/scripts/measurement-coverage-report.ts, read-only, safe against prod. Reports ACTUAL (cohorts clearing both floors, by group; style-resolved share vs brand-level fallback; top brands) and POTENTIAL, which is the half that matters before any ingestion has run: group every inventory_items row that has a brand AND a size by (brand, group, normalized size) and count the groups that already hold >= 5 garments from >= 3 distinct sellers. That is the ceiling the index can reach if every eligible garment were measured, so it answers 'is the floor reachable at all' without waiting for a backfill. Verified on the local stack with a seeded fixture: 12 Levi's in one size across 4 sellers reported reachable, 3 Nike tees from 1 seller correctly not, verdict branch fired, fixture removed. WHY IT CANNOT RUN YET, two independent reasons. (1) No prod service-role key is available in this environment - .env holds the literal placeholder '<Placeholder to Protect - DO NOT COMMIT>'. The anon key in .env.production DOES reach prod, but it is useless for this by construction: garment_measurements is tenant-scoped and garment_measurement_stats is deny-all, so anon reads [] whether the table is empty or full, which is the one answer this script must not give. (2) Even with a key the count would be zero: the ingestion code (US-3034/3035) and the aggregate job (US-3036) are committed to local main and NOT pushed, so nothing has ever written a row in prod. FINDING WORTH MORE THAN THE STORY: 00708 and 00709 are ALREADY APPLIED TO PRODUCTION. Measured, not assumed - garment_measurements, garment_measurement_stats and registered_number_lookups all answer [] through PostgREST where a control name answers 42P01 relation-does-not-exist; garment_measurements accepts a select of brand_key,style_key,field_key,inches,source and rejects a bogus column with 42703, so it is 00709's shape and not a name collision; blog_posts reports 159 rows so the endpoint is really prod. PENDING_MIGRATIONS.md said both were outstanding and has been corrected - this is pending-migrations-stale-both-ways caught early. NOT CONFIRMED: applied_migrations is 42501 permission-denied to anon, so whether the version rows were RECORDED is unknown, and a hand-applied migration that skipped the self-record footer would make the boot guard and the next apply disagree with reality. Also unconfirmed: RLS policies, which a PostgREST read cannot see - the pg_policies verify block in PENDING_MIGRATIONS.md is still worth running. TO UNBLOCK: push the branch so the edge redeploys with the ingestion, let the backfill and aggregate run, then run the script with a prod service-role key. US-3040 and US-3041 must not ship before this returns a number."
     },
     {
       "id": "US-3038",
