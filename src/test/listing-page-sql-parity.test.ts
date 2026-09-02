@@ -30,7 +30,7 @@ import {
   type SortPreset,
   type SoldFilter,
 } from "@/pages/flipdesk/listings-filter";
-import { TABS } from "@/pages/flipdesk/inventory-tabs";
+import { TABS, type UnlistedFilter } from "@/pages/flipdesk/inventory-tabs";
 import type { FilterQuery } from "@/lib/item-filter";
 import type { ItemFullRow } from "@/types/database";
 
@@ -177,6 +177,7 @@ interface Case {
   tab: string;
   search?: string;
   soldFilter?: SoldFilter;
+  unlistedFilter?: UnlistedFilter;
   filter?: FilterQuery;
   columnSort?: { field: string; dir: "asc" | "desc" } | null;
   sortPreset?: SortPreset;
@@ -187,7 +188,12 @@ function cases(): Case[] {
   for (const t of TABS) out.push({ name: `tab ${t.id}`, tab: t.id });
 
   for (const preset of ["listability", "oldest", "best_roi", "highest_comp"] as SortPreset[]) {
-    out.push({ name: `to_list preset ${preset}`, tab: "to_list", sortPreset: preset });
+    out.push({ name: `unlisted preset ${preset}`, tab: "unlisted", sortPreset: preset });
+  }
+
+  // 00721: the Unlisted tab's chip, applied in SQL like the Sold window.
+  for (const uf of ["all", "needs_draft", "ready", "needs_review"] as UnlistedFilter[]) {
+    out.push({ name: `unlisted filter ${uf}`, tab: "unlisted", unlistedFilter: uf });
   }
 
   // Column sorts across every type the comparator treats differently.
@@ -279,6 +285,7 @@ describe.skipIf(!ENABLED)("listings row selection: SQL matches the client (US-21
       tab,
       search: c.search ?? "",
       soldFilter: c.soldFilter ?? "all",
+      unlistedFilter: c.unlistedFilter ?? "all",
       filterQuery: c.filter ?? EMPTY_FILTER,
       columnSort: (c.columnSort ?? null) as never,
       sortPreset: c.sortPreset ?? "listability",
@@ -293,7 +300,7 @@ describe.skipIf(!ENABLED)("listings row selection: SQL matches the client (US-21
          ${c.columnSort ? `${lit(JSON.stringify(c.columnSort))}::jsonb` : "null"},
          ${lit(c.sortPreset ?? "listability")},
          ${lit(ytdStart)}::timestamptz,
-         1000, 0);`,
+         1000, 0, null, ${lit(c.unlistedFilter ?? "all")});`,
     ).trim();
     const page = JSON.parse(raw) as { total: number; rows: ItemFullRow[] };
     const actual = page.rows.map((r) => r.id);
@@ -317,6 +324,7 @@ describe.skipIf(!ENABLED)("listings row selection: SQL matches the client (US-21
         tab,
         search: "",
         soldFilter,
+        unlistedFilter: "all",
         filterQuery: EMPTY_FILTER,
         columnSort: null,
         sortPreset: "listability",
@@ -389,6 +397,7 @@ describe.skipIf(!ENABLED)("listings row selection: SQL matches the client (US-21
       tab,
       search: "",
       soldFilter: "all",
+      unlistedFilter: "all",
       filterQuery: EMPTY_FILTER,
       columnSort: null,
       sortPreset: "listability",

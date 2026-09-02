@@ -10,17 +10,34 @@
 import type { ItemFullRow } from "@/types/database";
 import { evalQuery, type FilterQuery } from "@/lib/item-filter";
 import { scoreListability, maxCompPrice } from "@/lib/listability";
-import type { TabDef } from "@/pages/flipdesk/inventory-tabs";
+import {
+  matchesUnlistedFilter,
+  type TabDef,
+  type UnlistedFilter,
+} from "@/pages/flipdesk/inventory-tabs";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** The columns the table's search box looks at. */
+/**
+ * The columns the table's search box looks at.
+ *
+ * Mirrored in SQL by flipdesk_listing_page (00721); change both together and
+ * re-run src/test/listing-page-sql-parity.test.ts. Size, color, category, bin
+ * and the draft's own title were added 2026-09-02: "medium blue jeans" and
+ * "bin 12" are how a seller actually looks for a garment, and none of them
+ * matched before.
+ */
 const SEARCH_FIELDS = [
   "item_title",
+  "listing_title",
   "brand",
   "style",
   "item_number",
   "container",
+  "size",
+  "color",
+  "category",
+  "location_bin",
 ] as const;
 
 /**
@@ -138,7 +155,7 @@ export function planListingDemote(it: ItemFullRow): DemotePlan {
 
 // ─── The whole row-selection pipeline (US-2168 AC5) ────────────────────────
 
-/** The four preset sorts the "To list" tab offers. */
+/** The four preset sorts the Unlisted tab offers. */
 export type SortPreset = "listability" | "oldest" | "best_roi" | "highest_comp";
 
 /** Everything the table's row selection depends on, as data. */
@@ -147,11 +164,13 @@ export interface RowSelectionCriteria {
   search: string;
   /** The Sold tab's date window. Only consulted when `tab.id === "sold"`. */
   soldFilter: SoldFilter;
+  /** The Unlisted tab's chip. Only consulted when `tab.id === "unlisted"`. */
+  unlistedFilter: UnlistedFilter;
   /** Advanced FilterBuilder query. `rules: []` means "no advanced filter". */
   filterQuery: FilterQuery;
   /** A clicked column header. Wins over every preset when present. */
   columnSort: { field: keyof ItemFullRow; dir: "asc" | "desc" } | null;
-  /** Only consulted on the "To list" tab. */
+  /** Only consulted on the Unlisted tab. */
   sortPreset: SortPreset;
   /** Injected so the Sold date windows are assertable. */
   now: number;
@@ -196,6 +215,9 @@ export function selectListingRows(
     if (c.tab.id === "sold" && !matchesSoldFilter(it, c.soldFilter, c.now)) {
       return false;
     }
+    if (c.tab.id === "unlisted" && !matchesUnlistedFilter(it, c.unlistedFilter)) {
+      return false;
+    }
     // Composes on top of the stage tab + search + sold-window filter.
     if (c.filterQuery.rules.length > 0 && !evalQuery(it, c.filterQuery)) {
       return false;
@@ -203,13 +225,13 @@ export function selectListingRows(
     return true;
   });
 
-  // A clicked column beats every default sort — including the To-list preset —
+  // A clicked column beats every default sort — including the Unlisted preset —
   // so the seller always gets the column they asked for.
   if (c.columnSort) {
     return sortByField(rows, c.columnSort.field, c.columnSort.dir);
   }
 
-  if (c.tab.id === "to_list") {
+  if (c.tab.id === "unlisted") {
     const scoreById = new Map<string, number>();
     for (const it of rows) scoreById.set(it.id, scoreListability(it).score);
     rows.sort((a, b) => {

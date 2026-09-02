@@ -5,15 +5,38 @@
 
 import type { ItemFullRow, ItemStatus } from "@/types/database";
 
+// "Unlisted" replaced the To List and Drafts tabs (2026-09-02). They were one
+// job, getting an item live, split at a step the seller rarely thinks about:
+// whether a listing row had been written yet. The split moved the bulk
+// buttons apart, sent a seller tabbing back and forth, and read as two queues
+// when there was one. The statuses are unchanged; the chips below expose the
+// same split as a filter inside the one tab, and the bulk bar follows the
+// selection instead of the tab.
 export type TabId =
   | "all"
-  | "to_list"
-  | "drafts"
+  | "unlisted"
   | "active"
   | "sold"
   | "shipped"
   | "returned"
   | "archived";
+
+/**
+ * Old tab ids that still arrive in bookmarks, saved links and the mobile apps'
+ * deep links. Both land on Unlisted with no chip: a To List bookmark carried
+ * every drafted-or-earlier item, and so does Unlisted.
+ */
+const LEGACY_TAB_IDS: Readonly<Record<string, TabId>> = {
+  to_list: "unlisted",
+  drafts: "unlisted",
+};
+
+/** A `?tab=` value as a current tab id, or null when it names nothing. */
+export function resolveTabId(raw: string | null | undefined): TabId | null {
+  if (!raw) return null;
+  if (TABS.some((t) => t.id === raw)) return raw as TabId;
+  return LEGACY_TAB_IDS[raw] ?? null;
+}
 
 // The Overview pipeline grid, stat cards, and Kanban "+N more" links navigate to
 // the inventory table with `?status=<stage>` (an item stage or a sale state), but
@@ -26,8 +49,6 @@ export function statusParamToTab(status: string | null | undefined): TabId | nul
   switch (status) {
     case "all":
       return "all";
-    case "drafted":
-      return "drafts";
     case "listed":
       return "active";
     case "sold":
@@ -45,7 +66,8 @@ export function statusParamToTab(status: string | null | undefined): TabId | nul
       return "shipped";
     case "returned":
       return "returned";
-    // Every pre-listed prep stage is surfaced together under To List.
+    // Every pre-listed stage, drafted included, is surfaced together under
+    // Unlisted; the caller adds a status filter so the link means one stage.
     case "sourced":
     case "acquired":
     case "cataloged":
@@ -54,7 +76,8 @@ export function statusParamToTab(status: string | null | undefined): TabId | nul
     case "grading":
     case "graded":
     case "comped":
-      return "to_list";
+    case "drafted":
+      return "unlisted";
     // US-1483: archived items have their own tab (and are excluded from All).
     case "archived":
       return "archived";
@@ -72,9 +95,8 @@ export function statusParamToTab(status: string | null | undefined): TabId | nul
 // The page imports them from here now; behaviour is unchanged.
 
 /**
- * Every "pre-listed" prep stage shows up in To List so nothing gets stranded
- * mid-pipeline. Drafts covers `drafted`; Active covers `listed`; everything
- * terminal (sold, shipped, returned, archived) has its own tab.
+ * Every prep stage before a draft exists. These are the Unlisted rows that
+ * still need a listing written ("Needs draft"); `drafted` is the rest.
  */
 export const TO_LIST_STATUSES: ReadonlySet<ItemStatus> = new Set<ItemStatus>([
   "sourced",
@@ -83,7 +105,7 @@ export const TO_LIST_STATUSES: ReadonlySet<ItemStatus> = new Set<ItemStatus>([
   "measured",
   "photographed",
   // US-1429: `grading` (mid-grade) is a pre-listed prep stage too — include it
-  // so an item being graded isn't stranded out of To List (and so an Overview
+  // so an item being graded isn't stranded out of the queue (and so an Overview
   // "?status=grading" deep-link lands on a tab that actually shows it).
   "grading",
   "graded",
@@ -91,15 +113,26 @@ export const TO_LIST_STATUSES: ReadonlySet<ItemStatus> = new Set<ItemStatus>([
 ]);
 
 /**
+ * Item statuses that mean "being prepped / drafted, not on a marketplace".
+ * Moving an item here should also demote a LOCAL listing row so the composer's
+ * live-listing test and the tabs don't desync (item shows as a draft while its
+ * listing still says active). This is also exactly what the Unlisted tab shows.
+ */
+export const DRAFT_LIKE_STATUSES: ReadonlySet<ItemStatus> = new Set<ItemStatus>([
+  ...TO_LIST_STATUSES,
+  "drafted",
+]);
+
+/**
  * Stages a tab folds in with others, so a `?status=` deep link to one needs a
  * narrowing filter on top of the tab (US-2547).
  *
- * The nine pre-listed stages all share To List, and `completed` only appears
- * inside All. Every other stage IS its own tab, where a filter rule would be a
- * chip that removes nothing.
+ * The nine Unlisted stages share one tab, and `completed` only appears inside
+ * All. Every other stage IS its own tab, where a filter rule would be a chip
+ * that removes nothing.
  */
 const FOLDED_STAGE_STATUSES: ReadonlySet<ItemStatus> = new Set<ItemStatus>([
-  ...TO_LIST_STATUSES,
+  ...DRAFT_LIKE_STATUSES,
   "completed",
 ]);
 
@@ -121,16 +154,56 @@ export function stageFilterStatusFromParam(
     : null;
 }
 
+// ── The Unlisted tab's chips ────────────────────────────────────────────────
+//
+// The same split the two old tabs made, as a filter the seller can see. It
+// lives in `?show=` so it survives a trip through the composer and a view-mode
+// switch, and the server applies it inside flipdesk_listing_page (00721) so the
+// page and its count agree.
+
+export const UNLISTED_FILTERS = [
+  "all",
+  "needs_draft",
+  "ready",
+  "needs_review",
+] as const;
+export type UnlistedFilter = (typeof UNLISTED_FILTERS)[number];
+
+export const UNLISTED_FILTER_LABELS: Readonly<Record<UnlistedFilter, string>> = {
+  all: "All",
+  needs_draft: "Needs draft",
+  ready: "Ready to publish",
+  needs_review: "Needs review",
+};
+
+export function resolveUnlistedFilter(
+  raw: string | null | undefined,
+): UnlistedFilter {
+  return UNLISTED_FILTERS.includes(raw as UnlistedFilter)
+    ? (raw as UnlistedFilter)
+    : "all";
+}
+
 /**
- * Item statuses that mean "being prepped / drafted, not on a marketplace".
- * Moving an item here should also demote a LOCAL listing row so the composer's
- * live-listing test and the tabs don't desync (item shows as a draft while its
- * listing still says active).
+ * Whether an Unlisted row passes the chip. Only meaningful for rows the tab
+ * already matches; "Ready" and "Needs review" split `drafted` on the AI's
+ * review flag (US-1569), and a draft with no flag recorded counts as ready.
  */
-export const DRAFT_LIKE_STATUSES: ReadonlySet<ItemStatus> = new Set<ItemStatus>([
-  ...TO_LIST_STATUSES,
-  "drafted",
-]);
+export function matchesUnlistedFilter(
+  it: ItemFullRow,
+  filter: UnlistedFilter,
+): boolean {
+  switch (filter) {
+    case "needs_draft":
+      return TO_LIST_STATUSES.has(it.status);
+    case "ready":
+      return it.status === "drafted" && !it.listing_needs_review;
+    case "needs_review":
+      return it.status === "drafted" && it.listing_needs_review === true;
+    default:
+      return true;
+  }
+}
 
 export interface TabDef {
   id: TabId;
@@ -153,20 +226,15 @@ export const TABS: TabDef[] = [
     emptyCta: { label: "Add item", to: "/dashboard/flipdesk/intake" },
   },
   {
-    id: "to_list",
-    label: "To List",
-    matches: (it) => TO_LIST_STATUSES.has(it.status),
+    id: "unlisted",
+    label: "Unlisted",
+    matches: (it) => DRAFT_LIKE_STATUSES.has(it.status),
+    // The default order on this tab is the listability preset, applied by the
+    // server and by selectListingRows; this pair is the fallback the other
+    // tabs use and is what a client-side consumer without presets gets.
     sortKey: "updated_at",
     sortDir: "asc",
     emptyCta: { label: "Add item", to: "/dashboard/flipdesk/intake" },
-  },
-  {
-    id: "drafts",
-    label: "Drafts",
-    matches: (it) => it.status === "drafted",
-    sortKey: "updated_at",
-    sortDir: "asc",
-    emptyCta: { label: "View To-List queue", to: "?tab=to_list" },
   },
   {
     id: "active",
@@ -174,7 +242,7 @@ export const TABS: TabDef[] = [
     matches: (it) => it.status === "listed",
     sortKey: "list_date",
     sortDir: "desc",
-    emptyCta: { label: "View drafts", to: "?tab=drafts" },
+    emptyCta: { label: "View unlisted items", to: "?tab=unlisted" },
   },
   {
     id: "sold",

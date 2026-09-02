@@ -30,7 +30,10 @@ const VIEWS: ViewEntry[] = [
     mode: "grid",
     label: "Grid",
     icon: Grid3x3,
-    description: "Photo cards, batch edit",
+    // It is a spreadsheet, not a photo wall. This used to say "Photo cards,
+    // batch edit", which promised a view that does not exist and made the one
+    // that does read as broken.
+    description: "Spreadsheet, edit cells in bulk",
   },
   {
     id: "kanban",

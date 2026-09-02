@@ -111,11 +111,25 @@ import {
   // module so they can be unit-tested without importing this whole page.
   TABS,
   TO_LIST_STATUSES,
+  DRAFT_LIKE_STATUSES,
+  UNLISTED_FILTERS,
+  UNLISTED_FILTER_LABELS,
+  resolveUnlistedFilter,
 } from "@/pages/flipdesk/inventory-tabs";
+import { type SoldFilter } from "@/pages/flipdesk/listings-filter";
 import {
-  type SoldFilter,
-  type SortPreset,
-} from "@/pages/flipdesk/listings-filter";
+  resolveSortOption,
+  sortOptionsForTab,
+  sortRequestFor,
+  type ColumnSort,
+  type SortOption,
+  type SortOptionId,
+} from "@/pages/flipdesk/inventory-sort";
+import {
+  initialInventoryTab,
+  readLastInventoryTab,
+  writeLastInventoryTab,
+} from "@/pages/flipdesk/inventory-last-tab";
 import {
   usePageRowDetails,
   type ListingPageResult,
@@ -154,12 +168,40 @@ import { cn } from "@/lib/utils";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
 import { PageHelp } from "@/components/help/page-help";
 
-const SORT_PRESET_LABELS: Record<SortPreset, string> = {
-  listability: "Listability score",
-  oldest: "Oldest first",
-  best_roi: "Best ROI",
-  highest_comp: "Highest comp",
-};
+/**
+ * The per-tab sort menu, rendered once in the desktop toolbar and once in the
+ * mobile Filters sheet. While a column header sort is active the menu shows a
+ * placeholder rather than a stale pick, and picking anything hands control
+ * back to the menu.
+ */
+function SortMenu({
+  options,
+  value,
+  headerActive,
+  onChange,
+  className,
+}: {
+  options: SortOption[];
+  value: SortOptionId;
+  headerActive: boolean;
+  onChange: (id: string) => void;
+  className?: string;
+}) {
+  return (
+    <Select value={headerActive ? "" : value} onValueChange={onChange}>
+      <SelectTrigger aria-label="Sort listings by" className={className}>
+        <SelectValue placeholder="Sorted by column" />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o.id} value={o.id}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 const SOLD_FILTER_LABELS: Record<SoldFilter, string> = {
   all: "All",
@@ -194,12 +236,16 @@ export function FlipdeskListingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   // US-1429: an explicit `?tab=` wins; otherwise honor a `?status=` deep-link
   // from Overview/Kanban by mapping it onto the matching tab; else default.
-  const tabParam = searchParams.get("tab") as TabId | null;
-  const initialTab: TabId =
-    tabParam && TABS.some((t) => t.id === tabParam)
-      ? tabParam
-      : statusParamToTab(searchParams.get("status")) ?? "to_list";
-  const [tab, setTab] = useState<TabId>(initialTab);
+  // A bare URL opens the tab the seller was last on (inventory-last-tab.ts):
+  // the sidebar entry and "Back to items" both arrive without a tab, and
+  // landing on the first tab after every draft was the complaint that made it so.
+  const [tab, setTab] = useState<TabId>(() =>
+    initialInventoryTab(
+      searchParams.get("tab"),
+      statusParamToTab(searchParams.get("status")),
+      readLastInventoryTab(),
+    ),
+  );
   // US-958: search lives in the URL (`?q=`) so it survives switching between
   // the unified Inventory view modes (table/grid/kanban).
   // `draft` drives the box (instant), `value` drives the query (on a pause).
@@ -216,31 +262,45 @@ export function FlipdeskListingsPage() {
   // US-961: mobile per-card quick-edit drawer + the mobile filters sheet.
   const [quickEditItem, setQuickEditItem] = useState<ItemFullRow | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-  // US-958: sort preset lives in the URL (`?sort=`) so it persists across view
-  // mode switches. Guard against a hand-edited/unknown value.
-  const [sortParam, setSortParam] = useUrlParamState("sort", "listability");
-  const sortPreset: SortPreset =
-    sortParam in SORT_PRESET_LABELS
-      ? (sortParam as SortPreset)
-      : "listability";
-  const setSortPreset = (v: SortPreset) => setSortParam(v);
-  // When set, overrides the tab's default sort. Lets the user click a
-  // column header — currently SKU, can extend to others — to take control
-  // without losing the stage tab they're in.
-  const [columnSort, setColumnSort] = useState<{
-    field: keyof ItemFullRow;
-    dir: "asc" | "desc";
-  } | null>(null);
+  // US-958: the sort lives in the URL (`?sort=`) so it persists across view
+  // mode switches. The menu is per tab (inventory-sort.ts); a value the
+  // current tab's menu lacks resolves to that tab's default.
+  const [sortParam, setSortParam] = useUrlParamState("sort", "default");
+  const sortOptions = sortOptionsForTab(tab);
+  const sortOption = resolveSortOption(sortParam, tab);
+  // A clicked column header overrides the menu until the third click clears
+  // it, or a menu pick replaces it. Kept separate from the menu so the seller
+  // can take control of one column without losing the stage tab they're in.
+  const [headerSort, setHeaderSort] = useState<ColumnSort | null>(null);
   function toggleColumnSort(field: keyof ItemFullRow) {
-    setColumnSort((prev) =>
+    setHeaderSort((prev) =>
       prev && prev.field === field
         ? prev.dir === "asc"
           ? { field, dir: "desc" }
-          : null // third click clears, revealing the tab's default sort again
+          : null // third click clears, revealing the menu's sort again
         : { field, dir: "asc" },
     );
   }
+  function pickSort(id: string) {
+    setHeaderSort(null);
+    setSortParam(id);
+  }
+  // What the server is asked for: the header wins, then the menu's column,
+  // then the tab's own order. `sortPreset` only matters on Unlisted.
+  const { preset: sortPreset, columnSort } = sortRequestFor(
+    sortOption,
+    headerSort,
+  );
+  const sortedByLabel = headerSort
+    ? `${String(headerSort.field).replace(/_/g, " ")} ${headerSort.dir === "asc" ? "ascending" : "descending"}`
+    : sortOption.label.toLowerCase();
   const [soldFilter, setSoldFilter] = useState<SoldFilter>("all");
+  // The Unlisted tab's chip (Needs draft / Ready to publish / Needs review).
+  // In the URL, unlike the Sold window, because the whole reason the two tabs
+  // became one is a seller working through drafts and coming back: the chip
+  // has to survive the trip through the composer.
+  const [showParam, setShowParam] = useUrlParamState("show", "all");
+  const unlistedFilter = resolveUnlistedFilter(showParam);
   // US-958: selection lives in a shared store so it carries across a view-mode
   // switch (table ↔ kanban) without being dropped on unmount.
   const selected = useInventorySelection((s) => s.selected);
@@ -304,7 +364,7 @@ export function FlipdeskListingsPage() {
     const decoded = (f && decodeQuery(f)) || null;
     if (decoded) return decoded;
     // US-2547: Overview's pipeline tiles link `?status=<stage>`, and eight of
-    // those stages share the To List tab. Seed the advanced filter so the tile's
+    // those stages share the Unlisted tab. Seed the advanced filter so the tile's
     // count and the list it opens agree. It goes through the SAME filter the
     // seller can see and clear (the effect below writes it to `?filter=`), not
     // a hidden second predicate — an invisible filter is how a list starts
@@ -380,14 +440,13 @@ export function FlipdeskListingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterQuery]);
 
-  const isToList = tab === "to_list";
+  const isUnlisted = tab === "unlisted";
   const isSold = tab === "sold";
   const isActive = tab === "active";
-  const isDrafts = tab === "drafts";
   // US-2174: a hidden tab must not poll.
   const visible = useDocumentVisible();
   const isShipped = tab === "shipped";
-  const selectable = isToList || isSold || isActive || isDrafts;
+  const selectable = isUnlisted || isSold || isActive;
 
   // Power-user shortcut: 'a' toggles select-all on the current page (only on
   // tabs that support selection). Plain 'a' (no Ctrl/Cmd) so it never collides
@@ -408,11 +467,14 @@ export function FlipdeskListingsPage() {
   const tabMountedRef = useRef(false);
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
-    if (tab === "to_list") next.delete("tab");
-    else next.set("tab", tab);
+    // Always written, the default tab included. A bare URL now means "the remembered
+    // tab", so a URL that names the tab is the only one that can be shared or
+    // bookmarked and mean the same thing to the next reader.
+    next.set("tab", tab);
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
+    writeLastInventoryTab(tab);
     setPage(1);
     if (tabMountedRef.current) setSelected(new Set());
     else tabMountedRef.current = true;
@@ -434,7 +496,7 @@ export function FlipdeskListingsPage() {
   // they just asked to see from the top.
   useEffect(() => {
     setPage(1);
-  }, [search, pageSize, soldFilter, filterQuery, columnSort, sortPreset]);
+  }, [search, pageSize, soldFilter, unlistedFilter, filterQuery, columnSort, sortPreset]);
 
 
   // US-419: keyed under a DISTINCT "listings" suffix — NOT the bare
@@ -470,6 +532,7 @@ export function FlipdeskListingsPage() {
     tab,
     search,
     soldFilter,
+    unlistedFilter,
     sortPreset,
     columnSort,
     filterQuery,
@@ -527,6 +590,7 @@ export function FlipdeskListingsPage() {
         p_tab: tab,
         p_search: search,
         p_sold_filter: soldFilter,
+        p_unlisted_filter: unlistedFilter,
         p_filter: filterQuery,
         p_column_sort: columnSort,
         p_sort_preset: sortPreset,
@@ -591,8 +655,7 @@ export function FlipdeskListingsPage() {
   const tabCounts = useMemo(() => {
     const counts: Record<TabId, number> = {
       all: 0,
-      to_list: 0,
-      drafts: 0,
+      unlisted: 0,
       active: 0,
       sold: 0,
       shipped: 0,
@@ -606,10 +669,9 @@ export function FlipdeskListingsPage() {
       for (const [st, n] of Object.entries(statusCounts)) {
         // US-1483: archived items are excluded from the All tab.
         if ((st as ItemStatus) !== "archived") all += n;
-        if (TO_LIST_STATUSES.has(st as ItemStatus)) counts.to_list += n;
+        if (DRAFT_LIKE_STATUSES.has(st as ItemStatus)) counts.unlisted += n;
       }
       counts.all = all;
-      counts.drafts = statusCounts.drafted ?? 0;
       counts.active = statusCounts.listed ?? 0;
       counts.sold = statusCounts.sold ?? 0;
       counts.shipped = statusCounts.shipped ?? 0;
@@ -778,12 +840,26 @@ export function FlipdeskListingsPage() {
     userId: user?.id,
     pageRows,
     pageRowIds,
-    isDrafts,
+    hasDrafts: isUnlisted,
     isActive,
   });
 
   const allOnPageSelected =
     pageRowIds.length > 0 && pageRowIds.every((id) => selected.has(id));
+
+  // On Unlisted the bulk bar follows the SELECTION, not the tab: a mixed pick
+  // of undrafted and drafted rows gets both "Create drafts" (for the first
+  // group) and "Publish" (for the second), each counting only its own rows.
+  const { selectedNeedingDraft, selectedDrafted } = useMemo(() => {
+    let needing = 0;
+    let drafted = 0;
+    for (const it of items) {
+      if (!selected.has(it.id)) continue;
+      if (it.status === "drafted") drafted++;
+      else if (TO_LIST_STATUSES.has(it.status)) needing++;
+    }
+    return { selectedNeedingDraft: needing, selectedDrafted: drafted };
+  }, [items, selected]);
 
   // US-733: virtualize the (desktop) listings table only once a page renders
   // more rows than the threshold. At or below it, the table renders exactly as
@@ -1020,28 +1096,16 @@ export function FlipdeskListingsPage() {
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-4 px-4 pb-4">
-              {isToList && (
-                <div className="space-y-1.5">
-                  <span className="text-sm font-medium">Sort</span>
-                  <Select
-                    value={sortPreset}
-                    onValueChange={(v) => setSortPreset(v as SortPreset)}
-                  >
-                    <SelectTrigger aria-label="Sort listings by" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(Object.keys(SORT_PRESET_LABELS) as SortPreset[]).map(
-                        (p) => (
-                          <SelectItem key={p} value={p}>
-                            {SORT_PRESET_LABELS[p]}
-                          </SelectItem>
-                        ),
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">Sort</span>
+                <SortMenu
+                  options={sortOptions}
+                  value={sortOption.id}
+                  headerActive={headerSort != null}
+                  onChange={pickSort}
+                  className="w-full"
+                />
+              </div>
               <div className="space-y-1.5">
                 <span className="text-sm font-medium">Advanced filter</span>
                 <div>
@@ -1100,23 +1164,13 @@ export function FlipdeskListingsPage() {
           placeholder="Search title, brand, SKU…"
           className="w-64"
         />
-        {isToList && (
-          <Select
-            value={sortPreset}
-            onValueChange={(v) => setSortPreset(v as SortPreset)}
-          >
-            <SelectTrigger aria-label="Sort listings by" className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(SORT_PRESET_LABELS) as SortPreset[]).map((p) => (
-                <SelectItem key={p} value={p}>
-                  {SORT_PRESET_LABELS[p]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <SortMenu
+          options={sortOptions}
+          value={sortOption.id}
+          headerActive={headerSort != null}
+          onChange={pickSort}
+          className="w-52"
+        />
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <FilterBuilder query={filterQuery} onChange={setFilterQuery} />
           {savedViews.length > 0 && (
@@ -1196,6 +1250,22 @@ export function FlipdeskListingsPage() {
         </div>
       )}
 
+      {/* Unlisted-tab chips: the split To List / Drafts used to make. */}
+      {isUnlisted && (
+        <div className="flex flex-wrap gap-2">
+          {UNLISTED_FILTERS.map((f) => (
+            <Button
+              key={f}
+              size="sm"
+              variant={unlistedFilter === f ? "default" : "outline"}
+              onClick={() => setShowParam(f)}
+            >
+              {UNLISTED_FILTER_LABELS[f]}
+            </Button>
+          ))}
+        </div>
+      )}
+
       {/* Sold-tab filter chips */}
       {isSold && (
         <div className="flex flex-wrap gap-2">
@@ -1221,19 +1291,14 @@ export function FlipdeskListingsPage() {
             </span>
           </CardTitle>
           <CardDescription>
-            {isToList
-              ? "Sorted by " +
-                SORT_PRESET_LABELS[sortPreset].toLowerCase() +
-                ". Select rows to bulk-create drafts."
+            Sorted by {sortedByLabel}.{" "}
+            {isUnlisted
+              ? ebayConnection
+                ? "Select rows to create drafts or publish them to eBay."
+                : "Select rows to create drafts. Connect eBay to bulk-publish."
               : isSold
-                ? "Most recent sale first. Select rows to prepare shipments."
-                : isDrafts
-                  ? ebayConnection
-                    ? "Oldest first. Select rows to bulk-publish to eBay."
-                    : "Oldest first. Click a row to publish, or connect eBay for bulk-publish."
-                  : activeTab.sortDir === "asc"
-                    ? "Oldest first. Click a row for full details."
-                    : "Most recent first. Click a row for full details."}
+                ? "Select rows to prepare shipments."
+                : "Click a row for full details."}
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">
@@ -1242,49 +1307,49 @@ export function FlipdeskListingsPage() {
           ) : pageRows.length === 0 ? (
             <EmptyState
               icon={
-                tab === "to_list"
-                  ? Sparkles
-                  : tab === "drafts"
-                    ? FileText
-                    : tab === "active"
-                      ? Star
-                      : tab === "sold"
-                        ? TrendingDown
-                        : tab === "shipped"
-                          ? Truck
-                          : tab === "returned"
-                            ? RotateCcw
-                            : Rocket
+                tab === "unlisted"
+                  ? unlistedFilter === "all"
+                    ? Sparkles
+                    : FileText
+                  : tab === "active"
+                    ? Star
+                    : tab === "sold"
+                      ? TrendingDown
+                      : tab === "shipped"
+                        ? Truck
+                        : tab === "returned"
+                          ? RotateCcw
+                          : Rocket
               }
               title={
-                tab === "to_list"
-                  ? "Nothing ready to list"
-                  : tab === "drafts"
-                    ? "No drafts yet"
-                    : tab === "active"
-                      ? "No active listings"
-                      : tab === "sold"
-                        ? "No sold items match this filter"
-                        : tab === "shipped"
-                          ? "Nothing shipped yet"
-                          : tab === "returned"
-                            ? "No returns"
-                            : "No items yet"
+                tab === "unlisted"
+                  ? unlistedFilter === "all"
+                    ? "Nothing waiting to list"
+                    : `Nothing under ${UNLISTED_FILTER_LABELS[unlistedFilter]}`
+                  : tab === "active"
+                    ? "No active listings"
+                    : tab === "sold"
+                      ? "No sold items match this filter"
+                      : tab === "shipped"
+                        ? "Nothing shipped yet"
+                        : tab === "returned"
+                          ? "No returns"
+                          : "No items yet"
               }
               description={
-                tab === "to_list"
-                  ? "Graded items ready to sell will land here. Add an item to get started."
-                  : tab === "drafts"
-                    ? "Drafts you've started but not yet published will appear here."
-                    : tab === "active"
-                      ? "Listings live on a marketplace will show here once you publish."
-                      : tab === "sold"
-                        ? "Sold items will appear here as orders come in."
-                        : tab === "shipped"
-                          ? "Items you've marked shipped will be tracked here."
-                          : tab === "returned"
-                            ? "Returned orders will be tracked here."
-                            : "Add an item to start building your listing pipeline."
+                tab === "unlisted"
+                  ? unlistedFilter === "all"
+                    ? "Items you add will wait here until they are published. Add an item to get started."
+                    : "Pick All above to see every unlisted item."
+                  : tab === "active"
+                    ? "Listings live on a marketplace will show here once you publish."
+                    : tab === "sold"
+                      ? "Sold items will appear here as orders come in."
+                      : tab === "shipped"
+                        ? "Items you've marked shipped will be tracked here."
+                        : tab === "returned"
+                          ? "Returned orders will be tracked here."
+                          : "Add an item to start building your listing pipeline."
               }
               action={
                 activeTab.emptyCta.to.startsWith("?")
@@ -1350,10 +1415,9 @@ export function FlipdeskListingsPage() {
                 pageRows={pageRows}
                 tab={tab}
                 isActive={isActive}
-                isDrafts={isDrafts}
+                isUnlisted={isUnlisted}
                 isShipped={isShipped}
                 isSold={isSold}
-                isToList={isToList}
                 selectable={selectable}
                 selected={selected}
                 allOnPageSelected={allOnPageSelected}
@@ -1470,7 +1534,7 @@ export function FlipdeskListingsPage() {
                 <Archive className="mr-2 h-4 w-4" />
                 Set status…
               </Button>
-              {isToList ? (
+              {isUnlisted ? (
                 <>
                   <Button
                     variant="outline"
@@ -1480,14 +1544,47 @@ export function FlipdeskListingsPage() {
                     <Sparkles className="mr-2 h-4 w-4" />
                     AI enrich
                   </Button>
-                  <Button onClick={bulkCreateDrafts} disabled={busy}>
-                    {busy ? (
+                  {selectedNeedingDraft > 0 && (
+                    <Button onClick={bulkCreateDrafts} disabled={busy}>
+                      {busy && !bulkPublishProgress && !bulkDeleteProgress ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <FileText className="mr-2 h-4 w-4" />
+                      )}
+                      Create {selectedNeedingDraft} draft
+                      {selectedNeedingDraft === 1 ? "" : "s"}
+                    </Button>
+                  )}
+                  {selectedDrafted > 0 &&
+                    (ebayConnection ? (
+                      <Button onClick={bulkPublishToEbay} disabled={busy}>
+                        {busy && bulkPublishProgress ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <Rocket className="mr-2 h-4 w-4" />
+                        )}
+                        {bulkPublishProgress
+                          ? `Publishing ${bulkPublishProgress.done}/${bulkPublishProgress.total}…`
+                          : `Publish ${selectedDrafted} to eBay`}
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        Connect eBay to bulk-publish
+                      </span>
+                    ))}
+                  <Button
+                    variant="destructive"
+                    onClick={() => setBulkDeleteOpen(true)}
+                    disabled={busy}
+                  >
+                    {busy && bulkDeleteProgress ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
-                      <FileText className="mr-2 h-4 w-4" />
+                      <Trash2 className="mr-2 h-4 w-4" />
                     )}
-                    Create {selected.size} draft
-                    {selected.size === 1 ? "" : "s"}
+                    {bulkDeleteProgress
+                      ? `Deleting ${bulkDeleteProgress.done}/${bulkDeleteProgress.total}…`
+                      : `Delete ${selected.size}`}
                   </Button>
                 </>
               ) : isActive ? (
@@ -1598,39 +1695,6 @@ export function FlipdeskListingsPage() {
                   >
                     <XCircle className="mr-2 h-4 w-4" />
                     End {selected.size}
-                  </Button>
-                </>
-              ) : isDrafts ? (
-                <>
-                  {ebayConnection ? (
-                    <Button onClick={bulkPublishToEbay} disabled={busy}>
-                      {busy && bulkPublishProgress ? (
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Rocket className="mr-2 h-4 w-4" />
-                      )}
-                      {bulkPublishProgress
-                        ? `Publishing ${bulkPublishProgress.done}/${bulkPublishProgress.total}…`
-                        : `Publish ${selected.size} to eBay`}
-                    </Button>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">
-                      Connect eBay to bulk-publish
-                    </span>
-                  )}
-                  <Button
-                    variant="destructive"
-                    onClick={() => setBulkDeleteOpen(true)}
-                    disabled={busy}
-                  >
-                    {busy && bulkDeleteProgress ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Trash2 className="mr-2 h-4 w-4" />
-                    )}
-                    {bulkDeleteProgress
-                      ? `Deleting ${bulkDeleteProgress.done}/${bulkDeleteProgress.total}…`
-                      : `Delete ${selected.size}`}
                   </Button>
                 </>
               ) : (

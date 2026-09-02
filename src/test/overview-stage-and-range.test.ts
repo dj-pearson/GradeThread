@@ -55,14 +55,17 @@ describe("a stage tile opens that stage (US-2547 AC1, AC2)", () => {
   });
 
   it("the narrowing is only for the stages a tab folds together", () => {
-    // Every tab other than To List already IS one status; adding a redundant
+    // Every tab other than Unlisted already IS one status; adding a redundant
     // filter rule there would put a chip on screen that removes nothing.
-    for (const s of ["listed", "drafted", "sold", "shipped", "returned", "archived", "all"]) {
+    for (const s of ["listed", "sold", "shipped", "returned", "archived", "all"]) {
       expect(stageFilterStatusFromParam(s), s).toBeNull();
     }
     for (const s of TO_LIST_STATUSES) {
       expect(stageFilterStatusFromParam(s), s).toBe(s);
     }
+    // `drafted` shares Unlisted with the prep stages since the To List and
+    // Drafts tabs merged, so a Drafted tile needs the narrowing too.
+    expect(stageFilterStatusFromParam("drafted")).toBe("drafted");
     expect(stageFilterStatusFromParam(null)).toBeNull();
     expect(stageFilterStatusFromParam("not-a-status")).toBeNull();
   });

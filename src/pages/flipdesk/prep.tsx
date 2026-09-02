@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
@@ -61,6 +61,7 @@ interface PrepState {
 export function FlipdeskPrepPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const location = useLocation();
   const [index, setIndex] = useState(0);
   const [draft, setDraft] = useState<PrepState | null>(null);
   const [saving, setSaving] = useState(false);
@@ -144,7 +145,11 @@ export function FlipdeskPrepPage() {
       await persist(current, draft);
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       if (goToComposer) {
-        navigate(`/dashboard/flipdesk/items/${current.id}/draft`);
+        // `state.from` is what the item page's "Back to items" returns to;
+        // without it the seller lands on the table's default tab, not Prep.
+        navigate(`/dashboard/flipdesk/items/${current.id}/draft`, {
+          state: { from: `${location.pathname}${location.search}` },
+        });
         return;
       }
       toast.success(`Saved "${current.item_title}".`);
@@ -179,8 +184,8 @@ export function FlipdeskPrepPage() {
               Every item has moved past prep. Time to draft and list.
             </p>
             <Button asChild>
-              <Link to="/dashboard/flipdesk/listings?tab=to_list">
-                Go to the To-List queue
+              <Link to="/dashboard/flipdesk/inventory?tab=unlisted">
+                Go to Unlisted
               </Link>
             </Button>
           </CardContent>

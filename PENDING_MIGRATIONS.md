@@ -1,6 +1,42 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> ## ✅ NOTHING IS OUTSTANDING (2026-09-02). Prod records `00720`.
+## ⏳ HELD: 00721 — Unlisted tab (To List + Drafts merged), chip filter, wider search
+
+**Branch:** `claude/inventory-layout-navigation-28ugbu`. Apply the SQL BEFORE
+this branch reaches main. The frontend on this branch sends a tab id and a
+parameter the 00515 function does not know.
+
+**What it does.** Drops `flipdesk_listing_page(text, text, text, jsonb, jsonb,
+text, timestamptz, int, int, text[])` and recreates it with one extra trailing
+parameter, `p_unlisted_filter text default 'all'`. Adds the `'unlisted'` tab
+predicate (every pre-listed status, `drafted` included), the chip window
+(`needs_draft` / `ready` / `needs_review`), and five more search columns
+(`listing_title`, `size`, `color`, `category`, `location_bin`). The To List
+presets apply on `'unlisted'` too. `'to_list'` and `'drafts'` still resolve, so
+an un-redeployed client keeps working. Re-grants EXECUTE to `authenticated`,
+which the DROP would otherwise lose.
+
+**Risk: low.** One function, SECURITY INVOKER as before, no table or column
+change, no data touched. Idempotent: the DROP IF EXISTS matches nothing on a
+second run and the CREATE is OR REPLACE.
+
+**⚠ THE CLIENT READS THE NEW SHAPE.** `listings.tsx` calls the RPC with
+`p_tab: 'unlisted'` and `p_unlisted_filter`. Against the OLD function PostgREST
+answers `PGRST202` (no matching function for the named parameters) and the
+Inventory table renders its error state on every tab. Nothing is written, so
+the failure is loud and harmless, but it is total until the SQL lands.
+
+**Apply order.** `00721` alone (prod records `00720`). Then
+`NOTIFY pgrst, 'reload schema';` (an RPC signature changed). Then redeploy the
+edge on Coolify (`EXPECTED_SCHEMA_VERSION` is `00721`). Then merge.
+
+**Verification.** `npm run verify:db` could not run where this was written (no
+Docker), so the SQL is unproven on a fresh stack; `scripts/migrations-lint.mjs`
+passes. Run `LISTING_PARITY_DB=1 npx vitest run src/test/listing-page-sql-parity.test.ts`
+against the local stack before applying: it now covers the unlisted tab, its
+four chips and the wider search.
+
+> ## ✅ NOTHING ELSE IS OUTSTANDING (2026-09-02). Prod records `00720`.
 >
 > `https://functions.gradethread.com/health/ready` reports
 > `schema: {applied: "00720"}`, and a PostgREST probe with the public anon key
