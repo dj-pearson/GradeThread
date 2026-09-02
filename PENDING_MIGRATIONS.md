@@ -1,6 +1,11 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ HELD: 00721 — Unlisted tab (To List + Drafts merged), chip filter, wider search
+## ✅ APPLIED 2026-09-02: 00721 — Unlisted tab (To List + Drafts merged), chip filter, wider search
+
+**Applied.** Prod's `applied_migrations` records `00721` at 2026-09-02 15:51 UTC
+(read directly from the database, not inferred). The heading below was never
+flipped after the apply, which is what blocked the next push at the
+held-migration gate. The apply notes are kept as written.
 
 **Branch:** `claude/inventory-layout-navigation-28ugbu`. Apply the SQL BEFORE
 this branch reaches main. The frontend on this branch sends a tab id and a
