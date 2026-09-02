@@ -2473,6 +2473,16 @@ export async function generateListing(
     }
   }
 
+  // 2026-09-02: one line per generation for the tag-to-listing chain, so the
+  // next measurement (US-3044's report reads the aspects; this reads the path)
+  // can say WHERE a code was lost: no tag photo, no read, no decode, no name.
+  console.log(
+    `[listing-tag-metric] item=${itemId} brand=${JSON.stringify(normalizedBrand)} ` +
+      `tag_photos=${tagPhotos.length} code=${JSON.stringify(listingCode.styleCodeRaw)} ` +
+      `code_source=${listingCode.source ?? "none"} decoded=${listingCode.decoded ? 1 : 0} ` +
+      `named=${learnedForListing.resolvedName ? 1 : 0} rn=${rnOutcome}`,
+  );
+
   const learnedCandidate: VisualCandidate[] = learnedForListing.candidateName
     ? [{
       field: "style",

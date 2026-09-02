@@ -12,6 +12,8 @@ code_refs:
   - services/edge-functions/src/lib/prospect-identify.ts
   - services/edge-functions/src/lib/ai-extract.ts
   - services/edge-functions/src/lib/identification-provenance.ts
+  - services/edge-functions/src/lib/listing-style-code.ts
+  - services/edge-functions/src/lib/listing-registered-number.ts
 reviewed: 2026-08-21
 tags: [identification, ebay, ai, category, contract]
 summary: Brand, style and category are decided by an ORDERING of evidence kinds - decoded style code, then tag wordmark, then visual consensus, then model knowledge - and not by whichever source reports the higher confidence.
@@ -157,6 +159,39 @@ mining them reads our own guesses back as corroboration.
 Also inherited: somebody else's **size** is never harvested. A visual match is a
 different physical garment that happens to be the same product.
 
+## The AutoLister call sites (2026-09-02)
+
+Row 1 of the ordering did not reach the listing until this date. `generateListing`
+handed the OCR'd code to `resolveStyleCode`, the sneaker resolver, which
+returns null for every apparel brand, so the decoded code was null, the Style
+Code aspect stayed empty and every mined product name was dropped for want of a
+code to file it under. Prod on 2026-09-02: 1,001 items, none with a Style Code
+aspect, 71 Lululemon items titled "Pullover" and "Tank".
+
+`lib/listing-style-code.ts` now owns which code the listing files under, in
+this order: the label the OCR just read, what an earlier pass stored on
+`attributes.mpn`, the sneaker resolver. It decodes inside the brand's own pack
+and canonicalises the spelling (US-2714). The size-dot decoder stays off here as
+everywhere: it is region-scoped and nothing isolates the dot yet.
+
+Two things the index adds, and the line between them:
+
+- A **resolved** name (a source in a position to know, per
+  [[style-code-index-evidence]]) is a fact. It becomes `knownFields.style`
+  unless the seller typed a style, a labelled line in the tag ground-truth
+  block, and `attributes.model`, which the aspect registry projects onto the
+  leaf's Model aspect.
+- An **observation-only** name (one listing's title, trimmed) is offered under
+  the same `UNVERIFIED EXTERNAL GUESS` block as a visual candidate, and written
+  nowhere. It can corroborate; it cannot assert.
+
+The RN the OCR reads was passed to the prompt and discarded.
+`lib/listing-registered-number.ts` applies [[rn-lookup]]'s rules on the listing
+side: a match stores the number and registrant on the item, a contradiction
+caps the brand's confidence below the review threshold and never changes the
+brand, and an unknown number is recorded as a sighting. The RN is never an eBay
+aspect.
+
 ## Where the decisions are recorded
 
 Everything above is decided per run and would otherwise be recomputed and
@@ -184,3 +219,4 @@ latency. Operator table, deny-all; nothing seller-facing reads it.
 - [[style-code-index-evidence]] — why titles were rejected as a source
 - [[sync-source-of-truth]] — the wider provenance model
 - [[brand-kb-decoder-bar]] — when a tag code may recover a brand at all
+- [[rn-lookup]] — what an RN may and may not say about a brand

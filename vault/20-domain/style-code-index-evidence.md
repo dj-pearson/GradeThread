@@ -17,6 +17,7 @@ code_refs:
   - supabase/migrations/00635_style_code_submissions.sql
   - supabase/migrations/00638_drop_lulufanatics_catalog.sql
   - supabase/migrations/00639_clear_title_consensus_names.sql
+  - services/edge-functions/src/lib/listing-style-code.ts
 reviewed: 2026-08-21
 tags: [brands, style-codes, evidence, contract]
 summary: A style code's product name is ranked by WHO IS IN A POSITION TO KNOW, not by how well attested it is; listing titles were tried as a source and rejected, and copying a competitor's database was refused.
@@ -131,6 +132,21 @@ The crawl's brand pool is `brand_knowledge` — every brand we hold background
 knowledge on, not Lululemon alone (owner decision, 2026-08-21). Widening the
 crawl is not widening the public `/style/:code` surface, which stays
 Lululemon-only until a brand-collision rule exists.
+
+## The listing path reads the index, and files under the right code (2026-09-02)
+
+Until this date the AutoLister never read `style_code_names` at all, and the
+code it filed mined names under came from the sneaker resolver, which is null
+for apparel. So the market_verify direction was starved at its source: a
+Lululemon garment with a legible code contributed nothing and learned nothing.
+
+`lib/listing-style-code.ts` now files mined names under the OCR'd code
+(canonical spelling), and reads a resolved name back for the title and the
+Model aspect. The evidence rule is unchanged in both directions: a listing
+TITLE still cannot create a name, an observation-only name is offered to the
+model as an unverified candidate and written nowhere, and our own listings are
+still excluded by id. `scripts/backfill-tag-reads.ts` reads the index and never
+writes it.
 
 ## Which brands get a crawl budget is measured, not chosen
 

@@ -10,6 +10,7 @@ code_refs:
   - services/edge-functions/scripts/seed-registered-numbers.ts
   - functions/_shared/rn-render.ts
   - supabase/migrations/00708_registered_number_lookups.sql
+  - services/edge-functions/src/lib/listing-registered-number.ts
 reviewed: 2026-09-02
 tags: [seo, rn, brands, contract]
 summary: The FTC public RN search needs no account (00466 says otherwise and is wrong), a number is indexable only once a company is resolved, and an RN may never be presented as proof of a brand or of authenticity.
@@ -272,6 +273,22 @@ count on a resolved page is exactly the line no mirror site can print. Same
 
 A field below `TAG_GROUND_TRUTH_MIN_CONFIDENCE` is dropped rather than shown. A
 wrong RN sends someone to the wrong company with our name on the answer.
+
+## The AutoLister records sightings too (2026-09-02)
+
+The listing path read the RN off every tag since US-543 and dropped it, so the
+sighting queue only ever grew from the public tag reader and from graded
+submissions. `lib/listing-registered-number.ts` now applies this note's rules to
+a generated draft: `corroborates` and `ambiguous` store the number and the
+registrant on the item; `contradicts` caps the brand's confidence so the draft
+lands in review and never writes the brand; `no_reference` records a sighting
+through the same `00501` RPC. That third case is what feeds the seeder's
+queue, ranked by how often a number actually walks in.
+
+The same rule holds in `scripts/backfill-tag-reads.ts`, which reads the tag on
+items generated before this existed. It records sightings and nothing else
+outside the item row: a sighting is OCR evidence off a real tag, which is
+exactly what a backfill read is.
 
 ## Related
 

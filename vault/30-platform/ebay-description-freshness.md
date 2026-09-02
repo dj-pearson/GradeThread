@@ -8,12 +8,22 @@ code_refs:
   - services/edge-functions/src/lib/seller-credentials.ts
   - services/edge-functions/src/routes/jobs-credentials-refresh.ts
   - services/edge-functions/src/lib/ai-listing.ts
-reviewed: 2026-08-31
+reviewed: 2026-09-02
 tags: [ebay, publishing, listings, gotcha]
 summary: An eBay description is frozen text — eBay bans active content and off-eBay links — so anything time-varying in it goes stale until a scheduled revise re-renders it.
 ---
 
 # eBay descriptions cannot self-update — refresh by revise
+
+> **Re-reviewed 2026-09-02.** Drift flagged `ai-listing.ts` for the style-code
+> pipe (`5f994b77e`..`2f7b3f431`: tag-photo selection, the OCR'd code decoded in
+> its brand pack, the product name from the style-code index, the RN
+> cross-check) and for US-3043's visual-consensus aspects (`0082f8269`). All of
+> it lands on `knownFields`, `tagAttributes`, `ebay_aspects` and the tag
+> ground-truth block; none of it touches the description blocks or the render
+> path. Re-verified while here: `renderDescription(withTemplate, descriptionCtx)`
+> still produces `listing_description` from `description_blocks` in the same
+> draft upsert, and the string is still frozen HTML once eBay has it.
 
 > **Re-reviewed 2026-08-31.** Drift flagged `ai-listing.ts` for `1ec50c48c`
 > (US-3031), which settles the generated eBay condition against the resolved
