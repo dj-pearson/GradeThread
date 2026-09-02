@@ -2,6 +2,32 @@
 
 ## ⏳ PENDING: 00723 — credit functions must refuse anon (US-3094)
 
+> **REVISED 2026-09-02 after this migration FAILED its first prod apply, which
+> is the point of it.** The assertion refused the apply and named one offender:
+> `grant_appstore_credits(uuid,integer,text,text,text,text,text)`. That was
+> confirmed straight from prod: SECURITY DEFINER, `anon` holds EXECUTE, and
+> `prosrc` is 1359 bytes with no `auth.role()` or `gt_require_role` check. The
+> other seven anon-reachable credit functions on prod all carry their guard, and
+> the two that do not are unreachable by anon. So exactly one function in
+> production moved a money-like balance with no authorization check.
+>
+> It is PROD-ONLY DRIFT, not a missing migration. 00609 and 00615 are both
+> recorded on prod in the right order (2026-08-16 21:11 and 2026-08-17 16:39
+> UTC) and their parameter names match, so 00615's `CREATE OR REPLACE` could not
+> have failed on a rename. It is recorded as applied and its effect on this one
+> function is simply absent.
+>
+> **This file now repairs before it asserts.** It `CREATE OR REPLACE`s the
+> function with 00615's guarded body copied byte-for-byte (two em dashes in the
+> comments changed to hyphens for the ASCII rule; no executable line differs),
+> then runs the same assertion. A REPLACE and never a DROP, so the ACL is
+> preserved, `anon` keeps EXECUTE and the US-2403 segfault stays disarmed.
+>
+> Re-verified after the change: `npm run verify:db` = **all 20 checks passed**,
+> including `db: credit functions refuse anon (US-3094)`, with the reset
+> re-applying every migration from an empty schema. `migrations-lint` passes at
+> 719. **Re-apply 00723 to prod; it will now succeed.**
+
 **What it does.** Nothing to the schema. It is a single read-only `DO` block
 that raises if any of the ten credit functions is reachable with the public
 anon key *and* carries no authorization check in its own body. It writes only
