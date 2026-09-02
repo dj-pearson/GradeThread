@@ -429,6 +429,16 @@ export const DEFAULT_LAYOUTS: Record<
       { id: "grading.charts", size: "lg" },
       { id: "grading.recent-submissions", size: "lg" },
       { id: "grading.listing-suggestions", size: "lg" },
+      // US-3075 follow-up: AC1 registers grading.plan and AC4's persona lists
+      // omit it, which is an inconsistency in the story rather than a decision.
+      // Followed literally it deletes the Current Plan card from every existing
+      // seller's dashboard with no migration and no announcement, so it is
+      // restored -- but LAST among the data widgets, not beside usage. Putting it
+      // second pushed the queue down and broke "opens the board with the queue",
+      // which is the whole point of the story. Here it stays visible, the queue
+      // still opens the board, and the promotional-widgets-last invariant holds
+      // because plan is data. Developer keeps AC4's list: no billing surface.
+      { id: "grading.plan", size: "sm" },
       { id: "grading.activation", size: "lg" },
       { id: "grading.quick-actions", size: "lg" },
       { id: "grading.rewards", size: "lg" },
@@ -444,6 +454,16 @@ export const DEFAULT_LAYOUTS: Record<
       { id: "grading.charts", size: "lg" },
       { id: "grading.recent-submissions", size: "lg" },
       { id: "grading.listing-suggestions", size: "lg" },
+      // US-3075 follow-up: AC1 registers grading.plan and AC4's persona lists
+      // omit it, which is an inconsistency in the story rather than a decision.
+      // Followed literally it deletes the Current Plan card from every existing
+      // seller's dashboard with no migration and no announcement, so it is
+      // restored -- but LAST among the data widgets, not beside usage. Putting it
+      // second pushed the queue down and broke "opens the board with the queue",
+      // which is the whole point of the story. Here it stays visible, the queue
+      // still opens the board, and the promotional-widgets-last invariant holds
+      // because plan is data. Developer keeps AC4's list: no billing surface.
+      { id: "grading.plan", size: "sm" },
       { id: "grading.activation", size: "lg" },
       { id: "grading.quick-actions", size: "lg" },
       { id: "grading.rewards", size: "lg" },
