@@ -362,8 +362,37 @@ ledger too from its second version. Compare like with like: the AFTER run's
 `ai_enrichment_log` number is comparable to this one; the `ai_usage_events`
 number is the true bill.
 
-**AFTER** - pending. Run the same command once ~200 drafts have been generated
-on the new edge and paste the table here.
+**The bill, from the ledger (second run, same day).** `ai_usage_events` with
+the cache multipliers applied, BEFORE window, per feature (median per call):
+
+| Pass | Calls | Median $/call | Note |
+|---|---|---|---|
+| autolister (generation) | 295 | $0.05 | median 2,236 cache-read tokens |
+| catalog_extract (aspect refine) | 432 | $0.01 | no cache reads recorded |
+| size_estimate | 136 | $0.07 | ran on 46% of items, sent EVERY photo |
+| tag_ocr | 11 | $0.03 | ran on 4% of items: few tag photos are roled `tag` |
+| measure_extract | 113 | $0.02 | |
+
+Per draft: **$0.148**. The single largest line was not the generation pass; it
+was the size estimate, which ran whenever the tag read found no size and was
+sent the whole photo set uncapped. The 2026-09-02 cap (six photos,
+measurement-first) took its median to $0.01 on the first two AFTER calls.
+
+Two more things the ledger says that the fill table cannot. Tag OCR ran on 11
+of 295 items: the pass only sees photos roled `tag`/`tag_2`, so the label
+reads that fill Country, Care and Product Line reach 4% of drafts until
+photo roles are assigned more often. And the refine pass shows zero cache
+reads, which means its cached system block is below the cache minimum
+and the per-category tool schema, the part that is large, is not under a
+breakpoint at all. Both are cheap to fix and belong ahead of US-3045.
+
+**AFTER** - two generations so far (one draft row: a regenerate upserts the
+same draft and keeps its created_at). The one draft filled Fabric Type,
+Product Line, Features, Occasion and Department; Theme empty. Median
+recommended coverage 68% against 55% before. Cache-cold, so the per-call
+costs are the write-side numbers: autolister $0.07, refine $0.02, size
+$0.01, measure $0.02; $0.119 per draft. Re-run once ~30 drafts exist on the
+new code and replace this paragraph with the table.
 
 ## Related
 
