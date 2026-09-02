@@ -3329,25 +3329,6 @@
       "priority": 12
     },
     {
-      "id": "US-3074",
-      "passes": false,
-      "title": "Customize mode on the widget board: reorder by drag, resize, hide, add from a catalog, reset to default",
-      "description": "As a seller, I want a Customize button on the overview that lets me drag widgets into the order I read them, pick each one's size, hide what I do not use and add what I do, so that the overview is laid out the way I work and not the way the page shipped.",
-      "acceptanceCriteria": [
-        "A Customize action in PageHeader toggles edit mode on WidgetBoard. In edit mode every frame shows a grip handle, a size control offering only that widget's allowed sizes, and a Hide control; a sticky bar under the header offers Add widget, Reset to default, Cancel and Done",
-        "Reorder uses DndContext + SortableContext + rectSortingStrategy + arrayMove with PointerSensor and KeyboardSensor (sortableKeyboardCoordinates), the src/components/flipdesk/photo-manager.tsx idiom. Below the sm breakpoint, move-up and move-down buttons replace drag. Every control is keyboard reachable and carries an aria-label that names the widget",
-        "Add widget opens a Sheet listing the registry widgets for that surface that are not on the board, grouped by category with title and blurb and filtered by the viewer's persona (a buyer persona never sees a flipdesk.* widget); choosing one appends it at its defaultSize and closes the sheet",
-        "Reset restores the persona default after a confirm dialog; Cancel discards every edit; Done saves once through useSaveDashboardLayout. Leaving the route with unsaved edits prompts through src/hooks/use-navigation-guard.ts",
-        "Every edit is a pure reducer action in src/lib/dashboard-layout.ts (move, resize, hide, add, reset) with vitest coverage for each, including resize to a size the widget does not allow being a no-op; the component holds no layout arithmetic",
-        "Events declared in src/lib/analytics-events.ts and emitted through track(): dashboard_layout_saved {surface, widget_count, moved, resized, hidden, added}, dashboard_layout_reset {surface}, dashboard_widget_added {surface, widget_id}, dashboard_widget_hidden {surface, widget_id}; each entry says what it observes",
-        "The drag overlay uses the default dnd-kit transition, no bounce or elastic easing; npm run ui:check stays at zero and npm run verify passes"
-      ],
-      "priority": 12,
-      "dependsOn": [
-        "US-3073"
-      ]
-    },
-    {
       "id": "US-3075",
       "passes": false,
       "title": "GradeThread Dashboard on the widget board: every block a widget, persona defaults, and two new grading widgets (queue and attention)",
