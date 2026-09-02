@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3072",
+  "nextId": "US-3081",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3309,6 +3309,173 @@
         "OPERATOR: run one revise and one relist on each of the four platforms from a test account after the store build is live and record the outcome per platform in the notes; a platform that fails goes back to enabled:false in the same session, not later"
       ],
       "priority": 23
+    },
+    {
+      "id": "US-3072",
+      "passes": false,
+      "title": "EPIC: command-center overviews - GradeThread Dashboard, FlipDesk Overview and iOS Home as a widget board the seller lays out",
+      "description": "As a seller, I want the three home surfaces (/dashboard, /dashboard/flipdesk and the iOS Home tab) to show what needs me first and let me choose, size and arrange the widgets, so that the page is my command center instead of a fixed column of cards. Since US-2537 (dashboard) and US-2547 (overview) shipped, the product added Offers and Messages, Returns and Disputes, Scheduled drops, AutoLister, Automations, the extension queue, sync conflicts, payouts, ad spend, inventory equity, forecast, consignment, verified profiles, the time-saved meter (US-9207) and the review flow (US-9204). Neither web overview surfaces any of them, and the only ranked needs-you list (src/components/flipdesk/needs-you-card.tsx) is mounted on post-sale only. No server-side UI-layout preference exists today: sidebar collapse is localStorage (src/components/dashboard/sidebar.tsx:169), the pipeline WIP limits are a persisted Zustand store, and nothing else remembers how a seller wants a page laid out.",
+      "acceptanceCriteria": [
+        "Umbrella only: this story closes when every child passes. Children are filed immediately after it and named in the closing AC below",
+        "Standing constraint: widget ids are stable strings namespaced grading.* and flipdesk.*, declared once in src/lib/dashboard-widgets.ts; iOS uses the same ids for the sections it shares (the ProductSurface.id precedent at ios/GradeThread/Tools/ProductSurfaces.swift:16). A renamed id is a migration of stored layouts, not an edit",
+        "Standing constraint: no new dependency for drag. @dnd-kit/core and @dnd-kit/sortable are already in package.json and the idiom is src/components/flipdesk/photo-manager.tsx (DndContext + SortableContext + rectSortingStrategy + arrayMove). If a child imports @dnd-kit/utilities it declares it in package.json (today it is only transitive)",
+        "Standing constraint (US-2547): the FlipDesk board keeps ONE aggregate RPC, flipdesk_overview_metrics, for every number it carried before; no widget reads items_full or loops rows in the browser; src/test/overview-stage-and-range.test.ts stays green",
+        "Standing constraint (US-2537): in every default layout the seller's own data precedes every promotional widget; src/test/dashboard-own-data-first.test.ts is ported to assert the exported default layouts rather than JSX order, with the same intent",
+        "Standing constraint: npm run ui:check stays at zero. A widget frame declares elevation once (border, no shadow), carries no coloured side tab, and no drag animation uses bounce easing",
+        "Every widget renders inside src/components/error-boundary.tsx and a Suspense skeleton, so one failing widget never blanks the page; a render test throws inside one widget and asserts the others still paint",
+        "Children: US-3073 (board foundation), US-3074 (customize mode), US-3075 (GradeThread Dashboard on the board), US-3076 (FlipDesk Overview on the board), US-3077 (FlipDesk action widgets), US-3078 (FlipDesk money and health widgets), US-3079 (attention rail), US-3080 (iOS Home layout). This epic closes when all eight pass"
+      ],
+      "priority": 12
+    },
+    {
+      "id": "US-3073",
+      "passes": false,
+      "title": "Widget board foundation: a widget registry, per-user layout persistence and a sized grid both overviews render from",
+      "description": "As a seller, I want my overview layout (which widgets, in what order, at what size) saved to my account, so that it is the same in every browser I open FlipDesk in. As a developer, I want one registry and one board component, so that the two overviews and every future widget share a single contract instead of each page hand-placing cards.",
+      "acceptanceCriteria": [
+        "Migration NNNNN_dashboard_layouts.sql creates public.dashboard_layouts (user_id uuid references public.users(id) on delete cascade, surface text with a check constraint in ('grading','flipdesk','ios-home'), layout jsonb not null, version integer not null default 1, created_at, updated_at via the shared trigger, primary key (user_id, surface)) with owner-only RLS for select, insert, update and delete on user_id = auth.uid(). US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer; PENDING_MIGRATIONS.md entry and the NOTIFY pgrst reminder. The browser writes it through supabase-js under RLS; there is no edge route",
+        "src/lib/dashboard-widgets.ts exports WidgetDef { id, surface, title, blurb, category, sizes, defaultSize, rangeAware, personas, queryKeys, load } and WIDGET_SIZES = ['sm','md','lg'] meaning 1, 2 and 4 columns of a 4-column grid. A vitest in src/test asserts ids are unique, every id in every default layout exists in the registry, every widget's defaultSize is in its own sizes, and every widget with rangeAware true is on the flipdesk surface",
+        "src/lib/dashboard-layout.ts exports a pure normalize(stored, registry, persona) that drops unknown ids, clamps a size the widget does not allow to its defaultSize, dedupes repeated ids keeping the first, and returns the persona default when the stored document is missing, malformed or carries an unknown version; each branch has a test",
+        "src/hooks/use-dashboard-layout.ts: useDashboardLayout(surface) reads queryKey ['dashboard_layouts', userId, surface] and returns the normalized layout; useSaveDashboardLayout(surface) upserts the row with an optimistic update and rollback plus a sonner toast on error. A read error, including the table not existing before the prod apply (the tolerant pattern in src/hooks/use-review-flow.ts), resolves to the default layout and never an error state. The last known layout is mirrored to localStorage under gt:dashboard-layout:<surface> so the board paints its shape before the query resolves, and the stored copy is normalized on read like the server one",
+        "src/components/dashboard/widget-board.tsx renders a layout as a CSS grid (grid-cols-1 sm:grid-cols-2 lg:grid-cols-4, col-span from size) with each widget inside WidgetFrame: title from the registry, an optional header action slot, ErrorBoundary, a Suspense skeleton, and React.lazy on the registry load so only widgets on the board are downloaded (the GradeCharts deferral pattern in dashboard.tsx). A widget whose component renders null gets the frame's quiet state using the registry blurb, never a zero-height gap",
+        "npm run verify passes, including the db lane applying the migration on a fresh schema, and npm run ui:check reports zero"
+      ],
+      "priority": 12
+    },
+    {
+      "id": "US-3074",
+      "passes": false,
+      "title": "Customize mode on the widget board: reorder by drag, resize, hide, add from a catalog, reset to default",
+      "description": "As a seller, I want a Customize button on the overview that lets me drag widgets into the order I read them, pick each one's size, hide what I do not use and add what I do, so that the overview is laid out the way I work and not the way the page shipped.",
+      "acceptanceCriteria": [
+        "A Customize action in PageHeader toggles edit mode on WidgetBoard. In edit mode every frame shows a grip handle, a size control offering only that widget's allowed sizes, and a Hide control; a sticky bar under the header offers Add widget, Reset to default, Cancel and Done",
+        "Reorder uses DndContext + SortableContext + rectSortingStrategy + arrayMove with PointerSensor and KeyboardSensor (sortableKeyboardCoordinates), the src/components/flipdesk/photo-manager.tsx idiom. Below the sm breakpoint, move-up and move-down buttons replace drag. Every control is keyboard reachable and carries an aria-label that names the widget",
+        "Add widget opens a Sheet listing the registry widgets for that surface that are not on the board, grouped by category with title and blurb and filtered by the viewer's persona (a buyer persona never sees a flipdesk.* widget); choosing one appends it at its defaultSize and closes the sheet",
+        "Reset restores the persona default after a confirm dialog; Cancel discards every edit; Done saves once through useSaveDashboardLayout. Leaving the route with unsaved edits prompts through src/hooks/use-navigation-guard.ts",
+        "Every edit is a pure reducer action in src/lib/dashboard-layout.ts (move, resize, hide, add, reset) with vitest coverage for each, including resize to a size the widget does not allow being a no-op; the component holds no layout arithmetic",
+        "Events declared in src/lib/analytics-events.ts and emitted through track(): dashboard_layout_saved {surface, widget_count, moved, resized, hidden, added}, dashboard_layout_reset {surface}, dashboard_widget_added {surface, widget_id}, dashboard_widget_hidden {surface, widget_id}; each entry says what it observes",
+        "The drag overlay uses the default dnd-kit transition, no bounce or elastic easing; npm run ui:check stays at zero and npm run verify passes"
+      ],
+      "priority": 12,
+      "dependsOn": [
+        "US-3073"
+      ]
+    },
+    {
+      "id": "US-3075",
+      "passes": false,
+      "title": "GradeThread Dashboard on the widget board: every block a widget, persona defaults, and two new grading widgets (queue and attention)",
+      "description": "As a seller who grades, I want /dashboard to show my grading queue and anything waiting on me before the promotional cards, and to be able to arrange it, so that the page tells me what to do next. Today src/pages/dashboard.tsx is a fixed column of thirteen blocks, and the only numbers about grading are a lifetime total and the charts; a submission stuck in pending_review, failed or disputed is invisible until the seller opens the list.",
+      "acceptanceCriteria": [
+        "Every existing block becomes a registered widget with a stable id: grading.usage (UsageMeters), grading.plan, grading.charts (GradeCharts, still lazy), grading.recent-submissions, grading.listing-suggestions, grading.activation (ActivationChecklist), grading.quick-actions (quickActionsFor), grading.rewards (RewardsWidget), grading.flipdesk-promo (FlipdeskPromoCard), grading.discover (featureCardsFor), grading.invite (InviteFriendCard), grading.impact (ImpactTile), grading.passports. dashboard.tsx renders PageHeader, PwaInstallBanner and WidgetBoard for surface 'grading' and nothing else",
+        "New grading.queue widget: one count per SUBMISSION_STATUSES value (pending, processing, pending_review, completed, failed, disputed) over submissions with superseded_at null, fetched as a single grouped read rather than six head counts, each tile linking to /dashboard/submissions?status=<status>. src/pages/submissions.tsx reads ?status= to seed its filter (it reads none today) and a test asserts the seed. The Total Submissions card folds into this widget and is not a separate one",
+        "New grading.attention widget: up to five submissions in pending_review, failed or disputed, newest first, each with its age and a link to /dashboard/submissions/<id>; quiet state reads 'Nothing waiting on you'",
+        "Default layouts per persona exported from src/lib/dashboard-widgets.ts: seller and consignment = usage, queue, attention, charts, recent-submissions, listing-suggestions, then activation, quick-actions, rewards, flipdesk-promo, discover, invite, impact; developer = usage, queue, attention, recent-submissions, quick-actions, passports; buyer = quick-actions, discover, invite. In every default the index of each promotional widget (activation, quick-actions, rewards, flipdesk-promo, discover, invite, impact) is greater than the index of every data widget, and src/test/dashboard-own-data-first.test.ts is rewritten to assert exactly that from the exported defaults; its usage-rendered-once assertions become 'grading.usage appears at most once per layout' plus the existing divide-by-zero check on usage-meter.tsx",
+        "Components that self-hide (RewardsWidget, ImpactTile, ActivationChecklist) keep their own hide logic and the frame shows the quiet state when they render null. grading.flipdesk-promo is removed from the layout by normalize, not merely quiet, once the account has any inventory_items row (the existing totalItemCount gate)",
+        "A render test mounts WidgetBoard with the seller default and asserts the order of frame titles top to bottom; npm run verify passes and npm run ui:check reports zero"
+      ],
+      "priority": 13,
+      "dependsOn": [
+        "US-3073"
+      ]
+    },
+    {
+      "id": "US-3076",
+      "passes": false,
+      "title": "FlipDesk Overview on the widget board: stat tiles, pipeline, lists and North Star as widgets, one RPC underneath, range applied board-wide",
+      "description": "As a reseller, I want /dashboard/flipdesk to be a board I can arrange, with the reporting window applying to every widget that has one, so that the numbers I care about sit where I look first. Today src/pages/flipdesk/overview.tsx is a fixed page of twelve blocks in an order nobody can change, and the North Star card is pinned above the numbers whether or not the seller cares about the weekly goal.",
+      "acceptanceCriteria": [
+        "Widgets registered on the flipdesk surface: flipdesk.north-star (NorthStarCard), flipdesk.stat-items, flipdesk.stat-listed, flipdesk.stat-sold, flipdesk.stat-net, flipdesk.stat-time-saved (the US-9207 tile with its breakdown dialog), flipdesk.stat-review-median (US-9204), flipdesk.pipeline, flipdesk.community-insights (CommunityInsightsWidget), flipdesk.aging, flipdesk.top-brands, flipdesk.stale (with StaleNudge), flipdesk.recent-sales. overview.tsx renders PageHeader (range Select, Import, Add item, Customize) and WidgetBoard for surface 'flipdesk' and nothing else",
+        "Every widget that carried a number from flipdesk_overview_metrics still reads it through useFlipdeskOverview(range), one query deduped by its key; no widget reads items_full or any per-row table for those numbers. src/test/overview-stage-and-range.test.ts stays green, with its source-reading assertions repointed at the files the markup moved to and the same expectations kept (one RPC, SECURITY INVOKER, stage tiles resolve to their stage, show-all on both lists, aging rows link to the item)",
+        "The ?range= URL param stays the source of truth (useUrlParamState). Every widget with rangeAware true receives the range and its frame subtitle shows rangeDef.phrase; a widget that is not range-aware (pipeline, aging, stale, north-star) shows 'right now'. Changing the range resets the show-all toggles as today",
+        "Allowed sizes: stat tiles and north-star sm and md (default sm); pipeline md and lg (default lg); the four list widgets and community-insights md and lg (default md). Default layout order: north-star, stat-items, stat-listed, stat-sold, stat-net, stat-time-saved, stat-review-median, pipeline, aging, stale, top-brands, recent-sales, community-insights",
+        "Stale-nudge dismissal under gt:flipdesk:stale-nudge-dismissed, the repricing message on a stale row, and both show-all toggles keep working inside their widgets; a render test dismisses a nudge and asserts it stays dismissed after remount",
+        "npm run verify passes and npm run ui:check reports zero"
+      ],
+      "priority": 13,
+      "dependsOn": [
+        "US-3073"
+      ]
+    },
+    {
+      "id": "US-3077",
+      "passes": false,
+      "title": "FlipDesk action widgets: Needs you, offers waiting, extension queue, sync conflicts, AutoLister drafts, scheduled drops, automations, repricing",
+      "description": "As a reseller, I want the overview to carry the work that has a clock on it (eBay queues, open offers, jobs the extension is waiting to run, sync conflicts, drafts to review, drops about to publish), so that I open the overview and know what to do first instead of touring six pages. Today src/components/flipdesk/needs-you-card.tsx is mounted only on post-sale and none of these queues reaches the overview.",
+      "acceptanceCriteria": [
+        "The six-queue merge inside needs-you-card.tsx moves into useNeedsYou() in src/hooks/use-needs-you.ts, returning the rankNeedsYou output plus per-queue loading and error flags; NeedsYouCard and the new widget both consume it and src/pages/flipdesk/__tests__/needs-you.test.ts stays green untouched",
+        "flipdesk.needs-you: the ranked list (deadline first, then money), five rows at md and ten at lg, each row linking to its queue anchor on /dashboard/flipdesk/post-sale or to /dashboard/flipdesk/offers; quiet state 'Nothing waiting on you'",
+        "flipdesk.offers: open best offers from useEbayBestOffers with the count and the soonest expiry rendered through deadlineLabel, linking to /dashboard/flipdesk/offers",
+        "flipdesk.extension-queue: pending and failed counts from useExtensionQueue plus usePendingDelists and usePendingRevises, linking to the surface that runs them; when no extension has checked in, the widget says so and links to /connect-extension",
+        "flipdesk.sync-conflicts: unresolved count from useSyncConflicts, linking to the resolver on the inventory surface",
+        "flipdesk.autolister-drafts: drafts waiting review, using the drafts read from src/pages/flipdesk/autolister-drafts.tsx extracted into src/hooks/use-autolister.ts, linking to /dashboard/flipdesk/autolister?view=drafts; plan-gated the way the sidebar entry is (a locked state that names the plan, never hidden)",
+        "flipdesk.scheduled-drops: drops due in the next seven days from the read src/pages/flipdesk/scheduled-drops.tsx performs, extracted into src/hooks/use-scheduled-drops.ts, naming the next drop and its local time, linking to /dashboard/flipdesk/scheduled-drops",
+        "flipdesk.automations: active rule count and actions taken in the last seven days from useAutomationRules and useAutomationRuleActions, linking to /dashboard/flipdesk/pricing?tab=automations",
+        "flipdesk.repricing: open suggestion count from useRepricingSuggestions excluding reason_code OK, linking to /dashboard/flipdesk/pricing?tab=repricing",
+        "Every widget uses only hooks that exist or are extracted from a page in this story; no new edge route and no new table. Every count shows a skeleton while loading and an inline retry on error (the ErrorState pattern). npm run verify passes and npm run ui:check reports zero"
+      ],
+      "priority": 13,
+      "dependsOn": [
+        "US-3076"
+      ]
+    },
+    {
+      "id": "US-3078",
+      "passes": false,
+      "title": "FlipDesk money and health widgets: payouts, ad spend, inventory equity, forecast, marketplace health, consignor payouts",
+      "description": "As a reseller, I want the money and account-health cards that live on Money, Marketplaces and Analytics to be available on my overview, so that I do not open four pages to learn whether cash is coming and whether eBay is happy with me. The components exist; none of them can be placed on the overview.",
+      "acceptanceCriteria": [
+        "flipdesk.payouts wraps EbayPayoutsCard (useEbayPayouts): pending count and net, the next payout date, linking to /dashboard/flipdesk/money?view=reconcile",
+        "flipdesk.ad-spend wraps AdSpendCard (the ebay_ad_spend query) and passes the board range where the card accepts a day window",
+        "flipdesk.equity wraps InventoryEquityCard (queries flipdesk-equity and flipdesk-equity-trend)",
+        "flipdesk.forecast wraps ForecastCard with no seed brand",
+        "flipdesk.marketplace-health renders MarketplaceConnectionSummary and useEbayAccountHealth in one frame; a disconnected or expiring eBay connection (useEbayConnectionIssue) becomes the frame's alert state with a Reconnect link to /dashboard/flipdesk/marketplaces",
+        "flipdesk.consignor-payouts: consignors with a payout due from useConsignorPayouts, total due, linking to /dashboard/flipdesk/consignment; normalize removes it from the catalog for an account with no consignors rows, so it is absent rather than quiet",
+        "No card is duplicated: each widget module imports the named component and passes props, and the source pages keep rendering the same component; a test resolves every widget id in this story to its module and asserts the import of the named component",
+        "npm run verify passes and npm run ui:check reports zero"
+      ],
+      "priority": 13,
+      "dependsOn": [
+        "US-3076"
+      ]
+    },
+    {
+      "id": "US-3079",
+      "passes": false,
+      "title": "Attention rail: one strip above both overviews that ranks what needs the seller now, with last-updated and refresh-all",
+      "description": "As a seller, I want a single line at the top of the overview that says how many things need me and which is due first, and lets me refresh everything at once, so that the overview works like a command center before I scroll. Today the aging and stale badges sit inside their cards and the eBay queues are on another page entirely.",
+      "acceptanceCriteria": [
+        "src/components/dashboard/attention-rail.tsx renders directly under PageHeader on /dashboard and /dashboard/flipdesk. It is not a widget: it cannot be hidden, moved or resized",
+        "FlipDesk chips, each a link and each shown only when its count is above zero, in this fixed urgency order: needs you (useNeedsYou count with the soonest deadline via deadlineLabel), drafts to review, sync conflicts, extension jobs pending, aging items (metrics.agingCount), stale listings (metrics.staleCount). Grading chips: in review (pending_review), failed, disputed. When every count is zero the rail reads 'All clear'",
+        "The right side shows 'Updated <relative time>' taken from the oldest dataUpdatedAt among the queries of the widgets on the board, and a Refresh control that invalidates the queryKeys prefixes each WidgetDef declares; the registry test asserts queryKeys is non-empty for every widget that reads data",
+        "The chip logic is a pure buildAttentionChips(inputs) in src/lib/attention-rail.ts with vitest coverage for the ordering, zero-count hiding and the all-clear case",
+        "The rail is one row that wraps on mobile, with border-only elevation and no side tab; npm run ui:check reports zero and npm run verify passes"
+      ],
+      "priority": 14,
+      "dependsOn": [
+        "US-3075",
+        "US-3076",
+        "US-3077"
+      ]
+    },
+    {
+      "id": "US-3080",
+      "passes": false,
+      "title": "iOS Home tab laid out as a command center: attention strip, period picker, a section model the seller can reorder and hide, shortcut tiles, two columns on iPad",
+      "description": "As a seller on the phone, I want Home to open on what needs me and on the numbers for the window I care about, and to be able to reorder or hide its sections, so that Home is worth opening. Today ios/GradeThread/Dashboard/DashboardView.swift is a fixed VStack: activation checklist, a 2x2 KPI grid over a hard-coded 7-day window, the revenue sparkline, an Analytics link row, a Certified grades link row, five aging rows and five stacked full-width quick-action buttons that take a whole screen. Nothing on it surfaces offers, returns, sync conflicts, scheduled drops or the AutoLister queue, all of which the app already has behind the Tools hub or another tab.",
+      "acceptanceCriteria": [
+        "A HomeSection enum (String, Codable, CaseIterable) in ios/GradeThread/Dashboard/HomeLayout.swift whose raw values equal the web widget ids for the sections both platforms share (flipdesk.needs-you, flipdesk.stat-items, flipdesk.stat-listed, flipdesk.stat-sold, flipdesk.stat-net, flipdesk.aging, flipdesk.scheduled-drops, flipdesk.autolister-drafts, flipdesk.recent-sales) plus iOS-only sections (home.trend, home.grades, home.shortcuts, home.quick-actions); a HomeLayout struct holds the ordered sections and a hidden set, with the default order defined once",
+        "Persistence: @AppStorage(\"home.layout\") holding JSON. Decoding drops unknown ids and inserts a section the stored layout has never seen at its default position. ios/GradeThreadTests/HomeLayoutTests.swift covers round trip, an unknown id, and a new section appearing in a stored layout",
+        "Edit mode: an Edit button in the Home toolbar switches the sections into a List with .onMove and a per-row hide toggle (the ios/GradeThread/Inventory/ItemCanvas/DescriptionBlocksSection.swift idiom), Reset restores the default order, Done persists; the attention strip is never in the list",
+        "Attention strip at the top, not a section and not hideable: chips for offers awaiting reply, returns and cases with a deadline, sync conflicts, extension jobs pending, and aging count, read from the stores the app already holds (NegotiationInbox, PostSale, EbaySync, ExtensionQueueService, DashboardRollup); tapping a chip routes through AppRouter to that surface, via the WidgetDeepLink target where one exists. All zero reads 'All clear'. The chip builder is a pure function with a test for ordering and zero-hiding",
+        "The KPI grid gets a period picker (7, 30, 90 days) persisted in @AppStorage(\"home.period\"); DashboardRollup.compute takes the window in days as a parameter (weekWindowDays becomes the default argument, not a constant the caller cannot change), and DashboardRollupTests gains cases for 30 and 90",
+        "Quick actions become one horizontally scrolling row of pill buttons (Add an item first, then What's it worth, Prospect, Scout, Inventory) with the same haptics and routing; the five stacked full-width buttons are gone",
+        "home.shortcuts: a two-column grid of up to six ProductSurface entries the seller picks in edit mode from ProductSurfaces.all, persisted in the same layout, each routing exactly as ToolsHubView does for that surface",
+        "In a regular horizontal size class the sections lay out in two columns with the attention strip spanning both; the compact layout keeps one column. US-2905 owns the rest of the tablet work and is not blocked by or on this",
+        "The time-saved tile is not built here: it is US-9207 AC3 and lands as flipdesk.stat-time-saved when that story does",
+        "All six ios/Scripts guards pass under npm run verify (no ungated print, no URLSession.shared, no bare user-facing string, no force unwrap) with new strings in Localizable.xcstrings, and the iOS CI build is green"
+      ],
+      "priority": 13
     }
   ]
 }
