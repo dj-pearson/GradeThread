@@ -21,7 +21,13 @@
 // A bare number the OCR called a style code is therefore not a code, and the
 // MIN_STYLE_CODE_LENGTH the index already enforces keeps it out. Pure.
 
-import { decodeTagCode, type DecodeResult } from "./brand-decoders.ts";
+import {
+  decodeTagCode,
+  DEFAULT_DECODER_SPECS,
+  type DecodeResult,
+  type DecoderSpec,
+  REGION_SCOPED_DECODER_KINDS,
+} from "./brand-decoders.ts";
 import {
   type BrandKnowledgePack,
   decoderSpecsFromPack,
@@ -109,6 +115,104 @@ export function styleCodeSpellings(code: string): string[] {
   return [...new Set(out)];
 }
 
+// ── the rim of a size dot is a CIRCLE (US-3086) ────────────────────────────
+//
+// styleCodeSpellings assumes the style number is the PREFIX of what the model
+// transcribed, which is true only when the OCR happened to start where the code
+// starts. A Lululemon size dot has no start: the string runs around the rim of a
+// circle, so a model reading it can begin anywhere and the style number wraps.
+// The 2026-09-02 prod backfill (US-3085) filed five rims raw for exactly that
+// reason: LW3DUTS224000011302 begins on the code, 0000F80000DLW5B0303 begins
+// eleven characters into the date block.
+//
+// So: try every window of the doubled string against the pack's own anchored
+// shapes, in the order the specs define. The windows are candidate SPELLINGS,
+// not decodes; decodeTagCode still has to accept one, inside the pack the tag's
+// brand already selected. See vault/20-domain/brands/brand-kb-decoder-bar.md
+// for why a substring search is admissible here and nowhere else.
+
+/** The index's own floor: below this a window is not an identity. Every seeded
+ *  style shape is longer, so this only bounds the scan. */
+const RIM_MIN_WINDOW = MIN_STYLE_CODE_LENGTH;
+
+/**
+ * Longest transcription treated as a rim. The search is quadratic in the
+ * length, and a string this long is a paragraph of OCR rather than a code.
+ */
+const RIM_MAX_LENGTH = 64;
+
+/**
+ * The decoder specs the rim search may use: the pack's own, or the in-code
+ * defaults for its brand when it has none seeded (the same fallback
+ * decodeTagCode applies), minus the region-scoped kinds. `size_dot` matching a
+ * two-digit window would turn every rim into a size.
+ */
+export function rimDecoderSpecs(
+  brandKey: string,
+  packSpecs: DecoderSpec[],
+): DecoderSpec[] {
+  const specs = packSpecs.length > 0
+    ? packSpecs
+    : DEFAULT_DECODER_SPECS.filter((s) => s.brandKey === brandKey);
+  return specs.filter((s) => !REGION_SCOPED_DECODER_KINDS.has(s.decoderKind));
+}
+
+/**
+ * Every window of the circular string that one of `specs` matches whole, in
+ * spec order, then by start position, then by length. Pure and deduplicated;
+ * the string as read is never returned (the caller has already tried it).
+ *
+ * Every exact window is offered before any repaired one, so a repair is only
+ * ever reached when nothing matched as transcribed. The repair is the
+ * confusable letter slot on the window's LAST character, which is where the
+ * prod rims lost their colour initial ("LW5B030" for LW5B03O). Same rule as
+ * styleCodeSpellings: a repair is used only when a decoder then recognises it.
+ *
+ * `specs` empty means no search at all, which is how the caller keeps this
+ * inside a resolved pack.
+ */
+export function styleCodeRimWindows(
+  code: string,
+  specs: DecoderSpec[],
+): string[] {
+  const s = code.trim();
+  if (specs.length === 0) return [];
+  if (s.length <= RIM_MIN_WINDOW || s.length > RIM_MAX_LENGTH) return [];
+  const doubled = s + s;
+  const exact: string[] = [];
+  const repaired: string[] = [];
+  for (const spec of specs) {
+    let re: RegExp;
+    try {
+      re = new RegExp(spec.pattern, "i");
+    } catch {
+      continue; // a malformed spec matches nothing, exactly as runDecoderSpec has it
+    }
+    for (let start = 0; start < s.length; start++) {
+      for (let len = RIM_MIN_WINDOW; len <= s.length; len++) {
+        const window = doubled.slice(start, start + len);
+        if (window === s) continue;
+        // A window with no digit in it is a WORD. The shapes accept [A-Z0-9]
+        // in the body, so "WOMENS" inside any transcription matches the 2017
+        // spec exactly, and a model asked for a style code does sometimes hand
+        // back label prose. Every real style number carries digits; this is the
+        // one thing an anchored pattern cannot say for itself once the anchors
+        // are being slid along a string.
+        if (!/\d/.test(window)) continue;
+        if (re.test(window)) {
+          exact.push(window);
+          continue;
+        }
+        const fix = CONFUSABLE_LETTER[window.at(-1) ?? ""];
+        if (!fix) continue;
+        const mended = window.slice(0, -1) + fix;
+        if (re.test(mended)) repaired.push(mended);
+      }
+    }
+  }
+  return [...new Set([...exact, ...repaired])];
+}
+
 export function resolveListingStyleCode(args: {
   ocr: TagGroundTruth | null;
   itemAttributes: Record<string, unknown> | null | undefined;
@@ -130,18 +234,31 @@ export function resolveListingStyleCode(args: {
   const sneaker = args.sneakerStyleCode?.trim();
   if (sneaker) candidates.push({ code: sneaker, source: "sneaker_resolver" });
 
+  // US-3086: the rim rotation search runs ONLY inside an already-resolved pack.
+  // A window that matches re-confirms the brand that selected the pack; it can
+  // never recover one, which is what makes a substring search admissible here.
+  const rimSpecs = args.pack ? rimDecoderSpecs(key, specs) : [];
+
   for (const c of candidates) {
     // The first spelling a decoder recognises wins; otherwise the code as read.
     let code = c.code;
     let decoded: DecodeResult | null = null;
     if (key) {
-      for (const spelling of styleCodeSpellings(c.code)) {
-        const hit = decodeTagCode(key, spelling, specs);
-        if (hit) {
-          code = spelling;
-          decoded = hit;
-          break;
+      const tryAll = (spellings: string[]) => {
+        for (const spelling of spellings) {
+          const hit = decodeTagCode(key, spelling, specs);
+          if (hit) {
+            code = spelling;
+            decoded = hit;
+            return true;
+          }
         }
+        return false;
+      };
+      // Whole-string spellings first; the rim windows are the salvage pass, so
+      // a code that reads straight through never pays for the search.
+      if (!tryAll(styleCodeSpellings(c.code))) {
+        tryAll(styleCodeRimWindows(c.code, rimSpecs));
       }
     }
     const norm = canonicalStyleCode(key, code);
