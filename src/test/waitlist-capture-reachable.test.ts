@@ -23,6 +23,14 @@
 //
 // The importers are DISCOVERED, not listed. A future refactor that unwires the
 // form again fails here rather than shipping a lockout.
+//
+// DECIDED 2026-09-02 (US-9211 AC4), so nobody re-opens this from scratch: the
+// gate is confirmed OFF in production -- GET /api/waitlist/status answered
+// {"gatingActive": false} -- and the form is KEPT anyway. Dj's call. A capability
+// that renders nothing costs nothing, and removing the form alone would put the
+// lockout above back one flag flip away. If the staged-launch gate is ever
+// retired, retire it whole: the flag row, the access-gate branch, the operator
+// queue, the pending page, the hook, the form, and this guard with them.
 
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
