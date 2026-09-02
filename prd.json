@@ -3329,24 +3329,6 @@
       "priority": 12
     },
     {
-      "id": "US-3075",
-      "passes": false,
-      "title": "GradeThread Dashboard on the widget board: every block a widget, persona defaults, and two new grading widgets (queue and attention)",
-      "description": "As a seller who grades, I want /dashboard to show my grading queue and anything waiting on me before the promotional cards, and to be able to arrange it, so that the page tells me what to do next. Today src/pages/dashboard.tsx is a fixed column of thirteen blocks, and the only numbers about grading are a lifetime total and the charts; a submission stuck in pending_review, failed or disputed is invisible until the seller opens the list.",
-      "acceptanceCriteria": [
-        "Every existing block becomes a registered widget with a stable id: grading.usage (UsageMeters), grading.plan, grading.charts (GradeCharts, still lazy), grading.recent-submissions, grading.listing-suggestions, grading.activation (ActivationChecklist), grading.quick-actions (quickActionsFor), grading.rewards (RewardsWidget), grading.flipdesk-promo (FlipdeskPromoCard), grading.discover (featureCardsFor), grading.invite (InviteFriendCard), grading.impact (ImpactTile), grading.passports. dashboard.tsx renders PageHeader, PwaInstallBanner and WidgetBoard for surface 'grading' and nothing else",
-        "New grading.queue widget: one count per SUBMISSION_STATUSES value (pending, processing, pending_review, completed, failed, disputed) over submissions with superseded_at null, fetched as a single grouped read rather than six head counts, each tile linking to /dashboard/submissions?status=<status>. src/pages/submissions.tsx reads ?status= to seed its filter (it reads none today) and a test asserts the seed. The Total Submissions card folds into this widget and is not a separate one",
-        "New grading.attention widget: up to five submissions in pending_review, failed or disputed, newest first, each with its age and a link to /dashboard/submissions/<id>; quiet state reads 'Nothing waiting on you'",
-        "Default layouts per persona exported from src/lib/dashboard-widgets.ts: seller and consignment = usage, queue, attention, charts, recent-submissions, listing-suggestions, then activation, quick-actions, rewards, flipdesk-promo, discover, invite, impact; developer = usage, queue, attention, recent-submissions, quick-actions, passports; buyer = quick-actions, discover, invite. In every default the index of each promotional widget (activation, quick-actions, rewards, flipdesk-promo, discover, invite, impact) is greater than the index of every data widget, and src/test/dashboard-own-data-first.test.ts is rewritten to assert exactly that from the exported defaults; its usage-rendered-once assertions become 'grading.usage appears at most once per layout' plus the existing divide-by-zero check on usage-meter.tsx",
-        "Components that self-hide (RewardsWidget, ImpactTile, ActivationChecklist) keep their own hide logic and the frame shows the quiet state when they render null. grading.flipdesk-promo is removed from the layout by normalize, not merely quiet, once the account has any inventory_items row (the existing totalItemCount gate)",
-        "A render test mounts WidgetBoard with the seller default and asserts the order of frame titles top to bottom; npm run verify passes and npm run ui:check reports zero"
-      ],
-      "priority": 13,
-      "dependsOn": [
-        "US-3073"
-      ]
-    },
-    {
       "id": "US-3076",
       "passes": false,
       "title": "FlipDesk Overview on the widget board: stat tiles, pipeline, lists and North Star as widgets, one RPC underneath, range applied board-wide",
