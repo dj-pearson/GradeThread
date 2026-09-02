@@ -465,6 +465,9 @@
       var overallSafe = isFinite(overallNum) ? overallNum : null;
       const score = el("div", "gt-cc-score " + scoreClass(overallSafe == null ? 0 : overallSafe));
       score.textContent = overallSafe == null ? "—" : overallSafe.toFixed(1);
+      // The ring's fill, from the real score (0-10 → 0-100%). The severity
+      // class carries a coarse fallback so an unset property still draws.
+      score.style.setProperty("--gt-p", overallSafe == null ? "0" : String(Math.round(overallSafe * 10)));
       const meta = el("div", "gt-cc-meta");
       meta.appendChild(el("div", "gt-cc-tier", String(data.gradeTier || "")));
       const conf = Math.round(Number(data.confidence || 0) * 100);

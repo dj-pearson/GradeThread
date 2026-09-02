@@ -1,37 +1,72 @@
-/* GradeThread unified extension — compare view (US-2240).
+/* GradeThread unified extension — shared page shell + the compare view (US-2240).
  *
- * A full extension page, not the popup, so it can be a real table. Elevation is
- * declared once (a hairline row rule, no card shadows), and the only colour that
- * carries meaning is the condition score and the price verdict. */
+ * compare.html, options.html and onboarding.html all load this sheet, so the
+ * tokens here ARE the extension's full-page design system: the same roles as
+ * popup.css (navy, red, one hairline for elevation, 12-16px radii, tabular
+ * figures for numbers) at page scale. Elevation is declared once (a border),
+ * no card shadows, and the only colour that carries meaning is the condition
+ * score and the price verdict. Redesigned 2026-09-02 alongside the popup. */
 
 :root {
   color-scheme: light dark;
   --cmp-fg: #1a1a2e;
-  --cmp-muted: #6b6b80;
+  --cmp-fg-2: #4a4a5e;
+  --cmp-muted: #6f6f86;
   --cmp-bg: #ffffff;
-  --cmp-rule: #e6e6ef;
+  --cmp-surface: #ffffff;
+  --cmp-surface-2: #f6f7fb;
+  --cmp-rule: #e6e7ef;
+  --cmp-rule-strong: #d3d5e2;
   --cmp-navy: #0f3460;
+  --cmp-navy-soft: #e8eef8;
   --cmp-red: #e94560;
+  --cmp-red-deep: #d43a53;
+  --cmp-ok: #157a46;
+  --cmp-ok-soft: #e6f4ea;
+  --cmp-warn: #8a5a00;
+  --cmp-bad: #b3223a;
+  --cmp-bad-soft: #fdecef;
+  --cmp-r: 12px;
+  --cmp-r-lg: 16px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --cmp-fg: #f5f5f5;
+    --cmp-fg-2: #d0d0dc;
     --cmp-muted: #9a9ab0;
-    --cmp-bg: #1a1a2e;
+    --cmp-bg: #16162a;
+    --cmp-surface: #1c1c30;
+    --cmp-surface-2: #212137;
     --cmp-rule: #2c2c44;
+    --cmp-rule-strong: #3a3a56;
     --cmp-navy: #cfe0ff;
+    --cmp-navy-soft: #1d2b4a;
+    --cmp-ok: #7fd39b;
+    --cmp-ok-soft: #17301f;
+    --cmp-warn: #f0c674;
+    --cmp-bad: #ff8fa3;
+    --cmp-bad-soft: #3a1a22;
   }
 }
 
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
-  padding: 0 20px 40px;
+  padding: 0 24px 48px;
   background: var(--cmp-bg);
   color: var(--cmp-fg);
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+button, select, input { font: inherit; }
+:is(button, a, select, input):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--cmp-bg), 0 0 0 4px var(--cmp-red);
 }
 
 .cmp-head {
@@ -40,20 +75,20 @@ body {
   gap: 12px;
   padding: 18px 0 14px;
   border-bottom: 1px solid var(--cmp-rule);
+  max-width: 1000px;
 }
 
-.cmp-logo { width: 28px; height: 28px; }
-.cmp-title { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+.cmp-logo { width: 30px; height: 30px; border-radius: 8px; }
+.cmp-title { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.015em; }
 .cmp-head-actions { margin-left: auto; display: flex; align-items: center; gap: 14px; }
 
 .cmp-sort { font-size: 12px; color: var(--cmp-muted); display: flex; align-items: center; gap: 6px; }
 .cmp-sort select {
-  font: inherit;
   font-size: 12px;
-  padding: 4px 6px;
+  padding: 5px 8px;
   border-radius: 8px;
-  border: 1px solid var(--cmp-rule);
-  background: transparent;
+  border: 1px solid var(--cmp-rule-strong);
+  background: var(--cmp-surface);
   color: inherit;
 }
 
@@ -62,26 +97,53 @@ body {
   background: none;
   border: 0;
   padding: 2px 0;
-  font: inherit;
   font-size: 12px;
   font-weight: 600;
   color: var(--cmp-navy);
   cursor: pointer;
+  border-radius: 4px;
 }
 .cmp-linkbtn:hover { text-decoration: underline; }
-.cmp-linkbtn:focus-visible { outline: 2px solid var(--cmp-red); outline-offset: 2px; }
+
+/* A bordered secondary button for the page surfaces. */
+.cmp-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid var(--cmp-rule-strong);
+  border-radius: 8px;
+  background: var(--cmp-surface);
+  color: var(--cmp-fg);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+.cmp-btn:hover { border-color: var(--cmp-navy); color: var(--cmp-navy); background: var(--cmp-surface-2); }
+.cmp-btn.primary { background: var(--cmp-red); border-color: var(--cmp-red); color: #fff; }
+.cmp-btn.primary:hover { background: var(--cmp-red-deep); border-color: var(--cmp-red-deep); color: #fff; }
 
 .cmp-body { max-width: 1000px; }
-.cmp-empty { margin: 40px 0; color: var(--cmp-muted); max-width: 60ch; }
+.cmp-empty {
+  margin: 32px 0;
+  padding: 28px 24px;
+  color: var(--cmp-muted);
+  max-width: 60ch;
+  border: 1px dashed var(--cmp-rule-strong);
+  border-radius: var(--cmp-r-lg);
+  text-align: center;
+}
 .cmp-note { margin: 16px 0 0; font-size: 12px; color: var(--cmp-muted); max-width: 70ch; }
 
 /* Wide content scrolls inside its own container; the page body never does. */
 .cmp-scroll { overflow-x: auto; }
 
-.cmp-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+.cmp-table { width: 100%; border-collapse: collapse; margin-top: 14px; }
 .cmp-table th {
   text-align: left;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--cmp-muted);
   padding: 0 12px 8px 0;
@@ -92,18 +154,20 @@ body {
   border-top: 1px solid var(--cmp-rule);
   vertical-align: top;
 }
+.cmp-table tbody tr:hover td { background: var(--cmp-surface-2); }
 
-.cmp-listing { display: flex; gap: 10px; min-width: 260px; }
-.cmp-thumb { width: 48px; height: 48px; object-fit: cover; border-radius: 8px; flex: 0 0 auto; }
+.cmp-listing { display: flex; gap: 12px; min-width: 280px; }
+.cmp-thumb { width: 52px; height: 52px; object-fit: cover; border-radius: 10px; flex: 0 0 auto; background: var(--cmp-surface-2); }
 .cmp-listing-title { color: inherit; font-weight: 600; text-decoration: none; }
 .cmp-listing-title:hover { text-decoration: underline; }
-.cmp-listing-meta { font-size: 12px; color: var(--cmp-muted); }
+.cmp-listing-meta { font-size: 12px; color: var(--cmp-muted); margin-top: 2px; }
 
 .cmp-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .cmp-score {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }

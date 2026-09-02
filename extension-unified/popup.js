@@ -77,6 +77,55 @@ function scoreClass(score) {
   return "s-bad";
 }
 
+/**
+ * The score ring: a conic fill from 0 to score/10 over a hairline track, with
+ * the number in the middle. The fill percentage and the severity class are
+ * the only inputs; popup.css owns the palette. A non-finite score renders as a
+ * dash on an empty ring, never as "NaN" (US-1884 AC5, same rule as the overlay).
+ */
+function scoreRing(score) {
+  const n = Number(score);
+  const ok = isFinite(n);
+  const ring = document.createElement("span");
+  ring.className = "pop-read-score " + (ok ? scoreClass(n) : "");
+  ring.style.setProperty("--p", ok ? String(Math.max(0, Math.min(100, n * 10))) : "0");
+  const num = document.createElement("span");
+  num.textContent = ok ? n.toFixed(1) : "–";
+  ring.appendChild(num);
+  ring.setAttribute("aria-label", ok ? "Grade " + n.toFixed(1) + " of 10" : "No grade");
+  return ring;
+}
+
+const MARKETPLACE_LABELS = {
+  ebay: "eBay",
+  poshmark: "Poshmark",
+  grailed: "Grailed",
+  mercari: "Mercari",
+  depop: "Depop",
+  vinted: "Vinted",
+  facebook: "Facebook",
+};
+
+/** One letter on the marketplace's own hue; popup.css maps data-platform. */
+function monogram(platform) {
+  const key = String(platform || "").toLowerCase();
+  const el = document.createElement("span");
+  el.className = "pop-mono";
+  el.dataset.platform = key;
+  const label = PLATFORM_LABELS[key] || MARKETPLACE_LABELS[key] || key;
+  el.textContent = label ? label.charAt(0).toUpperCase() : "?";
+  el.title = label;
+  el.setAttribute("aria-hidden", "true");
+  return el;
+}
+
+function tag(text) {
+  const el = document.createElement("span");
+  el.className = "pop-tag";
+  el.textContent = text;
+  return el;
+}
+
 // US-3048: accepts an epoch NUMBER or an ISO STRING.
 //
 // It used to accept only a number, and two of its seven callers pass an ISO
@@ -140,6 +189,10 @@ function renderAccount(caps) {
   const connect = document.getElementById("connectBtn");
   const disconnect = document.getElementById("disconnectBtn");
   const roleSub = document.getElementById("roleSub");
+  const avatar = document.getElementById("acctAvatar");
+  const chip = document.getElementById("headAcct");
+  const chipLabel = document.getElementById("headAcctLabel");
+  const chipDot = document.getElementById("headAcctDot");
   badges.textContent = "";
 
   const authed = caps && caps.authenticated;
@@ -158,9 +211,17 @@ function renderAccount(caps) {
       badges.appendChild(seller);
       summary.textContent = "Buyer research + seller Lister are unlocked.";
       roleSub.textContent = "Seller";
+      if (chip) chip.dataset.state = "seller";
+      if (chipLabel) chipLabel.textContent = "FlipDesk " + titlePlan(caps.flipdeskPlan);
+      if (chipDot) chipDot.textContent = "S";
+      if (avatar) avatar.textContent = "S";
     } else {
       summary.textContent = "Buyer research is unlocked. Add FlipDesk for seller tools.";
       roleSub.textContent = "Buyer";
+      if (chip) chip.dataset.state = "buyer";
+      if (chipLabel) chipLabel.textContent = titlePlan(caps.buyerPlan) + " plan";
+      if (chipDot) chipDot.textContent = "B";
+      if (avatar) avatar.textContent = "B";
     }
   } else {
     state.textContent = "Not signed in";
@@ -169,6 +230,10 @@ function renderAccount(caps) {
     summary.textContent =
       "Buyer research works right now, no account needed. Sign in to raise your read limit; add FlipDesk to cross-post as a seller.";
     roleSub.textContent = "Condition Check";
+    if (chip) chip.dataset.state = "anon";
+    if (chipLabel) chipLabel.textContent = "Sign in";
+    if (chipDot) chipDot.textContent = "";
+    if (avatar) avatar.textContent = "?";
   }
 }
 
@@ -281,7 +346,20 @@ async function initResearch() {
     wrap.hidden = false;
     label.textContent = "Enabled on " + host;
     box.checked = !disabled.includes(host);
+    const card = document.getElementById("siteCard");
+    const siteNote = document.getElementById("siteNote");
+    const reflect = () => {
+      if (!card) return;
+      card.dataset.state = box.checked ? "ready" : "off";
+      if (siteNote) {
+        siteNote.textContent = box.checked
+          ? "Supported site. The read uses the photos on this page."
+          : "Turned off on this site. Switch it back on below.";
+      }
+    };
+    reflect();
     box.addEventListener("change", async () => {
+      reflect();
       const cur = (await ext.storage.local.get("disabledHosts")).disabledHosts || [];
       const set = new Set(Array.isArray(cur) ? cur : []);
       if (box.checked) set.delete(host);
@@ -309,18 +387,37 @@ async function initResearch() {
 async function initReadNow(host) {
   const btn = document.getElementById("readNow");
   const hint = document.getElementById("readNowHint");
+  const card = document.getElementById("siteCard");
+  const siteHost = document.getElementById("siteHost");
+  const siteNote = document.getElementById("siteNote");
   if (!btn) return;
+
+  // What Alt+G actually is on this browser: the manifest's key is only a
+  // suggestion and another extension may have claimed it first.
+  const kbd = document.getElementById("siteKbd");
+  if (kbd && ext.commands && ext.commands.getAll) {
+    try {
+      const all = await Promise.resolve(ext.commands.getAll());
+      const cmd = (all || []).find((c) => c.name === "run-condition-read");
+      if (cmd) kbd.textContent = cmd.shortcut || "no shortcut";
+    } catch (_e) { /* keep the suggested default */ }
+  }
 
   const supported = Boolean(host && MARKETPLACE_HOST_RE.test(host));
   if (!supported) {
     btn.disabled = true;
+    if (card) card.dataset.state = "none";
     return; // the default hint already names the six sites
   }
   btn.disabled = false;
+  if (card) card.dataset.state = "ready";
+  if (siteHost) siteHost.textContent = host;
+  if (siteNote) siteNote.textContent = "Supported site. The read uses the photos on this page.";
   hint.textContent = "Reads the listing photos on " + host + ".";
 
   btn.addEventListener("click", async () => {
     btn.disabled = true;
+    const label = btn.textContent;
     btn.textContent = "Starting…";
     const res = await send({ type: "GT_CC_RUN_ACTIVE" });
     if (res && res.ok) {
@@ -331,7 +428,9 @@ async function initReadNow(host) {
     // was open before the extension was installed or updated, and a content
     // script is only injected on navigation. Say the fix, not the diagnosis.
     btn.disabled = false;
-    btn.textContent = "Get condition read";
+    btn.textContent = label;
+    if (card) card.dataset.state = "off";
+    if (siteNote) siteNote.textContent = "Reload this tab, then try again.";
     hint.textContent = "Reload this tab first — it was open before GradeThread " +
       "was installed, so the page has nothing listening yet.";
   });
@@ -341,6 +440,7 @@ async function renderReads() {
   const ul = document.getElementById("reads");
   const { recentReads } = await ext.storage.local.get("recentReads");
   const list = Array.isArray(recentReads) ? recentReads : [];
+  renderReadStats(list);
   if (!list.length) return; // keep the empty-state <li>
   ul.textContent = "";
   for (const r of list) {
@@ -353,10 +453,7 @@ async function renderReads() {
     a.href = r.url || ATTR.siteUrl("/", "popup", { campaign: "recent-reads" });
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-
-    const score = document.createElement("span");
-    score.className = "pop-read-score " + scoreClass(Number(r.overallScore));
-    score.textContent = Number(r.overallScore).toFixed(1);
+    a.title = r.title || "Listing";
 
     const body = document.createElement("span");
     body.className = "pop-read-body";
@@ -365,16 +462,67 @@ async function renderReads() {
     title.textContent = r.title || "Listing";
     const meta = document.createElement("div");
     meta.className = "pop-read-meta";
-    const mkt = r.marketplace ? r.marketplace + " · " : "";
-    meta.textContent = mkt + (r.gradeTier ? r.gradeTier + " · " : "") + timeAgo(Number(r.at) || Date.now());
+    if (r.marketplace) meta.appendChild(tag(MARKETPLACE_LABELS[r.marketplace] || r.marketplace));
+    if (r.gradeTier) {
+      const tier = document.createElement("span");
+      tier.textContent = r.gradeTier;
+      meta.appendChild(tier);
+    }
+    // The gap between what the seller claimed and what the photos support,
+    // when the read carried a claim. Signed, one decimal: "-1.5 vs claim".
+    if (typeof r.claimedGrade === "number" && isFinite(r.claimedGrade) && isFinite(Number(r.overallScore))) {
+      const d = Number(r.overallScore) - r.claimedGrade;
+      if (Math.abs(d) >= 0.5) {
+        const gap = document.createElement("span");
+        gap.textContent = (d > 0 ? "+" : "") + d.toFixed(1) + " vs claim";
+        meta.appendChild(gap);
+      }
+    }
     body.appendChild(title);
     body.appendChild(meta);
 
-    a.appendChild(score);
+    const when = document.createElement("span");
+    when.className = "pop-read-when";
+    when.textContent = timeAgo(Number(r.at) || Date.now());
+
+    a.appendChild(scoreRing(r.overallScore));
     a.appendChild(body);
+    a.appendChild(when);
     li.appendChild(a);
     ul.appendChild(li);
   }
+}
+
+/**
+ * Three numbers from the local history. Nothing is fetched; the strip hides
+ * itself until there is a read to count. The claim gap is the average of
+ * (photos - claimed) over the reads that carried a claim, which is the same
+ * quantity seller-memory.js reports per seller — here it is the shopper's
+ * whole history in one figure.
+ */
+function renderReadStats(list) {
+  const strip = document.getElementById("readStats");
+  if (!strip) return;
+  const scored = list.filter((r) => r && isFinite(Number(r.overallScore)));
+  if (!scored.length) {
+    strip.hidden = true;
+    return;
+  }
+  strip.hidden = false;
+  document.getElementById("statReads").textContent = String(scored.length);
+  const avg = scored.reduce((sum, r) => sum + Number(r.overallScore), 0) / scored.length;
+  document.getElementById("statAvg").textContent = avg.toFixed(1);
+  const claimed = scored.filter((r) => typeof r.claimedGrade === "number" && isFinite(r.claimedGrade));
+  const gapEl = document.getElementById("statGap");
+  const gapLabel = document.getElementById("statGapLabel");
+  if (!claimed.length) {
+    gapEl.textContent = "–";
+    gapLabel.textContent = "vs. claimed";
+    return;
+  }
+  const gap = claimed.reduce((sum, r) => sum + (Number(r.overallScore) - r.claimedGrade), 0) / claimed.length;
+  gapEl.textContent = (gap > 0 ? "+" : "") + gap.toFixed(1);
+  gapLabel.textContent = gap < -0.05 ? "below claims" : gap > 0.05 ? "above claims" : "vs. claimed";
 }
 
 // ── US-2240: the compare tray's entry point ─────────────────────────────────
@@ -390,6 +538,12 @@ async function renderCompareLink() {
   } catch (_e) { /* unreadable — leave the button hidden */ }
   if (!Array.isArray(list) || !list.length) return;
   count.textContent = String(list.length);
+  const sub = btn.querySelector(".pop-compare-s");
+  if (sub) {
+    sub.textContent = list.length === 1
+      ? "One listing pinned. Pin another to compare."
+      : list.length + " listings pinned, side by side.";
+  }
   btn.hidden = false;
   btn.addEventListener("click", () => {
     ext.tabs.create({ url: ext.runtime.getURL("compare.html") });
@@ -430,9 +584,7 @@ async function renderSellers() {
     const li = document.createElement("li");
     li.className = "pop-read";
 
-    const score = document.createElement("span");
-    score.className = "pop-read-score " + scoreClass(row.stats.avgOverall);
-    score.textContent = row.stats.avgOverall.toFixed(1);
+    const score = scoreRing(row.stats.avgOverall);
 
     const body = document.createElement("span");
     body.className = "pop-read-body";
@@ -566,6 +718,7 @@ function renderPlatforms() {
     const canList = p.enabled === true;
     const canDelist = canList && !!(p.delist && p.delist.enabled);
     const li = document.createElement("li");
+    li.appendChild(monogram(key));
     const left = document.createElement("div");
     const name = document.createElement("div");
     name.className = "name";
@@ -697,12 +850,12 @@ function syncStateLine(ch) {
     case "ok":
       return ch.listings_seen === null
         ? "Syncing"
-        : "Syncing — " + ch.listings_seen + " listing" +
+        : ch.listings_seen + " listing" +
           (ch.listings_seen === 1 ? "" : "s") + " seen";
     case "failing":
-      return "Sync failing — nothing was recorded";
+      return "Sync failing, nothing was recorded";
     case "not_signed_in":
-      return "Not signed in — nothing was recorded";
+      return "Not signed in, nothing was recorded";
     default:
       return "Not synced yet";
   }
@@ -843,14 +996,23 @@ async function renderSyncStatus(caps) {
 
   for (const ch of channels) {
     const li = document.createElement("li");
+    li.className = "pop-delist";
+    li.appendChild(monogram(ch.platform));
+    const body = document.createElement("div");
+    body.className = "pop-delist-body";
     const name = document.createElement("span");
     name.className = "pop-delist-title";
     name.textContent = ch.platform;
     const state = document.createElement("span");
     state.className = "pop-delist-meta";
     state.textContent = syncStateLine(ch);
-    li.appendChild(name);
-    li.appendChild(state);
+    body.appendChild(name);
+    body.appendChild(state);
+    li.appendChild(body);
+    const pill = document.createElement("span");
+    pill.className = "pop-status " + (ch.status === "ok" ? "on" : ch.status === "failing" || ch.status === "not_signed_in" ? "off" : "warn");
+    pill.textContent = ch.status === "ok" ? "Syncing" : ch.status === "failing" ? "Failing" : ch.status === "not_signed_in" ? "Signed out" : "Not yet";
+    li.appendChild(pill);
     list.appendChild(li);
   }
 }
@@ -945,7 +1107,7 @@ async function renderPendingDelists(caps) {
   if (manual) {
     note.hidden = false;
     note.textContent = manual === pending.length
-      ? "These need ending by hand on the marketplace — GradeThread doesn't have a live link for them."
+      ? "These need ending by hand on the marketplace. GradeThread doesn't have a live link for them."
       : manual + " of these need ending by hand (no live link saved).";
   } else {
     note.hidden = true;
@@ -955,6 +1117,7 @@ async function renderPendingDelists(caps) {
   for (const p of pending) {
     const li = document.createElement("li");
     li.className = "pop-delist";
+    li.appendChild(monogram(p.platform));
 
     const left = document.createElement("div");
     left.className = "pop-delist-body";
@@ -1039,7 +1202,7 @@ async function renderPendingRevises(caps) {
   if (manual) {
     note.hidden = false;
     note.textContent = manual === pending.length
-      ? "These need updating by hand on the marketplace — edit sync isn't switched on for that channel yet, or GradeThread has no live link."
+      ? "These need updating by hand on the marketplace. Edit sync isn't switched on for that channel yet, or GradeThread has no live link."
       : manual + " of these need updating by hand.";
   } else {
     note.hidden = false;
@@ -1049,6 +1212,7 @@ async function renderPendingRevises(caps) {
   for (const p of pending) {
     const li = document.createElement("li");
     li.className = "pop-delist";
+    li.appendChild(monogram(p.platform));
     const left = document.createElement("div");
     left.className = "pop-delist-body";
     const title = document.createElement("span");
@@ -1107,6 +1271,9 @@ async function renderQueue(caps) {
   const note = document.getElementById("queueNote");
   const status = document.getElementById("queueStatus");
   const runBtn = document.getElementById("queueRunNow");
+  const retryAll = document.getElementById("queueRetryAll");
+  const clearFailed = document.getElementById("queueClearFailed");
+  const cancelAll = document.getElementById("queueCancelAll");
   list.textContent = "";
 
   const res = await send({ type: "GT_QUEUE_STATE" });
@@ -1124,6 +1291,9 @@ async function renderQueue(caps) {
     block.hidden = false;
     status.textContent = "";
     runBtn.hidden = true;
+    retryAll.hidden = true;
+    clearFailed.hidden = true;
+    cancelAll.hidden = true;
     note.hidden = false;
     note.textContent = DELIST_REASON[reason] || DELIST_REASON.error;
     workCounts.queue = 0;
@@ -1133,6 +1303,7 @@ async function renderQueue(caps) {
   const rows = QUEUE_VIEW.buildList(res, { now: Date.now(), platformLabels: PLATFORM_LABELS });
   const counts = QUEUE_VIEW.summarize(rows);
   workCounts.queue = counts.total;
+  queueRows = rows;
 
   if (!rows.length) {
     block.hidden = true;
@@ -1147,90 +1318,137 @@ async function renderQueue(caps) {
   // retry and do nothing at all, which is worse than not being there.
   runBtn.hidden = counts.waiting < 1;
   runBtn.textContent = counts.waiting === 1 ? "Run it now" : "Run these now";
+  const retryable = rows.filter((r) => r.canRetry).length;
+  retryAll.hidden = retryable < 2;
+  retryAll.textContent = "Retry all " + retryable;
+  clearFailed.hidden = counts.attention < 2;
+  clearFailed.textContent = "Clear " + counts.attention + " failed";
+  cancelAll.hidden = counts.waiting < 2;
 
   note.hidden = false;
   note.textContent = counts.attention
-    ? "GradeThread runs the waiting ones in a background tab. The ones below " +
-      "marked Failed or Expired never reached the marketplace."
+    ? "GradeThread runs the waiting ones in a background tab. The ones under " +
+      "Needs you never reached the marketplace. Retry or clear them."
     : "GradeThread runs these in a background tab, one at a time, without " +
       "taking your focus.";
 
-  for (const row of rows) {
-    const li = document.createElement("li");
-    li.className = "pop-delist" + (row.needsAttention ? " is-attention" : "");
+  for (const group of QUEUE_VIEW.groupRows(rows)) {
+    const head = document.createElement("li");
+    head.className = "pop-qgroup";
+    head.dataset.group = group.key;
+    if (group.key === "running") {
+      const live = document.createElement("span");
+      live.className = "pop-live";
+      live.setAttribute("aria-hidden", "true");
+      head.appendChild(live);
+    }
+    const label = document.createElement("span");
+    label.textContent = group.label + " · " + group.rows.length;
+    head.appendChild(label);
+    list.appendChild(head);
+    for (const row of group.rows) renderQueueRow(list, row, caps);
+  }
+}
 
-    const left = document.createElement("div");
-    left.className = "pop-delist-body";
+// The queue as last rendered, so the bulk controls act on exactly the rows
+// the seller is looking at rather than on a second fetch that may differ.
+let queueRows = [];
 
-    const title = document.createElement("span");
-    title.className = "pop-delist-title";
-    // A `list` job queued from a phone carries no title at all — the row is
-    // an item id and a platform. The verb is the honest headline for it.
-    title.textContent = row.title || (row.kindLabel + " on " + row.platformLabel);
+function renderQueueRow(list, row, caps) {
+  const li = document.createElement("li");
+  li.className = "pop-delist" + (row.needsAttention ? " is-attention" : "");
+  li.appendChild(monogram(row.platform));
 
-    const meta = document.createElement("span");
-    meta.className = "pop-delist-meta";
-    // No "queued" prefix: the block header already says these are queued, and
-    // the six extra characters were the difference between this line fitting
-    // on a 340px popup and ellipsing away the time — which is the one fact on
-    // it a seller is actually reading for.
-    const bits = [row.kindLabel, row.platformLabel];
-    const ago = row.at === null ? "" : timeAgo(row.at);
-    if (ago) bits.push(ago);
-    meta.textContent = bits.join(" · ");
-    meta.title = meta.textContent;
+  const left = document.createElement("div");
+  left.className = "pop-delist-body";
 
-    left.appendChild(title);
-    left.appendChild(meta);
-    li.appendChild(left);
+  const title = document.createElement("span");
+  title.className = "pop-delist-title";
+  // A `list` job queued from a phone carries no title at all — the row is
+  // an item id and a platform. The verb is the honest headline for it.
+  title.textContent = row.title || (row.kindLabel + " on " + row.platformLabel);
+  title.title = title.textContent;
 
-    // Badge and action in one right-hand group. Appended as two siblings of a
-    // space-between row they landed on different lines once the title wrapped,
-    // so a row read as "Adidas Gazelle OG … Dismiss" over "Cross-post · Vinted
-    // … FAILED" — the state and the button for it a line apart.
-    const right = document.createElement("div");
-    right.className = "pop-delist-actions";
+  const meta = document.createElement("span");
+  meta.className = "pop-delist-meta";
+  const bits = [row.kindLabel, row.platformLabel];
+  const ago = row.at === null ? "" : timeAgo(row.at);
+  if (ago) bits.push(ago);
+  meta.textContent = bits.join(" · ");
+  meta.title = meta.textContent;
 
-    const badge = document.createElement("span");
-    badge.className = "pop-status " + row.stateClass;
-    badge.textContent = row.stateLabel;
-    right.appendChild(badge);
+  left.appendChild(title);
+  left.appendChild(meta);
+  li.appendChild(left);
 
-    if (row.canCancel || row.canDismiss) {
-      const drop = document.createElement("button");
-      drop.type = "button";
-      drop.className = "pop-linkbtn";
-      drop.textContent = row.canCancel ? "Cancel" : "Dismiss";
-      drop.addEventListener("click", async () => {
-        drop.disabled = true;
-        drop.textContent = "…";
-        const out = await send({ type: "GT_QUEUE_CANCEL", id: row.id });
-        if (out && out.ok) {
-          await renderQueue(caps);
-          renderWorkSummary();
-        } else {
-          // Never remove the row on a failed delete. The seller believing a
-          // delist was cancelled when it is still queued is the same class of
-          // wrong as believing it ran.
-          drop.disabled = false;
-          drop.textContent = "Try again";
-        }
+  // Badge and action in one right-hand group, so a wrapped title can never
+  // leave the state on one line and the button for it on another.
+  const right = document.createElement("div");
+  right.className = "pop-delist-actions";
+
+  const badge = document.createElement("span");
+  badge.className = "pop-status " + row.stateClass;
+  badge.textContent = row.stateLabel;
+  right.appendChild(badge);
+
+  if (row.canRetry) {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "pop-linkbtn";
+    retry.textContent = "Retry";
+    retry.addEventListener("click", async () => {
+      retry.disabled = true;
+      retry.textContent = "…";
+      const out = await send({
+        type: "GT_QUEUE_RETRY",
+        id: row.id,
+        body: QUEUE_VIEW.retryBody(row),
       });
-      right.appendChild(drop);
-    }
+      if (out && out.ok) {
+        await renderQueue(caps);
+        renderWorkSummary();
+      } else {
+        retry.disabled = false;
+        retry.textContent = "Try again";
+      }
+    });
+    right.appendChild(retry);
+  }
 
-    li.appendChild(right);
-    list.appendChild(li);
+  if (row.canCancel || row.canDismiss) {
+    const drop = document.createElement("button");
+    drop.type = "button";
+    drop.className = "pop-linkbtn quiet";
+    drop.textContent = row.canCancel ? "Cancel" : "Dismiss";
+    drop.addEventListener("click", async () => {
+      drop.disabled = true;
+      drop.textContent = "…";
+      const out = await send({ type: "GT_QUEUE_CANCEL", id: row.id });
+      if (out && out.ok) {
+        await renderQueue(caps);
+        renderWorkSummary();
+      } else {
+        // Never remove the row on a failed delete. The seller believing a
+        // delist was cancelled when it is still queued is the same class of
+        // wrong as believing it ran.
+        drop.disabled = false;
+        drop.textContent = "Try again";
+      }
+    });
+    right.appendChild(drop);
+  }
 
-    // The reason, on its own line, for anything that will not run. A row that
-    // says "Failed" and nothing else is what makes someone uninstall instead
-    // of fixing it.
-    if (row.reason) {
-      const why = document.createElement("li");
-      why.className = "pop-delist-why";
-      why.textContent = row.reason;
-      list.appendChild(why);
-    }
+  li.appendChild(right);
+  list.appendChild(li);
+
+  // The reason, on its own line, for anything that will not run. A row that
+  // says "Failed" and nothing else is what makes someone uninstall instead
+  // of fixing it.
+  if (row.reason) {
+    const why = document.createElement("li");
+    why.className = "pop-delist-why";
+    why.textContent = row.reason;
+    list.appendChild(why);
   }
 }
 
@@ -1256,6 +1474,60 @@ function wireQueue() {
     await renderQueue(caps);
     renderWorkSummary();
   });
+
+  // The bulk controls. Each walks the rows as LAST RENDERED, one request per
+  // row, and stops reporting at the first refusal rather than pretending the
+  // rest went through. They appear only from two rows up: at one row the
+  // per-row control is the bulk control.
+  async function bulk(btn, pick, act, doneText) {
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = "Working…";
+    let failed = 0;
+    for (const row of queueRows.filter(pick)) {
+      const out = await act(row);
+      if (!out || !out.ok) failed++;
+    }
+    btn.disabled = false;
+    btn.textContent = label;
+    if (runNote) {
+      runNote.hidden = false;
+      runNote.textContent = failed
+        ? failed + " could not be " + doneText + " — they are still listed below."
+        : "All " + doneText + ".";
+    }
+    const caps = await send({ type: "GT_GET_CAPABILITIES" });
+    await renderQueue(caps);
+    renderWorkSummary();
+  }
+
+  const retryAll = document.getElementById("queueRetryAll");
+  if (retryAll) {
+    retryAll.addEventListener("click", () => bulk(
+      retryAll,
+      (r) => r.canRetry,
+      (r) => send({ type: "GT_QUEUE_RETRY", id: r.id, body: QUEUE_VIEW.retryBody(r) }),
+      "re-queued",
+    ));
+  }
+  const clearFailed = document.getElementById("queueClearFailed");
+  if (clearFailed) {
+    clearFailed.addEventListener("click", () => bulk(
+      clearFailed,
+      (r) => r.canDismiss,
+      (r) => send({ type: "GT_QUEUE_CANCEL", id: r.id }),
+      "cleared",
+    ));
+  }
+  const cancelAll = document.getElementById("queueCancelAll");
+  if (cancelAll) {
+    cancelAll.addEventListener("click", () => bulk(
+      cancelAll,
+      (r) => r.canCancel, // queued only — never a claimed row (queue-view.js)
+      (r) => send({ type: "GT_QUEUE_CANCEL", id: r.id }),
+      "cancelled",
+    ));
+  }
 }
 
 // ── US-3048: one place that owns the seller's outstanding-work counts ───────
@@ -1779,6 +2051,8 @@ function renderSellerSections(caps) {
   // there was simply nothing there. As a TAB it would have rendered blank, and
   // a blank panel reads as broken rather than as "not for you".
   const anon = document.getElementById("sellerSignedOutSection");
+  const loading = document.getElementById("sellerLoading");
+  if (loading) loading.hidden = true;
   if (caps && caps.sellerEnabled) {
     seller.hidden = false;
     locked.hidden = true;
@@ -1844,6 +2118,16 @@ function wireAccount() {
       userPicked = true;
       selectTab("Settings");
       connect.click();
+    });
+  }
+  // The header chip: signed out, it IS the sign-in button; signed in, it
+  // opens the account block in Settings.
+  const headAcct = document.getElementById("headAcct");
+  if (headAcct) {
+    headAcct.addEventListener("click", () => {
+      userPicked = true;
+      selectTab("Settings");
+      if (headAcct.dataset.state === "anon") connect.click();
     });
   }
   connect.addEventListener("click", () => {

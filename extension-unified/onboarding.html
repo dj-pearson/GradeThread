@@ -3,82 +3,157 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="compare.css" />
     <title>Welcome to GradeThread</title>
     <style>
-      :root { --navy: #0f3460; --red: #e94560; --night: #1a1a2e; --gray: #f5f5f5; --muted: #6b6b80; }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0; background: var(--gray); color: var(--night);
-        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        line-height: 1.5;
+      /* Layers on compare.css (the shared page tokens). Only the layout of
+         this one page lives here. Elevation is one hairline border; the only
+         colour that carries meaning is the role tag on each card. */
+      body { padding: 0 24px 64px; background: var(--cmp-surface-2); }
+      .ob-wrap { max-width: 760px; margin: 0 auto; padding-top: 48px; }
+      .ob-head { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; }
+      .ob-head img { width: 52px; height: 52px; border-radius: 14px; }
+      .ob-head h1 { font-size: 28px; margin: 0; letter-spacing: -0.02em; color: var(--cmp-navy); }
+      .ob-lead { font-size: 16px; line-height: 1.55; color: var(--cmp-fg-2); margin: 0 0 28px; max-width: 62ch; }
+      .ob-lead kbd {
+        display: inline-block;
+        padding: 0 6px;
+        border: 1px solid var(--cmp-rule-strong);
+        border-bottom-width: 2px;
+        border-radius: 6px;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 600;
       }
-      .wrap { max-width: 720px; margin: 0 auto; padding: 40px 20px 64px; }
-      header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
-      header img { width: 44px; height: 44px; border-radius: 10px; }
-      h1 { font-size: 26px; margin: 0; color: var(--navy); }
-      .lead { font-size: 15px; color: var(--muted); margin: 4px 0 28px; }
-      .card { background: #fff; border-radius: 14px; padding: 20px 22px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
-      .card h2 { font-size: 16px; margin: 0 0 6px; color: var(--navy); }
-      .card p { margin: 0 0 8px; font-size: 14px; }
-      .tag { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 3px 9px; border-radius: 999px; margin-bottom: 8px; }
-      .tag.buyer { background: #e6efff; color: var(--navy); }
-      .tag.seller { background: #e6f4ea; color: #137333; }
-      ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; }
-      li { margin-bottom: 4px; }
-      .privacy { background: #fff8f9; border: 1px solid #fdecef; }
-      .privacy h2 { color: var(--red); }
-      .cta { display: inline-block; margin-top: 8px; background: var(--red); color: #fff; font-weight: 600; font-size: 14px; padding: 11px 22px; border-radius: 10px; text-decoration: none; }
-      .cta:hover { background: #d43a53; }
-      .foot { margin-top: 24px; font-size: 12px; color: var(--muted); }
-      .foot a { color: var(--navy); }
+      .ob-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0 0 28px; }
+      .ob-step {
+        padding: 16px;
+        border: 1px solid var(--cmp-rule);
+        border-radius: var(--cmp-r-lg);
+        background: var(--cmp-surface);
+      }
+      .ob-step-n {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        background: #0f3460;
+        color: #fff;
+        font-weight: 700;
+        font-size: 13px;
+        margin-bottom: 10px;
+      }
+      .ob-step h2 { margin: 0 0 4px; font-size: 15px; }
+      .ob-step p { margin: 0; font-size: 13px; color: var(--cmp-fg-2); line-height: 1.5; }
+      .ob-card {
+        background: var(--cmp-surface);
+        border: 1px solid var(--cmp-rule);
+        border-radius: var(--cmp-r-lg);
+        padding: 22px 24px;
+        margin-bottom: 14px;
+      }
+      .ob-card h2 { font-size: 18px; margin: 0 0 6px; letter-spacing: -0.01em; }
+      .ob-card p { margin: 0 0 8px; font-size: 14px; line-height: 1.55; max-width: 70ch; }
+      .ob-tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; margin-bottom: 10px; }
+      .ob-tag.buyer { background: var(--cmp-navy-soft); color: var(--cmp-navy); }
+      .ob-tag.seller { background: var(--cmp-ok-soft); color: var(--cmp-ok); }
+      .ob-card ul { margin: 6px 0 0; padding-left: 18px; font-size: 14px; line-height: 1.6; }
+      .ob-card li { margin-bottom: 2px; }
+      .ob-privacy h2 { color: var(--cmp-navy); }
+      .ob-cta-row { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; }
+      .ob-cta {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        /* 4.6:1 under white text; the brand red (#e94560) is 3.8:1. */
+        background: #d43a53;
+        color: #fff;
+        font-weight: 600;
+        font-size: 15px;
+        padding: 12px 24px;
+        border-radius: 10px;
+        text-decoration: none;
+      }
+      .ob-cta:hover { background: #c42a43; }
+      .ob-cta-note { font-size: 13px; color: var(--cmp-muted); }
+      .ob-foot { margin-top: 28px; font-size: 13px; color: var(--cmp-muted); }
+      .ob-foot a { color: var(--cmp-navy); }
+      @media (max-width: 640px) { .ob-steps { grid-template-columns: 1fr; } }
+      @media (prefers-color-scheme: dark) {
+        .ob-step-n { background: #24487f; }
+        .ob-cta { background: #d43a53; }
+        .ob-cta:hover { background: #bf2840; }
+      }
     </style>
   </head>
   <body>
-    <div class="wrap">
-      <header>
+    <div class="ob-wrap">
+      <header class="ob-head">
         <img src="icons/icon128.png" alt="" />
         <h1>Welcome to GradeThread</h1>
       </header>
-      <p class="lead">
-        One extension, two jobs — an AI condition read while you shop, and one-click
+      <p class="ob-lead">
+        One extension, two jobs: an AI condition read while you shop, and one-click
         cross-listing when you sell. Pin it to your toolbar (the puzzle-piece menu)
-        to keep it handy.
+        so it is one click away, or press <kbd>Alt+G</kbd> on any listing.
       </p>
 
-      <div class="card">
-        <span class="tag buyer">Everyone · free</span>
+      <div class="ob-steps">
+        <div class="ob-step">
+          <span class="ob-step-n">1</span>
+          <h2>Open a listing</h2>
+          <p>Any clothing listing on a supported resale site. Search pages get a small tag per result, too.</p>
+        </div>
+        <div class="ob-step">
+          <span class="ob-step-n">2</span>
+          <h2>Get the read</h2>
+          <p>Click the toolbar icon, or press Alt+G. The photos already on the page are graded 1 to 10.</p>
+        </div>
+        <div class="ob-step">
+          <span class="ob-step-n">3</span>
+          <h2>Decide with numbers</h2>
+          <p>Condition, confidence, the gap to what the seller claims, and whether the price fits.</p>
+        </div>
+      </div>
+
+      <div class="ob-card">
+        <span class="ob-tag buyer">Everyone · free</span>
         <h2>Condition Check while you shop</h2>
         <p>
           Open any clothing listing on a supported resale site and
           click <strong>“Get condition read”</strong> for an independent AI read of
-          the garment’s condition — before you buy.
+          the garment’s condition, before you buy.
         </p>
         <ul>
           <li>No account needed to start (reads are quota-capped).</li>
           <li>Sign in to raise your limit and unlock deeper signals.</li>
+          <li>Pin reads to compare listings side by side, and see your own history with a seller.</li>
         </ul>
       </div>
 
-      <div class="card">
-        <span class="tag seller">FlipDesk sellers</span>
+      <div class="ob-card">
+        <span class="ob-tag seller">FlipDesk sellers</span>
         <h2>Cross-list from your own browser</h2>
         <p>
           With an active FlipDesk plan, send a draft from GradeThread straight into a
-          marketplace's new-listing form — prefilled in
+          marketplace's new-listing form, prefilled in
           <strong>your own logged-in tab</strong>. Review and click List.
         </p>
         <ul>
+          <li>Queue cross-posts from your phone; this browser runs them, and the popup shows every one.</li>
           <li>Accept the one-time Lister terms in the popup to enable it.</li>
           <li>Seller tools appear automatically once you’re signed in as a seller.</li>
         </ul>
       </div>
 
-      <div class="card privacy">
+      <div class="ob-card ob-privacy">
         <h2>Your sessions stay yours</h2>
         <p>
           No “cookies” permission and no access to your marketplace accounts.
           Condition Check sends only the public listing photos already on the page.
-          Lister automation runs entirely on your device — GradeThread never
+          Lister automation runs entirely on your device: GradeThread never
           receives your marketplace password or cookies.
         </p>
       </div>
@@ -87,11 +162,14 @@
            campaign (US-1753 AC3). They start as "#" rather than as a bare
            gradethread.com URL on purpose: a hard-coded fallback here would be an
            untagged link that quietly wins whenever the script is late. -->
-      <a class="cta" id="ctaLink" href="#" target="_blank" rel="noopener noreferrer">
-        Sign in to connect your account
-      </a>
+      <div class="ob-cta-row">
+        <a class="ob-cta" id="ctaLink" href="#" target="_blank" rel="noopener noreferrer">
+          Sign in to connect your account
+        </a>
+        <span class="ob-cta-note">Optional. Buyer reads work without it.</span>
+      </div>
 
-      <p class="foot">
+      <p class="ob-foot">
         Questions? Email
         <a href="mailto:support@gradethread.com">support@gradethread.com</a>
         or see our

@@ -369,6 +369,28 @@ async function cancelQueueRow(id) {
   return out ? { ok: true } : { ok: false, reason: "error" };
 }
 
+/**
+ * Re-queue a failed or expired row (the popup's Retry).
+ *
+ * Two calls, in this order: POST the same instruction as a new row, then
+ * DELETE the dead one. The order is what makes a half-failure safe — if the
+ * POST fails nothing was removed and the seller still sees the failed row; if
+ * the DELETE fails the new row is queued and the old one stays visible, which
+ * is a stale line in a list rather than lost work. The body is shaped by
+ * queue-view.js (retryBody) from the row the popup fetched for this account,
+ * and the endpoint owner-scopes both the ids it names and the row it deletes.
+ */
+async function retryQueueRow(id, body) {
+  if (typeof id !== "string" || !id) return { ok: false, reason: "error" };
+  if (!body || typeof body !== "object" || !body.kind || !body.platform) {
+    return { ok: false, reason: "error" };
+  }
+  const created = await queueFetch("", { method: "POST", body: JSON.stringify(body) });
+  if (!created) return { ok: false, reason: "error" };
+  const removed = await queueFetch("/" + encodeURIComponent(id), { method: "DELETE" });
+  return { ok: true, removed: Boolean(removed) };
+}
+
 /** Report a revise outcome for one listing. Applied ONLY when the flow proved it. */
 async function confirmRevise(listingId, result) {
   const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
@@ -2897,6 +2919,9 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         break;
       case "GT_QUEUE_CANCEL":
         sendResponse(await cancelQueueRow(msg.id));
+        break;
+      case "GT_QUEUE_RETRY":
+        sendResponse(await retryQueueRow(msg.id, msg.body));
         break;
       // "Run now". The drain already runs on startup and on the five-minute
       // sweep; this is the seller saying "I am at the machine, go" instead of

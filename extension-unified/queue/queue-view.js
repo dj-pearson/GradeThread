@@ -157,7 +157,38 @@
       listingUrl: urlFor(row),
       canCancel: status === "queued",
       canDismiss: attention,
+      // A failed or expired row can be asked for again. The instruction is
+      // still on the row (kind, platform, the item or listing it names, the
+      // payload snapshot), so a retry is a new row with the same instruction
+      // and the dead one removed — see retryBody. Only kinds this build knows
+      // are offered: re-queueing a kind the drain will refuse again is a loop.
+      canRetry: attention && Object.prototype.hasOwnProperty.call(KIND_LABELS, row.kind),
       source: typeof row.source === "string" ? row.source : "",
+      // Kept for retryBody; never rendered.
+      _row: row,
+    };
+  }
+
+  /**
+   * The POST body that re-queues a dead row.
+   *
+   * Everything on it came from the seller's own earlier request, which the
+   * server already validated and normalised (no credential keys can be in
+   * the payload — normalizeQueuePayload refused them on the way in and the
+   * table's CHECK constraint would refuse them again). `source` is the
+   * surface asking, which is the extension, and the server's vocabulary for
+   * that is "web".
+   */
+  function retryBody(view) {
+    var row = view && view._row;
+    if (!row || !view.canRetry) return null;
+    return {
+      kind: row.kind,
+      platform: row.platform,
+      inventory_item_id: typeof row.inventory_item_id === "string" ? row.inventory_item_id : null,
+      listing_id: typeof row.listing_id === "string" ? row.listing_id : null,
+      payload: row.payload && typeof row.payload === "object" ? row.payload : {},
+      source: "web",
     };
   }
 
@@ -205,6 +236,32 @@
   }
 
   /**
+   * The list split into the three groups the popup labels, in render order.
+   * Empty groups are omitted so the popup never draws a heading over nothing.
+   * The rows inside each keep sortRows' order, so the "waiting" group reads
+   * top-to-bottom in the order the drain will run them.
+   */
+  var GROUP_ORDER = ["attention", "running", "waiting"];
+  var GROUP_LABELS = { attention: "Needs you", running: "Running now", waiting: "Waiting" };
+
+  function groupOf(view) {
+    if (view.state === "claimed") return "running";
+    if (view.needsAttention) return "attention";
+    return "waiting";
+  }
+
+  function groupRows(views) {
+    var by = { attention: [], running: [], waiting: [] };
+    for (var i = 0; i < (views || []).length; i++) by[groupOf(views[i])].push(views[i]);
+    var out = [];
+    for (var g = 0; g < GROUP_ORDER.length; g++) {
+      var key = GROUP_ORDER[g];
+      if (by[key].length) out.push({ key: key, label: GROUP_LABELS[key], rows: by[key] });
+    }
+    return out;
+  }
+
+  /**
    * The counts the Selling tab renders.
    *
    * `total` is what the nav badge shows, and it includes the attention rows on
@@ -242,6 +299,9 @@
 
   root.GT_QUEUE_VIEW = {
     KIND_LABELS: KIND_LABELS,
+    GROUP_LABELS: GROUP_LABELS,
+    groupRows: groupRows,
+    retryBody: retryBody,
     PLATFORM_LABELS: PLATFORM_LABELS,
     STATE_LABELS: STATE_LABELS,
     STATE_CLASS: STATE_CLASS,

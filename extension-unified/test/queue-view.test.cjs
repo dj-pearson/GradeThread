@@ -369,8 +369,84 @@ function row(over) {
   }
 }
 
+// ── 14. retry: only a dead row, only a known kind, same instruction ────────
+//
+// A failed cross-post is re-queued as a NEW row carrying the same kind,
+// platform, ids and payload — and `source` says the extension asked, in the
+// server's vocabulary ("web"). A waiting or running row has nothing to retry,
+// and a kind this build cannot run must not be re-queued: the drain would
+// refuse it again and the seller would be clicking Retry on a loop.
+{
+  const dead = V.viewRow(row({
+    status: "failed",
+    kind: "delist",
+    listing_id: "22222222-2222-4222-8222-222222222222",
+    payload: { listingUrl: "https://poshmark.com/listing/abc", locale: "us" },
+    result: { error: "The listing page never loaded." },
+  }), { now: NOW });
+  assert.strictEqual(dead.canRetry, true, "a failed known kind is retryable");
+  const body = V.retryBody(dead);
+  assert.deepStrictEqual(body, {
+    kind: "delist",
+    platform: "poshmark",
+    inventory_item_id: null,
+    listing_id: "22222222-2222-4222-8222-222222222222",
+    payload: { listingUrl: "https://poshmark.com/listing/abc", locale: "us" },
+    source: "web",
+  });
+
+  const expired = V.viewRow(row({ status: "expired", inventory_item_id: "33333333-3333-4333-8333-333333333333" }), { now: NOW });
+  assert.strictEqual(expired.canRetry, true, "an expired row is retryable");
+  assert.strictEqual(V.retryBody(expired).inventory_item_id, "33333333-3333-4333-8333-333333333333");
+
+  for (const status of ["queued", "claimed"]) {
+    const live = V.viewRow(row({ status }), { now: NOW });
+    assert.strictEqual(live.canRetry, false, status + " has nothing to retry");
+    assert.strictEqual(V.retryBody(live), null, "retryBody refuses a live row");
+  }
+
+  const alien = V.viewRow(row({ status: "failed", kind: "share" }), { now: NOW });
+  assert.strictEqual(alien.canRetry, false, "an unknown kind is not re-queued into the same refusal");
+  assert.strictEqual(V.retryBody(alien), null);
+}
+
+// ── 15. grouping: what went wrong, what runs, what waits — and no empty group ─
+{
+  const rows = V.buildList({
+    pending: [row({ id: "a1111111-1111-4111-8111-111111111111" }), row({ id: "a2222222-2222-4222-8222-222222222222", status: "claimed" })],
+    needsAttention: [row({ id: "a3333333-3333-4333-8333-333333333333", status: "failed" })],
+  }, { now: NOW });
+  const groups = V.groupRows(rows);
+  assert.deepStrictEqual(groups.map((g) => g.key), ["attention", "running", "waiting"]);
+  assert.deepStrictEqual(groups.map((g) => g.rows.length), [1, 1, 1]);
+  assert.strictEqual(groups[0].label, "Needs you");
+  assert.strictEqual(groups[1].label, "Running now");
+  assert.strictEqual(groups[2].label, "Waiting");
+
+  const onlyWaiting = V.groupRows(V.buildList({ pending: [row()] }, { now: NOW }));
+  assert.deepStrictEqual(onlyWaiting.map((g) => g.key), ["waiting"], "empty groups are omitted");
+  assert.deepStrictEqual(V.groupRows([]), []);
+
+  // The popup wires the retry and the bulk controls, and the worker answers.
+  const dir = path.resolve(__dirname, "..");
+  const html = fs.readFileSync(path.join(dir, "popup.html"), "utf8");
+  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8");
+  const bg = fs.readFileSync(path.join(dir, "background.js"), "utf8");
+  for (const id of ["queueRetryAll", "queueClearFailed", "queueCancelAll"]) {
+    assert.ok(html.includes(`id="${id}"`), `popup.html is missing #${id}`);
+    assert.ok(js.includes(`"${id}"`), `popup.js never uses #${id}`);
+  }
+  assert.ok(js.includes("GT_QUEUE_RETRY"), "popup.js never sends GT_QUEUE_RETRY");
+  assert.ok(bg.includes('case "GT_QUEUE_RETRY"'), "background.js never handles GT_QUEUE_RETRY");
+  // POST first, DELETE second: a failed POST must leave the dead row in place.
+  const retryFn = bg.slice(bg.indexOf("async function retryQueueRow("), bg.indexOf("/** Report a revise outcome"));
+  assert.ok(retryFn.indexOf('method: "POST"') < retryFn.indexOf('method: "DELETE"'),
+    "retryQueueRow must create the new row before deleting the old one");
+  assert.ok(/if \(!created\) return/.test(retryFn), "a failed POST must stop before the DELETE");
+}
+
 console.log(
-  "queue-view.test.cjs: 13 groups — cancel is queued-only, failures count " +
+  "queue-view.test.cjs: 15 groups — cancel is queued-only, failures count " +
     "toward the badge, every dead row carries a reason, kinds match the edge, " +
-    "the popup wires all of it, and timeAgo takes ISO",
+    "the popup wires all of it, timeAgo takes ISO, retry re-queues only dead known rows, and grouping omits empties",
 );
