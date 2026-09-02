@@ -6,11 +6,11 @@ final class BulkActionTests: XCTestCase {
 
     // MARK: - BulkAction.actions(for:) stage mapping
 
-    func test_actions_toList_includesGradeAndCreateDraft() {
+    func test_actions_unlisted_includesGradeAndCreateDraft() {
         // US-1130: the dead `.aiEnrich` case was removed entirely (it was a
         // permanent stub never surfaced in any action set), so there's nothing
-        // to assert against anymore — just confirm the real to-list actions.
-        let actions = BulkAction.actions(for: .toList)
+        // to assert against anymore — just confirm the real unlisted actions.
+        let actions = BulkAction.actions(for: .unlisted)
         XCTAssertTrue(actions.contains(.grade))
         XCTAssertTrue(actions.contains(.createDraft))
         XCTAssertTrue(actions.contains(.exportCSV))
@@ -31,10 +31,9 @@ final class BulkActionTests: XCTestCase {
         XCTAssertFalse(actions.contains(.endListing))
     }
 
-    func test_actions_toListAndDrafts_includePublish() {
-        // US-680: bulk publish to eBay is offered from the pre-list stages.
-        XCTAssertTrue(BulkAction.actions(for: .toList).contains(.publish))
-        XCTAssertTrue(BulkAction.actions(for: .drafts).contains(.publish))
+    func test_actions_unlisted_includesPublish() {
+        // US-680: bulk publish to eBay is offered from the pre-list stage.
+        XCTAssertTrue(BulkAction.actions(for: .unlisted).contains(.publish))
         XCTAssertFalse(BulkAction.actions(for: .sold).contains(.publish))
     }
 

@@ -7,7 +7,10 @@ enum class PhotoState { ANY, WITH_PHOTO, MISSING_PHOTO }
 
 /** Relative date-added band. */
 enum class DateAddedBand(val days: Int?) {
-    ANY(null), LAST_7(7), LAST_30(30), LAST_90(90),
+    ANY(null),
+    LAST_7(7),
+    LAST_30(30),
+    LAST_90(90),
 }
 
 /**
@@ -73,8 +76,7 @@ object InventoryFilter {
         search.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
 
     /** Most-specific price wins. */
-    fun effectivePrice(item: InventoryItemEntity): Double? =
-        item.listingPrice ?: item.targetPrice ?: item.acquiredPrice
+    fun effectivePrice(item: InventoryItemEntity): Double? = item.listingPrice ?: item.targetPrice ?: item.acquiredPrice
 
     /**
      * @param photoItemIds ids known to have photo ROWS. US-994: the
@@ -137,6 +139,7 @@ object InventoryFilter {
      * @param serverSearchIds ids the server FTS matched, or null when the
      * server search didn't run (query too short, offline, or it failed).
      */
+    @Suppress("LongParameterList")
     fun apply(
         items: List<InventoryItemEntity>,
         stage: InventoryStage,
@@ -146,11 +149,14 @@ object InventoryFilter {
         photoItemIds: Set<String>? = null,
         serverSearchIds: Set<String>? = null,
         nowMillis: Long = System.currentTimeMillis(),
+        /** The UNLISTED tab's chip. Only consulted when [stage] is UNLISTED. */
+        unlistedFilter: UnlistedFilter = UnlistedFilter.ALL,
     ): List<InventoryItemEntity> {
         val tokens = searchTokens(query)
         return items
             .asSequence()
             .filter { stage.matches(it.status) }
+            .filter { stage != InventoryStage.UNLISTED || unlistedFilter.matches(it.status) }
             .filter { matches(it, criteria, photoItemIds, nowMillis) }
             .filter { item ->
                 if (tokens.isEmpty()) return@filter true

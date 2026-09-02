@@ -54,7 +54,7 @@ class BulkActionBarTapTest {
             GradeThreadTheme {
                 BulkActionBar(
                     selectedCount = 2,
-                    stage = InventoryStage.TO_LIST,
+                    stage = InventoryStage.UNLISTED,
                     busy = false,
                     onClear = {},
                     onAction = { fired = it },
@@ -94,7 +94,7 @@ class BulkActionBarTapTest {
                     Column {
                         BulkActionBar(
                             selectedCount = 2,
-                            stage = InventoryStage.TO_LIST,
+                            stage = InventoryStage.UNLISTED,
                             busy = false,
                             onClear = {},
                             onAction = { fired = it },

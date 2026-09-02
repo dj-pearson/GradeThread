@@ -90,12 +90,12 @@ public enum BulkAction: Identifiable, Hashable {
     /// bottom-bar predicate.
     public static func actions(for stage: InventoryStage) -> [BulkAction] {
         switch stage {
-        case .toList:
+        case .unlisted:
+            // Unlisted holds undrafted and drafted rows together, so it offers
+            // both halves: Create draft for the first, Publish for the second.
             // .grade IS surfaced: InventoryListView intercepts it into the
             // dedicated bulk-grade sheet (it never hits the executor path).
             return [.publish, .grade, .createDraft, .exportCSV]
-        case .drafts:
-            return [.publish, .exportCSV]
         case .active:
             return [.dropPrice(percent: 10), .endListing, .exportCSV]
         case .sold:

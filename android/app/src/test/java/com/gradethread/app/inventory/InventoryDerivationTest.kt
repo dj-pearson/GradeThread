@@ -50,8 +50,13 @@ class InventoryDerivationTest {
 
     @Test
     fun stagesMapToTheirStatuses() {
-        assertTrue(InventoryStage.TO_LIST.matches("photographed"))
-        assertTrue(InventoryStage.DRAFTS.matches("drafted"))
+        assertTrue(InventoryStage.UNLISTED.matches("photographed"))
+        assertTrue(InventoryStage.UNLISTED.matches("drafted"))
+        // With the web: an item mid-grade is still unlisted, not tabless.
+        assertTrue(InventoryStage.UNLISTED.matches("grading"))
+        assertTrue(UnlistedFilter.NEEDS_DRAFT.matches("photographed"))
+        assertFalse(UnlistedFilter.NEEDS_DRAFT.matches("drafted"))
+        assertTrue(UnlistedFilter.DRAFTED.matches("drafted"))
         assertTrue(InventoryStage.ACTIVE.matches("listed"))
         assertTrue(InventoryStage.SHIPPED.matches("completed"))
         assertFalse(InventoryStage.ACTIVE.matches("sold"))
@@ -65,20 +70,29 @@ class InventoryDerivationTest {
     }
 
     @Test
-    fun gradingBelongsToNoTabButAll() {
-        // Carried over from iOS: an item mid-grading vanishes from every tab
-        // except All. Pinned so the surprise is deliberate, not a regression.
+    fun everyPipelineStatusHasExactlyOneSpecificTab() {
+        // This used to pin the opposite for `grading`: carried over from iOS, an
+        // item mid-grading vanished from every tab but All, and the test called
+        // the surprise deliberate. With UNLISTED (2026-09-02, matching the web)
+        // it belongs there, so the only statuses without a tab of their own are
+        // the off-pipeline ones.
         val specific = InventoryStage.userFacing - InventoryStage.ALL
-        assertTrue(specific.none { it.matches("grading") })
-        assertTrue(InventoryStage.ALL.matches("grading"))
+        for (status in InventoryStage.allKnownStatuses - InventoryStage.statusesWithoutASpecificTab) {
+            assertEquals(status, 1, specific.count { it.matches(status) })
+        }
+        for (status in InventoryStage.statusesWithoutASpecificTab) {
+            assertTrue(status, specific.none { it.matches(status) })
+            assertTrue(status, InventoryStage.ALL.matches(status))
+        }
     }
 
     @Test
     fun thereIsNoUnsoldStage() {
         // The AC names an "unsold" tab; iOS has no such stage. Asserted so
-        // the divergence is visible rather than quietly assumed.
+        // the divergence is visible rather than quietly assumed. Six since
+        // To List and Drafts became UNLISTED.
         assertTrue(InventoryStage.entries.none { it.wire == "unsold" })
-        assertEquals(7, InventoryStage.userFacing.size)
+        assertEquals(6, InventoryStage.userFacing.size)
     }
 
     @Test
@@ -195,9 +209,12 @@ class InventoryDerivationTest {
     @Test
     fun priceUsesTheMostSpecificValue() {
         // listing beats target beats cost.
-        assertEquals(30.0, InventoryFilter.effectivePrice(
-            item("1", acquired = 10.0, target = 20.0, listing = 30.0),
-        ))
+        assertEquals(
+            30.0,
+            InventoryFilter.effectivePrice(
+                item("1", acquired = 10.0, target = 20.0, listing = 30.0),
+            ),
+        )
         assertEquals(20.0, InventoryFilter.effectivePrice(item("1", acquired = 10.0, target = 20.0)))
         assertEquals(10.0, InventoryFilter.effectivePrice(item("1", acquired = 10.0)))
     }
@@ -252,7 +269,9 @@ class InventoryDerivationTest {
     @Test
     fun facetValuesAreRankedByCountThenLabel() {
         val items = listOf(
-            item("1", brand = "Adidas"), item("2", brand = "Nike"), item("3", brand = "Nike"),
+            item("1", brand = "Adidas"),
+            item("2", brand = "Nike"),
+            item("3", brand = "Nike"),
         )
         val facets = InventoryFacetsBuilder.derive(items)
         assertEquals(listOf("Nike", "Adidas"), facets.brands.map { it.value })
@@ -267,7 +286,9 @@ class InventoryDerivationTest {
     @Test
     fun sizesSortInWearingOrderNotAlphabetical() {
         val items = listOf(
-            item("1", size = "L"), item("2", size = "S"), item("3", size = "XL"),
+            item("1", size = "L"),
+            item("2", size = "S"),
+            item("3", size = "XL"),
             item("4", size = "M"),
         )
         val facets = InventoryFacetsBuilder.derive(items)
@@ -374,7 +395,10 @@ class InventoryDerivationTest {
         d.filtered(items, InventoryStage.SOLD, "nike", SortOption.OLDEST, InventoryFilterCriteria())
         assertEquals(4, d.filterPassCount)
         d.filtered(
-            items, InventoryStage.SOLD, "nike", SortOption.OLDEST,
+            items,
+            InventoryStage.SOLD,
+            "nike",
+            SortOption.OLDEST,
             InventoryFilterCriteria(gradedOnly = true),
         )
         assertEquals(5, d.filterPassCount)
@@ -383,8 +407,20 @@ class InventoryDerivationTest {
     @Test
     fun editingAnItemInvalidatesTheMemo() {
         val d = InventoryDerivation()
-        d.filtered(listOf(item("1", updatedAt = 1)), InventoryStage.ALL, "", SortOption.NEWEST, InventoryFilterCriteria())
-        d.filtered(listOf(item("1", updatedAt = 2)), InventoryStage.ALL, "", SortOption.NEWEST, InventoryFilterCriteria())
+        d.filtered(
+            listOf(item("1", updatedAt = 1)),
+            InventoryStage.ALL,
+            "",
+            SortOption.NEWEST,
+            InventoryFilterCriteria(),
+        )
+        d.filtered(
+            listOf(item("1", updatedAt = 2)),
+            InventoryStage.ALL,
+            "",
+            SortOption.NEWEST,
+            InventoryFilterCriteria(),
+        )
         assertEquals(2, d.filterPassCount)
     }
 
@@ -446,7 +482,7 @@ class InventoryDerivationTest {
     @Test
     fun acquiredItemsAppearInTheTabButNotOnTheBoard() {
         // Carried over from iOS; pinned because it looks like data loss.
-        assertTrue(InventoryStage.TO_LIST.matches("acquired"))
+        assertTrue(InventoryStage.UNLISTED.matches("acquired"))
         assertFalse("acquired" in PipelineBoard.columnStatuses)
         val grouped = PipelineBoard.group(listOf(item("1", status = "acquired"))) { it.status }
         assertTrue(grouped.values.all { it.isEmpty() })
@@ -482,6 +518,13 @@ class InventoryDerivationTest {
         photoItemIds: Set<String>? = null,
         serverSearchIds: Set<String>? = null,
     ) = InventoryFilter.apply(
-        items, stage, query, sort, criteria, photoItemIds, serverSearchIds, nowMillis = 10_000_000L,
+        items,
+        stage,
+        query,
+        sort,
+        criteria,
+        photoItemIds,
+        serverSearchIds,
+        nowMillis = 10_000_000L,
     )
 }

@@ -107,8 +107,9 @@ sealed class BulkAction {
          * rows or silently skips them — and both read as a bug.
          */
         fun forStage(stage: InventoryStage): List<BulkAction> = when (stage) {
-            InventoryStage.TO_LIST -> listOf(Grade, CreateDraft, Delete)
-            InventoryStage.DRAFTS -> listOf(Grade, Delete)
+            // Undrafted and drafted rows share this stage; CreateDraft is a
+            // no-op on a row that already is one.
+            InventoryStage.UNLISTED -> listOf(Grade, CreateDraft, Delete)
             InventoryStage.ACTIVE -> listOf(DropPrice(10), Delete)
             InventoryStage.SOLD -> listOf(MarkShipped, Delete)
             InventoryStage.SHIPPED -> listOf(Delete)

@@ -150,6 +150,7 @@ class RestorableTest {
             Restorable.Keys.INVENTORY_FILTERS_OPEN,
             Restorable.Keys.INVENTORY_SELECTION,
             Restorable.Keys.INVENTORY_STAGE,
+            Restorable.Keys.INVENTORY_UNLISTED_FILTER,
             Restorable.Keys.INVENTORY_SORT,
             Restorable.Keys.INVENTORY_VIEW_MODE,
             Restorable.Keys.INVENTORY_QUERY,

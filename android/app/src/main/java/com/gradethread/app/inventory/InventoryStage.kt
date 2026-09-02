@@ -8,9 +8,15 @@ import com.gradethread.app.R
  *
  * NOTE ON THE ACCEPTANCE CRITERIA: US-1342 describes the tabs as
  * "all/draft/listed/sold/unsold". That does not match the iOS surface this
- * story ports. There are SEVEN stages, "listed" is named `ACTIVE`, and there
- * is no "unsold" stage at all. Parity with iOS is the story's stated purpose,
- * so the iOS set is what's implemented here.
+ * story ports. "listed" is named `ACTIVE`, and there is no "unsold" stage at
+ * all. Parity with iOS is the story's stated purpose, so the iOS set is what's
+ * implemented here.
+ *
+ * UNLISTED replaced the separate TO_LIST and DRAFTS stages (2026-09-02, with
+ * the web and iOS). They were one job, getting an item live, split at whether
+ * a listing row existed yet; the split moved Create draft and Publish onto
+ * different tabs. The same split survives as [UnlistedFilter], a chip row
+ * inside the one tab.
  *
  * US-2976: [wire] is the persisted tab choice and must not change; [label]
  * is a string RESOURCE. They were both plain Strings, which is how the seven
@@ -18,8 +24,7 @@ import com.gradethread.app.R
  */
 enum class InventoryStage(val wire: String, @StringRes val label: Int) {
     ALL("all", R.string.inventory_stage_all),
-    TO_LIST("to_list", R.string.inventory_stage_to_list),
-    DRAFTS("drafts", R.string.inventory_stage_drafts),
+    UNLISTED("unlisted", R.string.inventory_stage_unlisted),
     ACTIVE("active", R.string.inventory_stage_active),
     SOLD("sold", R.string.inventory_stage_sold),
     SHIPPED("shipped", R.string.inventory_stage_shipped),
@@ -30,16 +35,7 @@ enum class InventoryStage(val wire: String, @StringRes val label: Int) {
     val matchingStatuses: Set<String>
         get() = when (this) {
             ALL -> allKnownStatuses
-            TO_LIST -> setOf(
-                "sourced",
-                "acquired",
-                "cataloged",
-                "measured",
-                "photographed",
-                "graded",
-                "comped",
-            )
-            DRAFTS -> setOf("drafted")
+            UNLISTED -> preDraftStatuses + "drafted"
             ACTIVE -> setOf("listed")
             SOLD -> setOf("sold")
             SHIPPED -> setOf("shipped", "completed")
@@ -49,6 +45,24 @@ enum class InventoryStage(val wire: String, @StringRes val label: Int) {
     fun matches(status: String): Boolean = status in matchingStatuses
 
     companion object {
+        /**
+         * Every status before a draft exists: the UNLISTED rows that still need
+         * a listing written. Same set as the web's `TO_LIST_STATUSES`,
+         * `grading` included. It used to belong to no stage but ALL, so an
+         * item sitting with the grader vanished from every other tab, which
+         * looked like data loss.
+         */
+        val preDraftStatuses: Set<String> = setOf(
+            "sourced",
+            "acquired",
+            "cataloged",
+            "measured",
+            "photographed",
+            "grading",
+            "graded",
+            "comped",
+        )
+
         /**
          * Every status the app knows about — and therefore everything ALL
          * admits, including `archived`/`keeping`/`wearing`, which have no tab
@@ -64,8 +78,7 @@ enum class InventoryStage(val wire: String, @StringRes val label: Int) {
         /** Tab order. */
         val userFacing: List<InventoryStage> = listOf(
             ALL,
-            TO_LIST,
-            DRAFTS,
+            UNLISTED,
             ACTIVE,
             SOLD,
             SHIPPED,
@@ -73,12 +86,30 @@ enum class InventoryStage(val wire: String, @StringRes val label: Int) {
         )
 
         /**
-         * Carried over from iOS deliberately: `grading` is a known status and
-         * a board column, but belongs to NO user-facing stage except ALL — so
-         * an item mid-grading vanishes from every tab but All. Documented
+         * Statuses that belong to NO user-facing stage except ALL. Documented
          * here because it looks like a bug when someone hits it.
          */
         val statusesWithoutASpecificTab: Set<String> =
-            setOf("grading", "archived", "keeping", "wearing")
+            setOf("archived", "keeping", "wearing")
+    }
+}
+
+/**
+ * The chip row inside UNLISTED: the old To List / Drafts split, as a filter
+ * the seller can see. The web has a fourth chip, Needs review, off the
+ * draft's AI review flag; the local cache does not carry that flag, so here
+ * every draft is one chip.
+ */
+enum class UnlistedFilter(@StringRes val label: Int) {
+    ALL(R.string.inventory_unlisted_all),
+    NEEDS_DRAFT(R.string.inventory_unlisted_needs_draft),
+    DRAFTED(R.string.inventory_unlisted_drafted),
+    ;
+
+    /** Whether an UNLISTED row passes the chip. Only meaningful for rows the stage admits. */
+    fun matches(status: String): Boolean = when (this) {
+        ALL -> true
+        NEEDS_DRAFT -> status in InventoryStage.preDraftStatuses
+        DRAFTED -> status == "drafted"
     }
 }

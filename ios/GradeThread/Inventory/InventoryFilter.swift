@@ -15,9 +15,13 @@ public enum InventoryFilter {
         stage: InventoryStage,
         search: String,
         sort: SortOption,
-        gradedOnly: Bool = false
+        gradedOnly: Bool = false,
+        unlistedFilter: InventoryStage.UnlistedFilter = .all
     ) -> [LocalInventoryItem] {
         var staged = items.filter { stage.matchingStatuses.contains($0.status) }
+        if stage == .unlisted {
+            staged = staged.filter { unlistedFilter.matches($0.status) }
+        }
         if gradedOnly {
             staged = staged.filter { $0.gradeValue != nil }
         }
@@ -45,6 +49,8 @@ public enum InventoryFilter {
     ///     the photo facet checks set membership instead of faulting every
     ///     item's lazy `photos` relationship (a main-thread stall applying the
     ///     facet on a large catalog). nil = fall back to the relationship.
+    ///   - unlistedFilter: the Unlisted tab's chip. Only consulted when the
+    ///     stage is `.unlisted`; every other stage ignores it.
     static func apply(
         _ items: [LocalInventoryItem],
         stage: InventoryStage,
@@ -54,9 +60,13 @@ public enum InventoryFilter {
         now: Date = .now,
         soldDates: [String: Date] = [:],
         serverSearchIds: Set<String>? = nil,
-        photoItemIds: Set<String>? = nil
+        photoItemIds: Set<String>? = nil,
+        unlistedFilter: InventoryStage.UnlistedFilter = .all
     ) -> [LocalInventoryItem] {
-        let staged = items.filter { stage.matchingStatuses.contains($0.status) }
+        let staged = items.filter {
+            stage.matchingStatuses.contains($0.status)
+                && (stage != .unlisted || unlistedFilter.matches($0.status))
+        }
         let faceted = staged.filter {
             matches($0, criteria, now: now, soldDates: soldDates, photoItemIds: photoItemIds)
         }

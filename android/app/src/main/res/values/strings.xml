@@ -2101,8 +2101,10 @@
     <string name="inventory_sort_highest_grade">Highest grade</string>
     <string name="inventory_sort_sku">SKU</string>
     <string name="inventory_stage_all">All</string>
-    <string name="inventory_stage_to_list">To list</string>
-    <string name="inventory_stage_drafts">Drafts</string>
+    <string name="inventory_stage_unlisted">Unlisted</string>
+    <string name="inventory_unlisted_all">All</string>
+    <string name="inventory_unlisted_needs_draft">Needs draft</string>
+    <string name="inventory_unlisted_drafted">Drafted</string>
     <string name="inventory_stage_active">Listed</string>
     <string name="inventory_stage_sold">Sold</string>
     <string name="inventory_stage_shipped">Shipped</string>

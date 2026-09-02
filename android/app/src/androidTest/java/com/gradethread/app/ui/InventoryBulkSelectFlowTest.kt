@@ -85,7 +85,7 @@ class InventoryBulkSelectFlowTest {
     /**
      * ⚠ THE FIRST CHIP IS NOT THE ORDINARY PATH, which is what this test found.
      *
-     * For TO_LIST the bar offers Grade, Create draft, Delete - and Grade is
+     * For UNLISTED the bar offers Grade, Create draft, Delete - and Grade is
      * INTERCEPTED: it routes to onBulkGrade rather than the bulk executor,
      * because grading needs a tier, a readiness check and credits, which is the
      * grade sheet's whole job. The first version of this test clicked index 0,
@@ -107,10 +107,10 @@ class InventoryBulkSelectFlowTest {
                 InventoryListContent(
                     ui = InventoryUiState(
                         items = items,
-                        // TO_LIST rather than ALL: BulkAction.forStage is
+                        // UNLISTED rather than ALL: BulkAction.forStage is
                         // stage-dependent, and a mixed stage offers a different
                         // set. Pinning the stage pins what the bar can contain.
-                        stage = InventoryStage.TO_LIST,
+                        stage = InventoryStage.UNLISTED,
                         sort = SortOption.NEWEST,
                         criteria = InventoryFilterCriteria(),
                         viewMode = InventoryViewMode.LIST,
@@ -207,7 +207,7 @@ class InventoryBulkSelectFlowTest {
                 InventoryListContent(
                     ui = InventoryUiState(
                         items = items,
-                        stage = InventoryStage.TO_LIST,
+                        stage = InventoryStage.UNLISTED,
                         sort = SortOption.NEWEST,
                         criteria = InventoryFilterCriteria(),
                         viewMode = InventoryViewMode.LIST,

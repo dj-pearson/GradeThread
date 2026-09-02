@@ -27,12 +27,12 @@ class BulkActionTest {
     @Test
     fun `each stage offers the action that fits it`() {
         assertTrue(BulkAction.forStage(InventoryStage.SOLD).contains(BulkAction.MarkShipped))
-        assertTrue(BulkAction.forStage(InventoryStage.TO_LIST).contains(BulkAction.CreateDraft))
+        assertTrue(BulkAction.forStage(InventoryStage.UNLISTED).contains(BulkAction.CreateDraft))
         assertTrue(
             BulkAction.forStage(InventoryStage.ACTIVE).any { it is BulkAction.DropPrice },
         )
         // Mark-shipped is meaningless on an unsold item.
-        assertFalse(BulkAction.forStage(InventoryStage.TO_LIST).contains(BulkAction.MarkShipped))
+        assertFalse(BulkAction.forStage(InventoryStage.UNLISTED).contains(BulkAction.MarkShipped))
     }
 
     @Test

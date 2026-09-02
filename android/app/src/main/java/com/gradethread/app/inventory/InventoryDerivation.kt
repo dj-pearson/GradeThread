@@ -39,6 +39,8 @@ class InventoryDerivation {
     var facetsPassCount: Int = 0
         private set
 
+    // Every parameter is an input `apply` reads; the count is the filter's arity.
+    @Suppress("LongParameterList")
     fun filtered(
         items: List<InventoryItemEntity>,
         stage: InventoryStage,
@@ -48,9 +50,17 @@ class InventoryDerivation {
         photoItemIds: Set<String>? = null,
         serverSearchIds: Set<String>? = null,
         nowMillis: Long = System.currentTimeMillis(),
+        unlistedFilter: UnlistedFilter = UnlistedFilter.ALL,
     ): List<InventoryItemEntity> {
         val key = filterKey(
-            itemsSignature(items), stage, query, sort, criteria, photoItemIds, serverSearchIds,
+            itemsSignature(items),
+            stage,
+            query,
+            sort,
+            criteria,
+            photoItemIds,
+            serverSearchIds,
+            unlistedFilter,
         )
         if (key != filteredKey) {
             filteredKey = key
@@ -64,6 +74,7 @@ class InventoryDerivation {
                 photoItemIds = photoItemIds,
                 serverSearchIds = serverSearchIds,
                 nowMillis = nowMillis,
+                unlistedFilter = unlistedFilter,
             )
         }
         return filteredValue
@@ -87,10 +98,7 @@ class InventoryDerivation {
         return stageCountsValue
     }
 
-    fun facets(
-        items: List<InventoryItemEntity>,
-        sourceNames: Map<String, String> = emptyMap(),
-    ): InventoryFacets {
+    fun facets(items: List<InventoryItemEntity>, sourceNames: Map<String, String> = emptyMap()): InventoryFacets {
         // sourceNames is in the key because a source RENAME changes labels
         // without changing any item, and the facet list must still refresh.
         val key = 31 * itemsSignature(items) + sourceNames.hashCode()
@@ -119,7 +127,8 @@ class InventoryDerivation {
             return hash
         }
 
-        /** Exactly the seven inputs `apply` reads — nothing else. */
+        /** Exactly the eight inputs `apply` reads — nothing else. */
+        @Suppress("LongParameterList")
         fun filterKey(
             itemsSignature: Int,
             stage: InventoryStage,
@@ -128,6 +137,7 @@ class InventoryDerivation {
             criteria: InventoryFilterCriteria,
             photoItemIds: Set<String>?,
             serverSearchIds: Set<String>?,
+            unlistedFilter: UnlistedFilter = UnlistedFilter.ALL,
         ): Int {
             var hash = itemsSignature
             hash = 31 * hash + stage.hashCode()
@@ -136,6 +146,7 @@ class InventoryDerivation {
             hash = 31 * hash + criteria.hashCode()
             hash = 31 * hash + (photoItemIds?.hashCode() ?: 0)
             hash = 31 * hash + (serverSearchIds?.hashCode() ?: 0)
+            hash = 31 * hash + unlistedFilter.hashCode()
             return hash
         }
     }

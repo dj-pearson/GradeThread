@@ -27,6 +27,9 @@ struct InventoryListView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var selectedStage: InventoryStage = .all
+    /// The Unlisted tab's chip (All / Needs draft / Drafted). Kept when the
+    /// seller switches tabs, so coming back to Unlisted finds it as left.
+    @State private var unlistedFilter: InventoryStage.UnlistedFilter = .all
     /// US-813: list vs. kanban-board layout. The board ignores the stage tabs
     /// (it shows every pipeline column) but still honors search + filters.
     @State private var viewMode: InventoryViewMode = .list
@@ -140,6 +143,9 @@ struct InventoryListView: View {
             // bar would only confuse it — hide it in board mode.
             if viewMode == .list {
                 tabRow
+                if selectedStage == .unlisted {
+                    unlistedChipRow
+                }
             }
             ActiveFilterBar(criteria: $criteria, sourceNames: sourceNames)
             if viewMode == .board {
@@ -385,6 +391,41 @@ struct InventoryListView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
+        }
+        .background(Color(uiColor: .systemBackground))
+    }
+
+    /// The split the old To List and Drafts tabs made, as chips inside
+    /// Unlisted. Same touch-target and selection-trait rules as the tab row.
+    private var unlistedChipRow: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(InventoryStage.UnlistedFilter.allCases) { filter in
+                    let isSelected = unlistedFilter == filter
+                    Button {
+                        AppRouter.haptic()
+                        unlistedFilter = filter
+                    } label: {
+                        Text(filter.label)
+                            .font(.caption.weight(isSelected ? .semibold : .regular))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(
+                                isSelected
+                                    ? Color.accentColor.opacity(0.15)
+                                    : Color(uiColor: .secondarySystemBackground)
+                            )
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .frame(minHeight: 44)
+                    .contentShape(Capsule())
+                    .accessibilityLabel(filter.label)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
         }
         .background(Color(uiColor: .systemBackground))
     }
@@ -751,7 +792,8 @@ struct InventoryListView: View {
             sort: sortOption,
             criteria: criteria,
             soldDates: soldDates,
-            serverSearchIds: searchService.matchedItemIds
+            serverSearchIds: searchService.matchedItemIds,
+            unlistedFilter: unlistedFilter
         )
         return derivation.filteredItems(key: key) {
             InventoryFilter.apply(
@@ -762,7 +804,8 @@ struct InventoryListView: View {
                 criteria: criteria,
                 soldDates: soldDates,
                 serverSearchIds: searchService.matchedItemIds,
-                photoItemIds: photoItemIds(for: criteria)
+                photoItemIds: photoItemIds(for: criteria),
+                unlistedFilter: unlistedFilter
             )
         }
     }
@@ -842,7 +885,8 @@ struct InventoryListView: View {
             criteria: candidate,
             soldDates: soldDates,
             serverSearchIds: searchService.matchedItemIds,
-            photoItemIds: photoItemIds(for: candidate)
+            photoItemIds: photoItemIds(for: candidate),
+            unlistedFilter: unlistedFilter
         ).count
     }
 

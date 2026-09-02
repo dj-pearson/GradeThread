@@ -128,7 +128,8 @@ final class InventoryDerivation {
         sort: SortOption,
         criteria: InventoryFilterCriteria,
         soldDates: [String: Date],
-        serverSearchIds: Set<String>?
+        serverSearchIds: Set<String>?,
+        unlistedFilter: InventoryStage.UnlistedFilter = .all
     ) -> Int {
         var hasher = Hasher()
         hasher.combine(itemsSignature)
@@ -138,6 +139,7 @@ final class InventoryDerivation {
         hasher.combine(criteria)
         hasher.combine(soldDates)
         hasher.combine(serverSearchIds)
+        hasher.combine(unlistedFilter)
         return hasher.finalize()
     }
 

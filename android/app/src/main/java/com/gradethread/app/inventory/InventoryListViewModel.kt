@@ -57,6 +57,16 @@ class InventoryListViewModel @Inject constructor(
     )
     val stage: StateFlow<InventoryStage> = _stage.asStateFlow()
 
+    private val _unlistedFilter = MutableStateFlow(
+        Restorable.restoreEnum(
+            saved.get<String>(Restorable.Keys.INVENTORY_UNLISTED_FILTER),
+            UnlistedFilter.ALL,
+        ),
+    )
+
+    /** The UNLISTED tab's chip. Survives a tab switch, so coming back finds it as left. */
+    val unlistedFilter: StateFlow<UnlistedFilter> = _unlistedFilter.asStateFlow()
+
     private val _sort = MutableStateFlow(
         Restorable.restoreEnum(saved.get<String>(Restorable.Keys.INVENTORY_SORT), SortOption.NEWEST),
     )
@@ -149,6 +159,11 @@ class InventoryListViewModel @Inject constructor(
         // Saved by NAME, not ordinal: an ordinal shifts the moment anyone
         // inserts a case, so a saved "Listed" filter would come back as "Sold".
         saved[Restorable.Keys.INVENTORY_STAGE] = stage.name
+    }
+
+    fun setUnlistedFilter(filter: UnlistedFilter) {
+        _unlistedFilter.value = filter
+        saved[Restorable.Keys.INVENTORY_UNLISTED_FILTER] = filter.name
     }
 
     fun setQuery(value: String) {

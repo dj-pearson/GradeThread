@@ -24,6 +24,7 @@ object Restorable {
         const val INVENTORY_FILTERS_OPEN = "inventory.filtersOpen"
         const val INVENTORY_SELECTION = "inventory.selection"
         const val INVENTORY_STAGE = "inventory.stage"
+        const val INVENTORY_UNLISTED_FILTER = "inventory.unlistedFilter"
         const val INVENTORY_SORT = "inventory.sort"
         const val INVENTORY_VIEW_MODE = "inventory.viewMode"
         const val INVENTORY_QUERY = "inventory.query"
@@ -65,10 +66,9 @@ object Restorable {
      * carrying ghosts turns "delete 12 items" into a request the server rejects
      * halfway through.
      */
-    fun restoreSelection(saved: String?, presentIds: Set<String>): Set<String> =
-        saved.orEmpty()
-            .split(SELECTION_SEPARATOR)
-            .filterTo(mutableSetOf()) { it.isNotBlank() && it in presentIds }
+    fun restoreSelection(saved: String?, presentIds: Set<String>): Set<String> = saved.orEmpty()
+        .split(SELECTION_SEPARATOR)
+        .filterTo(mutableSetOf()) { it.isNotBlank() && it in presentIds }
 
     /**
      * Restore a saved enum by name.
@@ -88,8 +88,7 @@ object Restorable {
      * into a nav graph that has no such destination — which is a crash on
      * launch for anyone whose app was killed on that screen.
      */
-    fun restoreRoute(saved: String?, known: Set<String>): String? =
-        saved?.takeIf { it in known }
+    fun restoreRoute(saved: String?, known: Set<String>): String? = saved?.takeIf { it in known }
 
     /**
      * Whether a fold or split-screen change is worth reacting to.

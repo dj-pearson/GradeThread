@@ -77,6 +77,7 @@ fun InventoryListScreen(
 ) {
     val items by viewModel.items.collectAsStateWithLifecycle()
     val stage by viewModel.stage.collectAsStateWithLifecycle()
+    val unlistedFilter by viewModel.unlistedFilter.collectAsStateWithLifecycle()
     val sort by viewModel.sort.collectAsStateWithLifecycle()
     val criteria by viewModel.criteria.collectAsStateWithLifecycle()
     val viewMode by viewModel.viewMode.collectAsStateWithLifecycle()
@@ -103,6 +104,7 @@ fun InventoryListScreen(
         ui = InventoryUiState(
             items = items,
             stage = stage,
+            unlistedFilter = unlistedFilter,
             sort = sort,
             criteria = criteria,
             viewMode = viewMode,
@@ -122,6 +124,7 @@ fun InventoryListScreen(
             onSetQuery = viewModel::setQuery,
             onToggleViewMode = viewModel::toggleViewMode,
             onSelectStage = viewModel::selectStage,
+            onSetUnlistedFilter = viewModel::setUnlistedFilter,
             onSetSort = viewModel::setSort,
             onDismissRefreshError = viewModel::dismissRefreshError,
             onRefresh = viewModel::refresh,
@@ -151,6 +154,8 @@ data class InventoryUiState(
     val items: List<InventoryItemEntity>,
     val stage: InventoryStage,
     val sort: SortOption,
+    /** The UNLISTED tab's chip; defaulted so a golden or a test needs no opinion on it. */
+    val unlistedFilter: UnlistedFilter = UnlistedFilter.ALL,
     val criteria: InventoryFilterCriteria,
     val viewMode: InventoryViewMode,
     val query: String,
@@ -172,6 +177,7 @@ data class InventoryActions(
     val onSetQuery: (String) -> Unit = {},
     val onToggleViewMode: () -> Unit = {},
     val onSelectStage: (InventoryStage) -> Unit = {},
+    val onSetUnlistedFilter: (UnlistedFilter) -> Unit = {},
     val onSetSort: (SortOption) -> Unit = {},
     val onDismissRefreshError: () -> Unit = {},
     val onRefresh: () -> Unit = {},
@@ -202,6 +208,7 @@ internal fun InventoryListContent(
 ) {
     val items = ui.items
     val stage = ui.stage
+    val unlistedFilter = ui.unlistedFilter
     val sort = ui.sort
     val criteria = ui.criteria
     val viewMode = ui.viewMode
@@ -256,6 +263,7 @@ internal fun InventoryListContent(
         criteria = criteria,
         photoItemIds = photoItemIds,
         serverSearchIds = serverSearchIds,
+        unlistedFilter = unlistedFilter,
     )
 
     if (showingFilters) {
@@ -368,6 +376,10 @@ internal fun InventoryListContent(
                     )
                 }
             }
+            // The split To List / Drafts used to make, as chips inside Unlisted.
+            if (stage == InventoryStage.UNLISTED) {
+                UnlistedFilterRow(current = unlistedFilter, onSelect = actions.onSetUnlistedFilter)
+            }
         }
 
         SortRow(current = sort, onSelect = actions.onSetSort)
@@ -461,6 +473,22 @@ internal fun InventoryListContent(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun UnlistedFilterRow(current: UnlistedFilter, onSelect: (UnlistedFilter) -> Unit) {
+    LazyRow(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.xs),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
+        items(UnlistedFilter.entries) { filter ->
+            FilterChip(
+                selected = filter == current,
+                onClick = { onSelect(filter) },
+                label = { Text(stringResource(filter.label)) },
+            )
         }
     }
 }

@@ -7,17 +7,36 @@ final class InventoryFilterTests: XCTestCase {
 
     // MARK: - InventoryStage
 
-    func test_stage_toList_matchesPreDraftStatuses() {
-        let statuses = InventoryStage.toList.matchingStatuses
+    func test_stage_unlisted_matchesEveryPreListStatus() {
+        // To List and Drafts became one stage (with the web, 2026-09-02):
+        // nothing between intake and publish may fall out of it. `grading`
+        // used to belong to no stage but All, which read as data loss.
+        let statuses = InventoryStage.unlisted.matchingStatuses
         XCTAssertTrue(statuses.contains("cataloged"))
+        XCTAssertTrue(statuses.contains("grading"))
         XCTAssertTrue(statuses.contains("graded"))
         XCTAssertTrue(statuses.contains("comped"))
-        XCTAssertFalse(statuses.contains("drafted"))
+        XCTAssertTrue(statuses.contains("drafted"))
         XCTAssertFalse(statuses.contains("listed"))
+        XCTAssertFalse(statuses.contains("sold"))
     }
 
-    func test_stage_drafts_active_sold_shipped_returned_exclusive() {
-        XCTAssertEqual(InventoryStage.drafts.matchingStatuses, ["drafted"])
+    func test_unlistedFilter_splitsDraftedFromTheRest() {
+        XCTAssertTrue(InventoryStage.UnlistedFilter.all.matches("cataloged"))
+        XCTAssertTrue(InventoryStage.UnlistedFilter.all.matches("drafted"))
+        XCTAssertTrue(InventoryStage.UnlistedFilter.needsDraft.matches("cataloged"))
+        XCTAssertFalse(InventoryStage.UnlistedFilter.needsDraft.matches("drafted"))
+        XCTAssertTrue(InventoryStage.UnlistedFilter.drafted.matches("drafted"))
+        XCTAssertFalse(InventoryStage.UnlistedFilter.drafted.matches("cataloged"))
+        // Every Unlisted status lands in exactly one of the two narrow chips.
+        for status in InventoryStage.unlisted.matchingStatuses {
+            let needs = InventoryStage.UnlistedFilter.needsDraft.matches(status)
+            let drafted = InventoryStage.UnlistedFilter.drafted.matches(status)
+            XCTAssertTrue(needs != drafted, "\(status) should be in exactly one chip")
+        }
+    }
+
+    func test_stage_active_sold_shipped_returned_exclusive() {
         XCTAssertEqual(InventoryStage.active.matchingStatuses, ["listed"])
         XCTAssertEqual(InventoryStage.sold.matchingStatuses, ["sold"])
         XCTAssertEqual(InventoryStage.shipped.matchingStatuses, ["shipped", "completed"])
@@ -194,13 +213,24 @@ final class InventoryFilterTests: XCTestCase {
         ]
         let result = InventoryFilter.apply(
             items,
-            stage: .drafts,
+            stage: .unlisted,
             search: "wool",
-            sort: .newest
+            sort: .newest,
+            unlistedFilter: .drafted
         )
-        // Stage cut to drafts (drops active1), search matches both, sort
+        // Stage cut to unlisted (drops active1), search matches both, sort
         // newest puts draft1 first (createdAt 300 > 200).
         XCTAssertEqual(result.map(\.id), ["draft1", "draft2"])
+
+        // The chip narrows inside the stage: Needs draft hides both drafts.
+        let needsDraft = InventoryFilter.apply(
+            items,
+            stage: .unlisted,
+            search: "wool",
+            sort: .newest,
+            unlistedFilter: .needsDraft
+        )
+        XCTAssertEqual(needsDraft.map(\.id), [])
     }
 
     // MARK: - Helpers
