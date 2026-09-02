@@ -149,9 +149,11 @@ import { getRealizedComps } from "./sold-comps.ts";
 import {
   extractTagGroundTruth,
   mergeTagGroundTruth,
-  TAG_PHOTO_TYPES,
+  planTagRoleWriteback,
+  selectTagOcrPhotos,
   tagAttributeFill,
 } from "./ai-tag-ocr.ts";
+import { classifyPhotoRoles } from "./ai-photo-roles.ts";
 import {
   applyCanonicalBrandAndStyle,
   canonicalizeBrand,
@@ -267,6 +269,8 @@ export interface ListingGenPhoto {
   // flipdesk_photo_type hint, e.g. front | back | tag | tag_2 | detail |
   // detail_2..4 | interior | defect | flatlay | on_model | measurement_*
   type?: string;
+  /** item_photos.id, when the photo came off the item (generation path). */
+  id?: string;
 }
 
 export interface ListingGenInput {
@@ -2049,13 +2053,13 @@ const MAX_SIZE_ESTIMATE_PHOTOS = 6;
 async function loadItemPhotoUrls(itemId: string): Promise<ListingGenPhoto[]> {
   const { data } = await supabaseAdmin
     .from("item_photos")
-    .select("photo_type, photo_role, storage_path, sort_order, photo_url")
+    .select("id, photo_type, photo_role, storage_path, sort_order, photo_url")
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
   // US-1549: 'internal' photos (price tags, receipts) are seller-reference
   // only — the AI must never read them (they'd leak cost basis into copy).
   const listable = filterListablePhotos(
-    (data ?? []) as ItemPhotoUrlRow[],
+    (data ?? []) as (ItemPhotoUrlRow & { id: string })[],
   );
   // US-2265: the sensitive types (tag / tag_2 / certificate) live in the PRIVATE
   // bucket when the photo was captured on iOS, so a public URL 404s and the
@@ -2066,6 +2070,7 @@ async function loadItemPhotoUrls(itemId: string): Promise<ListingGenPhoto[]> {
   return resolved.map(({ row, url }) => ({
     url,
     type: row.photo_type ?? "",
+    id: row.id,
   }));
 }
 
@@ -2220,9 +2225,41 @@ export async function generateListing(
   let tagOcrTokensOut = 0;
   let tagOcrCost = 0;
   let tagOcrModel: string | null = null;
-  const tagPhotos = photos
-    .filter((p) => p.type && TAG_PHOTO_TYPES.has(p.type))
-    .slice(0, MAX_TAG_OCR_PHOTOS);
+  let tagPhotos = selectTagOcrPhotos(photos, MAX_TAG_OCR_PHOTOS);
+  // 2026-09-02: on prod, 150 of 1001 items had a tag-typed photo and OCR ran
+  // on 11 of ~300 generations - the label was usually sitting under `detail`.
+  // When nothing is typed tag, ask the holistic role pass (US-533) which photo
+  // is the label, read THAT, and relabel only rows still on the detail
+  // default. One vision call, only on this branch, metered as photo_roles.
+  if (tagPhotos.length === 0 && photos.length >= 2) {
+    const candidates = photos.filter(
+      (p): p is ListingGenPhoto & { id: string } => !!p.id,
+    );
+    if (candidates.length >= 2) {
+      try {
+        const rolePass = await classifyPhotoRoles(
+          candidates.map((p) => ({ id: p.id, url: p.url })),
+        );
+        const plan = planTagRoleWriteback(candidates, rolePass.roles);
+        tagPhotos = plan.tagPhotos.slice(0, MAX_TAG_OCR_PHOTOS);
+        if (plan.writeback.length > 0) {
+          const { error } = await supabaseAdmin
+            .from("item_photos")
+            .update({ photo_type: "tag" })
+            .in("id", plan.writeback)
+            .eq("inventory_item_id", itemId);
+          if (error) {
+            console.warn("[AI Listing] tag role writeback failed:", error.message);
+          }
+        }
+        console.log(
+          `[AI Listing] tag search on item ${itemId}: ${tagPhotos.length} label photo(s) found by role pass`,
+        );
+      } catch (err) {
+        console.error("[AI Listing] tag role pass failed (non-fatal):", err);
+      }
+    }
+  }
   if (tagPhotos.length > 0) {
     try {
       const ocr = await extractTagGroundTruth(

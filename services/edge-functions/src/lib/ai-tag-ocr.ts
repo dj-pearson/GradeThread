@@ -29,6 +29,51 @@ export const GRADING_TAG_PHOTO_TYPES: ReadonlySet<string> = new Set([
   "label_2",
 ]);
 
+// 2026-09-02: label-like types that are worth an OCR look when no photo is
+// typed tag. `interior` is the inside of a garment (where the woven label is)
+// and `marking` is an explicit maker's mark. `internal` is deliberately NOT
+// here: US-1549 makes it seller-reference only (price tags, receipts) and
+// filterListablePhotos already drops it before any model sees it.
+export const TAG_OCR_FALLBACK_TYPES: ReadonlySet<string> = new Set([
+  "interior",
+  "marking",
+]);
+
+/**
+ * The photos the tag-OCR pass should read, in priority order: every tag-typed
+ * photo first (input order kept), then the label-like fallbacks, capped. Pure.
+ */
+export function selectTagOcrPhotos<T extends { type?: string | null }>(
+  photos: T[],
+  max = 4,
+): T[] {
+  const tags = photos.filter((p) => p.type && TAG_PHOTO_TYPES.has(p.type));
+  const fallbacks = photos.filter(
+    (p) => p.type && TAG_OCR_FALLBACK_TYPES.has(p.type),
+  );
+  return [...tags, ...fallbacks].slice(0, max);
+}
+
+/**
+ * 2026-09-02: what to do with a holistic role pass when nothing was typed tag.
+ * The photos the classifier called `tag` are read by OCR whatever their stored
+ * type; only rows still on the generic `detail` default (or untyped) are
+ * relabelled, so a seller's own choice is never clobbered (same guard as the
+ * per-photo classifier in flipdesk-ai.ts). Pure.
+ */
+export function planTagRoleWriteback<
+  T extends { id?: string; type?: string | null },
+>(
+  photos: T[],
+  roles: Record<string, string>,
+): { tagPhotos: T[]; writeback: string[] } {
+  const tagPhotos = photos.filter((p) => p.id && roles[p.id] === "tag");
+  const writeback = tagPhotos
+    .filter((p) => !p.type || p.type === "detail")
+    .map((p) => p.id as string);
+  return { tagPhotos, writeback };
+}
+
 export interface TagPhoto {
   /** A fetchable URL, or a `data:image/...;base64,...` URI. */
   url: string;

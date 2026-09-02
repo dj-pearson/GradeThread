@@ -19,6 +19,9 @@ const {
   tagAttributeFill,
   TAG_GROUND_TRUTH_MIN_CONFIDENCE,
   TAG_PHOTO_TYPES,
+  TAG_OCR_FALLBACK_TYPES,
+  selectTagOcrPhotos,
+  planTagRoleWriteback,
 } = await import("../lib/ai-tag-ocr.ts");
 
 Deno.test("normalizeTagOcr keeps legible string fields and clamps confidence", () => {
@@ -188,4 +191,65 @@ Deno.test("tagAttributeFill: an existing array or object value is respected", ()
     { garment_care: ["Machine Washable"] },
   );
   assertEquals(fill, {});
+});
+
+// 2026-09-02: which photos the OCR pass reads, and how a role pass may relabel.
+
+Deno.test("selectTagOcrPhotos: tag-typed first, label-like fallbacks after, capped", () => {
+  const photos = [
+    { id: "d1", type: "detail" },
+    { id: "m1", type: "marking" },
+    { id: "t2", type: "tag_2" },
+    { id: "i1", type: "interior" },
+    { id: "t1", type: "tag" },
+    { id: "x", type: "internal" },
+    { id: "f", type: "front" },
+  ];
+  const picked = selectTagOcrPhotos(photos).map((p) => p.id);
+  // tag types keep their input order, then the fallbacks in input order.
+  assertEquals(picked, ["t2", "t1", "m1", "i1"]);
+});
+
+Deno.test("selectTagOcrPhotos: never picks internal, and honours the cap", () => {
+  const photos = [
+    { id: "x", type: "internal" },
+    { id: "a", type: "tag" },
+    { id: "b", type: "tag" },
+    { id: "c", type: "tag_2" },
+    { id: "d", type: "interior" },
+    { id: "e", type: "marking" },
+  ];
+  assertEquals(selectTagOcrPhotos(photos, 2).map((p) => p.id), ["a", "b"]);
+  assertEquals(selectTagOcrPhotos(photos).map((p) => p.id), ["a", "b", "c", "d"]);
+  assertEquals(TAG_OCR_FALLBACK_TYPES.has("internal"), false);
+});
+
+Deno.test("selectTagOcrPhotos: empty when nothing label-like exists", () => {
+  assertEquals(selectTagOcrPhotos([{ type: "front" }, { type: "detail" }]), []);
+});
+
+Deno.test("planTagRoleWriteback: classifier tags become OCR photos; only detail rows are relabelled", () => {
+  const photos = [
+    { id: "a", type: "front" },
+    { id: "b", type: "detail" },
+    { id: "c", type: "" },
+    { id: "d", type: "back" },
+  ];
+  const { tagPhotos, writeback } = planTagRoleWriteback(photos, {
+    a: "front",
+    b: "tag",
+    c: "tag",
+    d: "tag", // seller typed it back; the classifier does not get to change that
+  });
+  assertEquals(tagPhotos.map((p) => p.id), ["b", "c", "d"]);
+  assertEquals(writeback, ["b", "c"]);
+});
+
+Deno.test("planTagRoleWriteback: no tag in the roles yields nothing", () => {
+  const { tagPhotos, writeback } = planTagRoleWriteback(
+    [{ id: "a", type: "detail" }],
+    { a: "detail" },
+  );
+  assertEquals(tagPhotos, []);
+  assertEquals(writeback, []);
 });
