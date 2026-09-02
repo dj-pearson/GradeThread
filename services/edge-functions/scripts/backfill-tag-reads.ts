@@ -162,7 +162,15 @@ async function main() {
         url,
         type: row.photo_type ?? "",
       }));
-      const tagPhotos = selectTagOcrPhotos(photos);
+      // A photo row can outlive its storage object (the first dry run hit one
+      // whose path belonged to a merged item). The vision API fails the whole
+      // call on one bad URL, so check each tag photo first and drop the dead.
+      const tagPhotos: typeof photos = [];
+      for (const p of selectTagOcrPhotos(photos)) {
+        const ok = await fetch(p.url, { method: "HEAD" }).then((r) => r.ok).catch(() => false);
+        if (ok) tagPhotos.push(p);
+        else console.log(`  ${item.id}: tag photo unreachable, skipped: ${p.url}`);
+      }
       if (tagPhotos.length === 0) {
         stats.skipped++;
         continue;
@@ -172,6 +180,12 @@ async function main() {
         tagPhotos.map((p) => ({ url: p.url, type: p.type })),
       );
       if (Object.keys(ocr.fields).length > 0) stats.read++;
+      // What the label said, with confidences, so a dry run shows WHY a code
+      // did or did not come through (the threshold is 0.4).
+      const readSummary = Object.entries(ocr.fields)
+        .map(([k, f]) => `${k}=${JSON.stringify(f.value)}@${f.confidence.toFixed(2)}`)
+        .join(" ");
+      console.log(`  read: ${readSummary || "(nothing legible)"}`);
 
       const brand = canonicalizeBrand(confidentValue(ocr.fields.brand) ?? item.brand);
       const pack = brand ? await resolveBrandKnowledgePack(brand) : null;

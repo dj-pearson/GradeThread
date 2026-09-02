@@ -172,7 +172,12 @@ const READ_TAG_TOOL: Anthropic.Tool = {
       },
       style_code: {
         type: "string",
-        description: "Style / style number / model code printed on the tag, verbatim.",
+        description:
+          "Style / style number / model code printed on the tag, verbatim. On a " +
+          "Lululemon garment it is the small string printed AROUND THE RIM of the " +
+          "circular size dot inside the pocket or waistband (e.g. 'LM5609S.0419', " +
+          "'LW6AMYSP60417'): transcribe the whole rim string here, and the number in " +
+          "the dot's centre as size.",
       },
       rn_number: {
         type: "string",
@@ -228,7 +233,7 @@ export function userInstructions(eraBlock = ""): string {
     "- brand (the maker name)",
     "- size",
     "- fiber/material content (e.g. '100% Cotton')",
-    "- style code / style number",
+    "- style code / style number (on a Lululemon size dot: the small text around the rim; the number in the centre is the size)",
     "- RN number (RN#)",
     "- care instructions (compact, comma-separated, words only)",
     "- country of origin (country name only, e.g. 'Vietnam')",
