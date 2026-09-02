@@ -45,6 +45,7 @@ function criteria(over: Partial<RowSelectionCriteria> = {}): RowSelectionCriteri
     tab: tabById("all"),
     search: "",
     soldFilter: "all",
+    unlistedFilter: "all",
     filterQuery: EMPTY_QUERY,
     columnSort: null,
     sortPreset: "listability",
@@ -123,7 +124,7 @@ describe("selectListingRows — the parity corpus (US-2168 AC5)", () => {
     expect(ids(out)).toEqual(["live"]);
   });
 
-  it("a clicked column beats the To-list preset", () => {
+  it("a clicked column beats the Unlisted preset", () => {
     // Stated as a rule in the page: the seller always gets the column they
     // clicked, even on the one tab that has its own preset sorts.
     const rows = [
@@ -131,11 +132,11 @@ describe("selectListingRows — the parity corpus (US-2168 AC5)", () => {
       item({ id: "rich", status: "cataloged", list_price: 500, grade_value: null }),
     ];
     const preset = selectListingRows(rows, criteria({
-      tab: tabById("to_list"),
+      tab: tabById("unlisted"),
       sortPreset: "listability",
     }));
     const clicked = selectListingRows(rows, criteria({
-      tab: tabById("to_list"),
+      tab: tabById("unlisted"),
       sortPreset: "listability",
       columnSort: { field: "list_price", dir: "desc" },
     }));
@@ -145,7 +146,7 @@ describe("selectListingRows — the parity corpus (US-2168 AC5)", () => {
     expect(ids(clicked)).toEqual(["rich", "cheap"]);
   });
 
-  it("the To-list presets each order by their own key", () => {
+  it("the Unlisted presets each order by their own key", () => {
     const rows = [
       item({
         id: "old-cheap",
@@ -163,11 +164,11 @@ describe("selectListingRows — the parity corpus (US-2168 AC5)", () => {
       }),
     ];
     const oldest = selectListingRows(rows, criteria({
-      tab: tabById("to_list"),
+      tab: tabById("unlisted"),
       sortPreset: "oldest",
     }));
     const roi = selectListingRows(rows, criteria({
-      tab: tabById("to_list"),
+      tab: tabById("unlisted"),
       sortPreset: "best_roi",
     }));
     expect(ids(oldest)).toEqual(["old-cheap", "new-rich"]);

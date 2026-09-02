@@ -41,7 +41,11 @@ import { toastError, toastWarning } from "@/lib/toast-error";
 import { supabase } from "@/lib/supabase";
 import { downloadItemsCsv } from "@/lib/items-csv";
 import type { FilterQuery } from "@/lib/item-filter";
-import { DRAFT_LIKE_STATUSES, type TabId } from "@/pages/flipdesk/inventory-tabs";
+import {
+  DRAFT_LIKE_STATUSES,
+  TO_LIST_STATUSES,
+  type TabId,
+} from "@/pages/flipdesk/inventory-tabs";
 import {
   planListingDemote,
   type SoldFilter,
@@ -241,7 +245,10 @@ export function makeListingsActions(d: ListingsActionDeps) {
     let created = 0;
     for (const id of selected) {
       const it = items.find((i) => i.id === id);
-      if (!it) continue;
+      // The Unlisted tab mixes drafted and undrafted rows in one selection;
+      // a drafted row already has its listing, and writing a second one would
+      // leave the composer with two drafts to choose between.
+      if (!it || it.status === "drafted") continue;
       try {
         const listing: ListingInsert = {
           inventory_item_id: it.id,
@@ -712,7 +719,14 @@ export function makeListingsActions(d: ListingsActionDeps) {
   // structured errors (the same the dialog surfaces single-item).
   async function bulkPublishToEbay() {
     if (selected.size === 0 || !ebayConnection) return;
-    const ids = Array.from(selected);
+    // A row still in a prep stage has no listing to publish. The Unlisted
+    // selection can hold those next to drafted rows; "Create drafts" handles
+    // them, and counting them here would report a failure for every one.
+    const ids = Array.from(selected).filter((id) => {
+      const it = items.find((x) => x.id === id);
+      return !!it && !TO_LIST_STATUSES.has(it.status);
+    });
+    if (ids.length === 0) return;
     setBusy(true);
     setBulkPublishProgress({ done: 0, total: ids.length });
     const errors: { title: string; message: string }[] = [];

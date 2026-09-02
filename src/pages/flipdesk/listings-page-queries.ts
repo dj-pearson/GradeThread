@@ -90,7 +90,8 @@ export interface PageRowDetailsInput {
   userId: string | undefined;
   pageRows: ItemFullRow[];
   pageRowIds: string[];
-  isDrafts: boolean;
+  /** Whether the page can hold drafted rows (Unlisted), so draft metadata is read. */
+  hasDrafts: boolean;
   isActive: boolean;
 }
 
@@ -98,7 +99,7 @@ export function usePageRowDetails({
   userId,
   pageRows,
   pageRowIds,
-  isDrafts,
+  hasDrafts,
   isActive,
 }: PageRowDetailsInput) {
   // US-149: which marketplaces each item is listed on (draft/active/sold rows
@@ -148,7 +149,7 @@ export function usePageRowDetails({
   // listings; pageRowIds scopes it to what's rendered.
   const { data: draftMetaByItem } = useQuery({
     queryKey: ["item_draft_meta", userId, pageRowIds],
-    enabled: !!userId && isDrafts && pageRowIds.length > 0,
+    enabled: !!userId && hasDrafts && pageRowIds.length > 0,
     staleTime: 5 * 60 * 1000,
     queryFn: async (): Promise<Map<string, DraftMeta>> => {
       const rows = await fetchInChunks<DraftMetaRow>(pageRowIds, async (chunk) => {
@@ -310,7 +311,7 @@ export function usePageRowDetails({
   );
   const { data: qualityByListing = {} } = useQuery({
     queryKey: ["item_listing_quality", userId, pageListingIds],
-    enabled: !!userId && (isDrafts || isActive) && pageListingIds.length > 0,
+    enabled: !!userId && (hasDrafts || isActive) && pageListingIds.length > 0,
     staleTime: 5 * 60 * 1000,
     queryFn: async (): Promise<Record<string, QualityScoreSummary>> => {
       try {

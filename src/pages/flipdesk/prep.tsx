@@ -184,8 +184,8 @@ export function FlipdeskPrepPage() {
               Every item has moved past prep. Time to draft and list.
             </p>
             <Button asChild>
-              <Link to="/dashboard/flipdesk/listings?tab=to_list">
-                Go to the To-List queue
+              <Link to="/dashboard/flipdesk/inventory?tab=unlisted">
+                Go to Unlisted
               </Link>
             </Button>
           </CardContent>

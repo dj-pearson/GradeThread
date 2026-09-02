@@ -1,12 +1,12 @@
 // Sort options for the Inventory table, one set per tab.
 //
-// Until now only To List had a sort menu (the four `SortPreset` values the
-// server scores in SQL); every other tab ran in a fixed order the seller could
-// change only by clicking a column header, and nothing on screen said which
-// headers sorted. The menu here works on every tab. Most options are plain
-// column sorts and ride the same `p_column_sort` argument a header click sends,
-// so the server needs no new code for them; the three scored presets stay
-// To List only, because `flipdesk_listing_page` only computes them there.
+// Until now only the old To List tab had a sort menu (the four `SortPreset`
+// values the server scores in SQL); every other tab ran in a fixed order the
+// seller could change only by clicking a column header, and nothing on screen
+// said which headers sorted. The menu here works on every tab. Most options are
+// plain column sorts and ride the same `p_column_sort` argument a header click
+// sends, so the server needs no new code for them; the three scored presets
+// stay Unlisted only, because `flipdesk_listing_page` only computes them there.
 //
 // The chosen option lives in `?sort=` so it survives a view-mode switch and a
 // round trip through the composer. An id that does not apply to the current
@@ -24,7 +24,7 @@ export interface ColumnSort {
 
 export type SortOptionId =
   | "default"
-  // Scored on the server, To List only (migration 00515).
+  // Scored on the server, Unlisted only (migrations 00515, 00721).
   | "listability"
   | "best_roi"
   | "highest_comp"
@@ -50,20 +50,21 @@ export type SortOptionId =
 export interface SortOption {
   id: SortOptionId;
   label: string;
-  /** Sent as `p_sort_preset`; only honoured on To List. */
+  /** Sent as `p_sort_preset`; only honoured on Unlisted. */
   preset?: SortPreset;
   /** Sent as `p_column_sort`. */
   column?: ColumnSort;
 }
 
 /**
- * The price column each tab means when it says "price". A To List item has a
- * target, a draft or live listing has a list price, and a sale has a sale
- * price; sorting To List by `list_price` would put every row at NULL.
+ * The price column each tab means when it says "price". An unlisted item has a
+ * target (a draft's list price is copied from it), a live listing has a list
+ * price, and a sale has a sale price; sorting Unlisted by `list_price` would
+ * put every undrafted row at NULL.
  */
 export function priceFieldForTab(tab: TabId): keyof ItemFullRow {
   switch (tab) {
-    case "to_list":
+    case "unlisted":
       return "target_price";
     case "sold":
     case "shipped":
@@ -119,7 +120,7 @@ const LEAST_RECENTLY_UPDATED: SortOption = {
  */
 export function sortOptionsForTab(tab: TabId): SortOption[] {
   switch (tab) {
-    case "to_list":
+    case "unlisted":
       return [
         { id: "default", label: "Listability score", preset: "listability" },
         // `oldest` was a To List preset before it was a column sort. Keeping the
@@ -129,16 +130,6 @@ export function sortOptionsForTab(tab: TabId): SortOption[] {
         { id: "highest_comp", label: "Highest comp", preset: "highest_comp" },
         LEAST_RECENTLY_UPDATED,
         RECENTLY_UPDATED,
-        ...priceOptions(tab),
-        ...COST_OPTIONS,
-        ...NAME_OPTIONS,
-      ];
-    case "drafts":
-      return [
-        { id: "default", label: "Untouched longest" },
-        RECENTLY_UPDATED,
-        NEWEST,
-        OLDEST,
         ...priceOptions(tab),
         ...COST_OPTIONS,
         ...NAME_OPTIONS,
@@ -206,7 +197,7 @@ export function resolveSortOption(
  *
  * A clicked header wins over the menu, exactly as it did before the menu
  * existed on every tab. `preset` is always a valid `SortPreset` because the
- * server ignores it off To List and the query key needs a stable value.
+ * server ignores it off Unlisted and the query key needs a stable value.
  */
 export function sortRequestFor(
   option: SortOption,

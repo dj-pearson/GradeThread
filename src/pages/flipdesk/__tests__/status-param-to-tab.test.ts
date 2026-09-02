@@ -21,7 +21,7 @@ describe("statusParamToTab (US-1429 stage-link routing)", () => {
     expect(statusParamToTab("completed")).toBe("all");
   });
 
-  it("maps every pre-listed prep stage to the To List tab", () => {
+  it("maps every pre-listed prep stage to the Unlisted tab", () => {
     for (const s of [
       "sourced",
       "acquired",
@@ -32,12 +32,13 @@ describe("statusParamToTab (US-1429 stage-link routing)", () => {
       "graded",
       "comped",
     ]) {
-      expect(statusParamToTab(s)).toBe("to_list");
+      expect(statusParamToTab(s)).toBe("unlisted");
     }
   });
 
   it("maps the terminal/listed stages to their own tabs", () => {
-    expect(statusParamToTab("drafted")).toBe("drafts");
+    // Drafted rows live in Unlisted too; the caller narrows with a status rule.
+    expect(statusParamToTab("drafted")).toBe("unlisted");
     expect(statusParamToTab("listed")).toBe("active");
     expect(statusParamToTab("shipped")).toBe("shipped");
     expect(statusParamToTab("returned")).toBe("returned");

@@ -84,10 +84,9 @@ interface Props {
   pageRows: ItemFullRow[];
   tab: string;
   isActive: boolean;
-  isDrafts: boolean;
   isShipped: boolean;
   isSold: boolean;
-  isToList: boolean;
+  isUnlisted: boolean;
 
   // ── selection ───────────────────────────────────────────────────────────
   selectable: boolean;
@@ -205,10 +204,9 @@ export function ListingsTable({
   pageRows,
   tab,
   isActive,
-  isDrafts,
   isShipped,
   isSold,
-  isToList,
+  isUnlisted,
   selectable,
   selected,
   allOnPageSelected,
@@ -387,7 +385,7 @@ export function ListingsTable({
                   <TableHead className="w-24">Ship by</TableHead>
                   <TableHead className="w-10">Buyer</TableHead>
                 </>
-              ) : isToList ? (
+              ) : isUnlisted ? (
                 <>
                   <TableHead className="w-20 text-right">
                     <SortHeader
@@ -563,7 +561,7 @@ export function ListingsTable({
                   Notes
                 </SortHeader>
               </TableHead>
-              {(isDrafts || isActive) && (
+              {(isUnlisted || isActive) && (
                 <TableHead className="w-28">Platforms</TableHead>
               )}
               {/* US-2170: the Listing Quality Score, next to the other
@@ -571,7 +569,7 @@ export function ListingsTable({
                   exposes quality_score (00506) — surfaces the weakest
                   live listings on the Active tab and the weakest drafts,
                   so a seller fixes the lowest scores first. */}
-              {(isDrafts || isActive) && (
+              {(isUnlisted || isActive) && (
                 <TableHead className="w-20 text-center">
                   <span
                     className="inline-flex"
@@ -610,10 +608,10 @@ export function ListingsTable({
                 </TableHead>
               )}
               {/* US-1568 AC3: draft price / batch / schedule parity. */}
-              {tab === "drafts" && (
+              {isUnlisted && (
                 <TableHead className="w-40">Draft</TableHead>
               )}
-              {tab === "drafts" && (
+              {isUnlisted && (
                 <TableHead className="w-32 text-right" />
               )}
               <TableHead className="w-8" />
@@ -738,7 +736,7 @@ export function ListingsTable({
                           output is unchanged, including the raw (untrimmed)
                           value and the null-renders-nothing case. */}
                       <span className="truncate">{itemDisplayTitle(it)}</span>
-                      {tab === "drafts" && it.listing_needs_review && (() => {
+                      {isUnlisted && it.listing_needs_review && (() => {
                         // US-1568 AC3: show the aspect_review count ("N to
                         // fix") like the AutoLister cockpit, when known.
                         const n = draftMetaByItem?.get(it.id)?.aspectCount ?? 0;
@@ -862,7 +860,7 @@ export function ListingsTable({
                         )}
                       </TableCell>
                     </>
-                  ) : isToList ? (
+                  ) : isUnlisted ? (
                     <>
                       <TableCell
                         className="text-right tabular-nums"
@@ -1082,7 +1080,7 @@ export function ListingsTable({
                       onChange={(v) => updateItemNotes(it, v)}
                     />
                   </TableCell>
-                  {(isDrafts || isActive) && (
+                  {(isUnlisted || isActive) && (
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         {(platformsByItem?.get(it.id) ?? []).map(
@@ -1134,7 +1132,7 @@ export function ListingsTable({
                       unscored listing — never a 0, which would read as a
                       confident "this is terrible" for a listing nobody
                       has run a publish check on. */}
-                  {(isDrafts || isActive) && (
+                  {(isUnlisted || isActive) && (
                     <TableCell className="text-center">
                       <QualityScoreChip
                         score={
@@ -1220,7 +1218,7 @@ export function ListingsTable({
                       </div>
                     </TableCell>
                   )}
-                  {tab === "drafts" && (() => {
+                  {isUnlisted && (() => {
                     // US-1568 AC3: the draft's generated price (+ "est."
                     // badge), batch link, and scheduled-drop date — the
                     // listing-level info the AutoLister cockpit shows.
@@ -1266,7 +1264,7 @@ export function ListingsTable({
                       </TableCell>
                     );
                   })()}
-                  {tab === "drafts" && (
+                  {isUnlisted && (
                     <TableCell
                       className="text-right"
                       onClick={(e) => e.stopPropagation()}

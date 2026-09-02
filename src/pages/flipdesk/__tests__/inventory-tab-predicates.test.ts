@@ -15,6 +15,9 @@ import {
   TABS,
   TO_LIST_STATUSES,
   DRAFT_LIKE_STATUSES,
+  matchesUnlistedFilter,
+  resolveTabId,
+  resolveUnlistedFilter,
   type TabId,
 } from "@/pages/flipdesk/inventory-tabs";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
@@ -76,11 +79,14 @@ describe("the All tab", () => {
   });
 });
 
-describe("the To List tab", () => {
-  it("holds every pre-listed prep stage", () => {
-    for (const status of TO_LIST_STATUSES) {
-      expect(tab("to_list").matches(item({ status }))).toBe(true);
+describe("the Unlisted tab", () => {
+  it("holds every pre-listed prep stage AND drafted", () => {
+    // To List and Drafts became one tab (2026-09-02); nothing between intake
+    // and publish may fall out of it.
+    for (const status of DRAFT_LIKE_STATUSES) {
+      expect(tab("unlisted").matches(item({ status }))).toBe(true);
     }
+    expect(tab("unlisted").matches(item({ status: "drafted" }))).toBe(true);
   });
 
   it("includes `grading`, so a mid-grade item is not stranded", () => {
@@ -88,18 +94,63 @@ describe("the To List tab", () => {
     // the grader appeared in no prep tab and the Overview "?status=grading"
     // deep-link landed on a view that did not contain it.
     expect(TO_LIST_STATUSES.has("grading")).toBe(true);
-    expect(tab("to_list").matches(item({ status: "grading" }))).toBe(true);
+    expect(tab("unlisted").matches(item({ status: "grading" }))).toBe(true);
   });
 
-  it("does not claim drafted, listed or terminal rows", () => {
-    for (const status of ["drafted", "listed", "sold", "archived"] as ItemStatus[]) {
-      expect(tab("to_list").matches(item({ status }))).toBe(false);
+  it("does not claim listed or terminal rows", () => {
+    for (const status of ["listed", "sold", "shipped", "returned", "archived"] as ItemStatus[]) {
+      expect(tab("unlisted").matches(item({ status }))).toBe(false);
     }
   });
 
-  it("sorts oldest-touched first — the queue reads as a queue", () => {
-    expect(tab("to_list").sortKey).toBe("updated_at");
-    expect(tab("to_list").sortDir).toBe("asc");
+  it("falls back to oldest-touched first when no preset applies", () => {
+    expect(tab("unlisted").sortKey).toBe("updated_at");
+    expect(tab("unlisted").sortDir).toBe("asc");
+  });
+
+  it("the retired ids still resolve to it, and junk resolves to nothing", () => {
+    expect(resolveTabId("to_list")).toBe("unlisted");
+    expect(resolveTabId("drafts")).toBe("unlisted");
+    expect(resolveTabId("unlisted")).toBe("unlisted");
+    expect(resolveTabId("sold")).toBe("sold");
+    expect(resolveTabId("nope")).toBeNull();
+    expect(resolveTabId(null)).toBeNull();
+  });
+
+  describe("its chips", () => {
+    const prep = item({ status: "cataloged" });
+    const ready = item({ status: "drafted", listing_needs_review: false });
+    const unflagged = item({ status: "drafted", listing_needs_review: null });
+    const flagged = item({ status: "drafted", listing_needs_review: true });
+
+    it("All passes everything the tab shows", () => {
+      for (const it of [prep, ready, unflagged, flagged]) {
+        expect(matchesUnlistedFilter(it, "all")).toBe(true);
+      }
+    });
+
+    it("Needs draft is the old To List", () => {
+      expect(matchesUnlistedFilter(prep, "needs_draft")).toBe(true);
+      expect(matchesUnlistedFilter(ready, "needs_draft")).toBe(false);
+    });
+
+    it("Ready and Needs review split drafted on the review flag, and every draft lands in one", () => {
+      expect(matchesUnlistedFilter(ready, "ready")).toBe(true);
+      // No flag recorded is not a flag: it counts as ready, matching the SQL's
+      // `is not true`.
+      expect(matchesUnlistedFilter(unflagged, "ready")).toBe(true);
+      expect(matchesUnlistedFilter(flagged, "ready")).toBe(false);
+      expect(matchesUnlistedFilter(flagged, "needs_review")).toBe(true);
+      expect(matchesUnlistedFilter(ready, "needs_review")).toBe(false);
+      expect(matchesUnlistedFilter(prep, "ready")).toBe(false);
+      expect(matchesUnlistedFilter(prep, "needs_review")).toBe(false);
+    });
+
+    it("an unknown ?show= value means All", () => {
+      expect(resolveUnlistedFilter("zzz")).toBe("all");
+      expect(resolveUnlistedFilter(null)).toBe("all");
+      expect(resolveUnlistedFilter("ready")).toBe("ready");
+    });
   });
 });
 

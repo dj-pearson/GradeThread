@@ -46,10 +46,10 @@ describe("sortOptionsForTab", () => {
     }
   });
 
-  it("the scored presets exist only on To List, where the server computes them", () => {
+  it("the scored presets exist only on Unlisted, where the server computes them", () => {
     for (const tab of ALL_TABS) {
       const presets = sortOptionsForTab(tab).filter((o) => o.preset);
-      if (tab === "to_list") {
+      if (tab === "unlisted") {
         expect(presets.map((o) => o.preset)).toEqual([
           "listability",
           "best_roi",
@@ -62,9 +62,8 @@ describe("sortOptionsForTab", () => {
   });
 
   it("price means the column that tab actually has a value in", () => {
-    expect(priceFieldForTab("to_list")).toBe("target_price");
+    expect(priceFieldForTab("unlisted")).toBe("target_price");
     expect(priceFieldForTab("active")).toBe("list_price");
-    expect(priceFieldForTab("drafts")).toBe("list_price");
     expect(priceFieldForTab("sold")).toBe("sale_price");
     expect(priceFieldForTab("shipped")).toBe("sale_price");
     const sold = sortOptionsForTab("sold").find((o) => o.id === "price_high");
@@ -81,19 +80,19 @@ describe("resolveSortOption", () => {
 
   it("an id from another tab's menu resolves to the default, not a neighbour", () => {
     expect(resolveSortOption("best_roi", "sold").id).toBe("default");
-    expect(resolveSortOption("most_views", "to_list").id).toBe("default");
-    expect(resolveSortOption("profit_high", "drafts").id).toBe("default");
+    expect(resolveSortOption("most_views", "unlisted").id).toBe("default");
+    expect(resolveSortOption("profit_high", "unlisted").id).toBe("default");
   });
 
-  it("the four pre-existing To List values still mean what the old menu meant", () => {
+  it("the four pre-existing To List values still mean what the old menu meant on Unlisted", () => {
     // `?sort=listability` was the old default and is not an id any more.
-    expect(resolveSortOption("listability", "to_list").preset).toBe("listability");
-    expect(resolveSortOption("oldest", "to_list").column).toEqual({
+    expect(resolveSortOption("listability", "unlisted").preset).toBe("listability");
+    expect(resolveSortOption("oldest", "unlisted").column).toEqual({
       field: "created_at",
       dir: "asc",
     });
-    expect(resolveSortOption("best_roi", "to_list").preset).toBe("best_roi");
-    expect(resolveSortOption("highest_comp", "to_list").preset).toBe("highest_comp");
+    expect(resolveSortOption("best_roi", "unlisted").preset).toBe("best_roi");
+    expect(resolveSortOption("highest_comp", "unlisted").preset).toBe("highest_comp");
   });
 });
 
@@ -110,7 +109,7 @@ describe("sortRequestFor", () => {
       preset: "listability",
       columnSort: { field: "listing_views", dir: "desc" },
     });
-    const preset = resolveSortOption("best_roi", "to_list");
+    const preset = resolveSortOption("best_roi", "unlisted");
     expect(sortRequestFor(preset, null)).toEqual({
       preset: "best_roi",
       columnSort: null,
