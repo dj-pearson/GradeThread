@@ -1,10 +1,16 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ HELD: 00721 — Unlisted tab (To List + Drafts merged), chip filter, wider search
+## ✅ APPLIED 2026-09-02: 00721 — Unlisted tab (To List + Drafts merged), chip filter, wider search (owner-applied; `/health/ready` reports `applied: "00721"`, `status: "match"`)
 
-**Branch:** `claude/inventory-layout-navigation-28ugbu`. Apply the SQL BEFORE
-this branch reaches main. The frontend on this branch sends a tab id and a
-parameter the 00515 function does not know.
+**Shipped in #310.** The heading below was still `HELD` when that PR merged,
+and `scripts/held-migration-gate.mjs --ci` blocked the frontend CI job on the
+merge commit for exactly that reason (the gate runs before `npm ci`, so every
+later step in that job failed for lack of packages too). Prod was probed
+2026-09-02 after the merge: the edge expects 00721 and the database records
+00721, so the flip is the fix, as the gate says.
+
+The frontend sends a tab id and a parameter the 00515 function does not know,
+which is why the SQL had to land first.
 
 **What it does.** Drops `flipdesk_listing_page(text, text, text, jsonb, jsonb,
 text, timestamptz, int, int, text[])` and recreates it with one extra trailing
@@ -36,7 +42,7 @@ passes. Run `LISTING_PARITY_DB=1 npx vitest run src/test/listing-page-sql-parity
 against the local stack before applying: it now covers the unlisted tab, its
 four chips and the wider search.
 
-> ## ✅ NOTHING ELSE IS OUTSTANDING (2026-09-02). Prod records `00720`.
+> ## ✅ NOTHING ELSE IS OUTSTANDING (2026-09-02). Prod records `00721`.
 >
 > `https://functions.gradethread.com/health/ready` reports
 > `schema: {applied: "00720"}`, and a PostgREST probe with the public anon key
