@@ -1,31 +1,63 @@
 /* GradeThread unified extension — settings page (US-2241).
  *
- * Layers on compare.css for the shared page shell (tokens, header, link
- * buttons), and adds only the form layout. Body measure is held under 75ch so
- * the explanatory copy under each toggle stays readable on a wide window. */
+ * Layers on compare.css for the shared page shell (tokens, header, buttons),
+ * and adds only the form layout. Body measure is held under 75ch so the
+ * explanatory copy under each toggle stays readable on a wide window. The
+ * toggles are drawn as switches, the same control as the popup's. */
 
 .opt-body { max-width: 720px; }
-.opt-ver { margin-left: auto; font-size: 12px; color: var(--cmp-muted); }
+.opt-ver { margin-left: auto; font-size: 12px; color: var(--cmp-muted); font-variant-numeric: tabular-nums; }
 
-.opt-section { padding: 22px 0; border-bottom: 1px solid var(--cmp-rule); }
+.opt-section { padding: 24px 0; border-bottom: 1px solid var(--cmp-rule); }
 .opt-section:last-child { border-bottom: 0; }
 
-.opt-h2 { margin: 0 0 10px; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
-.opt-lead { margin: 0 0 10px; color: var(--cmp-muted); max-width: 70ch; }
+.opt-h2 { margin: 0 0 12px; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.opt-lead { margin: 0 0 12px; color: var(--cmp-muted); max-width: 70ch; }
 
 .opt-toggle {
   display: flex;
-  gap: 10px;
+  gap: 14px;
   align-items: flex-start;
-  margin: 0 0 16px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--cmp-rule);
+  border-radius: var(--cmp-r);
+  background: var(--cmp-surface);
   cursor: pointer;
 }
 .opt-toggle:last-child { margin-bottom: 0; }
-.opt-toggle input { margin-top: 3px; flex: 0 0 auto; }
+.opt-toggle:hover { border-color: var(--cmp-rule-strong); }
+.opt-toggle > input {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 22px;
+  margin: 1px 0 0;
+  border-radius: 999px;
+  background: var(--cmp-rule-strong);
+  position: relative;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+.opt-toggle > input::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 160ms ease;
+}
+.opt-toggle > input:checked { background: #0f3460; }
+.opt-toggle > input:checked::after { transform: translateX(16px); }
+.opt-toggle > span { font-weight: 600; }
 .opt-toggle small {
   display: block;
   margin-top: 3px;
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 400;
   color: var(--cmp-muted);
   max-width: 68ch;
 }
@@ -36,21 +68,49 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 0;
+  padding: 10px 0;
   border-top: 1px solid var(--cmp-rule);
   font-size: 13px;
 }
 .opt-list li:first-child { border-top: 0; }
 
-.opt-data li { max-width: 420px; }
+.opt-data li { max-width: 440px; justify-content: flex-start; gap: 10px; }
+.opt-data li .cmp-linkbtn { margin-left: auto; }
+.opt-data li > span:first-child {
+  display: inline-block;
+  min-width: 32px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--cmp-navy);
+}
 
 kbd {
   display: inline-block;
-  padding: 1px 6px;
-  border: 1px solid var(--cmp-rule);
+  padding: 1px 7px;
+  border: 1px solid var(--cmp-rule-strong);
+  border-bottom-width: 2px;
   border-radius: 6px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: inherit;
   font-size: 12px;
+  font-weight: 600;
 }
 
-.opt-note { margin: 10px 0 0; font-size: 12px; color: var(--cmp-muted); }
+.opt-note { margin: 10px 0 0; font-size: 12px; color: var(--cmp-ok); }
+
+.opt-field { display: flex; align-items: center; gap: 12px; font-size: 13px; font-weight: 600; }
+.opt-field select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--cmp-rule-strong);
+  background: var(--cmp-surface);
+  color: inherit;
+  font-weight: 400;
+}
+
+/* US-3055: this sheet's one dark rule, and its two forced twins. Three lines,
+   kept by hand rather than generated — the generator covers compare.css. */
+@media (prefers-color-scheme: dark) {
+  .opt-toggle > input:checked { background: #4d7fd1; }
+}
+html[data-theme="dark"] .opt-toggle > input:checked { background: #4d7fd1; }
+html[data-theme="light"] .opt-toggle > input:checked { background: #0f3460; }

@@ -156,6 +156,21 @@
       .finally(function () { clearTimeout(timer); });
   }
 
+  // US-3050: where a running job has got to, for the popup's queue row. Fire
+  // and forget — a stage the worker never hears about costs a label, not a
+  // job, and the fill must never wait on the popup.
+  GT.reportStage = function (jobId, stage) {
+    try {
+      return Promise.resolve(chrome.runtime.sendMessage({
+        type: "GT_LISTER_STAGE",
+        jobId: jobId,
+        stage: stage,
+      })).catch(function () { /* worker asleep — the label is not worth a retry */ });
+    } catch (_e) {
+      return Promise.resolve();
+    }
+  };
+
   GT.attachPhotos = async function (fileInputSelector, photoUrls, max) {
     const urls = Array.isArray(photoUrls)
       ? photoUrls.slice(0, max || photoUrls.length)
@@ -497,6 +512,7 @@
     );
 
     const f = flow.fields;
+    void GT.reportStage(payload.jobId, "filling"); // US-3050
     GT.fill(f.title, payload.title);
     GT.fill(f.description, payload.description);
 
@@ -615,6 +631,7 @@
     // US-1877 (AC4): carry the real counts, not a boolean. photosAttached stays for
     // the existing consumers, but it is now only true when EVERY photo landed —
     // "some of them" must never read as "attached".
+    if (f.photoInput) void GT.reportStage(payload.jobId, "photos"); // US-3050
     const photos = f.photoInput
       ? await GT.attachPhotos(f.photoInput, payload.photoUrls, payload.maxPhotos)
       : { attached: 0, failed: 0, total: 0 };

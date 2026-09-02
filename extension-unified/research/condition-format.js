@@ -42,6 +42,9 @@
     factorOdor: "Odor",
     photosOne: "Graded from 1 photo",
     photosMany: "Graded from {n} photos",
+    // US-3051: the reads left in the hour, from the server's own window.
+    quotaLeft: "{remaining} of {limit} reads left this hour",
+    quotaNone: "That was your last read for this hour",
     lowCoverageNudge:
       "Only a few photos to go on — ask the seller for more (a tag/label + close-up detail) for a fuller read.",
     factorsHeading: "Condition factors",

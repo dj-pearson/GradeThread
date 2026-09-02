@@ -205,7 +205,75 @@ assert.ok(
   "flip mode must call the authenticated seller endpoint, not a public one",
 );
 
+// ── US-3052: the popup's on-device verdict cache ────────────────────────────
+{
+  assert.strictEqual(
+    FLIP.cacheKey("https://www.ebay.com/itm/123?utm_source=x&hash=item1&_trkparms=a#frag"),
+    "https://www.ebay.com/itm/123",
+    "tracking params and the hash are not part of the listing",
+  );
+  assert.strictEqual(
+    FLIP.cacheKey("https://poshmark.com/listing/abc/?b=2&a=1"),
+    "https://poshmark.com/listing/abc?a=1&b=2",
+    "real params are kept, sorted, and a trailing slash is dropped",
+  );
+  assert.strictEqual(FLIP.cacheKey("javascript:alert(1)"), null);
+  assert.strictEqual(FLIP.cacheKey(""), null);
+  assert.strictEqual(FLIP.cacheKey(null), null);
+
+  const NOW = 1_800_000_000_000;
+  assert.strictEqual(FLIP.cacheFresh({ at: NOW - 1000, data: {} }, NOW), true);
+  assert.strictEqual(FLIP.cacheFresh({ at: NOW - FLIP.CACHE_TTL_MS, data: {} }, NOW), false, "at the TTL it is stale");
+  assert.strictEqual(FLIP.cacheFresh({ at: NOW + 5000, data: {} }, NOW), false, "a future stamp is not fresh");
+  assert.strictEqual(FLIP.cacheFresh({ at: NOW, data: null }, NOW), false, "no data, nothing to show");
+  assert.strictEqual(FLIP.cacheFresh(null, NOW), false);
+
+  let map = {};
+  for (let i = 0; i < FLIP.CACHE_MAX + 5; i++) map = FLIP.cachePut(map, "https://x/" + i, { i }, NOW + i);
+  assert.strictEqual(Object.keys(map).length, FLIP.CACHE_MAX, "the cache is capped");
+  assert.ok(!("https://x/0" in map) && ("https://x/" + (FLIP.CACHE_MAX + 4)) in map, "oldest out, newest kept");
+  const re = FLIP.cachePut(map, "https://x/10", { fresh: true }, NOW + 999);
+  assert.deepStrictEqual(re["https://x/10"], { at: NOW + 999, data: { fresh: true } }, "a re-check replaces the entry");
+  assert.strictEqual(Object.keys(re).length, FLIP.CACHE_MAX);
+}
+
+// ── US-3052: the popup never sends GT_CC_APPRAISE for a non-seller map ──────
+{
+  const html = fs.readFileSync(path.join(dir, "popup.html"), "utf8");
+  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8");
+  for (const id of ["flipBtn", "flipBlock", "flipVerdict", "flipRows", "flipNote", "flipOpen", "flipRecheck", "flipWhen"]) {
+    assert.ok(html.includes('id="' + id + '"'), "popup.html is missing #" + id);
+    assert.ok(js.includes('"' + id + '"'), "popup.js never uses #" + id);
+  }
+  assert.ok(/id="flipBtn"[^>]*hidden/.test(html), "the flip button starts hidden — it is shown only for a seller on a listing");
+  const fmtAt = html.indexOf('src="research/flip-format.js"');
+  const popupAt = html.indexOf('src="popup.js"');
+  assert.ok(fmtAt > -1 && fmtAt < popupAt, "research/flip-format.js must load before popup.js");
+
+  // Every GT_CC_APPRAISE the popup sends is inside runFlipFromPopup, and that
+  // function returns on a non-seller map before it sends anything.
+  const sends = js.split('type: "GT_CC_APPRAISE"').length - 1;
+  assert.ok(sends >= 1, "the popup sends GT_CC_APPRAISE somewhere");
+  const fnStart = js.indexOf("async function runFlipFromPopup(");
+  const fnEnd = js.indexOf("\nfunction wireFlip(");
+  assert.ok(fnStart > -1 && fnEnd > fnStart, "runFlipFromPopup must exist ahead of wireFlip");
+  const fn = js.slice(fnStart, fnEnd);
+  assert.strictEqual(fn.split('type: "GT_CC_APPRAISE"').length - 1, sends, "GT_CC_APPRAISE is sent only from runFlipFromPopup");
+  const gate = fn.indexOf("if (!caps || !caps.sellerEnabled) return;");
+  assert.ok(gate > -1 && gate < fn.indexOf('type: "GT_CC_APPRAISE"'), "the seller check must precede the send");
+  assert.ok(gate < fn.indexOf("GT_CC_FLIP_CONTEXT"), "and precede even the context request to the tab");
+  // The button is hidden for a non-seller, so the gate is not the only wall.
+  assert.ok(/btn\.hidden = !\(seller && supported\)/.test(js), "renderFlip hides the button unless seller AND supported");
+
+  const mp = fs.readFileSync(path.join(dir, "research", "marketplace.js"), "utf8");
+  assert.ok(/msg\.type !== "GT_CC_FLIP_CONTEXT"/.test(mp), "marketplace.js must answer GT_CC_FLIP_CONTEXT");
+  const bg = fs.readFileSync(path.join(dir, "background.js"), "utf8");
+  const gateFn = bg.slice(bg.indexOf("async function appraiseListing("), bg.indexOf("async function appraiseListing(") + 600);
+  assert.ok(/if \(!caps\.sellerEnabled\)/.test(gateFn), "the worker still gates the appraisal on the seller entitlement");
+}
+
 console.log(
   "flip-format.test.cjs: comps gate drops all currency rows, roiPct renders as a " +
-    "percentage, verdicts carry their reason, panel is seller-gated",
+    "percentage, verdicts carry their reason, panel is seller-gated, the popup's " +
+    "cache is keyed and capped, and the popup never appraises for a non-seller",
 );

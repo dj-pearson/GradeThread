@@ -77,6 +77,55 @@ function scoreClass(score) {
   return "s-bad";
 }
 
+/**
+ * The score ring: a conic fill from 0 to score/10 over a hairline track, with
+ * the number in the middle. The fill percentage and the severity class are
+ * the only inputs; popup.css owns the palette. A non-finite score renders as a
+ * dash on an empty ring, never as "NaN" (US-1884 AC5, same rule as the overlay).
+ */
+function scoreRing(score) {
+  const n = Number(score);
+  const ok = isFinite(n);
+  const ring = document.createElement("span");
+  ring.className = "pop-read-score " + (ok ? scoreClass(n) : "");
+  ring.style.setProperty("--p", ok ? String(Math.max(0, Math.min(100, n * 10))) : "0");
+  const num = document.createElement("span");
+  num.textContent = ok ? n.toFixed(1) : "–";
+  ring.appendChild(num);
+  ring.setAttribute("aria-label", ok ? "Grade " + n.toFixed(1) + " of 10" : "No grade");
+  return ring;
+}
+
+const MARKETPLACE_LABELS = {
+  ebay: "eBay",
+  poshmark: "Poshmark",
+  grailed: "Grailed",
+  mercari: "Mercari",
+  depop: "Depop",
+  vinted: "Vinted",
+  facebook: "Facebook",
+};
+
+/** One letter on the marketplace's own hue; popup.css maps data-platform. */
+function monogram(platform) {
+  const key = String(platform || "").toLowerCase();
+  const el = document.createElement("span");
+  el.className = "pop-mono";
+  el.dataset.platform = key;
+  const label = PLATFORM_LABELS[key] || MARKETPLACE_LABELS[key] || key;
+  el.textContent = label ? label.charAt(0).toUpperCase() : "?";
+  el.title = label;
+  el.setAttribute("aria-hidden", "true");
+  return el;
+}
+
+function tag(text) {
+  const el = document.createElement("span");
+  el.className = "pop-tag";
+  el.textContent = text;
+  return el;
+}
+
 // US-3048: accepts an epoch NUMBER or an ISO STRING.
 //
 // It used to accept only a number, and two of its seven callers pass an ISO
@@ -104,7 +153,10 @@ function timeAgo(ts) {
 async function activeTabInfo() {
   try {
     const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
-    if (tab && tab.url) return { id: tab.id, host: new URL(tab.url).host };
+    if (tab && tab.url) {
+      flipTab = { id: tab.id, url: tab.url, host: new URL(tab.url).host }; // US-3052
+      return { id: tab.id, host: new URL(tab.url).host };
+    }
   } catch (_e) { /* no activeTab access */ }
   return { id: null, host: null };
 }
@@ -140,6 +192,10 @@ function renderAccount(caps) {
   const connect = document.getElementById("connectBtn");
   const disconnect = document.getElementById("disconnectBtn");
   const roleSub = document.getElementById("roleSub");
+  const avatar = document.getElementById("acctAvatar");
+  const chip = document.getElementById("headAcct");
+  const chipLabel = document.getElementById("headAcctLabel");
+  const chipDot = document.getElementById("headAcctDot");
   badges.textContent = "";
 
   const authed = caps && caps.authenticated;
@@ -158,9 +214,17 @@ function renderAccount(caps) {
       badges.appendChild(seller);
       summary.textContent = "Buyer research + seller Lister are unlocked.";
       roleSub.textContent = "Seller";
+      if (chip) { chip.dataset.state = "seller"; chip.setAttribute("aria-label", "Account: FlipDesk " + titlePlan(caps.flipdeskPlan) + ", open settings"); }
+      if (chipLabel) chipLabel.textContent = "FlipDesk " + titlePlan(caps.flipdeskPlan);
+      if (chipDot) chipDot.textContent = "S";
+      if (avatar) avatar.textContent = "S";
     } else {
       summary.textContent = "Buyer research is unlocked. Add FlipDesk for seller tools.";
       roleSub.textContent = "Buyer";
+      if (chip) { chip.dataset.state = "buyer"; chip.setAttribute("aria-label", "Account: " + titlePlan(caps.buyerPlan) + " plan, open settings"); }
+      if (chipLabel) chipLabel.textContent = titlePlan(caps.buyerPlan) + " plan";
+      if (chipDot) chipDot.textContent = "B";
+      if (avatar) avatar.textContent = "B";
     }
   } else {
     state.textContent = "Not signed in";
@@ -169,6 +233,10 @@ function renderAccount(caps) {
     summary.textContent =
       "Buyer research works right now, no account needed. Sign in to raise your read limit; add FlipDesk to cross-post as a seller.";
     roleSub.textContent = "Condition Check";
+    if (chip) { chip.dataset.state = "anon"; chip.setAttribute("aria-label", "Account: sign in"); }
+    if (chipLabel) chipLabel.textContent = "Sign in";
+    if (chipDot) chipDot.textContent = "";
+    if (avatar) avatar.textContent = "?";
   }
 }
 
@@ -281,7 +349,20 @@ async function initResearch() {
     wrap.hidden = false;
     label.textContent = "Enabled on " + host;
     box.checked = !disabled.includes(host);
+    const card = document.getElementById("siteCard");
+    const siteNote = document.getElementById("siteNote");
+    const reflect = () => {
+      if (!card) return;
+      card.dataset.state = box.checked ? "ready" : "off";
+      if (siteNote) {
+        siteNote.textContent = box.checked
+          ? "Supported site. The read uses the photos on this page."
+          : "Turned off on this site. Switch it back on below.";
+      }
+    };
+    reflect();
     box.addEventListener("change", async () => {
+      reflect();
       const cur = (await ext.storage.local.get("disabledHosts")).disabledHosts || [];
       const set = new Set(Array.isArray(cur) ? cur : []);
       if (box.checked) set.delete(host);
@@ -309,18 +390,37 @@ async function initResearch() {
 async function initReadNow(host) {
   const btn = document.getElementById("readNow");
   const hint = document.getElementById("readNowHint");
+  const card = document.getElementById("siteCard");
+  const siteHost = document.getElementById("siteHost");
+  const siteNote = document.getElementById("siteNote");
   if (!btn) return;
+
+  // What Alt+G actually is on this browser: the manifest's key is only a
+  // suggestion and another extension may have claimed it first.
+  const kbd = document.getElementById("siteKbd");
+  if (kbd && ext.commands && ext.commands.getAll) {
+    try {
+      const all = await Promise.resolve(ext.commands.getAll());
+      const cmd = (all || []).find((c) => c.name === "run-condition-read");
+      if (cmd) kbd.textContent = cmd.shortcut || "no shortcut";
+    } catch (_e) { /* keep the suggested default */ }
+  }
 
   const supported = Boolean(host && MARKETPLACE_HOST_RE.test(host));
   if (!supported) {
     btn.disabled = true;
+    if (card) card.dataset.state = "none";
     return; // the default hint already names the six sites
   }
   btn.disabled = false;
+  if (card) card.dataset.state = "ready";
+  if (siteHost) siteHost.textContent = host;
+  if (siteNote) siteNote.textContent = "Supported site. The read uses the photos on this page.";
   hint.textContent = "Reads the listing photos on " + host + ".";
 
   btn.addEventListener("click", async () => {
     btn.disabled = true;
+    const label = btn.textContent;
     btn.textContent = "Starting…";
     const res = await send({ type: "GT_CC_RUN_ACTIVE" });
     if (res && res.ok) {
@@ -331,19 +431,68 @@ async function initReadNow(host) {
     // was open before the extension was installed or updated, and a content
     // script is only injected on navigation. Say the fix, not the diagnosis.
     btn.disabled = false;
-    btn.textContent = "Get condition read";
+    btn.textContent = label;
+    if (card) card.dataset.state = "off";
+    if (siteNote) siteNote.textContent = "Reload this tab, then try again.";
     hint.textContent = "Reload this tab first — it was open before GradeThread " +
       "was installed, so the page has nothing listening yet.";
   });
 }
 
-async function renderReads() {
+// ── US-3057: the history, filtered in memory ────────────────────────────────
+//
+// storage.local is read ONCE (renderReads); every keystroke and chip press
+// narrows `allReads` through the pure filter and repaints. The stats strip
+// and the By seller aggregate read the WHOLE list — a filter narrows what is
+// shown, not what the shopper has learned. At most RENDER_CAP rows are painted.
+const RF = self.GT_READ_FILTER;
+let allReads = [];
+const readFilter = { q: "", marketplaces: [] };
+
+function currentReads() {
+  return RF ? RF.filterReads(allReads, readFilter) : allReads;
+}
+
+function renderReadChips() {
+  const wrap = document.getElementById("readChips");
+  const box = document.getElementById("readFilter");
+  if (!wrap || !box || !RF) return;
+  box.hidden = allReads.length < 2; // one read needs no filter
+  wrap.textContent = "";
+  const markets = RF.marketplacesOf(allReads);
+  if (markets.length < 2) return; // one marketplace: the chip would be a label
+  for (const m of markets) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "pop-chipbtn";
+    b.dataset.marketplace = m.key;
+    b.setAttribute("aria-pressed", readFilter.marketplaces.includes(m.key) ? "true" : "false");
+    b.textContent = MARKETPLACE_LABELS[m.key] || m.key;
+    const n = document.createElement("span");
+    n.className = "n";
+    n.textContent = String(m.count);
+    b.appendChild(n);
+    wrap.appendChild(b);
+  }
+}
+
+function paintReads() {
   const ul = document.getElementById("reads");
-  const { recentReads } = await ext.storage.local.get("recentReads");
-  const list = Array.isArray(recentReads) ? recentReads : [];
-  if (!list.length) return; // keep the empty-state <li>
+  const more = document.getElementById("readMore");
+  if (!ul) return;
+  const list = currentReads();
   ul.textContent = "";
-  for (const r of list) {
+  if (more) more.hidden = true;
+  if (!list.length) {
+    const li = document.createElement("li");
+    li.className = "pop-empty";
+    const copy = RF ? RF.emptyCopy(readFilter, allReads.length) : null;
+    li.textContent = copy || "No reads yet. Open a listing and get a condition read. It will show up here with its grade.";
+    ul.appendChild(li);
+    return;
+  }
+  const cap = RF ? RF.RENDER_CAP : list.length;
+  for (const r of list.slice(0, cap)) {
     const li = document.createElement("li");
     li.className = "pop-read";
     const a = document.createElement("a");
@@ -353,10 +502,7 @@ async function renderReads() {
     a.href = r.url || ATTR.siteUrl("/", "popup", { campaign: "recent-reads" });
     a.target = "_blank";
     a.rel = "noopener noreferrer";
-
-    const score = document.createElement("span");
-    score.className = "pop-read-score " + scoreClass(Number(r.overallScore));
-    score.textContent = Number(r.overallScore).toFixed(1);
+    a.title = r.title || "Listing";
 
     const body = document.createElement("span");
     body.className = "pop-read-body";
@@ -365,16 +511,104 @@ async function renderReads() {
     title.textContent = r.title || "Listing";
     const meta = document.createElement("div");
     meta.className = "pop-read-meta";
-    const mkt = r.marketplace ? r.marketplace + " · " : "";
-    meta.textContent = mkt + (r.gradeTier ? r.gradeTier + " · " : "") + timeAgo(Number(r.at) || Date.now());
+    if (r.marketplace) meta.appendChild(tag(MARKETPLACE_LABELS[r.marketplace] || r.marketplace));
+    if (r.gradeTier) {
+      const tier = document.createElement("span");
+      tier.textContent = r.gradeTier;
+      meta.appendChild(tier);
+    }
+    // The gap between what the seller claimed and what the photos support,
+    // when the read carried a claim. Signed, one decimal: "-1.5 vs claim".
+    if (typeof r.claimedGrade === "number" && isFinite(r.claimedGrade) && isFinite(Number(r.overallScore))) {
+      const d = Number(r.overallScore) - r.claimedGrade;
+      if (Math.abs(d) >= 0.5) {
+        const gap = document.createElement("span");
+        gap.textContent = (d > 0 ? "+" : "") + d.toFixed(1) + " vs claim";
+        meta.appendChild(gap);
+      }
+    }
     body.appendChild(title);
     body.appendChild(meta);
 
-    a.appendChild(score);
+    const when = document.createElement("span");
+    when.className = "pop-read-when";
+    when.textContent = timeAgo(Number(r.at) || Date.now());
+
+    a.appendChild(scoreRing(r.overallScore));
     a.appendChild(body);
+    a.appendChild(when);
     li.appendChild(a);
     ul.appendChild(li);
   }
+  if (more && list.length > cap) {
+    more.hidden = false;
+    more.textContent = "Showing " + cap + " of " + list.length + ". Search or pick a marketplace to narrow it.";
+  }
+}
+
+async function renderReads() {
+  const { recentReads } = await ext.storage.local.get("recentReads");
+  allReads = Array.isArray(recentReads) ? recentReads : [];
+  renderReadStats(allReads);
+  renderReadChips();
+  paintReads();
+}
+
+function wireReadFilter() {
+  const q = document.getElementById("readQuery");
+  const chips = document.getElementById("readChips");
+  if (!q || !chips) return;
+  const repaint = () => {
+    paintReads();
+    // By seller follows the same filter, when it has been opened.
+    if (sellersRendered) void renderSellers();
+  };
+  q.addEventListener("input", () => {
+    readFilter.q = q.value;
+    repaint();
+  });
+  chips.addEventListener("click", (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest(".pop-chipbtn") : null;
+    if (!btn) return;
+    const key = btn.dataset.marketplace;
+    const i = readFilter.marketplaces.indexOf(key);
+    if (i >= 0) readFilter.marketplaces.splice(i, 1);
+    else readFilter.marketplaces.push(key);
+    btn.setAttribute("aria-pressed", i >= 0 ? "false" : "true");
+    repaint();
+  });
+}
+
+/**
+ * Three numbers from the local history. Nothing is fetched; the strip hides
+ * itself until there is a read to count. The claim gap is the average of
+ * (photos - claimed) over the reads that carried a claim, which is the same
+ * quantity seller-memory.js reports per seller — here it is the shopper's
+ * whole history in one figure.
+ */
+function renderReadStats(list) {
+  const strip = document.getElementById("readStats");
+  if (!strip) return;
+  const scored = list.filter((r) => r && isFinite(Number(r.overallScore)));
+  if (!scored.length) {
+    strip.hidden = true;
+    return;
+  }
+  strip.hidden = false;
+  document.getElementById("statReads").textContent = String(scored.length);
+  const avg = scored.reduce((sum, r) => sum + Number(r.overallScore), 0) / scored.length;
+  document.getElementById("statAvg").textContent = avg.toFixed(1);
+  const claimed = scored.filter((r) => typeof r.claimedGrade === "number" && isFinite(r.claimedGrade));
+  const gapEl = document.getElementById("statGap");
+  const gapLabel = document.getElementById("statGapLabel");
+  if (!claimed.length) {
+    gapEl.textContent = "–";
+    gapLabel.textContent = "vs. claimed";
+    return;
+  }
+  const gap = claimed.reduce((sum, r) => sum + (Number(r.overallScore) - r.claimedGrade), 0) / claimed.length;
+  gapEl.textContent = (gap > 0 ? "+" : "") + gap.toFixed(1);
+  gapLabel.textContent = gap < -0.05 ? "below claims" : gap > 0.05 ? "above claims" : "vs. claimed";
 }
 
 // ── US-2240: the compare tray's entry point ─────────────────────────────────
@@ -390,6 +624,12 @@ async function renderCompareLink() {
   } catch (_e) { /* unreadable — leave the button hidden */ }
   if (!Array.isArray(list) || !list.length) return;
   count.textContent = String(list.length);
+  const sub = btn.querySelector(".pop-compare-s");
+  if (sub) {
+    sub.textContent = list.length === 1
+      ? "One listing pinned. Pin another to compare."
+      : list.length + " listings pinned, side by side.";
+  }
   btn.hidden = false;
   btn.addEventListener("click", () => {
     ext.tabs.create({ url: ext.runtime.getURL("compare.html") });
@@ -409,16 +649,20 @@ async function renderSellers() {
   const ul = document.getElementById("sellers");
   const empty = document.getElementById("sellersEmpty");
   const note = document.getElementById("sellersNote");
-  const { recentReads } = await ext.storage.local.get("recentReads");
-  const rows = self.GT_CC_SELLER.groupBySeller(recentReads);
+  // US-3057: the same in-memory list the Reads view paints, under the same
+  // filter. Grouped from the WHOLE history when nothing is filtered.
+  const filtered = currentReads();
+  const rows = self.GT_CC_SELLER.groupBySeller(filtered);
 
   ul.textContent = "";
   if (!rows.length) {
-    // Deliberately not "no sellers": the list is empty because nobody has been
-    // read TWICE yet, and saying so tells the shopper how to fill it.
     const li = document.createElement("li");
     li.className = "pop-empty";
-    li.textContent = self.GT_CC_SELLER.STRINGS.noneYet;
+    const filteredCopy = RF ? RF.emptyCopy(readFilter, allReads.length) : null;
+    // Deliberately not "no sellers": with no filter, the list is empty because
+    // nobody has been read TWICE yet, and saying so tells the shopper how to
+    // fill it. Under a filter, say what was filtered.
+    li.textContent = filteredCopy || self.GT_CC_SELLER.STRINGS.noneYet;
     ul.appendChild(li);
     note.hidden = true;
     empty.hidden = true;
@@ -426,13 +670,12 @@ async function renderSellers() {
   }
   note.hidden = false;
 
-  for (const row of rows) {
+  const cap = RF ? RF.RENDER_CAP : rows.length;
+  for (const row of rows.slice(0, cap)) {
     const li = document.createElement("li");
     li.className = "pop-read";
 
-    const score = document.createElement("span");
-    score.className = "pop-read-score " + scoreClass(row.stats.avgOverall);
-    score.textContent = row.stats.avgOverall.toFixed(1);
+    const score = scoreRing(row.stats.avgOverall);
 
     const body = document.createElement("span");
     body.className = "pop-read-body";
@@ -454,13 +697,14 @@ async function renderSellers() {
   }
 }
 
+let sellersRendered = false;
+
 function wireHistoryTabs() {
   const tabReads = document.getElementById("tabReads");
   const tabSellers = document.getElementById("tabSellers");
   const reads = document.getElementById("reads");
   const sellers = document.getElementById("sellers");
   const note = document.getElementById("sellersNote");
-  let sellersRendered = false;
 
   function show(which) {
     const onSellers = which === "sellers";
@@ -471,10 +715,13 @@ function wireHistoryTabs() {
     tabSellers.classList.toggle("is-on", onSellers);
     tabReads.setAttribute("aria-selected", String(!onSellers));
     tabSellers.setAttribute("aria-selected", String(onSellers));
+    tabReads.tabIndex = onSellers ? -1 : 0; // US-3053: roving tabindex
+    tabSellers.tabIndex = onSellers ? 0 : -1;
+    const panel = document.getElementById("historyPanel");
+    if (panel) panel.setAttribute("aria-labelledby", onSellers ? "tabSellers" : "tabReads");
   }
 
-  tabReads.addEventListener("click", () => show("reads"));
-  tabSellers.addEventListener("click", async () => {
+  async function openSellers() {
     // Rendered on first open rather than at boot: it groups the whole read
     // history, and the popup should paint before doing that work.
     if (!sellersRendered) {
@@ -482,6 +729,13 @@ function wireHistoryTabs() {
       sellersRendered = true;
     }
     show("sellers");
+  }
+
+  tabReads.addEventListener("click", () => show("reads"));
+  tabSellers.addEventListener("click", () => { void openSellers(); });
+  wireTablistKeys([tabReads, tabSellers], (btn) => {
+    if (btn === tabSellers) void openSellers();
+    else show("reads");
   });
 }
 
@@ -507,19 +761,65 @@ function selectTab(name) {
     const on = t === name;
     btn.classList.toggle("is-on", on);
     btn.setAttribute("aria-selected", on ? "true" : "false");
+    // US-3053: roving tabindex — one tab stop for the strip, arrows move
+    // inside it (wireTablistKeys). Tab from the strip lands on the panel.
+    btn.tabIndex = on ? 0 : -1;
     panel.hidden = !on;
   }
 }
 
+// US-3053: Left/Right/Home/End across a role=tablist, per the ARIA pattern.
+// `tabs` is the ordered list of tab buttons; `activate` selects one. Focus
+// follows selection (the popup's panels are cheap to switch), so a reader
+// hears the new tab and its panel in one move.
+function wireTablistKeys(tabs, activate) {
+  const list = tabs.filter(Boolean);
+  for (const tab of list) {
+    tab.addEventListener("keydown", (e) => {
+      const i = list.indexOf(tab);
+      let next = -1;
+      if (e.key === "ArrowRight") next = (i + 1) % list.length;
+      else if (e.key === "ArrowLeft") next = (i - 1 + list.length) % list.length;
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = list.length - 1;
+      if (next < 0) return;
+      e.preventDefault();
+      activate(list[next]);
+      list[next].focus();
+    });
+  }
+}
+
 function wireMainTabs() {
+  const tabs = [];
   for (const t of TABS) {
     const btn = document.getElementById("nav" + t);
     if (!btn) continue;
+    tabs.push(btn);
     btn.addEventListener("click", () => {
       userPicked = true;
       selectTab(t);
     });
   }
+  wireTablistKeys(tabs, (btn) => {
+    userPicked = true;
+    selectTab(btn.id.replace(/^nav/, ""));
+  });
+}
+
+// US-3053: after a re-render replaced the controls a click was on, move focus
+// to the nearest surviving control in the same card, or the card itself. A
+// re-render that drops focus to <body> throws a keyboard user back to the top
+// of a popup they were four screens into.
+function refocusIn(cardId) {
+  const card = document.getElementById(cardId);
+  if (!card || card.hidden) {
+    const panel = document.getElementById("panelSelling");
+    if (panel && !panel.hidden) { try { panel.focus(); } catch (_e) { /* not focusable */ } }
+    return;
+  }
+  const target = card.querySelector("button:not([hidden]):not(:disabled), a[href]") || card;
+  try { target.focus(); } catch (_e) { /* focus may be denied — harmless */ }
 }
 
 /** Open on the tab this person came for. Never overrides a manual choice. */
@@ -566,6 +866,7 @@ function renderPlatforms() {
     const canList = p.enabled === true;
     const canDelist = canList && !!(p.delist && p.delist.enabled);
     const li = document.createElement("li");
+    li.appendChild(monogram(key));
     const left = document.createElement("div");
     const name = document.createElement("div");
     name.className = "name";
@@ -697,12 +998,12 @@ function syncStateLine(ch) {
     case "ok":
       return ch.listings_seen === null
         ? "Syncing"
-        : "Syncing — " + ch.listings_seen + " listing" +
+        : ch.listings_seen + " listing" +
           (ch.listings_seen === 1 ? "" : "s") + " seen";
     case "failing":
-      return "Sync failing — nothing was recorded";
+      return "Sync failing, nothing was recorded";
     case "not_signed_in":
-      return "Not signed in — nothing was recorded";
+      return "Not signed in, nothing was recorded";
     default:
       return "Not synced yet";
   }
@@ -843,14 +1144,23 @@ async function renderSyncStatus(caps) {
 
   for (const ch of channels) {
     const li = document.createElement("li");
+    li.className = "pop-delist";
+    li.appendChild(monogram(ch.platform));
+    const body = document.createElement("div");
+    body.className = "pop-delist-body";
     const name = document.createElement("span");
     name.className = "pop-delist-title";
     name.textContent = ch.platform;
     const state = document.createElement("span");
     state.className = "pop-delist-meta";
     state.textContent = syncStateLine(ch);
-    li.appendChild(name);
-    li.appendChild(state);
+    body.appendChild(name);
+    body.appendChild(state);
+    li.appendChild(body);
+    const pill = document.createElement("span");
+    pill.className = "pop-status " + (ch.status === "ok" ? "on" : ch.status === "failing" || ch.status === "not_signed_in" ? "off" : "warn");
+    pill.textContent = ch.status === "ok" ? "Syncing" : ch.status === "failing" ? "Failing" : ch.status === "not_signed_in" ? "Signed out" : "Not yet";
+    li.appendChild(pill);
     list.appendChild(li);
   }
 }
@@ -945,7 +1255,7 @@ async function renderPendingDelists(caps) {
   if (manual) {
     note.hidden = false;
     note.textContent = manual === pending.length
-      ? "These need ending by hand on the marketplace — GradeThread doesn't have a live link for them."
+      ? "These need ending by hand on the marketplace. GradeThread doesn't have a live link for them."
       : manual + " of these need ending by hand (no live link saved).";
   } else {
     note.hidden = true;
@@ -955,6 +1265,7 @@ async function renderPendingDelists(caps) {
   for (const p of pending) {
     const li = document.createElement("li");
     li.className = "pop-delist";
+    li.appendChild(monogram(p.platform));
 
     const left = document.createElement("div");
     left.className = "pop-delist-body";
@@ -1039,7 +1350,7 @@ async function renderPendingRevises(caps) {
   if (manual) {
     note.hidden = false;
     note.textContent = manual === pending.length
-      ? "These need updating by hand on the marketplace — edit sync isn't switched on for that channel yet, or GradeThread has no live link."
+      ? "These need updating by hand on the marketplace. Edit sync isn't switched on for that channel yet, or GradeThread has no live link."
       : manual + " of these need updating by hand.";
   } else {
     note.hidden = false;
@@ -1049,6 +1360,7 @@ async function renderPendingRevises(caps) {
   for (const p of pending) {
     const li = document.createElement("li");
     li.className = "pop-delist";
+    li.appendChild(monogram(p.platform));
     const left = document.createElement("div");
     left.className = "pop-delist-body";
     const title = document.createElement("span");
@@ -1107,9 +1419,18 @@ async function renderQueue(caps) {
   const note = document.getElementById("queueNote");
   const status = document.getElementById("queueStatus");
   const runBtn = document.getElementById("queueRunNow");
+  const retryAll = document.getElementById("queueRetryAll");
+  const clearFailed = document.getElementById("queueClearFailed");
+  const cancelAll = document.getElementById("queueCancelAll");
   list.textContent = "";
 
-  const res = await send({ type: "GT_QUEUE_STATE" });
+  // US-3050: the queue and the worker's job stages, together. The stages are a
+  // nicety, so a null answer (worker asleep, older build) renders plain rows.
+  const [res, jobsRes] = await Promise.all([
+    send({ type: "GT_QUEUE_STATE" }),
+    send({ type: "GT_QUEUE_JOBS" }),
+  ]);
+  const stages = jobsRes && jobsRes.ok && jobsRes.byQueueId ? jobsRes.byQueueId : null;
   if (!res || !res.ok) {
     // Same rule as the delist block: an unanswerable queue is NOT an empty one,
     // and it must not silently contribute a zero to the badge.
@@ -1124,15 +1445,23 @@ async function renderQueue(caps) {
     block.hidden = false;
     status.textContent = "";
     runBtn.hidden = true;
+    retryAll.hidden = true;
+    clearFailed.hidden = true;
+    cancelAll.hidden = true;
     note.hidden = false;
     note.textContent = DELIST_REASON[reason] || DELIST_REASON.error;
     workCounts.queue = 0;
     return;
   }
 
-  const rows = QUEUE_VIEW.buildList(res, { now: Date.now(), platformLabels: PLATFORM_LABELS });
+  const rows = QUEUE_VIEW.buildList(res, {
+    now: Date.now(),
+    platformLabels: PLATFORM_LABELS,
+    stages: stages,
+  });
   const counts = QUEUE_VIEW.summarize(rows);
   workCounts.queue = counts.total;
+  queueRows = rows;
 
   if (!rows.length) {
     block.hidden = true;
@@ -1147,90 +1476,140 @@ async function renderQueue(caps) {
   // retry and do nothing at all, which is worse than not being there.
   runBtn.hidden = counts.waiting < 1;
   runBtn.textContent = counts.waiting === 1 ? "Run it now" : "Run these now";
+  const retryable = rows.filter((r) => r.canRetry).length;
+  retryAll.hidden = retryable < 2;
+  retryAll.textContent = "Retry all " + retryable;
+  clearFailed.hidden = counts.attention < 2;
+  clearFailed.textContent = "Clear " + counts.attention + " failed";
+  cancelAll.hidden = counts.waiting < 2;
 
   note.hidden = false;
   note.textContent = counts.attention
-    ? "GradeThread runs the waiting ones in a background tab. The ones below " +
-      "marked Failed or Expired never reached the marketplace."
+    ? "GradeThread runs the waiting ones in a background tab. The ones under " +
+      "Needs you never reached the marketplace. Retry or clear them."
     : "GradeThread runs these in a background tab, one at a time, without " +
       "taking your focus.";
 
-  for (const row of rows) {
-    const li = document.createElement("li");
-    li.className = "pop-delist" + (row.needsAttention ? " is-attention" : "");
+  for (const group of QUEUE_VIEW.groupRows(rows)) {
+    const head = document.createElement("li");
+    head.className = "pop-qgroup";
+    head.dataset.group = group.key;
+    if (group.key === "running") {
+      const live = document.createElement("span");
+      live.className = "pop-live";
+      live.setAttribute("aria-hidden", "true");
+      head.appendChild(live);
+    }
+    const label = document.createElement("span");
+    label.textContent = group.label + " · " + group.rows.length;
+    head.appendChild(label);
+    list.appendChild(head);
+    for (const row of group.rows) renderQueueRow(list, row, caps);
+  }
+}
 
-    const left = document.createElement("div");
-    left.className = "pop-delist-body";
+// The queue as last rendered, so the bulk controls act on exactly the rows
+// the seller is looking at rather than on a second fetch that may differ.
+let queueRows = [];
 
-    const title = document.createElement("span");
-    title.className = "pop-delist-title";
-    // A `list` job queued from a phone carries no title at all — the row is
-    // an item id and a platform. The verb is the honest headline for it.
-    title.textContent = row.title || (row.kindLabel + " on " + row.platformLabel);
+function renderQueueRow(list, row, caps) {
+  const li = document.createElement("li");
+  li.className = "pop-delist" + (row.needsAttention ? " is-attention" : "");
+  li.appendChild(monogram(row.platform));
 
-    const meta = document.createElement("span");
-    meta.className = "pop-delist-meta";
-    // No "queued" prefix: the block header already says these are queued, and
-    // the six extra characters were the difference between this line fitting
-    // on a 340px popup and ellipsing away the time — which is the one fact on
-    // it a seller is actually reading for.
-    const bits = [row.kindLabel, row.platformLabel];
-    const ago = row.at === null ? "" : timeAgo(row.at);
-    if (ago) bits.push(ago);
-    meta.textContent = bits.join(" · ");
-    meta.title = meta.textContent;
+  const left = document.createElement("div");
+  left.className = "pop-delist-body";
 
-    left.appendChild(title);
-    left.appendChild(meta);
-    li.appendChild(left);
+  const title = document.createElement("span");
+  title.className = "pop-delist-title";
+  // A `list` job queued from a phone carries no title at all — the row is
+  // an item id and a platform. The verb is the honest headline for it.
+  title.textContent = row.title || (row.kindLabel + " on " + row.platformLabel);
+  title.title = title.textContent;
 
-    // Badge and action in one right-hand group. Appended as two siblings of a
-    // space-between row they landed on different lines once the title wrapped,
-    // so a row read as "Adidas Gazelle OG … Dismiss" over "Cross-post · Vinted
-    // … FAILED" — the state and the button for it a line apart.
-    const right = document.createElement("div");
-    right.className = "pop-delist-actions";
+  const meta = document.createElement("span");
+  meta.className = "pop-delist-meta";
+  const bits = [row.kindLabel, row.platformLabel];
+  const ago = row.at === null ? "" : timeAgo(row.at);
+  if (ago) bits.push(ago);
+  meta.textContent = bits.join(" · ");
+  meta.title = meta.textContent;
 
-    const badge = document.createElement("span");
-    badge.className = "pop-status " + row.stateClass;
-    badge.textContent = row.stateLabel;
-    right.appendChild(badge);
+  left.appendChild(title);
+  left.appendChild(meta);
+  li.appendChild(left);
 
-    if (row.canCancel || row.canDismiss) {
-      const drop = document.createElement("button");
-      drop.type = "button";
-      drop.className = "pop-linkbtn";
-      drop.textContent = row.canCancel ? "Cancel" : "Dismiss";
-      drop.addEventListener("click", async () => {
-        drop.disabled = true;
-        drop.textContent = "…";
-        const out = await send({ type: "GT_QUEUE_CANCEL", id: row.id });
-        if (out && out.ok) {
-          await renderQueue(caps);
-          renderWorkSummary();
-        } else {
-          // Never remove the row on a failed delete. The seller believing a
-          // delist was cancelled when it is still queued is the same class of
-          // wrong as believing it ran.
-          drop.disabled = false;
-          drop.textContent = "Try again";
-        }
+  // Badge and action in one right-hand group, so a wrapped title can never
+  // leave the state on one line and the button for it on another.
+  const right = document.createElement("div");
+  right.className = "pop-delist-actions";
+
+  const badge = document.createElement("span");
+  badge.className = "pop-status " + row.stateClass;
+  // US-3050: a running row this browser is driving says what it is doing.
+  badge.textContent = row.stageLabel || row.stateLabel;
+  right.appendChild(badge);
+
+  if (row.canRetry) {
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "pop-linkbtn";
+    retry.textContent = "Retry";
+    retry.addEventListener("click", async () => {
+      retry.disabled = true;
+      retry.textContent = "…";
+      const out = await send({
+        type: "GT_QUEUE_RETRY",
+        id: row.id,
+        body: QUEUE_VIEW.retryBody(row),
       });
-      right.appendChild(drop);
-    }
+      if (out && out.ok) {
+        await renderQueue(caps);
+        renderWorkSummary();
+        refocusIn("queueBlock"); // US-3053
+      } else {
+        retry.disabled = false;
+        retry.textContent = "Try again";
+      }
+    });
+    right.appendChild(retry);
+  }
 
-    li.appendChild(right);
-    list.appendChild(li);
+  if (row.canCancel || row.canDismiss) {
+    const drop = document.createElement("button");
+    drop.type = "button";
+    drop.className = "pop-linkbtn quiet";
+    drop.textContent = row.canCancel ? "Cancel" : "Dismiss";
+    drop.addEventListener("click", async () => {
+      drop.disabled = true;
+      drop.textContent = "…";
+      const out = await send({ type: "GT_QUEUE_CANCEL", id: row.id });
+      if (out && out.ok) {
+        await renderQueue(caps);
+        renderWorkSummary();
+        refocusIn("queueBlock"); // US-3053
+      } else {
+        // Never remove the row on a failed delete. The seller believing a
+        // delist was cancelled when it is still queued is the same class of
+        // wrong as believing it ran.
+        drop.disabled = false;
+        drop.textContent = "Try again";
+      }
+    });
+    right.appendChild(drop);
+  }
 
-    // The reason, on its own line, for anything that will not run. A row that
-    // says "Failed" and nothing else is what makes someone uninstall instead
-    // of fixing it.
-    if (row.reason) {
-      const why = document.createElement("li");
-      why.className = "pop-delist-why";
-      why.textContent = row.reason;
-      list.appendChild(why);
-    }
+  li.appendChild(right);
+  list.appendChild(li);
+
+  // The reason, on its own line, for anything that will not run. A row that
+  // says "Failed" and nothing else is what makes someone uninstall instead
+  // of fixing it.
+  if (row.reason) {
+    const why = document.createElement("li");
+    why.className = "pop-delist-why";
+    why.textContent = row.reason;
+    list.appendChild(why);
   }
 }
 
@@ -1256,6 +1635,103 @@ function wireQueue() {
     await renderQueue(caps);
     renderWorkSummary();
   });
+
+  // The bulk controls. Each walks the rows as LAST RENDERED, one request per
+  // row, and stops reporting at the first refusal rather than pretending the
+  // rest went through. They appear only from two rows up: at one row the
+  // per-row control is the bulk control.
+  async function bulk(btn, pick, act, doneText) {
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = "Working…";
+    let failed = 0;
+    for (const row of queueRows.filter(pick)) {
+      const out = await act(row);
+      if (!out || !out.ok) failed++;
+    }
+    btn.disabled = false;
+    btn.textContent = label;
+    if (runNote) {
+      runNote.hidden = false;
+      runNote.textContent = failed
+        ? failed + " could not be " + doneText + " — they are still listed below."
+        : "All " + doneText + ".";
+    }
+    const caps = await send({ type: "GT_GET_CAPABILITIES" });
+    await renderQueue(caps);
+    renderWorkSummary();
+    refocusIn("queueBlock"); // US-3053
+  }
+
+  const retryAll = document.getElementById("queueRetryAll");
+  if (retryAll) {
+    retryAll.addEventListener("click", () => bulk(
+      retryAll,
+      (r) => r.canRetry,
+      (r) => send({ type: "GT_QUEUE_RETRY", id: r.id, body: QUEUE_VIEW.retryBody(r) }),
+      "re-queued",
+    ));
+  }
+  const clearFailed = document.getElementById("queueClearFailed");
+  if (clearFailed) {
+    clearFailed.addEventListener("click", () => bulk(
+      clearFailed,
+      (r) => r.canDismiss,
+      (r) => send({ type: "GT_QUEUE_CANCEL", id: r.id }),
+      "cleared",
+    ));
+  }
+  const cancelAll = document.getElementById("queueCancelAll");
+  if (cancelAll) {
+    cancelAll.addEventListener("click", () => bulk(
+      cancelAll,
+      (r) => r.canCancel, // queued only — never a claimed row (queue-view.js)
+      (r) => send({ type: "GT_QUEUE_CANCEL", id: r.id }),
+      "cancelled",
+    ));
+  }
+}
+
+// ── US-3050: refresh while the popup is open ────────────────────────────────
+//
+// The worker writes listerLastJob (storage.local) when a job ends and the job
+// map listerJobs (storage.session) as a job advances. Both fire
+// storage.onChanged in this popup, so a seller who pressed "Run these now"
+// and kept the popup open watches the row move from "Opening the tab" to
+// "Attaching photos" to gone, and the Last job card fill in — with no polling.
+//
+// Debounced: a job's stage and its tab id land as separate writes a few ms
+// apart, and each is a full re-render of three blocks.
+let refreshTimer = null;
+let lastCaps = null;
+
+function onStorageChanged(changes, area) {
+  if (!changes) return;
+  const relevant = (area === "local" && changes.listerLastJob) ||
+    (area === "session" && changes.listerJobs);
+  if (!relevant) return;
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null;
+    if (!lastCaps || !lastCaps.sellerEnabled) return;
+    renderLastJob();
+    void Promise.all([
+      renderPendingDelists(lastCaps),
+      renderQueue(lastCaps),
+      renderPendingRevises(lastCaps),
+    ]).then(renderWorkSummary);
+  }, 250);
+}
+
+function wireLiveRefresh() {
+  if (!ext.storage || !ext.storage.onChanged) return;
+  ext.storage.onChanged.addListener(onStorageChanged);
+  // A popup is torn down on close, but Firefox keeps a sidebar-hosted one
+  // alive; either way, the listener must not outlive the document.
+  window.addEventListener("pagehide", () => {
+    ext.storage.onChanged.removeListener(onStorageChanged);
+    clearTimeout(refreshTimer);
+  }, { once: true });
 }
 
 // ── US-3048: one place that owns the seller's outstanding-work counts ───────
@@ -1779,6 +2255,9 @@ function renderSellerSections(caps) {
   // there was simply nothing there. As a TAB it would have rendered blank, and
   // a blank panel reads as broken rather than as "not for you".
   const anon = document.getElementById("sellerSignedOutSection");
+  const loading = document.getElementById("sellerLoading");
+  if (loading) loading.hidden = true;
+  lastCaps = caps || null; // US-3050: what a live refresh re-renders against
   if (caps && caps.sellerEnabled) {
     seller.hidden = false;
     locked.hidden = true;
@@ -1846,6 +2325,16 @@ function wireAccount() {
       connect.click();
     });
   }
+  // The header chip: signed out, it IS the sign-in button; signed in, it
+  // opens the account block in Settings.
+  const headAcct = document.getElementById("headAcct");
+  if (headAcct) {
+    headAcct.addEventListener("click", () => {
+      userPicked = true;
+      selectTab("Settings");
+      if (headAcct.dataset.state === "anon") connect.click();
+    });
+  }
   connect.addEventListener("click", () => {
     // Launches the US-1838 token flow: the connect page mints an extension token
     // (POST /api/buyer/extension-token) and posts it back via GT_SET_TOKEN so this
@@ -1884,14 +2373,224 @@ function wireAccount() {
   });
 }
 
+// US-3051: the reads left this hour, under the button.
+//
+// The number comes from the server's own rate-limit window, reported on the
+// entitlements call; the popup never invents one, so with an older edge (no
+// quota block) the line stays hidden. At zero the site card turns amber and
+// the read button is disabled with the reset time, and an anonymous install
+// is offered sign-in — the plan tiers are where deeper reads live.
+function renderQuota(caps) {
+  const line = document.getElementById("readQuota");
+  if (!line) return;
+  const q = caps && caps.quota;
+  if (!q || typeof q.remaining !== "number" || typeof q.limit !== "number") {
+    line.hidden = true;
+    line.textContent = "";
+    return;
+  }
+  line.hidden = false;
+  line.textContent = "";
+  const btn = document.getElementById("readNow");
+  const card = document.getElementById("siteCard");
+  const note = document.getElementById("siteNote");
+  if (q.remaining > 0) {
+    line.textContent = q.remaining + " of " + q.limit + " reads left this hour.";
+    return;
+  }
+  const when = q.resetsAt ? new Date(q.resetsAt) : null;
+  const at = when && isFinite(when.getTime())
+    ? " Try again after " + when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + "."
+    : " Try again in a little while.";
+  line.textContent = "You have used all " + q.limit + " reads for this hour." + at;
+  if (btn) btn.disabled = true;
+  if (card && card.dataset.state === "ready") card.dataset.state = "off";
+  if (note && card && card.dataset.state === "off") note.textContent = "Read limit reached for this hour.";
+  if (!(caps && caps.authenticated)) {
+    line.appendChild(document.createTextNode(" "));
+    const a = document.createElement("a");
+    a.href = ATTR.siteUrl("/connect-extension", "popup", {
+      campaign: "quota",
+      params: { ext: ext.runtime.id },
+    });
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = "Sign in for more.";
+    line.appendChild(a);
+  }
+}
+
+// ── US-3052: "Should I flip this?" from the popup ───────────────────────────
+//
+// The overlay answers this question below the condition read, which on a small
+// window means running a read and scrolling. Here it is a second button for a
+// seller-enabled account on a supported listing. The popup asks the content
+// script for the listing's fields (GT_CC_FLIP_CONTEXT), then sends the SAME
+// GT_CC_APPRAISE the overlay sends, through the same worker gate — this file
+// never sends it for a non-seller capability map, and the worker refuses one
+// anyway. The last verdict per listing is kept on-device (flip-format.js
+// cacheKey/cachePut) so reopening the popup shows it with its age; nothing new
+// is written server-side (US-620).
+const FLIP = self.GT_CC_FLIP;
+const FLIP_VERDICT_CLASS = { buy: "on", maybe: "warn", skip: "off" };
+let flipTab = { id: null, url: null };
+
+async function readFlipCache() {
+  try {
+    const out = await ext.storage.local.get(FLIP.CACHE_KEY);
+    return (out && out[FLIP.CACHE_KEY]) || {};
+  } catch (_e) { return {}; }
+}
+
+function renderFlipPanel(data, at, opts) {
+  const block = document.getElementById("flipBlock");
+  const verdict = document.getElementById("flipVerdict");
+  const when = document.getElementById("flipWhen");
+  const rows = document.getElementById("flipRows");
+  const note = document.getElementById("flipNote");
+  if (!block || !FLIP) return;
+  const panel = FLIP.panelFor(data);
+  block.hidden = false;
+  rows.textContent = "";
+  if (!panel) {
+    verdict.className = "pop-status warn";
+    verdict.textContent = "No call";
+    note.hidden = false;
+    note.textContent = FLIP.STRINGS.noComps;
+    when.textContent = "";
+    return;
+  }
+  const rec = data && data.decision && data.decision.recommendation;
+  verdict.className = "pop-status " + (FLIP_VERDICT_CLASS[rec] || "warn");
+  verdict.textContent = panel.verdict ? panel.verdict.label : "No call";
+  when.textContent = at ? "checked " + timeAgo(at) : "";
+  for (const row of panel.rows) {
+    const dt = document.createElement("dt");
+    dt.textContent = row.label;
+    const dd = document.createElement("dd");
+    dd.textContent = row.value;
+    rows.appendChild(dt);
+    rows.appendChild(dd);
+  }
+  const text = [panel.reason, panel.note].filter(Boolean).join(" ");
+  note.hidden = !text && !(opts && opts.extra);
+  note.textContent = [text, opts && opts.extra].filter(Boolean).join(" ");
+}
+
+function renderFlipMessage(text) {
+  const block = document.getElementById("flipBlock");
+  const verdict = document.getElementById("flipVerdict");
+  const rows = document.getElementById("flipRows");
+  const note = document.getElementById("flipNote");
+  const when = document.getElementById("flipWhen");
+  if (!block) return;
+  block.hidden = false;
+  verdict.className = "pop-status warn";
+  verdict.textContent = "Flip check";
+  when.textContent = "";
+  rows.textContent = "";
+  note.hidden = false;
+  note.textContent = text;
+}
+
+/** Show the button for a seller on a supported listing, and any cached verdict. */
+async function renderFlip(caps) {
+  const btn = document.getElementById("flipBtn");
+  const block = document.getElementById("flipBlock");
+  if (!btn || !block || !FLIP) return;
+  const seller = Boolean(caps && caps.sellerEnabled);
+  const supported = Boolean(flipTab.host && MARKETPLACE_HOST_RE.test(flipTab.host));
+  btn.hidden = !(seller && supported);
+  if (!seller || !supported) {
+    block.hidden = true;
+    return;
+  }
+  const key = FLIP.cacheKey(flipTab.url);
+  const entry = key ? (await readFlipCache())[key] : null;
+  if (entry && FLIP.cacheFresh(entry, Date.now())) renderFlipPanel(entry.data, entry.at);
+  else block.hidden = true;
+}
+
+/** The click. Refuses without a seller map BEFORE anything is sent. */
+async function runFlipFromPopup(caps) {
+  if (!caps || !caps.sellerEnabled) return; // never GT_CC_APPRAISE for a non-seller
+  if (!FLIP || flipTab.id == null) return;
+  const btn = document.getElementById("flipBtn");
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "Checking…";
+  renderFlipMessage(FLIP.STRINGS.working);
+  let ctx = null;
+  try {
+    ctx = await ext.tabs.sendMessage(flipTab.id, { type: "GT_CC_FLIP_CONTEXT" });
+  } catch (_e) { ctx = null; }
+  if (!ctx || !ctx.ok) {
+    renderFlipMessage(ctx && ctx.reason === "no-photos"
+      ? "Couldn't find this listing's photos to appraise."
+      : "Reload this tab first — the page has nothing listening yet.");
+    btn.disabled = false;
+    btn.textContent = label;
+    return;
+  }
+  const res = await send(
+    ctx.ebay
+      ? { type: "GT_CC_APPRAISE", url: ctx.url, marketplace: "ebay" }
+      : {
+        type: "GT_CC_APPRAISE",
+        imageUrls: ctx.imageUrls,
+        title: ctx.title,
+        brand: ctx.brand,
+        priceCents: ctx.priceCents,
+        marketplace: ctx.marketplace,
+      },
+  );
+  btn.disabled = false;
+  btn.textContent = label;
+  if (res && res.ok && res.data) {
+    const now = Date.now();
+    renderFlipPanel(res.data, now);
+    const key = FLIP.cacheKey(ctx.url);
+    if (key) {
+      try {
+        const map = FLIP.cachePut(await readFlipCache(), key, res.data, now);
+        await ext.storage.local.set({ [FLIP.CACHE_KEY]: map });
+      } catch (_e) { /* the panel is on screen either way */ }
+    }
+    return;
+  }
+  if (res && res.needsUpgrade) { renderFlipMessage(res.error || FLIP.STRINGS.upgrade); return; }
+  if (res && res.quotaExhausted) { renderFlipMessage(res.error || FLIP.STRINGS.quota); return; }
+  renderFlipMessage((res && res.error) || "Couldn't appraise this listing right now.");
+}
+
+function wireFlip() {
+  const btn = document.getElementById("flipBtn");
+  const open = document.getElementById("flipOpen");
+  const again = document.getElementById("flipRecheck");
+  if (!btn) return;
+  btn.addEventListener("click", () => { void runFlipFromPopup(lastCaps); });
+  if (again) again.addEventListener("click", () => { void runFlipFromPopup(lastCaps); });
+  // The full panel lives inside the overlay's result, so opening it means
+  // running the read on the page; the same door as the read button.
+  if (open) {
+    open.addEventListener("click", async () => {
+      const res = await send({ type: "GT_CC_RUN_ACTIVE" });
+      if (res && res.ok) window.close();
+    });
+  }
+}
+
 function applyCapabilities(caps) {
   renderAccount(caps);
   renderSellerSections(caps);
+  renderQuota(caps);
+  void renderFlip(caps);
   selectDefaultTab(caps);
 }
 
 // ── boot ─────────────────────────────────────────────────────────────────────
 (async function () {
+  void self.GT_THEME.init(ext, document); // US-3055: before the first paint settles
   initStaticLinks();
   // US-1757 AC2: ONE delegated listener for every gradethread.com link in the
   // popup — the footer, the upgrade CTA, the sign-in link, the recent-reads
@@ -1910,7 +2609,10 @@ function applyCapabilities(caps) {
   wireQueue();         // US-3048
   wireWorkSummary();   // US-3048
   wireOptionsLink();   // US-3048
+  wireLiveRefresh();   // US-3050
+  wireFlip();          // US-3052
   wireHistoryTabs();
+  wireReadFilter();    // US-3057
   // US-2484: rendered UNCONDITIONALLY, not from renderSellerSections.
   //
   // It is a diagnostic — it runs our own bundled selectors against the page

@@ -1,12 +1,12 @@
-# Store submission kit — GradeThread unified extension v1.0.9
+# Store submission kit — GradeThread unified extension v1.1.0
 
 Copy-paste source for the Chrome Web Store + Firefox AMO listings. Artifacts:
-`dist-ext/gradethread-v1.0.9-chrome.zip` · `dist-ext/gradethread-v1.0.9-firefox.zip`.
+`dist-ext/gradethread-v1.1.0-chrome.zip` · `dist-ext/gradethread-v1.1.0-firefox.zip`.
 
-> **Version record (US-9210, 2026-09-01).** The Chrome Web Store and Firefox AMO
-> serve v1.0.9 while this manifest read 0.10.0; the manifest now says 1.0.9 so
-> the repo and the stores agree. The next upload must be higher (1.0.10 or
-> 1.1.0): both stores refuse a version they already hold. The commit that
+> **Version record.** The stores serve 1.0.9 (US-9210, 2026-09-01: the manifest
+> was corrected from 0.10.0 to match). 1.1.0 is the popup/overlay redesign of
+> 2026-09-02, not yet uploaded; both stores refuse a version they already hold,
+> so the next upload after this one must be higher again. The commit that
 > produced the shipped 1.0.9 build is not recorded here; tag it when known.
 
 ## Shared fields
@@ -248,35 +248,31 @@ event page (background.scripts); page↔extension messaging uses the gradethread
 content script gt-bridge.js (postMessage) in place of externally_connectable.
 ```
 
-## Version / release notes (v1.0.9)
+## Version / release notes (v1.1.0)
 
 ```
-Cross-listing fills more of the form, and tells you the truth about the rest.
+A new look, and a queue you can actually work.
 
-New: your brand, style tags and price now carry across to Poshmark, and your
-brand carries across to Mercari. Before this, only the title and description
-did.
+New: the popup is redesigned. Wider, with a proper tab bar, switches instead
+of checkboxes, a grade ring on every saved read, and a site card that says
+where you are and what the button will do there. It follows your system's
+light or dark theme.
 
-New: every marketplace tab now lists the fields you still have to set yourself
-— the dropdowns and pickers whose options change per garment, which we leave to
-you rather than guessing. No more finding out after the form opens.
+New: three numbers over your read history: how many reads you have saved, the
+average grade, and how far the photos have run from what sellers claimed.
+Computed on your device; nothing is sent.
 
-Fixed: photos said they had been attached when the marketplace had not taken
-them. They now attach for real, and if a site refuses them you are told to drag
-them in instead of being congratulated.
+New: the cross-listing queue is grouped into what needs you, what is running,
+and what is waiting. Failed and expired jobs carry a Retry, and a stale queue
+can be retried, cleared or cancelled in one click.
 
-Fixed: photos are fetched all at once rather than one at a time, so a listing
-with a dozen images no longer runs past its own deadline and reports a timeout.
+New: the on-page condition card matches. The score is a ring, the seller and
+price signals read as one family, and the seller's flip panel lays its numbers
+out as a column you can read down.
 
-Fixed: cross-listing could sit for two minutes before admitting it could not
-reach the extension. It now says so at once, and says which thing to check.
+New: a first-run page that shows the three steps rather than describing them.
 
-Fixed: prices are sent in the units each marketplace accepts — whole amounts on
-Poshmark and Vinted, which reject anything smaller.
-
-Fixed: the selector check now describes what IS on a page, not only what is
-missing, so a broken form can be reported and repaired in one round instead of
-several.
+Fixed: every button now meets the 4.5:1 contrast bar under white text.
 ```
 
 <!-- The 0.9.0 notes, kept because the store shows the previous release

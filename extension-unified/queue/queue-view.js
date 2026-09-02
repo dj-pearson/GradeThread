@@ -58,6 +58,23 @@
     expired: "off",
   };
 
+  // US-3050: what a claimed row is doing right now, in the seller's words.
+  // The keys are the stages lister/common.js reports (GT_LISTER_STAGE);
+  // `null` is a job whose tab has opened and not yet reported. An unknown
+  // stage falls back to the plain state label rather than to blank.
+  var STAGE_LABELS = {
+    opening: "Opening the tab",
+    navigated: "Opening the page",
+    filling: "Filling the form",
+    photos: "Attaching photos",
+  };
+
+  function stageLabel(stage) {
+    if (stage === null || stage === undefined) return STAGE_LABELS.opening;
+    if (typeof stage !== "string" || !stage) return null;
+    return Object.prototype.hasOwnProperty.call(STAGE_LABELS, stage) ? STAGE_LABELS[stage] : null;
+  }
+
   function label(map, key, fallback) {
     if (typeof key !== "string" || !key) return fallback;
     return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : key;
@@ -138,6 +155,12 @@
     var status = typeof row.status === "string" ? row.status : "queued";
     var attention = status === "failed" || status === "expired";
     var at = asMs(row.created_at);
+    // The running row's stage, when the worker has a job for it. A claimed row
+    // with no local job is one another browser claimed, and it stays
+    // "Running now" here: we cannot see that machine's tab.
+    var stages = o.stages && typeof o.stages === "object" ? o.stages : null;
+    var jobInfo = status === "claimed" && stages && stages[row.id] ? stages[row.id] : null;
+    var stageText = jobInfo ? stageLabel(jobInfo.stage) : null;
     return {
       id: row.id,
       kind: typeof row.kind === "string" ? row.kind : "list",
@@ -149,6 +172,8 @@
       title: titleFor(row),
       state: status,
       stateLabel: label(STATE_LABELS, status, status),
+      stage: jobInfo ? (typeof jobInfo.stage === "string" ? jobInfo.stage : null) : undefined,
+      stageLabel: stageText,
       stateClass: label(STATE_CLASS, status, "warn"),
       at: at,
       ageMs: at === null ? null : Math.max(0, now - at),
@@ -157,7 +182,38 @@
       listingUrl: urlFor(row),
       canCancel: status === "queued",
       canDismiss: attention,
+      // A failed or expired row can be asked for again. The instruction is
+      // still on the row (kind, platform, the item or listing it names, the
+      // payload snapshot), so a retry is a new row with the same instruction
+      // and the dead one removed — see retryBody. Only kinds this build knows
+      // are offered: re-queueing a kind the drain will refuse again is a loop.
+      canRetry: attention && Object.prototype.hasOwnProperty.call(KIND_LABELS, row.kind),
       source: typeof row.source === "string" ? row.source : "",
+      // Kept for retryBody; never rendered.
+      _row: row,
+    };
+  }
+
+  /**
+   * The POST body that re-queues a dead row.
+   *
+   * Everything on it came from the seller's own earlier request, which the
+   * server already validated and normalised (no credential keys can be in
+   * the payload — normalizeQueuePayload refused them on the way in and the
+   * table's CHECK constraint would refuse them again). `source` is the
+   * surface asking, which is the extension, and the server's vocabulary for
+   * that is "web".
+   */
+  function retryBody(view) {
+    var row = view && view._row;
+    if (!row || !view.canRetry) return null;
+    return {
+      kind: row.kind,
+      platform: row.platform,
+      inventory_item_id: typeof row.inventory_item_id === "string" ? row.inventory_item_id : null,
+      listing_id: typeof row.listing_id === "string" ? row.listing_id : null,
+      payload: row.payload && typeof row.payload === "object" ? row.payload : {},
+      source: "web",
     };
   }
 
@@ -205,6 +261,32 @@
   }
 
   /**
+   * The list split into the three groups the popup labels, in render order.
+   * Empty groups are omitted so the popup never draws a heading over nothing.
+   * The rows inside each keep sortRows' order, so the "waiting" group reads
+   * top-to-bottom in the order the drain will run them.
+   */
+  var GROUP_ORDER = ["attention", "running", "waiting"];
+  var GROUP_LABELS = { attention: "Needs you", running: "Running now", waiting: "Waiting" };
+
+  function groupOf(view) {
+    if (view.state === "claimed") return "running";
+    if (view.needsAttention) return "attention";
+    return "waiting";
+  }
+
+  function groupRows(views) {
+    var by = { attention: [], running: [], waiting: [] };
+    for (var i = 0; i < (views || []).length; i++) by[groupOf(views[i])].push(views[i]);
+    var out = [];
+    for (var g = 0; g < GROUP_ORDER.length; g++) {
+      var key = GROUP_ORDER[g];
+      if (by[key].length) out.push({ key: key, label: GROUP_LABELS[key], rows: by[key] });
+    }
+    return out;
+  }
+
+  /**
    * The counts the Selling tab renders.
    *
    * `total` is what the nav badge shows, and it includes the attention rows on
@@ -242,6 +324,11 @@
 
   root.GT_QUEUE_VIEW = {
     KIND_LABELS: KIND_LABELS,
+    GROUP_LABELS: GROUP_LABELS,
+    STAGE_LABELS: STAGE_LABELS,
+    stageLabel: stageLabel,
+    groupRows: groupRows,
+    retryBody: retryBody,
     PLATFORM_LABELS: PLATFORM_LABELS,
     STATE_LABELS: STATE_LABELS,
     STATE_CLASS: STATE_CLASS,

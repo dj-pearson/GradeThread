@@ -103,6 +103,31 @@ icons/               shared icon set
 test/                zero-dep node guards (run in verify:web via scripts/test-extensions.mjs)
 ```
 
+## Design (redesigned 2026-09-02)
+
+`popup.css` is a token sheet: colours by role (`--fg`, `--muted`, `--line`,
+`--ok/--warn/--bad` and their soft tints), a four-step spacing scale, three
+radii, and ONE elevation, which is a hairline border. The popup is 380px wide.
+Toggles are drawn as switches over the same checkbox markup popup.js reads;
+scores render as a conic ring (`scoreRing()` sets `--p`, the `.s-*` classes
+set the colour); each marketplace has a one-letter monogram on its own hue
+(`.pop-mono[data-platform]`). Button surfaces use `--cta` (#d43a53, 4.6:1
+under white) rather than the brand red, which is 3.8:1 and stays for accents.
+The overlay (`research/overlay.css`) and the three full pages (`compare.css`
+carries the shared page tokens; `options.css` and `onboarding.html` layer on
+it) use the same roles at their own scale. The dark theme is ONE block at the
+end of `popup.css` (`src/test/popup-theme.test.ts`). **Theme preference (US-3055):**
+System / Light / Dark on the options page, stored as `theme` (absent = System)
+and applied as `data-theme` on `<html>` by `theme.js`; the overlay sets it on
+its card and badge rows from `GT_CC_GET_SETTINGS`. `popup-theme.css` and
+`compare-theme.css` are GENERATED from each sheet's dark block by
+`node scripts/gen-extension-theme-css.mjs` (same rules under
+`[data-theme="dark"]`, the base values back under `[data-theme="light"]`), and
+the overlay generator appends the same for `overlay.css`; `test/theme-css.test.cjs`
+fails on drift. `npx impeccable detect
+extension-unified` is the check; what remains are the tool's opinions about a
+popup's type scale and 11px meta text, both deliberate at 380px.
+
 ## Popup layout — what it opens on (US-1885, revised US-3048)
 
 Three tabs, defaulted from entitlements. Inside them the order is **urgent,
@@ -114,9 +139,19 @@ then recent, then settings, then reference**, which is not where it started:
   toolbar icon people actually press. "Get condition read" is now the first
   control in the popup, disabled with a reason rather than hidden when the tab
   is not a supported listing.
-- **Selling** leads with the work summary and the two queues that decide whether
-  an item sells twice, then the edits that have not landed, then what just
-  happened, then the machinery (sold-sync, scheduled checks, Poshmark sharing).
+- **Selling** opens on a skeleton until entitlements resolve, then leads with the
+  work summary and the two queues that decide whether an item sells twice, then
+  the edits that have not landed, then what just happened, then the machinery
+  (sold-sync, scheduled checks, Poshmark sharing). The cross-listing queue is
+  grouped (`groupRows`: needs you / running now / waiting); a failed or expired
+  row carries **Retry** (`GT_QUEUE_RETRY`: POST the same instruction as a new
+  row, then DELETE the dead one, in that order so a failed POST leaves the row
+  in place), and from two rows up the card offers **Retry all**, **Clear
+  failed** and **Cancel all waiting**, each one request per row over the list
+  as last rendered.
+- **Reads** carries a site card (host, supported/off, the real shortcut from
+  `commands.getAll`), a stats strip over the local history (reads, average
+  grade, average gap to the seller's claim), and the compare tray as a card.
   The channel table is reference — a seller reads it once, when they first
   cross-post to a marketplace — so it is collapsed, with its live count on the
   summary.

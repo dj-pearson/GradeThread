@@ -74,6 +74,8 @@
 
   let CFG = DEFAULT_CFG;
   let adapter = null;
+  // US-3055: the theme preference from settings; null follows the OS.
+  let themePref = null;
   let grading = false;
   // US-2237 scan-mode state. `scanEnabled` is resolved once per boot from the
   // shopper's setting; `onSearchPage` gates the lazy-load re-scan tick so it
@@ -322,6 +324,7 @@
     // of WHERE these nodes are — not of a per-element reset someone has to
     // remember on every future child. See research/overlay-host.js.
     const mounted = SHADOW.createOverlayHost(document, OVERLAY_ID, CSS);
+    if (themePref) mounted.root.setAttribute("data-theme", themePref); // US-3055
     const host = mounted.host;
     host.setAttribute("dir", "ltr");
     // US-1884 (AC3): announce loading→result/error transitions to assistive tech.
@@ -465,6 +468,9 @@
       var overallSafe = isFinite(overallNum) ? overallNum : null;
       const score = el("div", "gt-cc-score " + scoreClass(overallSafe == null ? 0 : overallSafe));
       score.textContent = overallSafe == null ? "—" : overallSafe.toFixed(1);
+      // The ring's fill, from the real score (0-10 → 0-100%). The severity
+      // class carries a coarse fallback so an unset property still draws.
+      score.style.setProperty("--gt-p", overallSafe == null ? "0" : String(Math.round(overallSafe * 10)));
       const meta = el("div", "gt-cc-meta");
       meta.appendChild(el("div", "gt-cc-tier", String(data.gradeTier || "")));
       const conf = Math.round(Number(data.confidence || 0) * 100);
@@ -641,6 +647,19 @@
         su.target = "_blank";
         su.rel = "noopener noreferrer";
         body.appendChild(su);
+      }
+
+      // US-3051: what is left after this read, when the server said. Never
+      // rendered from a number this script made up: no block, no line.
+      var q = data.quota;
+      if (q && typeof q.remaining === "number" && typeof q.limit === "number" && q.limit > 0) {
+        body.appendChild(el(
+          "p",
+          "gt-cc-photocount",
+          q.remaining > 0
+            ? T(S.quotaLeft, { remaining: String(q.remaining), limit: String(q.limit) })
+            : S.quotaNone,
+        ));
       }
 
       body.appendChild(el("p", "gt-cc-disclaimer", String(data.disclaimer || "")));
@@ -1241,6 +1260,7 @@
     // sheet rather than carrying its own copy.
     const mountedBadge = SHADOW.createBadgeHost(document, CSS, badge.cls);
     const wrap = mountedBadge.root;
+    if (themePref) wrap.setAttribute("data-theme", themePref); // US-3055
     mountedBadge.host.setAttribute("dir", "ltr");
     for (const part of badge.parts) {
       wrap.appendChild(el("span", "gt-cc-badge-chip " + part.cls, part.text));
@@ -1326,6 +1346,32 @@
   // overlay is the ONLY result surface — routing these through it rather than
   // grading in the worker means one epoch guard, one place a stale result could
   // ever appear, and one thing to close.
+  // US-3052: the popup's flip check. The popup cannot read the page, so it
+  // asks this script for the same fields runAppraise would send — and then
+  // sends GT_CC_APPRAISE itself, through the same worker gate. Synchronous
+  // sendResponse: everything here is already on the page.
+  chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
+    if (!msg || msg.type !== "GT_CC_FLIP_CONTEXT") return;
+    if (!adapter) { sendResponse({ ok: false, reason: "no-adapter" }); return; }
+    // Snapshotted first, like appraisedUrl in runAppraise: the URL travels to
+    // the popup and back as the appraisal target, so it must be the page this
+    // answer was read from (US-1878 AC5).
+    const hereUrl = location.href;
+    const ebayId = ebayItemIdHere(hereUrl);
+    const imageUrls = ebayId ? [] : extractImageUrls();
+    if (!ebayId && !imageUrls.length) { sendResponse({ ok: false, reason: "no-photos" }); return; }
+    sendResponse({
+      ok: true,
+      url: hereUrl,
+      ebay: Boolean(ebayId),
+      imageUrls: imageUrls,
+      title: extractTitle(),
+      brand: extractBrand(),
+      priceCents: FLIP ? FLIP.priceToCents(extractPrice()) : null,
+      marketplace: (adapter && adapter.key) || "",
+    });
+  });
+
   chrome.runtime.onMessage.addListener(function (msg) {
     if (!msg || msg.type !== "GT_CC_RUN") return;
     if (!adapter) return; // no adapter matched this page — nothing to grade
@@ -1375,6 +1421,7 @@
     // renders: a host the shopper switched off must be silent on its search
     // pages too, not just its listings.
     const settings = await send({ type: "GT_CC_GET_SETTINGS" });
+    themePref = settings && (settings.theme === "light" || settings.theme === "dark") ? settings.theme : null; // US-3055
     if (stale()) return;
     const host = location.host;
     if (settings && Array.isArray(settings.disabledHosts) && settings.disabledHosts.includes(host)) {

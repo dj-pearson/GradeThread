@@ -1,11 +1,62 @@
-/* GradeThread unified extension — popup styles (US-1885) */
+/* GradeThread unified extension — popup styles (US-1885, redesigned 2026-09-02)
+ *
+ * ONE SYSTEM. Every surface in this file reads from the tokens at the top:
+ * colours by role (not by hex), a four-step spacing scale, three radii, and a
+ * single elevation, which is a hairline border. Nothing here draws a shadow
+ * under a border, nothing uses a coloured side tab, and no text is a gradient.
+ * The brand's own colours (navy, red, night, soft gray) are the only chroma;
+ * green and amber appear only where they carry a state.
+ *
+ * WIDTH. 380px, up from 340. Chrome allows 800, and the extra 40 is what lets a
+ * queue row hold a monogram, a title, a state and an action on one line —
+ * which is the difference between a list a seller can scan and one they read.
+ */
 :root {
+  /* brand */
   --navy: #0f3460;
+  --navy-deep: #0b2749;
+  --navy-soft: #e8eef8;
   --red: #e94560;
+  --red-deep: #d43a53;
+  /* Button surfaces. Brand red under white text is 3.8:1; this cut is 4.6:1
+     at rest and 5.6:1 on hover. The brand red stays for accents (badges,
+     rings, the nav count) where it sits beside text rather than under it. */
+  --cta: #d43a53;
+  --cta-hover: #c42a43;
+  --red-soft: #fdecef;
   --night: #1a1a2e;
   --gray: #f5f5f5;
-  --muted: #8a8a9c;
-  --line: #eeeef4;
+
+  /* surfaces + ink */
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f6f7fb;
+  --fg: #1a1a2e;
+  --fg-2: #4a4a5e;
+  --muted: #6f6f86;
+  --line: #e6e7ef;
+  --line-strong: #d3d5e2;
+
+  /* states */
+  --ok: #157a46;
+  --ok-soft: #e6f4ea;
+  --warn: #8a5a00;
+  --warn-soft: #fef5df;
+  --bad: #b3223a;
+  --bad-soft: #fdecef;
+  --info: #0f3460;
+  --info-soft: #e8eef8;
+
+  /* scale */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --r-sm: 8px;
+  --r: 12px;
+  --r-lg: 16px;
+  --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--red);
 }
 * { box-sizing: border-box; }
 
@@ -13,78 +64,134 @@
  *
  * The UA sheet's `[hidden] { display: none }` has the lowest possible
  * specificity, so every class here that sets its own `display` silently
- * defeated it. `.pop-toggle` and `.pop-perm` are both `display: flex`, which
- * meant "Enabled on this site" and the whole Firefox permission prompt rendered
- * on every popup no matter what the JS did — the code hid them correctly and the
- * stylesheet put them straight back.
- *
- * Every show/hide in popup.js goes through the `hidden` property, so this one
- * line is the difference between that mechanism working and not. It is the rare
- * honest `!important`: the whole point is that nothing may override it. */
+ * defeated it. Every show/hide in popup.js goes through the `hidden` property,
+ * so this one line is the difference between that mechanism working and not.
+ * It is the rare honest `!important`: the whole point is that nothing may
+ * override it. */
 [hidden] { display: none !important; }
+
+html { color-scheme: light dark; }
 body {
   margin: 0;
-  width: 340px;
+  width: 380px;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  color: var(--night);
+  color: var(--fg);
   background: #fff;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+}
+button, input, select { font: inherit; }
+:is(button, a, input, select, summary):focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+em { font-style: italic; }
+kbd {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  color: var(--fg-2);
+  background: var(--surface);
 }
 
+/* ── header ─────────────────────────────────────────────────────────────── */
 .pop-head {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 12px 16px 12px 14px;
   background: var(--navy);
   color: #fff;
 }
-.pop-logo { width: 30px; height: 30px; border-radius: 6px; }
-.pop-head-text { display: flex; flex-direction: column; line-height: 1.2; }
-.pop-brand { font-weight: 700; font-size: 15px; }
-.pop-sub { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: #cfe0ff; }
-.pop-ver { margin-left: auto; font-size: 11px; opacity: 0.7; }
+.pop-logo { width: 30px; height: 30px; border-radius: 8px; flex: 0 0 auto; }
+.pop-head-text { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+.pop-brand { margin: 0; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; line-height: 1.2; }
+.pop-sub { font-size: 11px; color: #b9cdf0; margin-top: 1px; }
+/* The account chip. A signed-out install reads "Sign in", a signed-in one its
+   plan, and the chip is a button either way: on the popup's first screen the
+   account state is the one fact that changes what every tab can do. */
+.pop-headacct {
+  margin-left: auto;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pop-headacct:hover { background: rgba(255, 255, 255, 0.16); }
+.pop-headacct-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cta);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+.pop-headacct[data-state="anon"] .pop-headacct-dot { background: rgba(255, 255, 255, 0.25); }
+.pop-headacct[data-state="seller"] .pop-headacct-dot { background: #2fb36a; }
 
 /* ── the three main tabs ─────────────────────────────────────────────────
-   Distinct from .pop-tabs (Recent reads / By seller), which is a sub-tab set
-   INSIDE the Reads panel. Two tab strips on one screen have to look different
-   or neither reads as the primary one: this strip is a filled bar attached to
-   the navy header, the inner one is underlined text on white. */
+   A white tab bar under the navy header. Distinct from .pop-tabs (Recent
+   reads / By seller), which is a two-item switch INSIDE the Reads panel. */
 .pop-nav {
-  display: flex;
-  background: var(--navy);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
   padding: 0 8px;
-  gap: 2px;
 }
+.pop-nav-list { display: grid; grid-template-columns: repeat(3, 1fr); }
 .pop-navtab {
   appearance: none;
   background: none;
   border: 0;
   border-bottom: 2px solid transparent;
-  padding: 8px 12px 7px;
-  font: inherit;
-  font-size: 12px;
+  margin-bottom: -1px;
+  padding: 10px 6px 9px;
+  font-size: 13px;
   font-weight: 600;
-  color: #a9c2eb;
+  color: var(--muted);
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
+  border-radius: 0;
 }
-.pop-navtab:hover { color: #fff; }
-.pop-navtab.is-on { color: #fff; border-bottom-color: var(--red); }
-/* Pending delists. Red because it is the one count with a deadline attached —
-   a sibling left live after a sale is how one garment gets sold twice. */
+.pop-navtab svg { width: 15px; height: 15px; flex: 0 0 auto; }
+.pop-navtab:hover { color: var(--fg); }
+.pop-navtab.is-on { color: var(--navy); border-bottom-color: var(--navy); }
+.pop-navtab:focus-visible { box-shadow: inset 0 0 0 2px var(--red); }
+/* Outstanding seller work. Red because it is the one count with a deadline
+   attached — a sibling left live after a sale is how one garment gets sold
+   twice. */
 .pop-navcount {
-  min-width: 16px;
+  min-width: 17px;
   padding: 0 5px;
   border-radius: 999px;
-  background: var(--red);
+  background: var(--cta);
   color: #fff;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
-  line-height: 16px;
+  line-height: 17px;
   text-align: center;
 }
 
@@ -92,612 +199,914 @@ body {
 .pop-panel { display: flex; flex-direction: column; }
 .pop-panel[hidden] { display: none; }
 
-/* Advanced (the selector diagnostic). Collapsed by default — see popup.html. */
-.pop-adv { font-size: 12px; }
-.pop-adv-sum {
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #6b6b80;
-  list-style: none;
+.pop-section {
+  padding: var(--s-4) var(--s-4);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-3);
 }
-.pop-adv-sum::-webkit-details-marker { display: none; }
-.pop-adv-sum::before { content: "▸ "; }
-.pop-adv[open] .pop-adv-sum::before { content: "▾ "; }
-.pop-adv > *:not(summary) { margin-top: 10px; }
-.pop-section { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
 .pop-section:last-of-type { border-bottom: 0; }
-.pop-h2 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b6b80; }
-.pop-lead { margin: 0; font-size: 12px; line-height: 1.45; color: #33334d; }
-/* US-2237: the scan-mode caveat under its toggle — quieter than a lead. */
-.pop-hint { margin: -2px 0 0; font-size: 11px; line-height: 1.4; color: #6b6b80; }
+.pop-h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pop-lead { margin: 0; font-size: 13px; line-height: 1.5; color: var(--fg-2); }
+.pop-hint { margin: 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
 
-/* account */
-.pop-account { background: var(--gray); }
-.pop-acct-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+/* ── the site context card (Reads) ────────────────────────────────────────
+   Says where the shopper is and what the button will do there. Grey dot on an
+   unsupported page, navy dot on a supported one, so the disabled button reads
+   as "not here" rather than "broken". */
+.pop-site {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+.pop-site-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--line-strong);
+  flex: 0 0 auto;
+}
+.pop-site[data-state="ready"] .pop-site-dot { background: var(--ok); }
+.pop-site[data-state="off"] .pop-site-dot { background: var(--warn); }
+.pop-site-body { min-width: 0; display: flex; flex-direction: column; }
+.pop-site-host {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pop-site-note { font-size: 11px; color: var(--muted); }
+.pop-site-kbd { margin-left: auto; flex: 0 0 auto; }
+
+/* ── stats strip ───────────────────────────────────────────────────────────
+   Three numbers over three labels. Tabular figures so a 10.0 and a 7.5 line
+   up; no icons, no tiles-in-tiles. */
+.pop-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.pop-stat {
+  display: flex;
+  flex-direction: column;
+  padding: 9px 12px;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+}
+.pop-stat:first-child { border-left: 0; }
+.pop-stat-n {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.pop-stat-l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.pop-stat.urgent .pop-stat-n { color: var(--red); }
+/* Chips (the work summary) share the tile shell but are buttons that jump. */
+.pop-worksum {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  overflow: hidden;
+  margin: 0 0 var(--s-3);
+}
+.pop-chip {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 9px 12px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+}
+.pop-chip:first-child, .pop-chip[hidden] + .pop-chip { border-left: 0; }
+.pop-chip:hover { background: var(--surface-2); }
+.pop-chip:focus-visible { box-shadow: inset 0 0 0 2px var(--red); }
+.pop-chip-n {
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+.pop-chip-l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.pop-chip.urgent .pop-chip-n { color: var(--red); }
+.pop-worksum-clear {
+  grid-column: 1 / -1;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--ok);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pop-worksum-clear::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+/* ── account (Settings) ───────────────────────────────────────────────────── */
+.pop-account { background: var(--surface-2); }
+.pop-acct-row { display: flex; align-items: flex-start; gap: 12px; }
+.pop-acct-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--navy);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 15px;
+  flex: 0 0 auto;
+}
+.pop-acct-main { min-width: 0; flex: 1 1 auto; }
 .pop-acct-state { font-weight: 700; font-size: 13px; }
-.pop-acct-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
-.pop-badges { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
-.pop-badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
-.pop-badge.buyer { background: #e6efff; color: var(--navy); }
-.pop-badge.seller { background: #e6f4ea; color: #137333; }
+.pop-acct-sub { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.45; }
+.pop-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.pop-badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.pop-badge.buyer { background: var(--navy-soft); color: var(--navy); }
+.pop-badge.seller { background: var(--ok-soft); color: var(--ok); }
+.pop-acct-actions { display: flex; flex-direction: column; gap: 8px; }
 
-/* toggles */
-.pop-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
-.pop-toggle input { accent-color: var(--red); }
-/* A toggle carrying an explanatory sub-note is two lines tall, so centre-aligning
-   would float the checkbox against the middle of the text block. Align to the
-   top and pin the checkbox's own line-height to the first line. */
+/* ── toggles as switches ─────────────────────────────────────────────────
+   The markup stays a checkbox (popup.js reads .checked); the control is drawn
+   as a 34x20 switch. `accent-color` alone left the popup looking like a form. */
+.pop-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+.pop-toggle > input {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 20px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--line-strong);
+  position: relative;
+  cursor: pointer;
+  transition: background 160ms ease;
+}
+.pop-toggle > input::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 160ms ease;
+}
+.pop-toggle > input:checked { background: var(--navy); }
+.pop-toggle > input:checked::after { transform: translateX(14px); }
+.pop-toggle > input:disabled { opacity: 0.5; cursor: not-allowed; }
+.pop-toggle > span { flex: 1 1 auto; min-width: 0; }
+/* A toggle carrying an explanatory sub-note is two lines tall, so centre-
+   aligning would float the switch against the middle of the text block. */
 .pop-toggle:has(.pop-note) { align-items: flex-start; }
-.pop-toggle:has(.pop-note) input { margin-top: 2px; }
-.pop-note { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); line-height: 1.35; }
+.pop-toggle:has(.pop-note) > input { margin-top: 1px; }
+.pop-note { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); line-height: 1.4; font-weight: 400; }
+.pop-toggle-list { display: flex; flex-direction: column; gap: 10px; }
 
-/* US-1881: the Firefox host-permission ask. Elevation is declared ONCE (a border,
-   no shadow under it), and the secondary text is tinted out of the surface hue
-   rather than dropped to grey — grey on a colour reads as disabled, and this
-   block is the one thing on the popup we want acted on. */
+/* US-1881: the Firefox host-permission ask. Elevation is declared ONCE (a
+   border, no shadow under it), and the secondary text is tinted from the
+   surface hue rather than dropped to grey. */
 .pop-perm {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 10px 12px;
   border: 1px solid #f0dcae;
-  border-radius: 12px;
+  border-radius: var(--r);
   background: #fdf6e5;
 }
 .pop-perm-text { margin: 0; font-size: 12px; line-height: 1.45; color: #6b4a00; }
 .pop-perm .pop-cta { margin: 0; }
 
-/* recent reads */
-.pop-reads { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
-.pop-empty { font-size: 12px; color: var(--muted); line-height: 1.4; }
-.pop-read { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
-.pop-read a { text-decoration: none; color: inherit; display: flex; align-items: center; gap: 10px; width: 100%; }
-.pop-read-score { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 13px; }
-.pop-read-body { min-width: 0; }
-.pop-read-title { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pop-read-meta { font-size: 11px; color: var(--muted); }
+/* ── recent reads ─────────────────────────────────────────────────────────── */
+.pop-reads {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 232px;
+  overflow-y: auto;
+}
+.pop-empty {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+  padding: 14px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r);
+  text-align: center;
+}
+.pop-read {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+.pop-read:hover { border-color: var(--line-strong); background: var(--surface-2); }
+.pop-read a { text-decoration: none; color: inherit; display: flex; align-items: center; gap: 10px; width: 100%; min-width: 0; }
+/* The score ring. A conic fill from 0 to the score, over a hairline track,
+   with the number in the middle. `--p` (percent) and `--c` (colour) are set
+   by popup.js; the .s-* classes supply --c so the palette stays here. */
+.pop-read-score {
+  --p: 0;
+  --c: var(--muted);
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: conic-gradient(var(--c) calc(var(--p) * 1%), var(--line) 0);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg);
+}
+.pop-read-score::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+.pop-read-score > span { position: relative; }
+.pop-read-body { min-width: 0; flex: 1 1 auto; }
+.pop-read-title { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pop-read-meta { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; }
+.pop-read-meta .pop-tag { flex: 0 0 auto; }
+.pop-read-when { margin-left: auto; font-size: 11px; color: var(--muted); flex: 0 0 auto; }
 
-.s-excellent { background: #1f9d55; }
-.s-good { background: #3a9d5d; }
-.s-fair { background: #d19a1e; }
-.s-poor { background: #d97a2b; }
-.s-bad { background: var(--red); }
+.s-excellent { --c: #1f9d55; }
+.s-good { --c: #3a9d5d; }
+.s-fair { --c: #d19a1e; }
+.s-poor { --c: #d97a2b; }
+.s-bad { --c: var(--red); }
 
-/* seller platforms */
-.pop-platforms { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.pop-platforms li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 0; }
+/* A small neutral tag — marketplace, kind, field list. Never coloured: the
+   coloured pills are .pop-status, and they mean state. */
+.pop-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--fg-2);
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+/* ── US-3057: the history filter ────────────────────────────────────────────
+   A search field and a row of marketplace chips. A chip is a toggle: pressed
+   = that marketplace only (several may be pressed). The field and the chips
+   share one hairline weight with the rest of the panel. */
+.pop-filter { display: flex; flex-direction: column; gap: 8px; }
+.pop-filter-q {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+}
+.pop-filter-q::placeholder { color: var(--muted); }
+.pop-filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pop-filter-chips:empty { display: none; }
+.pop-chipbtn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg-2);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pop-chipbtn[aria-pressed="true"] { background: var(--navy); border-color: var(--navy); color: #fff; }
+.pop-chipbtn .n { opacity: 0.7; font-weight: 500; }
+
+/* ── the compare card ─────────────────────────────────────────────────────── */
+.pop-compare {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+  text-align: left;
+}
+.pop-compare:hover { background: var(--surface-2); border-color: var(--line-strong); }
+.pop-compare-n {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  background: var(--navy-soft);
+  color: var(--navy);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  flex: 0 0 auto;
+}
+.pop-compare-t { font-size: 13px; font-weight: 600; }
+.pop-compare-s { font-size: 11px; color: var(--muted); }
+.pop-compare-go { margin-left: auto; color: var(--navy); font-weight: 600; font-size: 12px; }
+
+/* ── seller platforms ─────────────────────────────────────────────────────── */
+.pop-platforms { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.pop-platforms li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.pop-platforms li:first-child { border-top: 0; }
 .pop-platforms .name { font-weight: 600; font-size: 13px; }
-.pop-platforms .meta { font-size: 10px; color: var(--muted); }
-.pop-status { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 999px; text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap; }
-.pop-status.on { background: #e6f4ea; color: #137333; }
-.pop-status.off { background: #fdecef; color: var(--red); }
-/* US-1885 AC1: the middle ground — "waiting for you to sign in" and "we couldn't
-   confirm the delist" are neither success nor failure, and flattening either into
-   on/off loses the action. An unconfirmed delist in particular must not read as
-   green: the listing may still be live after selling elsewhere. */
-.pop-status.warn { background: #fef7e0; color: #8a5a00; }
+.pop-platforms .meta { font-size: 11px; color: var(--muted); }
+.pop-platforms .pop-status { margin-left: auto; }
+/* Platform monograms. One letter on the marketplace's own hue, so a queue of
+   six rows can be scanned by colour before it is read. */
+.pop-mono {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+  color: #fff;
+  background: var(--navy);
+  flex: 0 0 auto;
+}
+.pop-mono[data-platform="poshmark"] { background: #7f0353; }
+.pop-mono[data-platform="mercari"] { background: #d1332c; }
+.pop-mono[data-platform="grailed"] { background: #1b1b1b; }
+.pop-mono[data-platform="vinted"] { background: #09857b; }
+.pop-mono[data-platform="facebook"] { background: #1877f2; }
+.pop-mono[data-platform="ebay"] { background: #e53238; }
+.pop-mono[data-platform="depop"] { background: #ff2300; }
+
+.pop-status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  line-height: 16px;
+}
+.pop-status.on { background: var(--ok-soft); color: var(--ok); }
+.pop-status.off { background: var(--bad-soft); color: var(--bad); }
+/* US-1885 AC1: the middle ground — "waiting for you to sign in" and "we
+   couldn't confirm the delist" are neither success nor failure. */
+.pop-status.warn { background: var(--warn-soft); color: var(--warn); }
 
 /* consent */
-.pop-tos { display: flex; flex-direction: column; gap: 8px; }
-.pop-tos-row { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; line-height: 1.4; }
-.pop-tos-row input { margin-top: 2px; accent-color: var(--red); }
-.pop-tos-row a { color: var(--navy); }
-.pop-accepted { color: #137333; font-size: 12px; margin: 0; }
+.pop-tos { display: flex; flex-direction: column; gap: 10px; }
+.pop-tos-row { display: flex; gap: 10px; align-items: flex-start; font-size: 12px; line-height: 1.45; cursor: pointer; }
+.pop-tos-row input { margin: 2px 0 0; accent-color: var(--navy); width: 15px; height: 15px; flex: 0 0 auto; }
+.pop-tos-row a { color: var(--navy); font-weight: 600; }
+.pop-accepted { color: var(--ok); font-size: 12px; margin: 0; display: flex; align-items: center; gap: 6px; }
 
-/* buttons */
+/* ── buttons ─────────────────────────────────────────────────────────────── */
 .pop-cta {
-  display: block; width: 100%; text-align: center;
-  background: var(--red); color: #fff; font-weight: 600; font-size: 13px;
-  padding: 9px 10px; border: 0; border-radius: 10px; cursor: pointer; text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  background: var(--cta);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 120ms ease;
 }
-.pop-cta:hover { background: #d43a53; }
-.pop-cta:disabled { opacity: 0.45; cursor: not-allowed; }
+.pop-cta:hover { background: var(--cta-hover); }
+.pop-cta:disabled { background: var(--line-strong); color: var(--muted); cursor: not-allowed; }
+.pop-cta svg { width: 15px; height: 15px; }
+/* An in-card action, not a page CTA. Navy, so the panel's one red thing stays
+   the count that has a clock on it. */
+.pop-cta-sm {
+  align-self: flex-start;
+  width: auto;
+  margin-top: 0;
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--navy);
+}
+.pop-cta-sm:hover { background: var(--navy-deep); }
+.pop-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pop-btn:hover { background: var(--surface-2); border-color: var(--navy); color: var(--navy); }
+.pop-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.pop-btn.danger:hover { border-color: var(--bad); color: var(--bad); }
+.pop-btn-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .pop-linkbtn {
-  background: transparent; border: 0; color: var(--muted); font-size: 11px;
-  cursor: pointer; text-decoration: underline; padding: 0; align-self: flex-start;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--navy);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  padding: 2px 0;
+  align-self: flex-start;
+  border-radius: 4px;
 }
+.pop-linkbtn:hover { text-decoration: underline; }
+.pop-linkbtn:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+.pop-linkbtn.quiet { color: var(--muted); font-weight: 500; }
 
-/* footer */
-.pop-foot { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; font-size: 11px; }
-.pop-foot a { color: var(--navy); text-decoration: none; }
+/* ── footer ──────────────────────────────────────────────────────────────── */
+.pop-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  font-size: 11px;
+  color: var(--muted);
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.pop-foot a { color: var(--navy); text-decoration: none; font-weight: 500; }
 .pop-foot a:hover { text-decoration: underline; }
 /* US-3048 — "All settings & data" sits between two links and must read as a
  * third. It is a <button> because it opens the options page through the
- * runtime API rather than a URL, and an <a href="#"> that runs script is a
- * link that lies about where it goes. */
+ * runtime API rather than a URL. */
 .pop-footbtn {
   appearance: none;
   background: none;
   border: 0;
   padding: 0;
-  font: inherit;
   font-size: 11px;
+  font-weight: 500;
   color: var(--navy);
   cursor: pointer;
 }
 .pop-footbtn:hover { text-decoration: underline; }
+.pop-ver { margin-left: auto; font-variant-numeric: tabular-nums; }
 
-em { font-style: italic; }
-
-/* US-1885 AC1: last Lister job outcome. The popup previously showed no job state
-   at all, so a cross-post that timed out — or a delist we could not confirm — left
-   the seller with nowhere to find out what happened. */
-.pop-lastjob {
-  margin: 10px 0 12px;
-  padding: 8px 10px;
-  border: 1px solid var(--pop-border, #e5e7eb);
-  border-radius: 8px;
-  background: var(--pop-subtle, #fafafa);
+/* ── cards (Selling) ─────────────────────────────────────────────────────
+ * One shell for every block on the Selling tab: last job, the three queues,
+ * sold-sync, the schedule, sharing. Four blocks that each answer "what is
+ * outstanding" must not look like four different features. */
+.pop-lastjob,
+.pop-delists,
+.pop-engage,
+.pop-probe {
+  margin: 0 0 var(--s-3);
+  padding: 10px 12px 12px;
+  border: 1px solid var(--pop-border, #e6e7ef);
+  border-radius: var(--r);
+  background: var(--pop-subtle, #ffffff);
 }
 .pop-lastjob-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
+  flex-wrap: wrap;
+  min-height: 22px;
 }
 .pop-lastjob-label {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  opacity: 0.6;
+  white-space: nowrap;
+  color: var(--fg);
 }
-.pop-lastjob-when { font-size: 11px; opacity: 0.6; }
-.pop-lastjob-body {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-}
-.pop-lastjob-what { font-size: 12px; font-weight: 600; }
+.pop-lastjob-when { font-size: 11px; color: var(--muted); }
+.pop-lastjob-body { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.pop-lastjob-what { font-size: 13px; font-weight: 600; }
 /* The error is the actionable part — an unconfirmed delist means "go and check
    the marketplace", so it must not read as decorative fine print. */
 .pop-lastjob-error {
-  margin: 6px 0 0;
-  font-size: 11px;
-  line-height: 1.4;
-  opacity: 0.85;
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--bad);
+  background: var(--bad-soft);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
 }
-
-/* Pending delists (US-1885 AC1). Same card shell as .pop-lastjob — this sits
-   directly beneath it and reading as one family keeps the seller block calm. */
-.pop-delists {
-  margin: 0 0 12px;
-  padding: 8px 10px;
-  border: 1px solid var(--pop-border, #e5e7eb);
-  border-radius: 8px;
-  background: var(--pop-subtle, #fafafa);
-}
-.pop-delist-note {
-  margin: 6px 0 0;
-  font-size: 11px;
-  line-height: 1.4;
-  opacity: 0.85;
-}
-.pop-delist-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.pop-delist-note { margin: 6px 0 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.pop-delist-list { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .pop-delist {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
+  padding: 6px 8px;
+  margin: 0 -8px;
+  border-radius: var(--r-sm);
 }
-/* min-width:0 lets the title ellipsis instead of forcing the row wider than the
-   340px popup and pushing the action out of reach. */
+.pop-delist:hover { background: var(--surface-2); }
 .pop-delist-body { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
 .pop-delist-title {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 /* Ellipsis, not wrap. A queue row's meta line is three facts joined by dots
- * and it wraps at about 44 characters on a 340px popup — which turned every
- * second row into two lines and made a list of four impossible to scan. */
+ * and it turned every second row into two lines when it wrapped. */
 .pop-delist-meta {
   font-size: 11px;
-  opacity: 0.6;
+  color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
-/* US-3048 — the cross-listing queue and the work summary.
- *
- * Both reuse .pop-delists / .pop-delist so the Selling panel stays one visual
- * family: four blocks that each answer "what is outstanding" should not look
- * like four different features. Only the additions live here. */
-
-/* The reason a queue row will never run, on its own line under it. Full-width
- * (it is a sibling <li>, not a cell) because these are real sentences and an
- * error truncated to one line is an error nobody can act on. */
-.pop-delist-why {
-  font-size: 11px;
-  line-height: 1.45;
-  color: #8a2d3b;
-  background: #fdecef;
-  border-radius: 6px;
-  padding: 6px 8px;
-}
-/* A failed or expired row, marked on the row itself and not only on its badge.
- * A surface tint rather than an accent bar: the reason line directly beneath it
- * already carries the same tint, so the row and its explanation read as one
- * thing, and a list of six failures does not turn into a barcode. */
-.pop-delist.is-attention {
-  background: #fff7f8;
-  border-radius: 6px;
-  padding: 4px 8px;
-  margin: 0 -8px -2px;
-}
-
-/* The summary strip. Counts with a jump, above nine stacked blocks on a 340px
- * popup where the first screen holds about three of them. */
-.pop-worksum {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 12px;
-}
-.pop-chip {
-  appearance: none;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-  padding: 4px 10px;
-  border: 1px solid #dcdce8;
-  border-radius: 999px;
-  background: #fff;
-  color: var(--night);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-.pop-chip:hover { border-color: var(--navy); }
-.pop-chip:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
-.pop-chip-n { font-weight: 700; font-size: 13px; }
-.pop-chip-l { opacity: 0.7; }
-/* Ending a sold item's siblings is the only count here with an hour cost
- * attached, so it is the only one that gets the accent. */
-.pop-chip.urgent { border-color: #f3c2cb; background: #fdecef; }
-.pop-chip.urgent .pop-chip-n { color: var(--red); }
-.pop-worksum-clear { font-size: 11px; color: var(--muted); }
-
 /* Badge + action as one right-hand group, so a wrapped title can never leave
- * the state on one line and the button for it on another. */
-.pop-delist-actions {
+   the state on one line and the button for it on another. */
+.pop-delist-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: 0 0 auto; }
+.pop-delist-actions .pop-status { min-width: 56px; text-align: center; }
+/* The reason a queue row will never run, on its own line under it. Full-width
+ * because these are real sentences and an error truncated to one line is an
+ * error nobody can act on. */
+.pop-delist-why {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--bad);
+  background: var(--bad-soft);
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+  margin: -2px 0 4px 36px;
+}
+/* A failed or expired row, marked on the row itself and not only its badge.
+ * A surface tint rather than an accent bar. */
+.pop-delist.is-attention { background: #fff7f8; }
+/* Group labels inside the queue: what went wrong, what is running, what waits. */
+.pop-qgroup {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
+  margin: 8px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.pop-qgroup::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line); }
+.pop-qgroup[data-group="attention"] { color: var(--bad); }
+.pop-qgroup[data-group="running"] { color: var(--warn); }
+/* The running group's marker. Static: the label beside it already says
+   "Running now", and a pulse would only decorate that. */
+.pop-live {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
   flex: 0 0 auto;
 }
-/* A common floor so Cancel sits in the same column down the list instead of
- * stepping in and out with the width of the word beside it. */
-.pop-delist-actions .pop-status { min-width: 56px; text-align: center; }
-/* An in-card action, not a page CTA. Full-width brand red inside a card made
- * "Run these now" the loudest thing in the panel — louder than the two sold
- * items above it that actually have a clock on them. */
-.pop-cta-sm {
-  align-self: flex-start;
-  width: auto;
-  margin-top: 8px;
-  padding: 5px 12px;
-  font-size: 12px;
-  background: var(--navy);
-}
-.pop-cta-sm:hover { background: #14427c; }
-/* A block header whose right-hand status is a sentence, not a word. Nowrap on
- * the label keeps "Cross-listing queue" on one line and lets the counts wrap
- * beneath it instead of breaking the heading in half. */
-.pop-lastjob-head { flex-wrap: wrap; }
-.pop-lastjob-label { white-space: nowrap; }
+/* Bulk actions under the queue. Run first (it is the reason the card exists),
+   then the two tidy-ups, both quiet. */
+.pop-qbulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.pop-qbulk .pop-cta-sm { margin: 0; }
 
-/* US-2239 — the Recent reads / By seller switch.
- *
- * A two-item switch, not a nav: underline-on-active only, so it reads as one
- * control rather than as two buttons competing with the section headings. */
+/* US-2239 — the Recent reads / By seller switch. A two-item switch, not a
+   nav: a soft segmented control so it reads as one control. */
 .pop-tabs {
-  display: flex;
-  gap: 14px;
-  margin: 0 0 8px;
-  border-bottom: 1px solid #e6e6ef;
+  display: inline-flex;
+  gap: 2px;
+  margin: 0;
+  padding: 2px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  align-self: flex-start;
 }
-
 .pop-tab {
   appearance: none;
   background: none;
   border: 0;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  padding: 4px 0 6px;
-  font: inherit;
+  border-radius: 999px;
+  padding: 4px 10px;
   font-size: 12px;
   font-weight: 600;
-  color: #6b6b80;
+  color: var(--muted);
   cursor: pointer;
 }
+.pop-tab.is-on { color: var(--navy); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); }
+.pop-tab:focus-visible { box-shadow: var(--focus); }
+.pop-section-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
-.pop-tab.is-on { color: #0f3460; border-bottom-color: #0f3460; }
-.pop-tab:focus-visible { outline: 2px solid #e94560; outline-offset: 2px; }
-
-
-/* ── US-2482: Poshmark engagement — the share-jail meter ────────────────────
- *
- * A single bar, one border, no shadow. The colour shift at 80% and at the cap is
- * the only decoration, and it is carrying information rather than emphasis: the
- * seller needs to know at a glance whether today's run has room left. */
-.pop-engage {
-  margin: 10px 0 0;
-  padding: 10px;
-  border: 1px solid #e6e6ef;
-  border-radius: 12px;
-}
-
-.pop-meter { margin-top: 8px; }
-
-.pop-meter-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 12px;
+/* Advanced (the selector diagnostic) and Channels: collapsed by default. */
+.pop-adv { font-size: 12px; }
+.pop-adv-sum {
+  cursor: pointer;
+  font-size: 13px;
   font-weight: 600;
-  color: #1a1a2e;
+  color: var(--fg-2);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
 }
-
-.pop-meter-track {
-  margin-top: 5px;
+.pop-adv-sum::-webkit-details-marker { display: none; }
+.pop-adv-sum::before {
+  content: "";
+  width: 6px;
   height: 6px;
-  border-radius: 999px;
-  background: #edeef3;
-  overflow: hidden;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  margin: 0 4px 0 2px;
+  transition: transform 120ms ease;
 }
+.pop-adv[open] .pop-adv-sum::before { transform: rotate(45deg); margin-top: -3px; }
+.pop-adv-sum .pop-adv-count { color: var(--muted); font-weight: 500; }
+.pop-adv > *:not(summary) { margin-top: 10px; }
 
-.pop-meter-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: #0f3460;
-  transition: width 200ms ease;
-}
-
+/* ── US-2482: Poshmark engagement — the share-jail meter ────────────────── */
+.pop-meter { margin-top: 8px; }
+.pop-meter-head { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; font-weight: 600; color: var(--fg); }
+.pop-meter-track { margin-top: 5px; height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; }
+.pop-meter-fill { height: 100%; border-radius: 999px; background: var(--navy); }
 .pop-meter-fill[data-state="near"] { background: #b8811f; }
-.pop-meter-fill[data-state="full"] { background: #e94560; }
-
-/* Tinted from the surface hue rather than a flat gray, so it reads as secondary
- * text on this card instead of as disabled text. */
-.pop-meter-note {
-  margin: 6px 0 0;
-  font-size: 11px;
-  line-height: 1.45;
-  color: #56566e;
-}
-
-.pop-engage-terms {
-  margin: 8px 0 10px;
-  padding-left: 16px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: #56566e;
-}
-
+.pop-meter-fill[data-state="full"] { background: var(--red); }
+.pop-meter-note { margin: 6px 0 0; font-size: 12px; line-height: 1.45; color: var(--muted); }
+.pop-engage-terms { margin: 8px 0 10px; padding-left: 16px; font-size: 12px; line-height: 1.5; color: var(--fg-2); }
 .pop-engage-terms li { margin-bottom: 5px; }
-
-/* US-2482: the run control. Plain fields on the card surface — the card already
- * declares the one border, so nothing in here draws a second one. */
-.pop-engage-row {
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
-  margin-top: 8px;
-}
-
+.pop-engage-row { display: flex; gap: 8px; align-items: flex-end; margin-top: 8px; }
 .pop-engage-row .pop-cta { margin: 0; flex: 1; }
-
-.pop-engage-field {
-  display: block;
-  flex: 1;
-  font-size: 11px;
-  font-weight: 600;
-  color: #56566e;
-}
-
+.pop-engage-field { display: block; flex: 1; font-size: 11px; font-weight: 600; color: var(--fg-2); margin-top: 8px; }
+.pop-engage-row .pop-engage-field { margin-top: 0; }
 .pop-engage-field select,
 .pop-engage-field input {
   display: block;
   width: 100%;
   margin-top: 4px;
-  padding: 6px 8px;
-  font: inherit;
+  padding: 7px 9px;
   font-size: 12px;
   font-weight: 400;
-  color: #1a1a2e;
-  background: #fff;
-  border: 1px solid #d9d9e4;
-  border-radius: 8px;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
 }
 
-.pop-engage-field select:focus-visible,
-.pop-engage-field input:focus-visible {
-  outline: 2px solid #e94560;
-  outline-offset: 1px;
-}
-
-/* ── US-2484: the one-click selector check ─────────────────────────────────
- *
- * The report is monospace because it IS data — an aligned column of selector
- * keys and their verdicts, which a proportional face would make unreadable.
- * That is the one legitimate use of monospace here. */
-.pop-probe {
-  margin: 10px 0 0;
-  padding: 10px;
-  border: 1px solid #e6e6ef;
-  border-radius: 12px;
-}
-
-.pop-probe-lead {
-  margin: 6px 0 8px;
-  font-size: 11px;
-  line-height: 1.5;
-  color: #56566e;
-}
-
-.pop-probe-deep {
-  display: flex;
-  gap: 7px;
-  align-items: flex-start;
-  margin: 0 0 8px;
-  font-size: 11px;
-  line-height: 1.45;
-  color: #56566e;
-  cursor: pointer;
-}
-
-.pop-probe-deep input {
-  margin: 1px 0 0;
-  flex: none;
-}
-
-.pop-probe-deep em {
-  display: block;
-  font-style: normal;
-  color: #7b7b90;
-}
-
-.pop-probe-verdict {
-  margin: 8px 0 0;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-
-.pop-probe-verdict[data-state="good"] { color: #1f6f43; }
-.pop-probe-verdict[data-state="bad"] { color: #b3223a; }
-
+/* ── US-2484: the one-click selector check ──────────────────────────────── */
+.pop-probe-lead { margin: 6px 0 8px; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.pop-probe-deep { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 10px; font-size: 12px; line-height: 1.45; color: var(--fg-2); cursor: pointer; }
+.pop-probe-deep input { margin: 2px 0 0; flex: none; accent-color: var(--navy); }
+.pop-probe-deep em { display: block; font-style: normal; color: var(--muted); }
+.pop-probe-verdict { margin: 8px 0 0; font-size: 12px; font-weight: 600; line-height: 1.4; }
+.pop-probe-verdict[data-state="good"] { color: var(--ok); }
+.pop-probe-verdict[data-state="bad"] { color: var(--bad); }
+/* Monospace because it IS data — an aligned column of selector keys and their
+   verdicts. The one legitimate use of monospace here. */
 .pop-probe-out {
   margin: 8px 0 0;
   max-height: 200px;
   overflow: auto;
   padding: 8px;
-  border-radius: 8px;
-  background: #f6f6fa;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
   font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #1a1a2e;
+  color: var(--fg);
   white-space: pre;
 }
 
+/* ── US-3052: the flip check in the popup ───────────────────────────────────
+ * The verdict is a status pill (buy = on, maybe = warn, pass = off), and the
+ * figures sit in a two-column list with tabular numbers, the same drawing the
+ * overlay's flip panel uses. One border, no shadow. */
+.pop-flip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+.pop-flip-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pop-flip-head .pop-status { font-size: 12px; padding: 3px 10px; }
+.pop-flip-rows { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 12px; }
+.pop-flip-rows dt { margin: 0; color: var(--fg-2); }
+.pop-flip-rows dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.pop-flip-reason { margin: 0; font-size: 12px; line-height: 1.45; color: var(--fg-2); }
+
+/* ── skeletons ───────────────────────────────────────────────────────────
+ * The Selling tab is empty for the ~300ms the entitlements call takes. Three
+ * grey bars say "loading" where a blank panel says "broken". */
+.pop-skel { display: flex; flex-direction: column; gap: 10px; }
+.pop-skel-bar {
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--line) 25%, var(--surface-2) 50%, var(--line) 75%);
+  background-size: 200% 100%;
+  animation: pop-shimmer 1.2s linear infinite;
+}
+.pop-skel-bar.tall { height: 44px; border-radius: var(--r); }
+.pop-skel-bar.w60 { width: 60%; }
+.pop-skel-bar.w40 { width: 40%; }
+@keyframes pop-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .pop-skel-bar { animation: none; }
+  .pop-toggle > input, .pop-toggle > input::after { transition: none; }
+}
+
+/* ── the locked / signed-out Selling states ─────────────────────────────── */
+.pop-lock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+}
+.pop-lock-t { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+.pop-lock .pop-lead { color: var(--fg-2); }
+.pop-lock ul { margin: 0; padding-left: 18px; font-size: 12px; color: var(--fg-2); line-height: 1.55; }
+
 /* ── dark theme (US-1884 AC4) ──────────────────────────────────────────────
- *
- * The popup shipped light-only, so on a dark OS it was a 340px white flash next
- * to the (already dark-themed) overlay.
- *
- * Worth being explicit about why this is NOT the browser-gated half of AC4: the
- * risk that defers the overlay's hardening is SITE CSS BLEEDING IN, which can
- * only be judged against real marketplace pages. The popup has no site. It is the
- * extension's own document in its own context — nothing can bleed into it, so the
- * only question is whether the palette is complete, which is answerable here.
  *
  * THIS BLOCK STAYS LAST IN THE FILE. It is one block by design (popup-theme.
  * test.ts fails the build on a second one), and a single block can only win
  * against equal-specificity light rules by being declared after all of them.
  *
- * Every element in this file is covered here. The ones that need care are the
- * SEMANTIC pills (status/badges/score), where the light palette is a pale tint +
- * dark ink — inverting that naively gives unreadable low-contrast text. They get
- * a dark tint + light ink instead, keeping the meaning (green = enabled, amber =
- * needs attention, red = failed) rather than the literal colours.
+ * Nearly everything above reads a token, so most of the theme is the :root
+ * re-assignment. What needs its own rule is the SEMANTIC pills, where the
+ * light palette is a pale tint + dark ink — inverting that naively gives
+ * unreadable low-contrast text. They get a dark tint + light ink instead.
  */
 @media (prefers-color-scheme: dark) {
   :root {
     --gray: #232338;
     --muted: #9a9ab0;
     --line: #2c2c44;
+    --line-strong: #3a3a56;
+    --bg: #16162a;
+    --surface: #1c1c30;
+    --surface-2: #212137;
+    --fg: #f5f5f5;
+    --fg-2: #d0d0dc;
+    --navy-soft: #1d2b4a;
+    --red-soft: #3a1a22;
+    --ok: #7fd39b;
+    --ok-soft: #17301f;
+    --warn: #f0c674;
+    --warn-soft: #3a2f14;
+    --bad: #ff8fa3;
+    --bad-soft: #3a1a22;
+    --info-soft: #1d2b4a;
   }
   body { color: #f5f5f5; background: #16162a; }
-
-  /* Head keeps the navy brand block — it reads correctly on dark already. */
-  /* .pop-h2 uses a literal, not var(--muted), so it needs its own override;
-     everything else that reads muted picks the new value up from :root. */
-  .pop-h2 { color: #9a9ab0; }
+  :root { --cta: #d43a53; --cta-hover: #bf2840; }
+  .pop-h2 { color: #d0d0dc; }
   .pop-lead { color: #d7d7e2; }
   .pop-hint { color: #9a9ab0; }
-  /* US-2239: the Recent reads / By seller switch. Folded into THIS block rather
-     than appended as a second @media — popup-theme.test.ts requires exactly one
-     prefers-color-scheme:dark block so the theme can't fragment. */
-  .pop-tabs { border-bottom-color: #2c2c44; }
-  .pop-tab { color: #9a9ab0; }
-  .pop-tab.is-on { color: #cfe0ff; border-bottom-color: #cfe0ff; }
+  kbd { color: #d0d0dc; background: #212137; border-color: #3a3a56; }
 
-  /* The main nav rides the navy header, which is already dark — so it needs no
-     inversion, only a slightly deeper ground so the strip still reads as a
-     separate row from the header above it. */
-  .pop-nav { background: #0c2749; }
-  .pop-adv-sum { color: #9a9ab0; }
+  .pop-nav { background: #16162a; }
+  .pop-navtab.is-on { color: #cfe0ff; border-bottom-color: #cfe0ff; }
+  .pop-adv-sum { color: #d0d0dc; }
 
-  .pop-account { background: #1e1e32; }
+  .pop-account { background: #1c1c30; }
   .pop-badge.buyer { background: #1d2b4a; color: #cfe0ff; }
   .pop-badge.seller { background: #17301f; color: #7fd39b; }
+  .pop-badge.seller, .pop-acct-avatar { border: 0; }
 
   .pop-read { border-color: #2c2c44; background: #1c1c30; }
+  .pop-read-score::before { background: #1c1c30; }
+  .pop-tag { background: #212137; border-color: #2c2c44; color: #d0d0dc; }
+  .pop-compare-n { background: #1d2b4a; color: #cfe0ff; }
+  .pop-compare-go { color: #9ec1ff; }
 
-  /* Pale-tint + dark-ink pills inverted to dark-tint + light-ink: a naive invert
-     would leave #137333 text on a near-black chip. */
+  /* Pale-tint + dark-ink pills inverted to dark-tint + light-ink. */
   .pop-status.on { background: #17301f; color: #7fd39b; }
   .pop-status.off { background: #3a1a22; color: #ff8fa3; }
   .pop-status.warn { background: #3a2f14; color: #f0c674; }
 
   .pop-tos-row a { color: #9ec1ff; }
   .pop-accepted { color: #7fd39b; }
+  .pop-linkbtn { color: #9ec1ff; }
+  .pop-btn { background: #1c1c30; color: #f5f5f5; border-color: #3a3a56; }
+  .pop-btn:hover { background: #212137; color: #cfe0ff; border-color: #9ec1ff; }
+  .pop-cta:disabled { background: #2c2c44; color: #9a9ab0; }
+  .pop-cta-sm { background: #24487f; }
+  .pop-cta-sm:hover { background: #2c559a; }
+  .pop-toggle > input { background: #3a3a56; }
+  .pop-toggle > input:checked { background: #4d7fd1; }
 
-  .pop-foot a { color: #9ec1ff; }
+  .pop-foot { background: #1c1c30; border-top-color: #2c2c44; }
+  .pop-foot a, .pop-footbtn { color: #9ec1ff; }
 
-  /* US-1885's last-job and pending-delist blocks. These already read through
-     vars with light fallbacks, so dark only has to supply the values. */
+  /* The card blocks read through vars with light fallbacks, so dark only has
+     to supply the values. */
   .pop-lastjob,
-  .pop-delists {
+  .pop-delists,
+  .pop-engage,
+  .pop-probe {
     --pop-border: #2c2c44;
     --pop-subtle: #1c1c30;
   }
+  .pop-delist:hover { background: #212137; }
+  .pop-delist.is-attention { background: #2a1a20; }
+  .pop-perm { background: #2f2712; border-color: #5a4a1a; }
+  .pop-perm-text { color: #f0c674; }
+  .pop-site { background: #212137; border-color: #2c2c44; }
+  .pop-lock { background: #1c1c30; border-color: #2c2c44; }
+  .pop-flip { background: #1c1c30; border-color: #2c2c44; }
+  .pop-filter-q { background: #1c1c30; border-color: #3a3a56; color: #f5f5f5; }
+  .pop-chipbtn { background: #1c1c30; border-color: #3a3a56; color: #d0d0dc; }
+  .pop-chipbtn[aria-pressed="true"] { background: #24487f; border-color: #24487f; color: #fff; }
+  .pop-flip-rows dt, .pop-flip-reason { color: #d0d0dc; }
+  .pop-empty { border-color: #3a3a56; }
 
-  /* The score circles carry white text on a saturated fill in both themes, so
-     they need no override — but the fair/poor ambers are tuned for a white page
-     and go muddy on dark. */
-  .s-fair { background: #c9921c; }
-  .s-poor { background: #cf7328; }
+  /* The score ring colours carry a fill in both themes, but the fair/poor
+     ambers are tuned for a white page and go muddy on dark. */
+  .s-fair { --c: #c9921c; }
+  .s-poor { --c: #cf7328; }
 
-  /* US-2482's engagement card. Its rules are declared below this block and use
-     literal light values, so it rendered near-black meter text on the dark page
-     — the one number in the popup that is load-bearing (shares used against the
-     cap) was the least readable thing in it. */
-  .pop-engage { border-color: #2c2c44; }
   .pop-meter-head { color: #f5f5f5; }
-  .pop-meter-track { background: #232338; }
-  .pop-meter-note,
-  .pop-engage-terms,
-  .pop-engage-field { color: #9a9ab0; }
+  .pop-meter-track { background: #2c2c44; }
+  .pop-meter-fill { background: #4d7fd1; }
+  .pop-meter-note, .pop-engage-terms, .pop-engage-field { color: #9a9ab0; }
   .pop-engage-field select,
-  .pop-engage-field input {
-    color: #f5f5f5;
-    background: #1c1c30;
-    border-color: #2c2c44;
-  }
+  .pop-engage-field input { color: #f5f5f5; background: #1c1c30; border-color: #3a3a56; }
 
-  /* US-2239's sub-tab switch. The `.pop-tab` base rules are declared ABOVE this
-     block in the file, so ordinary cascade order settles it — which is the whole
-     reason this block now sits at the END of the stylesheet.
-     
-     It used to sit in the middle, and every section declared BELOW it (the
-     sub-tabs, the engagement card, the meter) quietly won on source order at
-     equal specificity — so the ACTIVE sub-tab rendered navy #0f3460 on a #16162a
-     page, less visible than the unselected one. The fix shipped on 2026-08-11
-     was a SECOND dark block placed next to what it overrode. That worked, and it
-     broke the one-block rule popup-theme.test.ts enforces, so the test had been
-     red on main ever since. One block, last in the file, is the version where
-     both hold — and it is what makes the engagement-card overrides above apply
-     at all. Keep it last. */
-  .pop-tabs { border-bottom-color: #2c2c44; }
+  .pop-tabs { background: #212137; border-color: #2c2c44; }
   .pop-tab { color: #9a9ab0; }
-  .pop-tab.is-on { color: #cfe0ff; border-bottom-color: #cfe0ff; }
+  .pop-tab.is-on { color: #cfe0ff; background: #1c1c30; box-shadow: inset 0 0 0 1px #3a3a56; }
 }

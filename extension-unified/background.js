@@ -126,7 +126,10 @@ const CONFIG_CACHE_KEY = "ccConfigCache";
 // reload; a token set/clear force-invalidates it so it reflects immediately.
 const ENT_TTL_MS = 5 * 60 * 1000;
 const ENT_CACHE_KEY = "gtEntCache";
-const MAX_RECENT = 20;
+// US-3057: 100, up from 20. The Reads tab filters in memory and paints at
+// most 40 rows, so a longer list costs nothing to open; the By seller
+// aggregate and the stats strip read all of it.
+const MAX_RECENT = 100;
 // Per-listing grade recall (so revisiting an item returns the SAME grade instead
 // of re-rolling a fresh — and slightly different — read, and doesn't spend quota).
 // Keyed by the normalized listing URL; a TTL keeps a stale read from masking a
@@ -237,9 +240,12 @@ async function getRemoteConfig() {
 
 // ── settings ──────────────────────────────────────────────────────────────
 async function getSettings() {
-  const out = await ext.storage.local.get(["autoRun", "disabledHosts", "scanMode"]);
+  const out = await ext.storage.local.get(["autoRun", "disabledHosts", "scanMode", "theme"]);
   return {
     autoRun: Boolean(out.autoRun),
+    // US-3055: "light" | "dark" | null (System). The overlay sets it as
+    // data-theme on its card; anything unrecognised reads as System.
+    theme: out.theme === "light" || out.theme === "dark" ? out.theme : null,
     disabledHosts: Array.isArray(out.disabledHosts) ? out.disabledHosts : [],
     // US-2237: scan mode defaults ON — note this is `!== false`, not Boolean(),
     // the opposite of autoRun above. autoRun spends a Vision call the shopper
@@ -367,6 +373,46 @@ async function cancelQueueRow(id) {
   // 404. All three mean "it is still there as far as we know", which is the
   // answer the popup needs in order not to remove the row optimistically.
   return out ? { ok: true } : { ok: false, reason: "error" };
+}
+
+/** US-3050: { queueId: { stage, stagedAt, tabId } } for every pending drained job. */
+async function getQueueJobStages() {
+  const byQueueId = await withJobs(async (jobs) => {
+    const out = {};
+    for (const id of Object.keys(jobs || {})) {
+      const job = jobs[id];
+      if (!job || !job.queueId || !self.GT_LISTER_JOBS.isPending(job)) continue;
+      out[job.queueId] = {
+        stage: typeof job.stage === "string" ? job.stage : null,
+        stagedAt: typeof job.stagedAt === "number" ? job.stagedAt : null,
+        tabId: typeof job.tabId === "number" ? job.tabId : null,
+      };
+    }
+    return { value: out };
+  });
+  return { ok: true, byQueueId: byQueueId || {} };
+}
+
+/**
+ * Re-queue a failed or expired row (the popup's Retry).
+ *
+ * Two calls, in this order: POST the same instruction as a new row, then
+ * DELETE the dead one. The order is what makes a half-failure safe — if the
+ * POST fails nothing was removed and the seller still sees the failed row; if
+ * the DELETE fails the new row is queued and the old one stays visible, which
+ * is a stale line in a list rather than lost work. The body is shaped by
+ * queue-view.js (retryBody) from the row the popup fetched for this account,
+ * and the endpoint owner-scopes both the ids it names and the row it deletes.
+ */
+async function retryQueueRow(id, body) {
+  if (typeof id !== "string" || !id) return { ok: false, reason: "error" };
+  if (!body || typeof body !== "object" || !body.kind || !body.platform) {
+    return { ok: false, reason: "error" };
+  }
+  const created = await queueFetch("", { method: "POST", body: JSON.stringify(body) });
+  if (!created) return { ok: false, reason: "error" };
+  const removed = await queueFetch("/" + encodeURIComponent(id), { method: "DELETE" });
+  return { ok: true, removed: Boolean(removed) };
 }
 
 /** Report a revise outcome for one listing. Applied ONLY when the flow proved it. */
@@ -644,6 +690,11 @@ async function fetchEntitlements() {
       headers["Authorization"] = "Bearer " + gtBuyerToken;
     }
   } catch (_e) { /* no token → anonymous */ }
+  // US-3051: the same install id the grade call sends, so the quota block the
+  // server returns is read off the window this install actually spends.
+  try {
+    headers["x-gt-extension-id"] = await getInstanceId();
+  } catch (_e) { /* no id — the server falls back to the IP window */ }
   try {
     const resp = await fetch(ENTITLEMENTS_ENDPOINT, { headers, cache: "no-store" });
     if (!resp.ok) throw new Error("entitlements " + resp.status);
@@ -750,6 +801,10 @@ async function gradeFromUrls(
   } catch (_e) {
     json = null;
   }
+  // US-3051: a read (or a refusal) moved the quota, and the popup reads it
+  // from the 5-minute entitlements cache. Drop the cache so the next open
+  // shows the real remaining rather than a number up to five minutes old.
+  void invalidateEntCache();
   if (resp.ok && json) return { ok: true, status: resp.status, data: json };
   // US-1883 (AC3): thread the machine-readable capacity code + retryable flag so
   // the overlay can render a 503 "at_capacity" as a NON-retryable state.
@@ -2897,6 +2952,16 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         break;
       case "GT_QUEUE_CANCEL":
         sendResponse(await cancelQueueRow(msg.id));
+        break;
+      case "GT_QUEUE_RETRY":
+        sendResponse(await retryQueueRow(msg.id, msg.body));
+        break;
+      // US-3050: where each drained job has got to, keyed by the queue row it
+      // came from, so a claimed row can say "Attaching photos" rather than
+      // "Running now" for eleven minutes. Pending jobs only — a terminal job's
+      // outcome reaches the popup through listerLastJob and the queue itself.
+      case "GT_QUEUE_JOBS":
+        sendResponse(await getQueueJobStages());
         break;
       // "Run now". The drain already runs on startup and on the five-minute
       // sweep; this is the seller saying "I am at the machine, go" instead of

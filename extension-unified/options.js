@@ -139,8 +139,21 @@ async function initShortcut() {
   });
 }
 
+// US-3055: the theme control. System is the absent key; the change lands on
+// this page at once through GT_THEME.init's storage listener, and on the
+// popup and the overlay through the same key.
+async function initTheme() {
+  const sel = document.getElementById("theme");
+  if (!sel) return;
+  const current = await self.GT_THEME.init(ext, document);
+  sel.value = current || "";
+  sel.addEventListener("change", async () => {
+    await self.GT_THEME.save(ext, sel.value || null);
+  });
+}
+
 (async function () {
   document.getElementById("version").textContent = "v" + ext.runtime.getManifest().version;
-  await Promise.all([initToggles(), renderDisabled(), renderCounts(), initShortcut()]);
+  await Promise.all([initTheme(), initToggles(), renderDisabled(), renderCounts(), initShortcut()]);
   wireClears();
 })();

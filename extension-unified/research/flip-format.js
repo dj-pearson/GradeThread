@@ -163,9 +163,56 @@
     return isFinite(dollars) && dollars >= 0 ? Math.round(dollars * 100) : null;
   }
 
+  // US-3052: the popup keeps the last verdict per listing on-device.
+  //
+  // The key is the listing without its hash and without tracking params, so
+  // the same listing opened from a search result and from a shared link is one
+  // entry. TTL follows the grade cache (30 days); the popup shows the age and a
+  // Re-check, because comps move and the seller should see how old the number is.
+  const CACHE_KEY = "flipCacheByUrl";
+  const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+  const CACHE_MAX = 50;
+  const TRACKING_PARAM = /^(utm_|_trk|hash|ref$|mkcid|mkevt|campid|toolid|customid|epid$|_from$|src$)/i;
+
+  function cacheKey(url) {
+    if (typeof url !== "string" || !url) return null;
+    let u;
+    try { u = new URL(url); } catch (_e) { return null; }
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    const keep = [];
+    u.searchParams.forEach((v, k) => { if (!TRACKING_PARAM.test(k)) keep.push([k, v]); });
+    keep.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    const qs = keep.map(([k, v]) => k + "=" + v).join("&");
+    return u.origin + u.pathname.replace(/\/+$/, "") + (qs ? "?" + qs : "");
+  }
+
+  function cacheFresh(entry, now, ttlMs) {
+    if (!entry || typeof entry !== "object" || typeof entry.at !== "number") return false;
+    if (!entry.data || typeof entry.data !== "object") return false;
+    const ttl = typeof ttlMs === "number" ? ttlMs : CACHE_TTL_MS;
+    return now - entry.at >= 0 && now - entry.at < ttl;
+  }
+
+  /** Insert-or-replace, newest last, oldest dropped past CACHE_MAX. */
+  function cachePut(map, key, data, now) {
+    const out = {};
+    const src = map && typeof map === "object" ? map : {};
+    for (const k of Object.keys(src)) if (k !== key) out[k] = src[k];
+    out[key] = { at: now, data: data };
+    const keys = Object.keys(out).sort((a, b) => out[a].at - out[b].at);
+    for (const k of keys.slice(0, Math.max(0, keys.length - CACHE_MAX))) delete out[k];
+    return out;
+  }
+
   return {
     STRINGS,
     VERDICT,
+    CACHE_KEY,
+    CACHE_TTL_MS,
+    CACHE_MAX,
+    cacheKey,
+    cacheFresh,
+    cachePut,
     money,
     rangeLabel,
     marginLabel,

@@ -1,0 +1,503 @@
+/* GENERATED FILE — DO NOT EDIT.
+ *
+ * Source:      extension-unified/popup.css (its prefers-color-scheme: dark block)
+ * Regenerate:  node scripts/gen-extension-theme-css.mjs
+ * Guarded by:  extension-unified/test/theme-css.test.cjs (fails the build on drift)
+ *
+ * US-3055: the theme preference (System / Light / Dark). The OS theme still
+ * comes from the media block in the source sheet; these rules apply the same
+ * dark set under html[data-theme="dark"] and put the light set back under
+ * html[data-theme="light"], so the preference wins over the OS either way. */
+
+/* forced dark: the media block's rules under [data-theme="dark"] */
+html[data-theme="dark"] {
+  --gray: #232338;
+  --muted: #9a9ab0;
+  --line: #2c2c44;
+  --line-strong: #3a3a56;
+  --bg: #16162a;
+  --surface: #1c1c30;
+  --surface-2: #212137;
+  --fg: #f5f5f5;
+  --fg-2: #d0d0dc;
+  --navy-soft: #1d2b4a;
+  --red-soft: #3a1a22;
+  --ok: #7fd39b;
+  --ok-soft: #17301f;
+  --warn: #f0c674;
+  --warn-soft: #3a2f14;
+  --bad: #ff8fa3;
+  --bad-soft: #3a1a22;
+  --info-soft: #1d2b4a;
+}
+html[data-theme="dark"] body {
+  color: #f5f5f5;
+  background: #16162a;
+}
+html[data-theme="dark"] {
+  --cta: #d43a53;
+  --cta-hover: #bf2840;
+}
+html[data-theme="dark"] .pop-h2 {
+  color: #d0d0dc;
+}
+html[data-theme="dark"] .pop-lead {
+  color: #d7d7e2;
+}
+html[data-theme="dark"] .pop-hint {
+  color: #9a9ab0;
+}
+html[data-theme="dark"] kbd {
+  color: #d0d0dc;
+  background: #212137;
+  border-color: #3a3a56;
+}
+html[data-theme="dark"] .pop-nav {
+  background: #16162a;
+}
+html[data-theme="dark"] .pop-navtab.is-on {
+  color: #cfe0ff;
+  border-bottom-color: #cfe0ff;
+}
+html[data-theme="dark"] .pop-adv-sum {
+  color: #d0d0dc;
+}
+html[data-theme="dark"] .pop-account {
+  background: #1c1c30;
+}
+html[data-theme="dark"] .pop-badge.buyer {
+  background: #1d2b4a;
+  color: #cfe0ff;
+}
+html[data-theme="dark"] .pop-badge.seller {
+  background: #17301f;
+  color: #7fd39b;
+}
+html[data-theme="dark"] .pop-badge.seller,
+html[data-theme="dark"] .pop-acct-avatar {
+  border: 0;
+}
+html[data-theme="dark"] .pop-read {
+  border-color: #2c2c44;
+  background: #1c1c30;
+}
+html[data-theme="dark"] .pop-read-score::before {
+  background: #1c1c30;
+}
+html[data-theme="dark"] .pop-tag {
+  background: #212137;
+  border-color: #2c2c44;
+  color: #d0d0dc;
+}
+html[data-theme="dark"] .pop-compare-n {
+  background: #1d2b4a;
+  color: #cfe0ff;
+}
+html[data-theme="dark"] .pop-compare-go {
+  color: #9ec1ff;
+}
+html[data-theme="dark"] .pop-status.on {
+  background: #17301f;
+  color: #7fd39b;
+}
+html[data-theme="dark"] .pop-status.off {
+  background: #3a1a22;
+  color: #ff8fa3;
+}
+html[data-theme="dark"] .pop-status.warn {
+  background: #3a2f14;
+  color: #f0c674;
+}
+html[data-theme="dark"] .pop-tos-row a {
+  color: #9ec1ff;
+}
+html[data-theme="dark"] .pop-accepted {
+  color: #7fd39b;
+}
+html[data-theme="dark"] .pop-linkbtn {
+  color: #9ec1ff;
+}
+html[data-theme="dark"] .pop-btn {
+  background: #1c1c30;
+  color: #f5f5f5;
+  border-color: #3a3a56;
+}
+html[data-theme="dark"] .pop-btn:hover {
+  background: #212137;
+  color: #cfe0ff;
+  border-color: #9ec1ff;
+}
+html[data-theme="dark"] .pop-cta:disabled {
+  background: #2c2c44;
+  color: #9a9ab0;
+}
+html[data-theme="dark"] .pop-cta-sm {
+  background: #24487f;
+}
+html[data-theme="dark"] .pop-cta-sm:hover {
+  background: #2c559a;
+}
+html[data-theme="dark"] .pop-toggle > input {
+  background: #3a3a56;
+}
+html[data-theme="dark"] .pop-toggle > input:checked {
+  background: #4d7fd1;
+}
+html[data-theme="dark"] .pop-foot {
+  background: #1c1c30;
+  border-top-color: #2c2c44;
+}
+html[data-theme="dark"] .pop-foot a,
+html[data-theme="dark"] .pop-footbtn {
+  color: #9ec1ff;
+}
+html[data-theme="dark"] .pop-lastjob,
+html[data-theme="dark"] .pop-delists,
+html[data-theme="dark"] .pop-engage,
+html[data-theme="dark"] .pop-probe {
+  --pop-border: #2c2c44;
+  --pop-subtle: #1c1c30;
+}
+html[data-theme="dark"] .pop-delist:hover {
+  background: #212137;
+}
+html[data-theme="dark"] .pop-delist.is-attention {
+  background: #2a1a20;
+}
+html[data-theme="dark"] .pop-perm {
+  background: #2f2712;
+  border-color: #5a4a1a;
+}
+html[data-theme="dark"] .pop-perm-text {
+  color: #f0c674;
+}
+html[data-theme="dark"] .pop-site {
+  background: #212137;
+  border-color: #2c2c44;
+}
+html[data-theme="dark"] .pop-lock {
+  background: #1c1c30;
+  border-color: #2c2c44;
+}
+html[data-theme="dark"] .pop-flip {
+  background: #1c1c30;
+  border-color: #2c2c44;
+}
+html[data-theme="dark"] .pop-filter-q {
+  background: #1c1c30;
+  border-color: #3a3a56;
+  color: #f5f5f5;
+}
+html[data-theme="dark"] .pop-chipbtn {
+  background: #1c1c30;
+  border-color: #3a3a56;
+  color: #d0d0dc;
+}
+html[data-theme="dark"] .pop-chipbtn[aria-pressed="true"] {
+  background: #24487f;
+  border-color: #24487f;
+  color: #fff;
+}
+html[data-theme="dark"] .pop-flip-rows dt,
+html[data-theme="dark"] .pop-flip-reason {
+  color: #d0d0dc;
+}
+html[data-theme="dark"] .pop-empty {
+  border-color: #3a3a56;
+}
+html[data-theme="dark"] .s-fair {
+  --c: #c9921c;
+}
+html[data-theme="dark"] .s-poor {
+  --c: #cf7328;
+}
+html[data-theme="dark"] .pop-meter-head {
+  color: #f5f5f5;
+}
+html[data-theme="dark"] .pop-meter-track {
+  background: #2c2c44;
+}
+html[data-theme="dark"] .pop-meter-fill {
+  background: #4d7fd1;
+}
+html[data-theme="dark"] .pop-meter-note,
+html[data-theme="dark"] .pop-engage-terms,
+html[data-theme="dark"] .pop-engage-field {
+  color: #9a9ab0;
+}
+html[data-theme="dark"] .pop-engage-field select,
+html[data-theme="dark"] .pop-engage-field input {
+  color: #f5f5f5;
+  background: #1c1c30;
+  border-color: #3a3a56;
+}
+html[data-theme="dark"] .pop-tabs {
+  background: #212137;
+  border-color: #2c2c44;
+}
+html[data-theme="dark"] .pop-tab {
+  color: #9a9ab0;
+}
+html[data-theme="dark"] .pop-tab.is-on {
+  color: #cfe0ff;
+  background: #1c1c30;
+  box-shadow: inset 0 0 0 1px #3a3a56;
+}
+
+/* forced light: the base values back, under [data-theme="light"], for every property the dark block touches */
+html[data-theme="light"] {
+  --gray: #f5f5f5;
+  --muted: #6f6f86;
+  --line: #e6e7ef;
+  --line-strong: #d3d5e2;
+  --bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #f6f7fb;
+  --fg: #1a1a2e;
+  --fg-2: #4a4a5e;
+  --navy-soft: #e8eef8;
+  --red-soft: #fdecef;
+  --ok: #157a46;
+  --ok-soft: #e6f4ea;
+  --warn: #8a5a00;
+  --warn-soft: #fef5df;
+  --bad: #b3223a;
+  --bad-soft: #fdecef;
+  --info-soft: #e8eef8;
+}
+html[data-theme="light"] body {
+  color: var(--fg);
+  background: #fff;
+}
+html[data-theme="light"] {
+  --cta: #d43a53;
+  --cta-hover: #c42a43;
+}
+html[data-theme="light"] .pop-h2 {
+  color: var(--fg-2);
+}
+html[data-theme="light"] .pop-lead {
+  color: var(--fg-2);
+}
+html[data-theme="light"] .pop-hint {
+  color: var(--muted);
+}
+html[data-theme="light"] kbd {
+  color: var(--fg-2);
+  background: var(--surface);
+  border-color: unset;
+}
+html[data-theme="light"] .pop-nav {
+  background: var(--surface);
+}
+html[data-theme="light"] .pop-navtab.is-on {
+  color: var(--navy);
+  border-bottom-color: var(--navy);
+}
+html[data-theme="light"] .pop-adv-sum {
+  color: var(--fg-2);
+}
+html[data-theme="light"] .pop-account {
+  background: var(--surface-2);
+}
+html[data-theme="light"] .pop-badge.buyer {
+  background: var(--navy-soft);
+  color: var(--navy);
+}
+html[data-theme="light"] .pop-badge.seller {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+html[data-theme="light"] .pop-badge.seller {
+  border: unset;
+}
+html[data-theme="light"] .pop-acct-avatar {
+  border: unset;
+}
+html[data-theme="light"] .pop-read {
+  border-color: unset;
+  background: var(--surface);
+}
+html[data-theme="light"] .pop-read-score::before {
+  background: var(--surface);
+}
+html[data-theme="light"] .pop-tag {
+  background: var(--surface-2);
+  border-color: unset;
+  color: var(--fg-2);
+}
+html[data-theme="light"] .pop-compare-n {
+  background: var(--navy-soft);
+  color: var(--navy);
+}
+html[data-theme="light"] .pop-compare-go {
+  color: var(--navy);
+}
+html[data-theme="light"] .pop-status.on {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+html[data-theme="light"] .pop-status.off {
+  background: var(--bad-soft);
+  color: var(--bad);
+}
+html[data-theme="light"] .pop-status.warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+html[data-theme="light"] .pop-tos-row a {
+  color: var(--navy);
+}
+html[data-theme="light"] .pop-accepted {
+  color: var(--ok);
+}
+html[data-theme="light"] .pop-linkbtn {
+  color: var(--navy);
+}
+html[data-theme="light"] .pop-btn {
+  background: var(--surface);
+  color: var(--fg);
+  border-color: unset;
+}
+html[data-theme="light"] .pop-btn:hover {
+  background: var(--surface-2);
+  color: var(--navy);
+  border-color: var(--navy);
+}
+html[data-theme="light"] .pop-cta:disabled {
+  background: var(--line-strong);
+  color: var(--muted);
+}
+html[data-theme="light"] .pop-cta-sm {
+  background: var(--navy);
+}
+html[data-theme="light"] .pop-cta-sm:hover {
+  background: var(--navy-deep);
+}
+html[data-theme="light"] .pop-toggle > input {
+  background: var(--line-strong);
+}
+html[data-theme="light"] .pop-toggle > input:checked {
+  background: var(--navy);
+}
+html[data-theme="light"] .pop-foot {
+  background: var(--surface-2);
+  border-top-color: unset;
+}
+html[data-theme="light"] .pop-foot a {
+  color: var(--navy);
+}
+html[data-theme="light"] .pop-footbtn {
+  color: var(--navy);
+}
+html[data-theme="light"] .pop-lastjob {
+  --pop-border: unset;
+  --pop-subtle: unset;
+}
+html[data-theme="light"] .pop-delists {
+  --pop-border: unset;
+  --pop-subtle: unset;
+}
+html[data-theme="light"] .pop-engage {
+  --pop-border: unset;
+  --pop-subtle: unset;
+}
+html[data-theme="light"] .pop-probe {
+  --pop-border: unset;
+  --pop-subtle: unset;
+}
+html[data-theme="light"] .pop-delist:hover {
+  background: var(--surface-2);
+}
+html[data-theme="light"] .pop-delist.is-attention {
+  background: #fff7f8;
+}
+html[data-theme="light"] .pop-perm {
+  background: #fdf6e5;
+  border-color: unset;
+}
+html[data-theme="light"] .pop-perm-text {
+  color: #6b4a00;
+}
+html[data-theme="light"] .pop-site {
+  background: var(--surface-2);
+  border-color: unset;
+}
+html[data-theme="light"] .pop-lock {
+  background: var(--surface-2);
+  border-color: unset;
+}
+html[data-theme="light"] .pop-flip {
+  background: var(--surface);
+  border-color: unset;
+}
+html[data-theme="light"] .pop-filter-q {
+  background: var(--surface);
+  border-color: unset;
+  color: var(--fg);
+}
+html[data-theme="light"] .pop-chipbtn {
+  background: var(--surface);
+  border-color: unset;
+  color: var(--fg-2);
+}
+html[data-theme="light"] .pop-chipbtn[aria-pressed="true"] {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+html[data-theme="light"] .pop-flip-rows dt {
+  color: var(--fg-2);
+}
+html[data-theme="light"] .pop-flip-reason {
+  color: var(--fg-2);
+}
+html[data-theme="light"] .pop-empty {
+  border-color: unset;
+}
+html[data-theme="light"] .s-fair {
+  --c: #d19a1e;
+}
+html[data-theme="light"] .s-poor {
+  --c: #d97a2b;
+}
+html[data-theme="light"] .pop-meter-head {
+  color: var(--fg);
+}
+html[data-theme="light"] .pop-meter-track {
+  background: var(--line);
+}
+html[data-theme="light"] .pop-meter-fill {
+  background: var(--navy);
+}
+html[data-theme="light"] .pop-meter-note {
+  color: var(--muted);
+}
+html[data-theme="light"] .pop-engage-terms {
+  color: var(--fg-2);
+}
+html[data-theme="light"] .pop-engage-field {
+  color: var(--fg-2);
+}
+html[data-theme="light"] .pop-engage-field select {
+  color: var(--fg);
+  background: var(--surface);
+  border-color: unset;
+}
+html[data-theme="light"] .pop-engage-field input {
+  color: var(--fg);
+  background: var(--surface);
+  border-color: unset;
+}
+html[data-theme="light"] .pop-tabs {
+  background: var(--surface-2);
+  border-color: unset;
+}
+html[data-theme="light"] .pop-tab {
+  color: var(--muted);
+}
+html[data-theme="light"] .pop-tab.is-on {
+  color: var(--navy);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+}

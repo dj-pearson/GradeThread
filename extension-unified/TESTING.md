@@ -139,6 +139,45 @@ Firefox ships with is unreachable from a test — the two browsers diverge exact
 where nothing is watching. §5a and §5b are the human half, and they are the
 evidence US-1881 AC3 and AC5 are asking for.
 
+## 4b. Accessibility scan (US-3053)
+
+```
+node scripts/extension-a11y.mjs          # exits 1 on any serious/critical axe violation
+node scripts/extension-a11y.mjs --all    # also prints moderate/minor findings
+```
+
+Renders `popup.html` headlessly with the `chrome.*` API stubbed
+(`scripts/lib/extension-stub.mjs`) in three states — anonymous, signed-in buyer,
+seller with work in every queue — opens each of the three tabs and runs
+axe-core on each. No network and no account. The stub THROWS on a popup message
+it does not know, so a new message renders as a failed run rather than as an
+empty block that scans clean. If Playwright's own Chromium is missing, it
+falls back to `GT_CHROMIUM` or `/opt/pw-browsers/chromium`.
+
+Keyboard, by hand: Tab to the tab strip, then Left/Right/Home/End move between
+Reads, Selling and Settings; Tab again lands on the panel. The Recent reads /
+By seller switch works the same way. After Retry, Cancel, Dismiss or a bulk
+action, focus stays in the queue card.
+
+## 4c. Screenshots and the visual baseline (US-3054)
+
+```
+node scripts/extension-screenshots.mjs            # 48 PNGs into dist-ext/screenshots/ (3 states x System light/dark, forced light, forced dark)
+node scripts/extension-screenshots.mjs --check    # compare against test/fixtures/screenshot-baseline.json
+node scripts/extension-screenshots.mjs --update   # rewrite the baseline after an intended change
+```
+
+Renders the popup (Reads, Selling, Settings), onboarding, options and compare
+in light and dark for three fixture states (anonymous, signed-in buyer, seller
+with work in every queue) over the same `chrome.*` stub the a11y scan uses,
+with a frozen clock so relative times do not move the pixels. Run `--check`
+**before a store upload** and after any popup CSS change; a `DRIFT` line names
+the render to look at in `dist-ext/screenshots/`. The baseline is tied to the
+Chromium build it was made with (recorded in the file): on a different build
+`--check` exits 2 and says so rather than reporting every pixel as drift, and
+`--update` on the build you want to track fixes that. The PNGs themselves are
+the store-listing screenshots for the next version.
+
 ## 5a. Firefox end-to-end (US-1881 AC3) — the sign-off checklist
 
 Do this on the built `-firefox.zip`, against the **deployed site**, on a real

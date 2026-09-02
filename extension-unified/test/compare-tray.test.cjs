@@ -205,3 +205,58 @@ console.log(
   "compare-tray.test.cjs: pinning spends nothing, re-reads update in place, " +
     "oldest-out at 6, missing price/score sink in sorts, tray survives restart",
 );
+
+// ── US-3056: best value — highest grade per dollar, ties to the higher grade ─
+{
+  const rows = [
+    { key: "a", title: "A", overallScore: 8.0, priceText: "$80" },   // 0.100 per $
+    { key: "b", title: "B", overallScore: 7.0, priceText: "$50" },   // 0.140 per $  ← best
+    { key: "c", title: "C", overallScore: 9.5, priceText: "" },      // no price: sits out
+    { key: "d", title: "D", overallScore: null, priceText: "$10" },  // no score: sits out
+  ];
+  assert.strictEqual(T.bestValueKey(rows), "b", "the cheapest grade per dollar wins, not the highest grade");
+  assert.strictEqual(T.bestValueKey([rows[0], rows[2], rows[3]]), null, "one priced row is not a comparison");
+  assert.strictEqual(T.bestValueKey([rows[2], rows[3]]), null, "no priced+scored rows → no tag");
+  assert.strictEqual(T.bestValueKey([]), null);
+  assert.strictEqual(T.bestValueKey(null), null);
+  // A tie on value per dollar goes to the higher grade.
+  const tie = [
+    { key: "x", overallScore: 4.0, priceText: "$40" }, // 0.1
+    { key: "y", overallScore: 8.0, priceText: "$80" }, // 0.1
+  ];
+  assert.strictEqual(T.bestValueKey(tie), "y", "same value per dollar → the better garment");
+  assert.strictEqual(T.bestValueKey(tie.slice().reverse()), "y", "regardless of order");
+  // An exact tie in both goes to the earlier pin, deterministically.
+  const same = [
+    { key: "p", overallScore: 6.0, priceText: "$60" },
+    { key: "q", overallScore: 6.0, priceText: "$60" },
+  ];
+  assert.strictEqual(T.bestValueKey(same), "p");
+  // A zero or unparseable price never divides by zero.
+  assert.strictEqual(T.bestValueKey([{ key: "z", overallScore: 9, priceText: "$0" }, { key: "w", overallScore: 5, priceText: "$5" }]), null, "$0 is not a price; one priced row is not a comparison");
+
+  // ── the summary: one line per row, marks the best, nothing fetched ─────────
+  const text = T.summaryText(rows, { ebay: "eBay" }).split("\n");
+  assert.strictEqual(text.length, 4);
+  assert.ok(text[1].includes("B") && text[1].includes("grade 7.0") && text[1].includes("$50") && text[1].endsWith("best value"), text[1]);
+  assert.ok(text[2].includes("grade 9.5") && text[2].includes("—") && !text[2].includes("best value"), "an unpriced row prints the dash and no tag");
+  assert.ok(!text[0].includes("best value"));
+
+  // ── the page wires it: tag, no-price note, copy control, stacked cards ─────
+  const html = fs.readFileSync(path.join(dir, "compare.html"), "utf8");
+  const js = fs.readFileSync(path.join(dir, "compare.js"), "utf8");
+  const css = fs.readFileSync(path.join(dir, "compare.css"), "utf8");
+  assert.ok(/id="copy"/.test(html), "compare.html carries the Copy summary control");
+  assert.ok(/id="bestNote"/.test(html), "compare.html carries the best-value note");
+  assert.ok(/TRAY\.bestValueKey\(list\)/.test(js), "compare.js marks the best row from the pure helper");
+  assert.ok(/TRAY\.summaryText\(/.test(js) && /navigator\.clipboard\.writeText/.test(js), "Copy summary writes the pure summary to the clipboard");
+  assert.ok(!/fetch\(/.test(js), "compare.js still fetches nothing");
+  assert.ok(/STRINGS\.noPriceNote/.test(js), "an unpriced row says so");
+  assert.ok(/@media \(max-width: 640px\)/.test(css) && /\.cmp-table thead \{ display: none; \}/.test(css) && /content: attr\(data-label\)/.test(css),
+    "under 640px the table stacks into labelled cards");
+  for (const label of ["Condition", "Confidence", "Price", "Photos"]) {
+    assert.ok(js.includes('dataset.label = "' + label + '"'), "every figure cell carries its label for the stacked layout: " + label);
+  }
+}
+
+console.log("compare-tray.test.cjs: best value picks grade per dollar with ties to the higher grade, sits out unpriced rows, needs two; summary and stacked cards wired");
