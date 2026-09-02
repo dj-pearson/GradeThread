@@ -6,6 +6,7 @@ import { failSafe } from "../lib/http-errors.ts";
 // when the whole batch is looked at at once.
 import { findDuplicatesWithinBatch } from "../lib/title-similarity.ts";
 import { generateListing, generatePlatformVariants } from "../lib/ai-listing.ts";
+import { generateKitForDraft } from "../lib/cross-list-kit.ts";
 import { assemblePublishContext, publishItemForOwner } from "./flipdesk-ebay.ts";
 import { notifyUser } from "../lib/notify.ts";
 import {
@@ -541,6 +542,22 @@ async function processBatch(
         await applyTemplate(result.listingId);
       } catch (overlayErr) {
         console.error("[flipdesk-autolister] template overlay failed:", overlayErr);
+      }
+      // 2026-09-02: the cross-list copy kit, in the same action. Runs AFTER
+      // the template overlay so a boilerplate the seller attached to the batch
+      // is in the copy the other channels get, and OUTSIDE the generation
+      // timeout so a slow kit pass cannot fail a draft that already exists.
+      // Best-effort: the draft is the deliverable, the kit is the convenience.
+      try {
+        const kit = await generateKitForDraft(job.inventory_item_id, ownerId);
+        if (kit.platforms.length > 0) {
+          console.log(
+            `[flipdesk-autolister] kit filled for item ${job.inventory_item_id}: ` +
+              `${kit.platforms.join(",")} ($${(kit.costUsd ?? 0).toFixed(4)})`,
+          );
+        }
+      } catch (kitErr) {
+        console.error("[flipdesk-autolister] cross-list kit failed:", kitErr);
       }
       // US-538: for an opted-in, graded item, composite the verified grade's
       // defect annotations (bbox callouts + legend) onto the grading photos

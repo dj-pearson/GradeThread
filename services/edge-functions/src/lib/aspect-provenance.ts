@@ -9,6 +9,10 @@
 export type AspectProvenance =
   | "ai_extracted"
   | "inventory_derived"
+  // US-3043: filled from the specifics that visually similar live listings
+  // agree on (lib/visual-aspect-prefill.ts). Lowest rung: it looked at
+  // garments that resemble this one, not at this one.
+  | "visual_consensus"
   | "manual"
   | "unfilled";
 
@@ -121,9 +125,10 @@ export function sourcesFor(
 /// resolution as aspects are touched. Keys no longer present in `valueMap`
 /// (cleared values) are dropped so the map can't go stale.
 const PRECEDENCE: Record<StoredAspectProvenance, number> = {
-  inventory_derived: 0,
-  ai_extracted: 1,
-  manual: 2,
+  visual_consensus: 0,
+  inventory_derived: 1,
+  ai_extracted: 2,
+  manual: 3,
 };
 
 export function mergeSources(

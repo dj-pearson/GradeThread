@@ -151,6 +151,46 @@ export function selectListingPhotos(
   return ordered;
 }
 
+// Cap on photos forwarded to the aspect-refine pass. Item specifics are read
+// off the whole garment and its label; a defect close-up never decides one.
+export const DEFAULT_MAX_ASPECT_PHOTOS = 5;
+
+/**
+ * The subset of the vision set that the aspect-refine pass gets.
+ *
+ * The refine pass used to receive the same photos as the listing pass. That set
+ * is built for CONDITION accuracy, so it keeps up to two defect close-ups, and
+ * every one of them costs the refine model ~1,500 image tokens to look at a
+ * seam or a stain that no item specific is read from. Theme, Fabric Type,
+ * Neckline, Pattern, Country of Origin and the rest come off the front, back,
+ * tag and one detail shot.
+ *
+ * Defect-role shots are dropped, the remainder is kept by role priority (front,
+ * tag, back, detail, ...) up to `maxPhotos`, and capture order is restored so
+ * "Photo 1" stays the cover. Never returns empty for a non-empty input: a set
+ * that is ONLY defect shots is sent as-is rather than sending nothing. Pure.
+ */
+export function selectAspectPhotos<T extends BudgetPhoto>(
+  visionPhotos: T[],
+  maxPhotos: number = DEFAULT_MAX_ASPECT_PHOTOS,
+): T[] {
+  if (visionPhotos.length === 0) return [];
+  const withoutDefects = visionPhotos.filter(
+    (p) => basePhotoRole(p.type) !== "defect",
+  );
+  const pool = withoutDefects.length > 0 ? withoutDefects : visionPhotos;
+  const ranked = pool
+    .map((photo, index) => ({
+      photo,
+      index,
+      priority: (ROLE_BUDGET[basePhotoRole(photo.type)] ?? OTHER_ROLE).priority,
+    }))
+    .sort((a, b) => a.priority - b.priority || a.index - b.index)
+    .slice(0, Math.max(1, maxPhotos))
+    .sort((a, b) => a.index - b.index);
+  return ranked.map((r) => r.photo);
+}
+
 /**
  * Roles that can legitimately BE a cover photo: a whole-garment view.
  *

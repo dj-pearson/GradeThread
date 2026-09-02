@@ -69,15 +69,31 @@ export interface TagField {
   confidence: number; // 0..1
 }
 
-// The five verbatim ground-truth fields a care/brand label carries. Keys map to
+// The verbatim ground-truth fields a care/brand label carries. Keys map to
 // inventory_items columns where one exists (brand/size/material/style); rn is
 // label-only and flows into item specifics.
+//
+// Widened 2026-09-02 from five fields to eight. The care label already in the
+// frame carries three more facts eBay has an aspect for and buyers filter on:
+// the care instructions ("Garment Care"), the country of origin ("Country of
+// Origin", SELECTION_ONLY in every cached apparel leaf) and the product line
+// printed beside the brand ("Product Line": Dri-FIT, HeatGear, Align). Reading
+// them here costs a few dozen output tokens on a call that is already looking
+// at the label; leaving them to the vision passes meant they came back blank
+// on almost every draft, because "never guess" is the right rule for a model
+// looking at a garment and the wrong one for a label it can read.
 export interface TagGroundTruth {
   brand?: TagField;
   size?: TagField;
   fiber_content?: TagField;
   style_code?: TagField;
   rn_number?: TagField;
+  /** Care instructions as printed, e.g. "Machine wash cold, tumble dry low". */
+  care_instructions?: TagField;
+  /** Country name only ("Vietnam"), never the "Made in" prefix. */
+  country_of_origin?: TagField;
+  /** The sub-brand / line printed on the label ("Dri-FIT", "Align"). */
+  product_line?: TagField;
 }
 
 export interface TagOcrResult {
@@ -98,7 +114,7 @@ export const TAG_GROUND_TRUTH_MIN_CONFIDENCE = 0.4;
 const READ_TAG_TOOL: Anthropic.Tool = {
   name: "read_garment_tag",
   description:
-    "Transcribe brand, size, fiber/material content, style code, and RN number EXACTLY as printed on the garment's tag/care label. Omit any field not legibly present.",
+    "Transcribe brand, size, fiber/material content, style code, RN number, care instructions, country of origin and any printed product line EXACTLY as printed on the garment's tag/care label. Omit any field not legibly present.",
   input_schema: {
     type: "object",
     properties: {
@@ -116,6 +132,21 @@ const READ_TAG_TOOL: Anthropic.Tool = {
       rn_number: {
         type: "string",
         description: "RN# (Registered Identification Number), digits only or 'RN 12345' as printed.",
+      },
+      care_instructions: {
+        type: "string",
+        description:
+          "Care instructions as printed on the care label, compact, comma-separated (e.g. 'Machine wash cold, tumble dry low, do not bleach'). Words only; do not describe care symbols you cannot read as text.",
+      },
+      country_of_origin: {
+        type: "string",
+        description:
+          "Country of manufacture as printed, COUNTRY NAME ONLY (e.g. 'Vietnam' for 'Made in Vietnam'). Omit if not printed.",
+      },
+      product_line: {
+        type: "string",
+        description:
+          "A product line / sub-brand / collection name printed on the label beside or below the brand (e.g. 'Dri-FIT', 'HeatGear', 'Align', 'Tech Fleece'). NOT the brand itself, NOT a style code. Omit if none is printed.",
       },
       // US-2212: only meaningful when the caller supplied an era reference
       // block. With no block the instructions never mention it and the model
@@ -154,6 +185,9 @@ export function userInstructions(eraBlock = ""): string {
     "- fiber/material content (e.g. '100% Cotton')",
     "- style code / style number",
     "- RN number (RN#)",
+    "- care instructions (compact, comma-separated, words only)",
+    "- country of origin (country name only, e.g. 'Vietnam')",
+    "- product line / sub-brand printed beside the brand (e.g. 'Dri-FIT'), if any",
     "Omit any field you cannot read clearly. Give a 0..1 confidence for each field you return.",
     ...(eraBlock ? ["", eraBlock, ""] : []),
     "Then call read_garment_tag.",
@@ -184,14 +218,38 @@ export function normalizeTagOcr(raw: unknown): TagGroundTruth {
     "fiber_content",
     "style_code",
     "rn_number",
+    "care_instructions",
+    "country_of_origin",
+    "product_line",
   ];
   for (const key of keys) {
     const v = o[key];
     if (typeof v === "string" && v.trim().length > 0) {
-      out[key] = { value: v.trim(), confidence: clamp01(conf[key]) };
+      const value = key === "country_of_origin"
+        ? cleanCountryOfOrigin(v)
+        : v.trim();
+      if (!value) continue;
+      out[key] = { value, confidence: clamp01(conf[key]) };
     }
   }
   return out;
+}
+
+/**
+ * The country name alone. Labels print "Made in Vietnam", "Hecho en Mexico",
+ * "Fabrique au Portugal", and the model is asked for the bare name but does
+ * not always comply. eBay's Country of Origin list holds bare names, so a
+ * prefix left on the value is a value the normalizer cannot land. Pure.
+ */
+export function cleanCountryOfOrigin(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^(made|manufactured|produced|assembled)\s+in\b\s*/i, "")
+    .replace(/^(hecho|fabricado|fabricada|producido)\s+en\b\s*/i, "")
+    .replace(/^fabriqu\S*\s+(au|en|aux)\s+/i, "")
+    .replace(/^(hergestellt|produziert)\s+in\s+/i, "")
+    .replace(/[.\s]+$/g, "")
+    .trim();
 }
 
 // Maps tag-OCR ground-truth keys onto the knownFields keys the listing prompt
@@ -202,7 +260,51 @@ const GROUND_TRUTH_TO_KNOWN_FIELD: Record<keyof TagGroundTruth, string> = {
   fiber_content: "material",
   style_code: "style",
   rn_number: "rn_number",
+  // The three label facts added 2026-09-02, keyed by the inventory_items
+  // ATTRIBUTE the aspect registry reads them from, so the same word reaches
+  // the prompt, the registry projection and the stored item.
+  care_instructions: "garment_care",
+  country_of_origin: "country_of_manufacture",
+  product_line: "product_line",
 };
+
+/**
+ * The tag reads that belong on `inventory_items.attributes`, fill-only.
+ *
+ * `mergeTagGroundTruth` feeds the PROMPT. This feeds the aspect registry
+ * (resolveItemAspects reads `attributes.garment_care`, `.country_of_manufacture`,
+ * `.product_line`, `.mpn`) and the item row, which is what makes the label's
+ * facts land on the category's real aspect names without asking the model to
+ * copy them, and survive to the next generation.
+ *
+ * The style code doubles as the MPN. A code printed on the label ("CJ1682-010",
+ * "LW3CWDS") is exactly what eBay's MPN / Style Code aspect wants, and until
+ * now it only ever reached the prompt as `style` and the sneaker decoder.
+ *
+ * Fill-only: a value the seller already typed on the item is never replaced,
+ * even by a confident read. Pure.
+ */
+export function tagAttributeFill(
+  tag: TagGroundTruth,
+  existing: Record<string, unknown> | null | undefined,
+  minConfidence: number = TAG_GROUND_TRUTH_MIN_CONFIDENCE,
+): Record<string, string> {
+  const current = existing ?? {};
+  const out: Record<string, string> = {};
+  const put = (attribute: string, field: TagField | undefined) => {
+    if (!field || field.confidence < minConfidence) return;
+    const stored = current[attribute];
+    if (typeof stored === "string" && stored.trim() !== "") return;
+    if (Array.isArray(stored) && stored.length > 0) return;
+    if (stored != null && typeof stored !== "string" && !Array.isArray(stored)) return;
+    out[attribute] = field.value;
+  };
+  put("garment_care", tag.care_instructions);
+  put("country_of_manufacture", tag.country_of_origin);
+  put("product_line", tag.product_line);
+  put("mpn", tag.style_code);
+  return out;
+}
 
 export interface MergeTagGroundTruthResult {
   // knownFields with confident tag reads applied (tag wins over prior values).

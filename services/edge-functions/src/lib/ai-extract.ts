@@ -1642,6 +1642,11 @@ export interface EbayAspectSpec {
   // "DATE". NUMBER aspects are mode FREE_TEXT but eBay parses the value as a
   // number and rejects the publish outright when it can't.
   dataType?: string;
+  // eBay's aspectConstraint.aspectUsage: "REQUIRED" | "RECOMMENDED" |
+  // "OPTIONAL". Carried so the tool schema can tell the model which aspects
+  // buyers actually filter on (2026-09-02). Absent on callers that never read
+  // the raw payload; the schema then says nothing about the tier.
+  usage?: string;
 }
 
 export interface AspectValueSuggestion {
@@ -1666,6 +1671,14 @@ export interface AspectExtractionInput {
   // their item-specifics are unambiguous enough to refine reliably without
   // Sonnet. Unset → the default routing (Sonnet with photos, Haiku without).
   modelOverride?: string;
+  // 2026-09-02: what the tag-OCR pass read verbatim off the care label, keyed
+  // like the listing prompt's knownFields (brand, size, material, style,
+  // rn_number, garment_care, country_of_manufacture, product_line). Rendered
+  // as its own block so Country of Origin, Garment Care and Material are
+  // filled from the read text rather than re-read off a 1.15MP label photo
+  // that may not even be in the refine set any more. Absent → the prompt is
+  // byte-identical to before.
+  tagGroundTruth?: Record<string, string> | null;
 }
 
 export interface AspectExtractionResult {
@@ -1689,6 +1702,15 @@ Hard rules:
 - For every aspect you return, give a 0..1 confidence and a source string ('photo:tag', 'photo:front', 'text', etc.).
 - The 'tag' / care-label photo is the highest-value input for Brand, Size, Material/Fabric, and Country of Manufacture — read it verbatim when present.
 - Already-known aspect values are ground truth. Do not contradict them; only fill gaps.
+- TAG GROUND TRUTH (when supplied) was transcribed off the care label by a dedicated read. Treat it exactly like a legible tag photo: fill Country of Origin, Garment Care, Material/Fabric, MPN/Style Code and Product Line from it directly.
+
+What counts as evidence. "Never guess" means never invent; it does not mean skip an aspect the garment itself answers. Fill an aspect marked RECOMMENDED whenever one of these holds:
+- It is a property of the garment's cut, construction or print, visible in the photos: Neckline, Sleeve Length, Sleeve Style, Fit, Closure, Pattern, Rise, Garment Length, Lining, Accents, Fabric Type (the cloth construction you can see: Jersey, Mesh, Fleece, Denim, Ribbed, French Terry, Satin, Knit), Features (Moisture Wicking, Breathable, Stretch, Pockets, Hooded, Reflective, Thumbholes, Compression, Quick Dry - only those the photos or tag show).
+- It follows from the category and the garment type together: Theme (the activity or look the garment is made for - Sports, Yoga, Running, Gym & Training, Athletic, Outdoor, Casual, Streetwear, Vintage, Western, Holiday, Nautical); Activity / Sport when the category asks for one; Occasion (Activewear, Casual, Business, Formal, Party/Cocktail, Wedding); Season when the fabric weight or construction makes it obvious (a fleece-lined parka is Winter; a linen shift is Summer). Pick the closest allowed value; omit only when the garment fits none.
+- It is printed on the garment or its label: Product Line is the sub-brand or collection printed beside the brand (Nike Dri-FIT, Under Armour HeatGear, Lululemon Align, Adidas Climalite, The North Face Summit Series, Levi's 501, Patagonia Capilene); Model is the product's own name when the tag, the identification or the known values give one; MPN / Style Code / Style Number is the code off the label; Country of Origin and Garment Care are read off the care label.
+- Character, Character Family, Franchise, Collaboration and Team are filled ONLY when the name is printed or pictured on the garment. A sports jersey's team, a printed cartoon character, a band tee's band - yes. A guess from the colorway - no.
+- Department is evident from the garment's cut, styling and label (Men, Women, Unisex Adult, Boys, Girls, Baby) and is required by eBay in most apparel leaves; set it.
+Give each of these its real confidence (a Theme inferred from the category is 0.6-0.7, a Country read off the label is 0.95). A filled aspect with an honest confidence beats an empty one.
 
 You will call extract_ebay_aspects with a single object whose properties are the aspect names. Each property's value is { values: string[], confidence: number, source: string }.`;
 
@@ -1756,6 +1778,14 @@ function buildAspectTool(aspects: EbayAspectSpec[]): BuiltAspectTool {
       description: `eBay aspect "${a.name}" — ${a.cardinality}, ${a.mode}${
         a.required ? ", required" : ""
       }${
+        // RECOMMENDED is eBay's word for "buyers filter on this". Until the
+        // tier reached the schema the model saw Theme, Fabric Type, Garment
+        // Care and Product Line as just another optional slot and left them
+        // blank under the never-guess rule.
+        !a.required && (a.usage ?? "").toUpperCase() === "RECOMMENDED"
+          ? ", RECOMMENDED (buyers filter on it; fill it when the evidence supports a value)"
+          : ""
+      }${
         (a.dataType ?? "").toUpperCase() === "NUMBER"
           ? ", NUMBER (bare positive number, max one decimal, no units)"
           : ""
@@ -1803,6 +1833,25 @@ export function researchAspectContext(
   );
 }
 
+/**
+ * The care-label read, rendered for the refine pass. "" when nothing was read,
+ * so a caller without a tag pass produces the same prompt as before. Exported
+ * for the prompt test. Pure.
+ */
+export function tagGroundTruthAspectContext(
+  tag: Record<string, string> | null | undefined,
+): string {
+  const entries = Object.entries(tag ?? {}).filter(
+    ([, v]) => typeof v === "string" && v.trim() !== "",
+  );
+  if (entries.length === 0) return "";
+  return (
+    "TAG GROUND TRUTH (transcribed verbatim off the garment's care label - " +
+    "authoritative; fill the matching aspects from it directly):\n" +
+    JSON.stringify(Object.fromEntries(entries), null, 2)
+  );
+}
+
 export function buildAspectUserPrompt(input: AspectExtractionInput): string {
   const lines: string[] = [];
   if (input.categoryPath) {
@@ -1821,6 +1870,8 @@ export function buildAspectUserPrompt(input: AspectExtractionInput): string {
         JSON.stringify(Object.fromEntries(knownEntries), null, 2)
     );
   }
+  const tagBlock = tagGroundTruthAspectContext(input.tagGroundTruth);
+  if (tagBlock) lines.push(tagBlock);
   // Compact aspect-spec brief — the tool schema already encodes the
   // constraints, but a human-readable summary helps the model reason
   // about which aspects are highest-priority.

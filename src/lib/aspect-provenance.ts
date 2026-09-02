@@ -11,6 +11,8 @@ import type { EbayAspect } from "@/hooks/use-ebay";
 export type AspectProvenance =
   | "ai_extracted"
   | "inventory_derived"
+  // US-3043: filled from what visually similar live listings agree on.
+  | "visual_consensus"
   | "manual"
   | "unfilled";
 
@@ -27,6 +29,10 @@ export const PROVENANCE_BADGE: Record<
   inventory_derived: {
     label: "Auto",
     title: "Derived from this item's fields",
+  },
+  visual_consensus: {
+    label: "Similar",
+    title: "What similar live eBay listings agree on. Check it against the garment.",
   },
   manual: { label: "You", title: "You typed this" },
 };
@@ -58,9 +64,10 @@ export function requiredMissingAspectNames(
 }
 
 const PRECEDENCE: Record<StoredAspectProvenance, number> = {
-  inventory_derived: 0,
-  ai_extracted: 1,
-  manual: 2,
+  visual_consensus: 0,
+  inventory_derived: 1,
+  ai_extracted: 2,
+  manual: 3,
 };
 
 /// Drop source entries whose aspect no longer has a value (cleared fields), so

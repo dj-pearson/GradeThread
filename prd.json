@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3043",
+  "nextId": "US-3047",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2992,6 +2992,37 @@
       ],
       "priority": 1,
       "notes": "2026-09-01 loop check: all eight CODE acceptance criteria are implemented and green. Verified, not assumed: ebay-no-scrape.test.cjs passes (extension sends item id / URL only on eBay hosts); 27 edge tests pass across ebay-call-log_test.ts, ebay-retention_test.ts and ebay-buyer-erasure_test.ts (call rollup, published-retention-policy-matches-privacy-page, buyer erasure coverage over the migrations). Routes jobs-ebay-rate-limits.ts and jobs-ebay-retention.ts are registered in main.ts; lib/ebay-item-read.ts holds the Browse getItemByLegacyId server resolve. Migration 00711 is applied to prod and probed (see PENDING_MIGRATIONS.md, scripts/probe-00711.mjs). ONLY the two OPERATOR criteria remain: redeploy the edge, create the two Coolify cron tasks (POST /api/jobs/ebay-rate-limits hourly, POST /api/jobs/ebay-retention daily, standard job secret, and the image now has curl), then let the counter run two weeks before reading ebay_api_call_daily for the growth-check form. Story stays open on the operator half."
+    },
+    {
+      "id": "US-3044",
+      "passes": false,
+      "title": "[GATE] Measure what the 2026-09-02 AutoLister change did to specific fill rates and per-item cost before the next cut",
+      "description": "As the operator, I want the recommended-aspect fill rate for Theme, Fabric Type, Garment Care, Country of Origin, MPN and Product Line and the per-item Anthropic cost measured before and after the 2026-09-02 change, so that the next efficiency cut (US-3045) is argued from numbers instead of from the code.",
+      "acceptanceCriteria": [
+        "A script services/edge-functions/scripts/aspect-fill-report.ts reads listings.aspect_coverage + item_specifics_override for drafts generated in a window and prints, per category, the fill rate of each named aspect (Theme, Fabric Type, Garment Care, Country of Origin, MPN / Style Code, Product Line, Model, Character) as filled/total, plus the median recommended coverage from /api/admin/listing-coverage's aggregate for the same window.",
+        "The same script reads ai_enrichment_log rows with suggested_fields.listing_gen for the window and prints median tokens_in, tokens_out and cost_usd per item, split by the pre/post boundary (ai_prompt_version and created_at), and separately the platform_variants rows' median cost.",
+        "OPERATOR: run it against prod for the 200 drafts before 2026-09-02 and the first 200 after, and paste both tables into this story's note; the note names the one aspect whose fill rate moved least and the reason found for it.",
+        "The vault note vault/30-platform/closing-a-coverage-gap.md gains a dated section with the two tables and a link to the script (same commit)."
+      ],
+      "priority": 9,
+      "notes": "2026-09-02: the script and its pure half are in (services/edge-functions/scripts/aspect-fill-report.ts, src/lib/aspect-fill-report.ts, src/tests/aspect-fill-report_test.ts). AC4 names the wrong note: closing-a-coverage-gap.md is the marketplace-extension runbook. The dated section with the two tables belongs in vault/30-platform/ebay-required-aspect-completeness.md, written in the same commit as the operator run's numbers land in this note. Exposure is inferred (filled, or reported missing by aspect_coverage), so each rate carries both denominators; the script header says why."
+    },
+    {
+      "id": "US-3045",
+      "passes": false,
+      "title": "Observe once: the aspect-refine pass runs text-only on the observations the generation pass already made",
+      "description": "As the operator paying for AutoLister, I want the generation pass to emit a compact structured observation of the garment and the refine pass to fill specifics from that text on the lightweight model, so that the second vision call and its ~7,500 image tokens per item go away without the specifics getting worse.",
+      "acceptanceCriteria": [
+        "LISTING_GEN_TOOL gains an optional visual_observations object (fabric_construction, neckline, sleeve_length, closure, pattern, fit, printed_text, graphics_or_characters, hardware, lining, notable_features: string[]) behind a listing_gen_v3 prompt version registered in CODE_PROMPT_TEXT; v1/v2 output is unchanged (byte-identical prompt pinned).",
+        "When the generation result carries visual_observations, extractEbayAspects is called with photos: [] and a new observations block in buildAspectUserPrompt; the model is getHaikuModel() (text routing) regardless of isEasyAspectCategory. Without observations the current photo path runs unchanged.",
+        "Shadow gate before activation: lib/listing-eval.ts (or a new scripts/refine-shadow.ts) runs BOTH refine paths on the same 50 golden items and reports per-aspect agreement and fill counts; the text path may go live only if recommended-tier fill count is >= the photo path's and disagreement on required aspects is < 2%. Numbers go in this story's note.",
+        "ai_enrichment_log.suggested_fields.listing_gen records refine_mode: 'photo' | 'observations' and the refine token split, so the saving is readable per item.",
+        "The US-3044 gate story has its post-change numbers in its note before this story's prompt version is activated."
+      ],
+      "priority": 12,
+      "dependsOn": [
+        "US-3044"
+      ]
     }
   ]
 }

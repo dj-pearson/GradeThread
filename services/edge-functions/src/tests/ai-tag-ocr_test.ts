@@ -15,6 +15,8 @@ Deno.env.set(
 const {
   normalizeTagOcr,
   mergeTagGroundTruth,
+  cleanCountryOfOrigin,
+  tagAttributeFill,
   TAG_GROUND_TRUTH_MIN_CONFIDENCE,
   TAG_PHOTO_TYPES,
 } = await import("../lib/ai-tag-ocr.ts");
@@ -107,4 +109,83 @@ Deno.test("TAG_PHOTO_TYPES covers the tag/care-label photo types", () => {
   assertEquals(TAG_PHOTO_TYPES.has("tag_2"), true);
   assertEquals(TAG_PHOTO_TYPES.has("front"), false);
   assertEquals(TAG_PHOTO_TYPES.has("detail"), false);
+});
+
+// ── 2026-09-02: the label's other three facts ────────────────────────────────
+
+Deno.test("normalizeTagOcr keeps care, country and product line", () => {
+  const fields = normalizeTagOcr({
+    brand: "Nike",
+    care_instructions: " Machine wash cold, tumble dry low ",
+    country_of_origin: "Made in Vietnam",
+    product_line: "Dri-FIT",
+    confidence: { brand: 0.9, care_instructions: 0.8, country_of_origin: 0.95, product_line: 0.7 },
+  });
+  assertEquals(fields.care_instructions, { value: "Machine wash cold, tumble dry low", confidence: 0.8 });
+  // The prefix is stripped at the read, so eBay's Country of Origin list
+  // (bare names) has something to land on.
+  assertEquals(fields.country_of_origin, { value: "Vietnam", confidence: 0.95 });
+  assertEquals(fields.product_line, { value: "Dri-FIT", confidence: 0.7 });
+});
+
+Deno.test("cleanCountryOfOrigin strips the printed prefix in the languages labels use", () => {
+  assertEquals(cleanCountryOfOrigin("Made in Vietnam"), "Vietnam");
+  assertEquals(cleanCountryOfOrigin("MADE IN U.S.A."), "U.S.A");
+  assertEquals(cleanCountryOfOrigin("Hecho en Mexico"), "Mexico");
+  assertEquals(cleanCountryOfOrigin("Fabrique au Portugal"), "Portugal");
+  assertEquals(cleanCountryOfOrigin("Vietnam"), "Vietnam");
+  assertEquals(cleanCountryOfOrigin("  Sri Lanka. "), "Sri Lanka");
+});
+
+Deno.test("a country that is only a prefix is dropped, not stored as 'Made in'", () => {
+  assertEquals(normalizeTagOcr({ country_of_origin: "Made in ", confidence: {} }), {});
+});
+
+Deno.test("mergeTagGroundTruth maps the new reads onto the attribute keys the registry uses", () => {
+  const { merged, groundTruth } = mergeTagGroundTruth({}, {
+    care_instructions: { value: "Hand wash", confidence: 0.9 },
+    country_of_origin: { value: "Portugal", confidence: 0.9 },
+    product_line: { value: "Align", confidence: 0.8 },
+  });
+  assertEquals(merged, {
+    garment_care: "Hand wash",
+    country_of_manufacture: "Portugal",
+    product_line: "Align",
+  });
+  assertEquals(groundTruth, merged);
+});
+
+Deno.test("tagAttributeFill: confident reads land on attributes, fill-only", () => {
+  const fill = tagAttributeFill(
+    {
+      style_code: { value: "CJ1682-010", confidence: 0.9 },
+      care_instructions: { value: "Machine wash cold", confidence: 0.8 },
+      country_of_origin: { value: "Vietnam", confidence: 0.95 },
+      product_line: { value: "Dri-FIT", confidence: 0.7 },
+      brand: { value: "Nike", confidence: 0.99 }, // not an attribute; ignored here
+    },
+    { product_line: "Tech Fleece" }, // the seller typed this one
+  );
+  assertEquals(fill, {
+    garment_care: "Machine wash cold",
+    country_of_manufacture: "Vietnam",
+    // The label's style code IS the MPN eBay asks for.
+    mpn: "CJ1682-010",
+  });
+});
+
+Deno.test("tagAttributeFill: a low-confidence read never reaches the item", () => {
+  const fill = tagAttributeFill(
+    { country_of_origin: { value: "Vietnam", confidence: TAG_GROUND_TRUTH_MIN_CONFIDENCE - 0.01 } },
+    null,
+  );
+  assertEquals(fill, {});
+});
+
+Deno.test("tagAttributeFill: an existing array or object value is respected", () => {
+  const fill = tagAttributeFill(
+    { care_instructions: { value: "Hand wash", confidence: 0.9 } },
+    { garment_care: ["Machine Washable"] },
+  );
+  assertEquals(fill, {});
 });

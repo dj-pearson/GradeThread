@@ -429,6 +429,10 @@ export interface PlatformKitVariant {
   brand: string | null;
   color: string | null;
   size: string | null;
+  /** The eBay Style specific, shown in Depop's style field (2026-09-02). */
+  style?: string | null;
+  /** True when the AutoLister batch filled this variant with the draft. */
+  generatedWithDraft?: boolean;
   price: number;
   tags: string[];
   confidence: number;
