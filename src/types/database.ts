@@ -2802,6 +2802,31 @@ export type FlipdeskSettingsUpdate = Partial<
   Omit<FlipdeskSettingsRow, "user_id" | "created_at" | "updated_at">
 >;
 
+// US-3073 (migration 00722): the widget board a user arranged, one row per
+// (user, surface). `layout` is the ordered document
+// {"version": n, "widgets": [{"id": ..., "size": ...}]} — typed as unknown
+// here on purpose, because src/lib/dashboard-layout.ts normalize() is the only
+// thing allowed to trust its shape.
+export interface DashboardLayoutRow {
+  user_id: string;
+  surface: string;
+  layout: unknown;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DashboardLayoutInsert {
+  user_id: string;
+  surface: string;
+  layout: unknown;
+  version?: number;
+}
+
+export type DashboardLayoutUpdate = Partial<
+  Omit<DashboardLayoutRow, "user_id" | "surface" | "created_at" | "updated_at">
+>;
+
 export interface FlipdeskGradingSubmissionRow {
   id: string;
   inventory_item_id: string;
@@ -4758,6 +4783,11 @@ export interface Database {
         Row: FlipdeskSettingsRow;
         Insert: FlipdeskSettingsInsert;
         Update: FlipdeskSettingsUpdate;
+      };
+      dashboard_layouts: {
+        Row: DashboardLayoutRow;
+        Insert: DashboardLayoutInsert;
+        Update: DashboardLayoutUpdate;
       };
       listing_snippets: {
         Row: ListingSnippetRow;

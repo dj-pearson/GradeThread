@@ -1,5 +1,36 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00722 — dashboard_layouts (widget board foundation, US-3073)
+
+**What it does.** Creates `public.dashboard_layouts`: one row per
+`(user_id, surface)`, `surface` checked against
+`('grading','flipdesk','ios-home')`, an ordered `layout` jsonb document, a
+`version` integer, `created_at`/`updated_at` on the shared
+`public.set_updated_at()` trigger. RLS on with four owner-only policies
+(select/insert/update/delete on `(select auth.uid()) = user_id`).
+
+**Risk: low.** One new table. Nothing else is touched, no data is migrated, and
+no existing query reads it. Idempotent: `CREATE TABLE IF NOT EXISTS`, every
+policy dropped before it is created, the trigger dropped before it is created.
+
+**The client tolerates it being absent, on purpose.** `src/hooks/use-dashboard-layout.ts`
+follows the `use-review-flow.ts` pattern: any read error, `42P01` included,
+resolves to the persona default layout and never to an error state. So the
+frontend can auto-deploy on push and the board still renders correctly before
+this SQL lands. A save attempted before the apply fails and rolls back with a
+toast, which is the only visible symptom.
+
+**No edge route touches this table.** The browser reads and upserts it through
+supabase-js under RLS; the service role never writes here.
+
+**Apply order.** `00722` alone (prod records `00721`). Then
+`NOTIFY pgrst, 'reload schema';` (PostgREST must learn the new table or every
+read answers `PGRST205`). Then redeploy the edge on Coolify
+(`EXPECTED_SCHEMA_VERSION` is now `00722`).
+
+**Verification.** Recorded below in the story's report. `scripts/migrations-lint.mjs`
+passes; see the final report for whether `npm run verify:db` (Docker) ran here.
+
 ## ✅ APPLIED 2026-09-02: 00721 — Unlisted tab (To List + Drafts merged), chip filter, wider search
 
 **Applied.** Prod's `applied_migrations` records `00721` at 2026-09-02 15:51 UTC
