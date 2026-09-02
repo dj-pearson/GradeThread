@@ -951,7 +951,12 @@ function DroppableColumn({
             )}
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex-1 space-y-2 px-3 pb-3">
+        {/* The column scrolls inside itself past roughly one screen, so a
+            stage holding fifty cards does not make the whole board fifty
+            cards tall and push every other column's header off the top.
+            dnd-kit auto-scrolls a scrollable ancestor while dragging near its
+            edge, so a card can still be dropped below the fold. */}
+        <CardContent className="max-h-[calc(100dvh-16rem)] flex-1 space-y-2 overflow-y-auto px-3 pb-3">
           {children}
         </CardContent>
       </Card>

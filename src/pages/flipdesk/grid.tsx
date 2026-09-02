@@ -585,7 +585,7 @@ export function FlipdeskGridPage() {
                 icon={Grid3x3}
                 title="No inventory yet"
                 description="Add or import items to start editing them spreadsheet-style here."
-                action={{ label: "Go to inventory", to: "/dashboard/inventory" }}
+                action={{ label: "Add item", to: "/dashboard/flipdesk/intake" }}
               />
             )
           ) : (

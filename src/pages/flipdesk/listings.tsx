@@ -112,10 +112,20 @@ import {
   TABS,
   TO_LIST_STATUSES,
 } from "@/pages/flipdesk/inventory-tabs";
+import { type SoldFilter } from "@/pages/flipdesk/listings-filter";
 import {
-  type SoldFilter,
-  type SortPreset,
-} from "@/pages/flipdesk/listings-filter";
+  resolveSortOption,
+  sortOptionsForTab,
+  sortRequestFor,
+  type ColumnSort,
+  type SortOption,
+  type SortOptionId,
+} from "@/pages/flipdesk/inventory-sort";
+import {
+  initialInventoryTab,
+  readLastInventoryTab,
+  writeLastInventoryTab,
+} from "@/pages/flipdesk/inventory-last-tab";
 import {
   usePageRowDetails,
   type ListingPageResult,
@@ -154,12 +164,40 @@ import { cn } from "@/lib/utils";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
 import { PageHelp } from "@/components/help/page-help";
 
-const SORT_PRESET_LABELS: Record<SortPreset, string> = {
-  listability: "Listability score",
-  oldest: "Oldest first",
-  best_roi: "Best ROI",
-  highest_comp: "Highest comp",
-};
+/**
+ * The per-tab sort menu, rendered once in the desktop toolbar and once in the
+ * mobile Filters sheet. While a column header sort is active the menu shows a
+ * placeholder rather than a stale pick, and picking anything hands control
+ * back to the menu.
+ */
+function SortMenu({
+  options,
+  value,
+  headerActive,
+  onChange,
+  className,
+}: {
+  options: SortOption[];
+  value: SortOptionId;
+  headerActive: boolean;
+  onChange: (id: string) => void;
+  className?: string;
+}) {
+  return (
+    <Select value={headerActive ? "" : value} onValueChange={onChange}>
+      <SelectTrigger aria-label="Sort listings by" className={className}>
+        <SelectValue placeholder="Sorted by column" />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((o) => (
+          <SelectItem key={o.id} value={o.id}>
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 const SOLD_FILTER_LABELS: Record<SoldFilter, string> = {
   all: "All",
@@ -194,12 +232,16 @@ export function FlipdeskListingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   // US-1429: an explicit `?tab=` wins; otherwise honor a `?status=` deep-link
   // from Overview/Kanban by mapping it onto the matching tab; else default.
-  const tabParam = searchParams.get("tab") as TabId | null;
-  const initialTab: TabId =
-    tabParam && TABS.some((t) => t.id === tabParam)
-      ? tabParam
-      : statusParamToTab(searchParams.get("status")) ?? "to_list";
-  const [tab, setTab] = useState<TabId>(initialTab);
+  // A bare URL opens the tab the seller was last on (inventory-last-tab.ts):
+  // the sidebar entry and "Back to items" both arrive without a tab, and
+  // landing on To List after every draft was the complaint that made it so.
+  const [tab, setTab] = useState<TabId>(() =>
+    initialInventoryTab(
+      searchParams.get("tab"),
+      statusParamToTab(searchParams.get("status")),
+      readLastInventoryTab(),
+    ),
+  );
   // US-958: search lives in the URL (`?q=`) so it survives switching between
   // the unified Inventory view modes (table/grid/kanban).
   // `draft` drives the box (instant), `value` drives the query (on a pause).
@@ -216,30 +258,38 @@ export function FlipdeskListingsPage() {
   // US-961: mobile per-card quick-edit drawer + the mobile filters sheet.
   const [quickEditItem, setQuickEditItem] = useState<ItemFullRow | null>(null);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-  // US-958: sort preset lives in the URL (`?sort=`) so it persists across view
-  // mode switches. Guard against a hand-edited/unknown value.
-  const [sortParam, setSortParam] = useUrlParamState("sort", "listability");
-  const sortPreset: SortPreset =
-    sortParam in SORT_PRESET_LABELS
-      ? (sortParam as SortPreset)
-      : "listability";
-  const setSortPreset = (v: SortPreset) => setSortParam(v);
-  // When set, overrides the tab's default sort. Lets the user click a
-  // column header — currently SKU, can extend to others — to take control
-  // without losing the stage tab they're in.
-  const [columnSort, setColumnSort] = useState<{
-    field: keyof ItemFullRow;
-    dir: "asc" | "desc";
-  } | null>(null);
+  // US-958: the sort lives in the URL (`?sort=`) so it persists across view
+  // mode switches. The menu is per tab (inventory-sort.ts); a value the
+  // current tab's menu lacks resolves to that tab's default.
+  const [sortParam, setSortParam] = useUrlParamState("sort", "default");
+  const sortOptions = sortOptionsForTab(tab);
+  const sortOption = resolveSortOption(sortParam, tab);
+  // A clicked column header overrides the menu until the third click clears
+  // it, or a menu pick replaces it. Kept separate from the menu so the seller
+  // can take control of one column without losing the stage tab they're in.
+  const [headerSort, setHeaderSort] = useState<ColumnSort | null>(null);
   function toggleColumnSort(field: keyof ItemFullRow) {
-    setColumnSort((prev) =>
+    setHeaderSort((prev) =>
       prev && prev.field === field
         ? prev.dir === "asc"
           ? { field, dir: "desc" }
-          : null // third click clears, revealing the tab's default sort again
+          : null // third click clears, revealing the menu's sort again
         : { field, dir: "asc" },
     );
   }
+  function pickSort(id: string) {
+    setHeaderSort(null);
+    setSortParam(id);
+  }
+  // What the server is asked for: the header wins, then the menu's column,
+  // then the tab's own order. `sortPreset` only matters on To List.
+  const { preset: sortPreset, columnSort } = sortRequestFor(
+    sortOption,
+    headerSort,
+  );
+  const sortedByLabel = headerSort
+    ? `${String(headerSort.field).replace(/_/g, " ")} ${headerSort.dir === "asc" ? "ascending" : "descending"}`
+    : sortOption.label.toLowerCase();
   const [soldFilter, setSoldFilter] = useState<SoldFilter>("all");
   // US-958: selection lives in a shared store so it carries across a view-mode
   // switch (table ↔ kanban) without being dropped on unmount.
@@ -408,11 +458,14 @@ export function FlipdeskListingsPage() {
   const tabMountedRef = useRef(false);
   useEffect(() => {
     const next = new URLSearchParams(searchParams);
-    if (tab === "to_list") next.delete("tab");
-    else next.set("tab", tab);
+    // Always written, To List included. A bare URL now means "the remembered
+    // tab", so a URL that names the tab is the only one that can be shared or
+    // bookmarked and mean the same thing to the next reader.
+    next.set("tab", tab);
     if (next.toString() !== searchParams.toString()) {
       setSearchParams(next, { replace: true });
     }
+    writeLastInventoryTab(tab);
     setPage(1);
     if (tabMountedRef.current) setSelected(new Set());
     else tabMountedRef.current = true;
@@ -1020,28 +1073,16 @@ export function FlipdeskListingsPage() {
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-4 px-4 pb-4">
-              {isToList && (
-                <div className="space-y-1.5">
-                  <span className="text-sm font-medium">Sort</span>
-                  <Select
-                    value={sortPreset}
-                    onValueChange={(v) => setSortPreset(v as SortPreset)}
-                  >
-                    <SelectTrigger aria-label="Sort listings by" className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(Object.keys(SORT_PRESET_LABELS) as SortPreset[]).map(
-                        (p) => (
-                          <SelectItem key={p} value={p}>
-                            {SORT_PRESET_LABELS[p]}
-                          </SelectItem>
-                        ),
-                      )}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">Sort</span>
+                <SortMenu
+                  options={sortOptions}
+                  value={sortOption.id}
+                  headerActive={headerSort != null}
+                  onChange={pickSort}
+                  className="w-full"
+                />
+              </div>
               <div className="space-y-1.5">
                 <span className="text-sm font-medium">Advanced filter</span>
                 <div>
@@ -1100,23 +1141,13 @@ export function FlipdeskListingsPage() {
           placeholder="Search title, brand, SKU…"
           className="w-64"
         />
-        {isToList && (
-          <Select
-            value={sortPreset}
-            onValueChange={(v) => setSortPreset(v as SortPreset)}
-          >
-            <SelectTrigger aria-label="Sort listings by" className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(SORT_PRESET_LABELS) as SortPreset[]).map((p) => (
-                <SelectItem key={p} value={p}>
-                  {SORT_PRESET_LABELS[p]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <SortMenu
+          options={sortOptions}
+          value={sortOption.id}
+          headerActive={headerSort != null}
+          onChange={pickSort}
+          className="w-52"
+        />
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <FilterBuilder query={filterQuery} onChange={setFilterQuery} />
           {savedViews.length > 0 && (
@@ -1221,19 +1252,16 @@ export function FlipdeskListingsPage() {
             </span>
           </CardTitle>
           <CardDescription>
+            Sorted by {sortedByLabel}.{" "}
             {isToList
-              ? "Sorted by " +
-                SORT_PRESET_LABELS[sortPreset].toLowerCase() +
-                ". Select rows to bulk-create drafts."
+              ? "Select rows to bulk-create drafts."
               : isSold
-                ? "Most recent sale first. Select rows to prepare shipments."
+                ? "Select rows to prepare shipments."
                 : isDrafts
                   ? ebayConnection
-                    ? "Oldest first. Select rows to bulk-publish to eBay."
-                    : "Oldest first. Click a row to publish, or connect eBay for bulk-publish."
-                  : activeTab.sortDir === "asc"
-                    ? "Oldest first. Click a row for full details."
-                    : "Most recent first. Click a row for full details."}
+                    ? "Select rows to bulk-publish to eBay."
+                    : "Click a row to publish, or connect eBay for bulk-publish."
+                  : "Click a row for full details."}
           </CardDescription>
         </CardHeader>
         <CardContent className="px-0">

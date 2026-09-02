@@ -12,7 +12,7 @@
 // ItemCardList instead).
 
 import type { ReactNode, RefObject } from "react";
-import { Link, type NavigateFunction } from "react-router";
+import { Link, useLocation, type NavigateFunction } from "react-router";
 import type { Virtualizer, VirtualItem } from "@tanstack/react-virtual";
 import {
   AlertCircle,
@@ -245,6 +245,16 @@ export function ListingsTable({
   ebayConnection,
   navigate,
 }: Props) {
+  // Where "Back to items" on the item page returns to. The item page reads
+  // `state.from` (US-2519) and falls back to a bare /items URL, which lands on
+  // whatever tab the table opens by default. Passing the current location,
+  // query string included, brings the seller back to the tab, search and
+  // filter they left, the same way the Kanban's quick-look dialog already does.
+  const location = useLocation();
+  const openItem = (id: string) =>
+    navigate(`/dashboard/flipdesk/items/${id}/draft`, {
+      state: { from: `${location.pathname}${location.search}` },
+    });
   // US-9202: which items have an edit that has not reached an extension
   // channel yet. One shared read; the badge says which channel and since when.
   const { data: pendingRevises = [] } = usePendingRevises();
@@ -658,9 +668,7 @@ export function ListingsTable({
                   // how a listed item ended up unable to save (eBay
                   // rejecting the revision for a missing required
                   // specific the seller had no way to fill).
-                  onActivate={() =>
-                    navigate(`/dashboard/flipdesk/items/${it.id}/draft`)
-                  }
+                  onActivate={() => openItem(it.id)}
                   // Was `it.item_title ?? it.listing_title`, which SKIPPED the
                   // US-1569 placeholder fallback the title cell below applies —
                   // so a row displaying "Nike Windbreaker" announced itself as
@@ -689,11 +697,7 @@ export function ListingsTable({
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6"
-                      onClick={() =>
-                        navigate(
-                          `/dashboard/flipdesk/items/${it.id}/draft`,
-                        )
-                      }
+                      onClick={() => openItem(it.id)}
                       aria-label={`Open full editor for ${rowLabel}`}
                     >
                       <Pencil className="h-3 w-3" />
