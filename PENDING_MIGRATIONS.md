@@ -1,5 +1,53 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ HELD: 00723 — credit functions must refuse anon (US-3094)
+
+**What it does.** Nothing to the schema. It is a single read-only `DO` block
+that raises if any of the ten credit functions is reachable with the public
+anon key *and* carries no authorization check in its own body. It writes only
+the `applied_migrations` footer.
+
+**Risk: none in the ordinary sense.** No table, column, function, policy or
+grant changes. The one way it can fail an apply is by finding a real violation,
+which is the point — under `ON_ERROR_STOP=1` it aborts before the footer, so a
+failed run records nothing and is safe to re-run after the fix.
+
+**⚠ IT DELIBERATELY DOES NOT REVOKE, AND THAT IS THE STORY'S FINDING.** US-3094
+was filed on the belief that the eight credit functions are anon-`EXECUTE`-able
+on prod because a revoke that works locally never landed there. Measured on the
+throwaway stack on 2026-09-02, **local and prod agree**: `anon` holds EXECUTE on
+the same eight in both, and on neither of the two that `00216` revoked. No
+revoke was ever written for these eight anywhere. US-2282 shipped `00615`, which
+put the check in the function BODY instead; the `42501` in its closing note is
+that body raising, not an `EXECUTE` denial.
+
+Adding the revoke now would be actively harmful: on this Postgres image a denied
+function call from a role in `supautils.hint_roles` segfaults the backend and
+restarts the database (US-2403), and `anon` is the key in the browser bundle. It
+is also blocked twice over — `scripts/migrations-lint.mjs` and
+`src/test/us2403-function-revoke-gate.test.ts` both fail a new one, `00527` is
+parked as `.BLOCKED`, and `00686` and `00720` each UNDID a revoke that shipped by
+mistake.
+
+**Apply order.** `00723` alone. **No `NOTIFY pgrst, 'reload schema';` is
+needed** — no table, column or RPC signature changed — but running it is
+harmless and costs nothing if you would rather not think about it. Then redeploy
+the edge on Coolify (`EXPECTED_SCHEMA_VERSION` is now `00723`). Then push.
+
+**⚠ NUMBERING.** This was written in a worktree whose tree ends at `00721`;
+`00722_dashboard_layouts.sql` belongs to a concurrent session. Re-run
+`node scripts/gen-migration-manifest.mjs` after the two are merged, or the
+shipped manifest will be missing `00722`.
+
+**No client-side coupling.** Nothing in `src/` or the edge reads anything new.
+The frontend can deploy before or after this without noticing.
+
+**Verification.** `node scripts/check-credit-function-guards.mjs` reports all ten
+clean on a stack built from the full corpus, with its self-check passing. On
+prod, re-run `scripts/prod-diagnostics.sql` §29 afterwards: `definer_anon_can_run`
+should be UNCHANGED at about 100 (it is expected to stay non-zero), and no row of
+(a) should read `anon_can_run = t` with `body_guard = f`.
+
 ## ✅ APPLIED 2026-09-02: 00721 — Unlisted tab (To List + Drafts merged), chip filter, wider search
 
 **Applied.** Prod's `applied_migrations` records `00721` at 2026-09-02 15:51 UTC
