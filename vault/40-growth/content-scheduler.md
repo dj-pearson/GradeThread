@@ -4,7 +4,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-27
+reviewed: 2026-09-02
 tags: [content, scheduling]
 summary: How scheduled posts are queued, fired and recovered when a run is missed.
 ---
@@ -54,11 +54,16 @@ tick, in order:
 7. **Safety gate** (`reviewContentSafety`) — the autonomous path is the only one
    with no human review, so it must pass. On fail the post is **held** as a draft
    (`safety_status='held'`) with notes for a human; the topic stays `assigned`.
-8. **Weekly ceiling** (SOCIAL only) — if AI posts published in the last 7 days ≥
-   `max_auto_publishes_per_week`, a social tick still generates but demotes to
-   draft instead of publishing (hard cap independent of daily cadence). **Blog is
-   uncapped** (product decision 2026-06): every generated blog article publishes
-   on completion; the safety gate (step 7) is the backstop that holds risky posts.
+8. **Weekly ceiling** (SOCIAL only) — if AI **social** posts published in the
+   last 7 days ≥ `max_auto_publishes_per_week`, a social tick still generates but
+   demotes to draft instead of publishing (hard cap independent of daily
+   cadence). **Blog is uncapped** (product decision 2026-06): every generated
+   blog article publishes on completion; the safety gate (step 7) is the backstop
+   that holds risky posts. Blog publishes do not count toward the ceiling —
+   until 2026-09-02 they did, and with blog autopilot at 2/day the cap of 10 was
+   reached by blog alone, so every social post landed in drafts with the run
+   log reading "success". If social posts generate but never publish, check
+   this ceiling before anything else.
 9. **Publish** (only if the surface's `auto_publish_*` flag is on) → stamp
    `published_at` → mark topic `used` → append to history index → dispatch
    Make.com webhook → purge Cloudflare cache (blog) → write a system audit row.

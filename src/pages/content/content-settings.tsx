@@ -267,8 +267,9 @@ export function ContentSettingsPage() {
                 }
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Hard ceiling across blog + social, independent of daily
-                cadence. At the limit, new content stays in drafts.
+                Hard ceiling on social auto-posts, independent of daily
+                cadence. Blog is uncapped. At the limit, new social posts
+                stay in drafts.
               </p>
             </div>
           </div>

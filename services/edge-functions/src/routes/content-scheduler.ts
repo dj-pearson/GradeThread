@@ -227,26 +227,26 @@ export function tallySlots(
 }
 
 // US-486: hard weekly ceiling, independent of per-day cadence. Counts every
-// AI-generated post published in the last 7 days across both surfaces —
-// deliberately conservative (manual publishes of AI drafts count too) so a
-// cadence misconfiguration or a runaway tick loop can't flood the public site.
-async function aiPublishedLast7Days(): Promise<number> {
+// AI-generated SOCIAL post published in the last 7 days — deliberately
+// conservative (manual publishes of AI drafts count too) so a cadence
+// misconfiguration or a runaway tick loop can't flood the channels.
+//
+// Social only, on purpose. Until 2026-09-02 this summed blog_posts as well,
+// while the gate below applies to social alone and blog is uncapped by product
+// decision (2026-06). Blog autopilot at 2/day put 14+ rows in the window
+// against a cap of 10, so every social tick generated a post and then demoted
+// it to draft with the run log reading "success" — the ceiling was permanently
+// closed before the first social post ever published. Exported for the test
+// that pins this (content-weekly-ceiling_test.ts).
+export async function aiPublishedLast7Days(): Promise<number> {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const [{ count: blog }, { count: social }] = await Promise.all([
-    supabaseAdmin
-      .from("blog_posts")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "published")
-      .eq("generated_by", "ai")
-      .gte("published_at", since),
-    supabaseAdmin
-      .from("social_posts")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "published")
-      .eq("generated_by", "ai")
-      .gte("published_at", since),
-  ]);
-  return (blog ?? 0) + (social ?? 0);
+  const { count } = await supabaseAdmin
+    .from("social_posts")
+    .select("id", { count: "exact", head: true })
+    .eq("status", "published")
+    .eq("generated_by", "ai")
+    .gte("published_at", since);
+  return count ?? 0;
 }
 
 // "Which product needs the next slot?" — picks whichever (gt vs fd)

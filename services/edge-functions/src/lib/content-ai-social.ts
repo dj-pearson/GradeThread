@@ -264,8 +264,16 @@ export async function generateSocialPost(
     // ⚠️ max_tokens caps THINKING + TEXT on sonnet-5, not text alone. This
     // number was sized on sonnet-4-6, where omitting `thinking` meant no
     // thinking at all — see lib/ai-response-text.ts for the outage that
-    // caused. Size it for the worst-case output PLUS reasoning headroom.
-    max_tokens: 8192,
+    // caused. 8192 (b605211fb) was still not enough: 2026-09-02 runs died at
+    // output_tokens=8192 with ~4.5k chars of JSON, i.e. ~6.9k tokens of
+    // thinking. The non-streaming ceiling plus lower effort (below) is what
+    // makes the budget hold — see content-ai-social-budget_test.ts.
+    max_tokens: 16384,
+    // Copy for a social post is not intelligence-sensitive work. The default
+    // effort (high) had the model reasoning through seven character limits
+    // for 73-100s and past the budget; medium keeps it inside both the token
+    // cap and AI_TIMEOUT_MS (120s).
+    output_config: { effort: "medium" },
     ...(temperature !== undefined ? { temperature } : {}),
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
