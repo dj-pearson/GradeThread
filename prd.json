@@ -3329,24 +3329,6 @@
       "priority": 12
     },
     {
-      "id": "US-3076",
-      "passes": false,
-      "title": "FlipDesk Overview on the widget board: stat tiles, pipeline, lists and North Star as widgets, one RPC underneath, range applied board-wide",
-      "description": "As a reseller, I want /dashboard/flipdesk to be a board I can arrange, with the reporting window applying to every widget that has one, so that the numbers I care about sit where I look first. Today src/pages/flipdesk/overview.tsx is a fixed page of twelve blocks in an order nobody can change, and the North Star card is pinned above the numbers whether or not the seller cares about the weekly goal.",
-      "acceptanceCriteria": [
-        "Widgets registered on the flipdesk surface: flipdesk.north-star (NorthStarCard), flipdesk.stat-items, flipdesk.stat-listed, flipdesk.stat-sold, flipdesk.stat-net, flipdesk.stat-time-saved (the US-9207 tile with its breakdown dialog), flipdesk.stat-review-median (US-9204), flipdesk.pipeline, flipdesk.community-insights (CommunityInsightsWidget), flipdesk.aging, flipdesk.top-brands, flipdesk.stale (with StaleNudge), flipdesk.recent-sales. overview.tsx renders PageHeader (range Select, Import, Add item, Customize) and WidgetBoard for surface 'flipdesk' and nothing else",
-        "Every widget that carried a number from flipdesk_overview_metrics still reads it through useFlipdeskOverview(range), one query deduped by its key; no widget reads items_full or any per-row table for those numbers. src/test/overview-stage-and-range.test.ts stays green, with its source-reading assertions repointed at the files the markup moved to and the same expectations kept (one RPC, SECURITY INVOKER, stage tiles resolve to their stage, show-all on both lists, aging rows link to the item)",
-        "The ?range= URL param stays the source of truth (useUrlParamState). Every widget with rangeAware true receives the range and its frame subtitle shows rangeDef.phrase; a widget that is not range-aware (pipeline, aging, stale, north-star) shows 'right now'. Changing the range resets the show-all toggles as today",
-        "Allowed sizes: stat tiles and north-star sm and md (default sm); pipeline md and lg (default lg); the four list widgets and community-insights md and lg (default md). Default layout order: north-star, stat-items, stat-listed, stat-sold, stat-net, stat-time-saved, stat-review-median, pipeline, aging, stale, top-brands, recent-sales, community-insights",
-        "Stale-nudge dismissal under gt:flipdesk:stale-nudge-dismissed, the repricing message on a stale row, and both show-all toggles keep working inside their widgets; a render test dismisses a nudge and asserts it stays dismissed after remount",
-        "npm run verify passes and npm run ui:check reports zero"
-      ],
-      "priority": 13,
-      "dependsOn": [
-        "US-3073"
-      ]
-    },
-    {
       "id": "US-3077",
       "passes": false,
       "title": "FlipDesk action widgets: Needs you, offers waiting, extension queue, sync conflicts, AutoLister drafts, scheduled drops, automations, repricing",
