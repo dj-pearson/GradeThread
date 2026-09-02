@@ -388,13 +388,39 @@ tag is shared with the one-item extract path, whose schema differs on every
 call, so the ledger cannot say which. US-3047 separates the two and fixes
 whichever it is. Both findings belong ahead of US-3045.
 
-**AFTER** - two generations so far (one draft row: a regenerate upserts the
-same draft and keeps its created_at). The one draft filled Fabric Type,
-Product Line, Features, Occasion and Department; Theme empty. Median
-recommended coverage 68% against 55% before. Cache-cold, so the per-call
-costs are the write-side numbers: autolister $0.07, refine $0.02, size
-$0.01, measure $0.02; $0.119 per draft. Re-run once ~30 drafts exist on the
-new code and replace this paragraph with the table.
+**AFTER** - 3 drafts, 5 generations, all single-item runs on a cold cache
+(the operator had no time for a batch; treat as a smell test, not a result).
+Median recommended coverage 65% (55% before), 0 blocked.
+
+| Aspect | Filled | Of exposed | Of all drafts |
+|---|---|---|---|
+| Theme | 0/3 | 0% | 0% |
+| Fabric Type | 2/3 | 67% | 67% |
+| Garment Care | 0/0 | - | 0% |
+| Country of Origin | 1/2 | 50% | 33% |
+| MPN / Style Code | 0/0 | - | 0% |
+| Product Line | 0/1 | 0% | 0% |
+| Model | 0/1 | 0% | 0% |
+| Character | 0/2 | 0% | 0% |
+| Department | 3/3 | 100% | 100% |
+| Features | 1/3 | 33% | 33% |
+| Occasion | 0/0 | - | 0% |
+
+Ledger, cache-cold: $0.116 per draft = autolister $0.07 + refine $0.02 +
+size $0.01 + measure $0.02; tag_ocr ran on none of the five (no photo roled
+`tag`), so the label reads never fired and Product Line / Model stayed empty.
+Theme stayed empty on all three despite the evidence rules; the open
+question is whether Theme even reaches the refine schema on these leaves
+(MAX_AI_ASPECTS = 45, demand-ranked; a recommended aspect with a low
+`searchCount` is cut while the coverage metric still counts it). Checking that
+needs the leaf's cached payload, not a draft.
+
+What the ledger settles, three drafts or not: **the refine pass is not the
+lever.** It costs $0.01 to $0.02 per draft. The generation pass is $0.05 to
+$0.07 and the size estimate was $0.07 until the cap. US-3045 (observe-once
+refine) was filed on the assumption that the second vision call was ~half the
+bill; it is a tenth. It is re-ranked behind US-3047 (cache breakpoints, tag
+roles), which moves both the fill rates and the generation line.
 
 ## Related
 
