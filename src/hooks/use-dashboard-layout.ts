@@ -3,11 +3,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
+import { useInventoryItemCount } from "@/hooks/use-inventory-item-count";
 import { layoutDocument, normalize, personaOf } from "@/lib/dashboard-layout";
 import {
   LAYOUT_VERSION,
   widgetsForSurface,
   type DashboardSurface,
+  type LayoutContext,
   type LayoutEntry,
   type WidgetDef,
   type WidgetPersona,
@@ -68,10 +70,27 @@ function fallbackLayout(
   surface: DashboardSurface,
   registry: readonly WidgetDef[],
   persona: WidgetPersona,
+  context: LayoutContext,
 ): LayoutEntry[] {
   const mirrored = readMirrorDocument(surface);
-  if (mirrored) return normalize(mirrored, registry, persona);
-  return normalize(null, registry, persona);
+  if (mirrored) return normalize(mirrored, registry, persona, context);
+  return normalize(null, registry, persona, context);
+}
+
+/**
+ * What normalize() needs to know about the account beyond its persona.
+ *
+ * One question so far (US-3075 AC5): does this account have any inventory. The
+ * count is undefined until it resolves and undefined on failure, and an
+ * undefined field omits nothing, so a widget can never flicker off the board
+ * and back on while a query is in flight.
+ */
+function useLayoutContext(): LayoutContext {
+  const itemCount = useInventoryItemCount();
+  return useMemo(
+    () => ({ hasInventory: itemCount === undefined ? undefined : itemCount > 0 }),
+    [itemCount],
+  );
 }
 
 export interface DashboardLayoutResult {
@@ -80,6 +99,8 @@ export interface DashboardLayoutResult {
   /** The registry for this surface, so callers do not re-derive it. */
   registry: readonly WidgetDef[];
   persona: WidgetPersona;
+  /** The account facts normalize() was given, so callers can reuse them. */
+  context: LayoutContext;
   /** True only before the first paint of the fallback; the board still renders. */
   isLoading: boolean;
   /** True once the layout on screen came from the server. */
@@ -91,13 +112,14 @@ export function useDashboardLayout(surface: DashboardSurface): DashboardLayoutRe
   const useCase = useAuthStore((s) => s.profile?.use_case);
   const persona = personaOf(useCase);
   const registry = useMemo(() => widgetsForSurface(surface), [surface]);
+  const context = useLayoutContext();
 
   const query = useQuery({
     queryKey: dashboardLayoutKey(user?.id, surface),
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
     // Paint the last known shape immediately; the fetch replaces it.
-    placeholderData: () => fallbackLayout(surface, registry, persona),
+    placeholderData: () => fallbackLayout(surface, registry, persona, {}),
     queryFn: async (): Promise<LayoutEntry[]> => {
       const { data, error } = await supabase
         .from(TABLE)
@@ -107,7 +129,7 @@ export function useDashboardLayout(surface: DashboardSurface): DashboardLayoutRe
         .maybeSingle();
 
       // Table absent, RLS surprise, offline: all the same answer here.
-      if (error) return fallbackLayout(surface, registry, persona);
+      if (error) return fallbackLayout(surface, registry, persona, {});
 
       const document = (data as { layout?: unknown } | null)?.layout ?? null;
       const widgets = normalize(document, registry, persona);
@@ -116,10 +138,20 @@ export function useDashboardLayout(surface: DashboardSurface): DashboardLayoutRe
     },
   });
 
+  // The cache and the mirror hold the STORED shape, with no account facts
+  // applied: the query key stays stable (the save mutation writes to it
+  // optimistically), and a widget dropped for this account is not written back
+  // as if the seller had hidden it. Applying the context here is the last step
+  // before the board reads it, so omitWhen decides what renders and nothing
+  // else. US-3075 AC5.
+  const stored = query.data ?? fallbackLayout(surface, registry, persona, {});
+  const layout = normalize(layoutDocument(stored), registry, persona, context);
+
   return {
-    layout: query.data ?? fallbackLayout(surface, registry, persona),
+    layout,
     registry,
     persona,
+    context,
     isLoading: query.isLoading,
     isFromServer: query.isSuccess && !query.isPlaceholderData,
   };

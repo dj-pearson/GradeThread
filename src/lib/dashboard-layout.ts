@@ -6,6 +6,7 @@ import {
   defaultLayoutFor,
   isWidgetSize,
   type DashboardSurface,
+  type LayoutContext,
   type LayoutDocument,
   type LayoutEntry,
   type WidgetCategory,
@@ -45,6 +46,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Reconcile a stored layout with the current registry.
  *
  * - unknown widget ids are dropped (retired widget, or another surface's)
+ * - a widget whose `omitWhen` answers true for this account is dropped
  * - a size the widget does not allow is clamped to its defaultSize
  * - a repeated id keeps the FIRST occurrence and drops the rest
  * - a missing, malformed or unknown-version document returns the persona default
@@ -52,27 +54,35 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * An empty widget list in a well-formed current-version document is honored as
  * an empty board: hiding everything is a choice a seller can make, and turning
  * it back into the default would make Hide look broken.
+ *
+ * `context` defaults to empty, and an empty context omits NOTHING, so every
+ * existing caller keeps the board it had. US-3075 AC5 is the only user of it:
+ * the FlipDesk promo leaves the board once the account has inventory.
  */
 export function normalize(
   stored: unknown,
   registry: readonly WidgetDef[],
   persona: WidgetPersona,
+  context: LayoutContext = {},
 ): LayoutEntry[] {
   const surface = surfaceOf(registry);
   const fallback = (): LayoutEntry[] =>
-    surface ? normalizeEntries(defaultLayoutFor(surface, persona), registry) : [];
+    surface
+      ? normalizeEntries(defaultLayoutFor(surface, persona), registry, context)
+      : [];
 
   if (!isRecord(stored)) return fallback();
   if (stored.version !== LAYOUT_VERSION) return fallback();
   if (!Array.isArray(stored.widgets)) return fallback();
 
-  return normalizeEntries(stored.widgets, registry);
+  return normalizeEntries(stored.widgets, registry, context);
 }
 
 /** The per-entry rules, shared by the stored document and the shipped default. */
 function normalizeEntries(
   entries: readonly unknown[],
   registry: readonly WidgetDef[],
+  context: LayoutContext,
 ): LayoutEntry[] {
   const out: LayoutEntry[] = [];
   const seen = new Set<string>();
@@ -84,6 +94,7 @@ function normalizeEntries(
 
     const def = registry.find((w) => w.id === id);
     if (!def) continue;
+    if (def.omitWhen?.(context)) continue;
 
     const size = isWidgetSize(raw.size) && def.sizes.includes(raw.size)
       ? raw.size
@@ -231,8 +242,9 @@ export function addWidget(
 export function resetLayout(
   registry: readonly WidgetDef[],
   persona: WidgetPersona,
+  context: LayoutContext = {},
 ): LayoutEntry[] {
-  return normalize(null, registry, persona);
+  return normalize(null, registry, persona, context);
 }
 
 /**
@@ -248,9 +260,16 @@ export function addableWidgets(
   entries: readonly LayoutEntry[],
   registry: readonly WidgetDef[],
   persona: WidgetPersona,
+  context: LayoutContext = {},
 ): WidgetDef[] {
   const onBoard = new Set(entries.map((e) => e.id));
-  return registry.filter((w) => !onBoard.has(w.id) && w.personas.includes(persona));
+  // omitWhen applies here too: normalize() taking the FlipDesk promo off the
+  // board while the catalog offers it straight back is a loop with a button on
+  // it.
+  return registry.filter(
+    (w) =>
+      !onBoard.has(w.id) && w.personas.includes(persona) && !w.omitWhen?.(context),
+  );
 }
 
 /** One catalog section. */

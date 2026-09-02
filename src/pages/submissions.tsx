@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -24,6 +24,7 @@ import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { EmptyState } from "@/components/ui/empty-state";
 import { showExampleAction } from "@/lib/show-example";
 import { PageHeader } from "@/components/ui/page-header";
+import { statusFilterFromSearch } from "@/lib/dashboard-grading-queue";
 import { QueryBoundary } from "@/components/ui/query-boundary";
 import { ErrorState } from "@/components/ui/error-state";
 import { Badge } from "@/components/ui/badge";
@@ -268,7 +269,16 @@ export function SubmissionsPage() {
   const { user } = useAuth();
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  // US-3075 AC2: the dashboard grading-queue tiles link here with ?status=<s>,
+  // and until now this page ignored it: every tile landed on the same
+  // unfiltered table and the seller had to re-pick the status they had just
+  // clicked. Seeded ONCE, as a lazy initial value, so the URL sets where the
+  // page opens and the Status select owns it from then on. Re-reading the
+  // parameter on every render would fight the select instead.
+  const [searchParams] = useSearchParams();
+  const [statusFilter, setStatusFilter] = useState<string>(() =>
+    statusFilterFromSearch(searchParams),
+  );
 
   // Press "n" to start a new submission.
   useKeyboardShortcuts([

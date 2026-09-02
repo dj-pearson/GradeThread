@@ -57,7 +57,11 @@ const PROJECTED_READS: ReadonlyArray<readonly [string, string]> = [
   // removed here rather than pointed at the replacement, because the FlipDesk
   // listings page is guarded by its own, stricter pair —
   // items-full-bounded-reads.test.ts and listings-page-scoped-reads.test.ts.
-  ["src/pages/dashboard.tsx", "submissions"],
+  // US-3075: the dashboard is a widget board now and reads nothing itself.
+  // Its recent-submissions read moved to the widget, projection and all.
+  ["src/components/dashboard/widgets/grading-recent-submissions.tsx", "submissions"],
+  ["src/components/dashboard/widgets/grading-queue.tsx", "submissions"],
+  ["src/components/dashboard/widgets/grading-attention.tsx", "submissions"],
   ["src/pages/new-submission.tsx", "inventory_items"],
   ["src/components/dashboard/grade-charts.tsx", "submissions"],
   ["src/components/dashboard/grade-charts.tsx", "grade_reports"],
@@ -67,7 +71,10 @@ const PROJECTED_READS: ReadonlyArray<readonly [string, string]> = [
 // renamed away the read has almost certainly gone back to "*".
 const PROJECTION_CONSTANTS: ReadonlyArray<readonly [string, readonly string[]]> = [
   ["src/pages/submissions.tsx", ["SUBMISSION_LIST_COLUMNS"]],
-  ["src/pages/dashboard.tsx", ["RECENT_SUBMISSION_COLUMNS"]],
+  [
+    "src/components/dashboard/widgets/grading-recent-submissions.tsx",
+    ["RECENT_SUBMISSION_COLUMNS"],
+  ],
   ["src/pages/new-submission.tsx", ["LINKABLE_ITEM_COLUMNS"]],
   [
     "src/components/dashboard/grade-charts.tsx",

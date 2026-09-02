@@ -114,17 +114,21 @@ describe("the collapse is honest, and reversible (US-2535)", () => {
   });
 
   it("the web still personalises from the same column", () => {
-    const dash = read("src/pages/dashboard.tsx");
-    expect(dash).toContain("profile?.use_case");
-    expect(dash).toContain("quickActionsFor");
+    // US-3075 moved the read off src/pages/dashboard.tsx and onto the widget
+    // that renders the list. Same column, same function, one file down.
+    const widget = read(
+      "src/components/dashboard/widgets/grading-quick-actions.tsx",
+    );
+    expect(widget).toContain("profile?.use_case");
+    expect(widget).toContain("quickActionsFor");
   });
 
   it("a seller answer lands on the branch the default already used", () => {
     // Which is why AC4 needs no dashboard change: an iOS user goes from NULL
     // (default branch) to 'seller' (the same branch), explicitly rather than by
     // accident.
-    const dash = read("src/pages/dashboard.tsx");
-    expect(dash).toMatch(/case "seller":\s*\n\s*default:/);
+    const cards = read("src/lib/dashboard-persona-cards.ts");
+    expect(cards).toMatch(/case "seller":\s*\n\s*default:/);
 
     // US-2859 CHANGED WHAT THIS SECOND HALF CAN CLAIM, and the change is worth
     // stating rather than quietly rewriting. This used to assert the activation

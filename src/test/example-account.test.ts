@@ -213,7 +213,9 @@ describe("the way in is offered where an account is empty (US-2865)", () => {
   // AC1 named these three. Each is the ZERO-DATA branch, never the filtered
   // one: somebody whose filter hid their rows does not need an example.
   const ENTRY_POINTS = [
-    "src/pages/dashboard.tsx",
+    // US-3075: the dashboard's empty state belongs to the recent-submissions
+    // widget now. Same branch, same offer, different file.
+    "src/components/dashboard/widgets/grading-recent-submissions.tsx",
     "src/pages/submissions.tsx",
     "src/pages/flipdesk/listings.tsx",
   ];

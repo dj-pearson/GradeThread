@@ -39,6 +39,8 @@ const LIB = "src/lib/activation-steps.ts";
 const HOOK = "src/hooks/use-activation.ts";
 const CHECKLIST = "src/components/onboarding/activation-checklist.tsx";
 const BUYER_HOME = "src/pages/buyer/home.tsx";
+// US-3075: the grading overview renders its widgets from this registry.
+const REGISTRY = "src/lib/dashboard-widgets.ts";
 
 describe("the buyer is a persona in the shared module (US-2883 AC1)", () => {
   const steps = activationStepsFor("buyer");
@@ -115,9 +117,13 @@ describe("the shell decides which list applies (US-2883 AC2)", () => {
     );
     // The dashboard gets the profile's own persona, so a buyer-first account
     // that starts selling is not shown seller steps before it has a use case.
-    const dash = stripComments(read("src/pages/dashboard.tsx"));
-    expect(dash).toContain("<ActivationChecklist />");
-    expect(dash, "the seller dashboard hardcodes a persona").not.toContain(
+    // US-3075: the grading overview renders from the widget registry, which
+    // loads the component and hands it only `size` and `surface`. There is no
+    // props site there to hardcode a persona INTO, which is a stronger form
+    // of the same guarantee than the one this used to read off the page.
+    const registry = stripComments(read(REGISTRY));
+    expect(registry).toContain("m.ActivationChecklist");
+    expect(registry, "the seller dashboard hardcodes a persona").not.toContain(
       "ActivationChecklist persona=",
     );
   });
@@ -125,11 +131,22 @@ describe("the shell decides which list applies (US-2883 AC2)", () => {
   it("a dual-role account never meets two lists on one page", () => {
     // Structural: one component, one persona per render site. A page that
     // rendered both would have to name both.
-    for (const page of [BUYER_HOME, "src/pages/dashboard.tsx"]) {
-      const src = stripComments(read(page));
-      const count = (src.match(/<ActivationChecklist/g) ?? []).length;
-      expect(count, `${page} renders the checklist ${count} times`).toBe(1);
-    }
+    const buyer = stripComments(read(BUYER_HOME));
+    const buyerCount = (buyer.match(/<ActivationChecklist/g) ?? []).length;
+    expect(
+      buyerCount,
+      `${BUYER_HOME} renders the checklist ${buyerCount} times`,
+    ).toBe(1);
+
+    // The grading board can only carry it once: a layout is a set of widget
+    // ids and normalize() drops a repeat. One registry entry is the whole
+    // claim.
+    const registry = stripComments(read(REGISTRY));
+    const registered = (registry.match(/m\.ActivationChecklist/g) ?? []).length;
+    expect(registered, `the registry loads it ${registered} times`).toBe(1);
+    expect(stripComments(read("src/pages/dashboard.tsx"))).not.toContain(
+      "<ActivationChecklist",
+    );
   });
 });
 
