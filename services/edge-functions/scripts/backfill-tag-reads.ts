@@ -23,9 +23,24 @@
 //   deno run --allow-net --allow-env scripts/backfill-tag-reads.ts --limit 10
 //   deno run --allow-net --allow-env scripts/backfill-tag-reads.ts --owner <uuid>
 //   deno run --allow-net --allow-env scripts/backfill-tag-reads.ts --apply
+//   deno run --allow-net --allow-env scripts/backfill-tag-reads.ts --redo-undecoded
 //
 // --dry-run is the default. A dry run still pays for the OCR (that is the
 // point of --limit); it writes nothing, sightings included.
+//
+// --redo-undecoded (US-3086) is the SECOND pass and costs nothing at all. It
+// re-plans the items whose attributes.mpn does not decode under their brand
+// pack, FROM THE STORED STRING: no photo is fetched, no vision call is made,
+// no ANTHROPIC_API_KEY is needed. The first run filed five Lululemon rims raw
+// because the OCR started mid-circle; the rotation search now recovers the
+// style number from the same characters. It rewrites attributes.mpn and, only
+// where the aspect still carries that same raw value with inventory_derived
+// provenance, the MPN / Style Code aspect. Nothing else, ever.
+//
+// It rewrites on the same rule the read path files under: whatever decodes,
+// spelled canonically (US-2714). So an item that already decoded but was
+// stored in another spelling is canonicalised too, which is the point of one
+// spelling per garment. An item that still decodes to nothing is left alone.
 
 import { supabaseAdmin } from "../src/lib/supabase.ts";
 import {
@@ -60,9 +75,11 @@ import {
   type BackfillItem,
   backfillEligible,
   planBackfillPatch,
+  planRedoUndecodedPatch,
 } from "../src/lib/tag-read-backfill.ts";
 
 const apply = Deno.args.includes("--apply");
+const redoUndecoded = Deno.args.includes("--redo-undecoded");
 const limitIdx = Deno.args.indexOf("--limit");
 const limit = limitIdx >= 0 ? Number(Deno.args[limitIdx + 1]) : Infinity;
 const ownerIdx = Deno.args.indexOf("--owner");
@@ -110,6 +127,116 @@ function confidentValue(
   if (!field || field.confidence < TAG_GROUND_TRUTH_MIN_CONFIDENCE) return null;
   const v = field.value.trim();
   return v === "" ? null : v;
+}
+
+/**
+ * US-3086: re-file the codes that were stored before the rim rotation search
+ * existed. Reads the stored attributes.mpn and nothing else: no photo, no
+ * vision call, no spend. It writes only where the decoders now recover a
+ * different, canonical spelling.
+ */
+async function redoUndecodedMain() {
+  console.log(
+    `backfill-tag-reads --redo-undecoded: ${apply ? "APPLY" : "dry run"}` +
+      `${owner ? ` owner=${owner}` : ""} (no OCR, no spend)`,
+  );
+  const redo = {
+    scanned: 0,
+    skipped: 0,
+    stillUndecoded: 0,
+    alreadyCanonical: 0,
+    recovered: 0,
+    attributesWritten: 0,
+    aspectsWritten: 0,
+    failed: 0,
+  };
+
+  // Items that already carry a code. Ids only; each row is then loaded by id
+  // and every write is scoped to its own user_id (US-268).
+  const { data: idRows, error: idErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id")
+    .not("attributes->>mpn", "is", null);
+  if (idErr) throw idErr;
+  const itemIds = [...new Set((idRows ?? []).map((r) => r.id as string))];
+  console.log(`${itemIds.length} item(s) carry a stored style code`);
+
+  const packCache = new Map<string, Awaited<ReturnType<typeof resolveBrandKnowledgePack>>>();
+  for (const id of itemIds) {
+    if (redo.scanned >= limit) break;
+    const { data: row, error } = await supabaseAdmin
+      .from("inventory_items")
+      .select(ITEM_COLUMNS)
+      .eq("id", id)
+      .maybeSingle();
+    if (error || !row) {
+      redo.failed++;
+      continue;
+    }
+    const item = row as unknown as BackfillItem;
+    if (owner && item.user_id !== owner) continue;
+    redo.scanned++;
+
+    const brand = canonicalizeBrand(item.brand);
+    if (!brand) {
+      redo.skipped++;
+      continue;
+    }
+    try {
+      const key = brandKey(brand);
+      if (!packCache.has(key)) {
+        packCache.set(key, await resolveBrandKnowledgePack(brand));
+      }
+      const pack = packCache.get(key) ?? null;
+      // The stored string is the ONLY input. ocr is null: nothing is read.
+      const code = resolveListingStyleCode({
+        ocr: null,
+        itemAttributes: item.attributes,
+        sneakerStyleCode: null,
+        brand,
+        pack,
+      });
+      if (!code.decoded) {
+        redo.stillUndecoded++;
+        continue;
+      }
+      const patch = planRedoUndecodedPatch({
+        item,
+        canonicalCode: code.styleCodeNorm,
+      });
+      if (!patch.attributes) {
+        redo.alreadyCanonical++;
+        continue;
+      }
+      redo.recovered++;
+      console.log(
+        `${item.id} ${brand}: mpn ${patch.storedCode} -> ${code.styleCodeNorm} ` +
+          `(${code.decoded.decoderKind}, via ${code.styleCodeRaw}) ` +
+          `aspects=[${patch.changedAspects.join(",")}]`,
+      );
+      if (!apply) continue;
+
+      const update: Record<string, unknown> = { attributes: patch.attributes };
+      if (patch.ebay_aspects) update.ebay_aspects = patch.ebay_aspects;
+      const { error: upErr } = await supabaseAdmin
+        .from("inventory_items")
+        .update(update)
+        .eq("id", item.id)
+        .eq("user_id", item.user_id);
+      if (upErr) {
+        redo.failed++;
+        console.error(`  write failed: ${upErr.message}`);
+        continue;
+      }
+      redo.attributesWritten += patch.changedAttributes.length;
+      redo.aspectsWritten += patch.changedAspects.length;
+    } catch (err) {
+      redo.failed++;
+      console.error(`  ${item.id} failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  console.log(JSON.stringify(redo));
 }
 
 async function main() {
@@ -292,10 +419,12 @@ if (import.meta.main) {
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !serviceKey) {
     console.error(
-      "backfill-tag-reads: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and ANTHROPIC_API_KEY are required. Usage:\n" +
-        "  deno run --allow-net --allow-env --env-file=.env scripts/backfill-tag-reads.ts [--apply] [--limit N] [--owner <uuid>]",
+      "backfill-tag-reads: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and ANTHROPIC_API_KEY are required\n" +
+        "(--redo-undecoded needs no ANTHROPIC_API_KEY: it makes no AI call). Usage:\n" +
+        "  deno run --allow-net --allow-env --env-file=.env scripts/backfill-tag-reads.ts [--apply] [--limit N] [--owner <uuid>]\n" +
+        "  deno run --allow-net --allow-env --env-file=.env scripts/backfill-tag-reads.ts --redo-undecoded [--apply] [--limit N] [--owner <uuid>]",
     );
     Deno.exit(1);
   }
-  await main();
+  await (redoUndecoded ? redoUndecodedMain() : main());
 }

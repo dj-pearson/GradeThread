@@ -12,6 +12,8 @@ Deno.env.set(
 const {
   resolveListingStyleCode,
   styleCodeSpellings,
+  styleCodeRimWindows,
+  rimDecoderSpecs,
   learnedStyleForListing,
   applyLearnedStyleToListing,
   STYLE_NAME_GROUND_TRUTH_KEY,
@@ -123,6 +125,128 @@ Deno.test("styleCodeSpellings: original first, prefixes, then the letter-slot fi
   });
   assertEquals(r.styleCodeRaw, "ABC-125.99");
   assertEquals(r.decoded, null);
+});
+
+// ── US-3086: the rim is a circle, so the OCR can start anywhere on it ───────
+
+/** What the listing path files, for a code read off a Lululemon size dot. */
+function luluCode(raw: string, pack: typeof lulu | null = lulu) {
+  return resolveListingStyleCode({
+    ocr: { style_code: { value: raw, confidence: 0.85 } },
+    itemAttributes: null,
+    sneakerStyleCode: null,
+    brand: "Lululemon",
+    pack,
+  });
+}
+
+Deno.test("a rim transcribed from a random start point still decodes to its style number", () => {
+  // Real strings from the 2026-09-02 prod backfill (US-3085), filed raw because
+  // styleCodeSpellings only ever tried PREFIXES of what the model returned.
+  const start = luluCode("LW3DUTS224000011302");
+  assertEquals(start.styleCodeRaw, "LW3DUTS");
+  assertEquals(start.styleCodeNorm, "W3DUTS");
+  assertEquals(start.decoded?.decoderKind, "style_number_2017");
+
+  const short = luluCode("LW5EGTS253");
+  assertEquals(short.styleCodeRaw, "LW5EGTS");
+  assertEquals(short.styleCodeNorm, "W5EGTS");
+
+  // The same salvage from the STORED attribute, with no OCR at all: this is
+  // what backfill-tag-reads.ts --redo-undecoded re-plans from (US-3086 AC3).
+  const stored = resolveListingStyleCode({
+    ocr: null,
+    itemAttributes: { mpn: "LW3DUTS224000011302" },
+    sneakerStyleCode: null,
+    brand: "Lululemon",
+    pack: lulu,
+  });
+  assertEquals(stored.source, "item_attribute");
+  assertEquals(stored.styleCodeNorm, "W3DUTS");
+
+  // Eleven characters of date block before the code, and the colour initial
+  // came back as the digit that looks like it (O read as 0).
+  const midCircle = luluCode("0000F80000DLW5B0303");
+  assertEquals(midCircle.styleCodeRaw, "LW5B03O");
+  assertEquals(midCircle.styleCodeNorm, "W5B03O");
+  assertEquals(midCircle.decoded?.decoderKind, "style_number_2017");
+});
+
+Deno.test("a rim whose colour slot is a digit no decoder shape accepts is left as read", () => {
+  // The other two of the five. Neither can be salvaged without INVENTING a
+  // character, and a made-up style code is filed, indexed and shown to buyers.
+  //
+  // S7502T9LM4C847: the only W/M is the M of "LM4C847", so the colour slot is
+  //   forced to the trailing "7", and 7 is not in CONFUSABLE_LETTER, so every
+  //   letter of the alphabet fits there equally well, so the decoder proves
+  //   nothing about which one was printed.
+  // ERNSFD78042289140204: contains no W and no M in any rotation, so no
+  //   anchored Lululemon shape can match any window of it at all.
+  for (const raw of ["S7502T9LM4C847", "ERNSFD78042289140204"]) {
+    const r = luluCode(raw);
+    assertEquals(r.styleCodeRaw, raw);
+    assertEquals(r.decoded, null);
+  }
+});
+
+Deno.test("the rotation search never fires outside a resolved pack", () => {
+  // Same rim, no pack: the brand key alone must not buy a substring search.
+  const noPack = luluCode("0000F80000DLW5B0303", null);
+  assertEquals(noPack.styleCodeRaw, "0000F80000DLW5B0303");
+  assertEquals(noPack.decoded, null);
+  assertEquals(styleCodeRimWindows("0000F80000DLW5B0303", []), []);
+
+  // A brand whose pack carries no decoders at all gets no windows either.
+  assertEquals(rimDecoderSpecs("nike", []), []);
+  // ...and the size-dot decoder stays out of the search, so a two-digit window
+  // can never be read as a size.
+  assertEquals(
+    rimDecoderSpecs("lululemon", []).map((s) => s.decoderKind),
+    ["style_number", "style_number_2017", "style_number_full"],
+  );
+
+  // A Nike style code and an unknown brand's code are untouched by any of this.
+  const nike = resolveListingStyleCode({
+    ocr: { style_code: { value: "DD1391-100", confidence: 0.9 } },
+    itemAttributes: null,
+    sneakerStyleCode: null,
+    brand: "Nike",
+    pack: null,
+  });
+  assertEquals(nike.styleCodeRaw, "DD1391-100");
+  assertEquals(nike.decoded, null);
+  const unknown = resolveListingStyleCode({
+    ocr: { style_code: { value: "ABC-123", confidence: 0.9 } },
+    itemAttributes: null,
+    sneakerStyleCode: null,
+    brand: "Some Brand",
+    pack: null,
+  });
+  assertEquals(unknown.styleCodeRaw, "ABC-123");
+  assertEquals(unknown.decoded, null);
+});
+
+Deno.test("styleCodeRimWindows: exact windows first, in spec order, repairs last", () => {
+  const specs = rimDecoderSpecs("lululemon", []);
+  // The code as read is never returned - the caller has already tried it.
+  assert(!styleCodeRimWindows("LW3DUTS224000011302", specs).includes(
+    "LW3DUTS224000011302",
+  ));
+  assertEquals(styleCodeRimWindows("LW3DUTS224000011302", specs)[0], "LW3DUTS");
+  // Label prose is not a style code: "WOMENS" matches the 2017 shape exactly
+  // and carries no digit, which is what tells the two apart.
+  assertEquals(styleCodeRimWindows("SCUBAWOMENSHOODIE", specs), []);
+  assertEquals(luluCode("SCUBAWOMENSHOODIE").decoded, null);
+  // A code that already reads straight through offers only itself without the
+  // brand prefix, which canonicalises to the same six characters.
+  assertEquals(styleCodeRimWindows("LW5EGTS", specs), ["W5EGTS"]);
+  // Nothing at or below the length a code needs to be an identity is searched.
+  assertEquals(styleCodeRimWindows("W5EG", specs), []);
+  // A repaired window is only offered when nothing matched as transcribed.
+  assertEquals(styleCodeRimWindows("0000F80000DLW5B0303", specs), [
+    "LW5B03O",
+    "W5B03O",
+  ]);
 });
 
 Deno.test("a bare size-dot number is not a code to file under", () => {

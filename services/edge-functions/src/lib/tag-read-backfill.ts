@@ -73,6 +73,68 @@ export function backfillEligible(item: BackfillItem): boolean {
   return !filled(item.attributes?.mpn) && !filled(item.attributes?.rn);
 }
 
+// ── US-3086: re-file a code that was stored before the rim search existed ───
+
+export interface RedoUndecodedPatch {
+  /** Full merged attribute map, or null when there is nothing to rewrite. */
+  attributes: Record<string, unknown> | null;
+  ebay_aspects: Record<string, string[]> | null;
+  /** The value that was there, so a dry run can print what it replaces. */
+  storedCode: string | null;
+  changedAttributes: string[];
+  changedAspects: string[];
+}
+
+/**
+ * Replace a raw rim string with the canonical code the decoders now recover.
+ *
+ * The ONLY overwrite in this file, and it is deliberately narrow. It rewrites
+ * `attributes.mpn`, and an aspect ONLY where that aspect still carries the
+ * exact value the last backfill derived from it AND is still stamped
+ * `inventory_derived`. A seller who has since typed their own MPN owns the
+ * field; a differing value means something else wrote it and this must not
+ * guess which. No new OCR is involved anywhere: the input is the stored string.
+ */
+export function planRedoUndecodedPatch(args: {
+  item: BackfillItem;
+  canonicalCode: string;
+}): RedoUndecodedPatch {
+  const existing = args.item.attributes ?? {};
+  const storedRaw = existing.mpn;
+  const stored = typeof storedRaw === "string" ? storedRaw.trim() : "";
+  const canonical = args.canonicalCode.trim();
+  const empty: RedoUndecodedPatch = {
+    attributes: null,
+    ebay_aspects: null,
+    storedCode: stored === "" ? null : stored,
+    changedAttributes: [],
+    changedAspects: [],
+  };
+  if (stored === "" || canonical === "" || canonical === stored) return empty;
+
+  const attributes: Record<string, unknown> = { ...existing, mpn: canonical };
+  const sources = args.item.ebay_aspect_sources ?? {};
+  const current = args.item.ebay_aspects ?? {};
+  let ebay_aspects: Record<string, string[]> | null = null;
+  const changedAspects: string[] = [];
+  for (const [name, values] of Object.entries(current)) {
+    if (!BACKFILL_ASPECT_NAMES.has(name)) continue;
+    if (sources[name] !== INVENTORY_DERIVED) continue;
+    if (!Array.isArray(values) || values.length !== 1) continue;
+    if (values[0]?.trim().toUpperCase() !== stored.toUpperCase()) continue;
+    ebay_aspects ??= { ...current };
+    ebay_aspects[name] = [canonical];
+    changedAspects.push(name);
+  }
+  return {
+    attributes,
+    ebay_aspects,
+    storedCode: stored,
+    changedAttributes: ["mpn"],
+    changedAspects,
+  };
+}
+
 export function planBackfillPatch(args: {
   item: BackfillItem;
   tagAttributes: Record<string, string>;

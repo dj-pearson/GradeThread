@@ -243,6 +243,70 @@ The 2017 spec goes into `DEFAULT_DECODER_SPECS` as well as the migration.
 a brand, so seeding only one of the two leaves the fix dependent on which path
 ran.
 
+### A SUBSTRING search is admissible inside a pack, and nowhere else (US-3086)
+
+Added 2026-09-02. Every pattern above is anchored at both ends, and
+[[#A brand that CHANGES its format needs a second row not a looser one US-2689]]
+says why: an unanchored hunt for a six-character body inside arbitrary text
+fires on ordinary words and on other brands' codes. `style_number_full` was
+written that way on purpose.
+
+A Lululemon size dot then produced the case the anchors cannot read. **The rim
+is a circle, so the transcription has no defined start.** A model asked to read
+it verbatim begins wherever it began, and the style number wraps. The
+2026-09-02 backfill (US-3085) filed five rims raw for that reason alone:
+`LW3DUTS224000011302` happens to start on the code, `0000F80000DLW5B0303`
+starts eleven characters into the date block, and no prefix of the second is
+ever a style number.
+
+`styleCodeRimWindows` (`services/edge-functions/src/lib/listing-style-code.ts`)
+therefore tries **every window of the doubled string against the pack's own
+anchored shapes, in the order the specs define.** That is a substring search,
+and it is admissible here for one reason: it runs **inside an already-resolved
+pack**, the same fact that answered the 2017 shape's brand-uniqueness question.
+A window that matches re-confirms the brand that selected the pack. It can never
+recover one, and it is never allowed to select one.
+
+Judged by the rule this note already carries, *a decoder's blast radius is the
+set of fields it OVERRIDES*: the only field a window can change is the style
+code filed for a garment already known to be Lululemon. Four guards hold it
+there, and all four are tested:
+
+- **No pack, no windows.** `resolveListingStyleCode` builds the window list only
+  when a resolved `BrandKnowledgePack` was passed. A brand key on its own does
+  not buy a substring search, and a pack whose brand has no decoders gets none.
+- **Region-scoped kinds are excluded.** `size_dot` matches a lone one-or-two
+  digit number, so inside a window search it would read a fragment of any rim as
+  the garment's size. `REGION_SCOPED_DECODER_KINDS` is filtered out before the
+  scan, which is the same refusal `decodeTagCode` already makes by default.
+- **A window with no digit in it is a word.** The shapes accept `[A-Z0-9]` in
+  the body, so `WOMENS` matches the 2017 spec exactly, and a model asked for a
+  style code does sometimes hand back label prose. Every real style number
+  carries digits. This is the one thing an anchored pattern cannot say for
+  itself once the anchors are being slid along a string, which is precisely the
+  cost the third test warns about.
+- **Exact windows before repaired ones.** Every window that matched as
+  transcribed is offered before any repair, so a repair is only reached when
+  nothing did. It is the confusable letter slot, on the window's last character,
+  and it is used only where a decoder then accepts the result.
+
+**What makes it inadmissible anywhere else** is the moment a window could pick
+the pack instead of running inside one. That is the Reebok/adidas refusal with a
+far larger surface, because a long OCR string contains dozens of six-character
+windows and one of them will eventually look like somebody's format. The rule to
+carry forward: **a window search is a SPELLING search inside a brand, never an
+identification of one.**
+
+> [!warning] Two of the five prod rims still do not decode, and that is correct
+> `S7502T9LM4C847` puts its only `M` where the style number's gender letter goes
+> and leaves a `7` in the colour slot, which no entry in the confusable table
+> claims and which all 26 letters fit equally well. `ERNSFD78042289140204`
+> contains no `W` and no `M` in any rotation, so no anchored Lululemon shape can
+> match any window of it. Widening the confusable table to close these would
+> file a style code nobody printed, into the field a buyer searches and the
+> learned index keys on. Declining beats false-firing, which is the eyewear
+> pack's conclusion in a new costume.
+
 ## A decoder CONTRADICTION now caps the authenticity verdict (US-2138)
 
 A decode that is *impossible* — a code dating to the future — no longer only
