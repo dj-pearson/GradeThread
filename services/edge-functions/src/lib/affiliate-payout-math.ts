@@ -383,3 +383,106 @@ export function crossesTaxThreshold(paidYtdCents: number, thresholdUsd: number):
   const threshold = dollarsToCents(thresholdUsd);
   return threshold > 0 && Math.round(paidYtdCents) >= threshold;
 }
+
+// ── US-9212: the creator dashboard's arithmetic (pure) ──────────────────────
+
+export interface CreatorCommissionRow {
+  /** Integer cents, as the ledger stores it. */
+  amount: number | null;
+  status: string;
+  hold_until: string | null;
+  created_at: string | null;
+  referred_user_id: string | null;
+}
+
+export interface CreatorAccountSummary {
+  /** An opaque handle for one referred account. NEVER that account's identity. */
+  ref: string;
+  earnedCents: number;
+  /** What is left of this account's cap, in cents. Zero once it is spent. */
+  capRemainingCents: number;
+  /** The first commissioned invoice; the window runs from here. */
+  firstEarnedAt: string | null;
+  windowEndsAt: string | null;
+}
+
+export interface CreatorEarnings {
+  paidCents: number;
+  /** Accrued and past its hold: this is what the next sweep would pay. */
+  payableCents: number;
+  /** Accrued but still inside the hold window. */
+  heldCents: number;
+  accounts: CreatorAccountSummary[];
+}
+
+/**
+ * Fold a creator's own commission rows into the four numbers their dashboard
+ * shows, plus one row per referred account.
+ *
+ * THE ACCOUNT ROWS CARRY NO IDENTITY. A creator has a real interest in knowing
+ * which referral is still earning and when its window closes; they have no
+ * interest in the referred seller's name, email or plan, and this is our data
+ * about a third party. `ref` is the last six characters of the account's id --
+ * enough to tell two rows apart across a page refresh, useless as a lookup.
+ *
+ * Voided rows count for nothing anywhere, including against the cap: a
+ * commission we reversed is revenue that never happened.
+ */
+export function summarizeCreatorEarnings(
+  rows: ReadonlyArray<CreatorCommissionRow>,
+  opts: { capUsd: number; windowMonths: number; nowMs: number },
+): CreatorEarnings {
+  const capCents = dollarsToCents(opts.capUsd);
+  const months = Math.max(1, Math.floor(opts.windowMonths));
+  let paidCents = 0;
+  let payableCents = 0;
+  let heldCents = 0;
+  const byAccount = new Map<string, { earned: number; first: string | null }>();
+
+  for (const row of rows) {
+    if (row.status === "void") continue;
+    const amount = typeof row.amount === "number" && Number.isFinite(row.amount)
+      ? Math.round(row.amount)
+      : 0;
+    if (row.status === "paid") {
+      paidCents += amount;
+    } else if (row.status === "accrued") {
+      const holdMs = row.hold_until ? Date.parse(row.hold_until) : null;
+      if (isPastHold(Number.isFinite(holdMs as number) ? holdMs : null, opts.nowMs)) {
+        payableCents += amount;
+      } else {
+        heldCents += amount;
+      }
+    }
+
+    if (!row.referred_user_id) continue;
+    const seen = byAccount.get(row.referred_user_id) ?? { earned: 0, first: null };
+    seen.earned += amount;
+    if (row.created_at && (!seen.first || row.created_at < seen.first)) {
+      seen.first = row.created_at;
+    }
+    byAccount.set(row.referred_user_id, seen);
+  }
+
+  const accounts: CreatorAccountSummary[] = [...byAccount.entries()]
+    .map(([id, v]) => {
+      let windowEndsAt: string | null = null;
+      if (v.first) {
+        const end = new Date(v.first);
+        if (Number.isFinite(end.getTime())) {
+          end.setUTCMonth(end.getUTCMonth() + months);
+          windowEndsAt = end.toISOString();
+        }
+      }
+      return {
+        ref: id.slice(-6),
+        earnedCents: v.earned,
+        capRemainingCents: Math.max(0, capCents - v.earned),
+        firstEarnedAt: v.first,
+        windowEndsAt,
+      };
+    })
+    .sort((a, b) => b.earnedCents - a.earnedCents);
+
+  return { paidCents, payableCents, heldCents, accounts };
+}

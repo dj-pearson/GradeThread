@@ -20,6 +20,7 @@ import {
   CREATOR_COMMISSION_MAX_PCT,
   normalizeAffiliateProgram,
   planSubscriptionAccrual,
+  summarizeCreatorEarnings,
 } from "../lib/affiliate-payout-math.ts";
 
 const active: AffiliatePayoutConfig = {
@@ -419,4 +420,54 @@ Deno.test("planSubscriptionAccrual: an out-of-band percentage is clamped, not ho
     planSubscriptionAccrual({ ...INVOICE, pct: 0 }),
     { action: "accrue", amount: 1180 }, // clamped to 20%
   );
+});
+
+// ── US-9212: what the creator dashboard adds up ─────────────────────────────
+
+Deno.test("summarizeCreatorEarnings: paid, payable and held are separated by hold", () => {
+  const now = Date.parse("2026-09-02T00:00:00Z");
+  const out = summarizeCreatorEarnings(
+    [
+      { amount: 1475, status: "paid", hold_until: null, created_at: "2026-03-15T00:00:00Z", referred_user_id: "acc-111111" },
+      { amount: 1475, status: "accrued", hold_until: "2026-08-01T00:00:00Z", created_at: "2026-06-01T00:00:00Z", referred_user_id: "acc-111111" },
+      { amount: 1000, status: "accrued", hold_until: "2026-12-01T00:00:00Z", created_at: "2026-09-01T00:00:00Z", referred_user_id: "acc-222222" },
+      // Voided: counts for nothing, including against the cap.
+      { amount: 9999, status: "void", hold_until: null, created_at: "2026-06-01T00:00:00Z", referred_user_id: "acc-222222" },
+    ],
+    { capUsd: 250, windowMonths: 12, nowMs: now },
+  );
+  assertEquals(out.paidCents, 1475);
+  assertEquals(out.payableCents, 1475);
+  assertEquals(out.heldCents, 1000);
+});
+
+Deno.test("summarizeCreatorEarnings: one row per referred account, with no identity on it", () => {
+  const now = Date.parse("2026-09-02T00:00:00Z");
+  const out = summarizeCreatorEarnings(
+    [
+      { amount: 1475, status: "paid", hold_until: null, created_at: "2026-06-15T00:00:00Z", referred_user_id: "3f1e2d-aaaaaa" },
+      { amount: 1475, status: "accrued", hold_until: null, created_at: "2026-03-15T00:00:00Z", referred_user_id: "3f1e2d-aaaaaa" },
+      { amount: 500, status: "accrued", hold_until: null, created_at: "2026-08-15T00:00:00Z", referred_user_id: "9c8b7a-bbbbbb" },
+    ],
+    { capUsd: 250, windowMonths: 12, nowMs: now },
+  );
+  assertEquals(out.accounts.length, 2);
+  const [top, second] = out.accounts;
+  // Sorted by what they earned, biggest first.
+  assertEquals(top.earnedCents, 2950);
+  assertEquals(second.earnedCents, 500);
+  // The handle is six characters and cannot be used to look anyone up.
+  assertEquals(top.ref, "aaaaaa");
+  assertEquals(top.ref.length, 6);
+  assert(!JSON.stringify(out).includes("3f1e2d-aaaaaa"), "the full account id must not survive the fold");
+  // The window runs from the EARLIEST commissioned invoice, not the latest.
+  assertEquals(top.firstEarnedAt, "2026-03-15T00:00:00Z");
+  assertEquals(top.windowEndsAt, "2027-03-15T00:00:00.000Z");
+  // $250 cap, $29.50 earned.
+  assertEquals(top.capRemainingCents, 22_050);
+});
+
+Deno.test("summarizeCreatorEarnings: nothing earned is four zeros, not a crash", () => {
+  const out = summarizeCreatorEarnings([], { capUsd: 250, windowMonths: 12, nowMs: Date.now() });
+  assertEquals(out, { paidCents: 0, payableCents: 0, heldCents: 0, accounts: [] });
 });

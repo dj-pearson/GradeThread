@@ -18,8 +18,10 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { ensureCode } from "./referrals.ts";
 import {
   centsToDollars,
+  type CreatorCommissionRow,
   crossesTaxThreshold,
   isPastHold,
+  summarizeCreatorEarnings,
 } from "../lib/affiliate-payout-math.ts";
 import { getAffiliatePayoutConfig } from "../lib/affiliate-payout.ts";
 import { encryptToken } from "../lib/crypto-aes.ts";
@@ -341,7 +343,19 @@ affiliateRoutes.get("/creator", async (c) => {
   const userId = c.get("userId");
   if (!userId) return c.json({ error: "Sign-in required" }, 401);
 
-  const [{ data: acctRaw }, { data: taxRaw }] = await Promise.all([
+  // The dashboard AC6 asks for: clicks, signups, paid and owed. Clicks and
+  // signups come from the same two counts /me reports; the money comes from
+  // this creator's own commission rows, folded by a pure function.
+  const code = await ensureCode(userId);
+  const config = await getAffiliatePayoutConfig();
+
+  const [
+    { data: acctRaw },
+    { data: taxRaw },
+    clicks,
+    signups,
+    { data: commissionRaw },
+  ] = await Promise.all([
     supabaseAdmin
       .from("affiliate_accounts")
       .select("program, creator_terms_version, creator_terms_accepted_at, creator_approved_at")
@@ -352,6 +366,22 @@ affiliateRoutes.get("/creator", async (c) => {
       .select("legal_name, entity_type, tin_last4, certified_at")
       .eq("owner_user_id", userId)
       .maybeSingle(),
+    supabaseAdmin
+      .from("affiliate_clicks")
+      .select("id", { count: "exact", head: true })
+      .eq("code", code),
+    supabaseAdmin
+      .from("referral_events")
+      .select("id", { count: "exact", head: true })
+      .eq("referrer_user_id", userId)
+      .eq("attribution_source", "affiliate"),
+    supabaseAdmin
+      .from("affiliate_commissions")
+      .select("amount, status, hold_until, created_at, referred_user_id")
+      .eq("affiliate_user_id", userId)
+      .eq("commission_model", "subscription_pct")
+      .order("created_at", { ascending: false })
+      .limit(1000),
   ]);
   const acct = acctRaw as
     | {
@@ -370,8 +400,35 @@ affiliateRoutes.get("/creator", async (c) => {
     }
     | null;
 
+  const earnings = summarizeCreatorEarnings(
+    (commissionRaw ?? []) as CreatorCommissionRow[],
+    {
+      capUsd: config.commission_cap_usd,
+      windowMonths: config.commission_window_months,
+      nowMs: Date.now(),
+    },
+  );
+
   return c.json({
     program: acct?.program === "creator" ? "creator" : "user",
+    code,
+    commission_pct: config.commission_pct,
+    earnings: {
+      clicks: clicks.count ?? 0,
+      signups: signups.count ?? 0,
+      // Dollars at the JSON edge, cents everywhere behind it (US-1655).
+      owed: centsToDollars(earnings.payableCents + earnings.heldCents),
+      payable: centsToDollars(earnings.payableCents),
+      held: centsToDollars(earnings.heldCents),
+      paid: centsToDollars(earnings.paidCents),
+      accounts: earnings.accounts.map((a) => ({
+        ref: a.ref,
+        earned: centsToDollars(a.earnedCents),
+        cap_remaining: centsToDollars(a.capRemainingCents),
+        first_earned_at: a.firstEarnedAt,
+        window_ends_at: a.windowEndsAt,
+      })),
+    },
     terms_version: CREATOR_TERMS_VERSION,
     accepted_version: acct?.creator_terms_version ?? null,
     accepted_at: acct?.creator_terms_accepted_at ?? null,

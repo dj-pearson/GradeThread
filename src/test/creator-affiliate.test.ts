@@ -124,6 +124,23 @@ describe("creator affiliate commission (US-9212)", () => {
     expect(page).toMatch(/apply/i);
   });
 
+  it("the creator dashboard shows the four numbers, and no referred account's identity", () => {
+    const route = read("services/edge-functions/src/routes/affiliate.ts");
+    // AC6's four: clicks, signups, paid, owed.
+    for (const key of ["clicks:", "signups:", "owed:", "paid:"]) {
+      expect(route).toContain(key);
+    }
+    // The per-account rows are folded by the pure summarizer, which truncates
+    // the id -- the route must not hand the client a whole referred_user_id.
+    expect(route).toContain("summarizeCreatorEarnings");
+    expect(route).not.toMatch(/referred_user_id: [a-z]/);
+    expect(EDGE).toMatch(/ref: id\.slice\(-6\)/);
+    const panel = read("src/components/referral/creator-programme.tsx");
+    expect(panel).toContain("Clicks");
+    expect(panel).toContain("Signups");
+    expect(panel).toContain("never who they are");
+  });
+
   it("the tax table is deny-all and registered as service-role only", () => {
     const migration = read("supabase/migrations/00718_affiliate_tax_profiles.sql");
     expect(migration).toMatch(/ENABLE ROW LEVEL SECURITY/);

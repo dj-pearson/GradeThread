@@ -35,8 +35,27 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { CREATOR_AFFILIATE } from "@/lib/constants";
 import { BadgeCheck, ShieldCheck } from "lucide-react";
 
+interface CreatorAccountRow {
+  ref: string;
+  earned: number;
+  cap_remaining: number;
+  first_earned_at: string | null;
+  window_ends_at: string | null;
+}
+
 interface CreatorStatus {
   program: "user" | "creator";
+  code: string;
+  commission_pct: number;
+  earnings: {
+    clicks: number;
+    signups: number;
+    owed: number;
+    payable: number;
+    held: number;
+    paid: number;
+    accounts: CreatorAccountRow[];
+  };
   terms_version: string;
   accepted_version: string | null;
   accepted_at: string | null;
@@ -61,6 +80,9 @@ const ENTITY_TYPES: Array<{ value: string; label: string }> = [
   { value: "trust", label: "Trust or estate" },
   { value: "other", label: "Something else" },
 ];
+
+const usd = (n: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
 
 export function CreatorProgramme() {
   const queryClient = useQueryClient();
@@ -198,6 +220,80 @@ export function CreatorProgramme() {
                 {accept.isPending ? "Sending…" : "Accept and apply"}
               </Button>
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* AC6: clicks, signups, paid and owed. Shown to anyone who opens the
+          tab, because zeros are the honest answer before admission rather than
+          a hidden card that implies something is being withheld. */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Your numbers</CardTitle>
+          <CardDescription>
+            Clicks and signups on your link, and what the commission ledger says you
+            are owed.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              { label: "Clicks", value: String(data.earnings.clicks) },
+              { label: "Signups", value: String(data.earnings.signups) },
+              { label: "Owed", value: usd(data.earnings.owed) },
+              { label: "Paid", value: usd(data.earnings.paid) },
+            ].map((stat) => (
+              <div key={stat.label} className="rounded-md bg-muted p-3">
+                <div className="text-2xl font-bold tabular-nums">{stat.value}</div>
+                <div className="text-xs text-muted-foreground">{stat.label}</div>
+              </div>
+            ))}
+          </div>
+          {data.earnings.owed > 0 && (
+            <p className="text-sm text-muted-foreground">
+              {usd(data.earnings.payable)} of that is past its hold and would go in the
+              next payout run; {usd(data.earnings.held)} is still holding.
+            </p>
+          )}
+
+          {data.earnings.accounts.length > 0 ? (
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-muted-foreground">
+                Per referred account. We show what each one earned you and when its
+                window closes, never who they are.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-muted-foreground">
+                      <th className="py-1 pr-4 font-medium">Account</th>
+                      <th className="py-1 pr-4 font-medium">Earned</th>
+                      <th className="py-1 pr-4 font-medium">Cap left</th>
+                      <th className="py-1 font-medium">Window ends</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.earnings.accounts.map((row) => (
+                      <tr key={row.ref} className="border-t">
+                        <td className="py-1.5 pr-4 font-mono text-xs">{row.ref}</td>
+                        <td className="py-1.5 pr-4 tabular-nums">{usd(row.earned)}</td>
+                        <td className="py-1.5 pr-4 tabular-nums">{usd(row.cap_remaining)}</td>
+                        <td className="py-1.5 text-muted-foreground">
+                          {row.window_ends_at
+                            ? new Date(row.window_ends_at).toLocaleDateString()
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              No commission yet. A referred account earns you {data.commission_pct}% of
+              each invoice it pays, starting from its first one.
+            </p>
           )}
         </CardContent>
       </Card>

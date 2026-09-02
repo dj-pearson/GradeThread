@@ -1,5 +1,15 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+> ## ✅ NOTHING IS OUTSTANDING (2026-09-02). Prod records `00720`.
+>
+> `https://functions.gradethread.com/health/ready` reports
+> `schema: {applied: "00720"}`, and a PostgREST probe with the public anon key
+> confirms the objects from 00708, 00709, 00718 and 00719 all exist (a control
+> name answers `42P01`, so the probe is real). The `unexpected` list in that
+> same response names 00718-00720 only because the DEPLOYED container was built
+> at 00717 — the database is ahead of the build, which is the safe direction and
+> clears on the next edge deploy.
+
 > ## ✅ 00711 IS FULLY APPLIED. Measured 2026-09-01 through PostgREST, not assumed.
 >
 > Probed with the public anon key against two controls in the same session — a
@@ -12,6 +22,12 @@
 > | `ebay_api_call_daily` | `42501 permission denied` | exists, deny-all RLS working |
 > | `ebay_rate_limit_snapshots` | `42501 permission denied` | exists, deny-all RLS working |
 > | `rpc/bump_ebay_api_calls` | `42501 permission denied` | exists, the anon REVOKE took |
+>
+> ⚠ **That last row is no longer the state to want.** The REVOKE it confirms is
+> exactly what crashes this Postgres image on a denied call, so 00720 undid it:
+> EXECUTE is public again and the service-role check moved into the function
+> body. After 00720 the same probe should answer `42501` from the FUNCTION (the
+> body raising it), not from the privilege layer.
 > | `ebay_account_deletion_log.buyer_rows_erased` | `200 []` | exists; `[]` is RLS withholding rows, not an empty table |
 >
 > **⚠ IT LANDED IN TWO PASSES, AND THAT IS THE THING TO REMEMBER.** The first
@@ -37,7 +53,7 @@
 > confirmation. A boot failure naming the schema version means the row is missing
 > and needs inserting by hand.
 
-## 00720 — undo 00711's function revoke — NOT YET APPLIED
+## ✅ APPLIED 2026-09-02: 00720 — undo 00711's function revoke (owner-confirmed, applied in order through 00720)
 
 **Risk: low, and it closes a live one.** 00711 shipped
 `REVOKE ALL ON FUNCTION public.bump_ebay_api_calls(JSONB) FROM PUBLIC` plus a
@@ -54,7 +70,7 @@ This migration re-creates the function with a `service_role` check in its BODY
 **Apply order:** after 00719; the edge boot guard expects `00720`. Apply this
 one promptly if 00711 is already applied.
 
-## 00719 — creator programme separation (US-9212) — NOT YET APPLIED
+## ✅ APPLIED 2026-09-02: 00719 — creator programme separation (US-9212) (owner-confirmed, applied in order through 00720)
 
 **Risk: medium, and the risk is one constraint swap.** Columns added:
 `affiliate_accounts.program` (default `user`), `creator_terms_version`,
@@ -75,7 +91,7 @@ Idempotent. **Apply order:** after 00718, before 00720; the edge boot guard expe
 
 **`NOTIFY pgrst, 'reload schema';`** required (new columns).
 
-## 00718 — creator tax profiles (US-9212) — NOT YET APPLIED
+## ✅ APPLIED 2026-09-02: 00718 — creator tax profiles (US-9212) (owner-confirmed, applied in order through 00720)
 
 **Risk: low.** One new deny-all table, `affiliate_tax_profiles` (owner column
 `owner_user_id`, RLS enabled with NO policies, so only the service role reads
@@ -101,7 +117,7 @@ limit 1` answers through PostgREST as the service role and is refused to anon;
 `select default_value -> 'commission_pct' from system_settings where key =
 'affiliate_payout_config'` answers `25`.
 
-## 00717 — scorecard return split (US-9208) — NOT YET APPLIED
+## ✅ APPLIED 2026-09-02: 00717 — scorecard return split (US-9208) (owner-confirmed, applied in order through 00720)
 
 **Risk: low.** `create or replace` of `public.seller_scorecard(date)`, the
 same function as 00654 with a join to `grade_reports` and a `returnSplit` key
@@ -118,7 +134,7 @@ auto-deploy is safe ahead of the apply.
 **Verify after applying:** `select public.seller_scorecard(null) -> 'returnSplit'`
 as an authenticated user answers an object with `graded` and `ungraded`.
 
-## 00716 — graded draft price (US-9205) — NOT YET APPLIED
+## ✅ APPLIED 2026-09-02: 00716 — graded draft price (US-9205) (owner-confirmed, applied in order through 00720)
 
 **Risk: low.** Three nullable columns on `listings` (`price_set_by` with a
 CHECK, `graded_price_cents`, `graded_price_why`), one defaulted boolean on
@@ -140,7 +156,7 @@ must be redeployed after the apply.
 `select override_manual from repricing_rules limit 1` both answer through
 PostgREST.
 
-## 00715 — review flow columns (US-9204) — NOT YET APPLIED
+## ✅ APPLIED 2026-09-02: 00715 — review flow columns (US-9204) (owner-confirmed, applied in order through 00720)
 
 **Risk: low.** Three nullable columns, no backfill, nothing dropped:
 `inventory_items.review_approve_seconds integer`,
@@ -161,14 +177,14 @@ review screen's Approve itself needs no new schema.
 limit 1` and `select review_approve_seconds from inventory_items limit 1` both
 answer through PostgREST (a `42703` means the reload did not happen).
 
-## 00714 — extension queue relist kind (US-9203) — NOT YET APPLIED
+## ✅ APPLIED 2026-09-02: 00714 — extension queue relist kind (US-9203) (owner-confirmed, applied in order through 00720)
 
 **Risk: low.** The same `CHECK` on `extension_work_queue.kind` re-added with
 `relist`. Nothing else. Idempotent. **Apply order:** after 00713; the edge
 boot guard expects `00714`. No PostgREST reload needed. Nothing in the
 frontend reads the new kind directly.
 
-## 00713 — extension queue revise kind (US-9202) — NOT YET APPLIED
+## ✅ APPLIED 2026-09-02: 00713 — extension queue revise kind (US-9202) (owner-confirmed, applied in order through 00720)
 
 **Risk: low.** One `CHECK` constraint on `extension_work_queue.kind` is dropped
 and re-added with a third value (`revise`) and the column comment is updated.
@@ -194,7 +210,7 @@ and the pages show no stale badges.
 with `kind = 'revise'` succeeds (roll it back); `kind = 'share'` still fails
 with `23514`.
 
-## 00712 — closet import origins (US-9201) — NOT YET APPLIED
+## ✅ APPLIED 2026-09-02: 00712 — closet import origins (US-9201) (owner-confirmed, applied in order through 00720)
 
 **Risk: low.** One `CHECK` constraint on `flipdesk_import_runs.origin` is
 dropped and re-added with two more values (`poshmark`, `mercari`) and the
@@ -364,7 +380,14 @@ image without curl reports success and does nothing.
 > after both is enough. `EXPECTED_SCHEMA_VERSION` is `00709`, so the edge boot
 > guard refuses to start until BOTH are in.
 
-## ▶ OUTSTANDING RIGHT NOW (2 of 2): 00709_garment_measurement_index.sql (US-3033 — the Fit & Measurement Index storage)
+## ✅ APPLIED 2026-09-02: 00709_garment_measurement_index.sql (US-3033 — the Fit & Measurement Index storage)
+
+> **Measured, not assumed (2026-09-02).** These two sat below the highest
+> recorded version, and `scripts/apply-prod-migrations.sh` skips by MAXIMUM, so
+> a hole here would never have been re-applied. Probed through PostgREST with
+> the public anon key: `registered_number_lookups`, `garment_measurements` and
+> `garment_measurement_stats` all answer `200`, while a control name answers
+> `42P01` — so the objects exist and the endpoint is really prod. No hole.
 
 **Not yet applied.** Held per the standing rule: apply the SQL to prod, then OK
 the push.
@@ -441,7 +464,14 @@ same garment field updates the row rather than adding one.
 
 ---
 
-## ▶ OUTSTANDING RIGHT NOW (1 of 2): 00708_registered_number_lookups.sql (US-9036 — count the RN lookups we could not answer)
+## ✅ APPLIED 2026-09-02: 00708_registered_number_lookups.sql (US-9036 — count the RN lookups we could not answer)
+
+> **Measured, not assumed (2026-09-02).** These two sat below the highest
+> recorded version, and `scripts/apply-prod-migrations.sh` skips by MAXIMUM, so
+> a hole here would never have been re-applied. Probed through PostgREST with
+> the public anon key: `registered_number_lookups`, `garment_measurements` and
+> `garment_measurement_stats` all answer `200`, while a control name answers
+> `42P01` — so the objects exist and the endpoint is really prod. No hole.
 
 **Not yet applied.** Held per the standing rule: apply the SQL to prod, then OK
 the push.
