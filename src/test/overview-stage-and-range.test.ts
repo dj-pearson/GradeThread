@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { FLIPDESK_PIPELINE } from "@/lib/constants";
 import {
@@ -29,8 +29,33 @@ const OVERVIEW = "src/pages/flipdesk/overview.tsx";
 const LISTINGS = "src/pages/flipdesk/listings.tsx";
 const MIGRATION = "supabase/migrations/00594_flipdesk_overview_metrics.sql";
 
+// US-3076 moved the Overview's twelve blocks out of one page and into thirteen
+// widget modules. Every claim below is about the OVERVIEW, not about a file, so
+// the source-reading assertions read the page PLUS every widget the board
+// renders on it rather than chasing the markup from one filename to the next.
+// The directory is listed at run time, so a widget a later story adds is
+// covered without anyone remembering to name it here.
+const WIDGET_DIR = "src/components/dashboard/widgets";
+const AGING = `${WIDGET_DIR}/flipdesk-aging.tsx`;
+const PIPELINE = `${WIDGET_DIR}/flipdesk-pipeline.tsx`;
+
 function read(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf8");
+}
+
+/** The page and every FlipDesk widget on its board, concatenated. */
+function overviewSources(): string {
+  const widgets = readdirSync(resolve(process.cwd(), WIDGET_DIR))
+    .filter((f) => f.startsWith("flipdesk-") && f.endsWith(".tsx"))
+    .sort()
+    .map((f) => `${WIDGET_DIR}/${f}`);
+  // The widgets are the point of these guards, so an empty glob is a broken
+  // guard rather than a clean page: a rename would otherwise turn every
+  // "the overview does not do X" assertion into a test of one 80-line file.
+  expect(widgets.length, "no flipdesk widgets found to scan").toBeGreaterThanOrEqual(
+    11,
+  );
+  return [OVERVIEW, ...widgets].map(read).join("\n");
 }
 
 describe("a stage tile opens that stage (US-2547 AC1, AC2)", () => {
@@ -82,20 +107,26 @@ describe("a stage tile opens that stage (US-2547 AC1, AC2)", () => {
   });
 
   it("the tile copy no longer promises something else", () => {
-    const src = read(OVERVIEW);
-    expect(src).not.toContain("Click a stage to filter the items view");
+    expect(read(PIPELINE)).not.toContain("Click a stage to filter the items view");
+    expect(overviewSources()).not.toContain(
+      "Click a stage to filter the items view",
+    );
   });
 });
 
 describe("the numbers are aggregated server-side (US-2547 AC3)", () => {
   it("the overview does not read the whole item list any more", () => {
-    const src = read(OVERVIEW);
+    const src = overviewSources();
     expect(src).not.toContain("useItemsList");
     expect(src).not.toContain("use-items-full");
+    // US-3076 AC2: and no widget goes around the aggregate to a per-row table
+    // for a figure the aggregate already returned.
+    expect(src).not.toContain('from("items_full")');
+    expect(src).not.toContain('from("inventory_items")');
   });
 
   it("it asks one RPC for the summary", () => {
-    const src = read(OVERVIEW);
+    const src = overviewSources();
     expect(src).toContain("useFlipdeskOverview");
     const hook = read("src/hooks/use-flipdesk-overview.ts");
     expect(hook).toContain("flipdesk_overview_metrics");
@@ -155,27 +186,32 @@ describe("the seller can pick a window (US-2547 AC4)", () => {
     for (const r of OVERVIEW_RANGES) {
       expect(overviewRangeDef(r.id).phrase.length).toBeGreaterThan(0);
     }
-    const src = read(OVERVIEW);
+    const src = overviewSources();
     // The hardcoded weekly copy is gone; the phrase comes from the range.
     expect(src).not.toContain("Listed this week");
     expect(src).not.toContain("Sold this week");
     expect(src).not.toContain("Net profit (7d)");
     expect(src).toContain("rangeDef.phrase");
-    expect(src).toContain('useUrlParamState(\n    "range"');
+    // The URL param is still the source of truth, and it is still read on the
+    // PAGE: the board is handed the range and hands it down, so no widget goes
+    // back to the URL and none of them can disagree about the window.
+    expect(read(OVERVIEW)).toContain('useUrlParamState(\n    "range"');
   });
 });
 
 describe("the short lists can be opened (US-2547 AC5)", () => {
   it("both cards offer show-all rather than five of N", () => {
-    const src = read(OVERVIEW);
+    const src = overviewSources();
     expect(src).toContain("ShowAllToggle");
+    // Exactly two USES: the aging list and the stale list. The component now
+    // lives in flipdesk-shared.tsx, so this counts the JSX, not the definition.
     expect((src.match(/<ShowAllToggle/g) ?? []).length).toBe(2);
     // And it says when it is showing a capped slice rather than everything.
     expect(src).toContain("capped");
   });
 
   it("an aging row links to its item, the same as a stale row", () => {
-    const src = read(OVERVIEW);
+    const src = read(AGING);
     const aging = src.slice(src.indexOf("function AgingRow("));
     expect(aging).toContain("/dashboard/flipdesk/items/${row.id}");
   });

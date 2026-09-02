@@ -16,12 +16,14 @@ import { cn } from "@/lib/utils";
 import { useDashboardLayout } from "@/hooks/use-dashboard-layout";
 import {
   widgetById,
+  widgetWindowPhrase,
   type DashboardSurface,
   type LayoutEntry,
   type WidgetDef,
   type WidgetProps,
   type WidgetSize,
 } from "@/lib/dashboard-widgets";
+import type { OverviewRangeId } from "@/lib/overview-range";
 
 // US-3073: the one component both overviews render their layout with.
 //
@@ -92,12 +94,19 @@ function useIsEmpty(ref: RefObject<HTMLDivElement | null>): boolean {
 export function WidgetFrame({
   def,
   size,
+  subtitle,
   action,
   children,
   className,
 }: {
   def: WidgetDef;
   size: WidgetSize;
+  /**
+   * The window this frame's numbers cover (US-3076 AC3). Omitted on a board
+   * with no range picker, where every frame covers the same thing and a line
+   * saying so under all thirteen headings would be noise.
+   */
+  subtitle?: ReactNode;
   /** Optional controls beside the title (US-3074 puts the edit controls here). */
   action?: ReactNode;
   children: ReactNode;
@@ -113,9 +122,16 @@ export function WidgetFrame({
       data-widget-size={size}
       className={cn("min-w-0", className)}
     >
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">{def.title}</h3>
-        {action ? <div className="flex items-center gap-1">{action}</div> : null}
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold text-foreground">{def.title}</h3>
+          {subtitle ? (
+            <p className="text-xs text-muted-foreground">{subtitle}</p>
+          ) : null}
+        </div>
+        {action ? (
+          <div className="flex shrink-0 items-center gap-1">{action}</div>
+        ) : null}
       </div>
 
       <div ref={contentRef}>{children}</div>
@@ -162,6 +178,7 @@ export function WidgetBoard({
   surface,
   layout,
   registry,
+  range,
   renderAction,
   renderCell,
   className,
@@ -171,6 +188,14 @@ export function WidgetBoard({
   layout?: readonly LayoutEntry[];
   /** Override the registry, for tests and for a filtered catalog. */
   registry?: readonly WidgetDef[];
+  /**
+   * The reporting window this board is showing, on a surface that has a picker
+   * (US-3076: FlipDesk). It does two things and only the board can do either:
+   * it builds each frame's window subtitle from the widget's own `rangeAware`,
+   * and it hands the value down so a widget does not have to reach back into
+   * the URL for it. Omitted on a board with no picker.
+   */
+  range?: OverviewRangeId;
   /** Controls for each frame's header slot. */
   renderAction?: (def: WidgetDef, entry: LayoutEntry) => ReactNode;
   /** Wrap each grid cell. Defaults to a plain div carrying the span classes. */
@@ -196,13 +221,18 @@ export function WidgetBoard({
           def,
           className: COL_SPAN[entry.size],
           children: (
-            <WidgetFrame def={def} size={entry.size} action={renderAction?.(def, entry)}>
+            <WidgetFrame
+              def={def}
+              size={entry.size}
+              subtitle={widgetWindowPhrase(def, range)}
+              action={renderAction?.(def, entry)}
+            >
               <ErrorBoundary
                 resetKey={entry.id}
                 fallback={<WidgetErrorState title={def.title} />}
               >
                 <Suspense fallback={<WidgetSkeleton title={def.title} />}>
-                  <Widget size={entry.size} surface={surface} />
+                  <Widget size={entry.size} surface={surface} range={range} />
                 </Suspense>
               </ErrorBoundary>
             </WidgetFrame>

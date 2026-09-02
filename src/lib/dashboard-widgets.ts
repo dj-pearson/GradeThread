@@ -1,5 +1,6 @@
 import type { ComponentType } from "react";
 import type { UserUseCase } from "@/types/database";
+import { overviewRangeDef, type OverviewRangeId } from "@/lib/overview-range";
 
 // US-3073: the widget registry both overviews render from.
 //
@@ -63,11 +64,22 @@ export interface LayoutContext {
   hasInventory?: boolean;
 }
 
-/** Props every widget component accepts. Widgets that need neither ignore both. */
+/** Props every widget component accepts. Widgets that need none ignore them all. */
 export interface WidgetProps {
   /** The size the seller picked, so a widget can render compactly at `sm`. */
   size: WidgetSize;
   surface: DashboardSurface;
+  /**
+   * The reporting window the board is showing, on a surface that has a picker
+   * (US-3076: FlipDesk, from `?range=`). Undefined on a board without one.
+   *
+   * Given to EVERY widget on a ranged board, not only the `rangeAware` ones.
+   * `rangeAware` answers "do this widget's numbers follow the picker", which is
+   * what the frame's subtitle is built from; a widget whose numbers do not can
+   * still need to know the window CHANGED, because the aging and stale lists
+   * fold their "show all" back up when the seller moves the picker.
+   */
+  range?: OverviewRangeId;
 }
 
 export interface WidgetDef {
@@ -88,6 +100,21 @@ export interface WidgetDef {
    * (src/test/dashboard-widget-registry.test.ts pins that).
    */
   rangeAware: boolean;
+  /**
+   * The window this widget's numbers cover when they do NOT follow the picker.
+   * Read only when `rangeAware` is false; defaults to "right now".
+   *
+   * US-3076 AC3 names four widgets that show "right now" and treats every other
+   * FlipDesk widget as range-aware. Three of them are neither: "Time saved" is
+   * always this calendar month, "Photos to Approve" is a median over every item
+   * ever reviewed, and the community insights are a twelve-month benchmark.
+   * Labelling any of the three with the picker's phrase would print "in the
+   * last 7 days" over a number that is nothing of the sort, which is the defect
+   * src/lib/overview-range.ts was written to prevent. So they are not
+   * range-aware, and this field is how they say what they actually cover
+   * instead of being made to lie one of two ways.
+   */
+  windowPhrase?: string;
   /** Personas offered this widget in the catalog. */
   personas: readonly WidgetPersona[];
   /** TanStack Query key roots the widget reads, so a refresh can invalidate them. */
@@ -122,6 +149,17 @@ export interface LayoutDocument {
 export const LAYOUT_VERSION = 1;
 
 const ALL_PERSONAS = WIDGET_PERSONAS;
+
+/**
+ * The personas FlipDesk is for. Buyer is absent on purpose: a buyer account has
+ * no FlipDesk surface, so a `flipdesk.*` widget on its board would query rows it
+ * cannot read and render an error frame forever.
+ */
+const FLIPDESK_PERSONAS: readonly WidgetPersona[] = [
+  "seller",
+  "consignment",
+  "developer",
+];
 
 // The registry. US-3075 fills the grading surface; US-3076 (flipdesk) and
 // US-3077 (ios-home) add the rest of each surface's set.
@@ -376,6 +414,241 @@ export const DASHBOARD_WIDGETS: readonly WidgetDef[] = [
         default: m.GradingPassportsWidget as ComponentType<WidgetProps>,
       })),
   },
+
+  // US-3076: the FlipDesk Overview.
+  //
+  // Thirteen frames that were thirteen fixed blocks in one 800-line page. Every
+  // number below comes from ONE call to useFlipdeskOverview(range), deduped by
+  // its TanStack key across all of them: the widgets are separate modules, the
+  // read is not, and no widget here may go near items_full to re-derive a
+  // figure the aggregate already returned (US-2547, pinned by
+  // src/test/overview-stage-and-range.test.ts).
+  //
+  // No `buyer` anywhere in this block. A buyer account has no FlipDesk surface,
+  // so offering it one of these would put a card on the board that queries rows
+  // the account cannot read; src/test/dashboard-layout-edit.test.ts asserts the
+  // shipped registry never offers a buyer a `flipdesk.*` widget.
+  {
+    id: "flipdesk.north-star",
+    surface: "flipdesk",
+    title: "North Star",
+    blurb: "Items listed this week against your goal, and the streak behind it.",
+    category: "data",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    rangeAware: false,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["items_full"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-north-star").then((m) => ({
+        default: m.FlipdeskNorthStarWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.stat-items",
+    surface: "flipdesk",
+    title: "Total items",
+    blurb: "Everything you own right now, and what it is worth.",
+    category: "data",
+    // Not range-aware: a lifetime count and a live inventory value do not move
+    // when the picker does, so "right now" is the only true label for it.
+    rangeAware: false,
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["items_full"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-stat-items").then((m) => ({
+        default: m.FlipdeskStatItemsWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.stat-listed",
+    surface: "flipdesk",
+    title: "Listed",
+    blurb: "Items you moved to listed in the window you picked.",
+    category: "data",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    rangeAware: true,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["items_full"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-stat-listed").then((m) => ({
+        default: m.FlipdeskStatListedWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.stat-sold",
+    surface: "flipdesk",
+    title: "Sold",
+    blurb: "Items sold in the window you picked, and what they grossed.",
+    category: "data",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    rangeAware: true,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["items_full"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-stat-sold").then((m) => ({
+        default: m.FlipdeskStatSoldWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.stat-net",
+    surface: "flipdesk",
+    title: "Net profit",
+    blurb: "What you kept after fees and cost of goods, in the window you picked.",
+    category: "data",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    rangeAware: true,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["items_full"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-stat-net").then((m) => ({
+        default: m.FlipdeskStatNetWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.stat-time-saved",
+    surface: "flipdesk",
+    title: "Time saved",
+    blurb: "Hours FlipDesk saved you this month, task by task.",
+    category: "data",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    // US-9207 counts a calendar month, not the picker's window.
+    rangeAware: false,
+    windowPhrase: "this month",
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["time_saved"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-stat-time-saved").then(
+        (m) => ({
+          default: m.FlipdeskStatTimeSavedWidget as ComponentType<WidgetProps>,
+        }),
+      ),
+  },
+  {
+    id: "flipdesk.stat-review-median",
+    surface: "flipdesk",
+    title: "Photos to Approve",
+    blurb: "How long an item takes you from first photo to Approve, at the median.",
+    category: "data",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    // US-9204 is a median over every item that has been through review.
+    rangeAware: false,
+    windowPhrase: "across every item you have reviewed",
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["review_approve_median"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-stat-review-median").then(
+        (m) => ({
+          default: m.FlipdeskStatReviewMedianWidget as ComponentType<WidgetProps>,
+        }),
+      ),
+  },
+  {
+    id: "flipdesk.pipeline",
+    surface: "flipdesk",
+    title: "Pipeline",
+    blurb: "Where every item stands, one count per stage. Open a stage to see them.",
+    category: "data",
+    sizes: ["md", "lg"],
+    defaultSize: "lg",
+    rangeAware: false,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["items_full"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-pipeline").then((m) => ({
+        default: m.FlipdeskPipelineWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.aging",
+    surface: "flipdesk",
+    title: "Aging items",
+    blurb: "Items stuck in the same stage for more than two weeks.",
+    category: "data",
+    sizes: ["md", "lg"],
+    defaultSize: "md",
+    rangeAware: false,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["items_full"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-aging").then((m) => ({
+        default: m.FlipdeskAgingWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.stale",
+    surface: "flipdesk",
+    title: "Stale listings",
+    blurb: "Listings live for two weeks with nobody watching, and what to do next.",
+    category: "data",
+    sizes: ["md", "lg"],
+    defaultSize: "md",
+    rangeAware: false,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["items_full", "repricing-suggestions"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-stale").then((m) => ({
+        default: m.FlipdeskStaleWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.top-brands",
+    surface: "flipdesk",
+    title: "Top brands by profit",
+    blurb: "Which labels actually made you money in the window you picked.",
+    category: "data",
+    sizes: ["md", "lg"],
+    defaultSize: "md",
+    rangeAware: true,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["items_full"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-top-brands").then((m) => ({
+        default: m.FlipdeskTopBrandsWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.recent-sales",
+    surface: "flipdesk",
+    title: "Recent sales",
+    blurb: "The last six items that sold, with what each one netted.",
+    category: "data",
+    sizes: ["md", "lg"],
+    defaultSize: "md",
+    rangeAware: true,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["items_full"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-recent-sales").then((m) => ({
+        default: m.FlipdeskRecentSalesWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.community-insights",
+    surface: "flipdesk",
+    title: "Community insights",
+    blurb: "What other sellers are sourcing and pricing well, anonymized.",
+    category: "data",
+    sizes: ["md", "lg"],
+    defaultSize: "md",
+    // US-1064 benchmarks the last twelve months of community sales, which is
+    // its own window and not the seller's picker.
+    rangeAware: false,
+    windowPhrase: "across the last 12 months of community sales",
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["community-benchmarks"],
+    load: () =>
+      import("@/components/flipdesk/community-insights-widget").then((m) => ({
+        default: m.CommunityInsightsWidget as ComponentType<WidgetProps>,
+      })),
+  },
 ];
 
 /**
@@ -414,9 +687,32 @@ export function widgetById(
   return registry.find((w) => w.id === id);
 }
 
+/**
+ * The FlipDesk board every persona that has FlipDesk starts with (US-3076 AC4).
+ *
+ * One list, shared by three personas rather than copied three times: nothing in
+ * it is persona-specific, and three copies of the same thirteen ids is three
+ * places for the next widget to be added to two of.
+ */
+const FLIPDESK_DEFAULT_LAYOUT: readonly LayoutEntry[] = [
+  { id: "flipdesk.north-star", size: "sm" },
+  { id: "flipdesk.stat-items", size: "sm" },
+  { id: "flipdesk.stat-listed", size: "sm" },
+  { id: "flipdesk.stat-sold", size: "sm" },
+  { id: "flipdesk.stat-net", size: "sm" },
+  { id: "flipdesk.stat-time-saved", size: "sm" },
+  { id: "flipdesk.stat-review-median", size: "sm" },
+  { id: "flipdesk.pipeline", size: "lg" },
+  { id: "flipdesk.aging", size: "md" },
+  { id: "flipdesk.stale", size: "md" },
+  { id: "flipdesk.top-brands", size: "md" },
+  { id: "flipdesk.recent-sales", size: "md" },
+  { id: "flipdesk.community-insights", size: "md" },
+];
+
 // The layout a seller sees before they ever customize. Per surface, per
 // persona, in reading order: own data first, anything promotional last.
-// The empty surfaces are filled by US-3076 and US-3077.
+// The ios-home surface is filled by US-3077.
 export const DEFAULT_LAYOUTS: Record<
   DashboardSurface,
   Record<WidgetPersona, readonly LayoutEntry[]>
@@ -486,7 +782,18 @@ export const DEFAULT_LAYOUTS: Record<
       { id: "grading.invite", size: "md" },
     ],
   },
-  flipdesk: { seller: [], buyer: [], consignment: [], developer: [] },
+  flipdesk: {
+    // US-3076 AC4, in the order the story fixes: the weekly goal, then the seven
+    // numbers, then the pipeline, then the four lists, then the community.
+    // Nothing on this surface is promotional, so the own-data-first invariant
+    // (src/test/dashboard-own-data-first.test.ts) has nothing to push down.
+    seller: FLIPDESK_DEFAULT_LAYOUT,
+    consignment: FLIPDESK_DEFAULT_LAYOUT,
+    developer: FLIPDESK_DEFAULT_LAYOUT,
+    // A buyer has no FlipDesk. An empty board is the honest answer, and the
+    // catalog offers this persona nothing here either.
+    buyer: [],
+  },
   "ios-home": { seller: [], buyer: [], consignment: [], developer: [] },
 };
 
@@ -513,6 +820,24 @@ export function isWidgetSize(value: unknown): value is WidgetSize {
   return (
     typeof value === "string" && (WIDGET_SIZES as readonly string[]).includes(value)
   );
+}
+
+/** What a widget's frame says when its numbers do not follow a range picker. */
+export const DEFAULT_WINDOW_PHRASE = "right now";
+
+/**
+ * The window a widget's frame declares under its title (US-3076 AC3).
+ *
+ * `null` on a board with no range picker, where every frame is unqualified and
+ * a subtitle would be noise; the grading dashboard is unchanged by this.
+ */
+export function widgetWindowPhrase(
+  def: WidgetDef,
+  range: OverviewRangeId | undefined,
+): string | null {
+  if (!range) return null;
+  if (def.rangeAware) return overviewRangeDef(range).phrase;
+  return def.windowPhrase ?? DEFAULT_WINDOW_PHRASE;
 }
 
 /** Narrow an arbitrary value to a persona. */
