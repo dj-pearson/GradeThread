@@ -95,6 +95,15 @@ import {
   resolveListingStyleCode,
 } from "./listing-style-code.ts";
 import {
+  planListingRegisteredNumber,
+  RN_CONTRADICTION_BRAND_CONFIDENCE,
+} from "./listing-registered-number.ts";
+import {
+  assessRegisteredNumber,
+  getRegisteredNumberContext,
+  recordRegisteredNumberSighting,
+} from "./registered-numbers.ts";
+import {
   lookupLearnedStyle,
   recordStyleCodeObservations,
 } from "./style-code-observations.ts";
@@ -2420,6 +2429,50 @@ export async function generateListing(
       console.error("[AI Listing] learned style lookup failed (non-fatal):", err);
     }
   }
+  // 2026-09-02: the RN off the label, checked against the registry. Read on
+  // every item since US-543 and discarded until now. A contradiction caps the
+  // brand's confidence below the review threshold; it never changes the brand.
+  // fieldConfidence is declared here (it used to be declared at the refine
+  // step) so the cap exists before the refine pass adds its own entries.
+  const fieldConfidence: Record<string, number> = {};
+  let rnOutcome = "none";
+  const rnRead = typeof knownFields.rn_number === "string"
+    ? knownFields.rn_number
+    : null;
+  if (rnRead) {
+    try {
+      const ctx = await getRegisteredNumberContext();
+      const assessment = assessRegisteredNumber(
+        rnRead,
+        normalizedBrand,
+        ctx.index,
+        ctx.registrants,
+      );
+      const rnPlan = planListingRegisteredNumber({
+        rn: rnRead,
+        declaredBrand: normalizedBrand,
+        existingAttributes: item.attributes as Record<string, unknown> | null,
+        assessment,
+      });
+      rnOutcome = rnPlan.outcome;
+      tagAttributes = { ...tagAttributes, ...rnPlan.attributes };
+      if (rnPlan.brandConfidenceCap != null) {
+        fieldConfidence.brand = Math.min(
+          fieldConfidence.brand ?? 1,
+          rnPlan.brandConfidenceCap,
+        );
+        console.warn(
+          `[AI Listing] RN contradicts brand on item ${itemId}: ${rnPlan.note}`,
+        );
+      }
+      if (rnPlan.recordSighting) {
+        void recordRegisteredNumberSighting(assessment, normalizedBrand);
+      }
+    } catch (err) {
+      console.error("[AI Listing] RN cross-check failed (non-fatal):", err);
+    }
+  }
+
   const learnedCandidate: VisualCandidate[] = learnedForListing.candidateName
     ? [{
       field: "style",
@@ -2660,7 +2713,6 @@ export async function generateListing(
   // brand/measurement folds have run.
   let aspectSpecs: EbayAspectSpec[] = [];
   // US-541: per-aspect confidence from the refine pass, for needs_review triage.
-  const fieldConfidence: Record<string, number> = {};
   // US-3043: what the refine pass answered, so the visual prefill below can
   // stand down on every aspect the model looked at the actual garment for.
   let refineSuggestions: Record<string, AspectValueSuggestion> = {};
@@ -3116,6 +3168,14 @@ export async function generateListing(
   // the seller must reconcile them before they silently drop at publish.
   // US-3031: and when the category accepts no honest condition for this item,
   // which is the one case step 5b cannot settle on the seller's behalf.
+  // 2026-09-02: the RN cap is re-asserted here because the refine pass writes
+  // fieldConfidence.brand from the model's own confidence, which would lift it.
+  if (rnOutcome === "contradicts") {
+    fieldConfidence.brand = Math.min(
+      fieldConfidence.brand ?? 1,
+      RN_CONTRADICTION_BRAND_CONFIDENCE,
+    );
+  }
   const needsReview =
     listingNeedsReview(listing.confidence, fieldConfidence) ||
     aspectReview.length > 0 ||
