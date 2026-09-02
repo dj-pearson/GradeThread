@@ -64,6 +64,8 @@ export interface PlatformVariant {
   brand: string | null;
   color: string | null;
   size: string | null;
+  /** The eBay Style specific, for Depop's "style" field (2026-09-02). */
+  style?: string | null;
   price: number; // dollars
   tags: string[];
   confidence: number;
@@ -108,6 +110,18 @@ function variantToDraftFields(platform: MarketplacePlatform, v: PlatformVariant)
  * description / tags, clamped to the platform's limits. Then validated.
  * No I/O — unit-testable.
  */
+/** The first "Style" value in an aspect map, case-insensitive; null when none. */
+export function styleFromSpecifics(
+  specifics: Record<string, string[]> | null | undefined,
+): string | null {
+  for (const [name, values] of Object.entries(specifics ?? {})) {
+    if (name.trim().toLowerCase() !== "style") continue;
+    const first = (values ?? []).map((v) => v.trim()).find((v) => v !== "");
+    if (first) return first;
+  }
+  return null;
+}
+
 export function assemblePlatformVariant(
   platform: MarketplacePlatform,
   base: PlatformVariantBase,
@@ -174,6 +188,7 @@ export function assemblePlatformVariant(
     brand: base.brand,
     color: base.color,
     size: base.size,
+    style: styleFromSpecifics(base.itemSpecifics),
     price: Math.round(base.priceCents) / 100,
     tags,
     confidence: clampConfidence(base.confidence),

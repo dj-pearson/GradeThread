@@ -93,6 +93,9 @@ const NEW_LISTING_URL: Partial<Record<MarketplacePlatform, string>> = {
   mercari: "https://www.mercari.com/sell/",
   depop: "https://www.depop.com/sell/",
   grailed: "https://www.grailed.com/sell/",
+  // 2026-09-02. Vinted joined the kit on 2026-08-11 with no entry here, so its
+  // tab was the only one without an "Open" button.
+  vinted: "https://www.vinted.com/items/new",
 };
 
 // Maps a registry field key to its value in a generated variant.
@@ -116,6 +119,10 @@ function fieldValue(key: string, v: PlatformKitVariant): string {
       return v.color ?? "";
     case "size":
       return v.size ?? "";
+    // Depop's style field. It fell through to "" on every kit until 2026-09-02;
+    // the server now carries the eBay Style specific for it.
+    case "style":
+      return v.style ?? "";
     case "tags":
       return v.tags.join(" ");
     case "price":
@@ -335,7 +342,9 @@ function PlatformPanel({
   if (!variant) {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
-        Not generated yet — click “Generate for all marketplaces” above.
+        Not generated yet. New drafts fill this on their own for the channels you
+        chose under Marketplaces; for this one, click “Generate for all
+        marketplaces” above.
       </p>
     );
   }
@@ -1077,6 +1086,10 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   }, [data?.platform_fields, gen.data]);
 
   const hasAny = Object.keys(variants).length > 0;
+  // 2026-09-02: the batch worker fills the kit with the draft. Say so, because
+  // a seller who never pressed the button is otherwise left wondering where
+  // the copy came from.
+  const generatedWithDraft = Object.values(variants).some((v) => v.generatedWithDraft);
 
   return (
     <Card>
@@ -1086,7 +1099,10 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
             <CardTitle>Cross-list copy kit</CardTitle>
             <CardDescription>
               AI-tailored fields for marketplaces without API push — copy each field
-              into Poshmark, Mercari, Depop, or Grailed.
+              into Poshmark, Mercari, Depop, Grailed, or Vinted.
+              {generatedWithDraft
+                ? " Filled automatically when this draft was generated."
+                : null}
             </CardDescription>
           </div>
           <Button
@@ -1129,7 +1145,10 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
               );
             })}
           </TabsList>
-          {KIT_PLATFORMS.map((p) => (
+          {/* The same narrowed list as the triggers above. This iterated the
+              unnarrowed KIT_PLATFORMS until 2026-09-02, rendering hidden
+              panels for channels the seller had switched off. */}
+          {kitPlatforms.map((p) => (
             <TabsContent key={p} value={p} className="mt-4">
               {getMarketplaceSpec(p)?.pushMechanism === "manual" || p === "depop" ? (
                 <div className="mb-3">
@@ -1231,6 +1250,8 @@ function normalize(platform: string, raw: Record<string, unknown>): PlatformKitV
     brand: (raw.brand as string | null) ?? null,
     color: (raw.color as string | null) ?? null,
     size: (raw.size as string | null) ?? null,
+    style: typeof raw.style === "string" ? raw.style : null,
+    generatedWithDraft: raw.generated_with_draft === true,
     // US-2740: a numeric STRING is a price, not a zero.
     //
     // This was `typeof raw.price === "number" ? raw.price : 0`, which silently

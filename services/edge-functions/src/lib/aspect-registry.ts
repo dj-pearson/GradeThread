@@ -64,7 +64,7 @@ export interface AspectRegistry {
 
 // Bump `version` whenever entries change so a served/cached copy is versioned.
 export const ASPECT_REGISTRY: AspectRegistry = {
-  version: 4,
+  version: 5,
   entries: [
     // ── Legacy structured columns ──
     { key: "brand", source: "column", column: "brand", multi: false, aspects: ["Brand"] },
@@ -241,7 +241,26 @@ export const ASPECT_REGISTRY: AspectRegistry = {
       multi: false,
       aspects: ["Theme", "Character", "Character Family"],
     },
-    { key: "mpn", source: "attribute", attribute: "mpn", multi: false, aspects: ["MPN", "Manufacturer Part Number"] },
+    {
+      key: "mpn",
+      source: "attribute",
+      attribute: "mpn",
+      multi: false,
+      // 2026-09-02: the three apparel spellings added behind the two eBay
+      // generic ones. Clothing leaves ask for the label's code as "Style Code"
+      // or "Style Number" (style-code-aspects.ts CODE_ASPECTS lists the same
+      // five), and the tag-OCR pass now files the code it reads on
+      // attributes.mpn - so without these names the read had nowhere to land
+      // on most garment categories. ownedAspectName only ever matches a name
+      // the leaf exposes, so an extra candidate is a proposal, never a guess.
+      aspects: [
+        "MPN",
+        "Manufacturer Part Number",
+        "Style Code",
+        "Style Number",
+        "Model Number",
+      ],
+    },
 
     // ── US-2421/US-2422: the wide capture's aspects ──
     //

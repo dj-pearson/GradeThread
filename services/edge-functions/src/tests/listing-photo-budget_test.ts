@@ -4,7 +4,7 @@
 //   3. measured ~30-50% per-item cost reduction at batch scale
 
 import "./_env.ts";
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import {
   APPROX_IMAGE_TOKENS,
   basePhotoRole,
@@ -14,6 +14,8 @@ import {
   isEasyAspectCategory,
   type PassCostInput,
   selectListingPhotos,
+  selectAspectPhotos,
+  DEFAULT_MAX_ASPECT_PHOTOS,
 } from "../lib/listing-photo-budget.ts";
 
 function photo(url: string, type?: string): BudgetPhoto {
@@ -192,4 +194,44 @@ Deno.test("image-token approximation is the dominant per-pass cost driver", () =
   // A single photo dwarfs the per-pass text overhead, confirming photo COUNT
   // (not source downscale) is the lever the budget pulls.
   assertEquals(APPROX_IMAGE_TOKENS > TEXT_TOKENS_IN, true);
+});
+
+// ── 2026-09-02: the aspect-refine pass gets fewer photos than the listing pass ─
+
+const VISION_SET = [
+  { url: "u/front", type: "front" },
+  { url: "u/tag", type: "tag" },
+  { url: "u/defect1", type: "defect" },
+  { url: "u/back", type: "back" },
+  { url: "u/detail", type: "detail" },
+  { url: "u/defect2", type: "defect_2" },
+];
+
+Deno.test("selectAspectPhotos drops the defect close-ups and keeps capture order", () => {
+  const out = selectAspectPhotos(VISION_SET);
+  assertEquals(out.map((p) => p.url), ["u/front", "u/tag", "u/back", "u/detail"]);
+});
+
+Deno.test("selectAspectPhotos caps by role priority (tag outranks a 2nd detail)", () => {
+  const set = [
+    { url: "u/detail1", type: "detail" },
+    { url: "u/detail2", type: "detail_2" },
+    { url: "u/interior", type: "interior" },
+    { url: "u/flatlay", type: "flatlay" },
+    { url: "u/tag", type: "tag" },
+    { url: "u/front", type: "front" },
+  ];
+  const out = selectAspectPhotos(set, 3);
+  // front (0), tag (1), detail (4) survive; order restored to capture order.
+  assertEquals(out.map((p) => p.url), ["u/detail1", "u/tag", "u/front"]);
+});
+
+Deno.test("selectAspectPhotos never returns empty for a non-empty set", () => {
+  const onlyDefects = [{ url: "u/d1", type: "defect" }, { url: "u/d2", type: "defect_2" }];
+  assertEquals(selectAspectPhotos(onlyDefects).length, 2);
+  assertEquals(selectAspectPhotos([]), []);
+});
+
+Deno.test("the aspect budget is below the listing budget (that is the saving)", () => {
+  assert(DEFAULT_MAX_ASPECT_PHOTOS < DEFAULT_MAX_LISTING_PHOTOS);
 });

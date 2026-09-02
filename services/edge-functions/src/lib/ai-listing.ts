@@ -23,7 +23,7 @@ import {
 import {
   getAiTemperature,
   getAnthropicClient,
-  getDefaultModel,
+  getPlatformVariantModel,
   isCachingEnabled,
 } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
@@ -37,14 +37,21 @@ import {
 } from "./ai-extract.ts";
 import {
   isEasyAspectCategory,
+  selectAspectPhotos,
   selectListingPhotos,
 } from "./listing-photo-budget.ts";
 import {
   getCategoryAspects,
   getItemConditionPolicies,
   searchBrowseComps,
-  suggestCategories,
 } from "./ebay-client.ts";
+// 2026-09-02: the 12-hour suggestion cache the Scout path already used. A
+// 300-item batch of the same garment word was asking eBay the same question
+// 300 times.
+import { cachedSuggestCategories } from "./taxonomy-cache.ts";
+// The kit's source description is the rendered eBay HTML; the model gets the
+// words, not the markup.
+import { htmlToPlainText } from "./cert-description.ts";
 // US-3031: settles the generated condition against the leaf's allow-list. The
 // type-only edge of this pair (publish-preflight imports EbayCondition from
 // here) is erased at compile time, so there is no runtime import cycle.
@@ -99,7 +106,10 @@ import {
 // pressing "Estimate" on the composer.
 import { autofillMeasurementsFromCard } from "./measure-autofill.ts";
 import { estimateSize } from "./ai-size-estimate.ts";
-import { SIZE_ESTIMATE_LOW_CONFIDENCE } from "./ai-size-estimate-core.ts";
+import {
+  prioritizeMeasurementPhotos,
+  SIZE_ESTIMATE_LOW_CONFIDENCE,
+} from "./ai-size-estimate-core.ts";
 import {
   buildDisclosure,
   type DisclosureInput,
@@ -124,6 +134,7 @@ import {
   extractTagGroundTruth,
   mergeTagGroundTruth,
   TAG_PHOTO_TYPES,
+  tagAttributeFill,
 } from "./ai-tag-ocr.ts";
 import {
   applyCanonicalBrandAndStyle,
@@ -862,12 +873,10 @@ export function buildListingUserLines(input: ListingGenInput): string[] {
   if (input.measurements && Object.keys(input.measurements).length > 0) {
     lines.push(`MEASUREMENTS:\n${JSON.stringify(input.measurements, null, 2)}`);
   }
-  if (input.allowedAspects && Object.keys(input.allowedAspects).length > 0) {
-    lines.push(
-      "ALLOWED ITEM-SPECIFIC ASPECTS (use only these aspect names; [] = free text):\n" +
-        JSON.stringify(input.allowedAspects, null, 2),
-    );
-  }
+  // The allowed-aspects block is NOT here any more (2026-09-02). It is a
+  // property of the CATEGORY, not the item, so it rides in the cached system
+  // prefix - see buildListingSystemBlocks. Emitting it here too would send a
+  // second, uncached copy behind the photos on every call.
   if (input.demandTerms && input.demandTerms.length > 0) {
     lines.push(
       "HIGH-DEMAND eBAY SEARCH TERMS (mined from live eBay listings for this " +
@@ -885,6 +894,55 @@ export function buildListingUserLines(input: ListingGenInput): string[] {
 
   lines.push("Call create_ebay_listing with the finished listing.");
   return lines;
+}
+
+/**
+ * The category's allowed item-specific aspects as prompt text, "" when none.
+ *
+ * Header wording is the one the user turn carried since US-312, so a DB prompt
+ * override written against it still reads the same block. Pure.
+ */
+export function allowedAspectsBlock(
+  allowed: Record<string, string[]> | null | undefined,
+): string {
+  if (!allowed || Object.keys(allowed).length === 0) return "";
+  return (
+    "ALLOWED ITEM-SPECIFIC ASPECTS (use only these aspect names; [] = free text):\n" +
+    JSON.stringify(allowed, null, 2)
+  );
+}
+
+/**
+ * The system prefix for one generation call: the versioned prompt, then the
+ * category's allowed aspects as a SECOND block (2026-09-02).
+ *
+ * Why a second system block rather than a line in the user turn. Anthropic's
+ * cache is a prefix cache: tools, then system, then messages, and a breakpoint
+ * caches everything before it. The user turn opens with the item's photos,
+ * which differ on every call, so nothing placed after them is ever read from
+ * cache. The aspect list is the largest text we send - forty-odd aspects with
+ * up to 300 values each, Country of Origin alone is 244 - and it is identical
+ * for every item in the same leaf. In the system prefix it is written once per
+ * category per batch and read at a tenth of the price for the rest. Two
+ * breakpoints, one per block, so a batch that spans categories still shares
+ * the prompt half.
+ *
+ * Both breakpoints, or neither, follow `caching`. The order (prompt first) is
+ * what keeps the prompt half shared across categories. Pure.
+ */
+export function buildListingSystemBlocks(
+  promptText: string,
+  allowedAspects: Record<string, string[]> | null | undefined,
+  caching: boolean,
+): Anthropic.TextBlockParam[] {
+  const block = (text: string): Anthropic.TextBlockParam =>
+    caching
+      ? { type: "text", text, cache_control: { type: "ephemeral" } }
+      : { type: "text", text };
+  const blocks = [block(promptText)];
+  const aspects = allowedAspectsBlock(allowedAspects);
+  if (aspects) blocks.push(block(aspects));
+  return blocks;
 }
 
 /**
@@ -916,9 +974,11 @@ export async function generateListingFields(
 
   content.push({ type: "text", text: buildListingUserLines(input).join("\n\n") });
 
-  const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
-    ? { type: "text", text: prompt.text, cache_control: { type: "ephemeral" } }
-    : { type: "text", text: prompt.text };
+  const systemBlocks = buildListingSystemBlocks(
+    prompt.text,
+    input.allowedAspects,
+    isCachingEnabled(),
+  );
 
   // US-1065: quality-gated Haiku→Sonnet cascade (config-driven, OFF by default,
   // so behavior is a single default-model pass until an operator enables it).
@@ -933,7 +993,7 @@ export async function generateListingFields(
       callListingModel(model, {
         client,
         content,
-        systemBlock,
+        systemBlocks,
         temperature,
         promptVersion: prompt.versionName,
       }),
@@ -965,14 +1025,14 @@ export async function generateListingFields(
 interface ListingCallInputs {
   client: Anthropic;
   content: Anthropic.ContentBlockParam[];
-  systemBlock: Anthropic.TextBlockParam;
+  systemBlocks: Anthropic.TextBlockParam[];
   temperature: number | undefined;
   promptVersion: string;
 }
 
 async function callListingModel(
   model: string,
-  { client, content, systemBlock, temperature, promptVersion }: ListingCallInputs,
+  { client, content, systemBlocks, temperature, promptVersion }: ListingCallInputs,
 ): Promise<ListingGenResult> {
   // Retry transient Anthropic rate-limit / overload (429/529/5xx) with
   // exponential backoff so one momentary limit doesn't fail the whole batch.
@@ -982,7 +1042,7 @@ async function callListingModel(
         model,
         max_tokens: 1536,
         ...(temperature !== undefined ? { temperature } : {}),
-        system: [systemBlock],
+        system: systemBlocks,
         tools: [LISTING_GEN_TOOL],
         tool_choice: { type: "tool", name: "create_ebay_listing" },
         messages: [{ role: "user", content }],
@@ -1334,6 +1394,7 @@ function buildAspectSpecsForCategory(
       mode,
       allowedValues: allowedValues.length > 0 ? allowedValues : undefined,
       dataType: c.aspectDataType,
+      usage: c.aspectUsage,
     });
   }
 
@@ -1341,6 +1402,27 @@ function buildAspectSpecsForCategory(
   // The old sort was required → RECOMMENDED → OPTIONAL, which cut Theme,
   // Accents and Occasion out of the schema before the model could fill them.
   return prioritizeByDemand(specs, raw);
+}
+
+/**
+ * The name -> allowed-values map the GENERATION prompt gets, built from the
+ * demand-ranked, capped specs rather than the raw payload (2026-09-02).
+ *
+ * extractAllowedAspects flattens everything eBay returns, with no cap on
+ * aspects or values. The refine schema has been capped at MAX_AI_ASPECTS /
+ * MAX_ALLOWED_VALUES_PER_ASPECT since US-2420, but the generation prompt on a
+ * re-generate (an item that already carries ebay_category_id) still dumped the
+ * whole payload: on the two leaves carrying Silhouette that was 7,286 values,
+ * roughly 25k tokens, in front of a call whose item_specifics the refine pass
+ * re-derives anyway. Same ranking as the schema, so the two calls now agree on
+ * which aspects exist. Pure.
+ */
+export function promptAllowedAspects(
+  specs: EbayAspectSpec[],
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const spec of specs) out[spec.name] = spec.allowedValues ?? [];
+  return out;
 }
 
 // Collapse extractEbayAspects's suggestion map back to the plain name -> values
@@ -1485,6 +1567,19 @@ export function aspectCarryOver(
     update.attributes = { ...existingAttrs, ...attrFill };
   }
   return update;
+}
+
+/**
+ * The item's attributes with the label reads filled in, for the registry.
+ * Null in, nothing read -> null out, so a caller that never ran the tag pass
+ * sees the same shape as before. Pure.
+ */
+export function withTagAttributes(
+  attributes: Record<string, string | string[]> | null | undefined,
+  tagAttributes: Record<string, string>,
+): Record<string, string | string[]> | null {
+  if (Object.keys(tagAttributes).length === 0) return attributes ?? null;
+  return { ...(attributes ?? {}), ...tagAttributes };
 }
 
 export function listingNeedsReview(
@@ -1786,6 +1881,12 @@ interface ItemRow {
 // whole photo set.
 const MAX_TAG_OCR_PHOTOS = 4;
 
+// The size-estimate pass reads a ruler off the measurement / flat-lay shots and
+// a fit off the rest; it was sent EVERY photo on the item, uncapped, when the
+// tag had no size. Six, measurement-first, is the listing-pass budget and more
+// than the ruler needs (2026-09-02).
+const MAX_SIZE_ESTIMATE_PHOTOS = 6;
+
 // Returns ALL listable photos in sort_order — deliberately uncapped. The
 // vision-pass count discipline lives in selectListingPhotos (US-545), which
 // picks a role-diverse capped subset; a positional pre-slice here would let
@@ -1955,6 +2056,12 @@ export async function generateListing(
   // knownFields (tag WINS) and flag them as authoritative for the listing call
   // so brand/size aren't hallucinated from a busy garment shot.
   let tagGroundTruth: Record<string, string> | undefined;
+  // 2026-09-02: the label facts that belong on inventory_items.attributes
+  // (garment_care, country_of_manufacture, product_line, mpn), fill-only. They
+  // feed the registry projection below AND the item write, so the label is
+  // read once and lands on the category's real aspect names without the model
+  // having to copy it.
+  let tagAttributes: Record<string, string> = {};
   let tagOcrTokensIn = 0;
   let tagOcrTokensOut = 0;
   let tagOcrCost = 0;
@@ -1970,6 +2077,7 @@ export async function generateListing(
       const { merged, groundTruth } = mergeTagGroundTruth(knownFields, ocr.fields);
       Object.assign(knownFields, merged);
       if (Object.keys(groundTruth).length > 0) tagGroundTruth = groundTruth;
+      tagAttributes = tagAttributeFill(ocr.fields, item.attributes);
       tagOcrModel = ocr.model;
       tagOcrTokensIn = ocr.tokensIn;
       tagOcrTokensOut = ocr.tokensOut;
@@ -1996,7 +2104,9 @@ export async function generateListing(
   if (String(knownFields.size ?? "").trim() === "") {
     try {
       const est = await estimateSize({
-        photos: photos.map((p) => ({ url: p.url, type: p.type })),
+        photos: prioritizeMeasurementPhotos(
+          photos.map((p) => ({ url: p.url, type: p.type })),
+        ).slice(0, MAX_SIZE_ESTIMATE_PHOTOS),
         brand: typeof knownFields.brand === "string"
           ? (knownFields.brand as string)
           : item.brand,
@@ -2047,7 +2157,11 @@ export async function generateListing(
 
   if (categoryId) {
     try {
-      allowedAspects = extractAllowedAspects(await getCategoryAspects(categoryId));
+      // Demand-ranked and capped, the same list the refine schema gets - not
+      // the raw payload (see promptAllowedAspects).
+      allowedAspects = promptAllowedAspects(
+        buildAspectSpecsForCategory(await getCategoryAspects(categoryId)),
+      );
       aspectsAlreadyConstrained = Object.keys(allowedAspects).length > 0;
     } catch (err) {
       console.error("[AI Listing] getCategoryAspects (pre) failed:", err);
@@ -2138,8 +2252,10 @@ export async function generateListing(
     title: item.title,
     description: item.description,
     condition_notes: item.condition_notes,
-    attributes:
-      (item.attributes as Record<string, string | string[]> | null) ?? null,
+    attributes: withTagAttributes(
+      item.attributes as Record<string, string | string[]> | null,
+      tagAttributes,
+    ),
   };
 
   // 5. Resolve a real eBay leaf category when the item didn't have one.
@@ -2154,7 +2270,8 @@ export async function generateListing(
   let categoryCandidates: CategoryCandidateScore[] = [];
   if (!categoryId && listing.suggested_category_query) {
     try {
-      const suggestions = await suggestCategories(listing.suggested_category_query);
+      const suggestions =
+        (await cachedSuggestCategories(listing.suggested_category_query)).result;
       if (suggestions.length > 0) {
         const shortlist = suggestions.slice(0, CATEGORY_CANDIDATE_LIMIT);
         const scored: CategoryCandidateScore[] = [];
@@ -2294,10 +2411,20 @@ export async function generateListing(
             text: [item.title, normalizedBrand, item.size, item.color, item.material]
               .filter((v): v is string => !!v && v.length > 0)
               .join(" • "),
-            photos: visionPhotos.map((p) => ({ url: p.url, type: p.type })),
+            // 2026-09-02: the defect close-ups stay home. No item specific is
+            // read off a stain, and each one was ~1,500 image tokens on this
+            // call. See selectAspectPhotos.
+            photos: selectAspectPhotos(visionPhotos).map((p) => ({
+              url: p.url,
+              type: p.type,
+            })),
             knownAspects: listing.item_specifics,
             aspects: specs,
             categoryPath,
+            // What the care label said, in words, so Country of Origin, Garment
+            // Care and Material fill from the read rather than from a label
+            // photo that may no longer be in the set.
+            tagGroundTruth: tagGroundTruth ?? null,
             modelOverride: easyCategory ? getHaikuModel() : undefined,
             // US-2419: name the identified product so Style/Model/Product Line/
             // Fabric Type can be filled instead of omitted under the never-guess
@@ -2847,6 +2974,17 @@ export async function generateListing(
   // page and inventory grid show real data for AI-processed drafts instead
   // of blanks.
   Object.assign(itemUpdate, aspectCarryOver(item, itemSpecifics));
+  // The label reads land on the item even when the leaf has no aspect for
+  // them (a Product Line on a leaf without one), so the next generation and
+  // the composer still have them. Verbatim label text outranks the same fact
+  // carried back from an aspect.
+  if (Object.keys(tagAttributes).length > 0) {
+    itemUpdate.attributes = {
+      ...((item.attributes as Record<string, unknown> | null) ?? {}),
+      ...((itemUpdate.attributes as Record<string, unknown> | undefined) ?? {}),
+      ...tagAttributes,
+    };
+  }
   if (
     (item.description ?? "").trim() === "" &&
     listingDescription.trim() !== ""
@@ -3061,7 +3199,10 @@ export async function generatePlatformVariantText(
 ): Promise<{ byPlatform: Record<string, PlatformText>; model: string; tokensIn: number; tokensOut: number }> {
   enterAiFeature("autolister"); // US-894 spend attribution
   const client = getAnthropicClient();
-  const model = getDefaultModel();
+  // 2026-09-02: the lightweight tier. Text in, text out, every fact pinned to
+  // the source - see getPlatformVariantModel for why this is the right call to
+  // move and why it has its own override.
+  const model = getPlatformVariantModel();
   const temperature = getAiTemperature();
 
   const facts = {
@@ -3096,7 +3237,11 @@ export async function generatePlatformVariantText(
     () =>
       client.messages.create({
         model,
-        max_tokens: 2048,
+        // Five channels now ride one call (Vinted joined the kit 2026-08-11)
+        // and a truncated tool call loses ALL of them, so the ceiling is
+        // sized for five full descriptions. Output is billed as used, not as
+        // capped.
+        max_tokens: 3072,
         ...(temperature !== undefined ? { temperature } : {}),
         system: [{ type: "text", text: system }],
         tools: [PLATFORM_VARIANT_TOOL],
@@ -3154,8 +3299,15 @@ export async function generatePlatformVariants(
   itemId: string,
   ownerId: string,
   platforms: MarketplacePlatform[],
+  // 2026-09-02: who asked. "draft" is the AutoLister batch filling the kit as
+  // part of the generation action; "manual" (the default, and what every
+  // pre-existing caller gets) is the kit's own button and the cross-push lazy
+  // fill, each of which meters its own action. Stored on every variant so the
+  // kit can say which it was.
+  opts: { source?: "draft" | "manual" } = {},
 ): Promise<GeneratePlatformVariantsResult> {
   if (platforms.length === 0) throw new Error("No platforms requested");
+  const source = opts.source ?? "manual";
 
   // 1. Item facts (tenant-scoped).
   const { data: itemData, error: itemErr } = await supabaseAdmin
@@ -3208,7 +3360,10 @@ export async function generatePlatformVariants(
 
   const base: PlatformVariantBase = {
     title: d.listing_title ?? "",
-    description: d.listing_description ?? "",
+    // The draft's description is rendered HTML (blocks, the facts block, the
+    // credential and disclosure markers). The model needs the words; the tags
+    // and comment markers were tokens it paid to ignore (2026-09-02).
+    description: htmlToPlainText(d.listing_description ?? ""),
     brand: item.brand,
     size: item.size,
     color: item.color,
@@ -3342,11 +3497,16 @@ ${plainMeasurements}`;
       brand: v.brand,
       color: v.color,
       size: v.size,
+      // Depop's "style" field (Sporty, Streetwear, Y2K) had no source at all
+      // and rendered blank on every kit; the eBay Style specific is the
+      // closest fact we hold (2026-09-02).
+      style: v.style ?? null,
       price: v.price,
       tags: v.tags,
       confidence: v.confidence,
       validation: v.validation,
       generated_at: now,
+      generated_with_draft: source === "draft",
     };
   }
   const { error: upErr } = await supabaseAdmin
@@ -3356,6 +3516,33 @@ ${plainMeasurements}`;
   if (upErr) throw new Error(`Failed to persist platform fields: ${upErr.message}`);
 
   const costUsd = estimateCost(text.model, text.tokensIn, text.tokensOut);
+
+  // Spend attribution the operator can read off the same table as generation.
+  // This pass logged nothing before, so a kit's cost was invisible everywhere
+  // but the raw ai_usage_events ledger. Best-effort (2026-09-02).
+  try {
+    await supabaseAdmin.from("ai_enrichment_log").insert({
+      user_id: ownerId,
+      inventory_item_id: itemId,
+      model: text.model,
+      input_kind: "text",
+      tokens_in: text.tokensIn,
+      tokens_out: text.tokensOut,
+      cost_usd: costUsd,
+      latency_ms: 0,
+      suggested_fields: {
+        platform_variants: {
+          listing_id: d.id,
+          platforms,
+          source,
+          prompt_version: PLATFORM_VARIANT_PROMPT_VERSION,
+        },
+      },
+    });
+  } catch (err) {
+    console.error("[AI Listing] platform-variant usage logging failed (non-fatal):", err);
+  }
+
   return {
     listingId: d.id,
     variants,

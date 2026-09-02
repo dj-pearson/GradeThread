@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "entries": [
     {
       "key": "brand",
@@ -280,7 +280,10 @@
       "multi": false,
       "aspects": [
         "MPN",
-        "Manufacturer Part Number"
+        "Manufacturer Part Number",
+        "Style Code",
+        "Style Number",
+        "Model Number"
       ]
     },
     {

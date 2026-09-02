@@ -75,6 +75,24 @@ export function getSizeEstimateModel(): string {
 }
 
 /**
+ * Model for the cross-list copy kit's text pass (2026-09-02).
+ *
+ * That pass rewrites ONE finished eBay listing into Poshmark / Mercari / Depop
+ * / Grailed / Vinted voice, with every fact pinned to the source. It sees no
+ * photos and decides nothing about the garment, so it is the textbook case for
+ * the lightweight tier; it ran on getDefaultModel() only because it was written
+ * before the tier existed. Now that the kit is generated with every draft
+ * rather than on a button, the difference is paid on every item.
+ *
+ * Same override shape as the size pass, and separate from LIGHTWEIGHT_AI_MODEL
+ * for the same reason: an operator can move this one back without touching
+ * every other lightweight caller.
+ */
+export function getPlatformVariantModel(): string {
+  return Deno.env.get("PLATFORM_VARIANT_AI_MODEL")?.trim() || getLightweightModel();
+}
+
+/**
  * Model for the AutoLister photo-QA pass (US-2924).
  *
  * Second most expensive user AI action on production: $11.33 over 209 calls,
