@@ -84,7 +84,11 @@ import {
 } from "./visual-candidates.ts";
 import { startVisualPass } from "./visual-identify-pass.ts";
 import { corroborateStyleName } from "./visual-style-names.ts";
-import { resolveBrandKnowledgePack } from "./brand-knowledge.ts";
+import {
+  type BrandKnowledgePack,
+  resolveBrandKnowledgePack,
+} from "./brand-knowledge.ts";
+import { resolveListingStyleCode } from "./listing-style-code.ts";
 import { recordStyleCodeObservations } from "./style-code-observations.ts";
 import {
   recordCategoryDecision,
@@ -152,6 +156,7 @@ import {
   planTagRoleWriteback,
   selectTagOcrPhotos,
   tagAttributeFill,
+  type TagGroundTruth,
 } from "./ai-tag-ocr.ts";
 import { classifyPhotoRoles } from "./ai-photo-roles.ts";
 import {
@@ -2225,6 +2230,7 @@ export async function generateListing(
   let tagOcrTokensOut = 0;
   let tagOcrCost = 0;
   let tagOcrModel: string | null = null;
+  let tagOcrFields: TagGroundTruth | null = null;
   let tagPhotos = selectTagOcrPhotos(photos, MAX_TAG_OCR_PHOTOS);
   // 2026-09-02: on prod, 150 of 1001 items had a tag-typed photo and OCR ran
   // on 11 of ~300 generations - the label was usually sitting under `detail`.
@@ -2267,6 +2273,7 @@ export async function generateListing(
       );
       const { merged, groundTruth } = mergeTagGroundTruth(knownFields, ocr.fields);
       Object.assign(knownFields, merged);
+      tagOcrFields = ocr.fields;
       if (Object.keys(groundTruth).length > 0) tagGroundTruth = groundTruth;
       tagAttributes = tagAttributeFill(ocr.fields, item.attributes);
       tagOcrModel = ocr.model;
@@ -2340,6 +2347,35 @@ export async function generateListing(
   );
   const normalizedBrand = styleResolution?.brand ?? canonicalBrand;
 
+  // 2026-09-02: the code the LISTING files under, decoded inside the brand's
+  // own pack (lib/listing-style-code.ts). resolveStyleCode above is the sneaker
+  // resolver and returns null for every apparel brand; it used to be the only
+  // source, which is why prod had zero Style Code aspects.
+  let brandPack: BrandKnowledgePack | null = null;
+  try {
+    brandPack = await resolveBrandKnowledgePack(normalizedBrand, {
+      category: item.garment_type ?? item.garment_category ?? null,
+    });
+  } catch (err) {
+    console.error("[AI Listing] brand pack read failed (non-fatal):", err);
+  }
+  const listingCode = resolveListingStyleCode({
+    ocr: tagOcrFields,
+    itemAttributes: item.attributes as Record<string, unknown> | null,
+    sneakerStyleCode: styleResolution?.styleCode ?? null,
+    brand: normalizedBrand,
+    pack: brandPack,
+  });
+  if (listingCode.styleCodeRaw) {
+    // The canonical spelling is what lands on attributes.mpn and therefore on
+    // the Style Code / MPN aspect (US-2714: one spelling per garment).
+    tagAttributes = {
+      ...tagAttributes,
+      mpn: listingCode.styleCodeNorm || listingCode.styleCodeRaw,
+    };
+    knownFields.style_code = listingCode.styleCodeRaw;
+  }
+
   // 3. If the item already has a category, constrain item_specifics up front.
   let categoryId = item.ebay_category_id;
   let categoryPath: string | null = null;
@@ -2408,7 +2444,7 @@ export async function generateListing(
     aspectProductNames: visual.aspectProductNames,
     brand: normalizedBrand,
     decodedStyleName: styleResolution?.aspects.Model?.[0] ?? null,
-    styleCodeRaw: styleResolution?.styleCode ?? null,
+    styleCodeRaw: listingCode.styleCodeRaw,
   });
 
   const gen = await generateListingFields({
