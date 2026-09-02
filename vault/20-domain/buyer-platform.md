@@ -25,12 +25,18 @@ code_refs:
   - supabase/migrations/00535_ingested_listings.sql
   - supabase/migrations/00536_buyer_video_grading.sql
   - supabase/migrations/00537_buyer_growth_metrics.sql
-reviewed: 2026-08-30
+reviewed: 2026-09-02
 tags: [buyer, plans, entitlements, contract]
 summary: A buyer's effective tier is the higher of their buyer subscription and the tier their seller plan already includes; the plan matrix is written twice and only a cross-boundary parity test keeps the halves honest.
 ---
 
 # The buyer platform
+
+> **Re-reviewed 2026-09-02.** Drift flagged `src/lib/constants.ts` for
+> `CREATOR_AFFILIATE` (US-9212), the creator commission terms. That is a
+> SELLER-side growth programme and touches no buyer plan, buyer entitlement or
+> buyer surface named below. Nothing here changed.
+
 
 The seller product grades garments. The buyer product sells **confidence at the
 point of purchase** on top of that same objective condition data, as its own

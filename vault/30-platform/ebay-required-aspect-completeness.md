@@ -11,13 +11,27 @@ code_refs:
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-08-31
+reviewed: 2026-09-02
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
 
 # eBay required-aspect completeness on publish and revise
 
+> **Re-reviewed 2026-09-02, and the aspect pipeline really did change.** eBay
+> began enforcing standard values for size aspects (the seller-facing error is
+> "The product aspects for this category no longer support custom values for
+> Size Type"), on a per-site schedule that starts 2026-08-31 and reaches the US
+> on 2026-09-22. `aspect-reconcile.ts` now treats any aspect whose name contains
+> "size" as a CLOSED LIST when the category has values for it, regardless of the
+> `aspectMode` the cache holds -- a stale `SUGGESTED` was how custom values kept
+> reaching the Inventory API. The cache TTL dropped from 30 days to 7, a
+> rejection triggers `healCustomValueRejection` (invalidate, refetch fresh,
+> refit the stored specifics, re-publish), and the contract is
+> [[ebay-standard-size-values]]. What this note describes -- publish filling
+> required aspects the override lacks, and revise doing the same -- is unchanged;
+> the size rule sits inside the same reconcile step it already documents.
+>
 > **Re-reviewed 2026-08-31.** Drift flagged `ai-listing.ts` for `1ec50c48c`
 > (US-3031), the condition-versus-category settlement described in
 > [[ebay-description-freshness]]'s callout of the same date. It touches the

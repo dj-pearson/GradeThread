@@ -5,11 +5,17 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/email-transport.ts
-reviewed: 2026-07-31
+reviewed: 2026-09-02
 tags: [email, ses, deliverability]
 summary: SES/SMTP configuration, warmup, DMARC alignment and what to check when mail stops landing.
 ---
 # Email Deliverability (US-915)
+
+> **Re-reviewed 2026-09-02.** Drift flagged `email-transport.ts` for `f905cb2ba`
+> (the eBay post-sale batch), which touches the transport only where the
+> post-sale notifications hand it a message. No sender domain, DKIM/SPF claim,
+> suppression rule or retry policy below changed.
+
 
 How GradeThread keeps autonomous marketing mail (newsletter, drip, win-back,
 journeys, north-star digests) landing in the inbox — and keeps a marketing

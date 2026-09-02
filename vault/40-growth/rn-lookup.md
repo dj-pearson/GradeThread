@@ -10,12 +10,23 @@ code_refs:
   - services/edge-functions/scripts/seed-registered-numbers.ts
   - functions/_shared/rn-render.ts
   - supabase/migrations/00708_registered_number_lookups.sql
-reviewed: 2026-08-31
+reviewed: 2026-09-02
 tags: [seo, rn, brands, contract]
 summary: The FTC public RN search needs no account (00466 says otherwise and is wrong), a number is indexable only once a company is resolved, and an RN may never be presented as proof of a brand or of authenticity.
 ---
 
 # RN number lookup
+
+> **Re-reviewed 2026-09-02.** Drift flagged all four refs for US-9036's second
+> half (`3c1b4477b`), which records every UNANSWERED number as demand:
+> `/rn/:number` fires a fire-and-forget `record_registered_number_lookup` on a
+> miss, into 00708's own table -- deliberately NOT the sightings table, because a
+> typed number is demand and a sighting is OCR evidence off a real tag, and the
+> public page prints the sighting count. The seeder script also gained an env
+> guard so it announces what it needs before touching `supabaseAdmin` rather
+> than failing inside the client (US-2661). Everything this note says about the
+> render path and the blank-page contract still holds.
+
 
 `/rn/:number` answers "who made this garment" from the number printed on its
 care label, and `/tools/rn-lookup` is the hub with the search box and the tag

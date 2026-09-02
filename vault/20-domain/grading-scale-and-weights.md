@@ -12,12 +12,19 @@ code_refs:
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/defect-weighting.ts
   - services/edge-functions/src/tests/weighted-grade-parity_test.ts
-reviewed: 2026-08-30
+reviewed: 2026-09-02
 tags: [grading, contract]
 summary: The 1.0-10.0 scale, the five weighted factors, the rounding rule that has now shipped wrong twice, and which engine criteria are published and therefore no longer free to tune.
 ---
 
 # Grading scale, factor weights and rounding
+
+> **Re-reviewed 2026-09-02.** Drift flagged `src/lib/constants.ts` for
+> `CREATOR_AFFILIATE` (US-9212). No factor, weight, tier boundary or rounding
+> rule moved -- the addition is a commission block at the end of the file. The
+> published scale below is unchanged, which is the claim that matters, since it
+> is the one the certificate pages state publicly.
+
 
 > **Editing grading code? Load the `grading-engine` skill first.** It owns the
 > full operational contract — prompt-version lifecycle, golden set, exemplar

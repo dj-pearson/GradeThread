@@ -10,7 +10,7 @@ code_refs:
   - src/lib/garment-mapping.ts
   - src/lib/grading-readiness.ts
   - src/lib/measurement-templates.ts
-reviewed: 2026-08-30
+reviewed: 2026-09-02
 tags: [flipdesk, grading, ebay, contract]
 summary: An item carries three category axes that must agree; correcting one cascades into the others, and the specifics a change cannot carry are set aside rather than destroyed.
 ---
@@ -42,6 +42,20 @@ summary: An item carries three category axes that must agree; correcting one cas
 > and is a different part of this file.
 
 # Changing a category — what cascades, and what the seller keeps
+
+> **Re-reviewed 2026-09-02, and one rule below is now stricter.** eBay began
+> enforcing standard values for SIZE aspects (see [[ebay-standard-size-values]]),
+> so `src/lib/aspect-normalize.ts` and its edge twin treat any aspect whose name
+> contains "size" as a CLOSED LIST whenever the category publishes values for
+> it, regardless of the `aspectMode` the cache holds. `src/lib/ebay-prefill.ts`
+> and the category picker follow that, so a size aspect renders as a dropdown
+> rather than a free-text box after a category change.
+>
+> This tightens, rather than contradicts, the parked-value rule further down:
+> a size value that no longer exists in the new category is not merely parked,
+> it is refused at publish by eBay itself, and the stored specific is refitted
+> from fresh taxonomy before the retry.
+
 
 An item carries **three** category axes:
 

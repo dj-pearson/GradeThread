@@ -19,12 +19,21 @@ code_refs:
   - supabase/migrations/00587_item_photo_role_qualifier.sql
   - supabase/migrations/00589_submission_image_role.sql
   - services/edge-functions/src/routes/flipdesk-grading.ts
-reviewed: 2026-08-31
+reviewed: 2026-09-02
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
 
 # Listing photos — order, required set, and how edits reach eBay
+
+> **Re-reviewed 2026-09-02.** Drift flagged three refs for changes that leave
+> the photo contract alone. `photo-manager.tsx` gained the US-9202 queueing hook,
+> so a photo change on an extension channel enqueues a revise job for the
+> desktop browser rather than silently diverging -- the ORDER, the rank rule and
+> the required set below are untouched. `jobs-thumbnail-backfill.ts` changed for
+> the Google Sheet delete fix, and `constants.ts` for `CREATOR_AFFILIATE`;
+> neither touches `FLIPDESK_PHOTO_TYPES` or `REQUIRED_PHOTO_TYPES`.
+
 
 > **Re-reviewed 2026-08-31.** Drift flagged `publish-preflight.ts` for
 > `1ec50c48c` (US-3031), which adds the legacy-to-apparel CONDITION ladder

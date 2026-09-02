@@ -8,12 +8,33 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-08-30
+reviewed: 2026-09-02
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
 
 # The listings table — column inventory and read policy
+
+> **Re-reviewed 2026-09-02, and this time three `listings` columns really did
+> move.** Migration 00716 (US-9205) adds **`price_set_by`**, a
+> `'graded' | 'comp_median' | 'seller' | 'rule'` label saying who set the price
+> now on the row; **`graded_price_cents`**, the graded price that was offered;
+> and **`graded_price_why`**, its one-line reason. All three are nullable and
+> all three belong in the *cross-listing / automation* bucket, not in metrics:
+> they are inputs to a decision, not counts written by sync.
+>
+> The one that changes how the table is read is `price_set_by`. It is the first
+> `listings` column that answers "may an automation touch this price", so a
+> repricing rule reads it before writing rather than comparing numbers, and
+> `graded_price_cents` survives a seller override so the offer is still legible
+> after it is refused. Both are narrow, so the projection rule below is
+> unaffected: pull them in the pricing paths and nowhere else.
+>
+> The same batch added `review_approve_seconds` and `review_approved_at`
+> (US-9204, migration 00715) and `review_flow_enabled` (00715 again) -- on
+> `inventory_items` and `flipdesk_settings`. Different tables, recorded here only
+> because `database.ts` types every table in the schema and will keep flagging
+> this note for changes that have nothing to do with `listings`.
 
 > **Re-reviewed 2026-08-29.** Drift flagged `src/types/database.ts` a fifth
 > time and **no `listings` column moved**. The edit added `TaxProfileRow`,

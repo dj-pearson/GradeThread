@@ -196,42 +196,85 @@ export interface SubscriptionAccrualResult {
  * "first-year subscription revenue" means the account's first year of paying,
  * which is the only date this ledger can actually observe.
  */
+/**
+ * The four reads and one write the accrual needs, injectable for tests.
+ *
+ * Same reason `fireTransfer` takes its IO: this decides money, and driving it
+ * through the service-role client needs a database, which is how the whole
+ * money path went untested in US-2345. The default is byte-for-byte what the
+ * function did inline.
+ */
+export interface SubscriptionAccrualIO {
+  /** The payout config, which is where `mode` lives. */
+  loadConfig(): Promise<AffiliatePayoutConfig>;
+  loadReferralEvent(referredUserId: string): Promise<
+    { id: string; referrer_user_id: string; attribution_source: string | null } | null
+  >;
+  loadProgram(userId: string): Promise<AffiliateProgram>;
+  loadPriorCommissions(
+    affiliateUserId: string,
+    referredUserId: string,
+  ): Promise<Array<{ amount: number | null; created_at: string | null }>>;
+  insertCommission(row: Record<string, unknown>): Promise<{ code?: string; message?: string } | null>;
+}
+
+const defaultAccrualIO: SubscriptionAccrualIO = {
+  loadConfig() {
+    return getAffiliatePayoutConfig();
+  },
+  async loadReferralEvent(referredUserId) {
+    const { data } = await supabaseAdmin
+      .from("referral_events")
+      .select("id, referrer_user_id, attribution_source")
+      .eq("referred_user_id", referredUserId)
+      .maybeSingle();
+    return (data as
+      | { id: string; referrer_user_id: string; attribution_source: string | null }
+      | null) ?? null;
+  },
+  loadProgram(userId) {
+    return loadAffiliateProgram(userId);
+  },
+  async loadPriorCommissions(affiliateUserId, referredUserId) {
+    const { data } = await supabaseAdmin
+      .from("affiliate_commissions")
+      .select("amount, created_at")
+      .eq("affiliate_user_id", affiliateUserId)
+      .eq("referred_user_id", referredUserId)
+      .eq("commission_model", "subscription_pct")
+      .neq("status", "void")
+      .order("created_at", { ascending: true });
+    return (data ?? []) as Array<{ amount: number | null; created_at: string | null }>;
+  },
+  async insertCommission(row) {
+    const { error } = await supabaseAdmin.from("affiliate_commissions").insert(row);
+    return error ? { code: (error as { code?: string }).code, message: error.message } : null;
+  },
+};
+
 export async function accrueSubscriptionCommission(args: {
   referredUserId: string;
   invoiceId: string;
   invoiceAmountCents: number;
   paidAt?: string;
+  io?: SubscriptionAccrualIO;
 }): Promise<SubscriptionAccrualResult> {
+  const io = args.io ?? defaultAccrualIO;
   const paidAt = args.paidAt ?? new Date().toISOString();
   if (!args.referredUserId || !args.invoiceId) {
     return { accrued: false, reason: "missing_args" };
   }
 
-  const config = await getAffiliatePayoutConfig();
+  const config = await io.loadConfig();
 
-  const { data: evRaw } = await supabaseAdmin
-    .from("referral_events")
-    .select("id, referrer_user_id, attribution_source")
-    .eq("referred_user_id", args.referredUserId)
-    .maybeSingle();
-  const ev = evRaw as
-    | { id: string; referrer_user_id: string; attribution_source: string | null }
-    | null;
+  const ev = await io.loadReferralEvent(args.referredUserId);
   if (!ev) return { accrued: false, reason: "not_referred" };
 
-  const program = await loadAffiliateProgram(ev.referrer_user_id);
+  const program = await io.loadProgram(ev.referrer_user_id);
 
   // Everything this creator has already earned from THIS account: the cap is
   // per referred account, and the earliest row is the window's anchor.
-  const { data: priorRaw } = await supabaseAdmin
-    .from("affiliate_commissions")
-    .select("amount, created_at")
-    .eq("affiliate_user_id", ev.referrer_user_id)
-    .eq("referred_user_id", args.referredUserId)
-    .eq("commission_model", "subscription_pct")
-    .neq("status", "void")
-    .order("created_at", { ascending: true });
-  const prior = (priorRaw ?? []) as Array<{ amount: number | null; created_at: string | null }>;
+  const prior = await io.loadPriorCommissions(ev.referrer_user_id, args.referredUserId);
   const alreadyAccruedCents = sumCents(prior);
   const windowAnchor = prior[0]?.created_at ?? paidAt;
 
@@ -254,7 +297,7 @@ export async function accrueSubscriptionCommission(args: {
     Date.now() + config.hold_days * 24 * 60 * 60 * 1000,
   ).toISOString();
 
-  const { error } = await supabaseAdmin.from("affiliate_commissions").insert({
+  const error = await io.insertCommission({
     affiliate_user_id: ev.referrer_user_id,
     referral_event_id: ev.id,
     referred_user_id: args.referredUserId,
@@ -265,14 +308,14 @@ export async function accrueSubscriptionCommission(args: {
     hold_until: holdUntil,
   });
   if (error) {
-    if ((error as { code?: string }).code === "23505") {
-      return { accrued: false, reason: "already_accrued" };
-    }
+    // 23505 = the partial UNIQUE on stripe_invoice_id fired: Stripe redelivered
+    // the same invoice. Not a failure -- the row is already there.
+    if (error.code === "23505") return { accrued: false, reason: "already_accrued" };
     console.error(
       `[affiliate-payout] subscription accrual failed for invoice ${args.invoiceId}:`,
       error.message,
     );
-    return { accrued: false, reason: error.message };
+    return { accrued: false, reason: error.message ?? "insert_failed" };
   }
   return { accrued: true, amount: plan.amount };
 }

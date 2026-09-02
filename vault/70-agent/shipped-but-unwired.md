@@ -15,7 +15,7 @@ code_refs:
   - scripts/audit-unwired-exports.mjs
   - scripts/check-unwired-modules.mjs
   - scripts/check-web-unwired.mjs
-reviewed: 2026-08-28
+reviewed: 2026-09-02
 tags: [quality, testing, dead-code, gotcha]
 summary: Modules that pass their tests while nothing calls them; one was a real unenforced guarantee now half-wired, one was ruled uncalled-by-design and that ruling turned out to be wrong, one was a policy retirement that got deleted once a live switch started promising it, one was assumed correct because being unwired hid a broken table, and one was a UI component whose absence left a lockout switch armed — telling the shapes apart is the point.
 ---
@@ -217,6 +217,16 @@ prerender-safe dynamic-import pattern.
 
 So flipping one boolean would have gated every non-staff account, while the only
 public way to create the approved row that ungates you rendered nowhere.
+
+**Settled 2026-09-02 (US-9211).** The gate is confirmed OFF in production --
+`GET /api/waitlist/status` answers `{"gatingActive": false}` -- and the form is
+KEPT anyway, by the owner's decision. A capability that renders nothing costs
+nothing; deleting the form alone would re-arm the lockout described here,
+because the flag row, the access-gate branch, the operator queue and the pending
+page all still exist. If staged launch is ever retired, retire it whole. The
+decision and that condition are recorded in the header of
+`src/test/waitlist-capture-reachable.test.ts`, next to the guard that enforces
+it.
 
 **Two things about it are worth carrying forward.**
 

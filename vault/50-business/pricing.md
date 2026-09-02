@@ -9,11 +9,21 @@ code_refs:
   - scripts/setup-stripe-pricing.mjs
   - src/pages/legal/refund.tsx
   - src/pages/legal/terms.tsx
-reviewed: 2026-08-30
+reviewed: 2026-09-02
 tags: [pricing, billing, stripe, contract]
 summary: The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
 ---
 # GradeThread + FlipDesk Pricing — Canonical Model (US-200)
+
+> **Re-reviewed 2026-09-02.** Drift flagged `src/lib/constants.ts` and
+> `src/pages/legal/terms.tsx`. The constants change is this note's own creator
+> commission block (US-9212), which the section further down now documents,
+> including the `termsVersion` mirror. The terms page changed for US-3038's Fit
+> & Measurement Index consent -- a data-sharing section, not a price, a plan or a
+> billing term. Every number in this note re-verified against
+> `src/lib/constants.ts` while here, and `src/test/creator-affiliate.test.ts`
+> fails if any of the three copies drifts.
+
 
 This is the single source of truth for the pricing model. Every downstream
 billing story (US-201 → US-225) derives from the numbers here.

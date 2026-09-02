@@ -6,12 +6,21 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - scripts/ops/edge-watchdog.sh
-reviewed: 2026-08-30
+reviewed: 2026-09-02
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
 
 # DNS and routing
+
+> **Re-reviewed 2026-09-02.** Drift flagged `main.ts` for the cross-listing
+> batch, which mounts new route families -- `/api/flipdesk/closet-import`,
+> `/api/flipdesk/time-saved`, `/api/affiliate/creator*` and
+> `/api/affiliate/tax-profile`. Every one is under `/api/*` on the EDGE service,
+> which is the split this note exists to defend: they answer on
+> `functions.gradethread.com` and 404 on `api.gradethread.com`. No route moved
+> hosts and no Kong rule changed.
+
 
 > **Re-reviewed 2026-08-28.** Drift flagged `main.ts` again and the change was
 > four lines: US-2972 imports `handleRewardsSweepCron` and mounts

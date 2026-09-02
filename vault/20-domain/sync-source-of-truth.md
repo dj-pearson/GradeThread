@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/sync-precedence.ts
   - services/edge-functions/src/routes/flipdesk-google-sync.ts
   - services/edge-functions/src/lib/sheet-map.ts
-reviewed: 2026-08-15
+reviewed: 2026-09-02
 tags: [flipdesk, sync, contract]
 summary: Provenance model, field ownership and linking-source rules for bidirectional marketplace and sheet sync.
 ---
@@ -28,6 +28,15 @@ summary: Provenance model, field ownership and linking-source rules for bidirect
 > `flipdesk-google-sync.ts`. `sheet-map.ts` and `sync-precedence.ts` were read;
 > that route was not.
 # Sync Source-of-Truth Contract
+
+> **Re-reviewed 2026-09-02, and the provenance model gained a case.** `015bd5c48`
+> stops the Google Sheet re-creating items deleted in FlipDesk: `sheet-map.ts`
+> now splits every unmatched SKU into `create` (never synced, a genuinely new
+> sheet row) and `deleted` (synced before, item gone), and only the first is
+> created. That is this note's rule applied to absence -- a row missing on one
+> side is not automatically new -- and it is the same reasoning the closet import
+> uses when a listing disappears from a seller's closet.
+
 
 > Canonical reference for how listing/inventory data is reconciled across **eBay**, **GradeThread/FlipDesk**, and **linking sources** (CSV import, Google Sheets).
 > Authored 2026-06-16. Epic: US-1076…US-1086 (US-1086 = iOS parity).

@@ -8,12 +8,24 @@ code_refs:
   - services/edge-functions/src/lib/cron-fleet-governance.ts
   - services/edge-functions/src/routes/jobs-cron-fleet.ts
   - services/edge-functions/src/tests/cron-registry-drift_test.ts
-reviewed: 2026-08-25
+reviewed: 2026-09-02
 tags: [ops, cron, jobs, decision]
 summary: The 77 production schedules live in Coolify and are governed by a manifest in the repo plus a drift check, rather than being created from code.
 ---
 
 # Cron schedule governance (US-2313 AC1)
+
+> **Re-reviewed 2026-09-02.** Drift flagged `cron-runs.ts` and the registry
+> drift test for two additions from outside this batch: the measurement jobs
+> (`e055cdca5`) and the eBay API-call accounting job (`35f6d2862`). Both are
+> registered, so the registry contract below held. One thing did move and it is
+> worth naming: `measurement-text-backfill` is marked `oneOff`, which puts it in
+> the fleet monitor's BLIND SPOT alongside `passport-backfill` and
+> `cert-integrity-backfill`, and the shrink-only guard in
+> `cron-fleet-governance_test.ts` now pins three names instead of two. That list
+> is meant to be expensive to grow -- a third entry is a deliberate decision that
+> a drain-then-idle backfill has no cadence to miss, not a regression.
+
 
 ## The decision
 

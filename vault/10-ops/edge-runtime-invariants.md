@@ -7,12 +7,20 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-09-01
+reviewed: 2026-09-02
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
 
 # Edge runtime invariants
+
+> **Re-reviewed 2026-09-02.** Drift flagged `schema-version.ts` for the
+> migration batch: `EXPECTED_SCHEMA_VERSION` went 00711 to 00720 across nine
+> commits. That is the invariant working, not changing -- the constant is
+> supposed to move with every migration, and CI fails when it does not. All of
+> 00712 to 00720 are applied in production, confirmed on 2026-09-02 through
+> `/health/ready` reporting `applied: 00720`.
+
 
 > **Re-reviewed 2026-09-01.** Bump-only again: 00708 -> 00709 for the Fit &
 > Measurement Index tables (US-3033). Nothing in the boot guard, the grace

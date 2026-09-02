@@ -9,12 +9,22 @@ code_refs:
   - services/edge-functions/src/tests/plan-gate-coverage_test.ts
   - services/edge-functions/src/routes/flipdesk-closet-import.ts
   - src/lib/constants.ts
-reviewed: 2026-08-30
+reviewed: 2026-09-02
 tags: [flipdesk, plans, billing, contract]
 summary: Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 ---
 
 # FlipDesk plan gating contract
+
+> **Re-reviewed 2026-09-02.** Drift flagged `flipdesk-closet-import.ts` and
+> `constants.ts`. The closet-import gate is already documented below (US-9201:
+> the intake counts an imported listing against `activeListings` with a delta
+> equal to the rows it creates, so a re-read of the same closet is free), and
+> that is the code the flag points at. `constants.ts` changed for
+> `CREATOR_AFFILIATE`, which is a payout programme rather than a plan gate.
+> One addition since: `feature:"autoRelist"` gates bulk relist to Pro, the
+> first server path behind that flag (US-9203).
+
 
 `requireFlipdesk()` is the single gate for plan limits. This is a contract every
 new FlipDesk endpoint must honour — enforcement lives in the handler, so an

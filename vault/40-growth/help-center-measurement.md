@@ -8,12 +8,20 @@ code_refs:
   - services/edge-functions/src/lib/help-analytics.ts
   - functions/_shared/help-analytics.ts
   - src/lib/analytics-events.ts
-reviewed: 2026-08-31
+reviewed: 2026-09-02
 tags: [help-center, analytics, seo, contract]
 summary: PostHog cannot see the public help pages because they are server-rendered, so views are counted in Postgres for the public surface and in PostHog for the app, and adding the two together produces a wrong number rather than a bigger one.
 ---
 
 # Help Center measurement
+
+> **Re-reviewed 2026-09-02.** Drift flagged `analytics-events.ts` for the
+> cross-listing batch, which adds four unrelated event names (closet import,
+> review approved, extension install CTA). No help event changed, and the split
+> this note insists on -- in-app `help_article_view` versus the server-side
+> `help_article_views` count for the prerendered public pages -- is unchanged and
+> still must never be summed.
+
 
 > **Re-reviewed 2026-08-31.** Drift flagged `src/lib/analytics-events.ts` for US-9033, which adds two RN
 > tool events. Nothing about the help centre's split counting — Postgres for

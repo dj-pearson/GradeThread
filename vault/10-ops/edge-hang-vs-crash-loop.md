@@ -11,12 +11,19 @@ code_refs:
   - scripts/ops/edge-watchdog.sh
   - scripts/ops/host-schedules.json
   - services/edge-functions/src/routes/jobs-watchdog-heartbeat.ts
-reviewed: 2026-08-25
+reviewed: 2026-09-02
 tags: [edge, incident, outage, ops]
 summary: Two edge failure modes with opposite signatures — a dying process that restarts itself, and a live process that never will. Telling them apart is the whole job; the hang recurred 2026-08-09 and ran far longer than the watchdog is meant to allow.
 ---
 
 # Edge hang versus edge crash-loop
+
+> **Re-reviewed 2026-09-02.** Drift flagged `main.ts` for the cross-listing
+> batch. All of it is route mounting -- new handlers and their middleware lines
+> -- and nothing touches boot order, the health endpoints, or the top-level
+> awaits this note is about. The hang-versus-crash signatures below are
+> unchanged.
+
 
 The edge service fails in two ways that look similar from the browser and behave
 in **opposite** ways on the host. Diagnose which one you have before doing

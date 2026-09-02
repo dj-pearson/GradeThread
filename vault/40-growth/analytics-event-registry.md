@@ -8,12 +8,25 @@ code_refs:
   - src/lib/analytics.ts
   - src/lib/buyer-analytics.ts
   - src/lib/__tests__/analytics-events.test.ts
-reviewed: 2026-08-31
+reviewed: 2026-09-02
 tags: [analytics, posthog, measurement, naming]
 summary: Every product event name is declared in src/lib/analytics-events.ts and enforced by tsc; two naming conventions are live and neither may be renamed.
 ---
 
 # Analytics event registry
+
+> **Re-reviewed 2026-09-02.** Drift flagged `src/lib/analytics-events.ts` for the
+> cross-listing batch, which adds four names, all snake_case, all declared rather
+> than passed as strings: `closet_import_started` and `closet_import_completed`
+> (US-9201), `review_approved` (US-9204) and `extension_install_cta_click`
+> (US-9210). Nothing in this note staled -- it names no count and no list.
+>
+> One of them is worth a line because of what it carries rather than what it is
+> called. `review_approved` reports `seconds_from_first_photo`, `channels_now`
+> and `channels_queued`: a duration and two counts, never an item id, so the
+> hours-saved number can be computed without the event joining back to a
+> seller's inventory. That is the shape to copy for any future "how long did
+> this take" event.
 
 > **Re-reviewed 2026-08-31.** Drift flagged `src/lib/analytics-events.ts` for US-9033, which ADDS
 > `rn_lookup_searched`, `rn_tag_read` and `rn_lookup_cta_click`, all in the

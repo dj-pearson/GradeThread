@@ -8,13 +8,20 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/publish-preflight.ts
-reviewed: 2026-08-31
+reviewed: 2026-09-02
 tags: [ebay, publishing, conditions, gotcha]
 summary: Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
 ---
 
 # eBay condition mapping and the policy endpoint
 
+> **Re-reviewed 2026-09-02.** Drift flagged `ebay-client.ts` for the size
+> enforcement work: a shorter category-aspect cache TTL (30 days to 7), a
+> `{ fresh: true }` bypass and `invalidateCategoryAspects`. Conditions are not
+> aspects and do not go through that cache -- `getItemConditionPolicies` reads
+> the Sell Metadata API, which this note exists to say is a DIFFERENT endpoint
+> from Taxonomy. Both claims below re-verified and unchanged.
+>
 > **Re-reviewed 2026-08-31.** Drift flagged `ebay-client.ts` for `fb9de8279`,
 > the numeric-id coercion. One additive hunk at the end of the file adding
 > `ebayId()`, used by the post-order modules; nothing in it reads or writes a
