@@ -44328,6 +44328,20 @@
         "All 47 extension test files pass and manifest/SUBMISSION.md agree on 1.1.0"
       ],
       "notes": "Done 2026-09-02. popup.css rewritten on tokens (380px, switches, grade rings, monograms, site card, stats strip, skeleton), popup.html restructured with every id kept, queue grouped with Retry / Retry all / Clear failed / Cancel all waiting over GT_QUEUE_RETRY (POST then DELETE), overlay.css + compare/options/onboarding on the same roles, CTA surfaces moved to #d43a53 for 4.6:1 under white. 47 extension test files, popup-theme (6), eslint and the overlay drift check all pass; impeccable detect extension-unified is down from 25 findings to 4 (the tool's type-scale and 11px-meta opinions, deliberate at popup width). Manifest 1.1.0; SUBMISSION.md and README updated."
+    },
+    {
+      "id": "US-3050",
+      "passes": true,
+      "title": "Extension revision: live queue refresh and the running row's stage",
+      "description": "Found in the 2026-09-02 extension deep dive. The popup fetches the queue once, on open. A seller who presses Run these now and leaves the popup open watches a Running now row that never changes, and the Last job card only updates on the next open. The worker already records every stage transition (GT_LISTER_STAGE, lister/job-store.js advanceStage: navigated, filling, photos, submitted) and writes listerLastJob to storage.local, so the data exists and the popup ignores it.",
+      "acceptanceCriteria": [
+        "While the popup is open, a change to listerLastJob or the lister jobs map in storage.local (storage.onChanged) re-renders the queue, the Last job card and the work summary without a click.",
+        "A claimed queue row shows its current stage in words (Opening the tab / Filling the form / Attaching photos / Submitting) read from the job store through GT_LISTER_GET_JOB or an equivalent message; an unknown stage renders as Running now, never blank.",
+        "No polling loop: the refresh is event-driven, and test/queue-view.test.cjs or a sibling guard pins that popup.js subscribes to storage.onChanged and unsubscribes on unload.",
+        "All extension test files pass and eslint extension-unified is clean."
+      ],
+      "priority": 11,
+      "notes": "Done 2026-09-02. lister/common.js reports filling and photos stages (GT.reportStage, fire-and-forget) in the list flow; background answers GT_QUEUE_JOBS with { queueId: { stage, stagedAt, tabId } } for pending drained jobs; queue-view.js stageLabel maps null/navigated/filling/photos to seller words and viewRow carries stage + stageLabel on a claimed row this browser drives (another browser's claim stays Running now); popup.js fetches stages with the queue, shows them on the badge, and re-renders the queues, Last job and summary on storage.onChanged for listerLastJob (local) and listerJobs (session), debounced 250ms, unsubscribed on pagehide, no setInterval. queue-view.test.cjs group 16 pins all of it. 47 extension test files pass, eslint clean."
     }
   ]
 }

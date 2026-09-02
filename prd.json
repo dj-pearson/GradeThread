@@ -3062,19 +3062,6 @@
       "notes": "[BUILT 2026-09-02] New: extension-unified/queue/queue-view.js (pure view model, shared by popup + worker) and test/queue-view.test.cjs (11 groups; asserts cancel is queued-only, failures count toward the badge, every dead row carries a reason, and KIND_LABELS matches the edge EXTENSION_QUEUE_KINDS). background.js gains getQueue/cancelQueueRow and the GT_QUEUE_STATE / GT_QUEUE_CANCEL / GT_QUEUE_RUN_NOW / GT_CC_RUN_ACTIVE handlers (internal only — deliberately NOT in EXTERNAL_TYPES). manifest background.scripts + importScripts updated in lockstep. popup.html/js/css: work summary, queue block, reordered Selling panel, collapsed Channels with live count, Reads action button, footer link to the options page. Edge: flipdesk-extension-queue.ts withItemTitles() on GET only. Web: use-extension-queue.ts item_title, marketplaces.tsx claimed-row Cancel removed + revise/relist described + rows named. Verified with a stubbed-chrome Playwright render of popup.html at 340px on both tabs; 47/47 extension guards, tsc -b and eslint clean."
     },
     {
-      "id": "US-3050",
-      "passes": false,
-      "title": "Extension revision: live queue refresh and the running row's stage",
-      "description": "Found in the 2026-09-02 extension deep dive. The popup fetches the queue once, on open. A seller who presses Run these now and leaves the popup open watches a Running now row that never changes, and the Last job card only updates on the next open. The worker already records every stage transition (GT_LISTER_STAGE, lister/job-store.js advanceStage: navigated, filling, photos, submitted) and writes listerLastJob to storage.local, so the data exists and the popup ignores it.",
-      "acceptanceCriteria": [
-        "While the popup is open, a change to listerLastJob or the lister jobs map in storage.local (storage.onChanged) re-renders the queue, the Last job card and the work summary without a click.",
-        "A claimed queue row shows its current stage in words (Opening the tab / Filling the form / Attaching photos / Submitting) read from the job store through GT_LISTER_GET_JOB or an equivalent message; an unknown stage renders as Running now, never blank.",
-        "No polling loop: the refresh is event-driven, and test/queue-view.test.cjs or a sibling guard pins that popup.js subscribes to storage.onChanged and unsubscribes on unload.",
-        "All extension test files pass and eslint extension-unified is clean."
-      ],
-      "priority": 11
-    },
-    {
       "id": "US-3051",
       "passes": false,
       "title": "Extension revision: show remaining condition reads in the popup and the overlay",

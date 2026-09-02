@@ -369,6 +369,24 @@ async function cancelQueueRow(id) {
   return out ? { ok: true } : { ok: false, reason: "error" };
 }
 
+/** US-3050: { queueId: { stage, stagedAt, tabId } } for every pending drained job. */
+async function getQueueJobStages() {
+  const byQueueId = await withJobs(async (jobs) => {
+    const out = {};
+    for (const id of Object.keys(jobs || {})) {
+      const job = jobs[id];
+      if (!job || !job.queueId || !self.GT_LISTER_JOBS.isPending(job)) continue;
+      out[job.queueId] = {
+        stage: typeof job.stage === "string" ? job.stage : null,
+        stagedAt: typeof job.stagedAt === "number" ? job.stagedAt : null,
+        tabId: typeof job.tabId === "number" ? job.tabId : null,
+      };
+    }
+    return { value: out };
+  });
+  return { ok: true, byQueueId: byQueueId || {} };
+}
+
 /**
  * Re-queue a failed or expired row (the popup's Retry).
  *
@@ -2922,6 +2940,13 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         break;
       case "GT_QUEUE_RETRY":
         sendResponse(await retryQueueRow(msg.id, msg.body));
+        break;
+      // US-3050: where each drained job has got to, keyed by the queue row it
+      // came from, so a claimed row can say "Attaching photos" rather than
+      // "Running now" for eleven minutes. Pending jobs only — a terminal job's
+      // outcome reaches the popup through listerLastJob and the queue itself.
+      case "GT_QUEUE_JOBS":
+        sendResponse(await getQueueJobStages());
         break;
       // "Run now". The drain already runs on startup and on the five-minute
       // sweep; this is the seller saying "I am at the machine, go" instead of

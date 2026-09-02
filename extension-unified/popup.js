@@ -1276,7 +1276,13 @@ async function renderQueue(caps) {
   const cancelAll = document.getElementById("queueCancelAll");
   list.textContent = "";
 
-  const res = await send({ type: "GT_QUEUE_STATE" });
+  // US-3050: the queue and the worker's job stages, together. The stages are a
+  // nicety, so a null answer (worker asleep, older build) renders plain rows.
+  const [res, jobsRes] = await Promise.all([
+    send({ type: "GT_QUEUE_STATE" }),
+    send({ type: "GT_QUEUE_JOBS" }),
+  ]);
+  const stages = jobsRes && jobsRes.ok && jobsRes.byQueueId ? jobsRes.byQueueId : null;
   if (!res || !res.ok) {
     // Same rule as the delist block: an unanswerable queue is NOT an empty one,
     // and it must not silently contribute a zero to the badge.
@@ -1300,7 +1306,11 @@ async function renderQueue(caps) {
     return;
   }
 
-  const rows = QUEUE_VIEW.buildList(res, { now: Date.now(), platformLabels: PLATFORM_LABELS });
+  const rows = QUEUE_VIEW.buildList(res, {
+    now: Date.now(),
+    platformLabels: PLATFORM_LABELS,
+    stages: stages,
+  });
   const counts = QUEUE_VIEW.summarize(rows);
   workCounts.queue = counts.total;
   queueRows = rows;
@@ -1388,7 +1398,8 @@ function renderQueueRow(list, row, caps) {
 
   const badge = document.createElement("span");
   badge.className = "pop-status " + row.stateClass;
-  badge.textContent = row.stateLabel;
+  // US-3050: a running row this browser is driving says what it is doing.
+  badge.textContent = row.stageLabel || row.stateLabel;
   right.appendChild(badge);
 
   if (row.canRetry) {
@@ -1528,6 +1539,48 @@ function wireQueue() {
       "cancelled",
     ));
   }
+}
+
+// ── US-3050: refresh while the popup is open ────────────────────────────────
+//
+// The worker writes listerLastJob (storage.local) when a job ends and the job
+// map listerJobs (storage.session) as a job advances. Both fire
+// storage.onChanged in this popup, so a seller who pressed "Run these now"
+// and kept the popup open watches the row move from "Opening the tab" to
+// "Attaching photos" to gone, and the Last job card fill in — with no polling.
+//
+// Debounced: a job's stage and its tab id land as separate writes a few ms
+// apart, and each is a full re-render of three blocks.
+let refreshTimer = null;
+let lastCaps = null;
+
+function onStorageChanged(changes, area) {
+  if (!changes) return;
+  const relevant = (area === "local" && changes.listerLastJob) ||
+    (area === "session" && changes.listerJobs);
+  if (!relevant) return;
+  clearTimeout(refreshTimer);
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null;
+    if (!lastCaps || !lastCaps.sellerEnabled) return;
+    renderLastJob();
+    void Promise.all([
+      renderPendingDelists(lastCaps),
+      renderQueue(lastCaps),
+      renderPendingRevises(lastCaps),
+    ]).then(renderWorkSummary);
+  }, 250);
+}
+
+function wireLiveRefresh() {
+  if (!ext.storage || !ext.storage.onChanged) return;
+  ext.storage.onChanged.addListener(onStorageChanged);
+  // A popup is torn down on close, but Firefox keeps a sidebar-hosted one
+  // alive; either way, the listener must not outlive the document.
+  window.addEventListener("pagehide", () => {
+    ext.storage.onChanged.removeListener(onStorageChanged);
+    clearTimeout(refreshTimer);
+  }, { once: true });
 }
 
 // ── US-3048: one place that owns the seller's outstanding-work counts ───────
@@ -2053,6 +2106,7 @@ function renderSellerSections(caps) {
   const anon = document.getElementById("sellerSignedOutSection");
   const loading = document.getElementById("sellerLoading");
   if (loading) loading.hidden = true;
+  lastCaps = caps || null; // US-3050: what a live refresh re-renders against
   if (caps && caps.sellerEnabled) {
     seller.hidden = false;
     locked.hidden = true;
@@ -2194,6 +2248,7 @@ function applyCapabilities(caps) {
   wireQueue();         // US-3048
   wireWorkSummary();   // US-3048
   wireOptionsLink();   // US-3048
+  wireLiveRefresh();   // US-3050
   wireHistoryTabs();
   // US-2484: rendered UNCONDITIONALLY, not from renderSellerSections.
   //

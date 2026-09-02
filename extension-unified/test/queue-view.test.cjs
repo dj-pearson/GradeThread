@@ -445,8 +445,50 @@ function row(over) {
   assert.ok(/if \(!created\) return/.test(retryFn), "a failed POST must stop before the DELETE");
 }
 
+// ── 16. the running row's stage (US-3050) ──────────────────────────────────
+//
+// A claimed row this browser is driving says what it is doing, from the job
+// store's stage; a claimed row with no local job (another browser took it)
+// stays "Running now"; an unknown stage never renders blank.
+{
+  assert.strictEqual(V.stageLabel(null), "Opening the tab", "a job that has not reported yet is opening its tab");
+  assert.strictEqual(V.stageLabel("filling"), "Filling the form");
+  assert.strictEqual(V.stageLabel("photos"), "Attaching photos");
+  assert.strictEqual(V.stageLabel("navigated"), "Opening the page");
+  assert.strictEqual(V.stageLabel("teleporting"), null, "an unknown stage yields null so the caller falls back to the state label");
+
+  const id = "b1111111-1111-4111-8111-111111111111";
+  const mine = V.viewRow(row({ id, status: "claimed" }), { now: NOW, stages: { [id]: { stage: "photos", stagedAt: NOW } } });
+  assert.strictEqual(mine.stageLabel, "Attaching photos");
+  assert.strictEqual(mine.stage, "photos");
+  const theirs = V.viewRow(row({ id, status: "claimed" }), { now: NOW, stages: {} });
+  assert.strictEqual(theirs.stageLabel, null, "no local job: the popup shows the plain state");
+  assert.strictEqual(theirs.stateLabel, "Running now");
+  const waiting = V.viewRow(row({ id, status: "queued" }), { now: NOW, stages: { [id]: { stage: "photos" } } });
+  assert.strictEqual(waiting.stageLabel, null, "only a claimed row carries a stage");
+
+  // The chain: content script reports the two new stages, the worker answers
+  // GT_QUEUE_JOBS, the popup asks for it, shows it, and re-renders on change.
+  const dir = path.resolve(__dirname, "..");
+  const common = fs.readFileSync(path.join(dir, "lister", "common.js"), "utf8");
+  for (const stage of ["filling", "photos"]) {
+    assert.ok(new RegExp('reportStage\\(payload\\.jobId, "' + stage + '"\\)').test(common),
+      "lister/common.js must report the " + stage + " stage");
+  }
+  const bg = fs.readFileSync(path.join(dir, "background.js"), "utf8");
+  assert.ok(bg.includes('case "GT_QUEUE_JOBS"'), "background.js never handles GT_QUEUE_JOBS");
+  assert.ok(/isPending\(job\)\) continue/.test(bg.slice(bg.indexOf("async function getQueueJobStages"))),
+    "getQueueJobStages must skip terminal jobs");
+  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8");
+  assert.ok(js.includes("GT_QUEUE_JOBS"), "popup.js never asks for GT_QUEUE_JOBS");
+  assert.ok(/row\.stageLabel \|\| row\.stateLabel/.test(js), "the badge must prefer the stage and fall back to the state");
+  assert.ok(/storage\.onChanged\.addListener\(onStorageChanged\)/.test(js), "popup.js must subscribe to storage.onChanged");
+  assert.ok(/storage\.onChanged\.removeListener\(onStorageChanged\)/.test(js), "popup.js must unsubscribe on pagehide");
+  assert.ok(!/setInterval\(/.test(js), "no polling: the refresh is event-driven");
+}
+
 console.log(
-  "queue-view.test.cjs: 15 groups — cancel is queued-only, failures count " +
+  "queue-view.test.cjs: 16 groups — cancel is queued-only, failures count " +
     "toward the badge, every dead row carries a reason, kinds match the edge, " +
-    "the popup wires all of it, timeAgo takes ISO, retry re-queues only dead known rows, and grouping omits empties",
+    "the popup wires all of it, timeAgo takes ISO, retry re-queues only dead known rows, grouping omits empties, and a claimed row carries its stage",
 );

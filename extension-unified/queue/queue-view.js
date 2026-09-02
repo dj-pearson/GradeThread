@@ -58,6 +58,23 @@
     expired: "off",
   };
 
+  // US-3050: what a claimed row is doing right now, in the seller's words.
+  // The keys are the stages lister/common.js reports (GT_LISTER_STAGE);
+  // `null` is a job whose tab has opened and not yet reported. An unknown
+  // stage falls back to the plain state label rather than to blank.
+  var STAGE_LABELS = {
+    opening: "Opening the tab",
+    navigated: "Opening the page",
+    filling: "Filling the form",
+    photos: "Attaching photos",
+  };
+
+  function stageLabel(stage) {
+    if (stage === null || stage === undefined) return STAGE_LABELS.opening;
+    if (typeof stage !== "string" || !stage) return null;
+    return Object.prototype.hasOwnProperty.call(STAGE_LABELS, stage) ? STAGE_LABELS[stage] : null;
+  }
+
   function label(map, key, fallback) {
     if (typeof key !== "string" || !key) return fallback;
     return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : key;
@@ -138,6 +155,12 @@
     var status = typeof row.status === "string" ? row.status : "queued";
     var attention = status === "failed" || status === "expired";
     var at = asMs(row.created_at);
+    // The running row's stage, when the worker has a job for it. A claimed row
+    // with no local job is one another browser claimed, and it stays
+    // "Running now" here: we cannot see that machine's tab.
+    var stages = o.stages && typeof o.stages === "object" ? o.stages : null;
+    var jobInfo = status === "claimed" && stages && stages[row.id] ? stages[row.id] : null;
+    var stageText = jobInfo ? stageLabel(jobInfo.stage) : null;
     return {
       id: row.id,
       kind: typeof row.kind === "string" ? row.kind : "list",
@@ -149,6 +172,8 @@
       title: titleFor(row),
       state: status,
       stateLabel: label(STATE_LABELS, status, status),
+      stage: jobInfo ? (typeof jobInfo.stage === "string" ? jobInfo.stage : null) : undefined,
+      stageLabel: stageText,
       stateClass: label(STATE_CLASS, status, "warn"),
       at: at,
       ageMs: at === null ? null : Math.max(0, now - at),
@@ -300,6 +325,8 @@
   root.GT_QUEUE_VIEW = {
     KIND_LABELS: KIND_LABELS,
     GROUP_LABELS: GROUP_LABELS,
+    STAGE_LABELS: STAGE_LABELS,
+    stageLabel: stageLabel,
     groupRows: groupRows,
     retryBody: retryBody,
     PLATFORM_LABELS: PLATFORM_LABELS,
