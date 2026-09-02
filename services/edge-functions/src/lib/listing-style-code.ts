@@ -72,6 +72,43 @@ function storedString(
   return typeof s === "string" && s.trim() !== "" ? s.trim() : null;
 }
 
+// OCR reads a letter slot as the digit that looks like it. On a Lululemon size
+// dot the colour letter sits right before the first dot ("LM5609S.0419"), and
+// the first prod dry run brought it back as "LM56095.0419.000054.000". Only
+// the LAST character of the first dot-segment is ever substituted, and only a
+// variant that a decoder then recognises is used, so the decoder is the proof.
+const CONFUSABLE_LETTER: Record<string, string> = {
+  "0": "O",
+  "1": "I",
+  "2": "Z",
+  "5": "S",
+  "8": "B",
+};
+
+/**
+ * The spellings of one transcribed code worth trying against the decoders, in
+ * order: as read; the first two dot-segments; the first segment; then each of
+ * those with the confusable letter slot corrected. The whole rim of a size dot
+ * is what a model asked to transcribe VERBATIM produces, and the style number
+ * is its prefix. Pure, deduplicated, the original always first.
+ */
+export function styleCodeSpellings(code: string): string[] {
+  // Only a dotted rim string has a defined letter slot; anything else is
+  // tried exactly as read.
+  if (!code.includes(".")) return [code];
+  const out: string[] = [code];
+  const segs = code.split(".");
+  if (segs.length >= 3) out.push(segs.slice(0, 2).join("."));
+  out.push(segs[0]!);
+  for (const c of [...out]) {
+    const [head = "", ...rest] = c.split(".");
+    const last = head.at(-1) ?? "";
+    const fix = CONFUSABLE_LETTER[last];
+    if (fix) out.push([head.slice(0, -1) + fix, ...rest].join("."));
+  }
+  return [...new Set(out)];
+}
+
 export function resolveListingStyleCode(args: {
   ocr: TagGroundTruth | null;
   itemAttributes: Record<string, unknown> | null | undefined;
@@ -94,14 +131,22 @@ export function resolveListingStyleCode(args: {
   if (sneaker) candidates.push({ code: sneaker, source: "sneaker_resolver" });
 
   for (const c of candidates) {
-    const norm = canonicalStyleCode(key, c.code);
+    // The first spelling a decoder recognises wins; otherwise the code as read.
+    let code = c.code;
+    let decoded: DecodeResult | null = null;
+    if (key) {
+      for (const spelling of styleCodeSpellings(c.code)) {
+        const hit = decodeTagCode(key, spelling, specs);
+        if (hit) {
+          code = spelling;
+          decoded = hit;
+          break;
+        }
+      }
+    }
+    const norm = canonicalStyleCode(key, code);
     if (norm.length < MIN_STYLE_CODE_LENGTH) continue;
-    return {
-      styleCodeRaw: c.code,
-      styleCodeNorm: norm,
-      source: c.source,
-      decoded: key ? decodeTagCode(key, c.code, specs) : null,
-    };
+    return { styleCodeRaw: code, styleCodeNorm: norm, source: c.source, decoded };
   }
   return { styleCodeRaw: null, styleCodeNorm: "", source: null, decoded: null };
 }

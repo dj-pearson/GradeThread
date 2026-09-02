@@ -283,4 +283,19 @@ async function main() {
   console.log(JSON.stringify(stats));
 }
 
-await main();
+// Say what WE need before anything touches the service-role client. Without
+// this, the first supabaseAdmin property access throws "SUPABASE_URL is not
+// set" from inside lib/supabase.ts, which tells an operator nothing about which
+// script wanted it (scripts/operator-scripts-start.test.mjs, US-2661).
+if (import.meta.main) {
+  const url = Deno.env.get("SUPABASE_URL");
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !serviceKey) {
+    console.error(
+      "backfill-tag-reads: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and ANTHROPIC_API_KEY are required. Usage:\n" +
+        "  deno run --allow-net --allow-env --env-file=.env scripts/backfill-tag-reads.ts [--apply] [--limit N] [--owner <uuid>]",
+    );
+    Deno.exit(1);
+  }
+  await main();
+}

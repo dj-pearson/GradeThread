@@ -11,6 +11,7 @@ Deno.env.set(
 
 const {
   resolveListingStyleCode,
+  styleCodeSpellings,
   learnedStyleForListing,
   applyLearnedStyleToListing,
   STYLE_NAME_GROUND_TRUTH_KEY,
@@ -83,6 +84,45 @@ Deno.test("the whole size-dot string decodes and canonicalises to the six-charac
   });
   assert(r.decoded, "expected a decoder hit");
   assertEquals(r.styleCodeNorm, "W6AMYS");
+});
+
+Deno.test("the whole rim as OCR'd, with S read as 5, decodes to the style number", () => {
+  // Prod dry run 2026-09-02: the dot showed LM5609S.0419 around "36"; the
+  // model returned the full rim with the colour letter read as a digit.
+  const r = resolveListingStyleCode({
+    ocr: { style_code: { value: "LM56095.0419.000054.000", confidence: 0.72 } },
+    itemAttributes: null,
+    sneakerStyleCode: null,
+    brand: "Lululemon",
+    pack: lulu,
+  });
+  assertEquals(r.styleCodeRaw, "LM5609S.0419");
+  assertEquals(r.styleCodeNorm, "M5609S");
+  assertEquals(r.decoded?.decoderKind, "style_number");
+  assertEquals(r.decoded?.season, "Winter");
+  assertEquals(r.decoded?.year, "2019");
+});
+
+Deno.test("styleCodeSpellings: original first, prefixes, then the letter-slot fix", () => {
+  assertEquals(styleCodeSpellings("LM56095.0419.000054.000"), [
+    "LM56095.0419.000054.000",
+    "LM56095.0419",
+    "LM56095",
+    "LM5609S.0419.000054.000",
+    "LM5609S.0419",
+    "LM5609S",
+  ]);
+  assertEquals(styleCodeSpellings("DD1391-100"), ["DD1391-100"]);
+  // A spelling that decodes nowhere leaves the code as read.
+  const r = resolveListingStyleCode({
+    ocr: { style_code: { value: "ABC-125.99", confidence: 0.9 } },
+    itemAttributes: null,
+    sneakerStyleCode: null,
+    brand: "Some Brand",
+    pack: null,
+  });
+  assertEquals(r.styleCodeRaw, "ABC-125.99");
+  assertEquals(r.decoded, null);
 });
 
 Deno.test("a bare size-dot number is not a code to file under", () => {
