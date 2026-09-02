@@ -51,6 +51,20 @@ extensions into a single MV3 extension:
   price is high or low for that claim. **It does not grade**: no photo is fetched
   and no Vision call is made, which is why it can run automatically (default ON)
   where the detail-page read stays click-to-run.
+- **Cross-listing queue (US-3048)** — the queue the seller can finally SEE.
+  `drainQueue` has claimed and run server-side work every five minutes since
+  US-2481 and the popup never showed a single row of it: a seller who queued six
+  cross-posts from their phone in a thrift store opened the laptop to no count,
+  no list, no way to start them, and no sight of the rows that expired or failed
+  — which the API had been returning in `needsAttention` the whole time. The
+  Selling tab now opens on a **work summary** (to end / queued / to update, each
+  a jump), and the queue block lists every row with its state, its age, and, for
+  anything that will never run, the reason. **Run these now** calls the same
+  drain the alarm calls, for the seller who is at the machine. **Cancel is
+  offered on a WAITING row only** — `DELETE /:id` would take a claimed one too,
+  and that pulls the job out from under a marketplace tab halfway through a
+  form. Shaping is `queue/queue-view.js`, shared with the worker and pinned by
+  `test/queue-view.test.cjs`.
 - **Lister (seller cross-post)** — from `extension/` (US-716). Cross-post + delist
   FlipDesk drafts from the seller's own logged-in tab. Per-marketplace status is
   the table below, which is the only place that list lives — naming the channels
@@ -80,11 +94,37 @@ research/            buyer overlay  (selectors.js, image-utils.js, condition-for
                      `node scripts/gen-extension-overlay-css.mjs` and is what the
                      shadow roots adopt — the manifest injects no document CSS.
 compare.html/js/css  the side-by-side view for the pinned tray (US-2240)
+queue/               cross-listing queue view model (US-3048) — pure, shared by
+                     the popup and the worker, so the count on the Selling tab
+                     and the rows under it are shaped by one function
 lister/              seller Lister  (selectors.js, lister-guard.js, common.js, job-store.js,
                      poshmark/mercari/grailed/vinted/facebook.js)
 icons/               shared icon set
 test/                zero-dep node guards (run in verify:web via scripts/test-extensions.mjs)
 ```
+
+## Popup layout — what it opens on (US-1885, revised US-3048)
+
+Three tabs, defaulted from entitlements. Inside them the order is **urgent,
+then recent, then settings, then reference**, which is not where it started:
+
+- **Reads** leads with the button. The extension's primary action had three
+  doors — the overlay's own button (on the page, below the fold on most
+  listings), `Alt+G`, and a right-click on a photo — and none of them was the
+  toolbar icon people actually press. "Get condition read" is now the first
+  control in the popup, disabled with a reason rather than hidden when the tab
+  is not a supported listing.
+- **Selling** leads with the work summary and the two queues that decide whether
+  an item sells twice, then the edits that have not landed, then what just
+  happened, then the machinery (sold-sync, scheduled checks, Poshmark sharing).
+  The channel table is reference — a seller reads it once, when they first
+  cross-post to a marketplace — so it is collapsed, with its live count on the
+  summary.
+- The nav badge is the SUM of outstanding seller work, written once from
+  `workCounts` after all three queue renders settle. It used to be whichever
+  renderer finished last, so a seller with two sold items still to end and four
+  failed cross-posts was shown a number that meant neither. A count nobody could
+  read is never rendered as zero.
 
 ## The gate (US-1873)
 

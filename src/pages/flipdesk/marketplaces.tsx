@@ -1423,6 +1423,11 @@ function ExtensionQueueSection() {
     // No `share` branch: US-2497 removed the kind and deleted its rows, because
     // a share run needs a human at the browser and a queue cannot supply one.
     if (kind === "delist") return `End the ${label} listing`;
+    // US-3048: revise and relist have been queueable kinds since US-9202/9203
+    // and both fell through to "List to ...". A seller who queued a price
+    // change was told their item was about to be listed a second time.
+    if (kind === "revise") return `Update the ${label} listing`;
+    if (kind === "relist") return `Relist on ${label}`;
     return `List to ${label}`;
   };
 
@@ -1442,30 +1447,51 @@ function ExtensionQueueSection() {
                 key={job.id}
                 className="flex flex-wrap items-center justify-between gap-2 text-sm"
               >
-                <span className="flex items-center gap-2">
-                  <Clock className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium">
-                    {describe(job.kind, job.platform)}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    queued {formatAgo(job.created_at)}
-                    {job.source !== "web" ? " from your phone" : ""}
+                <span className="flex min-w-0 items-center gap-2">
+                  <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0">
+                    {/* US-3048: name the item. Four rows all reading "List to
+                        Poshmark" gave a seller no way to tell which one they
+                        wanted to cancel. item_title is joined on by GET / and
+                        is genuinely absent for some rows, so the verb stays as
+                        the fallback rather than a placeholder. */}
+                    <span className="block truncate font-medium">
+                      {job.item_title ?? describe(job.kind, job.platform)}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {job.item_title ? `${describe(job.kind, job.platform)} · ` : ""}
+                      queued {formatAgo(job.created_at)}
+                      {job.source !== "web" ? " from your phone" : ""}
+                    </span>
                   </span>
                 </span>
-                <Button
-                aria-label={`Cancel ${describe(job.kind, job.platform)}`}
-                  variant="ghost"
-                  size="sm"
-                  disabled={cancel.isPending}
-                  onClick={() => {
-                    cancel.mutate(job.id, {
-                      onSuccess: () => toast.success("Removed from the queue."),
-                      onError: (e) => toastError(e),
-                    });
-                  }}
-                >
-                  Cancel
-                </Button>
+                {/* US-3048: Cancel on a QUEUED row only.
+                    `pending` holds claimed rows too, and a claimed row is a job
+                    with a marketplace tab open on it at this moment. Deleting it
+                    leaves a half-filled form and nothing server-side that
+                    remembers it was ever asked for. The extension's popup draws
+                    the same line (queue/queue-view.js canCancel). */}
+                {job.status === "claimed" ? (
+                  <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                    Running now
+                  </span>
+                ) : (
+                  <Button
+                    aria-label={`Cancel ${describe(job.kind, job.platform)}`}
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0"
+                    disabled={cancel.isPending}
+                    onClick={() => {
+                      cancel.mutate(job.id, {
+                        onSuccess: () => toast.success("Removed from the queue."),
+                        onError: (e) => toastError(e),
+                      });
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                )}
               </li>
             ))}
           </ul>
@@ -1487,7 +1513,9 @@ function ExtensionQueueSection() {
             {needsAttention.map((job) => (
               <li key={job.id} className="text-xs text-muted-foreground">
                 <span className="font-medium text-foreground">
-                  {describe(job.kind, job.platform)}
+                  {job.item_title
+                    ? `${job.item_title} — ${describe(job.kind, job.platform)}`
+                    : describe(job.kind, job.platform)}
                 </span>
                 {job.result?.error ? ` — ${job.result.error}` : ""}
               </li>

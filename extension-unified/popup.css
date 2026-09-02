@@ -204,6 +204,21 @@ body {
 .pop-foot { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; font-size: 11px; }
 .pop-foot a { color: var(--navy); text-decoration: none; }
 .pop-foot a:hover { text-decoration: underline; }
+/* US-3048 — "All settings & data" sits between two links and must read as a
+ * third. It is a <button> because it opens the options page through the
+ * runtime API rather than a URL, and an <a href="#"> that runs script is a
+ * link that lies about where it goes. */
+.pop-footbtn {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 11px;
+  color: var(--navy);
+  cursor: pointer;
+}
+.pop-footbtn:hover { text-decoration: underline; }
 
 em { font-style: italic; }
 
@@ -271,7 +286,7 @@ em { font-style: italic; }
 }
 /* min-width:0 lets the title ellipsis instead of forcing the row wider than the
    340px popup and pushing the action out of reach. */
-.pop-delist-body { display: flex; flex-direction: column; min-width: 0; }
+.pop-delist-body { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
 .pop-delist-title {
   font-size: 12px;
   font-weight: 600;
@@ -279,7 +294,107 @@ em { font-style: italic; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.pop-delist-meta { font-size: 11px; opacity: 0.6; }
+/* Ellipsis, not wrap. A queue row's meta line is three facts joined by dots
+ * and it wraps at about 44 characters on a 340px popup — which turned every
+ * second row into two lines and made a list of four impossible to scan. */
+.pop-delist-meta {
+  font-size: 11px;
+  opacity: 0.6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* US-3048 — the cross-listing queue and the work summary.
+ *
+ * Both reuse .pop-delists / .pop-delist so the Selling panel stays one visual
+ * family: four blocks that each answer "what is outstanding" should not look
+ * like four different features. Only the additions live here. */
+
+/* The reason a queue row will never run, on its own line under it. Full-width
+ * (it is a sibling <li>, not a cell) because these are real sentences and an
+ * error truncated to one line is an error nobody can act on. */
+.pop-delist-why {
+  font-size: 11px;
+  line-height: 1.45;
+  color: #8a2d3b;
+  background: #fdecef;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+/* A failed or expired row, marked on the row itself and not only on its badge.
+ * A surface tint rather than an accent bar: the reason line directly beneath it
+ * already carries the same tint, so the row and its explanation read as one
+ * thing, and a list of six failures does not turn into a barcode. */
+.pop-delist.is-attention {
+  background: #fff7f8;
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin: 0 -8px -2px;
+}
+
+/* The summary strip. Counts with a jump, above nine stacked blocks on a 340px
+ * popup where the first screen holds about three of them. */
+.pop-worksum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+}
+.pop-chip {
+  appearance: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid #dcdce8;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--night);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.pop-chip:hover { border-color: var(--navy); }
+.pop-chip:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+.pop-chip-n { font-weight: 700; font-size: 13px; }
+.pop-chip-l { opacity: 0.7; }
+/* Ending a sold item's siblings is the only count here with an hour cost
+ * attached, so it is the only one that gets the accent. */
+.pop-chip.urgent { border-color: #f3c2cb; background: #fdecef; }
+.pop-chip.urgent .pop-chip-n { color: var(--red); }
+.pop-worksum-clear { font-size: 11px; color: var(--muted); }
+
+/* Badge + action as one right-hand group, so a wrapped title can never leave
+ * the state on one line and the button for it on another. */
+.pop-delist-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+/* A common floor so Cancel sits in the same column down the list instead of
+ * stepping in and out with the width of the word beside it. */
+.pop-delist-actions .pop-status { min-width: 56px; text-align: center; }
+/* An in-card action, not a page CTA. Full-width brand red inside a card made
+ * "Run these now" the loudest thing in the panel — louder than the two sold
+ * items above it that actually have a clock on them. */
+.pop-cta-sm {
+  align-self: flex-start;
+  width: auto;
+  margin-top: 8px;
+  padding: 5px 12px;
+  font-size: 12px;
+  background: var(--navy);
+}
+.pop-cta-sm:hover { background: #14427c; }
+/* A block header whose right-hand status is a sentence, not a word. Nowrap on
+ * the label keeps "Cross-listing queue" on one line and lets the counts wrap
+ * beneath it instead of breaking the heading in half. */
+.pop-lastjob-head { flex-wrap: wrap; }
+.pop-lastjob-label { white-space: nowrap; }
 
 /* US-2239 — the Recent reads / By seller switch.
  *
