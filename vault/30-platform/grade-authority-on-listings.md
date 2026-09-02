@@ -11,7 +11,7 @@ code_refs:
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-08-28
+reviewed: 2026-09-02
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
@@ -62,6 +62,17 @@ every listing, while text carries the same information at zero risk.
 
 This is a policy constraint, not a design preference. Do not reintroduce an image
 treatment because it would look better.
+
+> **Reaffirmed 2026-09-02, against a story that asked for the opposite.**
+> US-9206 proposed a 1000x1000 condition card appended as the last listing photo
+> on Poshmark, Mercari, Vinted and Depop, on the reasoning that photo-first
+> buyers never read a truncated description. The question went to Dj directly,
+> with the option of allowing the card on those four channels only, and the
+> answer was to keep this rule as written: the suspension risk has not changed,
+> and it is the same risk whichever marketplace the photo lands on. The story is
+> closed without code. If it is ever revisited, the first step is amending this
+> paragraph -- not writing the renderer, which already exists
+> (`lib/cert-image-render.ts`).
 
 ## The three channels a grade actually uses
 
