@@ -301,6 +301,70 @@ the same as "ships empty". What would settle it is a fill-rate query over
 live `inventory_items.ebay_aspects`, which has not been run.
 
 Scope for non-apparel categories is [[adr-flipdesk-universal-gradethread-garments]].
+## Measured fill rates (US-3044, first run 2026-09-02)
+
+The 2026-09-02 AutoLister change (tag OCR reading care / country / product
+line, RECOMMENDED aspects named in the refine schema, evidence rules in the
+refine prompt, the visual consensus prefill of US-3043) was argued from the
+code. `services/edge-functions/scripts/aspect-fill-report.ts` is the
+measurement. The BEFORE half ran against prod the day the change merged; the
+AFTER half is empty until drafts have been generated on the new code, and goes
+here in the same commit as the numbers land in US-3044.
+
+**BEFORE** - the last 125 drafts with stored coverage, all `listing_gen_v1`,
+median recommended coverage 55%, median required 100%, 21 drafts blocked.
+"Of exposed" divides by drafts that filled the aspect OR reported it missing;
+an OPTIONAL-tier aspect left empty is invisible, so `0/0` means "never
+recommended on these leaves", not "never offered".
+
+| Aspect | Filled | Of exposed | Of all drafts |
+|---|---|---|---|
+| Theme | 1/92 | 1% | 1% |
+| Fabric Type | 45/106 | 42% | 36% |
+| Garment Care | 4/4 | 100% | 3% |
+| Country of Origin | 28/51 | 55% | 22% |
+| MPN / Style Code | 0/0 | - | 0% |
+| Product Line | 4/45 | 9% | 3% |
+| Model | 0/13 | 0% | 0% |
+| Character | 0/93 | 0% | 0% |
+| Department | 125/125 | 100% | 100% |
+| Features | 31/104 | 30% | 25% |
+| Occasion | 45/63 | 71% | 36% |
+
+What the table says, read one row at a time:
+
+- **Theme is the gap.** Recommended on 92 of 125 drafts, filled on one. That is
+  the never-guess rule doing exactly what it said, on the one aspect a garment
+  answers by itself. The refine prompt's evidence rules target this row first.
+- **Character will stay near zero and that is correct.** eBay recommends it on
+  93 of 125 apparel leaves; almost no garment has one. A fill rate here would
+  be a hallucination rate. Do not chase it.
+- **MPN / Style Code is unmeasurable from stored drafts.** It is never in the
+  recommended tier, so it never appears in `missing`, so exposure is unknown.
+  The tag OCR now files the label's code on `attributes.mpn`; whether the leaf
+  has a name for it is only visible by reading the leaf spec, which the report
+  does not do. Measure it from `inventory_items.attributes.mpn` instead.
+- **Garment Care is rarely recommended (4 drafts)**, so its 100% is four
+  drafts. The label read makes it cheap to fill everywhere it is offered.
+- **Country of Origin at 55% of exposed** is the label read working when the
+  tag photo was legible; the OCR now hands the country over as text, so the
+  refine pass no longer needs to re-read it off a 1.15MP label.
+- **Product Line 9%, Model 0%.** Both come from the label or the brand
+  knowledge pack, and neither reached the refine prompt before.
+
+**Cost, and a caveat on the number.** Median generation cost per draft in
+`ai_enrichment_log` was $0.11 (median 40,716 tokens in, 1,407 out; $22.09 over
+200 rows). That column is `estimateCost`, which prices every input token at
+full rate - including the cache READ tokens of the aspect tool schema, which
+Anthropic bills at a tenth. The real spend per call is in `ai_usage_events`
+(`computeCostUsd`, cache multipliers applied), and the report reads that
+ledger too from its second version. Compare like with like: the AFTER run's
+`ai_enrichment_log` number is comparable to this one; the `ai_usage_events`
+number is the true bill.
+
+**AFTER** - pending. Run the same command once ~200 drafts have been generated
+on the new edge and paste the table here.
+
 ## Related
 
 - [[sync-source-of-truth]] — which field owns which specific
