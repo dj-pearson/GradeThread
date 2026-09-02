@@ -43,6 +43,13 @@ export interface ExtensionQueueItem {
   result: { error?: string | null; manual?: boolean; expired?: boolean } | null;
   expires_at: string;
   created_at: string;
+  /**
+   * US-3048: the item's own title, joined on by GET / for a human to read.
+   * Optional because /claim does not carry it — the drain has no use for a
+   * title, and widening its columns to serve a screen it never renders would
+   * put the cost on the hot path.
+   */
+  item_title?: string | null;
 }
 
 interface QueueResponse {

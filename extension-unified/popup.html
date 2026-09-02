@@ -44,7 +44,19 @@
         <section class="pop-section">
           <p class="pop-lead">
             An independent AI condition read while you shop a supported resale site.
-            Open a clothing listing and click “Get condition read”.
+          </p>
+          <!-- US-3048: the extension’s PRIMARY action, in the one place every
+               user already knows to click.
+               Before this the popup could only describe the read. Running one
+               meant finding the overlay button on the page, or knowing about
+               Alt+G, or right-clicking a photo — three doors, none of them the
+               toolbar icon people actually press. The button is disabled with a
+               reason rather than hidden, so a shopper on an unsupported page
+               learns why instead of wondering where the feature went. -->
+          <button class="pop-cta" id="readNow" type="button" disabled>Get condition read</button>
+          <p class="pop-hint" id="readNowHint">
+            Open a clothing listing on eBay, Poshmark, Grailed, Mercari, Depop or
+            Vinted and this runs the read.
           </p>
           <!-- US-1881 AC3: the Firefox opt-in host-permission flow. Firefox
                installs the add-on and then withholds every declared host until the
@@ -90,23 +102,129 @@
       <div class="pop-panel" id="panelSelling" role="tabpanel" aria-labelledby="navSelling" hidden>
       <!-- Seller tools (only when entitled) -->
       <section class="pop-section pop-seller" id="sellerSection" hidden>
-        <!-- ORDER: urgent, then recent, then reference. 2026-08-11.
-             This block used to open with the lead paragraph and the platform
-             table — the two things that never change — and put the delist queue
-             below them. But the reason a seller opens this tab is the red count
-             on it, and that count is the delist queue. Marketing copy above a
-             deadline is the wrong way round. -->
+        <!-- ORDER: urgent, then recent, then settings, then reference.
+             Revised 2026-09-02 (US-3048).
+
+             The old order opened with the scheduled-poll clickwrap and the
+             sold-sync health table — two blocks about how the extension runs,
+             above the two blocks about what the seller has to do today. A
+             seller opens this tab because of the red count on it, and that
+             count is work with a deadline.
+
+             So: the summary strip, then the queues that decide whether an item
+             sells twice (ending a sold item's siblings, then the cross-posts
+             waiting to run, then the edits that have not landed), then what
+             just happened, then the machinery, then reference. -->
+
+        <!-- US-3048: the work summary.
+             Three counts and a jump to each. It exists because the panel now
+             holds nine blocks and the first screen can only hold three: a
+             seller with one failed cross-post at the bottom would never learn
+             it was there. Each chip hides at zero, and when all three are zero
+             the strip says so in words rather than rendering three "0"s, which
+             read as broken rather than as clear. -->
+        <div class="pop-worksum" id="workSummary" hidden>
+          <button type="button" class="pop-chip urgent" id="chipDelist" data-target="delistBlock" hidden>
+            <span class="pop-chip-n" id="chipDelistN">0</span>
+            <span class="pop-chip-l">to end</span>
+          </button>
+          <button type="button" class="pop-chip" id="chipQueue" data-target="queueBlock" hidden>
+            <span class="pop-chip-n" id="chipQueueN">0</span>
+            <span class="pop-chip-l">queued</span>
+          </button>
+          <button type="button" class="pop-chip" id="chipRevise" data-target="reviseBlock" hidden>
+            <span class="pop-chip-n" id="chipReviseN">0</span>
+            <span class="pop-chip-l">to update</span>
+          </button>
+          <span class="pop-worksum-clear" id="workSumClear" hidden>Nothing waiting on you.</span>
+        </div>
 
         <!-- US-1885 AC1: pending delists. When an item sells on one marketplace,
              its siblings on the extension channels have no delist API and must
              be ended in the seller's own browser. Until now the extension — the
              only thing that CAN end them — never showed the queue, so a sold item
              stayed live until the seller happened to open the SaaS. -->
+        <div class="pop-delists" id="delistBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Needs ending</span>
+            <span class="pop-lastjob-when" id="delistCount"></span>
+          </div>
+          <p class="pop-delist-note" id="delistNote" hidden></p>
+          <ul class="pop-delist-list" id="delistList"></ul>
+        </div>
+
+
+        <!-- US-3048: the cross-listing queue.
+
+             This browser has been draining it every five minutes since
+             US-2481 and never once showed it. A seller queues six cross-posts
+             from their phone in a thrift store, opens the laptop, and the only
+             thing on earth that can run them says nothing: no count, no list,
+             no way to start them, and — the expensive half — no sight of the
+             rows that expired or failed, which the API has been returning in
+             `needsAttention` the whole time.
+
+             "Run these now" is not a second scheduler. It calls the same drain
+             the alarm calls, for the seller who is at the machine and does not
+             want to wait out a tick they cannot see.
+
+             Cancel is offered on a WAITING row only. The endpoint would delete
+             a running one too, and doing that would pull the job out from under
+             a marketplace tab that is halfway through a form — the listing
+             half-made and nothing left server-side that remembers asking. -->
+        <div class="pop-delists" id="queueBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Cross-listing queue</span>
+            <span class="pop-lastjob-when" id="queueStatus"></span>
+          </div>
+          <p class="pop-delist-note" id="queueNote" hidden></p>
+          <ul class="pop-delist-list" id="queueList"></ul>
+          <button class="pop-cta pop-cta-sm" id="queueRunNow" type="button" hidden>Run these now</button>
+          <p class="pop-meter-note" id="queueRunNote" hidden></p>
+        </div>
+
+        <!-- US-9202: edits made in FlipDesk that are waiting to reach an
+             extension channel. Shown as a count the way delists are: a stale
+             price the seller believes is live is the failure this exists for,
+             and the popup is the one surface the drain shares a browser with. -->
+        <div class="pop-delists" id="reviseBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Needs updating</span>
+            <span class="pop-lastjob-when" id="reviseCount"></span>
+          </div>
+          <p class="pop-delist-note" id="reviseNote" hidden></p>
+          <ul class="pop-delist-list" id="reviseList"></ul>
+        </div>
+
+        <!-- US-1885 AC1: the last cross-post/delist outcome. The popup used to show
+             ZERO job state, so a cross-post that timed out or couldn't be verified
+             left the seller with nowhere to find out what happened. -->
+        <div class="pop-lastjob" id="lastJobBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Last job</span>
+            <span class="pop-lastjob-when" id="lastJobWhen"></span>
+          </div>
+          <div class="pop-lastjob-body">
+            <span class="pop-status" id="lastJobStatus"></span>
+            <span class="pop-lastjob-what" id="lastJobWhat"></span>
+          </div>
+          <p class="pop-lastjob-error" id="lastJobError" hidden></p>
+        </div>
+
         <!-- US-2699: sold-sync health, per channel. The SAME projection the
              Marketplaces page renders (edge lib/sync-status.ts), because a popup
              that calls a channel healthy while the web calls it failing makes the
              seller trust neither. "Not synced yet" is deliberately distinct from
              "Syncing": a channel nobody has read is not a healthy one. -->
+        <div class="pop-delists" id="syncBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Sold-sync</span>
+            <button type="button" class="pop-linkbtn" id="syncNowBtn">Sync now</button>
+          </div>
+          <p class="pop-delist-note" id="syncNote" hidden></p>
+          <ul class="pop-delist-list" id="syncList"></ul>
+        </div>
+
         <!-- US-2701: the scheduled poll's OWN clickwrap. Not the Lister's and not
              the engagement runner's: both of those cover a seller pressing a
              button, and this covers GradeThread opening a marketplace tab while
@@ -142,60 +260,6 @@
             <button class="pop-linkbtn" id="pollRevoke" type="button">Turn scheduled checks off</button>
           </div>
         </div>
-
-        <div class="pop-delists" id="syncBlock" hidden>
-          <div class="pop-lastjob-head">
-            <span class="pop-lastjob-label">Sold-sync</span>
-            <button type="button" class="pop-linkbtn" id="syncNowBtn">Sync now</button>
-          </div>
-          <p class="pop-delist-note" id="syncNote" hidden></p>
-          <ul class="pop-delist-list" id="syncList"></ul>
-        </div>
-
-        <!-- US-9202: edits made in FlipDesk that are waiting to reach an
-             extension channel. Shown as a count the way delists are: a stale
-             price the seller believes is live is the failure this exists for,
-             and the popup is the one surface the drain shares a browser with. -->
-        <div class="pop-delists" id="reviseBlock" hidden>
-          <div class="pop-lastjob-head">
-            <span class="pop-lastjob-label">Needs updating</span>
-            <span class="pop-lastjob-when" id="reviseCount"></span>
-          </div>
-          <p class="pop-delist-note" id="reviseNote" hidden></p>
-          <ul class="pop-delist-list" id="reviseList"></ul>
-        </div>
-
-        <div class="pop-delists" id="delistBlock" hidden>
-          <div class="pop-lastjob-head">
-            <span class="pop-lastjob-label">Needs ending</span>
-            <span class="pop-lastjob-when" id="delistCount"></span>
-          </div>
-          <p class="pop-delist-note" id="delistNote" hidden></p>
-          <ul class="pop-delist-list" id="delistList"></ul>
-        </div>
-
-        <!-- US-1885 AC1: the last cross-post/delist outcome. The popup used to show
-             ZERO job state, so a cross-post that timed out or couldn't be verified
-             left the seller with nowhere to find out what happened. -->
-        <div class="pop-lastjob" id="lastJobBlock" hidden>
-          <div class="pop-lastjob-head">
-            <span class="pop-lastjob-label">Last job</span>
-            <span class="pop-lastjob-when" id="lastJobWhen"></span>
-          </div>
-          <div class="pop-lastjob-body">
-            <span class="pop-status" id="lastJobStatus"></span>
-            <span class="pop-lastjob-what" id="lastJobWhat"></span>
-          </div>
-          <p class="pop-lastjob-error" id="lastJobError" hidden></p>
-        </div>
-
-        <h2 class="pop-h2">Channels</h2>
-        <p class="pop-lead">
-          Cross-post FlipDesk drafts into your own logged-in marketplace tab.
-          GradeThread never sees your marketplace password or cookies — the
-          automation runs entirely on your device.
-        </p>
-        <ul class="pop-platforms" id="platforms"></ul>
 
         <!-- US-2482: Poshmark engagement. A SEPARATE block with a SEPARATE
              clickwrap — the Lister consent covers "fill in my own listing form",
@@ -270,6 +334,24 @@
             Turn off Poshmark sharing
           </button>
         </div>
+
+        <!-- Channels: reference, so it collapses. 2026-09-02 (US-3048).
+             The table answers "can this channel list, and can it end a
+             listing?" — a question a seller asks once, when they first
+             cross-post to it, and never again. Expanded it was 5 rows and a
+             paragraph sitting between the work at the top of this panel and
+             the consent controls at the bottom, on a 340px popup. Collapsed by
+             default, and the summary carries the count so it is still obvious
+             something is in there. -->
+        <details class="pop-adv" id="channelsBlock">
+          <summary class="pop-adv-sum">Channels <span id="channelsCount"></span></summary>
+          <p class="pop-lead">
+            Cross-post FlipDesk drafts into your own logged-in marketplace tab.
+            GradeThread never sees your marketplace password or cookies — the
+            automation runs entirely on your device.
+          </p>
+          <ul class="pop-platforms" id="platforms"></ul>
+        </details>
 
         <div class="pop-tos" id="tosBlock">
           <label class="pop-tos-row">
@@ -441,8 +523,16 @@
         </section>
       </div>
 
+      <!-- US-3048: the options page had no door.
+           Every setting the popup carries lives there too, plus the ones it
+           does NOT — the per-site opt-out undo, and the three Clear controls
+           that are the only way to erase read history, the compare tray and
+           the grade cache from this device. A privacy control reachable only
+           through the browser's own extension menu is one most people will
+           never find. -->
       <footer class="pop-foot">
         <a id="privacy" href="#" target="_blank" rel="noopener noreferrer">Privacy</a>
+        <button type="button" class="pop-footbtn" id="openOptions">All settings &amp; data</button>
         <a id="help" href="#" target="_blank" rel="noopener noreferrer">How it works</a>
       </footer>
     </main>
@@ -465,6 +555,9 @@
          install can be completely inert. Loads before popup.js, which reads
          self.GT_HOST_PERMS at render time. -->
     <script src="host-permissions.js"></script>
+    <!-- US-3048: the cross-listing queue's view model, shared with the worker.
+         Before popup.js, which reads self.GT_QUEUE_VIEW at render time. -->
+    <script src="queue/queue-view.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>

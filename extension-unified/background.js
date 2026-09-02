@@ -54,6 +54,10 @@ if (typeof importScripts === "function") {
     "sync/selectors.js",
     "closet-import/selectors.js",
     "sync/poll-plan.js",
+    // US-3048: the cross-listing queue's view model. Shared with the popup so
+    // the count on the Selling tab and the rows under it are shaped by one
+    // function rather than two that drift.
+    "queue/queue-view.js",
   );
 }
 const ext = globalThis.browser || globalThis.chrome;
@@ -297,6 +301,72 @@ async function getPendingRevises() {
   } catch (_e) {
     return { ok: false, reason: "error", pending: [] };
   }
+}
+
+// ── US-3048: the cross-listing queue, read for a human ────────────────────
+//
+// The drain (drainQueue, below) has claimed and run these rows since US-2481.
+// This is the OTHER half, and it was missing the whole time: the seller's own
+// view of what is waiting, what is running right now, and what expired or
+// failed without ever reaching a marketplace.
+//
+// Same reading discipline as getPendingDelists: never cached, and every
+// non-200 is a distinct state the popup renders rather than an empty queue. A
+// stale "nothing waiting" here is the same lie as a stale "nothing to end" —
+// it tells a seller their cross-posts went out when they did not.
+//
+// `needsAttention` is kept SEPARATE all the way to the renderer, because the
+// API separates it for a reason: expired and failed work must never be drawn
+// as work that is still coming.
+async function getQueue() {
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
+    return { ok: false, reason: "signed-out", pending: [], needsAttention: [] };
+  }
+  try {
+    const resp = await fetch(QUEUE_ENDPOINT, {
+      headers: { Authorization: "Bearer " + gtBuyerToken },
+      cache: "no-store",
+    });
+    if (resp.status === 401) {
+      return { ok: false, reason: "signed-out", pending: [], needsAttention: [] };
+    }
+    if (resp.status === 403) {
+      return { ok: false, reason: "no-plan", pending: [], needsAttention: [] };
+    }
+    if (!resp.ok) return { ok: false, reason: "error", pending: [], needsAttention: [] };
+    const json = await resp.json();
+    return {
+      ok: true,
+      pending: Array.isArray(json.pending) ? json.pending : [],
+      needsAttention: Array.isArray(json.needsAttention) ? json.needsAttention : [],
+    };
+  } catch (_e) {
+    return { ok: false, reason: "error", pending: [], needsAttention: [] };
+  }
+}
+
+/**
+ * Drop one queue row.
+ *
+ * Two different intentions share this call — cancelling work that has not run,
+ * and dismissing a row that already failed — because the server-side effect is
+ * the same and inventing a second endpoint for the second wording would be
+ * ceremony. The popup is what keeps them apart: it offers Cancel only on a
+ * `queued` row, never on a `claimed` one, so this can never delete a job out
+ * from under a marketplace tab that is mid-fill (queue/queue-view.js:canCancel).
+ *
+ * The id is a string the popup read out of a row WE fetched for this account,
+ * and the endpoint filters by owner anyway, so a wrong id is a 404 rather than
+ * a foreign delete.
+ */
+async function cancelQueueRow(id) {
+  if (typeof id !== "string" || !id) return { ok: false, reason: "error" };
+  const out = await queueFetch("/" + encodeURIComponent(id), { method: "DELETE" });
+  // queueFetch swallows the difference between offline, an expired token and a
+  // 404. All three mean "it is still there as far as we know", which is the
+  // answer the popup needs in order not to remove the row optimistically.
+  return out ? { ok: true } : { ok: false, reason: "error" };
 }
 
 /** Report a revise outcome for one listing. Applied ONLY when the flow proved it. */
@@ -2821,6 +2891,47 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       case "GT_GET_PENDING_REVISES":
         sendResponse(await getPendingRevises());
         break;
+      // ── US-3048: the cross-listing queue ─────────────────────────────
+      case "GT_QUEUE_STATE":
+        sendResponse(await getQueue());
+        break;
+      case "GT_QUEUE_CANCEL":
+        sendResponse(await cancelQueueRow(msg.id));
+        break;
+      // "Run now". The drain already runs on startup and on the five-minute
+      // sweep; this is the seller saying "I am at the machine, go" instead of
+      // waiting out a tick they cannot see. It is not a second scheduler and
+      // holds no state — drainInFlight is what stops a double-tap from
+      // claiming the same rows twice, and the same seller gates apply, so a
+      // lapsed plan or an unaccepted clickwrap refuses here exactly as it does
+      // on the alarm path.
+      case "GT_QUEUE_RUN_NOW":
+        await drainQueue();
+        sendResponse({ ok: true });
+        break;
+      // The popup's own "Get condition read" button. Routed through here rather
+      // than sent straight from the popup so there is ONE path to the overlay —
+      // the same message the Alt+G command and the image context menu send, so
+      // a listing read from the popup lands in the same overlay, under the same
+      // epoch guard, as one read any other way.
+      case "GT_CC_RUN_ACTIVE": {
+        let started = false;
+        try {
+          const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
+          if (tab && typeof tab.id === "number") {
+            await ext.tabs.sendMessage(tab.id, { type: "GT_CC_RUN" });
+            started = true;
+          }
+        } catch (_e) {
+          // No content script on this tab: the page loaded before the extension
+          // was installed, or the host is not granted (Firefox). Reported as a
+          // false rather than thrown, because the popup has a better sentence
+          // for it than a console line nobody reads.
+          started = false;
+        }
+        sendResponse({ ok: started });
+        break;
+      }
       // US-1873: popup + content scripts read the resolved capability map.
       case "GT_GET_CAPABILITIES":
         sendResponse(await getCapabilities(Boolean(msg.force)));

@@ -77,8 +77,22 @@ function scoreClass(score) {
   return "s-bad";
 }
 
+// US-3048: accepts an epoch NUMBER or an ISO STRING.
+//
+// It used to accept only a number, and two of its seven callers pass an ISO
+// timestamp straight out of a server row — so every line in the pending-delist
+// block and the pending-revise block read "Poshmark · NaNd ago". The delist
+// queue is the most time-critical thing in this popup ("requested 4h ago" is
+// how a seller judges whether an item has been double-listable all afternoon)
+// and it has been showing NaN for as long as the block has existed.
+//
+// Parsing here rather than at each call site because the next caller will make
+// the same choice: a server row carries ISO, storage.local carries epoch, and
+// one function that takes both is the only version of this that stays fixed.
 function timeAgo(ts) {
-  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  const at = typeof ts === "number" ? ts : Date.parse(ts);
+  if (!isFinite(at)) return "";
+  const s = Math.max(0, Math.floor((Date.now() - at) / 1000));
   if (s < 60) return "just now";
   const m = Math.floor(s / 60);
   if (m < 60) return m + "m ago";
@@ -257,6 +271,8 @@ async function initResearch() {
   });
 
   const { id: tabId, host } = await activeTabInfo();
+  await initReadNow(host);
+
   if (host && MARKETPLACE_HOST_RE.test(host)) {
     await initHostPermission(host, tabId);
     const wrap = document.getElementById("siteToggleWrap");
@@ -273,6 +289,52 @@ async function initResearch() {
       await ext.storage.local.set({ disabledHosts: Array.from(set) });
     });
   }
+}
+
+// ── US-3048: run a read from the popup ─────────────────────────────────────
+//
+// The extension's primary action, finally on the toolbar icon.
+//
+// Three doors existed before this and none of them was the popup: the overlay's
+// own button (on the page, below the fold on most listings), Alt+G (undiscovered
+// by anyone who has not read the options page), and a right-click on a photo
+// (for the case the gallery selector missed). Someone who clicks the toolbar
+// icon expecting the feature got a paragraph telling them to go and find it.
+//
+// The button routes through the WORKER, not straight to the tab, so this is the
+// same message Alt+G sends — one path to the overlay, one epoch guard, one
+// result surface. The popup closes on success because the result renders on the
+// page behind it, and a popup left open over its own outcome is a popup hiding
+// the thing it just started.
+async function initReadNow(host) {
+  const btn = document.getElementById("readNow");
+  const hint = document.getElementById("readNowHint");
+  if (!btn) return;
+
+  const supported = Boolean(host && MARKETPLACE_HOST_RE.test(host));
+  if (!supported) {
+    btn.disabled = true;
+    return; // the default hint already names the six sites
+  }
+  btn.disabled = false;
+  hint.textContent = "Reads the listing photos on " + host + ".";
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    btn.textContent = "Starting…";
+    const res = await send({ type: "GT_CC_RUN_ACTIVE" });
+    if (res && res.ok) {
+      window.close();
+      return;
+    }
+    // The content script is not on this tab. Nearly always one cause: the tab
+    // was open before the extension was installed or updated, and a content
+    // script is only injected on navigation. Say the fix, not the diagnosis.
+    btn.disabled = false;
+    btn.textContent = "Get condition read";
+    hint.textContent = "Reload this tab first — it was open before GradeThread " +
+      "was installed, so the page has nothing listening yet.";
+  });
 }
 
 async function renderReads() {
@@ -487,9 +549,12 @@ function renderPlatforms() {
   ul.textContent = "";
   const cfg = self.GT_LISTER_SELECTORS || {};
   const labels = PLATFORM_LABELS;
+  let live = 0;
+  let total = 0;
   for (const key of PLATFORM_ORDER) {
     const p = cfg[key];
     if (!p) continue;
+    total++;
     // 2026-08-11: THREE states, not two.
     //
     // "Enabled" used to cover both a channel that can list AND end a listing,
@@ -522,7 +587,13 @@ function renderPlatforms() {
     li.appendChild(left);
     li.appendChild(badge);
     ul.appendChild(li);
+    if (canList) live++;
   }
+  // US-3048: the count on the collapsed summary. Collapsing a block hides what
+  // is in it; "Channels (3 of 5 live)" is the one line that makes opening it
+  // worth a click, and it is the same number the rows below add up to.
+  const count = document.getElementById("channelsCount");
+  if (count) count.textContent = live + " of " + total + " live";
 }
 
 // US-1885 AC1: the last Lister job outcome.
@@ -831,7 +902,7 @@ async function renderPendingDelists(caps) {
   // Seller-only surface; don't even ask the server otherwise.
   if (!caps || !caps.sellerEnabled) {
     block.hidden = true;
-    setSellingCount(0);
+    workCounts.delist = 0;
     return;
   }
 
@@ -851,7 +922,7 @@ async function renderPendingDelists(caps) {
     // No badge on an unknown count. A tab badge is a claim about how many
     // things need ending; "we could not find out" is not zero and must not
     // render as the all-clear this whole block exists to avoid.
-    setSellingCount(0);
+    workCounts.delist = 0;
     return;
   }
 
@@ -860,13 +931,13 @@ async function renderPendingDelists(caps) {
     // Nothing pending is genuinely good news, and only shown when we actually
     // know it — every other path above returns before here.
     block.hidden = true;
-    setSellingCount(0);
+    workCounts.delist = 0;
     return;
   }
 
   block.hidden = false;
   count.textContent = String(pending.length);
-  setSellingCount(pending.length);
+  workCounts.delist = pending.length;
 
   // A listing we cannot open cannot be ended by the extension. Say so plainly
   // rather than offering an action that would silently do nothing.
@@ -896,7 +967,8 @@ async function renderPendingDelists(caps) {
     const meta = document.createElement("span");
     meta.className = "pop-delist-meta";
     const platform = PLATFORM_LABELS[p.platform] || p.platform || "marketplace";
-    meta.textContent = p.requested_at ? platform + " · " + timeAgo(p.requested_at) : platform;
+    const ago = timeAgo(p.requested_at);
+    meta.textContent = ago ? platform + " · requested " + ago : platform;
 
     left.appendChild(title);
     left.appendChild(meta);
@@ -930,6 +1002,7 @@ async function renderPendingRevises(caps) {
   if (!block) return;
   if (!caps || !caps.sellerEnabled) {
     block.hidden = true;
+    workCounts.revise = 0;
     return;
   }
   const list = document.getElementById("reviseList");
@@ -944,15 +1017,19 @@ async function renderPendingRevises(caps) {
     count.textContent = "";
     note.hidden = false;
     note.textContent = DELIST_REASON[reason] || DELIST_REASON.error;
+    // Unknown is not zero — the same rule the delist block above is built on.
+    workCounts.revise = 0;
     return;
   }
   const pending = Array.isArray(res.pending) ? res.pending : [];
   if (!pending.length) {
     block.hidden = true;
+    workCounts.revise = 0;
     return;
   }
   block.hidden = false;
   count.textContent = String(pending.length);
+  workCounts.revise = pending.length;
 
   const SEL = (self.GT_LISTER_SELECTORS) || {};
   const canRun = (p) => Boolean(
@@ -981,8 +1058,9 @@ async function renderPendingRevises(caps) {
     meta.className = "pop-delist-meta";
     const platform = PLATFORM_LABELS[p.platform] || p.platform || "marketplace";
     const fields = (Array.isArray(p.fields) ? p.fields : []).map((f) => REVISE_FIELD_LABELS[f] || f).join(", ");
+    const staleFor = timeAgo(p.queued_at);
     meta.textContent = platform + " · " + (fields || "edit") +
-      (p.queued_at ? " · stale " + timeAgo(p.queued_at) : "");
+      (staleFor ? " · stale " + staleFor : "");
     left.appendChild(title);
     left.appendChild(meta);
     li.appendChild(left);
@@ -1002,6 +1080,234 @@ async function renderPendingRevises(caps) {
     }
     list.appendChild(li);
   }
+}
+
+// ── US-3048: the cross-listing queue ────────────────────────────────────────
+//
+// The rows the desktop drains, finally visible to the person who queued them.
+// Shaping is queue/queue-view.js — shared with the worker, tested with no
+// browser — so this function is markup and clicks only.
+//
+// The counts it produces feed workCounts, which is what the nav badge and the
+// summary strip read. That is why they live in one place: three renderers each
+// setting the badge from their own number is how the badge ends up meaning
+// whichever one finished last.
+const QUEUE_VIEW = self.GT_QUEUE_VIEW;
+
+async function renderQueue(caps) {
+  const block = document.getElementById("queueBlock");
+  if (!block) return;
+  if (!caps || !caps.sellerEnabled) {
+    block.hidden = true;
+    workCounts.queue = 0;
+    return;
+  }
+
+  const list = document.getElementById("queueList");
+  const note = document.getElementById("queueNote");
+  const status = document.getElementById("queueStatus");
+  const runBtn = document.getElementById("queueRunNow");
+  list.textContent = "";
+
+  const res = await send({ type: "GT_QUEUE_STATE" });
+  if (!res || !res.ok) {
+    // Same rule as the delist block: an unanswerable queue is NOT an empty one,
+    // and it must not silently contribute a zero to the badge.
+    const reason = (res && res.reason) || "error";
+    // A seller with no FlipDesk plan cannot have queued anything — that is not
+    // a failure worth a red box, it is simply not their feature.
+    if (reason === "no-plan") {
+      block.hidden = true;
+      workCounts.queue = 0;
+      return;
+    }
+    block.hidden = false;
+    status.textContent = "";
+    runBtn.hidden = true;
+    note.hidden = false;
+    note.textContent = DELIST_REASON[reason] || DELIST_REASON.error;
+    workCounts.queue = 0;
+    return;
+  }
+
+  const rows = QUEUE_VIEW.buildList(res, { now: Date.now(), platformLabels: PLATFORM_LABELS });
+  const counts = QUEUE_VIEW.summarize(rows);
+  workCounts.queue = counts.total;
+
+  if (!rows.length) {
+    block.hidden = true;
+    return;
+  }
+
+  block.hidden = false;
+  status.textContent = QUEUE_VIEW.statusLine(counts);
+
+  // "Run these now" appears only when there is something a click would start.
+  // Offered against a queue of nothing but failed rows it would look like a
+  // retry and do nothing at all, which is worse than not being there.
+  runBtn.hidden = counts.waiting < 1;
+  runBtn.textContent = counts.waiting === 1 ? "Run it now" : "Run these now";
+
+  note.hidden = false;
+  note.textContent = counts.attention
+    ? "GradeThread runs the waiting ones in a background tab. The ones below " +
+      "marked Failed or Expired never reached the marketplace."
+    : "GradeThread runs these in a background tab, one at a time, without " +
+      "taking your focus.";
+
+  for (const row of rows) {
+    const li = document.createElement("li");
+    li.className = "pop-delist" + (row.needsAttention ? " is-attention" : "");
+
+    const left = document.createElement("div");
+    left.className = "pop-delist-body";
+
+    const title = document.createElement("span");
+    title.className = "pop-delist-title";
+    // A `list` job queued from a phone carries no title at all — the row is
+    // an item id and a platform. The verb is the honest headline for it.
+    title.textContent = row.title || (row.kindLabel + " on " + row.platformLabel);
+
+    const meta = document.createElement("span");
+    meta.className = "pop-delist-meta";
+    // No "queued" prefix: the block header already says these are queued, and
+    // the six extra characters were the difference between this line fitting
+    // on a 340px popup and ellipsing away the time — which is the one fact on
+    // it a seller is actually reading for.
+    const bits = [row.kindLabel, row.platformLabel];
+    const ago = row.at === null ? "" : timeAgo(row.at);
+    if (ago) bits.push(ago);
+    meta.textContent = bits.join(" · ");
+    meta.title = meta.textContent;
+
+    left.appendChild(title);
+    left.appendChild(meta);
+    li.appendChild(left);
+
+    // Badge and action in one right-hand group. Appended as two siblings of a
+    // space-between row they landed on different lines once the title wrapped,
+    // so a row read as "Adidas Gazelle OG … Dismiss" over "Cross-post · Vinted
+    // … FAILED" — the state and the button for it a line apart.
+    const right = document.createElement("div");
+    right.className = "pop-delist-actions";
+
+    const badge = document.createElement("span");
+    badge.className = "pop-status " + row.stateClass;
+    badge.textContent = row.stateLabel;
+    right.appendChild(badge);
+
+    if (row.canCancel || row.canDismiss) {
+      const drop = document.createElement("button");
+      drop.type = "button";
+      drop.className = "pop-linkbtn";
+      drop.textContent = row.canCancel ? "Cancel" : "Dismiss";
+      drop.addEventListener("click", async () => {
+        drop.disabled = true;
+        drop.textContent = "…";
+        const out = await send({ type: "GT_QUEUE_CANCEL", id: row.id });
+        if (out && out.ok) {
+          await renderQueue(caps);
+          renderWorkSummary();
+        } else {
+          // Never remove the row on a failed delete. The seller believing a
+          // delist was cancelled when it is still queued is the same class of
+          // wrong as believing it ran.
+          drop.disabled = false;
+          drop.textContent = "Try again";
+        }
+      });
+      right.appendChild(drop);
+    }
+
+    li.appendChild(right);
+    list.appendChild(li);
+
+    // The reason, on its own line, for anything that will not run. A row that
+    // says "Failed" and nothing else is what makes someone uninstall instead
+    // of fixing it.
+    if (row.reason) {
+      const why = document.createElement("li");
+      why.className = "pop-delist-why";
+      why.textContent = row.reason;
+      list.appendChild(why);
+    }
+  }
+}
+
+function wireQueue() {
+  const runBtn = document.getElementById("queueRunNow");
+  const runNote = document.getElementById("queueRunNote");
+  if (!runBtn) return;
+  runBtn.addEventListener("click", async () => {
+    runBtn.disabled = true;
+    const label = runBtn.textContent;
+    runBtn.textContent = "Starting…";
+    await send({ type: "GT_QUEUE_RUN_NOW" });
+    runBtn.disabled = false;
+    runBtn.textContent = label;
+    runNote.hidden = false;
+    // Deliberately not "done". The drain opens a background tab per job and
+    // each one takes as long as the marketplace takes; claiming completion the
+    // moment the click returns is the exact overstatement QUEUED_NOTICE exists
+    // to prevent.
+    runNote.textContent = "Started. Each job opens a background tab — leave the " +
+      "browser open and check back here.";
+    const caps = await send({ type: "GT_GET_CAPABILITIES" });
+    await renderQueue(caps);
+    renderWorkSummary();
+  });
+}
+
+// ── US-3048: one place that owns the seller's outstanding-work counts ───────
+//
+// Three queues, three renderers, one badge. Before this the badge was set by
+// whichever of them ran last, which meant a seller with two pending delists and
+// four failed cross-posts saw "2".
+//
+// `null` is a real value here and is not zero: it means we asked and could not
+// find out. A count nobody could read must not render as the all-clear.
+const workCounts = { delist: 0, queue: 0, revise: 0 };
+
+function renderWorkSummary() {
+  const strip = document.getElementById("workSummary");
+  if (!strip) return;
+  const chips = [
+    ["chipDelist", "chipDelistN", workCounts.delist],
+    ["chipQueue", "chipQueueN", workCounts.queue],
+    ["chipRevise", "chipReviseN", workCounts.revise],
+  ];
+  let total = 0;
+  let anyShown = false;
+  for (const [btnId, numId, n] of chips) {
+    const btn = document.getElementById(btnId);
+    const num = document.getElementById(numId);
+    if (!btn || !num) continue;
+    const count = Number(n) || 0;
+    btn.hidden = count < 1;
+    if (count > 0) {
+      anyShown = true;
+      num.textContent = String(count);
+      total += count;
+    }
+  }
+  const clear = document.getElementById("workSumClear");
+  if (clear) clear.hidden = anyShown;
+  strip.hidden = false;
+  setSellingCount(total);
+}
+
+function wireWorkSummary() {
+  const strip = document.getElementById("workSummary");
+  if (!strip) return;
+  strip.addEventListener("click", (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest(".pop-chip") : null;
+    if (!btn) return;
+    const target = document.getElementById(btn.dataset.target || "");
+    if (!target) return;
+    // The panel scrolls, not the window: on a 340px popup the block a seller
+    // just asked for is routinely four screens down.
+    target.scrollIntoView({ block: "start", behavior: "smooth" });
+  });
 }
 
 // US-1885 AC3: versioned + revocable consent.
@@ -1445,6 +1751,26 @@ function wireProbe() {
   });
 }
 
+// US-3048: the options page, from the popup.
+//
+// runtime.openOptionsPage is the right call and is not universally present
+// (and throws on a browser that has it but no options_ui). The tabs.create
+// fallback opens the same page by URL, which is what the browser's own menu
+// item does anyway.
+function wireOptionsLink() {
+  const btn = document.getElementById("openOptions");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    try {
+      if (ext.runtime && ext.runtime.openOptionsPage) {
+        ext.runtime.openOptionsPage();
+        return;
+      }
+    } catch (_e) { /* fall through to the URL */ }
+    ext.tabs.create({ url: ext.runtime.getURL("options.html") });
+  });
+}
+
 function renderSellerSections(caps) {
   const seller = document.getElementById("sellerSection");
   const locked = document.getElementById("sellerLockedSection");
@@ -1459,10 +1785,18 @@ function renderSellerSections(caps) {
     if (anon) anon.hidden = true;
     renderPlatforms();
     renderLastJob();
-    renderPendingDelists(caps);
-    renderPendingRevises(caps);
-  void renderSyncStatus(caps);
-  void renderPollConsent(caps);
+    // US-3048: the three work queues resolve together and THEN the badge is
+    // written once, from workCounts. Fired-and-forgotten they each finished at
+    // a different moment and the last one to land decided what the badge said —
+    // which is how a seller with two sold items still to end and four failed
+    // cross-posts was shown a "4" that meant neither.
+    void Promise.all([
+      renderPendingDelists(caps),
+      renderQueue(caps),
+      renderPendingRevises(caps),
+    ]).then(renderWorkSummary);
+    void renderSyncStatus(caps);
+    void renderPollConsent(caps);
     renderConsent();
     void renderEngagement();
   } else if (caps && caps.authenticated) {
@@ -1571,8 +1905,11 @@ function applyCapabilities(caps) {
   wireMainTabs();
   wireAccount();
   wireConsent();
-  wireEngagement(); // US-2482
-  wireProbe();      // US-2484
+  wireEngagement();    // US-2482
+  wireProbe();         // US-2484
+  wireQueue();         // US-3048
+  wireWorkSummary();   // US-3048
+  wireOptionsLink();   // US-3048
   wireHistoryTabs();
   // US-2484: rendered UNCONDITIONALLY, not from renderSellerSections.
   //

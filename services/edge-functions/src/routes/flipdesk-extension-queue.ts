@@ -407,13 +407,75 @@ flipdeskExtensionQueueRoutes.get("/", async (c) => {
     return failSafe(c, 500, "Could not load the queue.", error, "flipdesk.queue.list");
   }
 
-  const rows = (data ?? []) as unknown as QueueRow[];
+  const rows = await withItemTitles(ownerId, (data ?? []) as unknown as QueueRow[]);
   return c.json({
     pending: rows.filter((r) => r.status === "queued" || r.status === "claimed"),
     // Surfaced separately so a client cannot render them as "still coming".
     needsAttention: rows.filter((r) => r.status === "expired" || r.status === "failed"),
   });
 });
+
+/**
+ * Name the rows (US-3048).
+ *
+ * A queue row is an instruction, not a description: a `list` job queued from a
+ * phone is a kind, a platform and an inventory item id, and nothing more. That
+ * is right for the drain, which only needs to know what to do — and useless to
+ * a human, who gets "Cross-post to Poshmark" four times over and cannot tell
+ * which of the four is the one they want to cancel.
+ *
+ * Joined HERE and not in SELECT_COLS on purpose. `/claim` shares those columns
+ * and has no use for a title; widening the drain's payload to serve a screen it
+ * never renders is how a hot path grows a cost nobody can later account for.
+ *
+ * Two lookups, both owner-scoped (US-268), both non-fatal: a title is a nicety
+ * and a failed lookup must never take down the queue view, which is the thing
+ * that tells a seller their delist never ran.
+ */
+async function withItemTitles(
+  ownerId: string,
+  rows: QueueRow[],
+): Promise<(QueueRow & { item_title?: string | null })[]> {
+  if (rows.length === 0) return rows;
+
+  const itemIds = [...new Set(rows.map((r) => r.inventory_item_id).filter(Boolean))] as string[];
+  const listingIds = [...new Set(rows.map((r) => r.listing_id).filter(Boolean))] as string[];
+
+  const titles = new Map<string, string>();
+
+  if (itemIds.length > 0) {
+    const { data } = await supabaseAdmin
+      .from("inventory_items")
+      .select("id, title")
+      .eq("user_id", ownerId) // US-268
+      .in("id", itemIds);
+    for (const r of (data ?? []) as { id: string; title: string | null }[]) {
+      if (r.title) titles.set("i:" + r.id, r.title);
+    }
+  }
+
+  if (listingIds.length > 0) {
+    const { data } = await supabaseAdmin
+      .from("listings")
+      .select("id, listing_title")
+      .eq("user_id", ownerId) // US-268
+      .in("id", listingIds);
+    for (const r of (data ?? []) as { id: string; listing_title: string | null }[]) {
+      if (r.listing_title) titles.set("l:" + r.id, r.listing_title);
+    }
+  }
+
+  return rows.map((r) => ({
+    ...r,
+    // The item's own title wins over the listing's: a listing title is written
+    // for a marketplace's search box and is routinely 80 characters of keywords,
+    // which is not what a seller scanning their own queue is looking for.
+    item_title:
+      (r.inventory_item_id ? titles.get("i:" + r.inventory_item_id) : null) ??
+      (r.listing_id ? titles.get("l:" + r.listing_id) : null) ??
+      null,
+  }));
+}
 
 // POST /claim — the desktop extension takes the next batch.
 //
