@@ -147,8 +147,8 @@ describe("normalize", () => {
   it("copies entries into the document rather than aliasing them", () => {
     const entries = [{ id: "grading.usage", size: "lg" as const }];
     const document = layoutDocument(entries);
-    entries[0].id = "grading.impact";
-    expect(document.widgets[0].id).toBe("grading.usage");
+    entries[0]!.id = "grading.impact";
+    expect(document.widgets[0]?.id).toBe("grading.usage");
   });
 });
 

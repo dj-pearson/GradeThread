@@ -87,8 +87,8 @@ describe("dashboard widget registry", () => {
 
   it("returns a fresh copy from defaultLayoutFor so callers cannot edit the shipped default", () => {
     const first = defaultLayoutFor("grading", "seller");
-    first[0].size = "sm";
-    expect(defaultLayoutFor("grading", "seller")[0].size).toBe("lg");
+    first[0]!.size = "sm";
+    expect(defaultLayoutFor("grading", "seller")[0]?.size).toBe("lg");
   });
 
   it("splits the registry by surface", () => {
