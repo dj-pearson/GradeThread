@@ -113,7 +113,7 @@ kbd {
 }
 .pop-logo { width: 30px; height: 30px; border-radius: 8px; flex: 0 0 auto; }
 .pop-head-text { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
-.pop-brand { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
+.pop-brand { margin: 0; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; line-height: 1.2; }
 .pop-sub { font-size: 11px; color: #b9cdf0; margin-top: 1px; }
 /* The account chip. A signed-out install reads "Sign in", a signed-in one its
    plan, and the chip is a button either way: on the popup's first screen the
@@ -154,12 +154,11 @@ kbd {
    A white tab bar under the navy header. Distinct from .pop-tabs (Recent
    reads / By seller), which is a two-item switch INSIDE the Reads panel. */
 .pop-nav {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
   background: var(--surface);
   border-bottom: 1px solid var(--line);
   padding: 0 8px;
 }
+.pop-nav-list { display: grid; grid-template-columns: repeat(3, 1fr); }
 .pop-navtab {
   appearance: none;
   background: none;

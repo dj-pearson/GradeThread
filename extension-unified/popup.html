@@ -13,10 +13,10 @@
     <header class="pop-head">
       <img src="icons/icon48.png" alt="" class="pop-logo" />
       <div class="pop-head-text">
-        <span class="pop-brand">GradeThread</span>
+        <h1 class="pop-brand">GradeThread</h1>
         <span class="pop-sub" id="roleSub">Condition Check</span>
       </div>
-      <button type="button" class="pop-headacct" id="headAcct" data-state="anon" title="Account">
+      <button type="button" class="pop-headacct" id="headAcct" data-state="anon" aria-label="Account: sign in">
         <span class="pop-headacct-dot" id="headAcctDot" aria-hidden="true"></span>
         <span id="headAcctLabel">Sign in</span>
       </button>
@@ -29,24 +29,24 @@
          The count on Selling is the sum of outstanding seller work. It is the
          one number in here that is time-critical: every hour a sold item's
          sibling stays live is an hour it can sell twice. -->
-    <nav class="pop-nav" role="tablist" aria-label="Sections">
+    <nav class="pop-nav" aria-label="Sections"><div class="pop-nav-list" role="tablist">
       <button type="button" class="pop-navtab is-on" id="navReads" role="tab" aria-selected="true" aria-controls="panelReads">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
         Reads
       </button>
-      <button type="button" class="pop-navtab" id="navSelling" role="tab" aria-selected="false" aria-controls="panelSelling">
+      <button type="button" class="pop-navtab" id="navSelling" role="tab" aria-selected="false" aria-controls="panelSelling" tabindex="-1">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>
         Selling<span class="pop-navcount" id="navSellingCount" hidden></span>
       </button>
-      <button type="button" class="pop-navtab" id="navSettings" role="tab" aria-selected="false" aria-controls="panelSettings">
+      <button type="button" class="pop-navtab" id="navSettings" role="tab" aria-selected="false" aria-controls="panelSettings" tabindex="-1">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></svg>
         Settings
       </button>
-    </nav>
+    </div></nav>
 
     <main class="pop-body">
       <!-- ══ READS ══════════════════════════════════════════════════════════ -->
-      <div class="pop-panel" id="panelReads" role="tabpanel" aria-labelledby="navReads">
+      <div class="pop-panel" id="panelReads" role="tabpanel" aria-labelledby="navReads" tabindex="-1">
         <section class="pop-section">
           <!-- The site card says WHERE the shopper is and what the button
                below will do there, so a disabled button reads as "not on this
@@ -86,7 +86,7 @@
               <span class="pop-lastjob-when" id="flipWhen"></span>
             </div>
             <dl class="pop-flip-rows" id="flipRows"></dl>
-            <p class="pop-hint" id="flipNote" hidden></p>
+            <p class="pop-hint" id="flipNote" aria-live="polite" hidden></p>
             <div class="pop-btn-row">
               <button class="pop-linkbtn" id="flipOpen" type="button">Open the full panel on the page</button>
               <button class="pop-linkbtn quiet" id="flipRecheck" type="button">Re-check</button>
@@ -123,11 +123,12 @@
             </div>
           </div>
           <div class="pop-section-head">
-            <div class="pop-tabs" role="tablist">
-              <button type="button" class="pop-tab is-on" id="tabReads" role="tab" aria-selected="true">Recent reads</button>
-              <button type="button" class="pop-tab" id="tabSellers" role="tab" aria-selected="false">By seller</button>
+            <div class="pop-tabs" role="tablist" aria-label="Read history">
+              <button type="button" class="pop-tab is-on" id="tabReads" role="tab" aria-selected="true" aria-controls="historyPanel">Recent reads</button>
+              <button type="button" class="pop-tab" id="tabSellers" role="tab" aria-selected="false" aria-controls="historyPanel" tabindex="-1">By seller</button>
             </div>
           </div>
+          <div id="historyPanel" role="tabpanel" aria-labelledby="tabReads" tabindex="-1">
           <ul class="pop-reads" id="reads">
             <li class="pop-empty">No reads yet. Open a listing and get a condition read. It will show up here with its grade.</li>
           </ul>
@@ -138,6 +139,7 @@
             Worked out from your own reads on this device. Nothing about a seller is
             ever sent to GradeThread.
           </p>
+          </div>
           <!-- US-2240: the compare tray's door. Shown only when something is
                pinned; an "Open compare (0)" is a dead door. -->
           <button type="button" class="pop-compare" id="openCompare" hidden>
@@ -152,7 +154,7 @@
       </div>
 
       <!-- ══ SELLING ════════════════════════════════════════════════════════ -->
-      <div class="pop-panel" id="panelSelling" role="tabpanel" aria-labelledby="navSelling" hidden>
+      <div class="pop-panel" id="panelSelling" role="tabpanel" aria-labelledby="navSelling" tabindex="-1" hidden>
       <!-- While entitlements resolve. Removed by renderSellerSections. -->
       <section class="pop-section" id="sellerLoading">
         <div class="pop-skel" aria-hidden="true">
@@ -213,7 +215,7 @@
         <div class="pop-delists" id="queueBlock" hidden>
           <div class="pop-lastjob-head">
             <span class="pop-lastjob-label">Cross-listing queue</span>
-            <span class="pop-lastjob-when" id="queueStatus"></span>
+            <span class="pop-lastjob-when" id="queueStatus" aria-live="polite"></span>
           </div>
           <p class="pop-delist-note" id="queueNote" hidden></p>
           <ul class="pop-delist-list" id="queueList"></ul>
@@ -223,7 +225,7 @@
             <button class="pop-btn danger" id="queueClearFailed" type="button" hidden>Clear failed</button>
             <button class="pop-linkbtn quiet" id="queueCancelAll" type="button" hidden>Cancel all waiting</button>
           </div>
-          <p class="pop-meter-note" id="queueRunNote" hidden></p>
+          <p class="pop-meter-note" id="queueRunNote" aria-live="polite" hidden></p>
         </div>
 
         <!-- US-9202: edits made in FlipDesk that are waiting to reach an
@@ -257,7 +259,7 @@
             <span class="pop-lastjob-label">Sold-sync</span>
             <button type="button" class="pop-linkbtn" id="syncNowBtn">Sync now</button>
           </div>
-          <p class="pop-delist-note" id="syncNote" hidden></p>
+          <p class="pop-delist-note" id="syncNote" aria-live="polite" hidden></p>
           <ul class="pop-delist-list" id="syncList"></ul>
         </div>
 
@@ -356,7 +358,7 @@
               <button class="pop-cta" id="engageStart" type="button">Start run</button>
               <button class="pop-linkbtn" id="engageStop" type="button" hidden>Stop run</button>
             </div>
-            <p class="pop-meter-note" id="engageRunStatus"></p>
+            <p class="pop-meter-note" id="engageRunStatus" aria-live="polite"></p>
           </div>
 
           <button class="pop-linkbtn quiet" id="engageRevoke" type="button" hidden>
@@ -424,7 +426,7 @@
       </div>
 
       <!-- ══ SETTINGS ═══════════════════════════════════════════════════════ -->
-      <div class="pop-panel" id="panelSettings" role="tabpanel" aria-labelledby="navSettings" hidden>
+      <div class="pop-panel" id="panelSettings" role="tabpanel" aria-labelledby="navSettings" tabindex="-1" hidden>
         <!-- Account / sign-in -->
         <section class="pop-section pop-account" id="accountSection">
           <div class="pop-acct-row">
@@ -541,7 +543,7 @@
                   Watch the page for 60s
                 </button>
               </div>
-              <p class="pop-probe-verdict" id="probeVerdict" hidden></p>
+              <p class="pop-probe-verdict" id="probeVerdict" aria-live="polite" hidden></p>
               <pre class="pop-probe-out" id="probeOut" hidden></pre>
               <button class="pop-linkbtn" id="probeCopy" type="button" hidden>
                 Copy report

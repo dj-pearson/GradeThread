@@ -214,14 +214,14 @@ function renderAccount(caps) {
       badges.appendChild(seller);
       summary.textContent = "Buyer research + seller Lister are unlocked.";
       roleSub.textContent = "Seller";
-      if (chip) chip.dataset.state = "seller";
+      if (chip) { chip.dataset.state = "seller"; chip.setAttribute("aria-label", "Account: FlipDesk " + titlePlan(caps.flipdeskPlan) + ", open settings"); }
       if (chipLabel) chipLabel.textContent = "FlipDesk " + titlePlan(caps.flipdeskPlan);
       if (chipDot) chipDot.textContent = "S";
       if (avatar) avatar.textContent = "S";
     } else {
       summary.textContent = "Buyer research is unlocked. Add FlipDesk for seller tools.";
       roleSub.textContent = "Buyer";
-      if (chip) chip.dataset.state = "buyer";
+      if (chip) { chip.dataset.state = "buyer"; chip.setAttribute("aria-label", "Account: " + titlePlan(caps.buyerPlan) + " plan, open settings"); }
       if (chipLabel) chipLabel.textContent = titlePlan(caps.buyerPlan) + " plan";
       if (chipDot) chipDot.textContent = "B";
       if (avatar) avatar.textContent = "B";
@@ -233,7 +233,7 @@ function renderAccount(caps) {
     summary.textContent =
       "Buyer research works right now, no account needed. Sign in to raise your read limit; add FlipDesk to cross-post as a seller.";
     roleSub.textContent = "Condition Check";
-    if (chip) chip.dataset.state = "anon";
+    if (chip) { chip.dataset.state = "anon"; chip.setAttribute("aria-label", "Account: sign in"); }
     if (chipLabel) chipLabel.textContent = "Sign in";
     if (chipDot) chipDot.textContent = "";
     if (avatar) avatar.textContent = "?";
@@ -626,10 +626,13 @@ function wireHistoryTabs() {
     tabSellers.classList.toggle("is-on", onSellers);
     tabReads.setAttribute("aria-selected", String(!onSellers));
     tabSellers.setAttribute("aria-selected", String(onSellers));
+    tabReads.tabIndex = onSellers ? -1 : 0; // US-3053: roving tabindex
+    tabSellers.tabIndex = onSellers ? 0 : -1;
+    const panel = document.getElementById("historyPanel");
+    if (panel) panel.setAttribute("aria-labelledby", onSellers ? "tabSellers" : "tabReads");
   }
 
-  tabReads.addEventListener("click", () => show("reads"));
-  tabSellers.addEventListener("click", async () => {
+  async function openSellers() {
     // Rendered on first open rather than at boot: it groups the whole read
     // history, and the popup should paint before doing that work.
     if (!sellersRendered) {
@@ -637,6 +640,13 @@ function wireHistoryTabs() {
       sellersRendered = true;
     }
     show("sellers");
+  }
+
+  tabReads.addEventListener("click", () => show("reads"));
+  tabSellers.addEventListener("click", () => { void openSellers(); });
+  wireTablistKeys([tabReads, tabSellers], (btn) => {
+    if (btn === tabSellers) void openSellers();
+    else show("reads");
   });
 }
 
@@ -662,19 +672,65 @@ function selectTab(name) {
     const on = t === name;
     btn.classList.toggle("is-on", on);
     btn.setAttribute("aria-selected", on ? "true" : "false");
+    // US-3053: roving tabindex — one tab stop for the strip, arrows move
+    // inside it (wireTablistKeys). Tab from the strip lands on the panel.
+    btn.tabIndex = on ? 0 : -1;
     panel.hidden = !on;
   }
 }
 
+// US-3053: Left/Right/Home/End across a role=tablist, per the ARIA pattern.
+// `tabs` is the ordered list of tab buttons; `activate` selects one. Focus
+// follows selection (the popup's panels are cheap to switch), so a reader
+// hears the new tab and its panel in one move.
+function wireTablistKeys(tabs, activate) {
+  const list = tabs.filter(Boolean);
+  for (const tab of list) {
+    tab.addEventListener("keydown", (e) => {
+      const i = list.indexOf(tab);
+      let next = -1;
+      if (e.key === "ArrowRight") next = (i + 1) % list.length;
+      else if (e.key === "ArrowLeft") next = (i - 1 + list.length) % list.length;
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = list.length - 1;
+      if (next < 0) return;
+      e.preventDefault();
+      activate(list[next]);
+      list[next].focus();
+    });
+  }
+}
+
 function wireMainTabs() {
+  const tabs = [];
   for (const t of TABS) {
     const btn = document.getElementById("nav" + t);
     if (!btn) continue;
+    tabs.push(btn);
     btn.addEventListener("click", () => {
       userPicked = true;
       selectTab(t);
     });
   }
+  wireTablistKeys(tabs, (btn) => {
+    userPicked = true;
+    selectTab(btn.id.replace(/^nav/, ""));
+  });
+}
+
+// US-3053: after a re-render replaced the controls a click was on, move focus
+// to the nearest surviving control in the same card, or the card itself. A
+// re-render that drops focus to <body> throws a keyboard user back to the top
+// of a popup they were four screens into.
+function refocusIn(cardId) {
+  const card = document.getElementById(cardId);
+  if (!card || card.hidden) {
+    const panel = document.getElementById("panelSelling");
+    if (panel && !panel.hidden) { try { panel.focus(); } catch (_e) { /* not focusable */ } }
+    return;
+  }
+  const target = card.querySelector("button:not([hidden]):not(:disabled), a[href]") || card;
+  try { target.focus(); } catch (_e) { /* focus may be denied — harmless */ }
 }
 
 /** Open on the tab this person came for. Never overrides a manual choice. */
@@ -1421,6 +1477,7 @@ function renderQueueRow(list, row, caps) {
       if (out && out.ok) {
         await renderQueue(caps);
         renderWorkSummary();
+        refocusIn("queueBlock"); // US-3053
       } else {
         retry.disabled = false;
         retry.textContent = "Try again";
@@ -1441,6 +1498,7 @@ function renderQueueRow(list, row, caps) {
       if (out && out.ok) {
         await renderQueue(caps);
         renderWorkSummary();
+        refocusIn("queueBlock"); // US-3053
       } else {
         // Never remove the row on a failed delete. The seller believing a
         // delist was cancelled when it is still queued is the same class of
@@ -1513,6 +1571,7 @@ function wireQueue() {
     const caps = await send({ type: "GT_GET_CAPABILITIES" });
     await renderQueue(caps);
     renderWorkSummary();
+    refocusIn("queueBlock"); // US-3053
   }
 
   const retryAll = document.getElementById("queueRetryAll");

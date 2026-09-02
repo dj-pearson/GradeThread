@@ -44370,6 +44370,20 @@
       ],
       "priority": 13,
       "notes": "Done 2026-09-02. Popup Reads tab gets a Should I flip this? button, shown only for a seller-enabled account on a supported listing (renderFlip hides it otherwise; runFlipFromPopup returns on a non-seller map before even asking the tab; the worker's appraiseListing gate is unchanged). It asks the content script for the listing fields over a new GT_CC_FLIP_CONTEXT message (URL snapshotted first, per the US-1878 epoch guard) and sends the same GT_CC_APPRAISE the overlay sends. The popup renders the verdict pill (buy/maybe/pass), resale range, margin after fees, break-even and sell-through from FLIP.panelFor, the reason line, and offers Open the full panel on the page (runs the read on the page, which carries the flip section) and Re-check. The last verdict per listing is cached on-device in storage.local flipCacheByUrl (flip-format.js cacheKey strips hash and tracking params, cacheFresh follows the 30-day grade TTL, cachePut caps at 50) and shown on reopen with its age; nothing new is written server-side. flip-format.test.cjs pins the cache helpers, the ids, the script order, that every GT_CC_APPRAISE send sits behind the seller check, and the worker gate. 47 extension files pass, eslint clean, popup-theme 6 pass."
+    },
+    {
+      "id": "US-3053",
+      "passes": true,
+      "title": "Extension revision: keyboard and screen-reader pass on the popup",
+      "description": "Found in the 2026-09-02 extension deep dive. The redesigned popup has two role=tablist strips and neither handles arrow keys; the queue status line, the run note and the bulk-action outcome change without an aria-live region; a re-render after Retry or Cancel drops focus to body; and the grade ring is announced only through an aria-label on a span inside a link.",
+      "acceptanceCriteria": [
+        "Both tablists support Left/Right/Home/End with roving tabindex, and the panels carry aria-labelledby (already) plus tabindex=-1 so focus can land on them.",
+        "queueStatus, queueRunNote, syncNote and the engagement run status are aria-live=polite regions; a bulk action announces its outcome.",
+        "After Retry, Cancel, Dismiss or a bulk action re-renders the list, focus moves to the nearest surviving control in the same card rather than to body.",
+        "A Playwright + axe-core scan over the popup in the three fixture states (anon, buyer, seller-with-work) reports zero serious or critical violations, and the scan is runnable with one command documented in extension-unified/TESTING.md."
+      ],
+      "priority": 14,
+      "notes": "Done 2026-09-02. Both tablists (Reads/Selling/Settings and Recent reads/By seller) use roving tabindex with Left/Right/Home/End (wireTablistKeys), the tablist role moved inside the <nav> so the nav keeps its landmark, the brand is the h1, every panel carries tabindex=-1 and the history lists sit in one tabpanel whose aria-labelledby follows the switch (so the <li>s stay in a real list). queueStatus, queueRunNote, syncNote, engageRunStatus, flipNote and probeVerdict are aria-live=polite; bulk actions write their outcome into queueRunNote. refocusIn hands focus back into the queue card after Retry, Cancel, Dismiss and every bulk action. The header chip has a state-aware aria-label. scripts/extension-a11y.mjs renders popup.html with scripts/lib/extension-stub.mjs (a chrome.* stub over three fixtures that THROWS on an unknown message) and runs axe-core on all three tabs in all three states: zero serious or critical (it found and I fixed a listitem violation and a landmark miss on the way). Documented in TESTING.md 4b. test/popup-a11y.test.cjs pins the ARIA wiring, keys, live regions, refocus and the scan's existence. 48 extension files pass, eslint clean (including the two new scripts), popup-theme 6 pass."
     }
   ]
 }
