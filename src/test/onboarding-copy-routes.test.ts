@@ -34,7 +34,10 @@ const ONBOARDING_FILES = [
   // and the FlipDesk surface render from this one step list, so this is the
   // file that has to be right.
   "src/lib/activation-steps.ts",
-  "src/pages/dashboard.tsx",
+  // US-3075: the dashboard page names no destinations any more. The quick
+  // actions and the Discover cards moved off it onto the widget board, and
+  // both lists live here.
+  "src/lib/dashboard-persona-cards.ts",
 ];
 
 const routesSrc = read(ROUTES_FILE);

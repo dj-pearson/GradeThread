@@ -385,8 +385,14 @@ export function CustomizableWidgetBoard({
   );
 
   const catalog = useMemo(
-    () => addableWidgets(draft ?? saved.layout, saved.registry, saved.persona),
-    [draft, saved.layout, saved.registry, saved.persona],
+    () =>
+      addableWidgets(
+        draft ?? saved.layout,
+        saved.registry,
+        saved.persona,
+        saved.context,
+      ),
+    [draft, saved.layout, saved.registry, saved.persona, saved.context],
   );
 
   const startEditing = useCallback(() => {
@@ -445,9 +451,9 @@ export function CustomizableWidgetBoard({
       destructive: true,
     });
     if (!ok) return;
-    setDraft(resetLayout(saved.registry, saved.persona));
+    setDraft(resetLayout(saved.registry, saved.persona, saved.context));
     track("dashboard_layout_reset", { surface });
-  }, [confirm, saved.registry, saved.persona, surface]);
+  }, [confirm, saved.registry, saved.persona, saved.context, surface]);
 
   const handleDone = useCallback(() => {
     if (!draft) return;

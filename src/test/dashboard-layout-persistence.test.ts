@@ -26,7 +26,9 @@ describe("dashboard layout persistence", () => {
   });
 
   it("resolves a read error to a layout rather than an error state", () => {
-    expect(HOOK).toContain("if (error) return fallbackLayout(surface, registry, persona);");
+    expect(HOOK).toContain(
+      "if (error) return fallbackLayout(surface, registry, persona, {});",
+    );
     // The one place that rethrows is the SAVE, which must fail loudly. It has
     // to sit after mutationFn, i.e. below the read.
     const thrown = HOOK.indexOf("if (error) throw error;");

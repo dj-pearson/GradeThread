@@ -27,11 +27,25 @@ import {
 // The component only holds the draft these produce.
 
 const registry = widgetsForSurface("grading");
-const sellerDefault = defaultLayoutFor("grading", "seller");
 
-/** The four-widget seller board, which every action here starts from. */
+// A FIXED four-widget board, not the shipped seller default.
+//
+// It WAS defaultLayoutFor("grading", "seller"), and US-3075 growing that
+// default from four widgets to thirteen broke eleven assertions here that are
+// about arrayMove and nothing else. What a reducer does to a list is not a
+// claim about which list ships. Which list ships has its own tests:
+// dashboard-widget-registry, dashboard-own-data-first and
+// dashboard-board-order.
+const startingBoard: readonly LayoutEntry[] = [
+  { id: "grading.usage", size: "lg" },
+  { id: "grading.charts", size: "lg" },
+  { id: "grading.impact", size: "md" },
+  { id: "grading.invite", size: "md" },
+];
+
+/** The four-widget board every action here starts from. */
 function board(): LayoutEntry[] {
-  return sellerDefault.map((e) => ({ ...e }));
+  return startingBoard.map((e) => ({ ...e }));
 }
 
 function ids(entries: readonly LayoutEntry[]): string[] {
@@ -121,18 +135,18 @@ describe("moveWidget (drag drop)", () => {
 
   it("is a no-op when a widget is dropped on itself", () => {
     const next = moveWidget(board(), "grading.usage", "grading.usage");
-    expect(next).toEqual(sellerDefault);
+    expect(next).toEqual(startingBoard);
   });
 
   it("is a no-op when either id is not on the board", () => {
-    expect(moveWidget(board(), "grading.nope", "grading.usage")).toEqual(sellerDefault);
-    expect(moveWidget(board(), "grading.usage", "grading.nope")).toEqual(sellerDefault);
+    expect(moveWidget(board(), "grading.nope", "grading.usage")).toEqual(startingBoard);
+    expect(moveWidget(board(), "grading.usage", "grading.nope")).toEqual(startingBoard);
   });
 
   it("does not mutate the layout it was given", () => {
     const before = board();
     moveWidget(before, "grading.invite", "grading.usage");
-    expect(before).toEqual(sellerDefault);
+    expect(before).toEqual(startingBoard);
   });
 });
 
@@ -156,15 +170,15 @@ describe("moveWidgetBy (the narrow-screen buttons)", () => {
   });
 
   it("does not wrap off the top", () => {
-    expect(moveWidgetBy(board(), "grading.usage", -1)).toEqual(sellerDefault);
+    expect(moveWidgetBy(board(), "grading.usage", -1)).toEqual(startingBoard);
   });
 
   it("does not wrap off the bottom", () => {
-    expect(moveWidgetBy(board(), "grading.invite", 1)).toEqual(sellerDefault);
+    expect(moveWidgetBy(board(), "grading.invite", 1)).toEqual(startingBoard);
   });
 
   it("is a no-op for a widget that is not on the board", () => {
-    expect(moveWidgetBy(board(), "grading.nope", 1)).toEqual(sellerDefault);
+    expect(moveWidgetBy(board(), "grading.nope", 1)).toEqual(startingBoard);
   });
 });
 
@@ -177,7 +191,7 @@ describe("resizeWidget", () => {
   it("leaves every other widget alone", () => {
     const next = resizeWidget(board(), "grading.impact", "sm", registry);
     expect(sizeOf(next, "grading.usage")).toBe("lg");
-    expect(ids(next)).toEqual(ids(sellerDefault));
+    expect(ids(next)).toEqual(ids(startingBoard));
   });
 
   // AC5 names this one explicitly. normalize() CLAMPS a disallowed size, because
@@ -185,20 +199,20 @@ describe("resizeWidget", () => {
   // showing a size the seller did not pick reads as the control being broken.
   it("is a NO-OP for a size the widget does not allow, not a clamp", () => {
     const next = resizeWidget(board(), "grading.charts", "sm", registry);
-    expect(next).toEqual(sellerDefault);
+    expect(next).toEqual(startingBoard);
     expect(sizeOf(next, "grading.charts")).toBe("lg");
   });
 
   it("is a no-op for a second disallowed size on a different widget", () => {
     // grading.usage allows md and lg only.
     expect(resizeWidget(board(), "grading.usage", "sm", registry)).toEqual(
-      sellerDefault,
+      startingBoard,
     );
   });
 
   it("is a no-op for an id the registry does not know", () => {
     expect(resizeWidget(board(), "grading.nope", "sm", registry)).toEqual(
-      sellerDefault,
+      startingBoard,
     );
   });
 
@@ -218,13 +232,13 @@ describe("hideWidget", () => {
   });
 
   it("is a no-op for a widget that is not there", () => {
-    expect(hideWidget(board(), "grading.nope")).toEqual(sellerDefault);
+    expect(hideWidget(board(), "grading.nope")).toEqual(startingBoard);
   });
 
   // The normalizer honors an empty widget list, so hiding everything has to be
   // reachable or Hide would look broken on the last card.
   it("can empty the board", () => {
-    const empty = sellerDefault.reduce<LayoutEntry[]>(
+    const empty = startingBoard.reduce<LayoutEntry[]>(
       (acc, entry) => hideWidget(acc, entry.id),
       board(),
     );
@@ -246,18 +260,20 @@ describe("addWidget", () => {
   });
 
   it("is a no-op when the widget is already on the board", () => {
-    expect(addWidget(board(), "grading.usage", registry)).toEqual(sellerDefault);
+    expect(addWidget(board(), "grading.usage", registry)).toEqual(startingBoard);
   });
 
   it("is a no-op for an id the registry does not know", () => {
-    expect(addWidget(board(), "grading.nope", registry)).toEqual(sellerDefault);
+    expect(addWidget(board(), "grading.nope", registry)).toEqual(startingBoard);
   });
 });
 
 describe("resetLayout", () => {
   it("restores the persona default", () => {
     const wrecked = hideWidget(moveWidgetBy(board(), "grading.invite", -1), "grading.usage");
-    expect(resetLayout(registry, "seller")).toEqual(sellerDefault);
+    expect(resetLayout(registry, "seller")).toEqual(
+      defaultLayoutFor("grading", "seller"),
+    );
     expect(resetLayout(registry, "seller")).not.toEqual(wrecked);
   });
 
@@ -267,22 +283,29 @@ describe("resetLayout", () => {
 
   it("gives a buyer the buyer default, not the seller one", () => {
     expect(ids(resetLayout(registry, "buyer"))).toEqual([
-      "grading.impact",
+      "grading.quick-actions",
+      "grading.discover",
       "grading.invite",
     ]);
+    expect(ids(resetLayout(registry, "buyer"))).not.toEqual(
+      ids(defaultLayoutFor("grading", "seller")),
+    );
   });
 });
 
 describe("addableWidgets (the Add sheet's list)", () => {
-  it("offers only what is not already on the board", () => {
+  it("offers what is not already on the board and nothing that is", () => {
     const trimmed = hideWidget(board(), "grading.impact");
-    expect(addableWidgets(trimmed, registry, "seller").map((w) => w.id)).toEqual([
-      "grading.impact",
-    ]);
+    const offered = addableWidgets(trimmed, registry, "seller").map((w) => w.id);
+    expect(offered).toContain("grading.impact");
+    for (const entry of trimmed) expect(offered).not.toContain(entry.id);
   });
 
   it("offers nothing when every widget is on the board", () => {
-    expect(addableWidgets(board(), registry, "seller")).toEqual([]);
+    const everything = registry
+      .filter((w) => w.personas.includes("seller"))
+      .map((w) => ({ id: w.id, size: w.defaultSize }));
+    expect(addableWidgets(everything, registry, "seller")).toEqual([]);
   });
 
   // AC3. A buyer has no FlipDesk surface, so a flipdesk.* card would query data

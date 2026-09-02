@@ -20,6 +20,8 @@ import {
 
 const ROOT = process.cwd();
 const read = (p: string) => readFileSync(resolve(ROOT, p), "utf8");
+// US-3075: the grading overview renders its widgets from this registry.
+const REGISTRY = "src/lib/dashboard-widgets.ts";
 
 describe("the step list is one module (US-2859)", () => {
   it("the retired checklists are gone, not merely unused", () => {
@@ -66,7 +68,10 @@ describe("the step list is one module (US-2859)", () => {
   it("both surfaces render the one component", () => {
     // dashboard = the full list with progress; FlipDesk = the same list
     // filtered to what is left. A filter, not a second list.
-    expect(read("src/pages/dashboard.tsx")).toContain("<ActivationChecklist />");
+    // US-3075: the grading overview renders from the widget registry, so the
+    // dashboard "renders the checklist" by registering it - with no props,
+    // which is the half that matters (see the persona guard below).
+    expect(read(REGISTRY)).toContain("m.ActivationChecklist");
     const flipdesk = read("src/components/onboarding/flipdesk-activation.tsx");
     expect(flipdesk).toContain('<ActivationChecklist variant="remaining" />');
     expect(
@@ -77,7 +82,7 @@ describe("the step list is one module (US-2859)", () => {
   });
 
   it("the dashboard no longer carries a second first-run card", () => {
-    const dash = read("src/pages/dashboard.tsx");
+    const dash = read("src/pages/dashboard.tsx") + read(REGISTRY);
     expect(
       dash.includes("firstRunFor"),
       "the persona first-run card is back. Its content is the buyer persona's " +
@@ -96,6 +101,7 @@ describe("the step list is one module (US-2859)", () => {
       "src/components/onboarding/activation-checklist.tsx",
       "src/components/onboarding/flipdesk-activation.tsx",
       "src/pages/dashboard.tsx",
+      REGISTRY,
     ]) {
       // Comments stripped first. flipdesk-activation.tsx explains, in prose,
       // that the checklist it replaced wrote this flag — and a guard that
