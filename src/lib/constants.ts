@@ -694,6 +694,12 @@ export const CREATOR_AFFILIATE = {
    * paid invoice can actually be reversed in.
    */
   holdDays: 60,
+  /**
+   * The version of vault/50-business/creator-affiliate-terms.md a creator
+   * accepts. Recorded on the account row, so a later revision can tell who
+   * agreed to which text. Change the note and this string together.
+   */
+  termsVersion: "2026-09-01",
 } as const;
 
 // No FLIPDESK_UPGRADE_TRIGGERS here, and vault/50-business/pricing.md no longer

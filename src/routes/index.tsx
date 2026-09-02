@@ -98,6 +98,7 @@ const HowItWorksPage = lazy(() => import("@/pages/marketing/how-it-works").then(
 const PricingPage = lazy(() => import("@/pages/marketing/pricing").then(m => ({ default: m.PricingPage })));
 const ForResellersPage = lazy(() => import("@/pages/marketing/for-resellers").then(m => ({ default: m.ForResellersPage })));
 const FlipDeskPage = lazy(() => import("@/pages/marketing/flipdesk").then(m => ({ default: m.FlipDeskPage })));
+const PartnersPage = lazy(() => import("@/pages/marketing/partners").then(m => ({ default: m.PartnersPage })));
 const FlipdeskLandingPage = lazy(() => import("@/pages/marketing/flipdesk-landing").then(m => ({ default: m.FlipdeskLandingPage })));
 const ResellingPillarPage = lazy(() => import("@/pages/marketing/reselling").then(m => ({ default: m.ResellingPillarPage })));
 const ResellingGuidePage = lazy(() => import("@/pages/marketing/reselling").then(m => ({ default: m.ResellingGuidePage })));
@@ -356,6 +357,9 @@ export const router = createBrowserRouter([
       { path: "/pricing", element: <SuspenseWrapper><PricingPage /></SuspenseWrapper> },
       { path: "/for-resellers", element: <SuspenseWrapper><ForResellersPage /></SuspenseWrapper> },
       { path: "/flipdesk", element: <SuspenseWrapper><FlipDeskPage /></SuspenseWrapper> },
+      // US-9212: the creator programme (cash), separate from the seller
+      // referral link. Public so a creator can read the terms before applying.
+      { path: "/partners", element: <SuspenseWrapper><PartnersPage /></SuspenseWrapper> },
       // US-1675/1676: FlipDesk conversion landing pages (one data-driven page).
       { path: "/flipdesk/inventory-management", element: <SuspenseWrapper><FlipdeskLandingPage /></SuspenseWrapper> },
       { path: "/flipdesk/autolister", element: <SuspenseWrapper><FlipdeskLandingPage /></SuspenseWrapper> },

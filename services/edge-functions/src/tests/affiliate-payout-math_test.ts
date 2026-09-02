@@ -18,6 +18,8 @@ import {
   isWithinCommissionWindow,
   CREATOR_COMMISSION_MIN_PCT,
   CREATOR_COMMISSION_MAX_PCT,
+  normalizeAffiliateProgram,
+  planSubscriptionAccrual,
 } from "../lib/affiliate-payout-math.ts";
 
 const active: AffiliatePayoutConfig = {
@@ -69,6 +71,7 @@ Deno.test("planAccrual: an affiliate conversion accrues the configured rate (in 
       mode: active.mode,
       rate: active.commission_per_conversion,
       alreadyAccrued: false,
+      program: "creator",
     }),
     { action: "accrue", amount: 500 }, // $5.00 → 500¢
   );
@@ -76,7 +79,13 @@ Deno.test("planAccrual: an affiliate conversion accrues the configured rate (in 
 
 Deno.test("planAccrual: a fractional-dollar rate accrues exact cents", () => {
   assertEquals(
-    planAccrual({ attributionSource: "affiliate", mode: "batched", rate: 4.99, alreadyAccrued: false }),
+    planAccrual({
+      attributionSource: "affiliate",
+      mode: "batched",
+      rate: 4.99,
+      alreadyAccrued: false,
+      program: "creator",
+    }),
     { action: "accrue", amount: 499 },
   );
 });
@@ -90,14 +99,26 @@ Deno.test("planAccrual: a direct (non-affiliate) conversion accrues nothing", ()
 
 Deno.test("planAccrual: the engine being off accrues nothing", () => {
   assertEquals(
-    planAccrual({ attributionSource: "affiliate", mode: "off", rate: 5, alreadyAccrued: false }),
+    planAccrual({
+      attributionSource: "affiliate",
+      mode: "off",
+      rate: 5,
+      alreadyAccrued: false,
+      program: "creator",
+    }),
     { action: "skip", reason: "disabled" },
   );
 });
 
 Deno.test("planAccrual: a $0 rate accrues nothing", () => {
   assertEquals(
-    planAccrual({ attributionSource: "affiliate", mode: "batched", rate: 0, alreadyAccrued: false }),
+    planAccrual({
+      attributionSource: "affiliate",
+      mode: "batched",
+      rate: 0,
+      alreadyAccrued: false,
+      program: "creator",
+    }),
     { action: "skip", reason: "zero_rate" },
   );
 });
@@ -302,5 +323,100 @@ Deno.test("US-9212: no cash without a certified tax profile, and the default is 
   assertEquals(
     planPayout({ ...base, onboarded: false, taxProfileComplete: true }),
     { action: "skip", reason: "not_onboarded" },
+  );
+});
+
+// ── US-9212: the creator programme is separate from user referral ───────────
+
+Deno.test("planAccrual: a user-programme affiliate earns no cash, and the default is refusal", () => {
+  // The whole point of the split: a seller who shared a link keeps earning
+  // grade credits in referrals.ts and never becomes a 1099 recipient here.
+  assertEquals(
+    planAccrual({
+      attributionSource: "affiliate",
+      mode: "batched",
+      rate: 5,
+      alreadyAccrued: false,
+      program: "user",
+    }),
+    { action: "skip", reason: "not_creator" },
+  );
+  // Omitted entirely — a caller that forgets the programme accrues nothing,
+  // exactly like a caller that forgets the tax gate pays nothing.
+  assertEquals(
+    planAccrual({ attributionSource: "affiliate", mode: "batched", rate: 5, alreadyAccrued: false }),
+    { action: "skip", reason: "not_creator" },
+  );
+});
+
+Deno.test("normalizeAffiliateProgram: only the exact string is a creator", () => {
+  assertEquals(normalizeAffiliateProgram("creator"), "creator");
+  for (const v of ["user", "CREATOR", "", null, undefined, 1, {}, ["creator"]]) {
+    assertEquals(normalizeAffiliateProgram(v), "user");
+  }
+});
+
+// ── US-9212: one paid invoice, end to end (pure) ────────────────────────────
+
+type InvoiceArgs = Parameters<typeof planSubscriptionAccrual>[0];
+
+const INVOICE: InvoiceArgs = {
+  attributionSource: "affiliate",
+  program: "creator",
+  mode: "batched",
+  model: "subscription_pct",
+  pct: 25,
+  capUsd: 250,
+  windowMonths: 12,
+  subscriptionStartedAt: "2026-01-15T00:00:00Z",
+  invoicePaidAt: "2026-03-15T00:00:00Z",
+  invoiceAmountCents: 5900, // Pro, monthly
+  alreadyAccruedCents: 0,
+};
+
+Deno.test("planSubscriptionAccrual: a creator earns the percentage of a paid invoice", () => {
+  assertEquals(planSubscriptionAccrual(INVOICE), { action: "accrue", amount: 1475 });
+});
+
+Deno.test("planSubscriptionAccrual: every refusal is named", () => {
+  type SkipReason = Extract<ReturnType<typeof planSubscriptionAccrual>, { action: "skip" }>["reason"];
+  const cases: Array<[Partial<InvoiceArgs>, SkipReason]> = [
+    [{ attributionSource: "direct" }, "not_affiliate"],
+    [{ program: "user" }, "not_creator"],
+    [{ mode: "off" }, "disabled"],
+    [{ model: "flat" }, "wrong_model"],
+    [{ invoiceAmountCents: 0 }, "zero_amount"],
+    // 14 months after the anchor, on a 12-month window.
+    [{ invoicePaidAt: "2027-03-15T00:00:00Z" }, "outside_window"],
+    // The $250 cap is already spent on this referred account.
+    [{ alreadyAccruedCents: 25_000 }, "cap_reached"],
+  ];
+  for (const [patch, reason] of cases) {
+    assertEquals(
+      planSubscriptionAccrual({ ...INVOICE, ...patch }),
+      { action: "skip", reason },
+      `expected ${reason}`,
+    );
+  }
+});
+
+Deno.test("planSubscriptionAccrual: the cap truncates the last invoice rather than skipping it", () => {
+  // $248 earned, $250 cap, a $59 invoice that would earn $14.75 → pays the $2
+  // of room and no more. The creator is never overpaid and never zeroed out on
+  // an invoice that still had room.
+  assertEquals(
+    planSubscriptionAccrual({ ...INVOICE, alreadyAccruedCents: 24_800 }),
+    { action: "accrue", amount: 200 },
+  );
+});
+
+Deno.test("planSubscriptionAccrual: an out-of-band percentage is clamped, not honoured", () => {
+  assertEquals(
+    planSubscriptionAccrual({ ...INVOICE, pct: 300 }),
+    { action: "accrue", amount: 1770 }, // clamped to 30%
+  );
+  assertEquals(
+    planSubscriptionAccrual({ ...INVOICE, pct: 0 }),
+    { action: "accrue", amount: 1180 }, // clamped to 20%
   );
 });

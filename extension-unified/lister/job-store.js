@@ -511,7 +511,6 @@
   }
 
   root.GT_LISTER_JOBS = {
-    isPending: isPending,
     DRAIN_MAX_CONCURRENT: DRAIN_MAX_CONCURRENT,
     RUNNABLE_QUEUE_KINDS: RUNNABLE_QUEUE_KINDS,
     planDrain: planDrain,

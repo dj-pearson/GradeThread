@@ -110,6 +110,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/pricing": "2026-06-01",
   "/for-resellers": "2026-06-01",
   "/flipdesk": "2026-06-27",
+  "/partners": "2026-09-01",
   "/sell-used-clothes-ebay": "2026-06-27",
   "/faq": "2026-06-01",
   "/condition-grading": "2026-06-01",
@@ -273,6 +274,18 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
       "Standardized condition grades that build buyer trust, cut returns, and speed up sales for eBay, Poshmark, Mercari, Depop, and Grailed sellers.",
     changefreq: "monthly",
     priority: 0.8,
+  },
+  {
+    // US-9212: the creator programme's front door. Public because creators find
+    // it before they have an account, and because the terms have to be readable
+    // by someone deciding whether to apply.
+    path: "/partners",
+    jsonLdType: "WebPage",
+    title: "Creator Partner Programme",
+    description:
+      "Reseller creators earn a share of the subscription revenue from sellers they bring to FlipDesk, for a year, capped per account. The terms and how to apply.",
+    changefreq: "monthly",
+    priority: 0.6,
   },
   {
     path: "/flipdesk",

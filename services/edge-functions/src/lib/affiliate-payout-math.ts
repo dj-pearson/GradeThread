@@ -53,6 +53,23 @@ export const AFFILIATE_PAYOUT_CONFIG_KEY = "affiliate_payout_config";
  */
 export type AffiliateCommissionModel = "flat" | "subscription_pct";
 
+/**
+ * US-9212: which programme an affiliate account is in.
+ *
+ * `user` is the referral everyone gets by sharing a link: it earns GRADE
+ * CREDITS and never cash. `creator` is the cash programme the founder decided
+ * on 2026-09-01, entered by accepting its own terms
+ * (vault/50-business/creator-affiliate-terms.md) and being admitted by an
+ * operator. The split is the whole point of the ADR: one ledger paying both
+ * would turn every link-sharing seller into a 1099 recipient.
+ */
+export type AffiliateProgram = "user" | "creator";
+
+/** Anything that is not exactly "creator" is a user account. Unknown = user. */
+export function normalizeAffiliateProgram(v: unknown): AffiliateProgram {
+  return v === "creator" ? "creator" : "user";
+}
+
 export interface AffiliatePayoutConfig {
   mode: AffiliatePayoutMode;
   /** US-9212: which of the two models above is in force. */
@@ -144,7 +161,12 @@ export function normalizeAffiliatePayoutConfig(raw: unknown): AffiliatePayoutCon
 export type AccrualPlan =
   | {
     action: "skip";
-    reason: "not_affiliate" | "disabled" | "zero_rate" | "already_accrued";
+    reason:
+      | "not_affiliate"
+      | "not_creator"
+      | "disabled"
+      | "zero_rate"
+      | "already_accrued";
   }
   // amount is INTEGER CENTS (the ledger unit) — the config USD rate converted.
   | { action: "accrue"; amount: number };
@@ -159,10 +181,19 @@ export function planAccrual(args: {
   mode: AffiliatePayoutMode;
   rate: number;
   alreadyAccrued: boolean;
+  /**
+   * US-9212: the affiliate's programme. CASH IS CREATOR-ONLY, so this defaults
+   * to refusal exactly like the tax gate in planPayout: a caller that does not
+   * say accrues nothing rather than quietly paying a user who only ever shared
+   * a referral link. User referrals keep earning grade credits through
+   * referrals.ts, which this function has never touched.
+   */
+  program?: AffiliateProgram;
 }): AccrualPlan {
   const { attributionSource, mode, rate, alreadyAccrued } = args;
   if (alreadyAccrued) return { action: "skip", reason: "already_accrued" };
   if (attributionSource !== "affiliate") return { action: "skip", reason: "not_affiliate" };
+  if (args.program !== "creator") return { action: "skip", reason: "not_creator" };
   if (mode === "off") return { action: "skip", reason: "disabled" };
   const amount = dollarsToCents(rate);
   if (amount <= 0) return { action: "skip", reason: "zero_rate" };
@@ -215,6 +246,65 @@ export function isWithinCommissionWindow(
   const end = new Date(startMs);
   end.setUTCMonth(end.getUTCMonth() + Math.max(1, Math.floor(months)));
   return paidMs < end.getTime();
+}
+
+/**
+ * US-9212: the whole decision for ONE paid invoice, in one pure function.
+ *
+ * The engine reads rows; this says what they mean. Every refusal is named so
+ * the webhook can log why a creator earned nothing on an invoice that really
+ * was paid -- "nothing happened" is the failure mode that made the flat model
+ * hard to trust.
+ */
+export type SubscriptionAccrualPlan =
+  | {
+    action: "skip";
+    reason:
+      | "not_affiliate"
+      | "not_creator"
+      | "disabled"
+      | "wrong_model"
+      | "outside_window"
+      | "cap_reached"
+      | "zero_amount";
+  }
+  | { action: "accrue"; amount: number };
+
+export function planSubscriptionAccrual(args: {
+  attributionSource: string | null | undefined;
+  program: AffiliateProgram;
+  mode: AffiliatePayoutMode;
+  model: AffiliateCommissionModel;
+  pct: number;
+  capUsd: number;
+  windowMonths: number;
+  /** When the referred account's paid relationship started (the conversion). */
+  subscriptionStartedAt: string | Date;
+  invoicePaidAt: string | Date;
+  invoiceAmountCents: number;
+  /** Everything this affiliate has already earned FROM THIS ACCOUNT, in cents. */
+  alreadyAccruedCents: number;
+}): SubscriptionAccrualPlan {
+  if (args.attributionSource !== "affiliate") return { action: "skip", reason: "not_affiliate" };
+  if (args.program !== "creator") return { action: "skip", reason: "not_creator" };
+  if (args.mode === "off") return { action: "skip", reason: "disabled" };
+  if (args.model !== "subscription_pct") return { action: "skip", reason: "wrong_model" };
+  if (!Number.isFinite(args.invoiceAmountCents) || args.invoiceAmountCents <= 0) {
+    return { action: "skip", reason: "zero_amount" };
+  }
+  if (
+    !isWithinCommissionWindow(args.subscriptionStartedAt, args.invoicePaidAt, args.windowMonths)
+  ) {
+    return { action: "skip", reason: "outside_window" };
+  }
+  const amount = commissionForSubscriptionInvoice({
+    invoiceAmountCents: args.invoiceAmountCents,
+    pct: args.pct,
+    alreadyAccruedCents: args.alreadyAccruedCents,
+    capUsd: args.capUsd,
+  });
+  if (amount <= 0) return { action: "skip", reason: "cap_reached" };
+  return { action: "accrue", amount };
 }
 
 // ── Payout decision (pure) ──────────────────────────────────────────────────

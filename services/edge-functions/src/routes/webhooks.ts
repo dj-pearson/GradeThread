@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { accrueSubscriptionCommission } from "../lib/affiliate-payout.ts";
 import { deleteCertImages } from "../lib/cloudflare-purge.ts";
 import { processSubmission } from "../lib/grading-pipeline.ts";
 import {
@@ -1304,6 +1305,29 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
     // US-397: a missed cycle reset would over/under-charge entitlement — retry.
     failIfDbError(error, `cycle reset for user ${user.id}`);
     console.log(`[Webhook] User ${user.id} cycle reset (${billingReason})`);
+
+    // US-9212: a creator's share of this invoice. Best-effort and silent on
+    // refusal -- the accrual must never be able to fail a billing webhook,
+    // because a thrown error here would make Stripe redeliver the whole event
+    // and re-run the cycle reset above it. The engine ships off and refuses
+    // every account that is not an admitted creator, so the normal outcome is
+    // a named skip and no row.
+    try {
+      const commission = await accrueSubscriptionCommission({
+        referredUserId: user.id,
+        invoiceId: invoice.id ?? `evt_${event.id}`,
+        invoiceAmountCents: invoice.amount_paid ?? 0,
+        paidAt: new Date((invoice.status_transitions?.paid_at ?? event.created) * 1000)
+          .toISOString(),
+      });
+      if (commission.accrued) {
+        console.log(
+          `[Webhook] creator commission accrued ${commission.amount} cents on invoice ${invoice.id}`,
+        );
+      }
+    } catch (err) {
+      console.error("[Webhook] creator commission accrual threw:", err);
+    }
 
     // US-222: send a receipt for each RECURRING renewal charge (the first charge
     // is covered by sendSubscriptionStartedEmail on subscription.created).

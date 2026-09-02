@@ -37,6 +37,44 @@
 > confirmation. A boot failure naming the schema version means the row is missing
 > and needs inserting by hand.
 
+## 00720 — undo 00711's function revoke — NOT YET APPLIED
+
+**Risk: low, and it closes a live one.** 00711 shipped
+`REVOKE ALL ON FUNCTION public.bump_ebay_api_calls(JSONB) FROM PUBLIC` plus a
+guarded revoke from `anon` and `authenticated`. On this Postgres image a denied
+function call from a role in `supautils.hint_roles` segfaults the backend and
+restarts the database, and PostgREST exposes the function at
+`/rpc/bump_ebay_api_calls` -- so on a database where 00711 is applied, a
+restart is one unauthenticated request away. This is the same fault 00685 had
+and 00686 fixed.
+
+This migration re-creates the function with a `service_role` check in its BODY
+(stricter than the revoke: nothing user-facing may write API accounting) and
+`GRANT EXECUTE ... TO PUBLIC` to restore the default. Idempotent.
+**Apply order:** after 00719; the edge boot guard expects `00720`. Apply this
+one promptly if 00711 is already applied.
+
+## 00719 — creator programme separation (US-9212) — NOT YET APPLIED
+
+**Risk: medium, and the risk is one constraint swap.** Columns added:
+`affiliate_accounts.program` (default `user`), `creator_terms_version`,
+`creator_terms_accepted_at`, `creator_approved_at`, plus two CHECKs (`program`
+is one of two values; `creator` requires a recorded terms acceptance);
+`affiliate_commissions.commission_model` (default `flat`), `referred_user_id`,
+`stripe_invoice_id`.
+
+**The swap:** `UNIQUE(referral_event_id)` on `affiliate_commissions` is dropped
+and replaced by two partial unique indexes -- `(referral_event_id) WHERE
+stripe_invoice_id IS NULL` and `(stripe_invoice_id) WHERE stripe_invoice_id IS
+NOT NULL`. Flat-model idempotency is unchanged; the percentage model needs one
+row per paid invoice, which the old constraint refused. If prod holds duplicate
+`referral_event_id` rows the index creation fails and the file stops there --
+there are none today (the constraint has been in force since 00310).
+
+Idempotent. **Apply order:** after 00718, before 00720; the edge boot guard expects `00720` once both are in.
+
+**`NOTIFY pgrst, 'reload schema';`** required (new columns).
+
 ## 00718 — creator tax profiles (US-9212) — NOT YET APPLIED
 
 **Risk: low.** One new deny-all table, `affiliate_tax_profiles` (owner column

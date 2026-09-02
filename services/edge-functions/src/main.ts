@@ -439,6 +439,11 @@ app.use("/api/affiliate/me", authMiddleware);
 app.use("/api/affiliate/connect", authMiddleware);
 app.use("/api/affiliate/connect/*", authMiddleware);
 app.use("/api/affiliate/payouts", authMiddleware);
+// US-9212: the creator programme (terms acceptance, status) and the W-9
+// equivalent. Both are per-user and authed; neither is reachable anonymously.
+app.use("/api/affiliate/creator", authMiddleware);
+app.use("/api/affiliate/creator/*", authMiddleware);
+app.use("/api/affiliate/tax-profile", authMiddleware);
 // GradeThread Verified — seller manages their OWN public profile. No workspace
 // middleware: the profile is the individual seller's account, not a tenant's.
 app.use("/api/verified/*", authMiddleware);

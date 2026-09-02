@@ -1587,3 +1587,83 @@ export async function handleGrowthDispatchCron(c: Context): Promise<Response> {
     await lock.release();
   }
 }
+
+// ════════════════════════════════════════════════════════════════════
+// CREATOR AFFILIATE ADMISSION (US-9212)
+// ════════════════════════════════════════════════════════════════════
+//
+// Accepting the creator terms is an application. This is where it becomes a
+// cash-earning account, one creator at a time, because that is what the ADR
+// decided and because every approval creates a person we may have to 1099.
+// Approval requires an acceptance already on record — migration 00719's CHECK
+// refuses program='creator' without one, so approving a stranger fails loudly
+// rather than half-writing the row.
+
+adminGrowthRoutes.get("/affiliate/creators", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("affiliate_accounts")
+    .select(
+      "user_id, program, creator_terms_version, creator_terms_accepted_at, creator_approved_at, payouts_enabled",
+    )
+    .not("creator_terms_accepted_at", "is", null)
+    .order("creator_terms_accepted_at", { ascending: false })
+    .limit(200);
+  if (error) {
+    return failSafe(c, 500, "Couldn't load creators.", error, "admin.growth.creators.list");
+  }
+  return c.json({ creators: data ?? [] });
+});
+
+adminGrowthRoutes.post("/affiliate/creators/:userId/approve", async (c) => {
+  const userId = c.req.param("userId");
+
+  const { data: acctRaw } = await supabaseAdmin
+    .from("affiliate_accounts")
+    .select("creator_terms_accepted_at, creator_terms_version")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const acct = acctRaw as
+    | { creator_terms_accepted_at: string | null; creator_terms_version: string | null }
+    | null;
+  if (!acct?.creator_terms_accepted_at) {
+    return c.json({ error: "That account has not accepted the creator terms." }, 400);
+  }
+
+  const approvedAt = new Date().toISOString();
+  const { error } = await supabaseAdmin
+    .from("affiliate_accounts")
+    .update({ program: "creator", creator_approved_at: approvedAt })
+    .eq("user_id", userId);
+  if (error) {
+    return failSafe(c, 500, "Couldn't admit that creator.", error, "admin.growth.creators.approve");
+  }
+
+  await writeAuditLog(c, {
+    action: "growth.creator.approve",
+    targetType: "affiliate_account",
+    targetId: userId,
+    details: { terms_version: acct.creator_terms_version, approved_at: approvedAt },
+  });
+  return c.json({ ok: true, program: "creator", approved_at: approvedAt });
+});
+
+// Removal, not deletion: the account drops back to the user programme and stops
+// accruing cash. Commissions already earned stay on the ledger — clause 7 of the
+// terms pays those, and voiding them here would be a money decision hidden
+// inside an access change.
+adminGrowthRoutes.post("/affiliate/creators/:userId/remove", async (c) => {
+  const userId = c.req.param("userId");
+  const { error } = await supabaseAdmin
+    .from("affiliate_accounts")
+    .update({ program: "user", creator_approved_at: null })
+    .eq("user_id", userId);
+  if (error) {
+    return failSafe(c, 500, "Couldn't remove that creator.", error, "admin.growth.creators.remove");
+  }
+  await writeAuditLog(c, {
+    action: "growth.creator.remove",
+    targetType: "affiliate_account",
+    targetId: userId,
+  });
+  return c.json({ ok: true, program: "user" });
+});

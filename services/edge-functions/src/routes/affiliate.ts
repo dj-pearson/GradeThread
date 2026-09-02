@@ -22,6 +22,7 @@ import {
   isPastHold,
 } from "../lib/affiliate-payout-math.ts";
 import { getAffiliatePayoutConfig } from "../lib/affiliate-payout.ts";
+import { encryptToken } from "../lib/crypto-aes.ts";
 
 type Env = { Variables: { userId?: string } };
 
@@ -317,4 +318,228 @@ affiliateRoutes.get("/payouts", async (c) => {
       amount: centsToDollars(typeof p.amount === "number" ? p.amount : 0),
     })),
   });
+});
+
+// ── US-9212: the creator programme (cash), separate from user referral ──────
+//
+// A user who shares a referral link earns GRADE CREDITS and can never be paid
+// cash. A creator earns a percentage of subscription revenue, and gets there by
+// two deliberate steps: accept the programme's own terms
+// (vault/50-business/creator-affiliate-terms.md), then be admitted by an
+// operator (POST /api/admin/growth/affiliate/creators/:id/approve). Acceptance
+// alone is an APPLICATION -- self-serve cash is not what the ADR decided.
+//
+// Migration 00719 enforces the consent half in the database: program='creator'
+// is refused without a recorded terms version and acceptance timestamp.
+
+const CREATOR_TERMS_VERSION = "2026-09-01";
+
+// GET /creator — where this caller stands: the current terms version, what
+// they accepted, whether they have been admitted, and whether the tax form is
+// on file. Never returns anything about another account.
+affiliateRoutes.get("/creator", async (c) => {
+  const userId = c.get("userId");
+  if (!userId) return c.json({ error: "Sign-in required" }, 401);
+
+  const [{ data: acctRaw }, { data: taxRaw }] = await Promise.all([
+    supabaseAdmin
+      .from("affiliate_accounts")
+      .select("program, creator_terms_version, creator_terms_accepted_at, creator_approved_at")
+      .eq("user_id", userId)
+      .maybeSingle(),
+    supabaseAdmin
+      .from("affiliate_tax_profiles")
+      .select("legal_name, entity_type, tin_last4, certified_at")
+      .eq("owner_user_id", userId)
+      .maybeSingle(),
+  ]);
+  const acct = acctRaw as
+    | {
+      program: string | null;
+      creator_terms_version: string | null;
+      creator_terms_accepted_at: string | null;
+      creator_approved_at: string | null;
+    }
+    | null;
+  const tax = taxRaw as
+    | {
+      legal_name: string | null;
+      entity_type: string | null;
+      tin_last4: string | null;
+      certified_at: string | null;
+    }
+    | null;
+
+  return c.json({
+    program: acct?.program === "creator" ? "creator" : "user",
+    terms_version: CREATOR_TERMS_VERSION,
+    accepted_version: acct?.creator_terms_version ?? null,
+    accepted_at: acct?.creator_terms_accepted_at ?? null,
+    // Accepted the CURRENT text, not merely some earlier version of it.
+    terms_current: acct?.creator_terms_version === CREATOR_TERMS_VERSION,
+    approved_at: acct?.creator_approved_at ?? null,
+    tax_profile: {
+      // The ciphertext is never in this response. Four digits is enough for a
+      // creator to recognise which number is on file and useless on its own.
+      certified: Boolean(tax?.certified_at),
+      certified_at: tax?.certified_at ?? null,
+      legal_name: tax?.legal_name ?? null,
+      entity_type: tax?.entity_type ?? null,
+      last4: tax?.tin_last4 ?? null,
+    },
+  });
+});
+
+// POST /creator/terms — record acceptance of the creator terms.
+//
+// The version must be the CURRENT one: a client sending an old string is
+// agreeing to text it may have been shown before a revision, and recording that
+// as consent to the live terms is the failure this check exists to prevent.
+// Admission still belongs to an operator; this only unlocks it.
+affiliateRoutes.post("/creator/terms", async (c) => {
+  const userId = c.get("userId");
+  if (!userId) return c.json({ error: "Sign-in required" }, 401);
+
+  let body: { version?: unknown; accept?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  if (body.accept !== true) {
+    return c.json({ error: "You have to accept the terms to join." }, 400);
+  }
+  if (typeof body.version !== "string" || body.version !== CREATOR_TERMS_VERSION) {
+    return c.json(
+      { error: "These terms have changed. Reload the page and read the current version." },
+      409,
+    );
+  }
+
+  const acceptedAt = new Date().toISOString();
+  const { data: existingRaw } = await supabaseAdmin
+    .from("affiliate_accounts")
+    .select("creator_approved_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const approvedAt =
+    (existingRaw as { creator_approved_at: string | null } | null)?.creator_approved_at ?? null;
+
+  const { error } = await supabaseAdmin
+    .from("affiliate_accounts")
+    .upsert(
+      {
+        user_id: userId,
+        creator_terms_version: CREATOR_TERMS_VERSION,
+        creator_terms_accepted_at: acceptedAt,
+        // An already-admitted creator who re-accepts a new version stays a
+        // creator; everyone else stays a user until an operator says otherwise.
+        program: approvedAt ? "creator" : "user",
+      },
+      { onConflict: "user_id" },
+    );
+  if (error) {
+    console.error("[affiliate] creator terms acceptance failed:", error.message);
+    return c.json({ error: "Couldn't record that. Try again." }, 500);
+  }
+
+  return c.json({
+    ok: true,
+    accepted_version: CREATOR_TERMS_VERSION,
+    accepted_at: acceptedAt,
+    program: approvedAt ? "creator" : "user",
+    // Said plainly so nobody reads acceptance as admission.
+    pending_approval: !approvedAt,
+  });
+});
+
+const TAX_ENTITY_TYPES = new Set([
+  "individual",
+  "sole_proprietor",
+  "single_member_llc",
+  "c_corp",
+  "s_corp",
+  "partnership",
+  "trust",
+  "other",
+]);
+
+// POST /tax-profile — the W-9 equivalent (ADR section 4.5).
+//
+// The TIN is encrypted with the edge's own key before it touches the database
+// and only the last four digits are stored in plaintext. The table is deny-all,
+// so nothing but the service role can read either. Submitting the form IS the
+// certification: the row is stamped certified_at, which is what unlocks cash in
+// planPayout.
+affiliateRoutes.post("/tax-profile", async (c) => {
+  const userId = c.get("userId");
+  if (!userId) return c.json({ error: "Sign-in required" }, 401);
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  const legalName = clip(body.legal_name, 200);
+  if (!legalName) return c.json({ error: "Legal name is required." }, 400);
+
+  const entityType = typeof body.entity_type === "string" ? body.entity_type : "";
+  if (!TAX_ENTITY_TYPES.has(entityType)) {
+    return c.json({ error: "Pick how you file: individual, LLC, corporation and so on." }, 400);
+  }
+
+  // Nine digits, however the sender punctuated them. An SSN and an EIN are both
+  // nine, and the form does not need to know which.
+  const tinDigits = (typeof body.tin === "string" ? body.tin : "").replace(/\D/g, "");
+  if (tinDigits.length !== 9) {
+    return c.json({ error: "A US tax ID is nine digits (SSN or EIN)." }, 400);
+  }
+
+  const country = clip(body.country, 2)?.toUpperCase() || "US";
+  if (country !== "US") {
+    // Honest refusal rather than a row nobody can report on: the 1099 path is
+    // the only one built, and a W-8BEN is a different form with different rules.
+    return c.json(
+      { error: "Only US tax profiles are supported today. Email support and we will sort it out." },
+      400,
+    );
+  }
+
+  let tinEncrypted: string;
+  try {
+    // AAD binds the ciphertext to this user: a row copied to another account
+    // cannot be decrypted there.
+    tinEncrypted = await encryptToken(tinDigits, { aad: `affiliate_tin:${userId}` });
+  } catch (err) {
+    console.error("[affiliate] TIN encryption failed:", err);
+    return c.json({ error: "Couldn't save that securely. Try again." }, 503);
+  }
+
+  const { error } = await supabaseAdmin
+    .from("affiliate_tax_profiles")
+    .upsert(
+      {
+        owner_user_id: userId,
+        legal_name: legalName,
+        entity_type: entityType,
+        tin_encrypted: tinEncrypted,
+        tin_last4: tinDigits.slice(-4),
+        address_line1: clip(body.address_line1, 200),
+        address_line2: clip(body.address_line2, 200),
+        city: clip(body.city, 100),
+        region: clip(body.region, 100),
+        postal_code: clip(body.postal_code, 20),
+        country,
+        certified_at: new Date().toISOString(),
+      },
+      { onConflict: "owner_user_id" },
+    );
+  if (error) {
+    console.error("[affiliate] tax profile save failed:", error.message);
+    return c.json({ error: "Couldn't save your tax details. Try again." }, 500);
+  }
+
+  return c.json({ ok: true, certified: true, last4: tinDigits.slice(-4) });
 });

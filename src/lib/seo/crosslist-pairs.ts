@@ -21,7 +21,7 @@ import {
   MARKETPLACE_EXTENSION_FLOW,
   MARKETPLACE_LABELS,
   MARKETPLACE_TIER,
-} from "@/lib/constants";
+} from "../constants";
 import {
   CROSSLIST_PAIR_SLUGS,
   crosslistPairPath,

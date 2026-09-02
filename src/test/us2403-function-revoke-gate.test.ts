@@ -53,6 +53,7 @@ const MIGRATIONS = join(process.cwd(), "supabase", "migrations");
  * before trusting any line-oriented grep about this corpus.
  */
 const ALLOWED: Record<string, string> = {
+  "00711": "bump_ebay_api_calls — the same mistake as 00685, shipped on 2026-09-01. Superseded by 00720, which restores the default EXECUTE and moves the service-role check into the function body. Listed because the text stays in an applied migration, NOT because the pattern is acceptable (2026-09-02)",
   "00685": "rebuild_ledger_for_user — a REVOKE that should never have shipped, and it was APPLIED to prod before anyone noticed. Superseded by 00686, which restores the default EXECUTE and moves the authorization into the function body. Listed here because the text stays in an applied migration, NOT because the pattern is acceptable (2026-08-29)",
   "00043": "delete_account — pre-dates the finding (2026-08-04)",
   "00048": "refund_grade — pre-dates the finding",

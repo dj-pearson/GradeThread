@@ -528,6 +528,11 @@ it.
 | Payout | Monthly, batched, behind `affiliate_payout_config.mode` which ships `off` | Mirrors the consignor pattern; nothing moves until an admin turns it on. |
 | Gate | A certified tax profile (`affiliate_tax_profiles`) must exist | ADR section 4.5: no cash before W-9 capture. `planPayout` refuses without one, and refuses by default. |
 
+**The terms a creator accepts, and the version recorded against each
+acceptance:** [[creator-affiliate-terms]]. A creator is admitted by an operator
+(`POST /api/admin/growth/affiliate/creators/:id/approve`); accepting the terms
+is an application, and `affiliate_accounts.program` stays `user` until then.
+
 **Machine-readable mirrors:** `CREATOR_AFFILIATE` in `src/lib/constants.ts` and
 `DEFAULT_AFFILIATE_PAYOUT_CONFIG` in
 `services/edge-functions/src/lib/affiliate-payout-math.ts`. Any change to these
