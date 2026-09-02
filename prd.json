@@ -3004,7 +3004,8 @@
         "OPERATOR: run it against prod for the 200 drafts before 2026-09-02 and the first 200 after, and paste both tables into this story's note; the note names the one aspect whose fill rate moved least and the reason found for it.",
         "The vault note vault/30-platform/closing-a-coverage-gap.md gains a dated section with the two tables and a link to the script (same commit)."
       ],
-      "priority": 9
+      "priority": 9,
+      "notes": "2026-09-02: the script and its pure half are in (services/edge-functions/scripts/aspect-fill-report.ts, src/lib/aspect-fill-report.ts, src/tests/aspect-fill-report_test.ts). AC4 names the wrong note: closing-a-coverage-gap.md is the marketplace-extension runbook. The dated section with the two tables belongs in vault/30-platform/ebay-required-aspect-completeness.md, written in the same commit as the operator run's numbers land in this note. Exposure is inferred (filled, or reported missing by aspect_coverage), so each rate carries both denominators; the script header says why."
     },
     {
       "id": "US-3045",
