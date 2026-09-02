@@ -7,12 +7,20 @@ code_refs:
   - services/edge-functions/src/routes/flipdesk-ebay.ts
   - services/edge-functions/src/lib/sync-watermark.ts
   - services/edge-functions/src/routes/jobs-ebay-order-backstop.ts
-reviewed: 2026-08-23
+reviewed: 2026-09-02
 tags: [ebay, flipdesk, sync, recovery]
 summary: How to recover eBay orders that a pre-US-2320 sync skipped past, how to tell whether a seller lost any, and why the run status field is the wrong thing to check.
 ---
 
 # eBay orders backfill after a lost sync window
+
+> **Re-reviewed 2026-09-02.** Drift flagged `flipdesk-ebay.ts` for the size
+> enforcement work: a publish or revise rejected for a custom size value now
+> heals itself (invalidate the category-aspect cache, refetch fresh, refit the
+> stored specifics, retry) before the seller sees an error. That is the publish
+> path. The orders backfill below reads the Fulfillment API and shares nothing
+> with it but the file.
+
 
 Until US-2320, the eBay orders pass caught every failure, logged it, carried on,
 and then stamped `marketplace_connections.last_synced_at = now()`

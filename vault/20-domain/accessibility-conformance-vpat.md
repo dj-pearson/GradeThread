@@ -7,7 +7,7 @@ source_of_truth: code
 code_refs:
   - src/components/breadcrumbs.tsx
   - src/lib/seo/public-routes.ts
-reviewed: 2026-08-31
+reviewed: 2026-09-02
 tags: [accessibility, compliance, wcag, vpat]
 summary: WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a published artifact that must stay true, not a snapshot.
 ---
@@ -25,6 +25,14 @@ summary: WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a publis
 > flags it when the accessibility surface changes. It should be re-reviewed on
 > any a11y-affecting change, not on a schedule.
 # Accessibility Conformance Report — GradeThread & FlipDesk
+
+> **Re-reviewed 2026-09-02.** Drift flagged `public-routes.ts` for seventeen new
+> indexable pages (fourteen marketplace pair pages, two switch-from pages,
+> `/partners`). They are prose pages built from the same marketing layout the
+> conformance claims below already cover: no new widget, no new interaction
+> pattern, no canvas or drag surface. The claim set is unchanged; the page COUNT
+> in any external VPAT copy is not restated here for exactly this reason.
+
 
 > **Re-reviewed 2026-08-31.** Drift flagged `src/lib/seo/public-routes.ts` for US-9033, which registers one
 > new public route (`/tools/rn-lookup`) and its lastmod. It adds no component,

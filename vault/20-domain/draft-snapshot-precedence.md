@@ -10,12 +10,28 @@ code_refs:
   - src/pages/flipdesk/grid.tsx
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-08-28
+reviewed: 2026-09-02
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
 
 # The draft snapshot shadows the item
+
+> **Re-reviewed 2026-09-02, and a new writer joined the list.** US-9205 makes
+> the graded price the DRAFT price rather than a suggestion: the composer and
+> the review screen write `target_price` on the item AND the price plus
+> `price_set_by`, `graded_price_cents` and `graded_price_why` on the newest eBay
+> draft row. That is this note's rule being followed, not broken -- a surface
+> that wrote only the item would have shipped the old price, which is exactly
+> the failure documented below.
+>
+> The new part worth carrying: `price_set_by` records WHO set the price
+> ('graded', 'comp_median', 'seller', 'rule'), so a repricing rule can tell a
+> seller's deliberate override from a stale default without comparing numbers,
+> and `graded_price_cents` survives the override so the offer stays legible
+> after it is refused. Precedence itself is unchanged: publish still prefers the
+> snapshot.
+
 
 > **Re-reviewed 2026-08-28.** Drift flagged `flipdesk-ebay.ts` and
 > `composer.tsx`. Two changes, neither of which moves the precedence.

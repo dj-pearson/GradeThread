@@ -10,12 +10,17 @@ code_refs:
   - services/edge-functions/src/lib/connector-allowance.ts
   - services/edge-functions/src/middleware/mcp-auth.ts
   - services/edge-functions/src/lib/mcp-budget.ts
-reviewed: 2026-08-30
+reviewed: 2026-09-02
 tags: [pricing, connector, plan-gating, contract]
 summary: connectorAccess opens at pro; connector write actions have their own monthly counter derived from the audit log, not a share of aiActionsPerMonth.
 ---
 
 # The connector's gate and its allowance
+
+> **Re-reviewed 2026-09-02.** Drift flagged `src/lib/constants.ts` for
+> `CREATOR_AFFILIATE` (US-9212). No connector, plan row or gate constant moved.
+> Nothing here changed.
+
 
 > Owner's decision, **2026-08-19** (US-9101). Two questions were open and both
 > are answered here. Anything that prices, gates or caps the connector reads

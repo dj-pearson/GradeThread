@@ -7,12 +7,20 @@ code_refs:
   - services/edge-functions/scripts/comp-read-calibration.ts
   - services/edge-functions/src/lib/comp-read-calibration.ts
   - services/edge-functions/src/routes/public-grading.ts
-reviewed: 2026-08-31
+reviewed: 2026-09-02
 tags: [ops, grading, comps, condition-index, spike]
 summary: How to run the US-2842 calibration spike against production, what each number it prints means, and why it stops short of a verdict.
 ---
 
 # Running the comp-read calibration spike (US-2842)
+
+> **Re-reviewed 2026-09-02.** Drift flagged `routes/public-grading.ts` for
+> US-9202 and US-9203, which add two PUBLIC extension callbacks to that file --
+> `/public/revise-listed` and `/public/relist-listed`, both host-pinned and both
+> about a listing the seller's own browser just edited. Neither reads a comp,
+> and the calibration numbers below come from the comps path, which is
+> untouched. Nothing here changed.
+
 
 > **Re-reviewed 2026-08-31.** Drift flagged `public-grading.ts`, which grew the
 > anonymous tag reader for the RN lookup (US-9033). Nothing to carry: the

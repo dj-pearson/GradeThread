@@ -8,12 +8,21 @@ code_refs:
   - services/edge-functions/src/lib/size-systems.ts
   - services/edge-functions/src/lib/grading-size.ts
   - services/edge-functions/src/lib/sizing-charts.ts
-reviewed: 2026-08-27
+reviewed: 2026-09-02
 tags: [sizing, brands, conversion, contract]
 summary: Only four size-system conversions are performed, every one derived from paired data already in the corpus; EU, JP, AU and alpha are refused outright, and a refusal is the correct answer rather than a gap.
 ---
 
 # Size-system conversions
+
+> **Re-reviewed 2026-09-02.** Drift flagged `size-systems.ts` for US-3033, which
+> adds `normalizeSizeLabel` -- the join key for the Fit & Measurement Index. It
+> is a COHORT key, not a conversion: it folds "W34 L32", "34x32" and "34X32" onto
+> one label so a style-and-size cohort clears its sample floor instead of
+> splitting three ways. The conversion tables below are untouched, and the two
+> must not be confused: normalization decides what counts as the same size,
+> conversion decides what a size means in another system.
+
 
 The decoder bar ([[brand-kb-decoder-bar]]) applied to sizing. A wrong conversion
 is worse than none, because it puts a confident, plausible, wrong size on a

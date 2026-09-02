@@ -12,12 +12,27 @@ code_refs:
   - src/pages/legal/privacy.tsx
   - src/pages/legal/__tests__/privacy-buyer.test.tsx
   - extension-unified/SUBMISSION.md
-reviewed: 2026-08-21
+reviewed: 2026-09-02
 tags: [buyer, privacy, legal, consent, contract]
 summary: Buyer personal data is enumerated in one register that the export iterates; legally-sensitive buyer copy is either behind an operator kill-switch that defaults off or bound to a fixed disclosure, and both are asserted rather than described.
 ---
 
 # Buyer platform — legal posture and personal data
+
+> **Re-reviewed 2026-09-02, and the privacy policy gained a section that matters
+> more than most.** US-3038 adds the Fit & Measurement Index to
+> `src/pages/legal/privacy.tsx` as its OWN section, and the reason is recorded in
+> the code comment: it is the only sharing on that page that is ON by default,
+> and the existing aggregate clause permits INTERNAL use of de-identified data,
+> not publishing an aggregate on a public page. Reading the second into the
+> first would have been the stretch US-2643 exists to forbid. The consent is the
+> section itself, with the Settings toggle pointing at it.
+>
+> `extension-unified/SUBMISSION.md` also changed: the version record now says
+> 1.0.9 to match what the stores actually serve. The data-collection disclosures
+> in it are unchanged and still true -- the extension sends no install identifier
+> to the site (see [[extension-funnel-attribution]]).
+
 
 The buyer product sells confidence, which makes two of its obligations sharper
 than the seller product's: it holds data that describes the person rather than

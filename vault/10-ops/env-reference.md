@@ -8,7 +8,7 @@ code_refs:
   - .env.example
   - services/edge-functions/.env.example
   - services/edge-functions/src/lib/env-validation.ts
-reviewed: 2026-08-30
+reviewed: 2026-09-02
 tags: [ops, env, deploy, contract]
 summary: Every env var the codebase reads, which of the eight deployment surfaces it belongs to, and which six are boot-fatal in production.
 ---
@@ -190,6 +190,7 @@ Legend: ✅ required · 🟡 required for that feature · ⬜ optional · 🔒 s
 | `VITE_LISTER_EXTENSION_ID` | ⬜ CF Pages build | Chrome extension ID for the FlipDesk auto-lister bridge. **Provisioned** (measured 2026-08-22 — see the callout below). |
 | `VITE_LISTER_EXTENSION` | ⬜ CF Pages build | Feature toggle for the lister-extension integration. Unset ⇒ Vite folds `isListerAvailable()` to a constant `false` and the Send-to-extension button is compiled out of the bundle entirely. **Provisioned** (measured 2026-08-22). |
 | `VITE_EXTENSION_WEBSTORE_URL` | ⬜ CF Pages build | Public Chrome Web Store listing for the extension (US-2553). Optional: derived from `VITE_LISTER_EXTENSION_ID` when unset. |
+| `VITE_EXTENSION_AMO_URL` | ⬜ CF Pages build | Public Firefox Add-ons (AMO) listing for the extension (US-9210). No default and none possible: AMO slugs have nothing to do with the Chrome id, so unset means a Firefox visitor is sent to the Chrome store or the install call to action stays hidden. |
 | `VITE_SOCIAL_X` / `_LINKEDIN` / `_INSTAGRAM` / `_CRUNCHBASE` | ⬜ CF Pages build | Brand social profile URLs (also read by Pages Functions for OG/footer). |
 | `VITE_TWITTER_SITE` | ⬜ CF Pages build | `@handle` for Twitter card meta. |
 

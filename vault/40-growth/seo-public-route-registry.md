@@ -9,12 +9,31 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-08-31
+reviewed: 2026-09-02
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
 
 # SEO — the public route registry
+
+> **Re-reviewed 2026-09-02.** Drift flagged all four wiring points together for
+> the cross-listing batch, which is this note's lockstep working: fifteen new
+> indexable pages went in through it -- the fourteen marketplace pair pages
+> (`/reselling/crosslist-{from}-to-{to}`, US-9214) and `/partners` (US-9212) --
+> plus the two switch-from pages (US-9209). Every one is registered in
+> `PUBLIC_ROUTES`, in `entry-server.tsx` (both the element map and the module
+> map), in `routes/index.tsx`, and in the lastmod map, and no guard complained.
+>
+> The pair pages are worth one line as a pattern: they are a FAMILY, so their
+> slugs live in their own `src/lib/seo/crosslist-pair-slugs.ts` and the page
+> component is loaded lazily, exactly as the glossary and flaw-library families
+> do. A family that put its slugs in the page module would drag the page into
+> the eager bundle through the registry import, which is the bundle-budget
+> failure this split exists to prevent -- and it nearly happened here anyway,
+> from the other direction: `crosslist-pairs.ts` imported the constants through
+> the `@/` alias, which `vite.config.ts` cannot resolve when Node loads the
+> registry, and the whole build failed to start. Registry-side modules use
+> RELATIVE imports.
 
 > **Re-reviewed 2026-08-31.** Drift flagged `public-routes.ts`, `entry-server.tsx` and `routes/index.tsx`
 > together for US-9033 — which is this note's own lockstep firing exactly as

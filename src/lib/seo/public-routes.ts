@@ -280,7 +280,10 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     // it before they have an account, and because the terms have to be readable
     // by someone deciding whether to apply.
     path: "/partners",
-    jsonLdType: "WebPage",
+    // No jsonLdType: the page carries Organization and BreadcrumbList from the
+    // prerenderer's defaults and nothing more. Declaring a type the prerenderer
+    // does not emit fails the US-2044 parity guard, and a bare WebPage node adds
+    // nothing a crawler can use.
     title: "Creator Partner Programme",
     description:
       "Reseller creators earn a share of the subscription revenue from sellers they bring to FlipDesk, for a year, capped per account. The terms and how to apply.",

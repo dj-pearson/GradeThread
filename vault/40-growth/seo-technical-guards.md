@@ -7,11 +7,19 @@ code_refs:
   - src/prerender/head-builder.ts
   - src/prerender/entry-server.tsx
   - src/lib/seo/json-ld.ts
-reviewed: 2026-08-31
+reviewed: 2026-09-02
 tags: [seo, prerender, ci, contract]
 summary: What CI enforces about the HTML crawlers actually receive, and how to read each failure.
 ---
 # Prerender / hydration parity — runbook (US-1669)
+
+> **Re-reviewed 2026-09-02.** Drift flagged `entry-server.tsx` and
+> `head-builder.ts` for the cross-listing batch: seventeen new prerendered pages
+> (fourteen marketplace pair pages, two switch-from pages, `/partners`), each
+> added to both maps because the sync guard requires it. Nothing about the
+> guards changed, and every new page came out of `npm run build` with a real
+> `<head>` -- the pair pages and switch-from pages carry Article plus FAQ JSON-LD
+> through `jsonLdForRoute()`, `/partners` carries the default set.
 
 > **Re-reviewed 2026-08-31.** Drift flagged `src/prerender/entry-server.tsx` for US-9033, which adds
 > `/tools/rn-lookup` to the prerender map. That is the guard in this note doing

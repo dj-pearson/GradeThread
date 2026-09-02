@@ -60,6 +60,11 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
     sourceNote: "vault/10-ops/deploy.md",
+    // Re-read 2026-09-02. NOTHING to carry, an EIGHTH consecutive time and for
+    // the identical reason: the eBay API-accounting and measurement jobs moved
+    // the count 84 -> 88 and added generated table rows. This copy names no
+    // count, which is why eight checks have found nothing.
+    //
     // Re-read 2026-08-30. NOTHING to carry, a SEVENTH consecutive time and for
     // the identical reason: US-2997 added qbo-token-refresh, moving the count
     // 83 -> 84 and adding one generated table row. This copy names no count.
@@ -122,7 +127,7 @@ export const RUNBOOKS: Runbook[] = [
     // Redeploy" check before debugging, and the reason Watch Paths is not the
     // fix (Coolify renders it only for a private GitHub-App source; this app is
     // Public GitHub).
-    reviewed: "2026-08-31",
+    reviewed: "2026-09-02",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -425,6 +430,13 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "launch-readiness",
     sourceNote: "vault/10-ops/launch-checklist.md",
+    // Re-read 2026-09-02. Nothing to carry: the two measurement jobs and the
+    // eBay API-accounting job added rows and moved the count line 84 -> 86 ->
+    // 88. One of them is worth knowing at launch and still is not a gate:
+    // measurement-text-backfill is a ONE-OFF that drains and then reports
+    // scanned 0, so an operator who sees it idling has not found a fault. §2
+    // here still names no number.
+    //
     // Re-read 2026-08-30. Nothing to carry: US-2997's qbo-token-refresh row and
     // the count line 83 -> 84. Refreshing a QuickBooks token hourly is
     // housekeeping for an integration a seller opts into, not a launch gate,
@@ -479,7 +491,7 @@ export const RUNBOOKS: Runbook[] = [
     // `VITE_*` set in Cloudflare Pages" — so the retired row was never here to
     // remove. The generic line is why, and it is the same instinct that keeps
     // the cron count out of §2: name the class, let the source hold the list.
-    reviewed: "2026-08-30",
+    reviewed: "2026-09-02",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:
