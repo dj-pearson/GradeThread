@@ -77,6 +77,7 @@ import type {
   WidgetDef,
   WidgetSize,
 } from "@/lib/dashboard-widgets";
+import type { OverviewRangeId } from "@/lib/overview-range";
 import { track } from "@/lib/analytics";
 import { cn } from "@/lib/utils";
 
@@ -349,6 +350,12 @@ export interface CustomizableWidgetBoardProps {
   title: ReactNode;
   subtitle?: ReactNode;
   actions?: ReactNode;
+  /**
+   * The reporting window this board is showing (US-3076). Passed straight to
+   * WidgetBoard: the page owns the picker because the picker is one of its
+   * header actions, and the board owns what the widgets are told about it.
+   */
+  range?: OverviewRangeId;
   className?: string;
 }
 
@@ -365,6 +372,7 @@ export function CustomizableWidgetBoard({
   title,
   subtitle,
   actions,
+  range,
   className,
 }: CustomizableWidgetBoardProps) {
   const saved = useDashboardLayout(surface);
@@ -488,6 +496,7 @@ export function CustomizableWidgetBoard({
       surface={surface}
       layout={entries}
       registry={saved.registry}
+      range={range}
       renderAction={renderAction}
       renderCell={
         editing ? (cell) => <SortableWidgetCell cell={cell} /> : undefined
