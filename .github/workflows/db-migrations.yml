@@ -212,6 +212,13 @@ jobs:
       # the same jacket. It also proves the SECURITY DEFINER tenant guard fires.
       - name: One sale is ONE QuickBooks document (US-2998)
         run: node scripts/check-qbo-sync.mjs
+      # US-3094: the credit functions are anon-EXECUTE-able by design -- taking
+      # the grant away is what arms the US-2403 segfault -- so what has to hold
+      # is that each one refuses anon in its own body. A DROP + CREATE resets
+      # the ACL to the PUBLIC default and loses the guard in the same breath,
+      # which no scan of the migration text can see. This reads pg_proc.
+      - name: Credit functions refuse anon (US-3094)
+        run: node scripts/check-credit-function-guards.mjs
       - name: Denied-RPC crash check (advisory, US-2403)
         continue-on-error: true
         run: node scripts/db-denied-rpc-crash-check.mjs

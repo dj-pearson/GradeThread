@@ -514,6 +514,15 @@ if (on("db")) {
     run("db: statement import does not duplicate or double-match (US-2994)", "node scripts/check-statement-import.mjs");
     run("db: a closed period refuses the SERVICE ROLE (US-2995)", "node scripts/check-period-close.mjs");
     run("db: one sale is ONE QuickBooks document (US-2998)", "node scripts/check-qbo-sync.mjs");
+    // US-3094: every credit function is either unreachable by anon or refuses
+    // anon in its own body. Reads pg_proc, because the way this breaks is a
+    // DROP + CREATE that resets the ACL to the PUBLIC default and loses the
+    // guard in the same migration — valid SQL that applies green, and invisible
+    // to any scan of the migration text.
+    run(
+      "db: credit functions refuse anon (US-3094)",
+      "node scripts/check-credit-function-guards.mjs",
+    );
     // US-2403: a denied function call SEGFAULTs the Supabase Postgres image and
     // restarts the whole database. ADVISORY, not a gate, and deliberately so:
     // the stock image is vulnerable today, so gating here would be red on every

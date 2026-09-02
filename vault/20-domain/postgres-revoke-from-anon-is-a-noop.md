@@ -10,7 +10,9 @@ code_refs:
   - supabase/migrations/00099_snap_quota.sql
   - supabase/migrations/00611_body_checks_for_ineffective_revokes.sql
   - supabase/migrations/00617_remaining_metered_function_guards.sql
-reviewed: 2026-08-29
+  - supabase/migrations/00723_credit_function_authorization_invariant.sql
+  - scripts/check-credit-function-guards.mjs
+reviewed: 2026-09-02
 tags: [postgres, security, migrations, grants]
 summary: CREATE FUNCTION grants EXECUTE to PUBLIC and every role belongs to PUBLIC, so revoking a role by name removes a grant it never held alone. Thirteen migrations used that pattern; six secured nothing, for up to three years.
 ---
@@ -143,6 +145,31 @@ Two details that will bite the next person writing one of these:
   session both carry a role claim. Denying NULL would lock operators and any
   future `pg_cron` job out of their own diagnostics.
 
+
+## A high anon-EXECUTE count is the healthy state, not a backlog
+
+Reading `pg_proc` for the first time produces a number that looks like an
+emergency: on 2026-09-02, 100 of prod's 120 `SECURITY DEFINER` functions were
+executable by `anon`. US-3094 was filed on exactly that reading, plus the
+inference that the local stack must be different because US-2282's closing note
+recorded `anon` being refused `42501`.
+
+Both halves were wrong, and the catalog settles it. **The local stack agrees
+with prod** — 237 / 119 / 101 the same day, and the eight credit functions carry
+`anon=X` in *both*. Nothing was re-granted, because no `REVOKE` was ever written
+for them anywhere: US-2282 shipped `00615`, which put the check in the body. The
+`42501` in its note is that body raising, not an `EXECUTE` denial. The two error
+paths are indistinguishable from a client, which is what made the wrong reading
+so easy.
+
+So the number to watch is not `definer_anon_can_run`. It is the pair
+`anon_can_run = true AND body_guard = false`, which must be zero.
+`scripts/prod-diagnostics.sql` §29 reports both, `00723` asserts the pair at
+apply time for the ten credit functions, and
+`scripts/check-credit-function-guards.mjs` runs the same catalog query in
+`verify` and CI. A *sudden drop* in `definer_anon_can_run` is the alarm — it
+means a revoke shipped, and every function it touched is now an unauthenticated
+database restart away.
 
 ## Related
 
