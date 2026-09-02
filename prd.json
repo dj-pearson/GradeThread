@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3087",
+  "nextId": "US-3094",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3564,6 +3564,128 @@
         "OPERATOR: run the backfill with --redo-undecoded --dry-run, confirm the five items above decode, then --apply, and paste the summary into this story's note."
       ],
       "priority": 11
+    },
+    {
+      "id": "US-3087",
+      "passes": false,
+      "title": "[GATE] SERP-check the ten head terms behind the listing generator, the Vinted leg and the buyer-trust leg",
+      "description": "As the operator, I want to know which of the ten head terms in docs/seo/keyword-strategy-2026-09-02.md still return clickable links and who holds their top ten, so that the three new legs are built against results pages that have results. US-9026 made query shape a build criterion: a 500/mo tool noun without an AI Overview beat a 50,000/mo question with one, nine of thirteen target SERPs carried one, and nobody has checked these ten.",
+      "acceptanceCriteria": [
+        "Ten terms checked in a browser, signed out, US, desktop, one sample each, appended to docs/seo/serp-feature-audit-2026-08-28.md in its existing table format with the date: ebay listing template, ebay description template, ebay title builder, depop description template (leg 2); how to sell on vinted, vinted scams (leg 3); is vinted legit, is mercari legit, is poshmark legit, is depop legit (leg 4).",
+        "For each term: AI Overview present yes/no, whether the Overview renders the deliverable inline (a usable template, a full how-to, a verdict), organic link count above the fold, and the top ten domains each classified as marketplace help centre, template vendor, major publisher (DA 80+), small blog, or UGC (Reddit, Quora, YouTube, TikTok).",
+        "LEG 2 VERDICT written under a new \"Gate results\" heading in docs/seo/keyword-strategy-2026-09-02.md: BLOCKED only if ebay listing template AND ebay description template both carry an Overview that renders a usable template inline AND none of the top ten on either is a static template site. Otherwise OPEN, naming which of the four terms still return links.",
+        "LEG 3 VERDICT in the same section: BLOCKED only if the Vinted help centre holds every page-one organic slot on how to sell on vinted. Otherwise OPEN, naming the reachable slots.",
+        "LEG 4 VERDICT in the same section, PER TERM: a term is OPEN only if at least one of its top ten is a small blog or UGC (something a page with no links can displace). Record the four verdicts separately; the buyer hub story builds only the OPEN ones.",
+        "The downstream stories are reprioritised from the verdicts in the same commit: a BLOCKED leg has its stories moved to priority 900+ with a note naming this story, an OPEN leg keeps its priority. No story is deleted.",
+        "The note records the caveat from US-9026 verbatim in spirit: one sample per query, Overview presence varies by user and time, re-run with the quarterly pull US-9016 schedules for 2026-11-18."
+      ],
+      "priority": 14
+    },
+    {
+      "id": "US-3088",
+      "passes": false,
+      "title": "Anonymous listing-draft endpoint: one to three photos in, a marketplace-ready title, item specifics and description out, nothing stored",
+      "description": "As a seller who searched for an eBay listing template, I want to drop a photo of the garment and get a real title, item specifics and description written for the marketplace I pick, so that I see the product do the job instead of reading a template. Reuses the AutoLister prompt (generateListingFields in services/edge-functions/src/lib/ai-listing.ts) on the hardened anonymous pattern that /api/grading/public/grade-check and /api/grading/public/tag-read already use in services/edge-functions/src/routes/public-grading.ts. Source: docs/seo/keyword-strategy-2026-09-02.md finding A (the how-to phrasings are blank, the tool nouns carry 4,000/mo and the best bids in the file).",
+      "acceptanceCriteria": [
+        "POST /api/grading/public/listing-draft is unauthenticated and accepts 1 to 3 image data URLs plus optional brand, size, condition and a target of ebay, poshmark, mercari or depop; a fourth image or an unknown target returns 400 with a named error code, mirroring parseScanBody in lib/extension-scan.ts. The parser and the response shaper live in a new pure module services/edge-functions/src/lib/free-listing-draft.ts with its own _test.ts, no hono and no supabase import.",
+        "Every image passes validateImageUpload then stripImageMetadata before the model sees bytes (lib/upload-validation.ts, lib/image-metadata.ts), each capped at 8MB like tag-read; the endpoint persists no image, no draft and no row in any table, and services/edge-functions/src/tests/tenant-isolation_test.ts gains a case asserting an anonymous call leaves inventory_items and listings row counts unchanged.",
+        "Rate limited at 3 calls per IP per hour via a sibling of gradeCheckRateLimited returning 429 with code rate_limited, and reserves against reserveGlobalDailyBudget (lib/ai-limiter.ts) returning at_capacity when the daily ceiling is spent; both branches unit tested.",
+        "The call reuses generateListingFields with a promptSelectKey for the free tool rather than a second prompt, is attributed via enterAiFeature so its spend reads as its own line in the AI cost tracking, and the response carries no comps, no price and no eBay category id (those need an account and the comps path is tenant-scoped).",
+        "For target ebay the returned title passes lintTitle (lib/title-lint.ts) with zero errors and is at most 80 characters; for the other three targets the title is trimmed to that marketplace title limit with title-trim.ts and the response names the limit it was cut to. The description is rendered through description-render.ts blocks, so the free output and the paid output share one house style.",
+        "A run log line [free-listing-draft] records target, image count, model latency and the lint result, never the title text or the image, so cost per call is measurable from the log without storing anything.",
+        "deno test on the new _test.ts and tenant-isolation_test.ts passes, deno lint and deno check pass, and the endpoint is exercised once end to end against the local edge (EDGE_ENV=test PORT=8787) with a real photo before the story closes, with the response shape pasted into the story notes."
+      ],
+      "priority": 15,
+      "dependsOn": [
+        "US-3087"
+      ]
+    },
+    {
+      "id": "US-3089",
+      "passes": false,
+      "title": "The listing generator page at /tools/listing-generator: copyable templates per marketplace plus the photo-to-listing demo, handing off to AutoLister",
+      "description": "As a seller searching ebay listing template, ebay description template, ebay title builder or depop description template, I want a page that gives me a copyable template for my marketplace and, if I drop a photo, writes the actual listing, so that I get the template I searched for and see why the product beats one. Every incumbent on these SERPs is a static HTML template site from the Auctiva and inkFrog era; the page ships the template half regardless and the generator half when the endpoint is live, so a killed generator never leaves an empty shell (the calculators.ts status flag rule).",
+      "acceptanceCriteria": [
+        "A Calculator entry in src/lib/seo/calculators.ts with slug listing-generator, audience seller, status live, story set to this id, and handoff surface autolister with copy that says what AutoLister does for a whole closet; src/lib/seo/__tests__/calculators.test.ts and calculator-funnel.test.ts pass unchanged in their rules.",
+        "Registered in PUBLIC_ROUTES and ROUTE_LAST_MODIFIED in src/lib/seo/public-routes.ts, in src/prerender/entry-server.tsx, and in the router, so public-routes.test.ts, route-page-modules-exist.test.ts and the prerender sync guard pass; the page prerenders with the template tabs visible in the static HTML (a grep of dist shows the eBay template text).",
+        "Four tabs, eBay, Poshmark, Mercari, Depop, each with a copyable title pattern and description template whose character limits and field names are read from MARKETPLACE_SPECS in src/lib/constants.ts rather than typed by hand, with a test in src/lib/__tests__/ asserting every rendered limit equals the constant.",
+        "A photo drop zone (media-intake, the grade-checker pattern) posts to /api/grading/public/listing-draft and renders the title with a live character count against the tab limit, item specifics as a list and the description; a 429 rate_limited renders the limit message and a 503 at_capacity renders the capacity message, never the try-a-clearer-photo copy (US-2526).",
+        "The AutoLister handoff renders only after a result or below the templates, never above them, and the handoff click fires the same event calculator-funnel.test.ts pins for the fee calculators.",
+        "Keyword rows in src/lib/seo/keyword-targets.ts: primary ebay listing template, secondary ebay description template, ebay title builder, ebay listing generator, depop description template, poshmark listing template, mercari description template; the route title carries the primary and keyword-targets.test.ts passes. src/lib/seo/extension-cta-copy.ts carries three page-specific lines for the new /tools path so src/test/extension-install-cta.test.ts passes.",
+        "JSON-LD matches the other tools (the type the calculators emit plus FAQPage with at least three questions from the keyword rows), jsonld-schema-lint.test.ts and json-ld.test.ts pass, npm run ui:check reports zero enforced findings, and npm run verify is green before the commit.",
+        "Measured at 8 weeks, 2026-11-15, in this story's notes: impressions and CTR for the seven keyword rows, mobile and desktop split, and handoff clicks; baseline is zero because the URL is new. Under 100 impressions at position 30+ is a competition problem and gets written down, not fixed by adding pages."
+      ],
+      "priority": 16,
+      "dependsOn": [
+        "US-3087"
+      ]
+    },
+    {
+      "id": "US-3090",
+      "passes": false,
+      "title": "How to sell on Vinted, US edition: the seller guide nobody in resale has written yet",
+      "description": "As a US seller who searched how to sell on vinted, I want a guide that explains how Vinted works in the US (buyer-paid protection fee, no seller fee, the label flow, payout timing, condition options) and how to move my existing listings there, so that I list on Vinted without guessing. Every Vinted term in every pull is Low competition with an index of 0 to 3 (how to sell on vinted 500/mo growing, vinted selling tips 50, vinted condition 50 growing), the UK sends 11 of the site's 130 clicks, and /compare/vinted-vs-mercari is the only comparison page that converts. Source: docs/seo/keyword-strategy-2026-09-02.md finding B.",
+      "acceptanceCriteria": [
+        "A ResellingGuide entry in src/lib/seo/reselling-guides.ts with slug how-to-sell-on-vinted served at /reselling/how-to-sell-on-vinted, registered in ROUTE_LAST_MODIFIED, present in the reselling sitemap segment, with public-routes.test.ts and prerender-seed.test.ts passing.",
+        "Every fee, payout and protection statement carries a freshness stamp from verifiedLabel in src/lib/seo/freshness.ts keyed vinted, dated the day the Vinted US help pages were read, and the story notes list the help-page URLs read.",
+        "What the extension does on Vinted is derived from MARKETPLACE_TIER and MARKETPLACE_EXTENSION_FLOW in src/lib/constants.ts through the same destinationMechanism helper the crosslist pair pages use, never hand-written; src/test/crosslist-pairs.test.ts or a sibling asserts the guide copy against the constants.",
+        "The page links to /grading/platform-standards/vinted for the condition options, /compare/vinted-vs-mercari and /compare/vinted-vs-poshmark, and the pair pages /reselling/crosslist/mercari-to-vinted and /reselling/crosslist/vinted-to-poshmark, and every link passes isCrossHubLinkAllowed in src/lib/seo/interlink-rules.ts.",
+        "Keyword rows in src/lib/seo/keyword-targets.ts: primary how to sell on vinted, secondary vinted selling tips, selling on vinted, vinted fees for sellers, vinted condition; keyword-targets.test.ts passes. A row for ^/reselling/how-to-sell-on-vinted$ is added to the cluster table in vault/40-growth/seo-distribution-and-measurement.md in the same commit.",
+        "A FAQ block of at least four questions answers vinted fees, how long a Vinted payout takes, whether Vinted is available in the US, and what Vinted counts as satisfactory condition, mirrored into JSON-LD FAQPage; jsonld-schema-lint.test.ts passes and npm run ui:check reports zero enforced findings.",
+        "Measured at 8 weeks, 2026-11-15, in this story's notes: impressions, position and clicks on how to sell on vinted and the four secondaries, against a baseline of zero."
+      ],
+      "priority": 17,
+      "dependsOn": [
+        "US-3087"
+      ]
+    },
+    {
+      "id": "US-3091",
+      "passes": false,
+      "title": "Rewrite the three quiet Vinted comparisons on the pattern that made vinted-vs-mercari the only comparison that converts",
+      "description": "As a seller comparing Vinted with Poshmark, eBay or Depop, I want the page to answer the money question in the title and work it through on one item, so that I click it the way people click vinted-vs-mercari. /compare/vinted-vs-mercari carries a title override and a worked $40 example and earns 9 clicks on 1,182 impressions at position 8; /compare/vinted-vs-poshmark (83 impressions, position 21.7), /compare/vinted-vs-ebay (26, position 19) and /compare/vinted-vs-depop (11, position 12.9) are plain templatedComparison calls with zero clicks. Search Console export 2026-09-02.",
+      "acceptanceCriteria": [
+        "templatedComparison overrides in src/lib/seo/comparison-guides.ts for vinted-vs-poshmark, vinted-vs-ebay and vinted-vs-depop: a title that states who pays the fee, and a description that names the worked example price, in the vinted-vs-mercari shape.",
+        "Each of the three pages gains a fee row stating that Vinted charges the buyer a protection fee and no seller fee, with the figure stamped by verifiedLabel keyed vinted and the source help page in the story notes, and a row on how each side handles a condition dispute.",
+        "The three baselines above are recorded in the story notes on the day of the commit, and the 8-week read on 2026-11-15 records impressions, position and clicks for each; a page that stays at zero clicks above 100 impressions gets that written down here.",
+        "keyword-targets.test.ts still passes (the primary keyword for each pair stays in the title), and npm run ui:check reports zero enforced findings."
+      ],
+      "priority": 18
+    },
+    {
+      "id": "US-3092",
+      "passes": false,
+      "title": "Vinted scams and disputes for sellers: one page on what goes wrong, how the dispute runs, and what evidence wins",
+      "description": "As a seller on Vinted, I want to know the scams that target sellers, how a Vinted dispute is decided and what proof settles it, so that I do not lose the item and the payment. vinted scams is 500/mo, Low competition index 0, top-of-page bid $10.14 and flagged growing; vinted dispute is 50/mo at index 0. The dispute cluster is dead as a family (docs/seo/keyword-strategy-2026-09-02.md section 2) so this is one page, not a spine, and it exists because Vinted has no seller-side dispute documentation for the US.",
+      "acceptanceCriteria": [
+        "A ResellingGuide entry in src/lib/seo/reselling-guides.ts with slug vinted-scams-and-disputes at /reselling/vinted-scams-and-disputes, registered in ROUTE_LAST_MODIFIED, in the reselling sitemap segment, with public-routes.test.ts passing.",
+        "Sections in this order: the scams aimed at sellers (off-platform payment, the not-as-described claim on a swapped item, the chargeback after delivery), how the Vinted dispute runs step by step with the deadlines from the Vinted help pages stamped by verifiedLabel keyed vinted, and what evidence wins, where the condition report and the timestamped photo are named as evidence and linked to /grading/platform-standards/vinted and /reselling/reduce-ebay-returns.",
+        "Keyword rows in src/lib/seo/keyword-targets.ts: primary vinted scams, secondary vinted dispute, vinted buyer protection for sellers, vinted item not as described; keyword-targets.test.ts passes. A cluster-table row for ^/reselling/vinted-scams-and-disputes$ in vault/40-growth/seo-distribution-and-measurement.md in the same commit.",
+        "No claim about what the extension or FlipDesk does on Vinted unless derived from MARKETPLACE_TIER and MARKETPLACE_EXTENSION_FLOW in src/lib/constants.ts; the page is prose and evidence, with the product mentioned once after the answer.",
+        "JSON-LD Article plus FAQPage with at least three questions (is vinted safe for sellers, what happens if a buyer opens a dispute on vinted, how long does a vinted dispute take), jsonld-schema-lint.test.ts passes, npm run ui:check reports zero enforced findings.",
+        "Measured at 8 weeks, 2026-11-15, in this story's notes: impressions, position and clicks on vinted scams and vinted dispute, against a baseline of zero."
+      ],
+      "priority": 19
+    },
+    {
+      "id": "US-3093",
+      "passes": false,
+      "title": "The buyer-trust hub under /buying, contained like /care: is-vinted-legit first, the other three only where the gate found a reachable slot",
+      "description": "As a buyer who searched is mercari legit, is poshmark legit, is depop legit or is vinted legit, I want an honest answer plus the way to check a listing before I pay, so that I buy safely and install the extension that does the check. These four terms are 155,000/mo at midpoint, three of them Low competition, and advertisers bid up to $56.01 on them; the August note dismissed them as unmonetisable before the buyer extension and the creator affiliate programme existed. They are buyer content on a seller site, so they get the containment /care got: own directory, links out only, own sitemap segment, a ratio ceiling. Built only for the terms US-3087 marked OPEN; is vinted legit goes first because it is index 3, growing, and bids $21.67.",
+      "acceptanceCriteria": [
+        "A new Hub member buying in src/lib/seo/interlink-rules.ts with the same one-way rule as care: HUB_PILLARS is typed to exclude it, isCrossHubLinkAllowed refuses every link INTO /buying from any other path, and /buying pages may link out; src/test/buying-containment.test.ts pins the rule the way care-containment.test.ts does.",
+        "A sitemap segment functions/sitemap-buying.xml.ts listed after the commercial segments, and the ratio guard in functions/_shared/sitemap.ts extended so buying URLs as a share of static URLs is reported and capped at 10%, with the ceiling and the reason written in a comment beside careRatio.",
+        "/buying/is-vinted-legit ships in the first commit; /buying/is-mercari-legit, /buying/is-poshmark-legit and /buying/is-depop-legit ship only if US-3087 marked that term OPEN, and a term marked BLOCKED gets a note here saying so, never a page.",
+        "Each page answers the question in the first paragraph, then explains how that marketplace's buyer protection works with dates and figures stamped by verifiedLabel keyed to the marketplace, then the scams buyers meet there, then how to check a listing before paying, where the extension CTA renders with buyer copy from src/lib/seo/extension-cta-copy.ts naming the marketplace, and src/test/extension-install-cta.test.ts covers the new registry.",
+        "Keyword rows in src/lib/seo/keyword-targets.ts, one per page, primary is <marketplace> legit, secondary <marketplace> scams, <marketplace> buyer protection, is <marketplace> safe; keyword-targets.test.ts passes. A cluster-table row for ^/buying/ in vault/40-growth/seo-distribution-and-measurement.md in the same commit, judged on extension installs, not impressions.",
+        "No page in /buying links to /pricing, /flipdesk or any seller landing; the only product surface it links to is the extension install, and buying-containment.test.ts asserts it.",
+        "JSON-LD Article plus FAQPage, jsonld-schema-lint.test.ts passes, npm run ui:check reports zero enforced findings, npm run vault:lint passes strict after the cluster-table edit.",
+        "Measured at 8 weeks, 2026-11-15, in this story's notes: impressions and position per page, and extension_install_cta_click on /buying pages read from the US-9210 PostHog insight. Zero installs from more than 500 impressions is the kill condition: write it here and stop adding buyer pages."
+      ],
+      "priority": 20,
+      "dependsOn": [
+        "US-3087"
+      ]
     }
   ]
 }
