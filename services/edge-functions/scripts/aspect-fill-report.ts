@@ -16,6 +16,15 @@
 // ai_enrichment_log are tenant-scoped, so an anon read returns [] whether the
 // tables are empty or full, which is the one answer this script must not give.
 //
+// TWO COST NUMBERS, ON PURPOSE. ai_enrichment_log.cost_usd is estimateCost,
+// which prices every input token at full rate - including the cache READ
+// tokens of the aspect tool schema, which Anthropic bills at a tenth. The
+// first prod run (2026-09-02) read $0.11 median per draft off that column, and
+// it is comparable only with itself. ai_usage_events is the ledger the limiter
+// writes per call with the cache multipliers applied (computeCostUsd); that is
+// the bill. Both are printed, the ledger per feature, so a cut in image tokens
+// shows up where it is paid.
+//
 // WHAT "BEFORE" AND "AFTER" MEAN. The last `window` drafts created before the
 // boundary and the first `window` created at or after it, by listings.created_at.
 // The enrichment rows are split the same way on their own created_at and keep
@@ -109,6 +118,83 @@ async function spend(side: "before" | "after"): Promise<SpendRow[]> {
   return (data ?? []) as SpendRow[];
 }
 
+/** The per-call ledger, the features the AutoLister item passes are tagged with. */
+const LEDGER_FEATURES = [
+  "autolister",
+  "catalog_extract",
+  "tag_ocr",
+  "size_estimate",
+  "measure_extract",
+] as const;
+
+interface LedgerRow {
+  feature: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number | null;
+  cost_usd: number | string;
+  created_at: string;
+}
+
+async function ledger(side: "before" | "after"): Promise<LedgerRow[]> {
+  let q = db
+    .from("ai_usage_events")
+    .select(
+      "feature, input_tokens, output_tokens, cache_read_tokens, cost_usd, created_at",
+    )
+    .in("feature", [...LEDGER_FEATURES]);
+  q = side === "before"
+    ? q.lt("created_at", BOUNDARY).order("created_at", { ascending: false })
+    : q.gte("created_at", BOUNDARY).order("created_at", { ascending: true });
+  // Up to five calls per draft.
+  const { data, error } = await q.limit(WINDOW * 5);
+  if (error) {
+    // The ledger is newer than the enrichment log; a missing table or column
+    // must not take the fill tables down with it.
+    console.error(
+      `[fill-report] ai_usage_events (${side}) read failed: ${error.message}`,
+    );
+    return [];
+  }
+  return (data ?? []) as LedgerRow[];
+}
+
+function summarizeLedger(rows: LedgerRow[]) {
+  const byFeature: Record<
+    string,
+    {
+      calls: number;
+      medianCostUsd: number | null;
+      totalCostUsd: number;
+      medianCacheRead: number | null;
+    }
+  > = {};
+  for (const f of LEDGER_FEATURES) {
+    const mine = rows.filter((r) => r.feature === f);
+    if (mine.length === 0) continue;
+    const cost = mine.map((r) => Number(r.cost_usd) || 0);
+    byFeature[f] = {
+      calls: mine.length,
+      medianCostUsd: median(cost),
+      totalCostUsd: cost.reduce((a, b) => a + b, 0),
+      medianCacheRead: median(
+        mine.map((r) => Number(r.cache_read_tokens) || 0),
+      ),
+    };
+  }
+  const generations = byFeature.autolister?.calls ?? 0;
+  const total = Object.values(byFeature).reduce(
+    (a, b) => a + b.totalCostUsd,
+    0,
+  );
+  return {
+    byFeature,
+    // The bill per draft: every tagged call in the window over the number of
+    // generation calls. Approximate across the window edge, exact in the middle.
+    perDraftUsd: generations > 0 ? total / generations : null,
+  };
+}
+
 function summarizeSpend(rows: SpendRow[]) {
   const n = rows.length;
   const cost = rows.map((r) => Number(r.cost_usd) || 0);
@@ -128,6 +214,7 @@ function money(v: number | null): string {
 async function side(name: "before" | "after") {
   const rows = await drafts(name);
   const log = await spend(name);
+  const bill = summarizeLedger(await ledger(name));
   const gen = log.filter((r) =>
     r.suggested_fields && "listing_gen" in r.suggested_fields
   )
@@ -155,6 +242,7 @@ async function side(name: "before" | "after") {
     draftsBlocked: coverage.draftsBlocked,
     generation: summarizeSpend(gen),
     kit: summarizeSpend(kit),
+    ledger: bill,
   };
 }
 
@@ -202,6 +290,18 @@ for (const s of [before, after]) {
     `kit spend (n=${s.kit.n}): median cost ${
       money(s.kit.medianCostUsd)
     }, total ${money(s.kit.totalCostUsd)}`,
+  );
+  console.log(
+    `ledger (ai_usage_events, cache multipliers applied): per draft ${
+      money(s.ledger.perDraftUsd)
+    }` +
+      Object.entries(s.ledger.byFeature)
+        .map(([f, v]) =>
+          `; ${f} n=${v.calls} median ${money(v.medianCostUsd)} (cache read ${
+            v.medianCacheRead ?? "-"
+          } tok)`
+        )
+        .join(""),
   );
   for (const c of s.byCategory.slice(0, 8)) {
     console.log(`\n### category ${c.categoryId} (${c.drafts} drafts)`);
