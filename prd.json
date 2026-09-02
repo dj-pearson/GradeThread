@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3050",
+  "nextId": "US-3059",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3060,6 +3060,121 @@
       "priority": 6,
       "passes": false,
       "notes": "[BUILT 2026-09-02] New: extension-unified/queue/queue-view.js (pure view model, shared by popup + worker) and test/queue-view.test.cjs (11 groups; asserts cancel is queued-only, failures count toward the badge, every dead row carries a reason, and KIND_LABELS matches the edge EXTENSION_QUEUE_KINDS). background.js gains getQueue/cancelQueueRow and the GT_QUEUE_STATE / GT_QUEUE_CANCEL / GT_QUEUE_RUN_NOW / GT_CC_RUN_ACTIVE handlers (internal only — deliberately NOT in EXTERNAL_TYPES). manifest background.scripts + importScripts updated in lockstep. popup.html/js/css: work summary, queue block, reordered Selling panel, collapsed Channels with live count, Reads action button, footer link to the options page. Edge: flipdesk-extension-queue.ts withItemTitles() on GET only. Web: use-extension-queue.ts item_title, marketplaces.tsx claimed-row Cancel removed + revise/relist described + rows named. Verified with a stubbed-chrome Playwright render of popup.html at 340px on both tabs; 47/47 extension guards, tsc -b and eslint clean."
+    },
+    {
+      "id": "US-3050",
+      "passes": false,
+      "title": "Extension revision: live queue refresh and the running row's stage",
+      "description": "Found in the 2026-09-02 extension deep dive. The popup fetches the queue once, on open. A seller who presses Run these now and leaves the popup open watches a Running now row that never changes, and the Last job card only updates on the next open. The worker already records every stage transition (GT_LISTER_STAGE, lister/job-store.js advanceStage: navigated, filling, photos, submitted) and writes listerLastJob to storage.local, so the data exists and the popup ignores it.",
+      "acceptanceCriteria": [
+        "While the popup is open, a change to listerLastJob or the lister jobs map in storage.local (storage.onChanged) re-renders the queue, the Last job card and the work summary without a click.",
+        "A claimed queue row shows its current stage in words (Opening the tab / Filling the form / Attaching photos / Submitting) read from the job store through GT_LISTER_GET_JOB or an equivalent message; an unknown stage renders as Running now, never blank.",
+        "No polling loop: the refresh is event-driven, and test/queue-view.test.cjs or a sibling guard pins that popup.js subscribes to storage.onChanged and unsubscribes on unload.",
+        "All extension test files pass and eslint extension-unified is clean."
+      ],
+      "priority": 11
+    },
+    {
+      "id": "US-3051",
+      "passes": false,
+      "title": "Extension revision: show remaining condition reads in the popup and the overlay",
+      "description": "Found in the 2026-09-02 extension deep dive. A shopper has no idea how many free reads are left until the read fails with errQuota. GET /api/grading/public/entitlements returns plan flags only; the quota is enforced server-side in the public grade route and never reported ahead of time. The popup should say 3 of 5 reads left today under the button, and the overlay should say it after a read, with sign-in as the door when it hits zero.",
+      "acceptanceCriteria": [
+        "The entitlements endpoint (services/edge-functions, public-grading) returns a quota block: remaining, limit, resetsAt, for anonymous and signed-in callers, computed from the same counter the grade route enforces (no second counter).",
+        "The popup Reads tab shows remaining/limit under the read button and turns the site card amber with a sign-in link at zero; the overlay result card shows the same line. Neither invents a number when the field is absent (older edge): the line is simply omitted.",
+        "registry.js normalizes the quota block fail-safe (missing or malformed collapses to absent, never to unlimited) and test/registry.test.cjs covers it.",
+        "A tenant-isolation_test.ts case covers the new field if it reads a per-user row; edge deno test passes."
+      ],
+      "priority": 12
+    },
+    {
+      "id": "US-3052",
+      "passes": false,
+      "title": "Extension revision: Should I flip this? from the popup for sellers",
+      "description": "Found in the 2026-09-02 extension deep dive. Flip mode (US-2238) exists only inside the on-page overlay, below the condition read, so a FlipDesk seller sourcing on a phone or a small window has to run a read first and scroll to find it. The popup Reads tab already knows the tab is a supported listing and whether the account is seller-enabled; it should offer the seller's question as a second button and keep the last verdict for that listing.",
+      "acceptanceCriteria": [
+        "On a supported listing, a seller-enabled account sees a Should I flip this? button under Get condition read; anonymous and buyer-only accounts do not (gated in the popup AND in the worker, as the overlay path is).",
+        "Pressing it runs the same appraisal path the overlay uses (GT_CC_APPRAISE, click-to-run, one metered action) and the popup shows the verdict pill, resale range and margin after fees, plus a link to open the full panel on the page.",
+        "The last flip verdict per listing URL is cached on-device with the grade cache TTL and shown on reopen; nothing new is written server-side (the shadow grade stays private, US-620).",
+        "A zero-dep guard pins that the popup never sends GT_CC_APPRAISE for a non-seller capability map."
+      ],
+      "priority": 13
+    },
+    {
+      "id": "US-3053",
+      "passes": false,
+      "title": "Extension revision: keyboard and screen-reader pass on the popup",
+      "description": "Found in the 2026-09-02 extension deep dive. The redesigned popup has two role=tablist strips and neither handles arrow keys; the queue status line, the run note and the bulk-action outcome change without an aria-live region; a re-render after Retry or Cancel drops focus to body; and the grade ring is announced only through an aria-label on a span inside a link.",
+      "acceptanceCriteria": [
+        "Both tablists support Left/Right/Home/End with roving tabindex, and the panels carry aria-labelledby (already) plus tabindex=-1 so focus can land on them.",
+        "queueStatus, queueRunNote, syncNote and the engagement run status are aria-live=polite regions; a bulk action announces its outcome.",
+        "After Retry, Cancel, Dismiss or a bulk action re-renders the list, focus moves to the nearest surviving control in the same card rather than to body.",
+        "A Playwright + axe-core scan over the popup in the three fixture states (anon, buyer, seller-with-work) reports zero serious or critical violations, and the scan is runnable with one command documented in extension-unified/TESTING.md."
+      ],
+      "priority": 14
+    },
+    {
+      "id": "US-3054",
+      "passes": false,
+      "title": "Extension revision: a committed screenshot harness for the popup and pages",
+      "description": "Found in the 2026-09-02 extension deep dive. The redesign was checked visually with a throwaway Playwright script that stubbed the chrome.* API (storage, runtime.sendMessage, tabs, commands) and injected fixture states; it lived in a scratch directory and is gone. Reviewing a popup change, and producing store-listing screenshots for a new version, both need that render without a signed-in seller account and a real queue.",
+      "acceptanceCriteria": [
+        "scripts/extension-screenshots.mjs renders popup.html (Reads, Selling, Settings), onboarding.html, options.html and compare.html in light and dark for three fixture states (anonymous, buyer, seller with work in every queue) into dist-ext/screenshots/, using the pre-installed Chromium and no network.",
+        "The chrome.* stub lives in scripts/lib/extension-stub.mjs and answers every message type the popup sends; a message it does not know fails the run rather than returning ok, so a new popup message cannot silently render an empty block.",
+        "A --check mode compares each render against a committed baseline hash and fails on drift, and is documented in extension-unified/TESTING.md as the step to run before a store upload."
+      ],
+      "priority": 15
+    },
+    {
+      "id": "US-3055",
+      "passes": false,
+      "title": "Extension revision: theme preference (system, light, dark) honored by popup, overlay and pages",
+      "description": "Found in the 2026-09-02 extension deep dive. Every surface follows prefers-color-scheme only. A shopper on a dark OS reading a white marketplace page gets a dark card floating on a white listing, and there is no way to choose. popup.css is deliberately one dark block (src/test/popup-theme.test.ts requires exactly one prefers-color-scheme:dark block), so the switch has to be a data-theme attribute that reuses the same token values without a second media block.",
+      "acceptanceCriteria": [
+        "options.html gains a Theme control (System / Light / Dark) stored as theme in storage.local; System is the absent key.",
+        "popup.css, compare.css and research/overlay.css apply the dark token set under either the media query or [data-theme=dark], and the light set under [data-theme=light] regardless of the OS, without adding a second prefers-color-scheme:dark block to popup.css (popup-theme.test.ts stays green).",
+        "The overlay host reads the preference through GT_CC_GET_SETTINGS and sets data-theme on the shadow root's card; the scan badges follow the same value.",
+        "The screenshot harness (if present) renders each state under all three preferences."
+      ],
+      "priority": 16
+    },
+    {
+      "id": "US-3056",
+      "passes": false,
+      "title": "Extension revision: compare view marks the best buy and works on a narrow window",
+      "description": "Found in the 2026-09-02 extension deep dive. compare.html is a six-column table with no verdict: the shopper still has to do the arithmetic between a 7.5 at 48 dollars and an 8.5 at 70. Under about 700px the table scrolls sideways inside its container, which is correct and unreadable on a phone-width Firefox window.",
+      "acceptanceCriteria": [
+        "The row with the best condition-adjusted value (highest overallScore per dollar among rows with a parsed price, ties to the higher score) carries a Best value tag; rows with no price are excluded and say so.",
+        "Below 640px the table renders as stacked cards (one per pinned listing) with the same figures and the unpin control; the page body never scrolls sideways.",
+        "A Copy summary control writes a plain-text list (title, marketplace, score, price, verdict per row) to the clipboard for pasting into a message; nothing leaves the device.",
+        "compare-tray.test.cjs covers the best-value selection including ties and missing prices."
+      ],
+      "priority": 17
+    },
+    {
+      "id": "US-3057",
+      "passes": false,
+      "title": "Extension revision: search and marketplace filters over a longer read history",
+      "description": "Found in the 2026-09-02 extension deep dive. recentReads is capped at 20 (background.js MAX_RECENT) and the Reads tab lists them in one scroll. A shopper who read thirty jackets across three sites last week cannot find the one they want to go back to, and the By seller view only aggregates what is still in the last twenty.",
+      "acceptanceCriteria": [
+        "MAX_RECENT rises to 100; the options page Your data count and Clear still cover the whole list, and the stats strip and By seller aggregate over all of it.",
+        "The Reads tab gets a filter box (matches title and seller, case-insensitive) and marketplace chips that narrow both Recent reads and By seller; an empty result says what was filtered, not No reads yet.",
+        "Filtering runs on the in-memory list with no storage round trip per keystroke, and the list is virtualized or capped at 40 rendered rows so the popup stays under 100ms to paint with 100 reads.",
+        "A zero-dep test covers the filter function (pure, in research/ or queue/-style module) for title, seller and marketplace matches."
+      ],
+      "priority": 18
+    },
+    {
+      "id": "US-3058",
+      "passes": false,
+      "title": "Extension revision: verify the redesigned overlay on live marketplace pages and ship 1.1.0 to the stores (operator)",
+      "description": "Found in the 2026-09-02 extension deep dive. The redesigned popup was rendered headlessly with a stubbed API, but the on-page overlay (score ring, signal rows, flip panel, collapsed owner bar) and the scan badges were only re-styled in CSS; nothing rendered them against a real listing, and the shadow-root hardening is the part that can only be judged on a live site. The 1.1.0 manifest is committed and SUBMISSION.md carries its notes; both stores still serve 1.0.9.",
+      "acceptanceCriteria": [
+        "OPERATOR: load extension-unified unpacked in Chrome and Firefox, open one listing and one search page on each of eBay, Poshmark, Grailed, Mercari, Depop and Vinted, and record (screenshot per site, light and dark) that the overlay ring, tier, factor bars, signal rows, pin and alert controls, the owner-listing collapsed bar and the search badges render without site CSS bleed; file any miss as its own story before shipping.",
+        "OPERATOR: run node scripts/package-extensions.mjs, upload the 1.1.0 Chrome and Firefox zips, and paste the SUBMISSION.md description and release notes; the store screenshots are regenerated from the redesigned surfaces.",
+        "The version note in SUBMISSION.md is updated to say which build the stores serve and the shipping commit is tagged."
+      ],
+      "priority": 19
     }
   ]
 }
