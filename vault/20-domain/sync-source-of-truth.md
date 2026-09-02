@@ -221,8 +221,9 @@ what goes to eBay.
     **overwrites** a differing one (newest human intent wins; the next projection is then a
     no-op instead of a clobber).
   - `ai_extracted` — **fill-if-blank only**, same rule as the inbound eBay/CSV merges.
-  - `inventory_derived` / unattributed — never written back (it either came *from* the field,
-    possibly normalized e.g. "M" → "Medium", or can't be attributed).
+  - `inventory_derived` / `visual_consensus` / unattributed — never written back (it either
+    came *from* the field, possibly normalized e.g. "M" → "Medium", was read off visually
+    similar live listings rather than this garment (US-3043), or can't be attributed).
   - **Which aspect it reads back from.** Given a spec, only the ONE name the field owns
     (`ownedAspectName`) — so an edit to a free neighbour like `Type` is not mistaken for a
     rename of the `style` column. Without a spec, it scans the entry's candidates and prefers

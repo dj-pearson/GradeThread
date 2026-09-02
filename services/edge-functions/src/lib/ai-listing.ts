@@ -32,6 +32,7 @@ import {
   estimateCost,
   extractEbayAspects,
   getHaikuModel,
+  type AspectValueSuggestion,
   type EbayAspectSpec,
   type ResearchIdentification,
 } from "./ai-extract.ts";
@@ -41,10 +42,22 @@ import {
   selectListingPhotos,
 } from "./listing-photo-budget.ts";
 import {
+  type BrowseCompCategoryVote,
+  type CategorySuggestion,
+  fetchCategoryLeafStatus,
   getCategoryAspects,
   getItemConditionPolicies,
   searchBrowseComps,
 } from "./ebay-client.ts";
+// US-3043: the batch path decides the category and pre-fills specifics from
+// the visual pass the same way the one-item path (routes/flipdesk-ai.ts) has
+// since US-2765/US-2770. It computed both and threw them away until now.
+import {
+  type CategoryDecision,
+  type DecideCategoryArgs,
+  decideCategory,
+} from "./category-decision.ts";
+import { visualAspectPrefill } from "./visual-aspect-prefill.ts";
 // 2026-09-02: the 12-hour suggestion cache the Scout path already used. A
 // 300-item batch of the same garment word was asking eBay the same question
 // 300 times.
@@ -73,7 +86,10 @@ import { startVisualPass } from "./visual-identify-pass.ts";
 import { corroborateStyleName } from "./visual-style-names.ts";
 import { resolveBrandKnowledgePack } from "./brand-knowledge.ts";
 import { recordStyleCodeObservations } from "./style-code-observations.ts";
-import { recordExtractionProvenance } from "./identification-provenance.ts";
+import {
+  recordCategoryDecision,
+  recordExtractionProvenance,
+} from "./identification-provenance.ts";
 import { withTemplateBlock } from "./listing-template.ts";
 import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
@@ -1816,13 +1832,151 @@ export function rankCategoryCandidates(
 export function buildAspectSources(
   aspects: Record<string, string[]>,
   inventoryDerived: Set<string>,
+  // US-3043: names the visual consensus filled. Lowest rung of the ladder.
+  visualConsensus: Set<string> = new Set(),
 ): AspectSourceMap {
-  const aiNames = Object.keys(aspects).filter((n) => !inventoryDerived.has(n));
+  const aiNames = Object.keys(aspects).filter(
+    (n) => !inventoryDerived.has(n) && !visualConsensus.has(n),
+  );
   return mergeSources(
-    sourcesFor(aiNames, "ai_extracted"),
-    sourcesFor(inventoryDerived, "inventory_derived"),
+    mergeSources(
+      sourcesFor(aiNames, "ai_extracted"),
+      sourcesFor(inventoryDerived, "inventory_derived"),
+    ),
+    sourcesFor(visualConsensus, "visual_consensus"),
     aspects,
   );
+}
+
+// ── US-3043: the category decision on the batch path ─────────────────────────
+
+/** The network the decision needs, injected so a test can hand it fakes. */
+export interface BatchCategoryDeps {
+  leafStatus: DecideCategoryArgs["leafStatus"];
+  suggest: (query: string) => Promise<CategorySuggestion[]>;
+  /** The category's spec, already demand-ranked (buildAspectSpecsForCategory). */
+  specsFor: (categoryId: string) => Promise<EbayAspectSpec[]>;
+}
+
+export interface BatchCategoryResult {
+  decision: CategoryDecision;
+  categoryId: string | null;
+  /** Only the keyword branch knows the ancestry; a vote knows the leaf alone. */
+  categoryPath: string | null;
+  /** The scored keyword shortlist; empty when the keyword branch did not run. */
+  candidates: CategoryCandidateScore[];
+}
+
+/**
+ * Decide the draft's eBay leaf: a saved category, else the leaf that visually
+ * similar live listings sit in, else the keyword search on the model's phrase.
+ *
+ * The keyword branch is exactly the US-2424 scoring that ran here before:
+ * the top CATEGORY_CANDIDATE_LIMIT suggestions ranked by how many of their
+ * REQUIRED specifics the item can already fill, eBay's order as tie-break. It
+ * is now the floor under decideCategory rather than the whole answer, and it
+ * only runs when the vote did not settle - so a visual win costs no aspect
+ * reads at all.
+ *
+ * A candidate whose spec cannot be read scores zero rather than dropping out,
+ * as before. Everything else that throws (the suggestion call itself) is the
+ * caller's to catch, so a network failure reads as "no category" and not as a
+ * failed draft.
+ */
+export async function resolveBatchCategory(
+  args: {
+    savedCategoryId: string | null;
+    query: string;
+    leafVotes: readonly BrowseCompCategoryVote[];
+    registryItem: RegistryItem;
+    itemSpecifics: Record<string, string[]>;
+    itemId: string;
+  },
+  deps: BatchCategoryDeps,
+): Promise<BatchCategoryResult> {
+  let candidates: CategoryCandidateScore[] = [];
+  const decision = await decideCategory({
+    savedCategoryId: args.savedCategoryId,
+    leafVotes: args.leafVotes,
+    leafStatus: deps.leafStatus,
+    keywordSuggest: async () => {
+      const query = args.query.trim();
+      if (!query) return [];
+      const suggestions = await deps.suggest(query);
+      if (suggestions.length === 0) return [];
+      const shortlist = suggestions.slice(0, CATEGORY_CANDIDATE_LIMIT);
+      const scored: CategoryCandidateScore[] = [];
+      for (const [rank, s] of shortlist.entries()) {
+        try {
+          scored.push(
+            scoreCategoryCandidate(
+              { categoryId: s.categoryId, categoryPath: s.categoryTreePath, rank },
+              args.registryItem,
+              args.itemSpecifics,
+              await deps.specsFor(s.categoryId),
+            ),
+          );
+        } catch (err) {
+          console.error(
+            `[AI Listing] category candidate ${s.categoryId} spec read failed:`,
+            err,
+          );
+          scored.push({
+            categoryId: s.categoryId,
+            categoryPath: s.categoryTreePath,
+            rank,
+            requiredFilled: 0,
+            requiredTotal: 0,
+            requiredMissing: [],
+          });
+        }
+      }
+      candidates = rankCategoryCandidates(scored);
+      const nameById = new Map(shortlist.map((s) => [s.categoryId, s.categoryName]));
+      return candidates.map((c) => ({
+        categoryId: c.categoryId,
+        categoryName: nameById.get(c.categoryId) ?? "",
+      }));
+    },
+  });
+  return {
+    decision,
+    categoryId: decision.categoryId,
+    categoryPath: decision.method === "keyword"
+      ? candidates[0]?.categoryPath ?? null
+      : null,
+    candidates,
+  };
+}
+
+/**
+ * Fold the visual prefill's suggestions into the draft's specifics.
+ *
+ * visualAspectPrefill has already refused everything that should be refused
+ * (a value the model gave, a value already set, a value the leaf does not
+ * allow), so this only copies. Returned rather than mutated so the caller's
+ * "what came from where" bookkeeping is one assignment. Pure.
+ */
+export function applyVisualPrefill(
+  aspects: Record<string, string[]>,
+  suggestions: Record<string, AspectValueSuggestion>,
+): {
+  aspects: Record<string, string[]>;
+  confidence: Record<string, number>;
+  names: string[];
+} {
+  const out = { ...aspects };
+  const confidence: Record<string, number> = {};
+  const names: string[] = [];
+  for (const [name, sug] of Object.entries(suggestions)) {
+    const values = (sug.values ?? []).map((v) => v.trim()).filter(Boolean);
+    if (values.length === 0) continue;
+    if ((out[name] ?? []).length > 0) continue;
+    out[name] = values;
+    confidence[name] = sug.confidence;
+    names.push(name);
+  }
+  return { aspects: out, confidence, names };
 }
 
 export interface GenerateListingOptions {
@@ -2267,64 +2421,60 @@ export async function generateListing(
   // instead: which leaf can the item already satisfy? No extra AI — the score
   // is a deterministic count over the cached category specs, and eBay's own
   // order is the tie-break, so one candidate behaves exactly as before.
+  //
+  // US-3043: the visual pass's leaf votes decide FIRST. Where two or more
+  // visually similar live listings sit in the same leaf, that leaf wins over
+  // the keyword search on the model's phrase - the same precedence the
+  // one-item path has used since US-2765. A saved category still wins
+  // outright, and the keyword scoring above is the floor when the vote did
+  // not settle. resolveBatchCategory carries the whole rule and its fakes.
   let categoryCandidates: CategoryCandidateScore[] = [];
-  if (!categoryId && listing.suggested_category_query) {
-    try {
-      const suggestions =
-        (await cachedSuggestCategories(listing.suggested_category_query)).result;
-      if (suggestions.length > 0) {
-        const shortlist = suggestions.slice(0, CATEGORY_CANDIDATE_LIMIT);
-        const scored: CategoryCandidateScore[] = [];
-        for (const [rank, s] of shortlist.entries()) {
-          try {
-            const specs = buildAspectSpecsForCategory(
-              await getCategoryAspects(s.categoryId),
-            );
-            scored.push(
-              scoreCategoryCandidate(
-                {
-                  categoryId: s.categoryId,
-                  categoryPath: s.categoryTreePath,
-                  rank,
-                },
-                registryItem,
-                listing.item_specifics,
-                specs,
-              ),
-            );
-          } catch (err) {
-            // A candidate whose spec we can't read is not disqualified — it
-            // just scores zero and falls back to its eBay rank. Dropping it
-            // could leave us with nothing at all.
-            console.error(
-              `[AI Listing] category candidate ${s.categoryId} spec read failed:`,
-              err,
-            );
-            scored.push({
-              categoryId: s.categoryId,
-              categoryPath: s.categoryTreePath,
-              rank,
-              requiredFilled: 0,
-              requiredTotal: 0,
-              requiredMissing: [],
-            });
-          }
-        }
-        categoryCandidates = rankCategoryCandidates(scored);
-        const best = categoryCandidates[0]!;
-        categoryId = best.categoryId;
-        categoryPath = best.categoryPath;
-        if (categoryCandidates.length > 1) {
-          console.log(
-            `[AI Listing] category ${best.categoryId} chosen for item ${itemId}: ` +
-              `${best.requiredFilled}/${best.requiredTotal} required aspects fillable ` +
-              `(eBay rank ${best.rank})`,
-          );
-        }
-      }
-    } catch (err) {
-      console.error("[AI Listing] suggestCategories failed:", err);
+  let categoryDecision: CategoryDecision | null = null;
+  try {
+    const resolved = await resolveBatchCategory(
+      {
+        savedCategoryId: categoryId,
+        query: listing.suggested_category_query ?? "",
+        leafVotes: visual.leafCategoryVotes,
+        registryItem,
+        itemSpecifics: listing.item_specifics,
+        itemId,
+      },
+      {
+        leafStatus: fetchCategoryLeafStatus,
+        suggest: async (q) => (await cachedSuggestCategories(q)).result,
+        specsFor: async (id) => buildAspectSpecsForCategory(await getCategoryAspects(id)),
+      },
+    );
+    categoryDecision = resolved.decision;
+    categoryCandidates = resolved.candidates;
+    if (!categoryId) {
+      categoryId = resolved.categoryId;
+      categoryPath = resolved.categoryPath;
     }
+    if (resolved.decision.method === "visual_consensus") {
+      console.log(
+        `[AI Listing] category ${resolved.categoryId} chosen for item ${itemId} ` +
+          `by visual consensus (${resolved.decision.support} similar listings)`,
+      );
+    } else if (resolved.decision.rejectedReason) {
+      // A vote that lost is worth a line: an ignored vote and an absent vote
+      // are indistinguishable in the data otherwise.
+      console.log(
+        `[AI Listing] visual category vote rejected (${resolved.decision.rejectedReason}) ` +
+          `for item ${itemId}; fell back to ${resolved.decision.method}`,
+      );
+    }
+    if (categoryCandidates.length > 1 && resolved.decision.method === "keyword") {
+      const best = categoryCandidates[0]!;
+      console.log(
+        `[AI Listing] category ${best.categoryId} chosen for item ${itemId}: ` +
+          `${best.requiredFilled}/${best.requiredTotal} required aspects fillable ` +
+          `(eBay rank ${best.rank})`,
+      );
+    }
+  } catch (err) {
+    console.error("[AI Listing] category resolve failed:", err);
   }
 
   // 5b. US-3031: settle the condition against the leaf we just resolved.
@@ -2379,6 +2529,9 @@ export async function generateListing(
   let aspectSpecs: EbayAspectSpec[] = [];
   // US-541: per-aspect confidence from the refine pass, for needs_review triage.
   const fieldConfidence: Record<string, number> = {};
+  // US-3043: what the refine pass answered, so the visual prefill below can
+  // stand down on every aspect the model looked at the actual garment for.
+  let refineSuggestions: Record<string, AspectValueSuggestion> = {};
   let extractCost = 0;
   let extractTokensIn = 0;
   let extractTokensOut = 0;
@@ -2433,6 +2586,7 @@ export async function generateListing(
             // prompt is byte-identical to before.
             research: researchFromIdentification(identification),
           });
+          refineSuggestions = refined.suggestions;
           const refinedSpecifics = suggestionsToSpecifics(refined.suggestions);
           // US-541: capture each refined aspect's confidence (0..1) for triage.
           for (const [name, sug] of Object.entries(refined.suggestions)) {
@@ -2512,6 +2666,35 @@ export async function generateListing(
     for (const name of Object.keys(derived)) inventoryDerivedNames.add(name);
     if (inventoryDerivedNames.size > 0) {
       itemSpecifics = { ...itemSpecifics, ...derived };
+    }
+  }
+
+  // 6c-ter. US-3043: what visually similar live listings agree on, for the
+  // aspects still empty after the model, the registry and the label. Same
+  // helper and same refusals as the one-item path (US-2770): a value the model
+  // gave, a value already set, or a value the leaf does not allow is skipped
+  // and the refusal logged. Confidence is capped at VISUAL_ASPECT_CONFIDENCE_CAP
+  // inside the helper, and the names land as `visual_consensus` provenance so a
+  // seller edit and a later AI pass both outrank them. No model runs here.
+  const visualConsensusNames = new Set<string>();
+  if (aspectSpecs.length > 0 && visual.evidence) {
+    const prefill = visualAspectPrefill({
+      evidence: visual.evidence,
+      specs: aspectSpecs,
+      existing: itemSpecifics,
+      modelSuggestions: refineSuggestions,
+    });
+    const applied = applyVisualPrefill(itemSpecifics, prefill.suggestions);
+    if (applied.names.length > 0) {
+      itemSpecifics = applied.aspects;
+      Object.assign(fieldConfidence, applied.confidence);
+      for (const name of applied.names) visualConsensusNames.add(name);
+    }
+    if (prefill.skipped.length > 0) {
+      console.log(
+        `[AI Listing] visual aspect prefill skipped for item ${itemId}:`,
+        JSON.stringify(prefill.skipped.map((k) => `${k.aspect}:${k.reason}`)),
+      );
     }
   }
 
@@ -2949,7 +3132,11 @@ export async function generateListing(
     // the precedence ladder, so a seller edit (manual) or a later AI pass both
     // outrank them. Passing itemSpecifics as the value map drops any name the
     // reconcile pass removed, so the source map can't outlive its values.
-    ebay_aspect_sources: buildAspectSources(itemSpecifics, inventoryDerivedNames),
+    ebay_aspect_sources: buildAspectSources(
+      itemSpecifics,
+      inventoryDerivedNames,
+      visualConsensusNames,
+    ),
     ai_generated_aspects_at: new Date().toISOString(),
   };
   if (normalizedBrand && normalizedBrand !== item.brand) {
@@ -3041,13 +3228,21 @@ export async function generateListing(
           aspect_coverage: aspectCoverage,
           // US-2424: what the category pick cost in required-aspect terms, and
           // how many leaves were weighed to get there.
-          category_choice: categoryCandidates.length > 0
+          // US-3043: the METHOD travels with the choice, so a wrong category
+          // can be traced to the vote or to the keyword search, not just to
+          // the id. The keyword-scoring fields keep their names and are null
+          // when that branch never ran.
+          category_choice: categoryDecision
             ? {
-              chosen: categoryCandidates[0]!.categoryId,
-              required_filled: categoryCandidates[0]!.requiredFilled,
-              required_total: categoryCandidates[0]!.requiredTotal,
-              ebay_rank: categoryCandidates[0]!.rank,
+              chosen: categoryId,
+              method: categoryDecision.method,
+              support: categoryDecision.support,
+              rejected_reason: categoryDecision.rejectedReason,
+              required_filled: categoryCandidates[0]?.requiredFilled ?? null,
+              required_total: categoryCandidates[0]?.requiredTotal ?? null,
+              ebay_rank: categoryCandidates[0]?.rank ?? null,
               candidates_considered: categoryCandidates.length,
+              visual_prefilled: [...visualConsensusNames],
             }
             : null,
         },
@@ -3078,7 +3273,7 @@ export async function generateListing(
   // population in the table while carrying no finding at all.
   if (visual.declined !== "disabled") {
     try {
-      await recordExtractionProvenance(supabaseAdmin, {
+      const provenanceId = await recordExtractionProvenance(supabaseAdmin, {
         ownerUserId: ownerId,
         itemId,
         enrichmentLogId,
@@ -3086,6 +3281,16 @@ export async function generateListing(
         rulings: gen.visualRulings,
         visualDeclined: visual.declined,
       });
+      // US-3043: the category decision completes the same row, as it does on
+      // the one-item path (US-2774). Same method values migration 00641 allows.
+      if (categoryDecision) {
+        await recordCategoryDecision(supabaseAdmin, {
+          ownerUserId: ownerId,
+          itemId,
+          provenanceId,
+          decision: categoryDecision,
+        });
+      }
     } catch (err) {
       console.error("[AI Listing] provenance write failed (non-fatal):", err);
     }
