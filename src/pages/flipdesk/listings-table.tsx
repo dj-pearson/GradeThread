@@ -47,6 +47,7 @@ import {
 import { ClickableRow } from "@/components/clickable-row";
 import { InlineCell } from "@/components/flipdesk/inline-cell";
 import { InlineStatusSelect } from "@/components/flipdesk/inline-status-select";
+import { ItemPhotoHoverPreview } from "@/components/flipdesk/item-photo-hover-preview";
 import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
 import { QualityScoreChip } from "@/components/flipdesk/quality-score-chip";
 import { payoutState } from "@/pages/flipdesk/listings-filter";
@@ -711,15 +712,20 @@ export function ListingsTable({
                         cover &&
                         (itemPhotoThumb(cover) || needsSignedDisplayUrl(cover));
                       return canShow ? (
-                        <ItemPhotoImg
-                          photo={cover}
-                          displayWidth={40}
-                          alt=""
-                          loading="lazy"
-                          width={40}
-                          height={40}
-                          className="h-10 w-10 shrink-0 rounded object-cover ring-1 ring-border"
-                        />
+                        // Hover floats a 256px preview built from the SAME
+                        // thumbnail bytes, so a 40px cell is browsable
+                        // without opening the item.
+                        <ItemPhotoHoverPreview photo={cover} label={rowLabel}>
+                          <ItemPhotoImg
+                            photo={cover}
+                            displayWidth={40}
+                            alt=""
+                            loading="lazy"
+                            width={40}
+                            height={40}
+                            className="h-10 w-10 shrink-0 rounded object-cover ring-1 ring-border"
+                          />
+                        </ItemPhotoHoverPreview>
                       ) : (
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground">
                           <FileText className="h-4 w-4" />

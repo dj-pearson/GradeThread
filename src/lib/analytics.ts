@@ -150,6 +150,21 @@ function registerAiReferrer(
   }
 }
 
+// Tag every event with the product that produced it. The portfolio shares ONE
+// PostHog project (the free plan allows exactly one), so without this property a
+// second product's events are indistinguishable from GradeThread's in every
+// insight on the shared dashboard. Registered as a super-property so it rides
+// events this module never touches, including autocapture and $pageview.
+function registerProject(
+  posthog: { register?: (p: Record<string, unknown>) => void },
+) {
+  try {
+    posthog.register?.({ project: "gradethread" });
+  } catch {
+    /* analytics must never break the UI */
+  }
+}
+
 let posthogStarted = false;
 
 // Lazy-load PostHog + Core Web Vitals — their chunks only download once the
@@ -183,6 +198,9 @@ async function startAnalyticsTools() {
         return props;
       },
     });
+    // Registered BEFORE any other super-property so the very first event of the
+    // session already carries it.
+    registerProject(posthog);
     // US-1670: tag the session with the AI engine (if any) that referred it.
     registerAiReferrer(posthog);
   } else if (posthogStarted) {
