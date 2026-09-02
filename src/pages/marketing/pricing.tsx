@@ -83,15 +83,16 @@ export function PricingPage() {
             Simple, transparent pricing
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
-            One account, both sides of the closet. GradeThread is free to start —
-            every account gets{" "}
+            One account, both sides of the closet. Subscribe to FlipDesk to run
+            your whole reseller workflow — every plan includes Standard grades
+            each month, which is the part a crosslisting tool cannot do for you.
+            Grading on its own is free to start: every account gets{" "}
             {FLIPDESK_PLANS.free.includedStandardGradesPerMonth} Standard grades
-            a month at no cost. Pay per grade (from{" "}
-            {dollars(GRADETHREAD_TIERS.standard.priceCents)}), buy credit packs
-            that never expire, subscribe to FlipDesk to run your whole reseller
-            workflow, or take a buyer plan to shop secondhand with confidence.
-            Every FlipDesk plan includes buyer tools, so sellers get both. No
-            setup fees, change plans anytime.
+            a month at no cost, and beyond that you can pay per grade (from{" "}
+            {dollars(GRADETHREAD_TIERS.standard.priceCents)}) or buy credit
+            packs that never expire. Buyer plans are included with every
+            FlipDesk plan, so sellers get both. No setup fees, change plans
+            anytime.
           </p>
           {/* US-1470: automatic_tax is enabled at checkout, so surface the
               tax/currency disclaimer here (it previously existed only on the
@@ -103,79 +104,11 @@ export function PricingPage() {
         </div>
       </section>
 
-      {/* Per-grade tiers */}
+      {/* FlipDesk subscriptions. US-9211: FIRST, ahead of pay-per-grade. The
+          reseller workflow is what the visitor is shopping for; the grade is
+          the reason to buy it here rather than from a crosslister, which is a
+          differentiator on the card and not the opening price. */}
       <section className="border-t bg-card px-6 py-16">
-        <div className="mx-auto max-w-4xl">
-          <h2 className="text-3xl font-bold">Pay-per-grade</h2>
-          <p className="mt-3 text-muted-foreground">
-            One-time grades, billed per item. Faster tiers carry a quicker
-            service-level target.
-          </p>
-          <div className="mt-8 grid gap-6 sm:grid-cols-3">
-            {GRADE_TIER_ROWS.map((tier) => (
-              <div
-                key={tier.key}
-                className="rounded-lg border bg-background p-6"
-              >
-                <h3 className="text-lg font-semibold">{tier.label}</h3>
-                <p className="mt-2 text-3xl font-bold text-brand-navy dark:text-foreground">
-                  {dollars(tier.priceCents)}
-                </p>
-                <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
-                  <li className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-brand-navy dark:text-foreground" />
-                    {tier.slaHours}h service-level target
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-brand-navy dark:text-foreground" />
-                    {tier.creditCost} credit{tier.creditCost > 1 ? "s" : ""} per
-                    grade
-                  </li>
-                </ul>
-                {/* US-2514: every price on this page now carries the action that
-                    buys it. A per-grade tier is chosen inside the submission
-                    flow, so that is where this lands; a signed-out visitor is
-                    routed through login by ProtectedRoute and returned here,
-                    because sanitizeReturnTo keeps the query string. */}
-                <Button asChild variant="outline" className="mt-5 w-full">
-                  <Link to={`${SUBMIT_PATH}?tier=${tier.key}`}>
-                    Grade an item at {tier.label}
-                  </Link>
-                </Button>
-              </div>
-            ))}
-          </div>
-
-          {/* Credit packs */}
-          <h3 className="mt-12 text-xl font-semibold">Credit packs</h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Buy in bulk and save. Credits never expire.
-          </p>
-          <div className="mt-6 grid gap-4 sm:grid-cols-4">
-            {CREDIT_PACKS.map((pack) => (
-              <div
-                key={pack.credits}
-                className="rounded-lg border bg-background p-4 text-center"
-              >
-                <p className="text-2xl font-bold text-brand-navy dark:text-foreground">
-                  {pack.credits}
-                </p>
-                <p className="text-xs text-muted-foreground">credits</p>
-                <p className="mt-2 font-medium">{dollars(pack.priceCents)}</p>
-                {/* US-2514: `?buy=credits` opens the credit-pack dialog on
-                    arrival, so this tile does not just deposit the visitor on
-                    Billing and leave them to find the button. */}
-                <Button asChild variant="outline" size="sm" className="mt-3 w-full">
-                  <Link to={`${BILLING_PATH}&buy=credits`}>Buy</Link>
-                </Button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* FlipDesk subscriptions */}
-      <section className="px-6 py-16">
         <div className="mx-auto max-w-5xl">
           <h2 className="text-3xl font-bold">FlipDesk subscriptions</h2>
           <p className="mt-3 text-muted-foreground">
@@ -340,6 +273,77 @@ export function PricingPage() {
             </Link>
             .
           </p>
+        </div>
+      </section>
+
+      {/* Per-grade tiers */}
+      <section className="px-6 py-16">
+        <div className="mx-auto max-w-4xl">
+          <h2 className="text-3xl font-bold">Pay-per-grade</h2>
+          <p className="mt-3 text-muted-foreground">
+            One-time grades, billed per item. Faster tiers carry a quicker
+            service-level target.
+          </p>
+          <div className="mt-8 grid gap-6 sm:grid-cols-3">
+            {GRADE_TIER_ROWS.map((tier) => (
+              <div
+                key={tier.key}
+                className="rounded-lg border bg-background p-6"
+              >
+                <h3 className="text-lg font-semibold">{tier.label}</h3>
+                <p className="mt-2 text-3xl font-bold text-brand-navy dark:text-foreground">
+                  {dollars(tier.priceCents)}
+                </p>
+                <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
+                  <li className="flex items-center gap-2">
+                    <Check className="h-4 w-4 text-brand-navy dark:text-foreground" />
+                    {tier.slaHours}h service-level target
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="h-4 w-4 text-brand-navy dark:text-foreground" />
+                    {tier.creditCost} credit{tier.creditCost > 1 ? "s" : ""} per
+                    grade
+                  </li>
+                </ul>
+                {/* US-2514: every price on this page now carries the action that
+                    buys it. A per-grade tier is chosen inside the submission
+                    flow, so that is where this lands; a signed-out visitor is
+                    routed through login by ProtectedRoute and returned here,
+                    because sanitizeReturnTo keeps the query string. */}
+                <Button asChild variant="outline" className="mt-5 w-full">
+                  <Link to={`${SUBMIT_PATH}?tier=${tier.key}`}>
+                    Grade an item at {tier.label}
+                  </Link>
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          {/* Credit packs */}
+          <h3 className="mt-12 text-xl font-semibold">Credit packs</h3>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Buy in bulk and save. Credits never expire.
+          </p>
+          <div className="mt-6 grid gap-4 sm:grid-cols-4">
+            {CREDIT_PACKS.map((pack) => (
+              <div
+                key={pack.credits}
+                className="rounded-lg border bg-background p-4 text-center"
+              >
+                <p className="text-2xl font-bold text-brand-navy dark:text-foreground">
+                  {pack.credits}
+                </p>
+                <p className="text-xs text-muted-foreground">credits</p>
+                <p className="mt-2 font-medium">{dollars(pack.priceCents)}</p>
+                {/* US-2514: `?buy=credits` opens the credit-pack dialog on
+                    arrival, so this tile does not just deposit the visitor on
+                    Billing and leave them to find the button. */}
+                <Button asChild variant="outline" size="sm" className="mt-3 w-full">
+                  <Link to={`${BILLING_PATH}&buy=credits`}>Buy</Link>
+                </Button>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 

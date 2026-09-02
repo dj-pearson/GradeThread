@@ -143,6 +143,20 @@ const DEFAULT_CARD = {
 
 const ROUTE_CARDS = [
   {
+    // US-9211: /flipdesk had no card of its own while five grading pages did,
+    // so every share of the product page fell back to the site default. The
+    // badge is deliberately kept — the grade is the differentiator ON the
+    // product, which is the whole Path 7 decision.
+    file: "public/social/flipdesk.png",
+    headline: ["List Everywhere From", "One Place"],
+    subline: [
+      "Catalog, price, cross-list and reconcile —",
+      "with a verifiable grade on every listing.",
+    ],
+    badge: "9.5",
+    badgeLabel: "EXCELLENT",
+  },
+  {
     file: "public/social/how-it-works.png",
     headline: ["How GradeThread Grades", "Pre-Owned Clothing"],
     subline: [

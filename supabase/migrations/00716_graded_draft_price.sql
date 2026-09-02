@@ -41,6 +41,8 @@ COMMENT ON COLUMN public.repricing_rules.override_manual IS
 DROP POLICY IF EXISTS "Users can record own price overrides" ON public.repricing_actions;
 CREATE POLICY "Users can record own price overrides"
   ON public.repricing_actions FOR INSERT
-  WITH CHECK (auth.uid() = user_id AND reason = 'seller_override');
+  -- US-1927 AC1: (select auth.uid()) so the planner hoists it to one InitPlan
+  -- instead of re-evaluating per row. Identical membership; auth.uid() is STABLE.
+  WITH CHECK ((select auth.uid()) = user_id AND reason = 'seller_override');
 
 insert into public.applied_migrations (version) values ('00716') on conflict do nothing;

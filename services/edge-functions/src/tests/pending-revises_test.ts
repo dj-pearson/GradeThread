@@ -2,6 +2,9 @@
 //
 //   deno test --allow-read src/tests/pending-revises_test.ts
 
+// Loads the test env before anything can reach lib/supabase.ts at import
+// time (US-2379); without it this file only passes when another ran first.
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   applyReviseOutcome,

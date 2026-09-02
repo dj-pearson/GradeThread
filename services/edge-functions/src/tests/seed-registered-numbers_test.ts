@@ -9,6 +9,9 @@
 //
 //   deno test --allow-read src/tests/seed-registered-numbers_test.ts
 
+// Loads the test env before anything can reach lib/supabase.ts at import
+// time (US-2379); without it this file only passes when another ran first.
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import { sightingCandidatesFrom } from "../../scripts/seed-registered-numbers.ts";
 

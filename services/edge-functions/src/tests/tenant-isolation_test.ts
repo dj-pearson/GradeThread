@@ -7835,3 +7835,99 @@ Deno.test({
     }
   },
 });
+
+// ── US-9212: the creator programme is the caller's own, on their own JWT ────
+
+Deno.test({
+  // Every one of these routes keys off the JWT's userId and nothing else. The
+  // risk they carry is the opposite of a lookup: a body field that names an
+  // account (user_id / owner_user_id) must not be able to accept terms for
+  // somebody else or file a tax identity under their name.
+  name: "US-9212: creator terms and the tax profile ignore an id in the body",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const victim = crypto.randomUUID();
+
+    const terms = await fetch(`${BASE}/api/affiliate/creator/terms`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        accept: true,
+        version: "2026-09-01",
+        user_id: victim,
+        owner_user_id: victim,
+      }),
+    });
+    const termsBody = terms.status === 200 ? await terms.json() : null;
+    if (!termsBody) await terms.body?.cancel();
+    assert(
+      terms.status === 200 || DENIED.has(terms.status) || terms.status === 409,
+      `creator terms: unexpected ${terms.status}`,
+    );
+
+    const tax = await fetch(`${BASE}/api/affiliate/tax-profile`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        legal_name: "Isolation Test",
+        entity_type: "individual",
+        tin: "123456789",
+        country: "US",
+        owner_user_id: victim,
+        user_id: victim,
+      }),
+    });
+    if (tax.status === 200) {
+      const body = await tax.json();
+      // The response must never echo the ciphertext or the full number.
+      const serialized = JSON.stringify(body);
+      assert(!/tin_encrypted/.test(serialized), "the tax route returned the ciphertext");
+      assert(!/123456789/.test(serialized), "the tax route echoed the full TIN");
+    } else {
+      await tax.body?.cancel();
+      assert(
+        DENIED.has(tax.status) || tax.status === 400 || tax.status === 503,
+        `tax profile: unexpected ${tax.status}`,
+      );
+    }
+
+    // Whatever happened above, it happened to B. The victim id must be
+    // unreadable and untouched from B's own status endpoint.
+    const status = await fetch(`${BASE}/api/affiliate/creator`, {
+      headers: authHeaders(B_JWT!),
+    });
+    if (status.status === 200) {
+      const body = await status.json();
+      assert(
+        !JSON.stringify(body).includes(victim),
+        "the creator status endpoint carried an id from the request body",
+      );
+      // Accepting terms is not admission: the programme stays "user" until an
+      // operator approves, and the fixture has no operator.
+      assertEquals(body.program, "user", "terms acceptance alone made an account a creator");
+    } else {
+      await status.body?.cancel();
+      assertDenied(status.status, "/api/affiliate/creator");
+    }
+  },
+});
+
+Deno.test({
+  // Admission is platform-level and lives under /api/admin/*. A seller's JWT
+  // reaching it would let anyone make themselves a cash-earning creator.
+  name: "US-9212: creator admission refuses a seller JWT",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    for (const path of [
+      "/api/admin/growth/affiliate/creators",
+      `/api/admin/growth/affiliate/creators/${crypto.randomUUID()}/approve`,
+    ]) {
+      const res = await fetch(`${BASE}${path}`, {
+        method: path.endsWith("/approve") ? "POST" : "GET",
+        headers: authHeaders(B_JWT!),
+      });
+      await res.body?.cancel();
+      assertDenied(res.status, path);
+    }
+  },
+});

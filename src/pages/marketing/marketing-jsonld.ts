@@ -109,6 +109,7 @@ import { FIT_CHECKER_META, FIT_CHECKER_PATH } from "@/lib/seo/fit-checker";
 import { RN_LOOKUP_META, RN_LOOKUP_PATH } from "@/lib/seo/rn-lookup";
 import { absoluteUrl } from "@/lib/seo/site";
 import { switchFromPath, type SwitchFromPage } from "@/lib/seo/switch-from";
+import { crosslistPairPath, type CrosslistPair } from "@/lib/seo/crosslist-pairs";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import { SITE_URL } from "@/lib/seo/site";
 // US-2103: the canonical entity ids, so brand nodes here MERGE with the
@@ -2114,5 +2115,38 @@ export function switchFromJsonLd(page: SwitchFromPage): JsonLd[] {
       dateModified: SWITCH_FROM_PUBLISHED,
     }),
     faqPageLd(page.faqs),
+  ];
+}
+
+// ── US-9214: crosslist pair pages ─────────────────────────────────────────
+const CROSSLIST_PAIR_PUBLISHED = "2026-09-01";
+
+export function crosslistPairBreadcrumbItems(
+  pair: CrosslistPair,
+): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Reselling", url: `${SITE_URL}${RESELLING_PILLAR_PATH}` },
+    {
+      name: `${pair.fromLabel} to ${pair.toLabel}`,
+      url: `${SITE_URL}${crosslistPairPath(pair.slug)}`,
+    },
+  ];
+}
+
+/**
+ * Article only. Deliberately NOT a HowTo: the steps differ by which mechanism
+ * the destination has, and a HowTo whose steps the page renders conditionally
+ * is structured data that can disagree with what a reader sees.
+ */
+export function crosslistPairJsonLd(pair: CrosslistPair): JsonLd[] {
+  return [
+    articleLd({
+      headline: `Cross-list from ${pair.fromLabel} to ${pair.toLabel}`,
+      description: `What carries over from ${pair.fromLabel} to ${pair.toLabel}, what ${pair.toLabel} requires, and how the listing gets there.`,
+      url: absoluteUrl(crosslistPairPath(pair.slug)),
+      datePublished: CROSSLIST_PAIR_PUBLISHED,
+      dateModified: CROSSLIST_PAIR_PUBLISHED,
+    }),
   ];
 }

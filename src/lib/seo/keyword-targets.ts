@@ -588,4 +588,127 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
       "how long does switching from list perfectly take",
     ],
   },
+  // ── crosslist pairs (US-9214): the ten pair queries with the most
+  //    impressions in the 2026-09-01 export, all at positions 11 to 24 with
+  //    zero clicks, every one currently landing on a blog post.
+  {
+    path: "/reselling/crosslist/mercari-to-grailed",
+    cluster: "reseller-tools",
+    intent: "transactional",
+    primary: "mercari to grailed",
+    secondary: ["import mercari to grailed", "cross list mercari to grailed", "mercari to grailed crosslist"],
+    questions: [
+      "how do i cross-list from Mercari to Grailed",
+      "do my photos transfer from Mercari to Grailed",
+      "what does Grailed need that Mercari does not",
+    ],
+  },
+  {
+    path: "/reselling/crosslist/grailed-to-mercari",
+    cluster: "reseller-tools",
+    intent: "transactional",
+    primary: "grailed to mercari",
+    secondary: ["import grailed to mercari", "cross list grailed to mercari", "grailed to mercari crosslist"],
+    questions: [
+      "how do i cross-list from Grailed to Mercari",
+      "do my photos transfer from Grailed to Mercari",
+      "what does Mercari need that Grailed does not",
+    ],
+  },
+  {
+    path: "/reselling/crosslist/grailed-to-poshmark",
+    cluster: "reseller-tools",
+    intent: "transactional",
+    primary: "grailed to poshmark",
+    secondary: ["import grailed to poshmark", "cross list grailed to poshmark", "grailed to poshmark crosslist"],
+    questions: [
+      "how do i cross-list from Grailed to Poshmark",
+      "do my photos transfer from Grailed to Poshmark",
+      "what does Poshmark need that Grailed does not",
+    ],
+  },
+  {
+    path: "/reselling/crosslist/ebay-to-grailed",
+    cluster: "reseller-tools",
+    intent: "transactional",
+    primary: "ebay to grailed",
+    secondary: ["import ebay to grailed", "cross list ebay to grailed", "ebay to grailed crosslist"],
+    questions: [
+      "how do i cross-list from eBay to Grailed",
+      "do my photos transfer from eBay to Grailed",
+      "what does Grailed need that eBay does not",
+    ],
+  },
+  {
+    path: "/reselling/crosslist/whatnot-to-poshmark",
+    cluster: "reseller-tools",
+    intent: "transactional",
+    primary: "whatnot to poshmark",
+    secondary: ["import whatnot to poshmark", "cross list whatnot to poshmark", "whatnot to poshmark crosslist"],
+    questions: [
+      "how do i cross-list from Whatnot to Poshmark",
+      "do my photos transfer from Whatnot to Poshmark",
+      "what does Poshmark need that Whatnot does not",
+    ],
+  },
+  {
+    path: "/reselling/crosslist/mercari-to-vinted",
+    cluster: "reseller-tools",
+    intent: "transactional",
+    primary: "mercari to vinted",
+    secondary: ["import mercari to vinted", "cross list mercari to vinted", "mercari to vinted crosslist"],
+    questions: [
+      "how do i cross-list from Mercari to Vinted",
+      "do my photos transfer from Mercari to Vinted",
+      "what does Vinted need that Mercari does not",
+    ],
+  },
+  {
+    path: "/reselling/crosslist/poshmark-to-whatnot",
+    cluster: "reseller-tools",
+    intent: "transactional",
+    primary: "poshmark to whatnot",
+    secondary: ["import poshmark to whatnot", "cross list poshmark to whatnot", "poshmark to whatnot crosslist"],
+    questions: [
+      "how do i cross-list from Poshmark to Whatnot",
+      "do my photos transfer from Poshmark to Whatnot",
+      "what does Whatnot need that Poshmark does not",
+    ],
+  },
+  {
+    path: "/reselling/crosslist/poshmark-to-grailed",
+    cluster: "reseller-tools",
+    intent: "transactional",
+    primary: "poshmark to grailed",
+    secondary: ["import poshmark to grailed", "cross list poshmark to grailed", "poshmark to grailed crosslist"],
+    questions: [
+      "how do i cross-list from Poshmark to Grailed",
+      "do my photos transfer from Poshmark to Grailed",
+      "what does Grailed need that Poshmark does not",
+    ],
+  },
+  {
+    path: "/reselling/crosslist/grailed-to-ebay",
+    cluster: "reseller-tools",
+    intent: "transactional",
+    primary: "grailed to ebay",
+    secondary: ["import grailed to ebay", "cross list grailed to ebay", "grailed to ebay crosslist"],
+    questions: [
+      "how do i cross-list from Grailed to eBay",
+      "do my photos transfer from Grailed to eBay",
+      "what does eBay need that Grailed does not",
+    ],
+  },
+  {
+    path: "/reselling/crosslist/vinted-to-mercari",
+    cluster: "reseller-tools",
+    intent: "transactional",
+    primary: "vinted to mercari",
+    secondary: ["import vinted to mercari", "cross list vinted to mercari", "vinted to mercari crosslist"],
+    questions: [
+      "how do i cross-list from Vinted to Mercari",
+      "do my photos transfer from Vinted to Mercari",
+      "what does Mercari need that Vinted does not",
+    ],
+  },
 ] as const;

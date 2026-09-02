@@ -510,3 +510,40 @@ and make the other two link here rather than restate it.
 - [[ai-profitability]] — the cost side, per AI surface
 - [[passport-forecast]] — volume assumptions that ride on these prices
 - [[INDEX]]
+
+## Creator affiliate commission (US-9212)
+
+Decided 2026-09-01, recorded in [[adr-referral-cash-payout]] section 6: reseller
+creators are paid **cash** on the subscription revenue of accounts they refer.
+**User referral is unchanged and stays credits-only** — none of this applies to
+it.
+
+| Term | Value | Why |
+|---|---|---|
+| Commission | **25%** of the referred account's subscription revenue | The midpoint of the 20-30 band the founder set. |
+| Band | 20% to 30% | A per-creator override is clamped into it; a config typo can neither pay 300% nor pay nothing. |
+| Window | **12 months** from that account's subscription start | "First-year subscription revenue" in the decision. |
+| Cap | **$250** per referred account | Covers Starter ($348/yr → $87) and Pro ($708/yr → $177) in full, and caps Business, whose first year at 25% would otherwise be $297. |
+| Hold | **60 days** after the invoice is paid | See below. |
+| Payout | Monthly, batched, behind `affiliate_payout_config.mode` which ships `off` | Mirrors the consignor pattern; nothing moves until an admin turns it on. |
+| Gate | A certified tax profile (`affiliate_tax_profiles`) must exist | ADR section 4.5: no cash before W-9 capture. `planPayout` refuses without one, and refuses by default. |
+
+**The terms a creator accepts, and the version recorded against each
+acceptance:** [[creator-affiliate-terms]]. A creator is admitted by an operator
+(`POST /api/admin/growth/affiliate/creators/:id/approve`); accepting the terms
+is an application, and `affiliate_accounts.program` stays `user` until then.
+
+**Machine-readable mirrors:** `CREATOR_AFFILIATE` in `src/lib/constants.ts` and
+`DEFAULT_AFFILIATE_PAYOUT_CONFIG` in
+`services/edge-functions/src/lib/affiliate-payout-math.ts`. Any change to these
+numbers must change all three in the same commit;
+`src/test/creator-affiliate.test.ts` fails otherwise.
+
+> [!warning] The hold is not "the refund window", because there isn't one
+> US-9212's acceptance criteria say commissions are paid "after the refund
+> window". This document settled on 2026-08-02 that GradeThread has **no
+> subscription refund window**: fees are non-refundable and refunds are manual
+> admin actions. The only real window in the policy is the **60-day
+> billing-error window** in `refund.tsx` section 3, so that is what the hold is
+> set to. Paying a commission on an invoice still inside the window it can be
+> reversed in is how an affiliate ledger goes negative.

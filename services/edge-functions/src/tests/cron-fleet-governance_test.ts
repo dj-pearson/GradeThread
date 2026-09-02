@@ -474,6 +474,15 @@ Deno.test("US-2616: the REAL registry's blind spot is enumerated, and it is now 
     report.unmonitored,
     [
       "cert-integrity-backfill", // oneOff — a backfill has no cadence to miss
+      // US-2924's measurement backfill, added 2026-09-01. It is the THIRD name
+      // here and the first added since the list was written, which the
+      // shrink-only rule below is meant to make expensive rather than
+      // impossible: it is the same drain-then-idle shape as passport-backfill
+      // (recorded, */15, oneOff), so monitoring it would alert the moment the
+      // backlog was read and the operator stopped calling it. If the job ever
+      // becomes a permanent tick, take oneOff off its registry entry and delete
+      // this line — do not leave both.
+      "measurement-text-backfill", // oneOff
       "passport-backfill", // oneOff
     ],
     "the fleet monitor's blind spot changed — shrink it by fixing a job, and " +

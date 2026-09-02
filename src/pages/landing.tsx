@@ -1063,6 +1063,10 @@ export function LandingPage() {
               <a href="#pricing" className="hover:text-foreground">
                 Pricing
               </a>
+              {/* US-9211: the product is one click from the home page. */}
+              <Link to="/flipdesk" className="hover:text-foreground">
+                FlipDesk
+              </Link>
               <Link to="/condition-grading" className="hover:text-foreground">
                 Condition Grading
               </Link>

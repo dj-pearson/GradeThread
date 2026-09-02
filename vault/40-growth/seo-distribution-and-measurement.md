@@ -27,6 +27,7 @@ watch **Impressions** (the demand-created gauge) and **indexation rate**:
 | Comparisons | `^/compare/` | — |
 | FlipDesk product | `^/flipdesk/` | 7 |
 | Reselling pillar | `^/reselling/` | — |
+| **Crosslist pairs** | `^/reselling/crosslist/` | **7** |
 | Certificates | `^/(cert\|c)/` | — |
 | **Tools and calculators** | `^/tools/` | **3** |
 | **Care cluster** | `^/care/` | **1** |

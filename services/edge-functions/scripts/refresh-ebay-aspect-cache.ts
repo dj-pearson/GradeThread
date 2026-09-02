@@ -37,6 +37,23 @@ function sizeSummary(payload: Row["aspects"]): Record<string, { mode: string; va
   return out;
 }
 
+// Say what WE need, in our own usage line, before anything touches the
+// service-role client. Without this the first supabaseAdmin property access
+// throws "SUPABASE_URL is not set" from inside lib/supabase.ts, which tells an
+// operator nothing about which script wanted it — the failure
+// scripts/operator-scripts-start.test.mjs exists to catch.
+const url = Deno.env.get("SUPABASE_URL");
+const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+if (!url || !serviceKey) {
+  console.error(
+    "refresh-ebay-aspect-cache: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required,\n" +
+      "plus the eBay app credentials the edge uses (EBAY_CLIENT_ID, EBAY_CLIENT_SECRET,\n" +
+      "EBAY_MARKETPLACE_ID). Usage:\n" +
+      "  deno run --allow-net --allow-env --allow-read scripts/refresh-ebay-aspect-cache.ts [--dry]",
+  );
+  Deno.exit(1);
+}
+
 const dry = Deno.args.includes("--dry");
 const { data, error } = await supabaseAdmin
   .from("ebay_category_aspects")

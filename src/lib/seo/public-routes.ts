@@ -33,6 +33,7 @@ import { whereToSellRoute } from "./where-to-sell";
 import { crosslistAppsRoute } from "./crosslisting-apps";
 import { competitorAlternativeRoutes } from "./competitor-alternatives";
 import { switchFromRoutes } from "./switch-from";
+import { crosslistPairRoutes } from "./crosslist-pairs";
 import { conditionChartRoute } from "./condition-chart";
 import { changelogRoute } from "./changelog";
 import { gradeCheckerRoute } from "./grade-checker";
@@ -109,6 +110,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/pricing": "2026-06-01",
   "/for-resellers": "2026-06-01",
   "/flipdesk": "2026-06-27",
+  "/partners": "2026-09-01",
   "/sell-used-clothes-ebay": "2026-06-27",
   "/faq": "2026-06-01",
   "/condition-grading": "2026-06-01",
@@ -177,6 +179,20 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/reselling/list-perfectly-alternative": "2026-07-20",
   "/reselling/crosslist-alternative": "2026-07-20",
   "/reselling/switch-from-vendoo": "2026-09-01",
+  "/reselling/crosslist/mercari-to-grailed": "2026-09-01",
+  "/reselling/crosslist/grailed-to-mercari": "2026-09-01",
+  "/reselling/crosslist/grailed-to-poshmark": "2026-09-01",
+  "/reselling/crosslist/ebay-to-grailed": "2026-09-01",
+  "/reselling/crosslist/whatnot-to-poshmark": "2026-09-01",
+  "/reselling/crosslist/mercari-to-vinted": "2026-09-01",
+  "/reselling/crosslist/poshmark-to-whatnot": "2026-09-01",
+  "/reselling/crosslist/poshmark-to-grailed": "2026-09-01",
+  "/reselling/crosslist/grailed-to-ebay": "2026-09-01",
+  "/reselling/crosslist/vinted-to-mercari": "2026-09-01",
+  "/reselling/crosslist/mercari-to-poshmark": "2026-09-01",
+  "/reselling/crosslist/whatnot-to-ebay": "2026-09-01",
+  "/reselling/crosslist/vinted-to-poshmark": "2026-09-01",
+  "/reselling/crosslist/depop-to-poshmark": "2026-09-01",
   "/reselling/switch-from-list-perfectly": "2026-09-01",
   // Free printable condition chart (US-1678).
   "/grading/condition-chart": "2026-07-06",
@@ -260,6 +276,18 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     priority: 0.8,
   },
   {
+    // US-9212: the creator programme's front door. Public because creators find
+    // it before they have an account, and because the terms have to be readable
+    // by someone deciding whether to apply.
+    path: "/partners",
+    jsonLdType: "WebPage",
+    title: "Creator Partner Programme",
+    description:
+      "Reseller creators earn a share of the subscription revenue from sellers they bring to FlipDesk, for a year, capped per account. The terms and how to apply.",
+    changefreq: "monthly",
+    priority: 0.6,
+  },
+  {
     path: "/flipdesk",
     // US-2105: the markup was already prerendered; it simply was not DECLARED,
     // so the US-2044 parity guard could not see it.
@@ -268,7 +296,10 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     description:
       "FlipDesk is GradeThread's reseller suite and works with eBay: grade, comp, list, reprice and reconcile in one place, with a verifiable grade per listing.",
     changefreq: "monthly",
-    priority: 0.8,
+    // US-9211: 0.9, level with /condition-grading and /pricing. It sat at 0.8
+    // while the grading pillar sat at 0.9, which told crawlers the opposite of
+    // the Path 7 decision — the reseller workflow is the capture leg.
+    priority: 0.9,
   },
   {
     path: "/sell-used-clothes-ebay",
@@ -692,6 +723,8 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   ...competitorAlternativeRoutes(),
   // US-9209: what a switch from Vendoo or List Perfectly actually moves.
   ...switchFromRoutes(),
+  // US-9214: one page per marketplace pair that earned impressions.
+  ...crosslistPairRoutes(),
   // Free printable condition chart (US-1678).
   conditionChartRoute(),
   changelogRoute(),
@@ -725,6 +758,12 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
 // ./site.ts (re-exported above).
 
 export const ROUTE_OG_IMAGES: Record<string, { file: string; alt: string }> = {
+  // US-9211: the product page shares as itself rather than as the site
+  // default, which is what every grading pillar already did.
+  "/flipdesk": {
+    file: "/social/flipdesk.png",
+    alt: "FlipDesk by GradeThread — list everywhere from one place, with a verifiable condition grade on every listing.",
+  },
   "/how-it-works": {
     file: "/social/how-it-works.png",
     alt: "How GradeThread grades pre-owned clothing across five weighted factors.",

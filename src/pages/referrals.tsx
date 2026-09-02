@@ -20,6 +20,7 @@ import { Progress } from "@/components/ui/progress";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { affiliateBadgeEmbed, affiliateLink } from "@/lib/affiliate";
 import { TopReferrers } from "@/components/referral/top-referrers";
+import { CreatorProgramme } from "@/components/referral/creator-programme";
 import { Gift, Copy, Check, BadgeCheck, Trophy, Target, Wallet, AlertCircle } from "lucide-react";
 
 interface ReferralMilestone {
@@ -301,6 +302,10 @@ export function ReferralsPage() {
             <TabsList>
               <TabsTrigger value="share">Share</TabsTrigger>
               <TabsTrigger value="affiliate">Affiliate</TabsTrigger>
+              {/* US-9212: cash, and a different arrangement from the credits
+                  the two tabs beside it earn. Its own tab so nobody agrees to
+                  a tax form while looking for a share link. */}
+              <TabsTrigger value="creator">Creator</TabsTrigger>
               <TabsTrigger value="boards">Leaderboard</TabsTrigger>
             </TabsList>
 
@@ -604,6 +609,10 @@ export function ReferralsPage() {
                 </CardContent>
               </Card>
             )}
+            </TabsContent>
+
+            <TabsContent value="creator" className="space-y-6">
+              <CreatorProgramme />
             </TabsContent>
 
             <TabsContent value="boards" className="space-y-6">

@@ -74,25 +74,45 @@ interface BackfillItemRow {
  * Returns the number of items unmarked.
  */
 export async function resetTextScanMarkers(): Promise<number> {
-  const { data, error } = await supabaseAdmin
-    .from("inventory_items")
-    .select("id, ai_field_sources")
-    .not("ai_field_sources", "is", null);
-  if (error || !data) return 0;
-
+  // US-2317: PAGED, not one read of the whole table. inventory_items grows with
+  // usage and PostgREST clips an over-cap read SILENTLY -- a short array with
+  // error: null -- so an unpaged select here would quietly reset the markers on
+  // the first N items and report success for all of them. The cursor is the id
+  // itself, ordered, so each page is bounded and the walk still drains.
+  const PAGE = 500;
+  const FIRST_UUID = "00000000-0000-0000-0000-000000000000";
+  let cursor = FIRST_UUID;
   let cleared = 0;
-  for (const raw of data as unknown as { id: string; ai_field_sources: Record<string, unknown> }[]) {
-    const sources = raw.ai_field_sources ?? {};
-    if (!(TEXT_SCAN_KEY in sources)) continue;
-    const next = { ...sources };
-    delete next[TEXT_SCAN_KEY];
-    const { error: upErr } = await supabaseAdmin
+
+  for (;;) {
+    const { data, error } = await supabaseAdmin
       .from("inventory_items")
-      .update({ ai_field_sources: next } as never)
-      .eq("id", raw.id);
-    if (!upErr) cleared++;
+      .select("id, ai_field_sources")
+      .not("ai_field_sources", "is", null)
+      .gt("id", cursor)
+      .order("id", { ascending: true })
+      .limit(PAGE);
+    if (error || !data || data.length === 0) return cleared;
+
+    const rows = data as unknown as {
+      id: string;
+      ai_field_sources: Record<string, unknown>;
+    }[];
+    for (const raw of rows) {
+      const sources = raw.ai_field_sources ?? {};
+      if (!(TEXT_SCAN_KEY in sources)) continue;
+      const next = { ...sources };
+      delete next[TEXT_SCAN_KEY];
+      const { error: upErr } = await supabaseAdmin
+        .from("inventory_items")
+        .update({ ai_field_sources: next } as never)
+        .eq("id", raw.id);
+      if (!upErr) cleared++;
+    }
+
+    if (rows.length < PAGE) return cleared;
+    cursor = rows[rows.length - 1]!.id;
   }
-  return cleared;
 }
 
 /**

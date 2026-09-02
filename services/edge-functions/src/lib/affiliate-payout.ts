@@ -29,11 +29,14 @@ import {
   AFFILIATE_PAYOUT_CONFIG_KEY,
   type AffiliatePayoutConfig,
   type AffiliatePayoutMode,
+  type AffiliateProgram,
   DEFAULT_AFFILIATE_PAYOUT_CONFIG,
   isPayoutRetryable,
+  normalizeAffiliateProgram,
   normalizeAffiliatePayoutConfig,
   planAccrual,
   planPayout,
+  planSubscriptionAccrual,
 } from "./affiliate-payout-math.ts";
 
 const SWEEP_LOOKBACK_DAYS = 60;
@@ -85,6 +88,28 @@ export interface AccrueResult {
   reason?: string;
 }
 
+/**
+ * US-9212: which programme an affiliate account is in.
+ *
+ * Fails CLOSED to "user", like every other gate on this path: no row, a read
+ * error or an unrecognised value all mean no cash. An account only reads as a
+ * creator when the column says so, and migration 00719 will not let it say so
+ * without a recorded terms acceptance.
+ */
+export async function loadAffiliateProgram(userId: string): Promise<AffiliateProgram> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("affiliate_accounts")
+      .select("program")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) return "user";
+    return normalizeAffiliateProgram((data as { program?: unknown } | null)?.program);
+  } catch {
+    return "user";
+  }
+}
+
 // Accrue the affiliate commission for one converted referral. Idempotent + safe
 // to call best-effort from the qualification hook (referrals.ts) and from the
 // sweep backfill. Only affiliate-attributed conversions accrue.
@@ -112,6 +137,9 @@ export async function accrueAffiliateCommission(
     mode: config.mode,
     rate: config.commission_per_conversion,
     alreadyAccrued: false,
+    // US-9212: cash is creator-only. A user referral reaching this function
+    // skips with "not_creator" and keeps earning grade credits in referrals.ts.
+    program: await loadAffiliateProgram(ev.referrer_user_id),
   });
   if (plan.action === "skip") return { accrued: false, reason: plan.reason };
 
@@ -140,6 +168,115 @@ export async function accrueAffiliateCommission(
   return { accrued: true, amount: plan.amount };
 }
 
+// ── US-9212: subscription-percentage accrual ────────────────────────────────
+
+export interface SubscriptionAccrualResult {
+  accrued: boolean;
+  amount?: number;
+  reason?: string;
+}
+
+/**
+ * Accrue a creator's share of ONE paid subscription invoice.
+ *
+ * Called best-effort from the Stripe invoice webhook. Everything that could
+ * pay someone by accident is a refusal here: the payer must be a recorded
+ * affiliate conversion, the affiliate must be in the creator programme, the
+ * engine must be on, the model must be the percentage one, the invoice must
+ * fall inside the window, and the per-account cap must have room. Any of those
+ * missing returns a named reason and writes nothing.
+ *
+ * IDEMPOTENT ON THE INVOICE. The row carries stripe_invoice_id and migration
+ * 00719 makes that unique, so a Stripe redelivery of the same invoice cannot
+ * double-credit -- the insert comes back 23505 and this returns
+ * "already_accrued".
+ *
+ * THE WINDOW ANCHORS ON THE FIRST COMMISSIONED INVOICE, not on the signup or
+ * the referral click. A creator's referral may subscribe months later, and
+ * "first-year subscription revenue" means the account's first year of paying,
+ * which is the only date this ledger can actually observe.
+ */
+export async function accrueSubscriptionCommission(args: {
+  referredUserId: string;
+  invoiceId: string;
+  invoiceAmountCents: number;
+  paidAt?: string;
+}): Promise<SubscriptionAccrualResult> {
+  const paidAt = args.paidAt ?? new Date().toISOString();
+  if (!args.referredUserId || !args.invoiceId) {
+    return { accrued: false, reason: "missing_args" };
+  }
+
+  const config = await getAffiliatePayoutConfig();
+
+  const { data: evRaw } = await supabaseAdmin
+    .from("referral_events")
+    .select("id, referrer_user_id, attribution_source")
+    .eq("referred_user_id", args.referredUserId)
+    .maybeSingle();
+  const ev = evRaw as
+    | { id: string; referrer_user_id: string; attribution_source: string | null }
+    | null;
+  if (!ev) return { accrued: false, reason: "not_referred" };
+
+  const program = await loadAffiliateProgram(ev.referrer_user_id);
+
+  // Everything this creator has already earned from THIS account: the cap is
+  // per referred account, and the earliest row is the window's anchor.
+  const { data: priorRaw } = await supabaseAdmin
+    .from("affiliate_commissions")
+    .select("amount, created_at")
+    .eq("affiliate_user_id", ev.referrer_user_id)
+    .eq("referred_user_id", args.referredUserId)
+    .eq("commission_model", "subscription_pct")
+    .neq("status", "void")
+    .order("created_at", { ascending: true });
+  const prior = (priorRaw ?? []) as Array<{ amount: number | null; created_at: string | null }>;
+  const alreadyAccruedCents = sumCents(prior);
+  const windowAnchor = prior[0]?.created_at ?? paidAt;
+
+  const plan = planSubscriptionAccrual({
+    attributionSource: ev.attribution_source,
+    program,
+    mode: config.mode,
+    model: config.commission_model,
+    pct: config.commission_pct,
+    capUsd: config.commission_cap_usd,
+    windowMonths: config.commission_window_months,
+    subscriptionStartedAt: windowAnchor,
+    invoicePaidAt: paidAt,
+    invoiceAmountCents: args.invoiceAmountCents,
+    alreadyAccruedCents,
+  });
+  if (plan.action === "skip") return { accrued: false, reason: plan.reason };
+
+  const holdUntil = new Date(
+    Date.now() + config.hold_days * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const { error } = await supabaseAdmin.from("affiliate_commissions").insert({
+    affiliate_user_id: ev.referrer_user_id,
+    referral_event_id: ev.id,
+    referred_user_id: args.referredUserId,
+    stripe_invoice_id: args.invoiceId,
+    commission_model: "subscription_pct",
+    amount: plan.amount,
+    status: "accrued",
+    hold_until: holdUntil,
+  });
+  if (error) {
+    if ((error as { code?: string }).code === "23505") {
+      return { accrued: false, reason: "already_accrued" };
+    }
+    console.error(
+      `[affiliate-payout] subscription accrual failed for invoice ${args.invoiceId}:`,
+      error.message,
+    );
+    return { accrued: false, reason: error.message };
+  }
+  return { accrued: true, amount: plan.amount };
+}
+
 // ── Payout ──────────────────────────────────────────────────────────────────
 
 export type ProcessOutcome =
@@ -159,6 +296,27 @@ export interface ProcessResult {
 interface AffiliateAccount {
   stripe_connect_account_id: string | null;
   payouts_enabled: boolean | null;
+}
+
+/**
+ * US-9212: is a certified tax profile on file for this creator?
+ *
+ * Fails CLOSED. A read error answers false, which queues the balance instead of
+ * paying it — the ADR's gate is "no cash without the form", and a database blip
+ * is not evidence the form exists.
+ */
+export async function hasCertifiedTaxProfile(userId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("affiliate_tax_profiles")
+      .select("certified_at")
+      .eq("owner_user_id", userId)
+      .maybeSingle();
+    if (error) return false;
+    return Boolean((data as { certified_at?: string | null } | null)?.certified_at);
+  } catch {
+    return false;
+  }
 }
 
 async function loadAccount(
@@ -199,14 +357,19 @@ export async function processAffiliatePayout(
     account?.stripe_connect_account_id && account?.payouts_enabled && stripe,
   );
 
+  // US-9212 / ADR section 4.5: no cash moves without a certified tax profile.
   const plan = planPayout({
     eligibleBalanceCents: balance,
     minimum: config.minimum_payout,
     onboarded,
+    taxProfileComplete: await hasCertifiedTaxProfile(affiliateUserId),
   });
   if (plan.action === "skip") {
+    // A missing tax profile QUEUES rather than skips: the balance is real and
+    // keeps accruing, and the creator gets paid the moment the form is on file.
+    const queued = plan.reason === "not_onboarded" || plan.reason === "tax_profile_missing";
     return {
-      outcome: plan.reason === "not_onboarded" ? "queued" : "skipped",
+      outcome: queued ? "queued" : "skipped",
       affiliateUserId,
       reason: plan.reason,
     };
@@ -338,6 +501,16 @@ async function retryAffiliatePayout(
       affiliateUserId,
       payoutId,
       reason: "not_onboarded",
+    };
+  }
+  // US-9212: the same gate on the transfer path. A payout row created before
+  // the form was required must not fire now that it is.
+  if (!(await hasCertifiedTaxProfile(affiliateUserId))) {
+    return {
+      outcome: "queued",
+      affiliateUserId,
+      payoutId,
+      reason: "tax_profile_missing",
     };
   }
 
