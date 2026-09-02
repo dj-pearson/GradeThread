@@ -9,7 +9,12 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { resolveListingStyleCode } = await import("../lib/listing-style-code.ts");
+const {
+  resolveListingStyleCode,
+  learnedStyleForListing,
+  applyLearnedStyleToListing,
+  STYLE_NAME_GROUND_TRUTH_KEY,
+} = await import("../lib/listing-style-code.ts");
 const { assembleBrandKnowledgePack } = await import("../lib/brand-knowledge.ts");
 
 // A Lululemon pack with NO db decoder rows, so decodeTagCode falls back to the
@@ -116,4 +121,93 @@ Deno.test("nothing anywhere: null code, empty norm", () => {
     pack: null,
   });
   assertEquals(r, { styleCodeRaw: null, styleCodeNorm: "", source: null, decoded: null });
+});
+
+// ── the product name from the style-code index ─────────────────────────────
+
+Deno.test("learnedStyleForListing: a resolved name is a fact, an observation is only a candidate", () => {
+  const resolved = learnedStyleForListing(
+    {
+      productTitle: "Scuba Oversized Half-Zip",
+      seenCount: 4,
+      confidence: 0.8,
+      evidenceUrl: null,
+      resolvedName: "Scuba Oversized Half-Zip",
+      resolvedSource: "consensus",
+    },
+    "Lululemon",
+    "LW3CWDS",
+  );
+  assertEquals(resolved.resolvedName, "Scuba Oversized Half-Zip");
+  assertEquals(resolved.resolvedSource, "consensus");
+  assertEquals(resolved.candidateName, null);
+
+  const observed = learnedStyleForListing(
+    {
+      productTitle: "Lululemon Scuba Oversized Half Zip LW3CWDS Womens Size 6 Black EUC",
+      seenCount: 2,
+      confidence: 0.5,
+      evidenceUrl: null,
+    },
+    "Lululemon",
+    "LW3CWDS",
+  );
+  assertEquals(observed.resolvedName, null);
+  assert(observed.candidateName && observed.candidateName.toLowerCase().includes("scuba"));
+
+  assertEquals(learnedStyleForListing(null, "Lululemon", "LW3CWDS").resolvedName, null);
+});
+
+Deno.test("applyLearnedStyleToListing: fills style, the ground-truth block and attributes.model, fill-only", () => {
+  const out = applyLearnedStyleToListing({
+    learned: {
+      resolvedName: "Scuba Oversized Half-Zip",
+      resolvedSource: "consensus",
+      candidateName: null,
+      confidence: 0.8,
+    },
+    knownFields: { brand: "Lululemon", style: "LW3CWDS" },
+    tagGroundTruth: { brand: "Lululemon" },
+    tagAttributes: { mpn: "W3CWDS" },
+    sellerTypedStyle: null,
+  });
+  assertEquals(out.knownFields.style, "Scuba Oversized Half-Zip");
+  assertEquals(out.tagGroundTruth?.[STYLE_NAME_GROUND_TRUTH_KEY], "Scuba Oversized Half-Zip");
+  assertEquals(out.tagGroundTruth?.brand, "Lululemon");
+  assertEquals(out.tagAttributes.model, "Scuba Oversized Half-Zip");
+  assertEquals(out.tagAttributes.mpn, "W3CWDS");
+});
+
+Deno.test("applyLearnedStyleToListing: a seller-typed style is never replaced; a candidate writes nothing", () => {
+  const typed = applyLearnedStyleToListing({
+    learned: {
+      resolvedName: "Scuba Oversized Half-Zip",
+      resolvedSource: "consensus",
+      candidateName: null,
+      confidence: 0.8,
+    },
+    knownFields: { style: "Hooded Scuba" },
+    tagGroundTruth: undefined,
+    tagAttributes: {},
+    sellerTypedStyle: "Hooded Scuba",
+  });
+  assertEquals(typed.knownFields.style, "Hooded Scuba");
+  assertEquals(typed.tagGroundTruth?.[STYLE_NAME_GROUND_TRUTH_KEY], "Scuba Oversized Half-Zip");
+  assertEquals(typed.tagAttributes.model, "Scuba Oversized Half-Zip");
+
+  const guess = applyLearnedStyleToListing({
+    learned: {
+      resolvedName: null,
+      resolvedSource: null,
+      candidateName: "Scuba Oversized Half Zip",
+      confidence: 0.5,
+    },
+    knownFields: {},
+    tagGroundTruth: undefined,
+    tagAttributes: {},
+    sellerTypedStyle: null,
+  });
+  assertEquals(guess.knownFields.style, undefined);
+  assertEquals(guess.tagGroundTruth, undefined);
+  assertEquals(guess.tagAttributes.model, undefined);
 });

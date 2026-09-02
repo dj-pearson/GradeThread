@@ -29,7 +29,9 @@ import {
 import { brandKey as toBrandKey } from "./brand-normalize.ts";
 import {
   canonicalStyleCode,
+  type LearnedStyle,
   MIN_STYLE_CODE_LENGTH,
+  styleNameFromTitle,
 } from "./style-code-observations.ts";
 import {
   TAG_GROUND_TRUTH_MIN_CONFIDENCE,
@@ -102,4 +104,93 @@ export function resolveListingStyleCode(args: {
     };
   }
   return { styleCodeRaw: null, styleCodeNorm: "", source: null, decoded: null };
+}
+
+// ── the product name from the style-code index ─────────────────────────────
+
+export interface LearnedStyleForListing {
+  /** A RESOLVED product name (official/admin/seller/consensus/corroborated public). */
+  resolvedName: string | null;
+  resolvedSource: string | null;
+  /** An observation-only guess (trimmed listing title), never a fact. */
+  candidateName: string | null;
+  confidence: number;
+}
+
+/**
+ * The key the resolved name is filed under in the tag ground-truth block. Named
+ * for what it is: the block's header says "read verbatim off the tag", and this
+ * one line is not - it is what OUR index says the code on the tag means.
+ */
+export const STYLE_NAME_GROUND_TRUTH_KEY =
+  "product_name_from_style_code_index";
+
+/**
+ * Split what the index knows into a fact and a guess. lookupLearnedStyle
+ * returns a resolved 00628 name when any source has answered (already gated
+ * by pickStyleCodeName: a public submission needs corroboration), else the
+ * most-seen listing title. Only the former may be written; the latter is
+ * offered to the model under the UNVERIFIED EXTERNAL GUESS block. Pure.
+ */
+export function learnedStyleForListing(
+  learned: LearnedStyle | null,
+  brand: string | null,
+  code: string | null,
+): LearnedStyleForListing {
+  if (!learned) {
+    return { resolvedName: null, resolvedSource: null, candidateName: null, confidence: 0 };
+  }
+  const resolved = learned.resolvedName?.trim() ?? "";
+  if (resolved !== "") {
+    return {
+      resolvedName: resolved,
+      resolvedSource: learned.resolvedSource ?? null,
+      candidateName: null,
+      confidence: learned.confidence,
+    };
+  }
+  return {
+    resolvedName: null,
+    resolvedSource: null,
+    candidateName: styleNameFromTitle(learned.productTitle, brand, code),
+    confidence: learned.confidence,
+  };
+}
+
+/**
+ * Put a RESOLVED name where the listing reads facts from: knownFields.style
+ * (unless the seller typed a style), the tag ground-truth block (so the title
+ * leads with it), and attributes.model (so the registry projects it onto the
+ * leaf's Model aspect, fill-only). A candidate writes nothing here. Pure.
+ */
+export function applyLearnedStyleToListing(args: {
+  learned: LearnedStyleForListing;
+  knownFields: Record<string, unknown>;
+  tagGroundTruth: Record<string, string> | undefined;
+  tagAttributes: Record<string, string>;
+  sellerTypedStyle: string | null;
+}): {
+  knownFields: Record<string, unknown>;
+  tagGroundTruth: Record<string, string> | undefined;
+  tagAttributes: Record<string, string>;
+} {
+  const name = args.learned.resolvedName;
+  if (!name) {
+    return {
+      knownFields: args.knownFields,
+      tagGroundTruth: args.tagGroundTruth,
+      tagAttributes: args.tagAttributes,
+    };
+  }
+  const knownFields = { ...args.knownFields };
+  if (!args.sellerTypedStyle || args.sellerTypedStyle.trim() === "") {
+    knownFields.style = name;
+  }
+  const tagGroundTruth = {
+    ...(args.tagGroundTruth ?? {}),
+    [STYLE_NAME_GROUND_TRUTH_KEY]: name,
+  };
+  const tagAttributes = { ...args.tagAttributes };
+  if (!tagAttributes.model) tagAttributes.model = name;
+  return { knownFields, tagGroundTruth, tagAttributes };
 }

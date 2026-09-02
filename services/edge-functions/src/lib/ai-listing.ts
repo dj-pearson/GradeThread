@@ -88,8 +88,16 @@ import {
   type BrandKnowledgePack,
   resolveBrandKnowledgePack,
 } from "./brand-knowledge.ts";
-import { resolveListingStyleCode } from "./listing-style-code.ts";
-import { recordStyleCodeObservations } from "./style-code-observations.ts";
+import {
+  applyLearnedStyleToListing,
+  learnedStyleForListing,
+  type LearnedStyleForListing,
+  resolveListingStyleCode,
+} from "./listing-style-code.ts";
+import {
+  lookupLearnedStyle,
+  recordStyleCodeObservations,
+} from "./style-code-observations.ts";
 import {
   recordCategoryDecision,
   recordExtractionProvenance,
@@ -161,6 +169,7 @@ import {
 import { classifyPhotoRoles } from "./ai-photo-roles.ts";
 import {
   applyCanonicalBrandAndStyle,
+  brandKey,
   canonicalizeBrand,
   resolveStyleCode,
   type StyleResolution,
@@ -2376,6 +2385,51 @@ export async function generateListing(
     knownFields.style_code = listingCode.styleCodeRaw;
   }
 
+  // 2026-09-02: what the style-code index knows this code to be. A resolved
+  // name (a source in a position to know) becomes a title fact and the Model
+  // aspect; an observation-only name is offered to the model as an unverified
+  // candidate and written nowhere.
+  let learnedForListing: LearnedStyleForListing = {
+    resolvedName: null,
+    resolvedSource: null,
+    candidateName: null,
+    confidence: 0,
+  };
+  if (listingCode.styleCodeRaw && (brandPack?.key || normalizedBrand)) {
+    try {
+      const learned = await lookupLearnedStyle(
+        brandPack?.key ?? brandKey(normalizedBrand as string),
+        listingCode.styleCodeRaw,
+      );
+      learnedForListing = learnedStyleForListing(
+        learned,
+        normalizedBrand,
+        listingCode.styleCodeRaw,
+      );
+      const applied = applyLearnedStyleToListing({
+        learned: learnedForListing,
+        knownFields,
+        tagGroundTruth,
+        tagAttributes,
+        sellerTypedStyle: item.style ?? null,
+      });
+      Object.assign(knownFields, applied.knownFields);
+      tagGroundTruth = applied.tagGroundTruth;
+      tagAttributes = applied.tagAttributes;
+    } catch (err) {
+      console.error("[AI Listing] learned style lookup failed (non-fatal):", err);
+    }
+  }
+  const learnedCandidate: VisualCandidate[] = learnedForListing.candidateName
+    ? [{
+      field: "style",
+      value: learnedForListing.candidateName,
+      // One index observation is one listing's word for it.
+      support: 1,
+      outOf: 1,
+    }]
+    : [];
+
   // 3. If the item already has a category, constrain item_specifics up front.
   let categoryId = item.ebay_category_id;
   let categoryPath: string | null = null;
@@ -2443,7 +2497,8 @@ export async function generateListing(
     mined: visual.styleNameCandidates,
     aspectProductNames: visual.aspectProductNames,
     brand: normalizedBrand,
-    decodedStyleName: styleResolution?.aspects.Model?.[0] ?? null,
+    decodedStyleName: learnedForListing.resolvedName ??
+      styleResolution?.aspects.Model?.[0] ?? null,
     styleCodeRaw: listingCode.styleCodeRaw,
   });
 
@@ -2459,7 +2514,11 @@ export async function generateListing(
     // US-2778: eBay's guess, in its own block, under the precedence ladder.
     // US-2781 appends any style name a non-title source confirmed; the model
     // can still reject it against the photos, like every other candidate.
-    visualCandidates: [...visual.candidates, ...styleFromVisual],
+    visualCandidates: [
+      ...visual.candidates,
+      ...styleFromVisual,
+      ...learnedCandidate,
+    ],
     // US-547: split this item between champion / A/B-challenger prompt.
     promptSelectKey: itemId,
   });

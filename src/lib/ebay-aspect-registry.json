@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "entries": [
     {
       "key": "brand",
@@ -271,6 +271,16 @@
         "Theme",
         "Character",
         "Character Family"
+      ]
+    },
+    {
+      "key": "model",
+      "source": "attribute",
+      "attribute": "model",
+      "multi": false,
+      "aspects": [
+        "Model",
+        "Model Name"
       ]
     },
     {

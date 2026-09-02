@@ -64,7 +64,7 @@ export interface AspectRegistry {
 
 // Bump `version` whenever entries change so a served/cached copy is versioned.
 export const ASPECT_REGISTRY: AspectRegistry = {
-  version: 5,
+  version: 6,
   entries: [
     // ── Legacy structured columns ──
     { key: "brand", source: "column", column: "brand", multi: false, aspects: ["Brand"] },
@@ -240,6 +240,18 @@ export const ASPECT_REGISTRY: AspectRegistry = {
       attribute: "theme",
       multi: false,
       aspects: ["Theme", "Character", "Character Family"],
+    },
+    {
+      key: "model",
+      source: "attribute",
+      attribute: "model",
+      multi: false,
+      // 2026-09-02: the PRODUCT NAME a style code resolved to in the
+      // style-code index ("Scuba Oversized Half-Zip"). Written by the listing
+      // path only when the index has a resolved name (never an observation),
+      // so a Model aspect here is a name a source in a position to know gave
+      // it (vault/20-domain/style-code-index-evidence.md).
+      aspects: ["Model", "Model Name"],
     },
     {
       key: "mpn",
