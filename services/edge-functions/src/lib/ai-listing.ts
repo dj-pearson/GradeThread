@@ -1389,7 +1389,7 @@ function extractAllowedAspects(aspectsResponse: unknown): Record<string, string[
 // the second-pass call to extractEbayAspects can constrain VALUES (not just
 // names) to what eBay accepts for this category. Mirrors flipdesk-ai.ts
 // toAspectSpecs but lives here to avoid pulling a route module into a lib.
-function buildAspectSpecsForCategory(
+export function buildAspectSpecsForCategory(
   aspectsResponse: unknown,
 ): EbayAspectSpec[] {
   const top = (aspectsResponse as { aspects?: unknown } | null)?.aspects;
