@@ -20,12 +20,15 @@ import {
 } from "../lib/ai-config.ts";
 import { styleFromSpecifics } from "../lib/platform-variants.ts";
 
-Deno.test("never chosen (null) -> every copy-paste channel", () => {
-  assertEquals(kitPlatformsForSeller(null), [...KIT_PLATFORMS]);
-  assertEquals(kitPlatformsForSeller(undefined), [...KIT_PLATFORMS]);
+Deno.test("US-3046: never chosen (null) -> nothing is generated unprompted", () => {
+  // The web reads null as "all" for a TAB LIST. The batch spends model time,
+  // and nobody asked; the drafts page says so and fills the kit when they do.
+  assertEquals(kitPlatformsForSeller(null), []);
+  assertEquals(kitPlatformsForSeller(undefined), []);
 });
 
-Deno.test("unticked everything ([]) -> every copy-paste channel, same as never chosen", () => {
+Deno.test("unticked everything ([]) -> every copy-paste channel (the web rule)", () => {
+  // They chose, and choosing nothing means all - unlike never having chosen.
   assertEquals(kitPlatformsForSeller([]), [...KIT_PLATFORMS]);
 });
 

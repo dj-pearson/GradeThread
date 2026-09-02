@@ -153,8 +153,12 @@ describe("US-2721 AC5: turning a channel off never hides an existing listing", (
         src!.includes("useCrossPostChannels"),
         `${rel} does not read the seller's channel selection`,
       ).toBe(true);
+      // US-3046: the Listing Kit narrows through kitPlatformsFor (src/lib/
+      // kit-platforms.ts), which is filterChannels plus the never-empty
+      // fallback; kit-platforms.test.ts pins that it narrows. Either call is
+      // the narrowing call. The bare hook name is still not.
       expect(
-        src!.includes("filterChannels("),
+        src!.includes("filterChannels(") || src!.includes("kitPlatformsFor("),
         `${rel} reads the selection and then offers every channel anyway`,
       ).toBe(true);
     }

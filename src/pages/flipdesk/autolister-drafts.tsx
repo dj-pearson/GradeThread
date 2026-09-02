@@ -50,7 +50,12 @@ import {
 import { ClickableRow } from "@/components/clickable-row";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
-import { useBulkPublish } from "@/hooks/use-autolister";
+import { useBulkPublish, useGeneratePlatformFields } from "@/hooks/use-autolister";
+// US-3046: the cross-list copy kit is filled with each draft only once the
+// seller has chosen channels; until then this page says so and, after they
+// choose, fills the kit for a selection in one go.
+import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
+import { channelsNeverChosen, kitPlatformsFor } from "@/lib/kit-platforms";
 import { useBulkAspectCoverage, useEbayConnection } from "@/hooks/use-ebay";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
 import {
@@ -138,6 +143,10 @@ export function FlipdeskAutolisterDraftsPage() {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("created_desc");
   const bulkPublish = useBulkPublish();
+  const { data: chosenChannels } = useCrossPostChannels();
+  const kitNeverChosen = channelsNeverChosen(chosenChannels);
+  const fillKit = useGeneratePlatformFields();
+  const [kitFilling, setKitFilling] = useState<{ done: number; total: number } | null>(null);
   const { data: ebayConnection } = useEbayConnection();
 
   // US-2169: capped reads report their own truncation. `.limit(500)` rendered
@@ -519,6 +528,36 @@ export function FlipdeskAutolisterDraftsPage() {
     [sorted, selectedIds],
   );
 
+  // US-3046: one call per selected draft, sequential. A failure on one draft
+  // is reported and the loop moves on; the ones that succeeded stay filled.
+  async function fillKitForSelected() {
+    const chosen = sorted.filter((d) => selectedIds.has(d.id));
+    if (chosen.length === 0) return;
+    const platforms = kitPlatformsFor(chosenChannels);
+    setKitFilling({ done: 0, total: chosen.length });
+    let failed = 0;
+    try {
+      for (const [i, d] of chosen.entries()) {
+        try {
+          await fillKit.mutateAsync({ itemId: d.inventory_item_id, platforms });
+        } catch {
+          // useGeneratePlatformFields already toasts the error.
+          failed++;
+        }
+        setKitFilling({ done: i + 1, total: chosen.length });
+      }
+    } finally {
+      setKitFilling(null);
+    }
+    const ok = chosen.length - failed;
+    if (ok > 0) {
+      toast.success(
+        `Cross-list copy written for ${ok} draft${ok === 1 ? "" : "s"}` +
+          (failed > 0 ? ` (${failed} failed)` : ""),
+      );
+    }
+  }
+
   async function publishSelected() {
     const chosen = sorted.filter((d) => selectedIds.has(d.id));
     if (chosen.length === 0) {
@@ -655,6 +694,28 @@ export function FlipdeskAutolisterDraftsPage() {
         }
       />
 
+      {/* US-3046: the batch wrote no cross-list copy for these drafts because
+          the seller has never chosen channels. It clears itself the moment they
+          do (the picker writes an array, and null is the only state that hides
+          the kit), so it needs no dismiss and no stored flag. */}
+      {kitNeverChosen && drafts.length > 0 && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 text-sm"
+        >
+          <p className="text-muted-foreground">
+            Cross-list copy (Poshmark, Mercari, Depop, Grailed, Vinted) isn't written
+            for new drafts until you choose the marketplaces you cross-post to.
+          </p>
+          <Button asChild variant="outline" size="sm">
+            <Link to="/dashboard/flipdesk/marketplaces">
+              Choose marketplaces
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
+      )}
+
       {draftsRead?.truncated && (
         <TruncatedNotice
           limit={draftsRead.limit}
@@ -724,6 +785,27 @@ export function FlipdeskAutolisterDraftsPage() {
                 >
                   <Sparkles className="mr-2 h-4 w-4" />
                   Re-run AI on {selectedIds.size}
+                </Button>
+              )}
+              {/* US-3046: fill the cross-list kit for the selected drafts, for
+                  a seller who chose channels after a batch had already run.
+                  Each item is one AI action, the same as the kit's own button,
+                  so it runs one at a time and reports as it goes. */}
+              {selectedIds.size > 0 && !kitNeverChosen && (
+                <Button
+                  variant="outline"
+                  onClick={() => void fillKitForSelected()}
+                  disabled={kitFilling != null}
+                  title="Write the Poshmark / Mercari / Depop / Grailed / Vinted copy for the selected drafts. One AI action per draft."
+                >
+                  {kitFilling ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Layers className="mr-2 h-4 w-4" />
+                  )}
+                  {kitFilling
+                    ? `Filling kit ${kitFilling.done}/${kitFilling.total}`
+                    : `Fill copy kit for ${selectedIds.size}`}
                 </Button>
               )}
               {/* US-549: publish the keyboard-selected subset. */}

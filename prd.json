@@ -3023,19 +3023,6 @@
       "dependsOn": [
         "US-3044"
       ]
-    },
-    {
-      "id": "US-3046",
-      "passes": false,
-      "title": "Cross-list kit auto-fill for a seller who never chose channels generates all five variants on every draft",
-      "description": "As a seller who never opened Settings -> Marketplaces, I want the AutoLister batch to ask once which channels I cross-post to instead of writing Poshmark, Mercari, Depop, Grailed and Vinted copy for every draft, so that I am not paying model time for marketplaces I do not use.",
-      "acceptanceCriteria": [
-        "lib/cross-list-kit.ts kitPlatformsForSeller(null) returns [] (never chosen) while kitPlatformsForSeller([]) keeps returning the full list (explicitly unticked-all keeps the web rule); the cross-list-kit_test.ts cases are updated to pin both.",
-        "When the batch skips the kit for that reason, the drafts page (src/pages/flipdesk/autolister-drafts.tsx) shows one dismissible notice linking to the channel picker (CrossPostChannelPicker on marketplaces.tsx), stored dismissed in flipdesk_settings, not localStorage.",
-        "The composer kit's empty-state copy (listing-kit.tsx) tells a never-chosen seller to pick channels, and the Generate button still works for them.",
-        "A seller who picks channels after a batch ran can fill the kit for that batch's drafts from the drafts page in one bulk action that reuses generatePlatformVariants with source 'manual'."
-      ],
-      "priority": 40
     }
   ]
 }

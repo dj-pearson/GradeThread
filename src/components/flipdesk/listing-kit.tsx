@@ -33,7 +33,6 @@ import {
   type DraftFields,
   type FieldIssue,
   getMarketplaceSpec,
-  manualKitPlatforms,
   type FieldSpec,
   type MarketplacePlatform,
   validateListingForPlatform,
@@ -57,7 +56,7 @@ import {
 } from "@/lib/lister-extension";
 import { MARKETPLACE_EXTENSION_FLOW } from "@/lib/constants";
 import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
-import { filterChannels } from "@/lib/cross-post-channels";
+import { channelsNeverChosen, kitPlatformsFor } from "@/lib/kit-platforms";
 import { edgeFetch } from "@/lib/edge-fetch";
 import {
   QUEUED_NOTICE,
@@ -66,27 +65,8 @@ import {
 import { useListerLocales } from "@/hooks/use-lister-locales";
 import { localeForPlatform } from "@/lib/lister-locales";
 
-// Copy-paste targets: the no-API platforms (Poshmark/Mercari/Grailed) plus
-// Depop until its partner API is live (US-712/713/714). Shopify + eBay push via
-// their adapters, so they're not copy-paste targets.
-const KIT_PLATFORMS: MarketplacePlatform[] = [
-  "poshmark",
-  "mercari",
-  "depop",
-  "grailed",
-  // 2026-08-11. Vinted's lister flow went live the same day and there was no
-  // way to reach it: the extension accepted a Vinted job, the content script was
-  // installed on all 22 country domains, and the app had no button that sent
-  // one. This list is hand-written and predated the channel.
-  //
-  // Facebook is deliberately still absent — its flow is `enabled: false` in
-  // selectors.js, so a tab here would offer a send that reports "list manually".
-  // Add it when that flips, not before.
-  "vinted",
-].filter((p) =>
-  p === "depop" ? true : manualKitPlatforms().includes(p as MarketplacePlatform),
-) as MarketplacePlatform[];
-
+// The kit's channel list lives in src/lib/kit-platforms.ts (US-3046), shared
+// with the drafts page's bulk fill so the two cannot disagree.
 // Where to send the seller to create the listing manually.
 const NEW_LISTING_URL: Partial<Record<MarketplacePlatform, string>> = {
   poshmark: "https://poshmark.com/create-listing",
@@ -220,6 +200,7 @@ function PlatformPanel({
   primaryId,
   baseName,
   itemId,
+  neverChosen = false,
 }: {
   platform: MarketplacePlatform;
   variant: PlatformKitVariant | undefined;
@@ -229,6 +210,8 @@ function PlatformPanel({
   primaryId: string | null;
   baseName: string;
   itemId: string;
+  /** US-3046: the seller has never chosen channels, so the batch wrote no kit. */
+  neverChosen?: boolean;
 }) {
   const qc = useQueryClient();
   const spec = getMarketplaceSpec(platform);
@@ -342,9 +325,21 @@ function PlatformPanel({
   if (!variant) {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
-        Not generated yet. New drafts fill this on their own for the channels you
-        chose under Marketplaces; for this one, click “Generate for all
-        marketplaces” above.
+        {neverChosen ? (
+          <>
+            Not generated yet. New drafts fill this on their own once you{" "}
+            <Link to="/dashboard/flipdesk/marketplaces" className="underline">
+              choose the marketplaces you cross-post to
+            </Link>
+            . For this one, click “Generate for all marketplaces” above.
+          </>
+        ) : (
+          <>
+            Not generated yet. New drafts fill this on their own for the channels
+            you chose under Marketplaces; for this one, click “Generate for all
+            marketplaces” above.
+          </>
+        )}
       </p>
     );
   }
@@ -1006,16 +1001,12 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   // rather than at the tab render means generate() also stops spending AI calls
   // on marketplaces they never open.
   const { data: chosenChannels } = useCrossPostChannels();
-  const kitPlatforms = useMemo(
-    () => {
-      const narrowed = filterChannels(KIT_PLATFORMS, chosenChannels);
-      // Never render an empty kit: a selection that excludes every copy-paste
-      // channel (an eBay-and-Shopify seller) still gets the full set rather
-      // than a card with no tabs and no explanation.
-      return narrowed.length > 0 ? narrowed : KIT_PLATFORMS;
-    },
-    [chosenChannels],
-  );
+  // Never renders an empty kit - see kitPlatformsFor for the fallback rule.
+  const kitPlatforms = useMemo(() => kitPlatformsFor(chosenChannels), [chosenChannels]);
+  // US-3046: the batch writes no kit copy until the seller chooses channels.
+  // The empty state has to say so, or the seller reads "not generated yet" as
+  // a failure rather than as a setting they have not touched.
+  const neverChosen = channelsNeverChosen(chosenChannels);
 
   const { data: itemPrice } = useQuery({
     queryKey: ["item-target-price", itemId],
@@ -1165,6 +1156,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
                 primaryId={primaryId}
                 baseName={baseName ?? `item-${itemId.slice(0, 8)}`}
                 itemId={itemId}
+                neverChosen={neverChosen}
               />
             </TabsContent>
           ))}
