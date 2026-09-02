@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ PENDING: 00722 — dashboard_layouts (widget board foundation, US-3073)
+## ✅ APPLIED 2026-09-02: 00722 — dashboard_layouts (widget board foundation, US-3073)
 
 **What it does.** Creates `public.dashboard_layouts`: one row per
 `(user_id, surface)`, `surface` checked against
@@ -28,8 +28,24 @@ supabase-js under RLS; the service role never writes here.
 read answers `PGRST205`). Then redeploy the edge on Coolify
 (`EXPECTED_SCHEMA_VERSION` is now `00722`).
 
-**Verification.** Recorded below in the story's report. `scripts/migrations-lint.mjs`
-passes; see the final report for whether `npm run verify:db` (Docker) ran here.
+**Applied by the owner on 2026-09-02, and VERIFIED against prod rather than
+assumed** (read-only psql over SSH, container
+`supabase-db-kcksoks4kk0kswk0ccs40os8`): `to_regclass('public.dashboard_layouts')`
+is not null, `applied_migrations` carries `00722` and that is now `max(version)`,
+`pg_class.relrowsecurity` is true, and `pg_policies` returns 4 rows for the
+table, which matches the four owner-only policies this migration creates.
+
+**Verification before the apply.** `npm run verify:db` with Docker up: `supabase
+db start` and `supabase db reset --no-seed` both passed, the reset re-applying
+all 718 migrations including this one from an empty schema in 86.9s, 19 checks
+green. `scripts/migrations-lint.mjs` passes.
+
+⚠ **Still outstanding: the edge redeploy.** `EXPECTED_SCHEMA_VERSION` in the
+pushed code is `00722` and prod now records `00722`, so the two agree, but the
+RUNNING edge container still holds whatever was deployed before this push. Until
+it is redeployed its boot guard compares an older expectation against a newer
+database and reads `behind`. Nothing breaks (the table is browser-owned and no
+edge route reads it), so this is a tidiness item rather than an outage.
 
 ## ✅ APPLIED 2026-09-02: 00721 — Unlisted tab (To List + Drafts merged), chip filter, wider search
 
