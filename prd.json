@@ -3062,19 +3062,6 @@
       "notes": "[BUILT 2026-09-02] New: extension-unified/queue/queue-view.js (pure view model, shared by popup + worker) and test/queue-view.test.cjs (11 groups; asserts cancel is queued-only, failures count toward the badge, every dead row carries a reason, and KIND_LABELS matches the edge EXTENSION_QUEUE_KINDS). background.js gains getQueue/cancelQueueRow and the GT_QUEUE_STATE / GT_QUEUE_CANCEL / GT_QUEUE_RUN_NOW / GT_CC_RUN_ACTIVE handlers (internal only — deliberately NOT in EXTERNAL_TYPES). manifest background.scripts + importScripts updated in lockstep. popup.html/js/css: work summary, queue block, reordered Selling panel, collapsed Channels with live count, Reads action button, footer link to the options page. Edge: flipdesk-extension-queue.ts withItemTitles() on GET only. Web: use-extension-queue.ts item_title, marketplaces.tsx claimed-row Cancel removed + revise/relist described + rows named. Verified with a stubbed-chrome Playwright render of popup.html at 340px on both tabs; 47/47 extension guards, tsc -b and eslint clean."
     },
     {
-      "id": "US-3056",
-      "passes": false,
-      "title": "Extension revision: compare view marks the best buy and works on a narrow window",
-      "description": "Found in the 2026-09-02 extension deep dive. compare.html is a six-column table with no verdict: the shopper still has to do the arithmetic between a 7.5 at 48 dollars and an 8.5 at 70. Under about 700px the table scrolls sideways inside its container, which is correct and unreadable on a phone-width Firefox window.",
-      "acceptanceCriteria": [
-        "The row with the best condition-adjusted value (highest overallScore per dollar among rows with a parsed price, ties to the higher score) carries a Best value tag; rows with no price are excluded and say so.",
-        "Below 640px the table renders as stacked cards (one per pinned listing) with the same figures and the unpin control; the page body never scrolls sideways.",
-        "A Copy summary control writes a plain-text list (title, marketplace, score, price, verdict per row) to the clipboard for pasting into a message; nothing leaves the device.",
-        "compare-tray.test.cjs covers the best-value selection including ties and missing prices."
-      ],
-      "priority": 17
-    },
-    {
       "id": "US-3057",
       "passes": false,
       "title": "Extension revision: search and marketplace filters over a longer read history",

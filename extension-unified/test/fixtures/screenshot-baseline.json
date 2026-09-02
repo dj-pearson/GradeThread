@@ -45,9 +45,9 @@
     "options-system-dark": "d33ed7bdab1e4397c62949ad5dc65fd6a1d25dd41adb77de03615f4c74610d66",
     "options-forced-light": "bc79464d474cdccdba89e672b36448228da44ebb268d13005395b777e4072bc8",
     "options-forced-dark": "98a2da0c2507ef6256980fcef3e1671a23701046ce34addffd81680efe106988",
-    "compare-system-light": "3a385bef5e8bf840558469d95c2e5fa0c7daf20ebf334edf617cf7ca8419fc4a",
-    "compare-system-dark": "6cbe5af2419a86dbd05d27d004adc33d312db58e370cf33245c64b7cef6e5956",
-    "compare-forced-light": "3a385bef5e8bf840558469d95c2e5fa0c7daf20ebf334edf617cf7ca8419fc4a",
-    "compare-forced-dark": "6cbe5af2419a86dbd05d27d004adc33d312db58e370cf33245c64b7cef6e5956"
+    "compare-system-light": "1663c08674d0133f0b578984b44169b598cc3773a97789266ab1b2a5b98f12bc",
+    "compare-system-dark": "1ed1d5a8eb8ba06d685fb7423f2f8b43c2b1028f6d55acdf07eac0f4239bd159",
+    "compare-forced-light": "1663c08674d0133f0b578984b44169b598cc3773a97789266ab1b2a5b98f12bc",
+    "compare-forced-dark": "1ed1d5a8eb8ba06d685fb7423f2f8b43c2b1028f6d55acdf07eac0f4239bd159"
   }
 }

@@ -39,6 +39,12 @@
     heading: "Compare",
     clear: "Clear all",
     noPrice: "—",
+    // US-3056
+    bestValue: "Best value",
+    noPriceNote: "no price read",
+    copySummary: "Copy summary",
+    copied: "Copied",
+    copyFailed: "Couldn't copy — select the table instead",
   };
 
   /** Same normalisation the grade cache uses, so a tray row and a listing agree. */
@@ -154,6 +160,56 @@
     return isFinite(dollars) && dollars >= 0 ? Math.round(dollars * 100) : null;
   }
 
+  /**
+   * US-3056: the key of the row worth buying — the highest condition per
+   * dollar among rows that have BOTH a score and a parsed price. Ties go to
+   * the higher score (same value per dollar, better garment), then to the
+   * earlier pin. Null when fewer than two rows qualify: "best of one" is not a
+   * comparison, and a tag on a lone row reads as a recommendation it is not.
+   */
+  function bestValueKey(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    let best = null;
+    let bestRatio = -Infinity;
+    let qualified = 0;
+    for (const r of list) {
+      const cents = priceCents(r);
+      const score = r && typeof r.overallScore === "number" && isFinite(r.overallScore) ? r.overallScore : null;
+      if (cents === null || cents <= 0 || score === null) continue;
+      qualified++;
+      const ratio = score / (cents / 100);
+      if (ratio > bestRatio || (ratio === bestRatio && best && score > best.overallScore)) {
+        best = r;
+        bestRatio = ratio;
+      }
+    }
+    return qualified >= 2 && best ? best.key : null;
+  }
+
+  /**
+   * US-3056: the tray as plain text, one line per row, for pasting into a
+   * message. Built from the stored snapshot only — nothing is fetched and
+   * nothing leaves the device until the shopper pastes it somewhere.
+   */
+  function summaryText(rows, marketplaceLabels) {
+    const list = Array.isArray(rows) ? rows : [];
+    const labels = marketplaceLabels || {};
+    const bestKey = bestValueKey(list);
+    const lines = list.map((r) => {
+      const bits = [
+        r.title || "Listing",
+        labels[r.marketplace] || r.marketplace || "",
+        "grade " + scoreLabel(r),
+        r.priceText || STRINGS.noPrice,
+      ];
+      const fair = fairnessLabel(r);
+      if (fair) bits.push(fair.toLowerCase());
+      if (r.key === bestKey) bits.push(STRINGS.bestValue.toLowerCase());
+      return "- " + bits.filter(Boolean).join(" | ");
+    });
+    return lines.join("\n");
+  }
+
   /** Display score, or an em dash. Never "NaN" (US-1884 AC5, same rule). */
   function scoreLabel(entry) {
     const s = entry && entry.overallScore;
@@ -196,5 +252,7 @@
     scoreLabel,
     scoreClass,
     fairnessLabel,
+    bestValueKey,
+    summaryText,
   };
 });

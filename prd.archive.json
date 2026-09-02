@@ -44411,6 +44411,20 @@
       ],
       "priority": 16,
       "notes": "Done 2026-09-02. options.html gains Appearance > Theme (System / Light / Dark); theme.js stores light|dark as storage.local theme and REMOVES the key for System, applies data-theme on <html> at boot on the popup, options, compare and onboarding pages, and follows storage.onChanged. Each sheet keeps its ONE prefers-color-scheme:dark block (popup-theme.test.ts still 6/6); scripts/lib/theme-css.cjs derives from that block a forced sheet (same rules under html[data-theme=dark], every touched property's base value back under html[data-theme=light], unset where the base never set it) into GENERATED popup-theme.css and compare-theme.css (scripts/gen-extension-theme-css.mjs, --check), and the overlay generator appends the same rules to overlay-css.js scoped to the card / badge row ([data-theme] on #gt-cc-overlay and .gt-cc-badge-row); options.css and onboarding's inline block got their two forced twins by hand. GT_CC_GET_SETTINGS carries theme; marketplace.js sets data-theme on the card and on every badge row. The screenshot harness renders four variants per state (System light, System dark, forced light on a dark OS, forced dark on a light OS): 48 renders, baseline regenerated, --check clean; the forced renders were inspected and override the OS. test/theme-css.test.cjs pins the derivation, drift, one-dark-block, theme.js semantics and every surface's wiring. 50 extension files pass, eslint clean (extension + scripts), both generators --check clean."
+    },
+    {
+      "id": "US-3056",
+      "passes": true,
+      "title": "Extension revision: compare view marks the best buy and works on a narrow window",
+      "description": "Found in the 2026-09-02 extension deep dive. compare.html is a six-column table with no verdict: the shopper still has to do the arithmetic between a 7.5 at 48 dollars and an 8.5 at 70. Under about 700px the table scrolls sideways inside its container, which is correct and unreadable on a phone-width Firefox window.",
+      "acceptanceCriteria": [
+        "The row with the best condition-adjusted value (highest overallScore per dollar among rows with a parsed price, ties to the higher score) carries a Best value tag; rows with no price are excluded and say so.",
+        "Below 640px the table renders as stacked cards (one per pinned listing) with the same figures and the unpin control; the page body never scrolls sideways.",
+        "A Copy summary control writes a plain-text list (title, marketplace, score, price, verdict per row) to the clipboard for pasting into a message; nothing leaves the device.",
+        "compare-tray.test.cjs covers the best-value selection including ties and missing prices."
+      ],
+      "priority": 17,
+      "notes": "Done 2026-09-02. compare-tray.js gains bestValueKey (highest overallScore per dollar among rows with a score and a parsed price, ties to the higher score then the earlier pin, null unless two rows qualify so a lone row is never tagged) and summaryText (one plain line per row: title | marketplace | grade | price | verdict | best value). compare.js marks the best row with a Best value tag on the listing cell, tints the row, says which rows sit out for having no price (and prints no price read on them), and a Copy summary control writes the summary in the on-screen sort order to the clipboard; nothing is fetched. compare.css stacks the table into one labelled card per listing under 640px (thead hidden, each cell prints attr(data-label), the body never scrolls sideways) with the unpin control kept; rendered at 480 and 1000px and inspected. compare-tray.test.cjs covers the selection (ties, missing prices, missing scores, zero price, one-row case), the summary, and the page wiring. compare-theme.css regenerated, screenshot baseline regenerated, 50 extension files pass, eslint clean, popup-theme 6 pass."
     }
   ]
 }

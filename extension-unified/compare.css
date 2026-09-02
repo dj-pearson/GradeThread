@@ -183,6 +183,62 @@ button, select, input { font: inherit; }
 .cmp-fair-fair { color: var(--cmp-muted); }
 .cmp-fair-high { color: #b42318; }
 
+/* US-3056: the best-value tag on the listing cell, and the row it sits in. */
+.cmp-best {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--cmp-ok-soft);
+  color: var(--cmp-ok);
+  font-size: 11px;
+  font-weight: 700;
+}
+.cmp-row-best td { background: var(--cmp-surface-2); }
+
+/* US-3056: under 640px the table becomes stacked cards, one per listing. The
+   header row hides and each cell prints its own label from data-label, so the
+   figures read top-to-bottom with the same words the columns used. The page
+   body never scrolls sideways: .cmp-scroll no longer needs to, and a long
+   title wraps inside its card. */
+@media (max-width: 640px) {
+  body { padding: 0 14px 40px; }
+  .cmp-head { flex-wrap: wrap; }
+  .cmp-head-actions { margin-left: 0; width: 100%; justify-content: space-between; }
+  .cmp-scroll { overflow-x: visible; }
+  .cmp-table, .cmp-table tbody, .cmp-table tr, .cmp-table td { display: block; width: 100%; }
+  .cmp-table thead { display: none; }
+  .cmp-table tr {
+    margin-top: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--cmp-rule);
+    border-radius: var(--cmp-r-lg);
+    background: var(--cmp-surface);
+  }
+  .cmp-row-best { border-color: var(--cmp-ok); }
+  .cmp-row-best td { background: transparent; }
+  .cmp-table td {
+    border-top: 0;
+    padding: 6px 0;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .cmp-table td[data-label]::before {
+    content: attr(data-label);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--cmp-muted);
+    flex: 0 0 auto;
+  }
+  .cmp-table td.cmp-listing { display: block; min-width: 0; }
+  .cmp-table td.cmp-listing::before { display: none; }
+  .cmp-listing-title { overflow-wrap: anywhere; }
+  .cmp-table tbody tr:hover td { background: transparent; }
+  .cmp-table td:last-child { justify-content: flex-end; padding-top: 10px; }
+}
+
 .cmp-sr {
   position: absolute;
   width: 1px;
