@@ -1,4 +1,5 @@
 import {
+  Fragment,
   Suspense,
   lazy,
   useEffect,
@@ -139,11 +140,30 @@ function WidgetErrorState({ title }: { title: string }) {
   );
 }
 
+/**
+ * One grid cell, handed to `renderCell` so edit mode can own the element the
+ * grid span sits on (US-3074 puts dnd-kit's sortable ref there) without the
+ * board learning what a sortable is.
+ */
+export interface WidgetCell {
+  entry: LayoutEntry;
+  def: WidgetDef;
+  /** The column-span classes the cell must carry. */
+  className: string;
+  /** The frame and its widget, already built. */
+  children: ReactNode;
+}
+
+function DefaultCell({ className, children }: WidgetCell) {
+  return <div className={className}>{children}</div>;
+}
+
 export function WidgetBoard({
   surface,
   layout,
   registry,
   renderAction,
+  renderCell,
   className,
 }: {
   surface: DashboardSurface;
@@ -153,6 +173,8 @@ export function WidgetBoard({
   registry?: readonly WidgetDef[];
   /** Controls for each frame's header slot. */
   renderAction?: (def: WidgetDef, entry: LayoutEntry) => ReactNode;
+  /** Wrap each grid cell. Defaults to a plain div carrying the span classes. */
+  renderCell?: (cell: WidgetCell) => ReactNode;
   className?: string;
 }) {
   const saved = useDashboardLayout(surface);
@@ -169,8 +191,11 @@ export function WidgetBoard({
         // passes a layout it never normalized. Skipping beats crashing.
         if (!def) return null;
         const Widget = lazyWidget(def);
-        return (
-          <div key={entry.id} className={COL_SPAN[entry.size]}>
+        const cell: WidgetCell = {
+          entry,
+          def,
+          className: COL_SPAN[entry.size],
+          children: (
             <WidgetFrame def={def} size={entry.size} action={renderAction?.(def, entry)}>
               <ErrorBoundary
                 resetKey={entry.id}
@@ -181,7 +206,12 @@ export function WidgetBoard({
                 </Suspense>
               </ErrorBoundary>
             </WidgetFrame>
-          </div>
+          ),
+        };
+        return (
+          <Fragment key={entry.id}>
+            {renderCell ? renderCell(cell) : <DefaultCell {...cell} />}
+          </Fragment>
         );
       })}
     </div>
