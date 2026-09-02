@@ -283,6 +283,24 @@ export const ANALYTICS_EVENTS = {
   // direct measure of which of our nouns are not carrying their meaning.
   "help_term_open": "A product-term definition popover was opened.",
 
+  // ── Dashboard widget board (US-3074) ──────────────────────────────────────
+  // A board layout is per-user rows in dashboard_layouts, so the SAVED shape is
+  // knowable server-side at any time; what is not knowable is how it got there.
+  // These four record the editing, not the state. `dashboard_layout_saved`
+  // carries four counters rather than firing four events because one Done press
+  // is one decision, and the question it answers is which of the four affordances
+  // sellers actually use — reorder is the expensive one to build and the easiest
+  // to be wrong about.
+  //
+  // The add and hide events fire on the EDIT, before Done, so a seller who adds
+  // a widget and then cancels is still counted as having wanted it. That is the
+  // number worth having: what the catalog gets asked for, not what survived.
+  "dashboard_layout_saved":
+    "Customize mode was saved with Done; counts the edits made in that one pass.",
+  "dashboard_layout_reset": "A board was put back to its persona default in Customize mode.",
+  "dashboard_widget_added": "A widget was picked from the Add-widget catalog (before Done).",
+  "dashboard_widget_hidden": "A widget was hidden from a board in Customize mode (before Done).",
+
   // ── Buyer feature adoption ────────────────────────────────────────────────
   // One event with a `feature` property rather than one event per feature —
   // adoption is a group-by. See buyer-analytics.ts for why.
