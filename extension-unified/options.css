@@ -97,6 +97,20 @@ kbd {
 
 .opt-note { margin: 10px 0 0; font-size: 12px; color: var(--cmp-ok); }
 
+.opt-field { display: flex; align-items: center; gap: 12px; font-size: 13px; font-weight: 600; }
+.opt-field select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--cmp-rule-strong);
+  background: var(--cmp-surface);
+  color: inherit;
+  font-weight: 400;
+}
+
+/* US-3055: this sheet's one dark rule, and its two forced twins. Three lines,
+   kept by hand rather than generated — the generator covers compare.css. */
 @media (prefers-color-scheme: dark) {
   .opt-toggle > input:checked { background: #4d7fd1; }
 }
+html[data-theme="dark"] .opt-toggle > input:checked { background: #4d7fd1; }
+html[data-theme="light"] .opt-toggle > input:checked { background: #0f3460; }

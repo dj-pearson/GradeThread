@@ -12,6 +12,8 @@
 
 (function () {
   const ATTR = self.GT_ATTRIBUTION;
+  // US-3055: honour the theme preference on the welcome page too.
+  try { void self.GT_THEME.init(globalThis.browser || globalThis.chrome, document); } catch (_e) { /* no storage: OS theme */ }
 
   // ?first_run=1 is set only by the install-triggered open. Reopening this page
   // from history is a real visit, but it is not an install, and calling it one

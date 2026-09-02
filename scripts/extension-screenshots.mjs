@@ -35,7 +35,14 @@ const mode = process.argv.includes("--check") ? "check" : process.argv.includes(
 // Frozen "now": a Wednesday morning, so "3d ago" and the reset time read alike every run.
 export const FROZEN_NOW = Date.UTC(2026, 8, 2, 15, 30, 0);
 export const STATES = ["anon", "buyer", "seller"];
-export const SCHEMES = ["light", "dark"];
+// US-3055: the OS scheme under System, then each forced preference against the
+// OPPOSITE OS scheme, which is the only render that proves the override.
+export const VARIANTS = [
+  { tag: "system-light", scheme: "light", theme: null },
+  { tag: "system-dark", scheme: "dark", theme: null },
+  { tag: "forced-light", scheme: "dark", theme: "light" },
+  { tag: "forced-dark", scheme: "light", theme: "dark" },
+];
 export const POPUP_TABS = ["Reads", "Selling", "Settings"];
 export const PAGES = [
   ["onboarding.html", 900],
@@ -47,15 +54,15 @@ export const PAGES = [
 export function renderPlan() {
   const plan = [];
   for (const state of STATES) {
-    for (const scheme of SCHEMES) {
-      for (const tab of POPUP_TABS) plan.push({ name: `popup-${state}-${scheme}-${tab.toLowerCase()}`, kind: "popup", state, scheme, tab });
+    for (const v of VARIANTS) {
+      for (const tab of POPUP_TABS) plan.push({ name: `popup-${state}-${v.tag}-${tab.toLowerCase()}`, kind: "popup", state, scheme: v.scheme, theme: v.theme, tab });
     }
   }
   for (const [page, width] of PAGES) {
-    for (const scheme of SCHEMES) {
+    for (const v of VARIANTS) {
       // Pages carry no plan-gated state; the buyer fixture gives the compare
       // page rows and the options page counts, which is the useful picture.
-      plan.push({ name: `${page.replace(".html", "")}-${scheme}`, kind: "page", state: "buyer", scheme, page, width });
+      plan.push({ name: `${page.replace(".html", "")}-${v.tag}`, kind: "page", state: "buyer", scheme: v.scheme, theme: v.theme, page, width });
     }
   }
   return plan;
@@ -79,7 +86,9 @@ async function render(browser) {
     });
     const page = await ctx.newPage();
     await page.clock.setFixedTime(FROZEN_NOW);
-    await page.addInitScript(installStub, fixture(item.state, FROZEN_NOW));
+    const fx = fixture(item.state, FROZEN_NOW);
+    if (item.theme) fx.state.theme = item.theme;
+    await page.addInitScript(installStub, fx);
     const file = item.kind === "popup" ? "popup.html" : item.page;
     await page.goto(pathToFileURL(path.join(extDir, file)).href);
     await page.waitForTimeout(400);

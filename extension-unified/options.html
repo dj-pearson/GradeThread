@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="compare.css" />
     <link rel="stylesheet" href="options.css" />
+    <link rel="stylesheet" href="compare-theme.css" />
     <title>Settings — GradeThread</title>
   </head>
   <body>
@@ -63,6 +64,22 @@
       </section>
 
       <section class="opt-section">
+        <h2 class="opt-h2">Appearance</h2>
+        <p class="opt-lead">
+          Applies to the popup, this page, the compare view and the condition
+          card on listing pages. System follows your operating system.
+        </p>
+        <label class="opt-field">
+          <span>Theme</span>
+          <select id="theme">
+            <option value="">System</option>
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </label>
+      </section>
+
+      <section class="opt-section">
         <h2 class="opt-h2">Keyboard shortcut</h2>
         <p class="opt-lead">
           <kbd id="shortcut">Alt+G</kbd> reads the listing you’re on. Change it in
@@ -97,6 +114,7 @@
     </main>
 
     <script src="research/compare-tray.js"></script>
+    <script src="theme.js"></script>
     <script src="options.js"></script>
   </body>
 </html>

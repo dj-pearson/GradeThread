@@ -74,6 +74,8 @@
 
   let CFG = DEFAULT_CFG;
   let adapter = null;
+  // US-3055: the theme preference from settings; null follows the OS.
+  let themePref = null;
   let grading = false;
   // US-2237 scan-mode state. `scanEnabled` is resolved once per boot from the
   // shopper's setting; `onSearchPage` gates the lazy-load re-scan tick so it
@@ -322,6 +324,7 @@
     // of WHERE these nodes are — not of a per-element reset someone has to
     // remember on every future child. See research/overlay-host.js.
     const mounted = SHADOW.createOverlayHost(document, OVERLAY_ID, CSS);
+    if (themePref) mounted.root.setAttribute("data-theme", themePref); // US-3055
     const host = mounted.host;
     host.setAttribute("dir", "ltr");
     // US-1884 (AC3): announce loading→result/error transitions to assistive tech.
@@ -1257,6 +1260,7 @@
     // sheet rather than carrying its own copy.
     const mountedBadge = SHADOW.createBadgeHost(document, CSS, badge.cls);
     const wrap = mountedBadge.root;
+    if (themePref) wrap.setAttribute("data-theme", themePref); // US-3055
     mountedBadge.host.setAttribute("dir", "ltr");
     for (const part of badge.parts) {
       wrap.appendChild(el("span", "gt-cc-badge-chip " + part.cls, part.text));
@@ -1417,6 +1421,7 @@
     // renders: a host the shopper switched off must be silent on its search
     // pages too, not just its listings.
     const settings = await send({ type: "GT_CC_GET_SETTINGS" });
+    themePref = settings && (settings.theme === "light" || settings.theme === "dark") ? settings.theme : null; // US-3055
     if (stale()) return;
     const host = location.host;
     if (settings && Array.isArray(settings.disabledHosts) && settings.disabledHosts.includes(host)) {

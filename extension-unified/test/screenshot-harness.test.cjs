@@ -17,7 +17,9 @@ const stub = fs.readFileSync(path.join(repo, "scripts", "lib", "extension-stub.m
 
 // ── 1. the plan: three states, two schemes, three tabs, three pages ─────────
 assert.ok(/STATES = \["anon", "buyer", "seller"\]/.test(script), "three fixture states");
-assert.ok(/SCHEMES = \["light", "dark"\]/.test(script), "light and dark");
+for (const tag of ["system-light", "system-dark", "forced-light", "forced-dark"]) {
+  assert.ok(script.includes('tag: "' + tag + '"'), "the plan renders the " + tag + " variant (US-3055)");
+}
 assert.ok(/POPUP_TABS = \["Reads", "Selling", "Settings"\]/.test(script), "all three popup tabs");
 for (const page of ["onboarding.html", "options.html", "compare.html"]) {
   assert.ok(script.includes('["' + page + '"'), "the plan renders " + page);
@@ -47,8 +49,9 @@ assert.ok(fs.existsSync(baselinePath), "test/fixtures/screenshot-baseline.json m
 const base = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
 assert.ok(typeof base.chromium === "string" && base.chromium, "the baseline records the Chromium build it was made with");
 const expected = [];
-for (const s of ["anon", "buyer", "seller"]) for (const c of ["light", "dark"]) for (const t of ["reads", "selling", "settings"]) expected.push("popup-" + s + "-" + c + "-" + t);
-for (const p of ["onboarding", "options", "compare"]) for (const c of ["light", "dark"]) expected.push(p + "-" + c);
+const TAGS = ["system-light", "system-dark", "forced-light", "forced-dark"];
+for (const s of ["anon", "buyer", "seller"]) for (const c of TAGS) for (const t of ["reads", "selling", "settings"]) expected.push("popup-" + s + "-" + c + "-" + t);
+for (const p of ["onboarding", "options", "compare"]) for (const c of TAGS) expected.push(p + "-" + c);
 assert.deepStrictEqual(Object.keys(base.hashes).sort(), expected.sort(), "the baseline lists exactly the plan's renders");
 for (const [k, v] of Object.entries(base.hashes)) assert.ok(/^[0-9a-f]{64}$/.test(v), k + " carries a sha256");
 
@@ -57,4 +60,4 @@ const testing = fs.readFileSync(path.join(dir, "TESTING.md"), "utf8");
 assert.ok(testing.includes("node scripts/extension-screenshots.mjs --check"), "TESTING.md must document --check");
 assert.ok(/store upload|upload/i.test(testing.slice(testing.indexOf("extension-screenshots"))), "TESTING.md must tie the check to the store upload");
 
-console.log("screenshot-harness.test.cjs: plan covers 3 states x 2 schemes x (3 tabs + 3 pages), stub answers every popup message and throws on unknown, baseline matches the plan, documented");
+console.log("screenshot-harness.test.cjs: plan covers 3 states x 4 theme variants x (3 tabs + 3 pages), stub answers every popup message and throws on unknown, baseline matches the plan, documented");

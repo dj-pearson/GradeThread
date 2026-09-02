@@ -162,7 +162,7 @@ action, focus stays in the queue card.
 ## 4c. Screenshots and the visual baseline (US-3054)
 
 ```
-node scripts/extension-screenshots.mjs            # 24 PNGs into dist-ext/screenshots/
+node scripts/extension-screenshots.mjs            # 48 PNGs into dist-ext/screenshots/ (3 states x System light/dark, forced light, forced dark)
 node scripts/extension-screenshots.mjs --check    # compare against test/fixtures/screenshot-baseline.json
 node scripts/extension-screenshots.mjs --update   # rewrite the baseline after an intended change
 ```

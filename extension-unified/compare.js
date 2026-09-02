@@ -141,6 +141,7 @@ function render(list, sortBy) {
 }
 
 (async function () {
+  void self.GT_THEME.init(ext, document); // US-3055
   const sort = document.getElementById("sort");
   let list = await readTray();
   render(list, sort.value);

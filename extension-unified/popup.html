@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="popup.css" />
+    <!-- US-3055: GENERATED from popup.css's dark block (scripts/gen-extension-theme-css.mjs). -->
+    <link rel="stylesheet" href="popup-theme.css" />
     <title>GradeThread</title>
   </head>
   <body>
@@ -565,6 +567,8 @@
     <!-- US-1753 AC3: the shared outbound-link tagger. First, so popup.js can
          read self.GT_ATTRIBUTION at load. -->
     <script src="attribution.js"></script>
+    <!-- US-3055: the theme preference; popup.js applies it at boot. -->
+    <script src="theme.js"></script>
     <!-- US-1757 AC2: the click-through counter. After attribution.js, whose
          isSiteUrl it borrows, and before popup.js, which reads self.GT_USAGE. -->
     <script src="usage-telemetry.js"></script>

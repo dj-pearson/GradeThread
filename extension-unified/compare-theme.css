@@ -1,0 +1,88 @@
+/* GENERATED FILE — DO NOT EDIT.
+ *
+ * Source:      extension-unified/compare.css (its prefers-color-scheme: dark block)
+ * Regenerate:  node scripts/gen-extension-theme-css.mjs
+ * Guarded by:  extension-unified/test/theme-css.test.cjs (fails the build on drift)
+ *
+ * US-3055: the theme preference (System / Light / Dark). The OS theme still
+ * comes from the media block in the source sheet; these rules apply the same
+ * dark set under html[data-theme="dark"] and put the light set back under
+ * html[data-theme="light"], so the preference wins over the OS either way. */
+
+/* forced dark: the media block's rules under [data-theme="dark"] */
+html[data-theme="dark"] {
+  --cmp-fg: #f5f5f5;
+  --cmp-fg-2: #d0d0dc;
+  --cmp-muted: #9a9ab0;
+  --cmp-bg: #16162a;
+  --cmp-surface: #1c1c30;
+  --cmp-surface-2: #212137;
+  --cmp-rule: #2c2c44;
+  --cmp-rule-strong: #3a3a56;
+  --cmp-navy: #cfe0ff;
+  --cmp-navy-soft: #1d2b4a;
+  --cmp-ok: #7fd39b;
+  --cmp-ok-soft: #17301f;
+  --cmp-warn: #f0c674;
+  --cmp-bad: #ff8fa3;
+  --cmp-bad-soft: #3a1a22;
+}
+html[data-theme="dark"] .cmp-score.gt-cc-s-excellent {
+  color: #8fe0ae;
+}
+html[data-theme="dark"] .cmp-score.gt-cc-s-good {
+  color: #7ecfa0;
+}
+html[data-theme="dark"] .cmp-score.gt-cc-s-fair {
+  color: #f5cd7a;
+}
+html[data-theme="dark"] .cmp-score.gt-cc-s-poor,
+html[data-theme="dark"] .cmp-score.gt-cc-s-bad {
+  color: #ffb4ae;
+}
+html[data-theme="dark"] .cmp-fair-low {
+  color: #8fe0ae;
+}
+html[data-theme="dark"] .cmp-fair-high {
+  color: #ffb4ae;
+}
+
+/* forced light: the base values back, under [data-theme="light"], for every property the dark block touches */
+html[data-theme="light"] {
+  --cmp-fg: #1a1a2e;
+  --cmp-fg-2: #4a4a5e;
+  --cmp-muted: #6f6f86;
+  --cmp-bg: #ffffff;
+  --cmp-surface: #ffffff;
+  --cmp-surface-2: #f6f7fb;
+  --cmp-rule: #e6e7ef;
+  --cmp-rule-strong: #d3d5e2;
+  --cmp-navy: #0f3460;
+  --cmp-navy-soft: #e8eef8;
+  --cmp-ok: #157a46;
+  --cmp-ok-soft: #e6f4ea;
+  --cmp-warn: #8a5a00;
+  --cmp-bad: #b3223a;
+  --cmp-bad-soft: #fdecef;
+}
+html[data-theme="light"] .cmp-score.gt-cc-s-excellent {
+  color: #087443;
+}
+html[data-theme="light"] .cmp-score.gt-cc-s-good {
+  color: #2f8f5b;
+}
+html[data-theme="light"] .cmp-score.gt-cc-s-fair {
+  color: #92400e;
+}
+html[data-theme="light"] .cmp-score.gt-cc-s-poor {
+  color: #b42318;
+}
+html[data-theme="light"] .cmp-score.gt-cc-s-bad {
+  color: #b42318;
+}
+html[data-theme="light"] .cmp-fair-low {
+  color: #087443;
+}
+html[data-theme="light"] .cmp-fair-high {
+  color: #b42318;
+}

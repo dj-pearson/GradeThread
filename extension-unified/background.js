@@ -237,9 +237,12 @@ async function getRemoteConfig() {
 
 // ── settings ──────────────────────────────────────────────────────────────
 async function getSettings() {
-  const out = await ext.storage.local.get(["autoRun", "disabledHosts", "scanMode"]);
+  const out = await ext.storage.local.get(["autoRun", "disabledHosts", "scanMode", "theme"]);
   return {
     autoRun: Boolean(out.autoRun),
+    // US-3055: "light" | "dark" | null (System). The overlay sets it as
+    // data-theme on its card; anything unrecognised reads as System.
+    theme: out.theme === "light" || out.theme === "dark" ? out.theme : null,
     disabledHosts: Array.isArray(out.disabledHosts) ? out.disabledHosts : [],
     // US-2237: scan mode defaults ON — note this is `!== false`, not Boolean(),
     // the opposite of autoRun above. autoRun spends a Vision call the shopper

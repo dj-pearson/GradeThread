@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="compare.css" />
+    <link rel="stylesheet" href="compare-theme.css" />
     <title>Welcome to GradeThread</title>
     <style>
       /* Layers on compare.css (the shared page tokens). Only the layout of
@@ -86,6 +87,13 @@
         .ob-cta { background: #d43a53; }
         .ob-cta:hover { background: #bf2840; }
       }
+      /* US-3055: the same, forced by the theme preference. */
+      html[data-theme="dark"] .ob-step-n { background: #24487f; }
+      html[data-theme="dark"] .ob-cta { background: #d43a53; }
+      html[data-theme="dark"] .ob-cta:hover { background: #bf2840; }
+      html[data-theme="light"] .ob-step-n { background: #0f3460; }
+      html[data-theme="light"] .ob-cta { background: #d43a53; }
+      html[data-theme="light"] .ob-cta:hover { background: #c42a43; }
     </style>
   </head>
   <body>
@@ -177,6 +185,7 @@
       </p>
     </div>
     <script src="attribution.js"></script>
+    <script src="theme.js"></script>
     <!-- US-1757 AC2: the click-through counter (opt-in; a no-op until consent). -->
     <script src="usage-telemetry.js"></script>
     <script src="onboarding.js"></script>

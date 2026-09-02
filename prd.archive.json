@@ -44397,6 +44397,20 @@
       ],
       "priority": 15,
       "notes": "Done 2026-09-02. scripts/extension-screenshots.mjs renders popup.html (Reads, Selling, Settings) x 3 fixture states x light/dark plus onboarding, options and compare in both schemes (24 PNGs) into dist-ext/screenshots/ over scripts/lib/extension-stub.mjs, with the page clock frozen (page.clock.setFixedTime) and the fixture built against the same instant so relative and absolute times never move the pixels; two consecutive runs hash identically. --update writes extension-unified/test/fixtures/screenshot-baseline.json (sha256 per render plus the Chromium build); --check exits 1 on drift and 2 when the Chromium build differs from the baseline's, saying so rather than reporting every pixel. The stub gained a real compare tray under compare-tray.js's KEY so compare.html renders rows, and it throws on any message it does not know. test/screenshot-harness.test.cjs pins the plan, that the stub answers every worker message the popup sends, the baseline's exact render list, and the TESTING.md 4c note that ties --check to the store upload. 49 extension files pass, eslint clean, popup-theme 6 pass."
+    },
+    {
+      "id": "US-3055",
+      "passes": true,
+      "title": "Extension revision: theme preference (system, light, dark) honored by popup, overlay and pages",
+      "description": "Found in the 2026-09-02 extension deep dive. Every surface follows prefers-color-scheme only. A shopper on a dark OS reading a white marketplace page gets a dark card floating on a white listing, and there is no way to choose. popup.css is deliberately one dark block (src/test/popup-theme.test.ts requires exactly one prefers-color-scheme:dark block), so the switch has to be a data-theme attribute that reuses the same token values without a second media block.",
+      "acceptanceCriteria": [
+        "options.html gains a Theme control (System / Light / Dark) stored as theme in storage.local; System is the absent key.",
+        "popup.css, compare.css and research/overlay.css apply the dark token set under either the media query or [data-theme=dark], and the light set under [data-theme=light] regardless of the OS, without adding a second prefers-color-scheme:dark block to popup.css (popup-theme.test.ts stays green).",
+        "The overlay host reads the preference through GT_CC_GET_SETTINGS and sets data-theme on the shadow root's card; the scan badges follow the same value.",
+        "The screenshot harness (if present) renders each state under all three preferences."
+      ],
+      "priority": 16,
+      "notes": "Done 2026-09-02. options.html gains Appearance > Theme (System / Light / Dark); theme.js stores light|dark as storage.local theme and REMOVES the key for System, applies data-theme on <html> at boot on the popup, options, compare and onboarding pages, and follows storage.onChanged. Each sheet keeps its ONE prefers-color-scheme:dark block (popup-theme.test.ts still 6/6); scripts/lib/theme-css.cjs derives from that block a forced sheet (same rules under html[data-theme=dark], every touched property's base value back under html[data-theme=light], unset where the base never set it) into GENERATED popup-theme.css and compare-theme.css (scripts/gen-extension-theme-css.mjs, --check), and the overlay generator appends the same rules to overlay-css.js scoped to the card / badge row ([data-theme] on #gt-cc-overlay and .gt-cc-badge-row); options.css and onboarding's inline block got their two forced twins by hand. GT_CC_GET_SETTINGS carries theme; marketplace.js sets data-theme on the card and on every badge row. The screenshot harness renders four variants per state (System light, System dark, forced light on a dark OS, forced dark on a light OS): 48 renders, baseline regenerated, --check clean; the forced renders were inspected and override the OS. test/theme-css.test.cjs pins the derivation, drift, one-dark-block, theme.js semantics and every surface's wiring. 50 extension files pass, eslint clean (extension + scripts), both generators --check clean."
     }
   ]
 }

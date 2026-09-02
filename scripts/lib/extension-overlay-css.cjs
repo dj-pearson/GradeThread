@@ -31,6 +31,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { forcedThemeCss, overlayScope } = require("./theme-css.cjs");
 
 const REPO_ROOT = path.resolve(__dirname, "..", "..");
 
@@ -55,7 +56,14 @@ const TARGETS = [
  * reviews.
  */
 function renderModule(cssText, cssRelPath) {
-  const lines = cssText.replace(/\r\n/g, "\n").split("\n");
+  // US-3055: the theme preference. The authored sheet keeps its OS-driven dark
+  // blocks; the shipped string also carries the same rules under
+  // [data-theme="dark"] on the card / badge row and the light values under
+  // [data-theme="light"], derived here so the two can never disagree.
+  const themed = cssText.replace(/\r\n/g, "\n") +
+    "\n/* ── generated: forced themes (US-3055), derived from the dark blocks above ── */\n" +
+    forcedThemeCss(cssText, overlayScope);
+  const lines = themed.split("\n");
   // Drop a single trailing empty line so the joined text ends exactly where the
   // stylesheet does.
   if (lines.length && lines[lines.length - 1] === "") lines.pop();

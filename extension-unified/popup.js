@@ -2501,6 +2501,7 @@ function applyCapabilities(caps) {
 
 // ── boot ─────────────────────────────────────────────────────────────────────
 (async function () {
+  void self.GT_THEME.init(ext, document); // US-3055: before the first paint settles
   initStaticLinks();
   // US-1757 AC2: ONE delegated listener for every gradethread.com link in the
   // popup — the footer, the upgrade CTA, the sign-in link, the recent-reads

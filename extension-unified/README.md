@@ -116,7 +116,15 @@ under white) rather than the brand red, which is 3.8:1 and stays for accents.
 The overlay (`research/overlay.css`) and the three full pages (`compare.css`
 carries the shared page tokens; `options.css` and `onboarding.html` layer on
 it) use the same roles at their own scale. The dark theme is ONE block at the
-end of `popup.css` (`src/test/popup-theme.test.ts`). `npx impeccable detect
+end of `popup.css` (`src/test/popup-theme.test.ts`). **Theme preference (US-3055):**
+System / Light / Dark on the options page, stored as `theme` (absent = System)
+and applied as `data-theme` on `<html>` by `theme.js`; the overlay sets it on
+its card and badge rows from `GT_CC_GET_SETTINGS`. `popup-theme.css` and
+`compare-theme.css` are GENERATED from each sheet's dark block by
+`node scripts/gen-extension-theme-css.mjs` (same rules under
+`[data-theme="dark"]`, the base values back under `[data-theme="light"]`), and
+the overlay generator appends the same for `overlay.css`; `test/theme-css.test.cjs`
+fails on drift. `npx impeccable detect
 extension-unified` is the check; what remains are the tool's opinions about a
 popup's type scale and 11px meta text, both deliberate at 380px.
 

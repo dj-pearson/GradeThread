@@ -3062,19 +3062,6 @@
       "notes": "[BUILT 2026-09-02] New: extension-unified/queue/queue-view.js (pure view model, shared by popup + worker) and test/queue-view.test.cjs (11 groups; asserts cancel is queued-only, failures count toward the badge, every dead row carries a reason, and KIND_LABELS matches the edge EXTENSION_QUEUE_KINDS). background.js gains getQueue/cancelQueueRow and the GT_QUEUE_STATE / GT_QUEUE_CANCEL / GT_QUEUE_RUN_NOW / GT_CC_RUN_ACTIVE handlers (internal only — deliberately NOT in EXTERNAL_TYPES). manifest background.scripts + importScripts updated in lockstep. popup.html/js/css: work summary, queue block, reordered Selling panel, collapsed Channels with live count, Reads action button, footer link to the options page. Edge: flipdesk-extension-queue.ts withItemTitles() on GET only. Web: use-extension-queue.ts item_title, marketplaces.tsx claimed-row Cancel removed + revise/relist described + rows named. Verified with a stubbed-chrome Playwright render of popup.html at 340px on both tabs; 47/47 extension guards, tsc -b and eslint clean."
     },
     {
-      "id": "US-3055",
-      "passes": false,
-      "title": "Extension revision: theme preference (system, light, dark) honored by popup, overlay and pages",
-      "description": "Found in the 2026-09-02 extension deep dive. Every surface follows prefers-color-scheme only. A shopper on a dark OS reading a white marketplace page gets a dark card floating on a white listing, and there is no way to choose. popup.css is deliberately one dark block (src/test/popup-theme.test.ts requires exactly one prefers-color-scheme:dark block), so the switch has to be a data-theme attribute that reuses the same token values without a second media block.",
-      "acceptanceCriteria": [
-        "options.html gains a Theme control (System / Light / Dark) stored as theme in storage.local; System is the absent key.",
-        "popup.css, compare.css and research/overlay.css apply the dark token set under either the media query or [data-theme=dark], and the light set under [data-theme=light] regardless of the OS, without adding a second prefers-color-scheme:dark block to popup.css (popup-theme.test.ts stays green).",
-        "The overlay host reads the preference through GT_CC_GET_SETTINGS and sets data-theme on the shadow root's card; the scan badges follow the same value.",
-        "The screenshot harness (if present) renders each state under all three preferences."
-      ],
-      "priority": 16
-    },
-    {
       "id": "US-3056",
       "passes": false,
       "title": "Extension revision: compare view marks the best buy and works on a narrow window",
