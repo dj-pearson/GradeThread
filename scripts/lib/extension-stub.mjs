@@ -32,7 +32,13 @@ export function fixture(name, now = Date.now()) {
     caps,
     state: {
       recentReads: name === "anon" ? [] : reads,
-      gt_cc_tray: seller ? [{ key: "a" }, { key: "b" }] : [],
+      // compare-tray.js KEY. Entries as makeEntry stores them, so compare.html
+      // renders real rows (score, price verdict, photos) rather than an empty table.
+      compareTray: name === "anon" ? [] : [
+        { key: "ebay|1", url: "https://www.ebay.com/itm/1", title: "Patagonia Better Sweater 1/4 Zip Fleece Men's L Navy", marketplace: "ebay", seller: "vintage_finds", priceText: "$64.00", thumbUrl: null, overallScore: 8.5, gradeTier: "Excellent", confidence: 0.86, imagesAnalyzed: 6, fairness: "fair", at: now - 2 * HOUR },
+        { key: "poshmark|2", url: "https://poshmark.com/listing/2", title: "Levi's 501 Original Fit Jeans 34x32 Medium Wash", marketplace: "poshmark", seller: "closet_queen", priceText: "$38", thumbUrl: null, overallScore: 6.5, gradeTier: "Good", confidence: 0.79, imagesAnalyzed: 4, fairness: "low", at: now - 26 * HOUR },
+        { key: "grailed|3", url: "https://www.grailed.com/listings/3", title: "Carhartt Detroit Jacket Brown Duck Canvas XL", marketplace: "grailed", seller: "vintage_finds", priceText: "$120", thumbUrl: null, overallScore: 4.0, gradeTier: "Fair", confidence: 0.62, imagesAnalyzed: 3, fairness: "high", at: now - 3 * 24 * HOUR },
+      ],
       listerLastJob: seller ? { platform: "poshmark", kind: "list", outcome: "done", ok: true, at: now - 40 * 60e3 } : null,
       tosAcceptedAt: seller ? new Date(now - 10 * 24 * HOUR).toISOString() : null,
       tosVersion: seller ? "2026-07-13" : null,

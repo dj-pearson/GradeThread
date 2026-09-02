@@ -1,0 +1,29 @@
+{
+  "chromium": "141.0.7390.37",
+  "hashes": {
+    "popup-anon-light-reads": "d0550fc4c7d7070e7b213a9ebc8dc6f7120bedc6a967b7337543179b3afba9a5",
+    "popup-anon-light-selling": "90142555280f73f9b69184eca1d9446dee98101a00d9850dbd4b106a5ec1729f",
+    "popup-anon-light-settings": "81f8a2f0439cd289d2137a84deb85bfd487e600c176e9d71c8d1d6918e02dcfc",
+    "popup-anon-dark-reads": "49bd00476b2e3935dd384f0ff32b9c70801fe3360b9cbb11dad4c63559f6866d",
+    "popup-anon-dark-selling": "53656b9bb766589bf6e043c2633ae557598db6ea482a3d1ab516ffeea53b1afd",
+    "popup-anon-dark-settings": "197d59dc3ba274c57799c617dca5b1792524d43ade3af36a44741e9da4bc9d7a",
+    "popup-buyer-light-reads": "adc0cd3cbe6deba4ac579c30c777b8161d13c8a42356da403d5ff4accf8097a6",
+    "popup-buyer-light-selling": "86057369026326829bb646cda5492fddbd1c77d358eaf22a1d91c92b89c0ea0c",
+    "popup-buyer-light-settings": "c499f1c24239db94bbeb4b8e3c0513312666eb493930f7e6ef047343a27dd20e",
+    "popup-buyer-dark-reads": "42e86943b14f827c9a47af6197c74963dccfb089d46058dbb82c063950749ead",
+    "popup-buyer-dark-selling": "bbded611b5856f2807c9e37a76dd221cc5bc6d7bf1e5d51c423cd0f2dd09d039",
+    "popup-buyer-dark-settings": "2ab3f31aac34534f849cdb10769be42f0aca5fd711f69f69d62596c82dbb480d",
+    "popup-seller-light-reads": "691675aa378e5d3440e236a685e0cfaa33deff2440c1deb09e310be047724afb",
+    "popup-seller-light-selling": "7c0bb0c42059a7737b1ea4fa3ebbb5dc8c02113e0a20876576a9b019ae0b1f9d",
+    "popup-seller-light-settings": "8c13fc1b053f56d81ac448752d3757fb7336f8678f7b04b6f6cea7a85be80eb7",
+    "popup-seller-dark-reads": "2e1a467f0c9516f0ce019c1ea5aab94704290f7363fad99c8670b97556299127",
+    "popup-seller-dark-selling": "22420ec1aade73bbfd63489f2b6ae8fe39e3d2c23143d28fce3d3d1c1cdd59fd",
+    "popup-seller-dark-settings": "c6f243da2444a64c666b673fbbe61c643fb34e0c740a20cb24e83d1f12361da7",
+    "onboarding-light": "45b52c8b4d106ba80a7799e8de486f30d4e763aa87d09576c56f20b4866e6527",
+    "onboarding-dark": "fa58ff76f49add86833c2cb8730e9197815b0dd51f61f6829fffe34b2f7c34b1",
+    "options-light": "05134c003bc025495c892ce2eaa3be4ae92f18df53f19fa6b16d28a43b54d0ef",
+    "options-dark": "56839c922db9579df4865bfca3077331abc996b7e98598d12a7a09f8ab78f4b2",
+    "compare-light": "3a385bef5e8bf840558469d95c2e5fa0c7daf20ebf334edf617cf7ca8419fc4a",
+    "compare-dark": "6cbe5af2419a86dbd05d27d004adc33d312db58e370cf33245c64b7cef6e5956"
+  }
+}

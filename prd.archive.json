@@ -44384,6 +44384,19 @@
       ],
       "priority": 14,
       "notes": "Done 2026-09-02. Both tablists (Reads/Selling/Settings and Recent reads/By seller) use roving tabindex with Left/Right/Home/End (wireTablistKeys), the tablist role moved inside the <nav> so the nav keeps its landmark, the brand is the h1, every panel carries tabindex=-1 and the history lists sit in one tabpanel whose aria-labelledby follows the switch (so the <li>s stay in a real list). queueStatus, queueRunNote, syncNote, engageRunStatus, flipNote and probeVerdict are aria-live=polite; bulk actions write their outcome into queueRunNote. refocusIn hands focus back into the queue card after Retry, Cancel, Dismiss and every bulk action. The header chip has a state-aware aria-label. scripts/extension-a11y.mjs renders popup.html with scripts/lib/extension-stub.mjs (a chrome.* stub over three fixtures that THROWS on an unknown message) and runs axe-core on all three tabs in all three states: zero serious or critical (it found and I fixed a listitem violation and a landmark miss on the way). Documented in TESTING.md 4b. test/popup-a11y.test.cjs pins the ARIA wiring, keys, live regions, refocus and the scan's existence. 48 extension files pass, eslint clean (including the two new scripts), popup-theme 6 pass."
+    },
+    {
+      "id": "US-3054",
+      "passes": true,
+      "title": "Extension revision: a committed screenshot harness for the popup and pages",
+      "description": "Found in the 2026-09-02 extension deep dive. The redesign was checked visually with a throwaway Playwright script that stubbed the chrome.* API (storage, runtime.sendMessage, tabs, commands) and injected fixture states; it lived in a scratch directory and is gone. Reviewing a popup change, and producing store-listing screenshots for a new version, both need that render without a signed-in seller account and a real queue.",
+      "acceptanceCriteria": [
+        "scripts/extension-screenshots.mjs renders popup.html (Reads, Selling, Settings), onboarding.html, options.html and compare.html in light and dark for three fixture states (anonymous, buyer, seller with work in every queue) into dist-ext/screenshots/, using the pre-installed Chromium and no network.",
+        "The chrome.* stub lives in scripts/lib/extension-stub.mjs and answers every message type the popup sends; a message it does not know fails the run rather than returning ok, so a new popup message cannot silently render an empty block.",
+        "A --check mode compares each render against a committed baseline hash and fails on drift, and is documented in extension-unified/TESTING.md as the step to run before a store upload."
+      ],
+      "priority": 15,
+      "notes": "Done 2026-09-02. scripts/extension-screenshots.mjs renders popup.html (Reads, Selling, Settings) x 3 fixture states x light/dark plus onboarding, options and compare in both schemes (24 PNGs) into dist-ext/screenshots/ over scripts/lib/extension-stub.mjs, with the page clock frozen (page.clock.setFixedTime) and the fixture built against the same instant so relative and absolute times never move the pixels; two consecutive runs hash identically. --update writes extension-unified/test/fixtures/screenshot-baseline.json (sha256 per render plus the Chromium build); --check exits 1 on drift and 2 when the Chromium build differs from the baseline's, saying so rather than reporting every pixel. The stub gained a real compare tray under compare-tray.js's KEY so compare.html renders rows, and it throws on any message it does not know. test/screenshot-harness.test.cjs pins the plan, that the stub answers every worker message the popup sends, the baseline's exact render list, and the TESTING.md 4c note that ties --check to the store upload. 49 extension files pass, eslint clean, popup-theme 6 pass."
     }
   ]
 }
