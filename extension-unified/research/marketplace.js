@@ -1342,6 +1342,32 @@
   // overlay is the ONLY result surface — routing these through it rather than
   // grading in the worker means one epoch guard, one place a stale result could
   // ever appear, and one thing to close.
+  // US-3052: the popup's flip check. The popup cannot read the page, so it
+  // asks this script for the same fields runAppraise would send — and then
+  // sends GT_CC_APPRAISE itself, through the same worker gate. Synchronous
+  // sendResponse: everything here is already on the page.
+  chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
+    if (!msg || msg.type !== "GT_CC_FLIP_CONTEXT") return;
+    if (!adapter) { sendResponse({ ok: false, reason: "no-adapter" }); return; }
+    // Snapshotted first, like appraisedUrl in runAppraise: the URL travels to
+    // the popup and back as the appraisal target, so it must be the page this
+    // answer was read from (US-1878 AC5).
+    const hereUrl = location.href;
+    const ebayId = ebayItemIdHere(hereUrl);
+    const imageUrls = ebayId ? [] : extractImageUrls();
+    if (!ebayId && !imageUrls.length) { sendResponse({ ok: false, reason: "no-photos" }); return; }
+    sendResponse({
+      ok: true,
+      url: hereUrl,
+      ebay: Boolean(ebayId),
+      imageUrls: imageUrls,
+      title: extractTitle(),
+      brand: extractBrand(),
+      priceCents: FLIP ? FLIP.priceToCents(extractPrice()) : null,
+      marketplace: (adapter && adapter.key) || "",
+    });
+  });
+
   chrome.runtime.onMessage.addListener(function (msg) {
     if (!msg || msg.type !== "GT_CC_RUN") return;
     if (!adapter) return; // no adapter matched this page — nothing to grade

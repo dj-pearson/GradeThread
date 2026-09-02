@@ -75,6 +75,23 @@
                own window. Hidden until the entitlements call reports it, and
                never a number the popup made up. -->
           <p class="pop-hint" id="readQuota" hidden></p>
+          <!-- US-3052: the seller's question about the same listing. Rendered
+               only for a seller-enabled account on a supported listing (the
+               worker refuses the request for anyone else). Click-to-run: it
+               spends a metered AI action. -->
+          <button class="pop-btn" id="flipBtn" type="button" hidden>Should I flip this?</button>
+          <div class="pop-flip" id="flipBlock" hidden>
+            <div class="pop-flip-head">
+              <span class="pop-status" id="flipVerdict"></span>
+              <span class="pop-lastjob-when" id="flipWhen"></span>
+            </div>
+            <dl class="pop-flip-rows" id="flipRows"></dl>
+            <p class="pop-hint" id="flipNote" hidden></p>
+            <div class="pop-btn-row">
+              <button class="pop-linkbtn" id="flipOpen" type="button">Open the full panel on the page</button>
+              <button class="pop-linkbtn quiet" id="flipRecheck" type="button">Re-check</button>
+            </div>
+          </div>
           <!-- US-1881 AC3: the Firefox opt-in host-permission flow. Appears only
                when the probe says access is missing (never on Chrome). -->
           <div class="pop-perm" id="hostPermWrap" hidden>
@@ -557,6 +574,9 @@
     <script src="research/seller-memory.js"></script>
     <!-- US-2240: the tray key + helpers, shared with the worker and compare.html. -->
     <script src="research/compare-tray.js"></script>
+    <!-- US-3052: the flip panel's pure formatting + cache helpers, shared with
+         the content script. Before popup.js, which reads self.GT_CC_FLIP. -->
+    <script src="research/flip-format.js"></script>
     <!-- US-1881 AC3: Firefox makes host_permissions opt-in. Loads before
          popup.js, which reads self.GT_HOST_PERMS at render time. -->
     <script src="host-permissions.js"></script>

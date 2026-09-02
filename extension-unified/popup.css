@@ -912,6 +912,26 @@ kbd {
   white-space: pre;
 }
 
+/* ── US-3052: the flip check in the popup ───────────────────────────────────
+ * The verdict is a status pill (buy = on, maybe = warn, pass = off), and the
+ * figures sit in a two-column list with tabular numbers, the same drawing the
+ * overlay's flip panel uses. One border, no shadow. */
+.pop-flip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+.pop-flip-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pop-flip-head .pop-status { font-size: 12px; padding: 3px 10px; }
+.pop-flip-rows { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 12px; }
+.pop-flip-rows dt { margin: 0; color: var(--fg-2); }
+.pop-flip-rows dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.pop-flip-reason { margin: 0; font-size: 12px; line-height: 1.45; color: var(--fg-2); }
+
 /* ── skeletons ───────────────────────────────────────────────────────────
  * The Selling tab is empty for the ~300ms the entitlements call takes. Three
  * grey bars say "loading" where a blank panel says "broken". */
@@ -1034,6 +1054,8 @@ kbd {
   .pop-perm-text { color: #f0c674; }
   .pop-site { background: #212137; border-color: #2c2c44; }
   .pop-lock { background: #1c1c30; border-color: #2c2c44; }
+  .pop-flip { background: #1c1c30; border-color: #2c2c44; }
+  .pop-flip-rows dt, .pop-flip-reason { color: #d0d0dc; }
   .pop-empty { border-color: #3a3a56; }
 
   /* The score ring colours carry a fill in both themes, but the fair/poor

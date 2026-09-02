@@ -153,7 +153,10 @@ function timeAgo(ts) {
 async function activeTabInfo() {
   try {
     const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
-    if (tab && tab.url) return { id: tab.id, host: new URL(tab.url).host };
+    if (tab && tab.url) {
+      flipTab = { id: tab.id, url: tab.url, host: new URL(tab.url).host }; // US-3052
+      return { id: tab.id, host: new URL(tab.url).host };
+    }
   } catch (_e) { /* no activeTab access */ }
   return { id: null, host: null };
 }
@@ -2269,10 +2272,171 @@ function renderQuota(caps) {
   }
 }
 
+// ── US-3052: "Should I flip this?" from the popup ───────────────────────────
+//
+// The overlay answers this question below the condition read, which on a small
+// window means running a read and scrolling. Here it is a second button for a
+// seller-enabled account on a supported listing. The popup asks the content
+// script for the listing's fields (GT_CC_FLIP_CONTEXT), then sends the SAME
+// GT_CC_APPRAISE the overlay sends, through the same worker gate — this file
+// never sends it for a non-seller capability map, and the worker refuses one
+// anyway. The last verdict per listing is kept on-device (flip-format.js
+// cacheKey/cachePut) so reopening the popup shows it with its age; nothing new
+// is written server-side (US-620).
+const FLIP = self.GT_CC_FLIP;
+const FLIP_VERDICT_CLASS = { buy: "on", maybe: "warn", skip: "off" };
+let flipTab = { id: null, url: null };
+
+async function readFlipCache() {
+  try {
+    const out = await ext.storage.local.get(FLIP.CACHE_KEY);
+    return (out && out[FLIP.CACHE_KEY]) || {};
+  } catch (_e) { return {}; }
+}
+
+function renderFlipPanel(data, at, opts) {
+  const block = document.getElementById("flipBlock");
+  const verdict = document.getElementById("flipVerdict");
+  const when = document.getElementById("flipWhen");
+  const rows = document.getElementById("flipRows");
+  const note = document.getElementById("flipNote");
+  if (!block || !FLIP) return;
+  const panel = FLIP.panelFor(data);
+  block.hidden = false;
+  rows.textContent = "";
+  if (!panel) {
+    verdict.className = "pop-status warn";
+    verdict.textContent = "No call";
+    note.hidden = false;
+    note.textContent = FLIP.STRINGS.noComps;
+    when.textContent = "";
+    return;
+  }
+  const rec = data && data.decision && data.decision.recommendation;
+  verdict.className = "pop-status " + (FLIP_VERDICT_CLASS[rec] || "warn");
+  verdict.textContent = panel.verdict ? panel.verdict.label : "No call";
+  when.textContent = at ? "checked " + timeAgo(at) : "";
+  for (const row of panel.rows) {
+    const dt = document.createElement("dt");
+    dt.textContent = row.label;
+    const dd = document.createElement("dd");
+    dd.textContent = row.value;
+    rows.appendChild(dt);
+    rows.appendChild(dd);
+  }
+  const text = [panel.reason, panel.note].filter(Boolean).join(" ");
+  note.hidden = !text && !(opts && opts.extra);
+  note.textContent = [text, opts && opts.extra].filter(Boolean).join(" ");
+}
+
+function renderFlipMessage(text) {
+  const block = document.getElementById("flipBlock");
+  const verdict = document.getElementById("flipVerdict");
+  const rows = document.getElementById("flipRows");
+  const note = document.getElementById("flipNote");
+  const when = document.getElementById("flipWhen");
+  if (!block) return;
+  block.hidden = false;
+  verdict.className = "pop-status warn";
+  verdict.textContent = "Flip check";
+  when.textContent = "";
+  rows.textContent = "";
+  note.hidden = false;
+  note.textContent = text;
+}
+
+/** Show the button for a seller on a supported listing, and any cached verdict. */
+async function renderFlip(caps) {
+  const btn = document.getElementById("flipBtn");
+  const block = document.getElementById("flipBlock");
+  if (!btn || !block || !FLIP) return;
+  const seller = Boolean(caps && caps.sellerEnabled);
+  const supported = Boolean(flipTab.host && MARKETPLACE_HOST_RE.test(flipTab.host));
+  btn.hidden = !(seller && supported);
+  if (!seller || !supported) {
+    block.hidden = true;
+    return;
+  }
+  const key = FLIP.cacheKey(flipTab.url);
+  const entry = key ? (await readFlipCache())[key] : null;
+  if (entry && FLIP.cacheFresh(entry, Date.now())) renderFlipPanel(entry.data, entry.at);
+  else block.hidden = true;
+}
+
+/** The click. Refuses without a seller map BEFORE anything is sent. */
+async function runFlipFromPopup(caps) {
+  if (!caps || !caps.sellerEnabled) return; // never GT_CC_APPRAISE for a non-seller
+  if (!FLIP || flipTab.id == null) return;
+  const btn = document.getElementById("flipBtn");
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = "Checking…";
+  renderFlipMessage(FLIP.STRINGS.working);
+  let ctx = null;
+  try {
+    ctx = await ext.tabs.sendMessage(flipTab.id, { type: "GT_CC_FLIP_CONTEXT" });
+  } catch (_e) { ctx = null; }
+  if (!ctx || !ctx.ok) {
+    renderFlipMessage(ctx && ctx.reason === "no-photos"
+      ? "Couldn't find this listing's photos to appraise."
+      : "Reload this tab first — the page has nothing listening yet.");
+    btn.disabled = false;
+    btn.textContent = label;
+    return;
+  }
+  const res = await send(
+    ctx.ebay
+      ? { type: "GT_CC_APPRAISE", url: ctx.url, marketplace: "ebay" }
+      : {
+        type: "GT_CC_APPRAISE",
+        imageUrls: ctx.imageUrls,
+        title: ctx.title,
+        brand: ctx.brand,
+        priceCents: ctx.priceCents,
+        marketplace: ctx.marketplace,
+      },
+  );
+  btn.disabled = false;
+  btn.textContent = label;
+  if (res && res.ok && res.data) {
+    const now = Date.now();
+    renderFlipPanel(res.data, now);
+    const key = FLIP.cacheKey(ctx.url);
+    if (key) {
+      try {
+        const map = FLIP.cachePut(await readFlipCache(), key, res.data, now);
+        await ext.storage.local.set({ [FLIP.CACHE_KEY]: map });
+      } catch (_e) { /* the panel is on screen either way */ }
+    }
+    return;
+  }
+  if (res && res.needsUpgrade) { renderFlipMessage(res.error || FLIP.STRINGS.upgrade); return; }
+  if (res && res.quotaExhausted) { renderFlipMessage(res.error || FLIP.STRINGS.quota); return; }
+  renderFlipMessage((res && res.error) || "Couldn't appraise this listing right now.");
+}
+
+function wireFlip() {
+  const btn = document.getElementById("flipBtn");
+  const open = document.getElementById("flipOpen");
+  const again = document.getElementById("flipRecheck");
+  if (!btn) return;
+  btn.addEventListener("click", () => { void runFlipFromPopup(lastCaps); });
+  if (again) again.addEventListener("click", () => { void runFlipFromPopup(lastCaps); });
+  // The full panel lives inside the overlay's result, so opening it means
+  // running the read on the page; the same door as the read button.
+  if (open) {
+    open.addEventListener("click", async () => {
+      const res = await send({ type: "GT_CC_RUN_ACTIVE" });
+      if (res && res.ok) window.close();
+    });
+  }
+}
+
 function applyCapabilities(caps) {
   renderAccount(caps);
   renderSellerSections(caps);
   renderQuota(caps);
+  void renderFlip(caps);
   selectDefaultTab(caps);
 }
 
@@ -2297,6 +2461,7 @@ function applyCapabilities(caps) {
   wireWorkSummary();   // US-3048
   wireOptionsLink();   // US-3048
   wireLiveRefresh();   // US-3050
+  wireFlip();          // US-3052
   wireHistoryTabs();
   // US-2484: rendered UNCONDITIONALLY, not from renderSellerSections.
   //

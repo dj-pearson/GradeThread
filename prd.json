@@ -3062,19 +3062,6 @@
       "notes": "[BUILT 2026-09-02] New: extension-unified/queue/queue-view.js (pure view model, shared by popup + worker) and test/queue-view.test.cjs (11 groups; asserts cancel is queued-only, failures count toward the badge, every dead row carries a reason, and KIND_LABELS matches the edge EXTENSION_QUEUE_KINDS). background.js gains getQueue/cancelQueueRow and the GT_QUEUE_STATE / GT_QUEUE_CANCEL / GT_QUEUE_RUN_NOW / GT_CC_RUN_ACTIVE handlers (internal only — deliberately NOT in EXTERNAL_TYPES). manifest background.scripts + importScripts updated in lockstep. popup.html/js/css: work summary, queue block, reordered Selling panel, collapsed Channels with live count, Reads action button, footer link to the options page. Edge: flipdesk-extension-queue.ts withItemTitles() on GET only. Web: use-extension-queue.ts item_title, marketplaces.tsx claimed-row Cancel removed + revise/relist described + rows named. Verified with a stubbed-chrome Playwright render of popup.html at 340px on both tabs; 47/47 extension guards, tsc -b and eslint clean."
     },
     {
-      "id": "US-3052",
-      "passes": false,
-      "title": "Extension revision: Should I flip this? from the popup for sellers",
-      "description": "Found in the 2026-09-02 extension deep dive. Flip mode (US-2238) exists only inside the on-page overlay, below the condition read, so a FlipDesk seller sourcing on a phone or a small window has to run a read first and scroll to find it. The popup Reads tab already knows the tab is a supported listing and whether the account is seller-enabled; it should offer the seller's question as a second button and keep the last verdict for that listing.",
-      "acceptanceCriteria": [
-        "On a supported listing, a seller-enabled account sees a Should I flip this? button under Get condition read; anonymous and buyer-only accounts do not (gated in the popup AND in the worker, as the overlay path is).",
-        "Pressing it runs the same appraisal path the overlay uses (GT_CC_APPRAISE, click-to-run, one metered action) and the popup shows the verdict pill, resale range and margin after fees, plus a link to open the full panel on the page.",
-        "The last flip verdict per listing URL is cached on-device with the grade cache TTL and shown on reopen; nothing new is written server-side (the shadow grade stays private, US-620).",
-        "A zero-dep guard pins that the popup never sends GT_CC_APPRAISE for a non-seller capability map."
-      ],
-      "priority": 13
-    },
-    {
       "id": "US-3053",
       "passes": false,
       "title": "Extension revision: keyboard and screen-reader pass on the popup",

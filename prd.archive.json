@@ -44356,6 +44356,20 @@
       ],
       "priority": 12,
       "notes": "Done 2026-09-02. Edge: extGradeRemaining reads the grade route's own IP and per-instance sliding windows without recording a hit and reports the tighter window's remaining/limit/resetsAt; GET /entitlements carries it as quota for anonymous and signed-in callers (keyed by the same x-gt-extension-id header the grade call sends), and /grade-from-url returns quota after counting the read. No per-user row is read for it, so no tenant-isolation case was needed (AC4 conditional). Extension: registry.js normalizeQuota is fail-safe to ABSENT (null) and the normalized shape gains a quota key only when a valid block arrived; background sends the install id on the entitlements call and drops the 5-minute entitlements cache after every grade call; the popup shows N of M reads left this hour under the button, and at zero disables the button, turns the site card amber, names the reset time and offers sign-in to an anonymous install; the overlay result shows the same line from data.quota. Caveat: the windows are per edge process (as the 429 already is), so a multi-replica deploy would need the durable counter the route comment already names. grade-check_test.ts +2 tests (29 pass), registry.test.cjs +quota group, 47 extension files pass, eslint clean, deno lint/check clean on the touched files."
+    },
+    {
+      "id": "US-3052",
+      "passes": true,
+      "title": "Extension revision: Should I flip this? from the popup for sellers",
+      "description": "Found in the 2026-09-02 extension deep dive. Flip mode (US-2238) exists only inside the on-page overlay, below the condition read, so a FlipDesk seller sourcing on a phone or a small window has to run a read first and scroll to find it. The popup Reads tab already knows the tab is a supported listing and whether the account is seller-enabled; it should offer the seller's question as a second button and keep the last verdict for that listing.",
+      "acceptanceCriteria": [
+        "On a supported listing, a seller-enabled account sees a Should I flip this? button under Get condition read; anonymous and buyer-only accounts do not (gated in the popup AND in the worker, as the overlay path is).",
+        "Pressing it runs the same appraisal path the overlay uses (GT_CC_APPRAISE, click-to-run, one metered action) and the popup shows the verdict pill, resale range and margin after fees, plus a link to open the full panel on the page.",
+        "The last flip verdict per listing URL is cached on-device with the grade cache TTL and shown on reopen; nothing new is written server-side (the shadow grade stays private, US-620).",
+        "A zero-dep guard pins that the popup never sends GT_CC_APPRAISE for a non-seller capability map."
+      ],
+      "priority": 13,
+      "notes": "Done 2026-09-02. Popup Reads tab gets a Should I flip this? button, shown only for a seller-enabled account on a supported listing (renderFlip hides it otherwise; runFlipFromPopup returns on a non-seller map before even asking the tab; the worker's appraiseListing gate is unchanged). It asks the content script for the listing fields over a new GT_CC_FLIP_CONTEXT message (URL snapshotted first, per the US-1878 epoch guard) and sends the same GT_CC_APPRAISE the overlay sends. The popup renders the verdict pill (buy/maybe/pass), resale range, margin after fees, break-even and sell-through from FLIP.panelFor, the reason line, and offers Open the full panel on the page (runs the read on the page, which carries the flip section) and Re-check. The last verdict per listing is cached on-device in storage.local flipCacheByUrl (flip-format.js cacheKey strips hash and tracking params, cacheFresh follows the 30-day grade TTL, cachePut caps at 50) and shown on reopen with its age; nothing new is written server-side. flip-format.test.cjs pins the cache helpers, the ids, the script order, that every GT_CC_APPRAISE send sits behind the seller check, and the worker gate. 47 extension files pass, eslint clean, popup-theme 6 pass."
     }
   ]
 }
