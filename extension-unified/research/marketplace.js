@@ -646,6 +646,19 @@
         body.appendChild(su);
       }
 
+      // US-3051: what is left after this read, when the server said. Never
+      // rendered from a number this script made up: no block, no line.
+      var q = data.quota;
+      if (q && typeof q.remaining === "number" && typeof q.limit === "number" && q.limit > 0) {
+        body.appendChild(el(
+          "p",
+          "gt-cc-photocount",
+          q.remaining > 0
+            ? T(S.quotaLeft, { remaining: String(q.remaining), limit: String(q.limit) })
+            : S.quotaNone,
+        ));
+      }
+
       body.appendChild(el("p", "gt-cc-disclaimer", String(data.disclaimer || "")));
 
       if (data.deepLink) {

@@ -44342,6 +44342,20 @@
       ],
       "priority": 11,
       "notes": "Done 2026-09-02. lister/common.js reports filling and photos stages (GT.reportStage, fire-and-forget) in the list flow; background answers GT_QUEUE_JOBS with { queueId: { stage, stagedAt, tabId } } for pending drained jobs; queue-view.js stageLabel maps null/navigated/filling/photos to seller words and viewRow carries stage + stageLabel on a claimed row this browser drives (another browser's claim stays Running now); popup.js fetches stages with the queue, shows them on the badge, and re-renders the queues, Last job and summary on storage.onChanged for listerLastJob (local) and listerJobs (session), debounced 250ms, unsubscribed on pagehide, no setInterval. queue-view.test.cjs group 16 pins all of it. 47 extension test files pass, eslint clean."
+    },
+    {
+      "id": "US-3051",
+      "passes": true,
+      "title": "Extension revision: show remaining condition reads in the popup and the overlay",
+      "description": "Found in the 2026-09-02 extension deep dive. A shopper has no idea how many free reads are left until the read fails with errQuota. GET /api/grading/public/entitlements returns plan flags only; the quota is enforced server-side in the public grade route and never reported ahead of time. The popup should say 3 of 5 reads left today under the button, and the overlay should say it after a read, with sign-in as the door when it hits zero.",
+      "acceptanceCriteria": [
+        "The entitlements endpoint (services/edge-functions, public-grading) returns a quota block: remaining, limit, resetsAt, for anonymous and signed-in callers, computed from the same counter the grade route enforces (no second counter).",
+        "The popup Reads tab shows remaining/limit under the read button and turns the site card amber with a sign-in link at zero; the overlay result card shows the same line. Neither invents a number when the field is absent (older edge): the line is simply omitted.",
+        "registry.js normalizes the quota block fail-safe (missing or malformed collapses to absent, never to unlimited) and test/registry.test.cjs covers it.",
+        "A tenant-isolation_test.ts case covers the new field if it reads a per-user row; edge deno test passes."
+      ],
+      "priority": 12,
+      "notes": "Done 2026-09-02. Edge: extGradeRemaining reads the grade route's own IP and per-instance sliding windows without recording a hit and reports the tighter window's remaining/limit/resetsAt; GET /entitlements carries it as quota for anonymous and signed-in callers (keyed by the same x-gt-extension-id header the grade call sends), and /grade-from-url returns quota after counting the read. No per-user row is read for it, so no tenant-isolation case was needed (AC4 conditional). Extension: registry.js normalizeQuota is fail-safe to ABSENT (null) and the normalized shape gains a quota key only when a valid block arrived; background sends the install id on the entitlements call and drops the 5-minute entitlements cache after every grade call; the popup shows N of M reads left this hour under the button, and at zero disables the button, turns the site card amber, names the reset time and offers sign-in to an anonymous install; the overlay result shows the same line from data.quota. Caveat: the windows are per edge process (as the 429 already is), so a multi-replica deploy would need the durable counter the route comment already names. grade-check_test.ts +2 tests (29 pass), registry.test.cjs +quota group, 47 extension files pass, eslint clean, deno lint/check clean on the touched files."
     }
   ]
 }

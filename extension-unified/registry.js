@@ -24,8 +24,29 @@
     buyerPlan: "free",
   };
 
+  // US-3051: the read quota the endpoint reports alongside the plan flags.
+  // FAIL-SAFE the other way from the seller gate: a missing or malformed
+  // block collapses to ABSENT (null), never to "unlimited" — the popup then
+  // simply omits the line. Both figures must be finite non-negative integers
+  // and remaining may not exceed limit; resetsAt is kept only when it parses.
+  function normalizeQuota(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    var remaining = raw.remaining;
+    var limit = raw.limit;
+    if (typeof remaining !== "number" || typeof limit !== "number") return null;
+    if (!isFinite(remaining) || !isFinite(limit)) return null;
+    if (remaining < 0 || limit < 1 || remaining > limit) return null;
+    if (Math.floor(remaining) !== remaining || Math.floor(limit) !== limit) return null;
+    var resetsAt = typeof raw.resetsAt === "string" && isFinite(Date.parse(raw.resetsAt))
+      ? raw.resetsAt
+      : null;
+    return { remaining: remaining, limit: limit, resetsAt: resetsAt };
+  }
+
   // Coerce whatever GET /api/grading/public/entitlements returned into the trusted
-  // shape. Booleans must be strictly true; strings default to "free".
+  // shape. Booleans must be strictly true; strings default to "free". The quota
+  // key is present only when the endpoint sent a valid block, so an older edge
+  // (or a hiccup) leaves the shape exactly as it was before US-3051.
   function normalizeEntitlements(raw) {
     if (!raw || typeof raw !== "object") {
       return {
@@ -35,12 +56,15 @@
         buyerPlan: "free",
       };
     }
-    return {
+    var out = {
       authenticated: raw.authenticated === true,
       sellerEnabled: raw.sellerEnabled === true,
       flipdeskPlan: typeof raw.flipdeskPlan === "string" && raw.flipdeskPlan ? raw.flipdeskPlan : "free",
       buyerPlan: typeof raw.buyerPlan === "string" && raw.buyerPlan ? raw.buyerPlan : "free",
     };
+    var quota = normalizeQuota(raw.quota);
+    if (quota) out.quota = quota;
+    return out;
   }
 
   // US-2241: how many listing photos a grade may use. MIRRORS
@@ -76,6 +100,9 @@
       buyerPlan: ent.buyerPlan,
       flipdeskPlan: ent.flipdeskPlan,
       maxImages: maxImagesFor(ent.buyerPlan),
+      // US-3051: absent (null) unless the endpoint reported it. Never a number
+      // this file made up.
+      quota: ent.quota || null,
     };
   }
 
@@ -92,6 +119,7 @@
     ANONYMOUS_ENTITLEMENTS: ANONYMOUS_ENTITLEMENTS,
     normalizeEntitlements: normalizeEntitlements,
     resolveCapabilities: resolveCapabilities,
+    normalizeQuota: normalizeQuota,
     maxImagesFor: maxImagesFor,
     MAX_IMAGES_ANON: MAX_IMAGES_ANON,
     MAX_IMAGES_PAID: MAX_IMAGES_PAID,

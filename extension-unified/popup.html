@@ -71,6 +71,10 @@
             Open a clothing listing on eBay, Poshmark, Grailed, Mercari, Depop or
             Vinted and this runs the read.
           </p>
+          <!-- US-3051: how many reads are left in the hour, from the server's
+               own window. Hidden until the entitlements call reports it, and
+               never a number the popup made up. -->
+          <p class="pop-hint" id="readQuota" hidden></p>
           <!-- US-1881 AC3: the Firefox opt-in host-permission flow. Appears only
                when the probe says access is missing (never on Chrome). -->
           <div class="pop-perm" id="hostPermWrap" hidden>

@@ -3062,19 +3062,6 @@
       "notes": "[BUILT 2026-09-02] New: extension-unified/queue/queue-view.js (pure view model, shared by popup + worker) and test/queue-view.test.cjs (11 groups; asserts cancel is queued-only, failures count toward the badge, every dead row carries a reason, and KIND_LABELS matches the edge EXTENSION_QUEUE_KINDS). background.js gains getQueue/cancelQueueRow and the GT_QUEUE_STATE / GT_QUEUE_CANCEL / GT_QUEUE_RUN_NOW / GT_CC_RUN_ACTIVE handlers (internal only — deliberately NOT in EXTERNAL_TYPES). manifest background.scripts + importScripts updated in lockstep. popup.html/js/css: work summary, queue block, reordered Selling panel, collapsed Channels with live count, Reads action button, footer link to the options page. Edge: flipdesk-extension-queue.ts withItemTitles() on GET only. Web: use-extension-queue.ts item_title, marketplaces.tsx claimed-row Cancel removed + revise/relist described + rows named. Verified with a stubbed-chrome Playwright render of popup.html at 340px on both tabs; 47/47 extension guards, tsc -b and eslint clean."
     },
     {
-      "id": "US-3051",
-      "passes": false,
-      "title": "Extension revision: show remaining condition reads in the popup and the overlay",
-      "description": "Found in the 2026-09-02 extension deep dive. A shopper has no idea how many free reads are left until the read fails with errQuota. GET /api/grading/public/entitlements returns plan flags only; the quota is enforced server-side in the public grade route and never reported ahead of time. The popup should say 3 of 5 reads left today under the button, and the overlay should say it after a read, with sign-in as the door when it hits zero.",
-      "acceptanceCriteria": [
-        "The entitlements endpoint (services/edge-functions, public-grading) returns a quota block: remaining, limit, resetsAt, for anonymous and signed-in callers, computed from the same counter the grade route enforces (no second counter).",
-        "The popup Reads tab shows remaining/limit under the read button and turns the site card amber with a sign-in link at zero; the overlay result card shows the same line. Neither invents a number when the field is absent (older edge): the line is simply omitted.",
-        "registry.js normalizes the quota block fail-safe (missing or malformed collapses to absent, never to unlimited) and test/registry.test.cjs covers it.",
-        "A tenant-isolation_test.ts case covers the new field if it reads a per-user row; edge deno test passes."
-      ],
-      "priority": 12
-    },
-    {
       "id": "US-3052",
       "passes": false,
       "title": "Extension revision: Should I flip this? from the popup for sellers",

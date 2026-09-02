@@ -361,16 +361,25 @@ publicGradingRoutes.get("/durability/:brand", async (c) => {
 // possible. FAIL-SAFE: any lookup error resolves to the anonymous default so a
 // hiccup never falsely unlocks seller tools.
 publicGradingRoutes.get("/entitlements", async (c) => {
+  // US-3051: the read quota rides along, computed from the grade route's own
+  // windows (extGradeRemaining) so the popup's "N left" and the 429 agree.
+  // Keyed exactly as the grade call is keyed: the attested IP plus the install
+  // id header the extension sends on both requests.
+  const quota = extGradeRemaining(
+    clientIpFor(c),
+    c.req.header("x-gt-extension-id")?.trim().slice(0, 64) || null,
+    Date.now(),
+  );
   const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
   if (!verified) {
-    return c.json(ANONYMOUS_EXTENSION_ENTITLEMENTS, 200, { "Cache-Control": "no-store" });
+    return c.json({ ...ANONYMOUS_EXTENSION_ENTITLEMENTS, quota }, 200, { "Cache-Control": "no-store" });
   }
   try {
     const ent = await getExtensionEntitlements(verified.userId);
-    return c.json(ent, 200, { "Cache-Control": "no-store, private" });
+    return c.json({ ...ent, quota }, 200, { "Cache-Control": "no-store, private" });
   } catch (err) {
     console.error("public-grading /entitlements:", err instanceof Error ? err.message : String(err));
-    return c.json(ANONYMOUS_EXTENSION_ENTITLEMENTS, 200, { "Cache-Control": "no-store" });
+    return c.json({ ...ANONYMOUS_EXTENSION_ENTITLEMENTS, quota }, 200, { "Cache-Control": "no-store" });
   }
 });
 
@@ -1104,6 +1113,69 @@ export function extGradeRateLimited(
   return { limited: false };
 }
 
+// US-3051: how much of the window is left, WITHOUT recording a hit.
+//
+// The popup and the overlay say "12 of 40 reads left this hour" from this,
+// and the only honest source is the same two maps extGradeRateLimited writes
+// — a second counter would drift from the one that actually refuses. The
+// figures are those of whichever window is TIGHTER right now, since either
+// can refuse: for a lone shopper that is the IP window (20/hr) even when an
+// install id was sent, because "20 of 40" would name a ceiling they cannot
+// reach; the instance window only shows once it is the one closer to refusing.
+// `resetsAt` is when the oldest counted hit leaves its window, i.e. the
+// earliest moment one more read becomes possible; null when nothing is counted.
+export interface ExtGradeQuota {
+  remaining: number;
+  limit: number;
+  resetsAt: string | null;
+  windowMs: number;
+}
+
+function windowRemaining(
+  map: Map<string, number[]>,
+  key: string,
+  now: number,
+  limit: number,
+  windowMs: number,
+): { remaining: number; oldest: number | null } {
+  const recent = (map.get(key) ?? []).filter((t) => now - t < windowMs);
+  return {
+    remaining: Math.max(0, limit - recent.length),
+    oldest: recent.length ? Math.min(...recent) : null,
+  };
+}
+
+export function extGradeRemaining(
+  ip: string,
+  instanceId: string | null,
+  now: number,
+): ExtGradeQuota {
+  const byIp = windowRemaining(extIpHits, ip, now, EXT_GRADE_PER_IP_PER_HOUR, EXT_GRADE_WINDOW_MS);
+  if (!instanceId) {
+    return {
+      remaining: byIp.remaining,
+      limit: EXT_GRADE_PER_IP_PER_HOUR,
+      resetsAt: byIp.oldest === null ? null : new Date(byIp.oldest + EXT_GRADE_WINDOW_MS).toISOString(),
+      windowMs: EXT_GRADE_WINDOW_MS,
+    };
+  }
+  const byInst = windowRemaining(
+    extInstanceHits,
+    instanceId,
+    now,
+    EXT_GRADE_PER_INSTANCE_PER_HOUR,
+    EXT_GRADE_WINDOW_MS,
+  );
+  const instTighter = byInst.remaining < byIp.remaining;
+  const tight = instTighter ? byInst : byIp;
+  return {
+    remaining: tight.remaining,
+    limit: instTighter ? EXT_GRADE_PER_INSTANCE_PER_HOUR : EXT_GRADE_PER_IP_PER_HOUR,
+    resetsAt: tight.oldest === null ? null : new Date(tight.oldest + EXT_GRADE_WINDOW_MS).toISOString(),
+    windowMs: EXT_GRADE_WINDOW_MS,
+  };
+}
+
 /**
  * Validate the request body's image URL(s). Accepts `imageUrl` (single) or
  * `imageUrls` (array); every entry must be a well-formed http(s) URL. Caps to
@@ -1363,6 +1435,9 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
         signupPrompt,
         disclaimer: GRADE_CHECK_DISCLAIMER,
         deepLink,
+        // US-3051: what is left after THIS read was counted, so the overlay
+        // can say so under the grade without a second request.
+        quota: extGradeRemaining(ip, instanceId, Date.now()),
       },
       200,
     );

@@ -2222,9 +2222,57 @@ function wireAccount() {
   });
 }
 
+// US-3051: the reads left this hour, under the button.
+//
+// The number comes from the server's own rate-limit window, reported on the
+// entitlements call; the popup never invents one, so with an older edge (no
+// quota block) the line stays hidden. At zero the site card turns amber and
+// the read button is disabled with the reset time, and an anonymous install
+// is offered sign-in — the plan tiers are where deeper reads live.
+function renderQuota(caps) {
+  const line = document.getElementById("readQuota");
+  if (!line) return;
+  const q = caps && caps.quota;
+  if (!q || typeof q.remaining !== "number" || typeof q.limit !== "number") {
+    line.hidden = true;
+    line.textContent = "";
+    return;
+  }
+  line.hidden = false;
+  line.textContent = "";
+  const btn = document.getElementById("readNow");
+  const card = document.getElementById("siteCard");
+  const note = document.getElementById("siteNote");
+  if (q.remaining > 0) {
+    line.textContent = q.remaining + " of " + q.limit + " reads left this hour.";
+    return;
+  }
+  const when = q.resetsAt ? new Date(q.resetsAt) : null;
+  const at = when && isFinite(when.getTime())
+    ? " Try again after " + when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + "."
+    : " Try again in a little while.";
+  line.textContent = "You have used all " + q.limit + " reads for this hour." + at;
+  if (btn) btn.disabled = true;
+  if (card && card.dataset.state === "ready") card.dataset.state = "off";
+  if (note && card && card.dataset.state === "off") note.textContent = "Read limit reached for this hour.";
+  if (!(caps && caps.authenticated)) {
+    line.appendChild(document.createTextNode(" "));
+    const a = document.createElement("a");
+    a.href = ATTR.siteUrl("/connect-extension", "popup", {
+      campaign: "quota",
+      params: { ext: ext.runtime.id },
+    });
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.textContent = "Sign in for more.";
+    line.appendChild(a);
+  }
+}
+
 function applyCapabilities(caps) {
   renderAccount(caps);
   renderSellerSections(caps);
+  renderQuota(caps);
   selectDefaultTab(caps);
 }
 

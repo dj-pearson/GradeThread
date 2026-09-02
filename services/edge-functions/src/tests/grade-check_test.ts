@@ -13,6 +13,7 @@ const {
   gradeCheckRateLimited,
   publicValueFromRange,
   extGradeRateLimited,
+  extGradeRemaining,
   parseGradeFromUrlBody,
   parseAuthenticityCheckBody,
   publicAuthenticityCheckEnabled,
@@ -373,3 +374,48 @@ Deno.test("scanRateLimited: caps per extension instance independent of IP", () =
 
 // The photo-cap cases moved to extension-image-urls_test.ts, which imports the
 // pure parser directly and therefore RUNS without hono/supabase resolving.
+
+// US-3051: the quota the popup shows is read off the SAME windows the 429
+// comes from, and reading it never records a hit.
+Deno.test("extGradeRemaining: reports the tighter window, counts down with real hits, never records one", () => {
+  const ip = "203.0.113.51";
+  const inst = "install-quota-test";
+  const t = 1_800_000_000_000;
+  const fresh = extGradeRemaining(ip, inst, t);
+  assertEquals(fresh.limit, 20, "a lone shopper's ceiling is the IP window: 20 of 40 would name a limit they cannot reach");
+  assertEquals(fresh.remaining, 20);
+  assertEquals(fresh.resetsAt, null, "nothing counted, nothing to reset");
+  // Ten reads of the quota do not spend anything.
+  for (let i = 0; i < 10; i++) extGradeRemaining(ip, inst, t + i);
+  assertEquals(extGradeRemaining(ip, inst, t + 11).remaining, 20);
+  // Three real reads spend three.
+  for (let i = 0; i < 3; i++) assertEquals(extGradeRateLimited(ip, inst, t + 100 + i).limited, false);
+  const after = extGradeRemaining(ip, inst, t + 200);
+  assertEquals(after.remaining, 17);
+  assertEquals(after.resetsAt, new Date(t + 100 + 60 * 60 * 1000).toISOString(), "resets when the oldest hit leaves the window");
+  // Past the window they are forgotten.
+  assertEquals(extGradeRemaining(ip, inst, t + 102 + 60 * 60 * 1000 + 1).remaining, 20);
+  // The instance window shows only once it is the one closer to refusing:
+  // 20 hits from a second IP on the same install leave the IP window fresh
+  // and the instance window at 17.
+  const ip2 = "203.0.113.53";
+  for (let i = 0; i < 20; i++) extGradeRateLimited(ip2, inst, t + 5000 + i);
+  const inst2 = extGradeRemaining("203.0.113.54", inst, t + 6000);
+  assertEquals(inst2.limit, 40);
+  assertEquals(inst2.remaining, 17, "40 minus the 3 earlier and 20 later hits on this install");
+});
+
+Deno.test("extGradeRemaining: without an install id it is the IP window, and the tighter window wins", () => {
+  const ip = "203.0.113.52";
+  const t = 1_800_000_000_000;
+  const anon = extGradeRemaining(ip, null, t);
+  assertEquals(anon.limit, 20);
+  assertEquals(anon.remaining, 20);
+  // 20 hits from this IP exhaust the IP window; an install id on the same IP
+  // still reads 0 remaining even though its own window is untouched.
+  for (let i = 0; i < 20; i++) extGradeRateLimited(ip, null, t + i);
+  assertEquals(extGradeRemaining(ip, null, t + 30).remaining, 0);
+  const shared = extGradeRemaining(ip, "install-on-busy-ip", t + 30);
+  assertEquals(shared.remaining, 0, "the IP window refuses first, so it is the number to show");
+  assertEquals(shared.limit, 20);
+});

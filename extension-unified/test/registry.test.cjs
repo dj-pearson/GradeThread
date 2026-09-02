@@ -78,4 +78,55 @@ assert.equal(R.entitlementsFresh({ at: 1000 }, 1000 + TTL, TTL), false, "at TTL 
 assert.equal(R.entitlementsFresh(null, 5000, TTL), false, "no entry → stale");
 assert.equal(R.entitlementsFresh({ ent: {} }, 5000, TTL), false, "missing at → stale");
 
-console.log("registry.test.cjs: capability gating + fail-safe normalization + TTL all pass");
+
+// ── US-3051: the read quota is fail-safe to ABSENT, never to unlimited ──────
+assert.equal(R.normalizeQuota(null), null);
+assert.equal(R.normalizeQuota({}), null, "no figures → absent");
+assert.equal(R.normalizeQuota({ remaining: "12", limit: 40 }), null, "strings are not figures");
+assert.equal(R.normalizeQuota({ remaining: 41, limit: 40 }), null, "remaining above limit is nonsense → absent");
+assert.equal(R.normalizeQuota({ remaining: -1, limit: 40 }), null);
+assert.equal(R.normalizeQuota({ remaining: 3, limit: 0 }), null, "a zero limit is not a quota");
+assert.equal(R.normalizeQuota({ remaining: 2.5, limit: 40 }), null, "fractions are not reads");
+assert.deepStrictEqual(
+  R.normalizeQuota({ remaining: 12, limit: 40, resetsAt: "2026-09-02T13:00:00.000Z" }),
+  { remaining: 12, limit: 40, resetsAt: "2026-09-02T13:00:00.000Z" },
+);
+assert.deepStrictEqual(
+  R.normalizeQuota({ remaining: 0, limit: 40, resetsAt: "not a date" }),
+  { remaining: 0, limit: 40, resetsAt: null },
+  "an unparseable resetsAt is dropped, the figures kept",
+);
+assert.ok(
+  !("quota" in R.normalizeEntitlements({ authenticated: true })),
+  "no quota block → the normalized shape has no quota key (older edge reads exactly as before)",
+);
+assert.deepStrictEqual(
+  R.normalizeEntitlements({ authenticated: true, quota: { remaining: 5, limit: 20 } }).quota,
+  { remaining: 5, limit: 20, resetsAt: null },
+);
+assert.equal(
+  R.resolveCapabilities({ authenticated: false }, {}).quota,
+  null,
+  "capabilities carry quota:null when nothing was reported — never a made-up number",
+);
+assert.deepStrictEqual(
+  R.resolveCapabilities({ authenticated: false, quota: { remaining: 0, limit: 20 } }, {}).quota,
+  { remaining: 0, limit: 20, resetsAt: null },
+);
+
+// The popup and the overlay both carry the line, and neither hard-codes a limit.
+{
+  const dir = path.resolve(__dirname, "..");
+  const html = fs.readFileSync(path.join(dir, "popup.html"), "utf8");
+  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8");
+  assert.ok(html.includes('id="readQuota"'), "popup.html is missing #readQuota");
+  assert.ok(/function renderQuota\(/.test(js) && /"readQuota"/.test(js), "popup.js must render the quota line");
+  assert.ok(!/\b(20|40) reads\b/.test(js), "popup.js must not hard-code a read limit — the server owns it");
+  const mp = fs.readFileSync(path.join(dir, "research", "marketplace.js"), "utf8");
+  assert.ok(/data\.quota/.test(mp), "the overlay result must read data.quota");
+  const bg = fs.readFileSync(path.join(dir, "background.js"), "utf8");
+  const entFetch = bg.slice(bg.indexOf("async function fetchEntitlements"), bg.indexOf("async function getEntitlements"));
+  assert.ok(/x-gt-extension-id/.test(entFetch), "fetchEntitlements must send the install id so the server keys the quota as the grade call does");
+}
+
+console.log("registry.test.cjs: capability gating + fail-safe normalization + TTL + quota all pass");

@@ -684,6 +684,11 @@ async function fetchEntitlements() {
       headers["Authorization"] = "Bearer " + gtBuyerToken;
     }
   } catch (_e) { /* no token → anonymous */ }
+  // US-3051: the same install id the grade call sends, so the quota block the
+  // server returns is read off the window this install actually spends.
+  try {
+    headers["x-gt-extension-id"] = await getInstanceId();
+  } catch (_e) { /* no id — the server falls back to the IP window */ }
   try {
     const resp = await fetch(ENTITLEMENTS_ENDPOINT, { headers, cache: "no-store" });
     if (!resp.ok) throw new Error("entitlements " + resp.status);
@@ -790,6 +795,10 @@ async function gradeFromUrls(
   } catch (_e) {
     json = null;
   }
+  // US-3051: a read (or a refusal) moved the quota, and the popup reads it
+  // from the 5-minute entitlements cache. Drop the cache so the next open
+  // shows the real remaining rather than a number up to five minutes old.
+  void invalidateEntCache();
   if (resp.ok && json) return { ok: true, status: resp.status, data: json };
   // US-1883 (AC3): thread the machine-readable capacity code + retryable flag so
   // the overlay can render a 503 "at_capacity" as a NON-retryable state.
