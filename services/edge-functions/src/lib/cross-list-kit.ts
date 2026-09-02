@@ -18,13 +18,15 @@
 //     Shopify only). The web kit falls back to "every channel" there so it
 //     never renders empty; five variants nobody asked for is the wrong default
 //     on the paid path, so this returns [].
-//   - US-3046: a seller who has NEVER chosen channels (null). The web rule
-//     reads null as "all" so nobody loses a channel they never turned off, and
-//     that is right for a tab list; it is wrong for spending model time on
-//     every draft for marketplaces they may not use. The drafts page tells
-//     them once, links the picker, and fills the kit in bulk when they choose.
-//     An explicit empty selection (they unticked everything) still means all,
-//     the same as the web.
+//
+// NULL MEANS ALL, here as on the web. US-3046 tried to read NULL as "never
+// chosen" and write no kit for it; that lasted a day. The picker
+// (normalizeSelection) stores NULL when EVERY channel is ticked, on purpose,
+// so a channel added later is included without a click - which means a seller
+// who deliberately chose all five and one who never opened the page are the
+// same row. Telling them apart needs a column, and until one exists the batch
+// writes the kit for NULL, because the seller who ticked everything and got
+// no copy is the one who noticed.
 //
 // Best-effort at every step: a failed kit never fails the draft.
 
@@ -52,18 +54,18 @@ export const KIT_PLATFORMS: readonly MarketplacePlatform[] = [
 /**
  * Which kit channels to generate for this seller, unprompted.
  *
- * `selected` is flipdesk_settings.cross_post_channels: null when they have
- * never chosen, an array when they have. Null yields [] (US-3046: nobody
- * asked, nothing is spent). An EMPTY array keeps the web rule - they chose,
- * and choosing nothing means all - so it yields the full kit. A selection
- * that names only API channels yields []. See the file comment. Pure.
+ * `selected` is flipdesk_settings.cross_post_channels: null when every
+ * channel is on (never chosen, or all ticked - the picker stores both as
+ * null), an array when they narrowed it. The web rule (src/lib/
+ * cross-post-channels.ts): an empty selection means ALL, never none, so null
+ * and [] both yield the full kit. A selection that names only API channels
+ * yields [] - see the file comment. Pure.
  */
 export function kitPlatformsForSeller(
   selected: readonly string[] | null | undefined,
 ): MarketplacePlatform[] {
   const specced = KIT_PLATFORMS.filter((p) => getMarketplaceSpec(p) != null);
-  if (selected == null) return [];
-  if (selected.length === 0) return [...specced];
+  if (!selected || selected.length === 0) return [...specced];
   const chosen = new Set(selected);
   return specced.filter((p) => chosen.has(p));
 }

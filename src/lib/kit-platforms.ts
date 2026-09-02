@@ -32,26 +32,13 @@ export const KIT_PLATFORMS: MarketplacePlatform[] = [
  *
  * Narrowed by the selection, never empty: a selection that excludes every
  * copy-paste channel (an eBay-and-Shopify seller) still gets the full set
- * rather than a card with no tabs and no explanation. The BATCH is stricter -
- * see the edge's kitPlatformsForSeller - because there the seller did not
- * press anything.
+ * rather than a card with no tabs and no explanation. The edge's
+ * kitPlatformsForSeller applies the same rule to the batch, minus that
+ * fallback: a seller who switched every copy-paste channel off gets no kit.
  */
 export function kitPlatformsFor(
   selected: string[] | null | undefined,
 ): MarketplacePlatform[] {
   const narrowed = filterChannels(KIT_PLATFORMS, selected);
   return narrowed.length > 0 ? narrowed : KIT_PLATFORMS;
-}
-
-/**
- * True when the seller has never chosen channels (null in the database).
- *
- * That is the one state where the AutoLister batch writes NO kit copy for a
- * draft (US-3046): an explicit empty selection still means "all", a null
- * means nobody asked. The drafts page shows its notice on exactly this.
- */
-export function channelsNeverChosen(
-  selected: string[] | null | undefined,
-): boolean {
-  return selected == null;
 }

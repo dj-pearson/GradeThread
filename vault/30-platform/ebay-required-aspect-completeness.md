@@ -362,8 +362,65 @@ ledger too from its second version. Compare like with like: the AFTER run's
 `ai_enrichment_log` number is comparable to this one; the `ai_usage_events`
 number is the true bill.
 
-**AFTER** - pending. Run the same command once ~200 drafts have been generated
-on the new edge and paste the table here.
+**The bill, from the ledger (second run, same day).** `ai_usage_events` with
+the cache multipliers applied, BEFORE window, per feature (median per call):
+
+| Pass | Calls | Median $/call | Note |
+|---|---|---|---|
+| autolister (generation) | 295 | $0.05 | median 2,236 cache-read tokens |
+| catalog_extract (aspect refine) | 432 | $0.01 | no cache reads recorded |
+| size_estimate | 136 | $0.07 | ran on 46% of items, sent EVERY photo |
+| tag_ocr | 11 | $0.03 | ran on 4% of items: few tag photos are roled `tag` |
+| measure_extract | 113 | $0.02 | |
+
+Per draft: **$0.148**. The single largest line was not the generation pass; it
+was the size estimate, which ran whenever the tag read found no size and was
+sent the whole photo set uncapped. The 2026-09-02 cap (six photos,
+measurement-first) took its median to $0.01 on the first two AFTER calls.
+
+Two more things the ledger says that the fill table cannot. Tag OCR ran on 11
+of 295 items: the pass only sees photos roled `tag`/`tag_2`, so the label
+reads that fill Country, Care and Product Line reach 4% of drafts until
+photo roles are assigned more often. And the refine pass shows a median of
+zero cache reads. That is consistent with the per-category tool schema (the
+large part) never being served from cache, but the `catalog_extract` feature
+tag is shared with the one-item extract path, whose schema differs on every
+call, so the ledger cannot say which. US-3047 separates the two and fixes
+whichever it is. Both findings belong ahead of US-3045.
+
+**AFTER** - 3 drafts, 5 generations, all single-item runs on a cold cache
+(the operator had no time for a batch; treat as a smell test, not a result).
+Median recommended coverage 65% (55% before), 0 blocked.
+
+| Aspect | Filled | Of exposed | Of all drafts |
+|---|---|---|---|
+| Theme | 0/3 | 0% | 0% |
+| Fabric Type | 2/3 | 67% | 67% |
+| Garment Care | 0/0 | - | 0% |
+| Country of Origin | 1/2 | 50% | 33% |
+| MPN / Style Code | 0/0 | - | 0% |
+| Product Line | 0/1 | 0% | 0% |
+| Model | 0/1 | 0% | 0% |
+| Character | 0/2 | 0% | 0% |
+| Department | 3/3 | 100% | 100% |
+| Features | 1/3 | 33% | 33% |
+| Occasion | 0/0 | - | 0% |
+
+Ledger, cache-cold: $0.116 per draft = autolister $0.07 + refine $0.02 +
+size $0.01 + measure $0.02; tag_ocr ran on none of the five (no photo roled
+`tag`), so the label reads never fired and Product Line / Model stayed empty.
+Theme stayed empty on all three despite the evidence rules; the open
+question is whether Theme even reaches the refine schema on these leaves
+(MAX_AI_ASPECTS = 45, demand-ranked; a recommended aspect with a low
+`searchCount` is cut while the coverage metric still counts it). Checking that
+needs the leaf's cached payload, not a draft.
+
+What the ledger settles, three drafts or not: **the refine pass is not the
+lever.** It costs $0.01 to $0.02 per draft. The generation pass is $0.05 to
+$0.07 and the size estimate was $0.07 until the cap. US-3045 (observe-once
+refine) was filed on the assumption that the second vision call was ~half the
+bill; it is a tenth. It is re-ranked behind US-3047 (cache breakpoints, tag
+roles), which moves both the fill rates and the generation line.
 
 ## Related
 

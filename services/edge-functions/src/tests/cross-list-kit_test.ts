@@ -6,8 +6,7 @@
 // The one place the two differ is deliberate and pinned here: a selection that
 // names only API channels gives the web kit its full fallback list (a card with
 // no tabs is worse than a card with five) and gives the BATCH nothing, because
-// five AI-written variants nobody asked for is the wrong default on the paid
-// path.
+// those five were switched off on purpose.
 //
 //   deno test --allow-env --allow-read --allow-net src/tests/cross-list-kit_test.ts
 import "./_env.ts"; // cross-list-kit reaches lib/supabase.ts through ai-listing
@@ -20,15 +19,15 @@ import {
 } from "../lib/ai-config.ts";
 import { styleFromSpecifics } from "../lib/platform-variants.ts";
 
-Deno.test("US-3046: never chosen (null) -> nothing is generated unprompted", () => {
-  // The web reads null as "all" for a TAB LIST. The batch spends model time,
-  // and nobody asked; the drafts page says so and fills the kit when they do.
-  assertEquals(kitPlatformsForSeller(null), []);
-  assertEquals(kitPlatformsForSeller(undefined), []);
+Deno.test("null -> every copy-paste channel (the picker stores 'all ticked' as null)", () => {
+  // US-3046 read null as "never chosen" for one day. normalizeSelection writes
+  // null when every channel is ticked, so a seller who chose all five and one
+  // who never opened the page are the same row; the batch writes the kit.
+  assertEquals(kitPlatformsForSeller(null), [...KIT_PLATFORMS]);
+  assertEquals(kitPlatformsForSeller(undefined), [...KIT_PLATFORMS]);
 });
 
 Deno.test("unticked everything ([]) -> every copy-paste channel (the web rule)", () => {
-  // They chose, and choosing nothing means all - unlike never having chosen.
   assertEquals(kitPlatformsForSeller([]), [...KIT_PLATFORMS]);
 });
 

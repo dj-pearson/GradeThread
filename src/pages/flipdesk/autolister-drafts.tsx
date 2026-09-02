@@ -51,11 +51,11 @@ import { ClickableRow } from "@/components/clickable-row";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { useBulkPublish, useGeneratePlatformFields } from "@/hooks/use-autolister";
-// US-3046: the cross-list copy kit is filled with each draft only once the
-// seller has chosen channels; until then this page says so and, after they
-// choose, fills the kit for a selection in one go.
+// US-3046: fill the cross-list copy kit for a selection of drafts in one go
+// (a batch that ran before the seller narrowed their channels, or one whose
+// kit pass failed).
 import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
-import { channelsNeverChosen, kitPlatformsFor } from "@/lib/kit-platforms";
+import { kitPlatformsFor } from "@/lib/kit-platforms";
 import { useBulkAspectCoverage, useEbayConnection } from "@/hooks/use-ebay";
 import { BulkAiEnrichDialog } from "@/components/flipdesk/bulk-ai-enrich-dialog";
 import {
@@ -144,7 +144,6 @@ export function FlipdeskAutolisterDraftsPage() {
   const [sortKey, setSortKey] = useState<SortKey>("created_desc");
   const bulkPublish = useBulkPublish();
   const { data: chosenChannels } = useCrossPostChannels();
-  const kitNeverChosen = channelsNeverChosen(chosenChannels);
   const fillKit = useGeneratePlatformFields();
   const [kitFilling, setKitFilling] = useState<{ done: number; total: number } | null>(null);
   const { data: ebayConnection } = useEbayConnection();
@@ -694,28 +693,6 @@ export function FlipdeskAutolisterDraftsPage() {
         }
       />
 
-      {/* US-3046: the batch wrote no cross-list copy for these drafts because
-          the seller has never chosen channels. It clears itself the moment they
-          do (the picker writes an array, and null is the only state that hides
-          the kit), so it needs no dismiss and no stored flag. */}
-      {kitNeverChosen && drafts.length > 0 && (
-        <div
-          role="status"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 text-sm"
-        >
-          <p className="text-muted-foreground">
-            Cross-list copy (Poshmark, Mercari, Depop, Grailed, Vinted) isn't written
-            for new drafts until you choose the marketplaces you cross-post to.
-          </p>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/dashboard/flipdesk/marketplaces">
-              Choose marketplaces
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Link>
-          </Button>
-        </div>
-      )}
-
       {draftsRead?.truncated && (
         <TruncatedNotice
           limit={draftsRead.limit}
@@ -787,11 +764,12 @@ export function FlipdeskAutolisterDraftsPage() {
                   Re-run AI on {selectedIds.size}
                 </Button>
               )}
-              {/* US-3046: fill the cross-list kit for the selected drafts, for
-                  a seller who chose channels after a batch had already run.
-                  Each item is one AI action, the same as the kit's own button,
-                  so it runs one at a time and reports as it goes. */}
-              {selectedIds.size > 0 && !kitNeverChosen && (
+              {/* US-3046: fill the cross-list kit for the selected drafts (a
+                  batch whose kit pass failed, or one that ran before the
+                  channels were narrowed). Each item is one AI action, the same
+                  as the kit's own button, so it runs one at a time and reports
+                  as it goes. */}
+              {selectedIds.size > 0 && (
                 <Button
                   variant="outline"
                   onClick={() => void fillKitForSelected()}

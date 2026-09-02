@@ -56,7 +56,7 @@ import {
 } from "@/lib/lister-extension";
 import { MARKETPLACE_EXTENSION_FLOW } from "@/lib/constants";
 import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
-import { channelsNeverChosen, kitPlatformsFor } from "@/lib/kit-platforms";
+import { kitPlatformsFor } from "@/lib/kit-platforms";
 import { edgeFetch } from "@/lib/edge-fetch";
 import {
   QUEUED_NOTICE,
@@ -200,7 +200,6 @@ function PlatformPanel({
   primaryId,
   baseName,
   itemId,
-  neverChosen = false,
 }: {
   platform: MarketplacePlatform;
   variant: PlatformKitVariant | undefined;
@@ -210,8 +209,6 @@ function PlatformPanel({
   primaryId: string | null;
   baseName: string;
   itemId: string;
-  /** US-3046: the seller has never chosen channels, so the batch wrote no kit. */
-  neverChosen?: boolean;
 }) {
   const qc = useQueryClient();
   const spec = getMarketplaceSpec(platform);
@@ -325,21 +322,9 @@ function PlatformPanel({
   if (!variant) {
     return (
       <p className="py-8 text-center text-sm text-muted-foreground">
-        {neverChosen ? (
-          <>
-            Not generated yet. New drafts fill this on their own once you{" "}
-            <Link to="/dashboard/flipdesk/marketplaces" className="underline">
-              choose the marketplaces you cross-post to
-            </Link>
-            . For this one, click “Generate for all marketplaces” above.
-          </>
-        ) : (
-          <>
-            Not generated yet. New drafts fill this on their own for the channels
-            you chose under Marketplaces; for this one, click “Generate for all
-            marketplaces” above.
-          </>
-        )}
+        Not generated yet. New drafts fill this on their own for the channels
+        you chose under Marketplaces; for this one, click “Generate for all
+        marketplaces” above.
       </p>
     );
   }
@@ -1003,10 +988,6 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   const { data: chosenChannels } = useCrossPostChannels();
   // Never renders an empty kit - see kitPlatformsFor for the fallback rule.
   const kitPlatforms = useMemo(() => kitPlatformsFor(chosenChannels), [chosenChannels]);
-  // US-3046: the batch writes no kit copy until the seller chooses channels.
-  // The empty state has to say so, or the seller reads "not generated yet" as
-  // a failure rather than as a setting they have not touched.
-  const neverChosen = channelsNeverChosen(chosenChannels);
 
   const { data: itemPrice } = useQuery({
     queryKey: ["item-target-price", itemId],
@@ -1156,7 +1137,6 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
                 primaryId={primaryId}
                 baseName={baseName ?? `item-${itemId.slice(0, 8)}`}
                 itemId={itemId}
-                neverChosen={neverChosen}
               />
             </TabsContent>
           ))}
