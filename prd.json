@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3059",
+  "nextId": "US-3072",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3072,6 +3072,243 @@
         "The version note in SUBMISSION.md is updated to say which build the stores serve and the shipping commit is tagged."
       ],
       "priority": 19
+    },
+    {
+      "id": "US-3059",
+      "passes": false,
+      "title": "EPIC: extension as the moat - the grade on every listing a shopper sees, and the honest answer to cloud automation",
+      "description": "As GradeThread, we want the unified browser extension (extension-unified/, v1.1.0, Chrome + Firefox + Edge) to carry features no crosslister can copy, so that installing it is the obvious choice for buyers and sellers and the grade becomes visible on every marketplace listing. Competitors (Vendoo, List Perfectly, Crosslist, Nifty) sell cross-listing and cloud automation; per vault/60-decisions/adr-no-server-side-marketplace-automation.md we will never hold a marketplace session, so we win on trust data instead: the certificate badge on live listings, seller honesty from the condition index, a persistent work surface, a worker tab that drains the queue all day, on-device pre-reads, an MCP tool so Claude can queue listing work, flip mode on sourcing sites, the return evidence pack on the eBay return page, in-browser background removal, and a label reader.",
+      "acceptanceCriteria": [
+        "Umbrella only: this story closes when every child passes. Children are filed immediately after it and named in the closing AC below",
+        "Standing constraint (ADR, vault/60-decisions/adr-no-server-side-marketplace-automation.md): no child stores a marketplace credential or cookie, requests the cookies permission, runs a marketplace action outside the seller's own browser, or answers a CAPTCHA. A child that needs any of those is rejected, not adapted",
+        "Standing constraint (US-3042, extension-unified/test/ebay-no-scrape.test.cjs): the eBay path reads nothing off the page but the item id. Any child touching eBay keeps that test green without editing it",
+        "Standing constraint (vault/30-platform/extension-injected-ui-isolation.md): every injected surface lives in a shadow root via research/overlay-host.js and ships its CSS through scripts/gen-extension-overlay-css.mjs; extension-unified/test/overlay-shadow.test.cjs and theme-css.test.cjs stay green",
+        "Standing constraint (vault/40-growth/extension-funnel-attribution.md): no child hand-builds a gradethread.com link; every link goes through extension-unified/attribution.js and extension-unified/test/attribution.test.cjs stays green",
+        "Standing constraint (US-2020, extension-unified/test/legacy-parity.test.cjs): no child adds a feature to extension/ or extension-condition/; they take bug fixes only",
+        "Every child that adds an edge route on a multi-tenant table scopes it with .eq on c.get('workspaceOwnerId') ?? c.get('userId') or an owner-verified parent row and adds a case to services/edge-functions/src/tests/tenant-isolation_test.ts (US-268)",
+        "Every child that ships a new extension behaviour adds a zero-dependency node test under extension-unified/test/*.test.cjs that scripts/test-extensions.mjs discovers, and npm run verify passes",
+        "Order of work: US-2727 and US-2718 (the two live production breaks) land before any child here ships to the stores; a child may be built behind them but the store upload waits",
+        "Children: US-3060, US-3061, US-3062, US-3063, US-3064, US-3065, US-3066, US-3067, US-3068, US-3069, US-3070, US-3071. This epic closes when all twelve pass"
+      ],
+      "priority": 11,
+      "dependsOn": [
+        "US-2727",
+        "US-2718"
+      ]
+    },
+    {
+      "id": "US-3060",
+      "passes": false,
+      "title": "Verified badge on live listings: show the GradeThread certificate on the marketplace page every extension user is looking at",
+      "description": "As a shopper with the extension installed, I want a listing that was graded through GradeThread to show its certificate grade right on the eBay, Poshmark or Mercari page, so that I can trust that listing over the one next to it; and as a seller, I want my graded listings to look better inside every shopper's browser, so that grading pays for itself. This is the install loop: every badge is an ad for the certificate and a reason to grade. Today the research overlay (extension-unified/research/*) only grades from photos on click; it never asks whether a certificate already exists.",
+      "acceptanceCriteria": [
+        "New unauthenticated route GET /api/grading/public/listing-certificates?platform=<ListingPlatform>&ids=<comma list, max 24> on services/edge-functions/src/routes/public-grading.ts, behind publicReadLimiter('grading-public') like the other public reads (main.ts around line 943). It joins listings.platform + listings.platform_listing_id (src/types/database.ts ListingRow) through the inventory item to grade_reports.certificate_id and returns, per id found, only: certificate_id, grade_value, tier label, graded_at, and the certificate path. It fetches no page, no image and no listing URL; it reads only rows already public (grade reports with a certificate_id are public per CLAUDE.md)",
+        "A listing whose seller has opted out is omitted: migration adds flipdesk_settings.listing_badge_opt_out boolean NOT NULL DEFAULT false (US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer; PENDING_MIGRATIONS.md entry; NOTIFY pgrst reminder). A switch on src/pages/flipdesk/marketplaces.tsx reads and writes it and tolerates a missing column until the apply, the way review_flow_enabled does (US-9204)",
+        "The extension asks for badges only from ids it already has without scraping: on eBay the item id from the URL via ebayItemIdHere() in research/selectors.js (US-3042 test stays green, unedited); on Poshmark and Mercari the listing id from the URL path and, in scan mode (US-2237), the card hrefs it already collects (SCAN.cardKey in research/marketplace.js). One batched request per page load, never per scroll; a second request on the same tab within 60 seconds is refused client-side (test)",
+        "On a detail page with a hit, the overlay bar shows the grade, the tier and 'Graded by GradeThread' with a link to the certificate built through attribution.js (utm_medium=badge); in scan mode a matching card gets a small badge next to the existing claimed-vs-price badge. Both render inside the existing shadow root (research/overlay-host.js) and the CSS lands in scripts/gen-extension-overlay-css.mjs, not a stylesheet",
+        "The badge never appears on a listing without a hit, and a 4xx/5xx or network failure renders nothing (no 'unverified' badge: absence is not a claim). extension-unified/test/listing-badge.test.cjs pins the id extraction per platform, the batch cap, the 60-second refusal and the render-nothing-on-error rule with a fake fetch",
+        "Analytics: extension usage telemetry (usage-telemetry.js, opt-in, OFF by default per vault/20-domain/extension-telemetry-consent.md) gains one counter, badge_shown, with no listing id and no URL. The site side registers badge_certificate_click in src/lib/analytics-events.ts (drift guard test passes) for the certificate page arrival",
+        "Certificate page (src/pages/certificate.tsx or the Pages Function in functions/ that SSRs it) shows a one-line 'Seen via the extension on <platform>' note when utm_medium=badge, with the existing install CTA (src/components/marketing/extension-install-cta.tsx) hidden when the bridge marker says the extension is installed",
+        "Tenant and privacy: the route exposes nothing keyed by user id and accepts no user id; services/edge-functions/src/tests/tenant-isolation_test.ts gains a case proving an opted-out seller's listing id returns no row and that ids from two sellers in one request return only public fields",
+        "OPERATOR: with a graded item listed to eBay and Poshmark from a test account, open both listings in Chrome and Firefox with the 1.1.x build and confirm the badge, the certificate link and the scan-mode badge; flip the opt-out and confirm both disappear on reload"
+      ],
+      "priority": 12
+    },
+    {
+      "id": "US-3061",
+      "passes": false,
+      "title": "Worker tab: a pinned GradeThread tab that drains the cross-listing queue all day, and the same drain on Firefox for Android",
+      "description": "As a seller, I want to leave one GradeThread tab open and have my queued list, delist, revise and relist jobs run through the day without me clicking anything, so that I get what Nifty sells (work happens while I am not watching) without handing anyone my marketplace login. Today background.js drains on the gt-lister-sweep alarm every 5 minutes and on startup only, the MV3 service worker sleeps between alarms, and the seller has no surface that says 'the drain is running'. The manifest already declares gecko_android strict_min_version 142, so Firefox on Android can run the same drain from the seller's own phone; nobody in the category has that.",
+      "acceptanceCriteria": [
+        "New extension page extension-unified/worker.html + worker.js, opened by the popup ('Keep GradeThread working') via tabs.create with pinned:true and never from a content script (no web_accessible_resources rule). While it is open it holds a runtime.connect port to background.js so the service worker stays alive, and asks for a drain on a 60-second setInterval through the existing GT_QUEUE_RUN_NOW path; the 5-minute gt-lister-sweep alarm stays as the fallback when the tab is closed",
+        "The page shows the same grouped queue the popup shows (reuse extension-unified/queue/queue-view.js: needs you / running / waiting), a live 'last drain HH:MM, next in Ns' line, and a Stop button. A job that needs a human (CAPTCHA, login wall, the US-2482 human-check) pauses the drain and the page says which tab needs the seller, in the words the popup already uses; the drain never resumes on its own until the seller clicks Resume (ADR: no CAPTCHA solving, ever)",
+        "The drain runs at most one job at a time and only in tabs the worker opened itself; it refuses to run in a tab it did not open (test). Marketplace tabs opened by the worker close themselves on job completion; a tab still open 10 minutes after its job's deadline alarm (JOB_ALARM_PREFIX in background.js) is reported, not killed",
+        "Depends on US-2727: the story cannot close while completion writeback (listings.listed_at NOT NULL) still fails, because a drain that cannot record a success would loop. AC: 20 consecutive drains against a seeded queue on the local stack (docker start supabase_rest_gradethread supabase_kong_gradethread per CLAUDE.md) complete every row exactly once, asserted from extension_work_queue rows",
+        "Firefox for Android: the manifest's gecko_android block is kept, host-permissions.js's fail-open probe is used on first run, and the worker page is reachable from the popup on Android Firefox. Per platform (Poshmark, Mercari, Grailed, Vinted) the lister adapter is verified on the mobile web DOM; where the mobile DOM differs from the desktop selectors in lister/selectors.js, the adapter refuses with a 'run this on desktop' sentence rather than guessing (US-2165 fail loudly), and lister-selectors.test.cjs pins which platforms are mobile-enabled",
+        "Options page gains 'Start the worker tab when the browser opens' (default off); when on, runtime.onStartup opens the pinned tab. Stored in storage.local like the other options (no storage.sync)",
+        "extension-unified/test/worker-tab.test.cjs covers: interval drain calls, port keep-alive reconnect after a service-worker restart, refusal to act in a foreign tab, pause-on-human-check, and that the tab never navigates to a URL that arrived in a message it did not build itself (US-1876 rule)",
+        "Mobile clients: the QUEUED_NOTICE copy (services/edge-functions/src/lib/extension-queue.ts, byte-identical across clients per US-2481) is extended in one place to mention the worker tab and Firefox on Android, and the four mirrors (web, iOS, Android, extension) are updated in the same commit with the existing byte-identical test",
+        "OPERATOR: on a Chrome desktop and on Firefox for Android 142+, queue one list and one delist from the phone app, open the worker tab, and confirm both complete without a click; record which platforms passed on mobile in this story's notes"
+      ],
+      "priority": 13,
+      "dependsOn": [
+        "US-2727"
+      ]
+    },
+    {
+      "id": "US-3062",
+      "passes": false,
+      "title": "Side panel work surface: the queue, the item card, comps and the grade next to any marketplace tab",
+      "description": "As a seller working inside Poshmark or Mercari, I want a panel that stays open beside the page with my queue, the item I am listing, its grade and its comps, so that I stop bouncing between the popup, FlipDesk and the marketplace. Every competitor uses a popup that closes on the first click; Chrome and Edge ship chrome.sidePanel and Firefox ships sidebar_action, and extension-unified/manifest.json deliberately uses neither today (permissions: storage, activeTab, alarms, contextMenus).",
+      "acceptanceCriteria": [
+        "manifest.json adds the sidePanel permission and side_panel.default_path = panel.html for Chromium; scripts/package-extensions.mjs firefoxManifest() converts that to sidebar_action {default_panel, default_title, default_icon} and strips side_panel, with a test in extension-unified/test/manifest-hosts.test.cjs or a new firefox-manifest.test.cjs proving both zips carry exactly one of the two keys",
+        "The panel opens only from the action button on a host in the lister or research match lists (background.js calls sidePanel.setOptions({tabId, enabled}) per tab; on other hosts the action keeps opening popup.html). Firefox has no per-tab option, so on Firefox the sidebar renders a 'open a marketplace tab' state on other hosts",
+        "panel.html reuses, not copies, the popup modules: queue/queue-view.js for the grouped queue with Retry / Retry all / Clear failed / Cancel all waiting / Run these now (US-3048), popup.js's sign-in state, and theme.js. A new panel/item-card.js renders the FlipDesk item the seller is listing: the grade (or a 'not graded' link), the certificate, the target price, and the sold comps from the existing GET /api/flipdesk/pricing or comps route the review page uses (src/pages/flipdesk/review.tsx names it); the item is found by the job that is running or was last completed in that tab",
+        "On a Poshmark or Mercari listing that belongs to the seller (research/own-listing detection, own-listing.test.cjs) the panel shows that listing's FlipDesk item and offers Revise and Relist through the existing GT_LISTER_REVISE and GT_LISTER_RELIST messages, disabled with the selectors.js reason string when the platform block is enabled:false",
+        "Every network call from the panel goes through background.js message types that already exist (GT_QUEUE_*, GT_LISTER_*, GT_SYNC_*); the panel holds no token and makes no fetch of its own (test asserts panel/*.js contains no fetch( call, the ebay-no-scrape.test.cjs source-assertion pattern)",
+        "Accessibility: extension-unified/test/popup-a11y.test.cjs is extended to panel.html (landmarks, labelled controls, focus order); scripts/extension-a11y.mjs runs it",
+        "Theme: panel CSS is generated by the same pipeline as popup-theme.css (scripts/gen-extension-theme-css.mjs) so theme-css.test.cjs fails on drift; System/Light/Dark from options (US-3055) applies",
+        "OPERATOR: on Chrome, Edge and Firefox, open a Poshmark listing from a signed-in test account, open the panel, run a revise from it, and confirm the queue row appears and completes; record the per-browser result in the notes"
+      ],
+      "priority": 14,
+      "dependsOn": [
+        "US-3048"
+      ]
+    },
+    {
+      "id": "US-3063",
+      "passes": false,
+      "title": "Selector snapshot fixtures: catch a marketplace redesign in CI the day it lands",
+      "description": "As the extension maintainer, I want a saved, sanitised copy of each marketplace form and listing page checked into the repo and a test that resolves every selector in lister/selectors.js and research/selectors.js against it, so that a Poshmark or Mercari redesign fails the build instead of failing every seller's run silently (the US-1875 delist regression shipped because nothing could exercise the DOM without a logged-in human). Today selector health is only observable live (Check selectors in the popup, US-2484) and enabling any flow requires a person with an account.",
+      "acceptanceCriteria": [
+        "New operator script scripts/capture-selector-fixture.mjs <platform> <flow> that attaches to a running Chrome via Playwright's connectOverCDP (the operator is logged in; no credential is read or stored), serialises document.documentElement.outerHTML of the current tab, and sanitises it before writing: every img src and srcset replaced by a 1x1 data URI, every input value emptied, every script tag removed, any string matching the seller's handle or email (passed as --redact) replaced, and the file written to extension-unified/test/fixtures/dom/<platform>/<flow>.html with a JSON sidecar {capturedAt, selectorsVersion, url path only}",
+        "A gitleaks run on the fixture directory is part of the capture script's exit path; a fixture that trips it is deleted before the script exits non-zero",
+        "New Playwright spec e2e/extension-selectors.spec.ts (own project in playwright.config.ts, no dev server needed) loads each fixture with page.setContent, runs the selector resolution functions from lister/selectors.js and research/selectors.js (exported the way lister-selectors.test.cjs already imports them), and asserts every selector in an enabled:true block resolves to at least one element and every selector in a research adapter finds the gallery, title and price. A platform block with enabled:false is skipped and listed in the report, never failed",
+        "The spec also asserts the fixture sidecar's selectorsVersion equals the platform's version in selectors.js; a selector bump without a recapture fails with 'recapture <platform> <flow>'",
+        "npm run verify's e2e lane (node scripts/verify.mjs --e2e) runs the spec; the Playwright browser is the pre-installed one (executablePath from PLAYWRIGHT_BROWSERS_PATH), and the spec runs in under 30 seconds on the fixtures shipped",
+        "Fixtures captured for at least: poshmark list form, poshmark listing detail (delist), mercari list form, mercari listing detail, vinted list form, grailed list form, plus research detail pages for Poshmark, Mercari, Grailed, Vinted and Depop. eBay has no fixture on purpose (US-3042: the eBay path reads nothing off the page) and the spec says so",
+        "public/extension/marketplace-selectors.json (the remote config background.js fetches, config-sync.test.cjs) is resolved against the same fixtures in the same spec, so hosted and bundled selectors are both proven",
+        "OPERATOR: capture the eleven fixtures above from a logged-in test account and commit them; the story cannot close on a synthetic fixture"
+      ],
+      "priority": 15
+    },
+    {
+      "id": "US-3064",
+      "passes": false,
+      "title": "Seller honesty in the overlay: state how far this seller's claims sit from the grade, from the condition index",
+      "description": "As a shopper, I want the overlay to tell me that this seller overstates condition more often than the marketplace average, or less, so that scan mode stops being a price check and becomes a trust check no marketplace offers. US-2708 (market condition index) aggregates the claimed-vs-actual gap per read; this story is the extension surface for it, and US-2239 seller memory already shows my own pattern for a seller on-device. Gated: nothing here ships until US-2709's question to counsel is answered, per the epic's operator AC.",
+      "acceptanceCriteria": [
+        "Depends on US-2709 (counsel answer) and US-2710 through US-2713 (the index children). This story does not build aggregation; it reads the public route those children publish (GET /api/grading/public/condition-index/* in services/edge-functions/src/routes/public-grading.ts, lib/condition-index.ts)",
+        "The overlay (research/overlay-host.js render path) gains one line under the read: 'Sellers on <marketplace> claim <tier> when the grade says <tier> about N% of the time' from the marketplace/category aggregate, and only when the route returns a sample at or above its stated minimum; below it, the line is omitted (never 'not enough data' in the overlay, per lib/resale-condition.ts's null rule)",
+        "A per-seller rate appears only where US-2148's asymmetry allows: penalise only human-confirmed reads, credit on either. The extension never computes a per-seller rate itself; it shows a number only if the route returns one for that seller key, and the seller key is the marketplace handle hashed client-side with the same function seller-memory.js uses so the server never receives a plain handle (test)",
+        "The line is worded from a fixed table in research/condition-format.js with a test (scan-format.test.cjs pattern) covering every band; no free-text from the server is rendered (US-9111 untrusted-string rule applies to overlay copy too)",
+        "Scan mode (US-2237) badges a card with the seller line only on hover, never in the grid by default, so a search page does not become a wall of judgements; options page gains 'Show seller honesty on cards' default off",
+        "extension-unified/test/seller-honesty.test.cjs pins: omitted below sample, hashed seller key, fixed wording table, and that own-listing detection (own-listing.test.cjs) suppresses the line on the seller's own closet",
+        "OPERATOR: after US-2709 closes, confirm with counsel's answer in hand which of AC2 and AC3 may ship, and note the decision on this story before any code merges"
+      ],
+      "priority": 16,
+      "dependsOn": [
+        "US-2709"
+      ]
+    },
+    {
+      "id": "US-3065",
+      "passes": false,
+      "title": "MCP tool to queue extension work: 'list my new items on Poshmark' from Claude, drained by the seller's own browser",
+      "description": "As a seller using the GradeThread connector in Claude, I want to say 'list these twelve items on Poshmark and Mercari' and have that become queue rows my extension drains, so that the assistant can drive the whole listing day while the marketplace actions still run in my own logged-in tab (ADR: no server-side marketplace automation). The connector (services/edge-functions/src/routes/mcp.ts, lib/mcp-tools.ts) has 14 read tools and confirm-gated write tools for publish, reprice and end; nothing reaches the extension queue (lib/extension-queue.ts, routes/flipdesk-extension-queue.ts).",
+      "acceptanceCriteria": [
+        "New lib services/edge-functions/src/lib/mcp-extension-queue-tools.ts exporting two tools registered in mcp-tools.ts: gradethread_extension_queue (read: list rows for the tenant grouped needs-attention / running / waiting, same shape GET /api/flipdesk/extension-queue returns) and gradethread_queue_extension_work (write: kind in EXTENSION_QUEUE_KINDS, item or listing ids, target channels limited to the platforms in LISTER_EXTENSION_PLATFORMS). Scope gating and JSON Schema follow the US-9106 registry; the write tool is in WRITE_TOOL_NAMES",
+        "The write tool is confirm-token gated exactly like gradethread_publish_listing (lib/mcp-publish-tool.ts around line 227) and uses the US-9131 MRTR elicitation so a person, not the model, confirms; the preview names each item, each channel and the QUEUED_NOTICE sentence verbatim (lib/extension-queue.ts, byte-identical rule) so the person is never told the listing is live",
+        "The tool wraps the same enqueue function routes/flipdesk-extension-queue.ts uses (extract it into lib/extension-queue.ts if it is still inline), so the CREDENTIAL_KEYS payload refusal and the table CHECK apply unchanged; a payload carrying any credential-shaped key is refused with the same error the route returns (test)",
+        "Budget: lib/mcp-budget.ts gains kind 'extension_queue' (per-session and per-day, sized like publish: 20 per hour) and budgetKindForTool maps the write tool to it; lib/connector-allowance.ts counts each queued row against the monthly connector allowance the way a publish is counted (US-9101)",
+        "Tenant isolation: both tools scope by the connector's workspace owner and accept no user id; services/edge-functions/src/tests/tenant-isolation_test.ts gains a case for each, and the US-9112 MCP tenant test that enumerates every tool fails until both are covered",
+        "Audit: every call is recorded through lib/mcp-audit.ts recordToolCall with the row ids created, so a queued job is reconstructable from the audit log (US-9113)",
+        "Conformance: the golden tools/list snapshot (US-9125) is regenerated and the diff shows exactly two added tools; the sandbox (US-9124) answers the write tool with a fake queued row and never writes",
+        "Docs: /developers connector page (US-9126 source) documents both tools with the honest sentence that the work runs when the seller's desktop browser next opens; vault/30-platform/claude-connector.md gains the two tool names in the same commit (vault skill, same-commit rule)",
+        "OPERATOR: from Claude Desktop with the connector attached, queue one list job for a test item, confirm the MRTR prompt appears, then open the extension and confirm the row drains; paste the tool call ids from the audit log into the notes"
+      ],
+      "priority": 17
+    },
+    {
+      "id": "US-3066",
+      "passes": false,
+      "title": "On-device pre-read with Chrome's Prompt API: an instant, free, private first look before the certified grade",
+      "description": "As a shopper, I want an instant first look at a listing's photos that runs entirely inside my browser and costs nothing, so that scan mode feels immediate and I only spend a paid read when it is worth it; as GradeThread, we want every listing's obvious defects triaged on the shopper's machine so Claude Vision spend goes down. Chrome 138+ exposes the Prompt API (LanguageModel, Gemini Nano) to extensions with image input arriving in newer builds; Firefox has nothing equivalent, so this is progressive and the server read stays the only thing ever called a grade.",
+      "acceptanceCriteria": [
+        "New module extension-unified/research/local-model.js with detect() (returns available / downloadable / unavailable from LanguageModel.availability(), and unavailable on Firefox or any browser without the global), and preRead(images, hints) that creates a session with a fixed system prompt and a JSON output schema {defects: [{kind, where, confidence}], claimed_tier_plausible: bool, note: string} and returns null on any error or when the model says it cannot see the images. No network call anywhere in the module (source-assertion test: the file contains no fetch(, XMLHttpRequest, or importScripts)",
+        "The pre-read runs only for adapters that already hand images to the research overlay (Poshmark, Mercari, Grailed, Vinted, Depop) using the same image list image-utils.js builds. eBay is excluded because the eBay path reads nothing off the page (US-3042); on eBay the pre-read runs, if at all, on the image URLs the server's /grade-from-url response returns, after the read, so ebay-no-scrape.test.cjs stays green unedited",
+        "The overlay shows the pre-read as 'Quick look (on your device)' with the defects list, and never a number, never the word grade, never a tier; the wording table lives in research/condition-format.js with a test that the strings 'grade' and any digit-dot-digit pattern do not appear in quick-look copy. The existing 'Check condition' button stays the only path to a grade and is unchanged",
+        "In scan mode (US-2237) with the option on, the pre-read runs for at most 6 cards per page and only for cards whose first image is already loaded in the DOM (no extra image fetch); the result adjusts nothing in the price-vs-claim badge and adds only a small 'quick look' marker that opens the defects list",
+        "Options page gains 'Quick look on this device' (default on where detect() is available, hidden where it is not) and a 'Download the on-device model' action that calls LanguageModel.create() with a download progress monitor; the model download is never triggered silently on a content script",
+        "Server-side, POST /api/grading/public/grade-from-url accepts an optional pre_read object from the extension and stores it on the read for calibration (US-2708 pipeline, listing-ingest.ts), never uses it as an input to the grade (grading-engine skill: the prompt inputs are unchanged, so no prompt version bump), and the extension sends it only when usageTelemetry is on (vault/20-domain/extension-telemetry-consent.md)",
+        "extension-unified/test/local-model.test.cjs stubs a global LanguageModel and covers: unavailable path returns null, schema parse failure returns null, eBay exclusion, the 6-card cap, and that the quick-look copy never contains a grade",
+        "OPERATOR: on Chrome 138+ with the on-device model downloaded, open a Poshmark listing with a visible pill on the fabric and confirm the quick look names it before the paid read; on Firefox confirm the option is hidden and nothing else changes"
+      ],
+      "priority": 18
+    },
+    {
+      "id": "US-3067",
+      "passes": false,
+      "title": "Flip mode on sourcing sites: should I buy this, on ShopGoodwill and GoodwillFinds",
+      "description": "As a reseller sourcing online, I want the 'Should I flip this?' read (US-2238 flip mode: shadow grade + eBay comps, margin after fees, days to sell, buy or pass) on the sites where I actually buy inventory, so that the margin decision happens at the point of purchase. Flip mode today only injects into the six resale marketplaces in extension-unified/manifest.json; no crosslister runs anything on a sourcing site.",
+      "acceptanceCriteria": [
+        "Research adapters for shopgoodwill.com (item pages /item/<id>) and goodwillfinds.com (product pages) in extension-unified/research/selectors.js with assetIdPattern, gallery, title, price and the current-bid field for auctions, each carrying verified:false until the operator AC below sets lastVerified; manifest.json content_scripts and host-permissions.js gain both hosts and extension-unified/test/manifest-hosts.test.cjs proves the three lists agree",
+        "Flip mode on an auction page uses the current bid plus the site's stated buyer premium and shipping estimate as the cost basis and says so in the card ('at the current bid of $X plus $Y fees'); a fixed-price page uses the listed price. The fee table lives in research/flip-format.js with a source comment per number and a test (flip-format.test.cjs) covering both bases",
+        "POST /api/flipdesk/scout/appraise-url (services/edge-functions/src/routes/flipdesk-scout.ts around line 545) accepts the two hosts in its marketplace field and, per the anti-crawl contract in lib/listing-ingest.ts, fetches only the image URLs the extension sends, never the page; a test in services/edge-functions/src/tests asserts a request naming either host with a page URL and no images is refused",
+        "Flip mode stays FlipDesk-gated on these hosts through the same three gates (content script, background entitlements cache, server) that US-2238 uses, and the anonymous condition read is not offered on them (a sourcing site is not a resale listing a buyer needs graded)",
+        "A 'Watch this lot' action on an auction page saves the item id and the flip verdict on-device in storage.local (no server row) and the popup lists watched lots with their verdict; the extension never bids, never auto-refreshes the page, and never navigates to a lot on its own (test, US-1876 rule)",
+        "Ending auctions: a watched lot whose end time (read from the page's own countdown element) is within 10 minutes gets an action badge count, nothing more; no notifications permission is added",
+        "extension-unified/test/sourcing-adapters.test.cjs covers id extraction, cost-basis maths for both hosts, the no-navigate rule and the watched-lot cap (50)",
+        "OPERATOR: open one live ShopGoodwill auction and one GoodwillFinds product, run flip mode, confirm the gallery, title and current bid resolve and set lastVerified on both adapters"
+      ],
+      "priority": 19
+    },
+    {
+      "id": "US-3068",
+      "passes": false,
+      "title": "Return shield: the grade evidence pack on the eBay return page itself",
+      "description": "As a FlipDesk seller looking at an item-not-as-described return in eBay Seller Hub, I want the extension to show me the evidence pack GradeThread already assembled (dated grade report, the disclosure the listing carried, the drafted response) right there, so that I answer the case from the page I am on instead of finding the item in FlipDesk first. US-2703's children built the pack (US-2704 publication snapshots, US-2705 matcher, US-2706 return evidence and review surface); this is the extension surface for it, under the epic's honesty constraints: no surface claims evidence wins a case, no draft cites a defect the grade report does not contain, and a pack that would prove an undisclosed flaw refuses to assemble.",
+      "acceptanceCriteria": [
+        "New content script extension-unified/research/return-shield.js matched only on eBay Seller Hub return and case URLs (ebay.com/sh/rtn/*, ebay.com/sh/cases/*, and the returns detail path; the exact match list is pinned in manifest-hosts.test.cjs). It reads the return id and the item id from the URL only, never from the page (extend ebay-no-scrape.test.cjs's source assertion to this file without weakening it)",
+        "The script asks background.js (new GT_RETURN_PACK message) for the pack; background.js calls POST /api/flipdesk/ebay/returns/:returnId/evidence with a preview flag (flipdesk-ebay.ts around line 6567, and /evidence/preview at 6509) using the extension token through extensionOrUserAuthMiddleware (middleware/extension-or-user-auth.ts); the route already scopes to the workspace owner and the tenant-isolation case is extended for the extension-token path",
+        "The overlay (shadow root, overlay-host.js) shows: the verdict from US-2705 (assemble / refuse-undisclosed / no-report), the dated report summary, the disclosure snapshot, the drafted paragraph with a Copy button, and 'Open in FlipDesk' through attribution.js. On refuse-undisclosed it shows the US-2703 sentence telling the seller to consider a refund and offers nothing to copy",
+        "Nothing is submitted to eBay by the extension: no form is filled, no button on the eBay page is clicked, no file is attached. Sending evidence stays on the FlipDesk post-sale surface (US-2706) where the eBay API does it. A source-assertion test proves return-shield.js contains no click(, no form submit and no input value assignment",
+        "Copy rule: no string in the overlay says or implies the case will be won; the wording table lives in research/condition-format.js with a test that the words win, guaranteed and reversed do not appear",
+        "A return for an item the account did not sell (no listing row for that item id under the workspace) renders nothing, and the request is not retried on that tab (test with a fake fetch returning 404)",
+        "extension-unified/test/return-shield.test.cjs covers URL parsing, the three verdict renders, the no-submit assertion and the 404 path",
+        "OPERATOR: on a real eBay return for an item graded and published through FlipDesk (the same case the US-2703 epic is waiting on), open Seller Hub with the extension and confirm the pack renders; note the outcome on both stories"
+      ],
+      "priority": 20
+    },
+    {
+      "id": "US-3069",
+      "passes": false,
+      "title": "In-browser background removal: no photo leaves the seller's machine, and no per-image API bill",
+      "description": "As a seller preparing listing photos, I want backgrounds removed instantly in the browser with no upload and no credit, so that my photos are ready before the lister runs; as GradeThread, we want to stop paying remove.bg per image (REMOVE_BG_API_KEY in services/edge-functions/src/routes/flipdesk-images.ts /remove-bg) and to offer a feature Crosslist charges for, free. The lister attaches item_photos rows, so processing in the web app's photo editor is what feeds every extension channel.",
+      "acceptanceCriteria": [
+        "src/hooks/use-remove-bg.ts gains a local path using @imgly/background-removal (ONNX Runtime Web, WebGPU with WASM fallback) loaded lazily in a Web Worker; the first use downloads the model once and caches it via the library's cache; the hook reports progress and falls back to the existing server /remove-bg call only when WebGPU and WASM are both unavailable or the local run throws",
+        "src/components/flipdesk/photo-editor-dialog.tsx and photo-manager.tsx show 'Removing background on this device' with a progress bar and the same before/after preview they show today; the result goes through the existing client-side downsize and EXIF strip before upload (the item-photos path is public, US-276, so metadata never rides along)",
+        "GET /api/flipdesk/images/capabilities gains local_remove_bg: true so clients that read it (iOS, Android via ExtensionQueue services do not) keep working; the server /remove-bg route is unchanged but its call count is expected to fall, and the admin AI spend page (admin-ai-spend.ts) keeps counting it",
+        "Vite: the model and WASM assets are not bundled; they load from the library's CDN path or from /public/models if the operator vendors them; the build size guard in vite.config.ts (or scripts) does not grow by the model; document the choice in vault/30-platform/ (vault skill, same-commit rule)",
+        "Quality gate: a src/test fixture of 5 garment photos (flat lay, hanger, on-body, dark garment on dark background, white garment on white) runs through the local path in a Playwright spec and the mask coverage is compared to the server result within a stated tolerance; the story cannot close on a visual claim without that number",
+        "Bulk: the photograph stage (src/pages/flipdesk/photograph.tsx) offers 'Remove all backgrounds' for an item, processes sequentially in the worker, and shows per-photo state; cancel stops after the current photo",
+        "npm run ui:check reports zero enforced findings and the added UI uses existing shadcn components",
+        "OPERATOR: on the reference laptop without a discrete GPU, time the first and second removal for a 12-megapixel photo and record both in the notes; if the second exceeds 4 seconds, the default stays server-side and the local path becomes opt-in"
+      ],
+      "priority": 21
+    },
+    {
+      "id": "US-3070",
+      "passes": false,
+      "title": "Label reader from the context menu: right-click a tag photo, get brand, size, RN and style code",
+      "description": "As a shopper or seller looking at a care-tag photo on any site, I want to right-click it and have GradeThread read the brand, size, fibre content, RN and style code, so that I can check a listing's claims or start an item without retyping a label. US-9033 builds the anonymous, rate-limited POST /api/grading/public/tag-read endpoint on extractTagGroundTruth; the extension already has one context menu item (gt-grade-image, 'Grade this image') and this adds the second.",
+      "acceptanceCriteria": [
+        "Depends on US-9033. background.js registers a second contextMenus item gt-read-label ('Read this label', image contexts) beside gt-grade-image; the handler fetches the image bytes in the service worker, sends them to POST /api/grading/public/tag-read as multipart within the 8MB cap, and never sends the page URL",
+        "The result renders in the research overlay if a supported adapter is on the page, else in a minimal shadow-root card research/overlay-host.js can mount on any page (the card is the only injection on unsupported hosts and is removed on Escape or after 60 seconds). It shows RN, brand (from the RN sighting when the endpoint returns one), size, fibre content and style code, each with a Copy button, and a 'Look up this RN' link to /tools/rn-lookup?rn=<rn> built through attribution.js",
+        "Rate-limit and capacity answers from the endpoint (rate_limited, at_capacity per US-9033) render as their own sentence with the retry window; no retry is issued automatically",
+        "When the seller is signed in and the page is one of their own FlipDesk items in a marketplace tab (own-listing detection), the card offers 'Save to this item', which posts the fields to the existing item attributes route the review page uses (src/pages/flipdesk/review.tsx names it) through background.js; anonymous users see no save action",
+        "The endpoint's no-persist rule holds on the client too: the extension keeps neither the image nor the result in storage.local beyond the card's lifetime (test)",
+        "extension-unified/test/label-reader.test.cjs covers: menu registration, 8MB refusal client-side before upload, the rate-limited render, the 60-second teardown and the no-persist rule with a fake fetch",
+        "OPERATOR: right-click a real care-tag photo on a Poshmark listing and on an unrelated site (a blog post) and confirm both render; confirm the RN link lands on the RN page with the box prefilled"
+      ],
+      "priority": 22,
+      "dependsOn": []
+    },
+    {
+      "id": "US-3071",
+      "passes": false,
+      "title": "Turn on revise and relist on every extension channel, and verify Vinted delist",
+      "description": "As a seller, I want a price or description change in FlipDesk to reach Poshmark, Mercari, Grailed and Vinted, and a relist to run from the button, so that the extension channels stay in sync the way the eBay channel does. US-9202 and US-9203 shipped the flows (GT_LISTER_REVISE, GT_LISTER_RELIST, revise-flow.test.cjs, relist-flow.test.cjs) but every per-platform revise and relist block in extension-unified/lister/selectors.js is enabled:false with lastVerified:null, Vinted delist is unverified, and the gate refuses enabled:true with a null lastVerified. This is verification work that needs a human with a logged-in account per platform; CI cannot do it.",
+      "acceptanceCriteria": [
+        "For each of Poshmark, Mercari, Grailed and Vinted: the revise block's selectors are verified against the live edit form from a logged-in test account, enabled is set to true, version is bumped and lastVerified set to the date, in BOTH lister/selectors.js and public/extension/marketplace-selectors.json (config-sync.test.cjs), and MARKETPLACE_EXTENSION_FLOWS in src/lib mirrors it (the drift test named in selectors.js's comment at the revise block)",
+        "The same for each relist block; Grailed delist stays never (native confirm dialog) and its relist therefore documents that the old listing must be ended by hand, in the queue row's needs-you sentence",
+        "Vinted delist is verified on at least the .com, .co.uk, .fr and .de locales (vinted-locales.test.cjs lists them) and enabled; an uncovered locale still reports 'list manually' rather than guessing",
+        "Each verified flow is captured as a DOM fixture with scripts/capture-selector-fixture.mjs (the selector snapshot story) so the verification is repeatable in CI from then on; the story cannot close without the fixtures committed",
+        "src/lib/__tests__/marketplace-mechanism.test.ts and the per-channel disclosure copy (US-2475, MARKETPLACE_MECHANISM) still pass; the Marketplaces page's per-channel capability list (list / delist / revise / relist) is generated from the same flags so the UI cannot promise a flow that is off",
+        "Store release: extension-unified/manifest.json bumped to the next version above 1.1.0, SUBMISSION.md's version lines updated, and the Chrome, Firefox and Edge uploads recorded in the notes with the reviewed date (the US-3058 pattern)",
+        "OPERATOR: run one revise and one relist on each of the four platforms from a test account after the store build is live and record the outcome per platform in the notes; a platform that fails goes back to enabled:false in the same session, not later"
+      ],
+      "priority": 23
     }
   ]
 }
