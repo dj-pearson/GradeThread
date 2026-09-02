@@ -8,7 +8,7 @@ code_refs:
   - extension-unified/test/attribution.test.cjs
   - src/lib/ad-attribution.ts
   - src/lib/utm-attribution-sync.ts
-reviewed: 2026-08-07
+reviewed: 2026-09-02
 tags: [extension, attribution, growth, funnel, utm]
 summary: Every link out of the browser extension goes through one tagger, and the install funnel is joined to signups by a campaign tag rather than by an install identifier.
 ---
@@ -79,6 +79,26 @@ The per-install `instanceId` is a grading rate-limit key and stays out of these
 URLs, which is what keeps the store data-collection disclosures in
 `extension-unified/SUBMISSION.md` true. Do not "improve" the join by shipping the
 instance id to the site.
+
+## Where to look (US-9210 AC3)
+
+**PostHog insight: [Extension install funnel, weekly](https://us.posthog.com/project/464669/insights/BXwMwdiW)**
+— three weekly series: pageviews tagged `utm_source=extension` with
+`utm_campaign=install` (a first-run page click, the nearest thing to an install
+the site can see), pageviews from `popup` or `overlay` (a read that clicked
+through), and `extension_install_cta_click` on the site. Created 2026-09-02 and
+already carrying real rows: 3 installs and 3 reads in the week of 2026-08-09, 4
+and 5 the week after.
+
+**The signup leg is NOT in that insight, and that is deliberate.** `trial.started`
+and `signup_started_from_tool` have never been recorded in this project -- checked
+over 180 days on 2026-09-02, zero rows for either. Analytics only initialises
+after the visitor grants consent, so a web signup by anyone who declined is
+invisible to PostHog by design. Signup attribution rides the first-party path
+instead: `captureUtms()` stores the set on landing, `utm-attribution-sync.ts`
+POSTs it once the visitor authenticates, and the admin analytics channel table
+groups by source/medium/campaign. Read the signup half there, not in PostHog, and
+never sum the two.
 
 ## The failure mode this replaced
 
