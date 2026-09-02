@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3081",
+  "nextId": "US-3087",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3476,6 +3476,94 @@
         "All six ios/Scripts guards pass under npm run verify (no ungated print, no URLSession.shared, no bare user-facing string, no force unwrap) with new strings in Localizable.xcstrings, and the iOS CI build is green"
       ],
       "priority": 13
+    },
+    {
+      "id": "US-3081",
+      "passes": false,
+      "title": "Standing Scout: saved sourcing triggers that sweep eBay every 15 minutes and push a buy-now alert",
+      "description": "As a FlipDesk seller, I want to save a sourcing trigger (keywords, brand, category, and either a max total price or a minimum margin) that keeps watching new eBay listings while I am away, so that I get a push the moment an underpriced item appears and can buy it before another reseller does.",
+      "acceptanceCriteria": [
+        "Migration adds scout_triggers (user_id, label, query, brand, category_id, max_total_cents nullable, min_margin_pct nullable, min_grade nullable, active, last_swept_at, hits_count) and scout_trigger_hits (trigger_id, user_id, ebay_item_id, total_cents, asking_cents, shipping_cents, shadow_grade, margin_pct, url, alerted_at) with a UNIQUE (trigger_id, ebay_item_id), RLS user_id = auth.uid() on both, and the US-1108 triple (idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer)",
+        "New GateFlags key scoutTriggers in services/edge-functions/src/lib/pricing-config.ts plus a numeric scoutTriggersMax per plan (free 0, starter 0, pro 5, business 20), and the SAME commit ships the pricing_plans migration that writes the flag into every existing gate_flags row, because a key missing from the DB row resolves to false for everyone (see the NOTE above the autolister flag)",
+        "CRUD routes GET/POST/PATCH/DELETE /api/flipdesk/scout/triggers in routes/flipdesk-scout.ts, tenant-scoped to c.get('workspaceOwnerId') ?? c.get('userId') on every query, gated by requireFlipdesk({feature:'scoutTriggers'}); creating a trigger past scoutTriggersMax returns 402 with the plan-gate body; routes/tenant-isolation_test.ts gains cases for all four verbs plus the viewer-role refusal",
+        "New cron POST /api/jobs/scout-triggers (requireJobSecret + acquireJobLock, mounted under /api/jobs/* in main.ts) registered in COOLIFY.md on */15 * * * * so services/edge-functions/src/tests/cron-registry-drift_test.ts passes; one sweep groups active triggers by (query, brand, category_id) and issues ONE Browse item_summary/search per group with sort=newlyListed and filter buyingOptions:{FIXED_PRICE|BEST_OFFER}, so 40 triggers on 12 distinct searches cost 12 calls, not 40",
+        "Daily Browse call budget for the sweep is a system_settings value (default 2000) read via getSetting; when the budget is spent the sweep exits early with skipped:'budget' and records the fact in cron_runs, and a unit test proves the sweep stops at the budget with no further ebayFetch calls",
+        "Total price = asking price + the cheapest shippingOptions.shippingCost from the item summary (0 when free shipping); a listing whose shipping cost is absent from the summary is compared on asking price alone and the hit row stores shipping_cents null, never 0",
+        "A max_total_cents trigger fires when total price <= max_total_cents; a min_margin_pct trigger fires when the condition-adjusted margin from scoreCandidate (lib/scout-scoring.ts, using cachedValueAtGrade) is >= min_margin_pct; a min_grade trigger additionally requires the shadow grade >= min_grade so a cheap-because-ruined listing is skipped, and each of the three modes has its own unit test with a listing just above and just below the line",
+        "Every hit inserts scout_trigger_hits and the UNIQUE index dedupes: the same eBay item never alerts twice for the same trigger, proven by a test that runs the sweep twice over the same fixture and sees one push",
+        "Each new hit calls notifyUser with a new NotifyInput type scout_trigger_hit (with its own notification_preferences key so it can be muted) and a transactional push helper pushScoutTriggerHit in lib/transactional-push.ts with category scout.trigger_hit and data { kind: 'scout_trigger_hit', triggerId, ebayItemId, url }; the push body names the item, the total price and the threshold it beat (e.g. 'Arc'teryx Beta AR at $62 total, under your $80 cap')",
+        "Shadow grading of trigger hits draws from the seller's AI-action quota through reserveAiActionSafe like /appraise does; when the quota is exhausted the sweep still evaluates max_total_cents triggers (no AI needed) and skips margin/grade triggers with a once-per-day notification saying why",
+        "The web sourcing page src/pages/flipdesk/sourcing.tsx gains an 'Alerts' tab (?tab=alerts) that lists triggers with a toggle, an edit sheet, the hit count, and a hits feed where each row opens the eBay listing in a new tab; free and starter plans see the tab with an upgrade prompt instead of a create button",
+        "The hits feed and the push deep link open the eBay listing URL returned by the Browse API for that item (itemWebUrl), never a search page; tapping the push on web routes to /dashboard/flipdesk/sourcing?tab=alerts&hit=<id>",
+        "The sweep is off until the ops flag scout_triggers_sweep_enabled in lib/feature-flags.ts is on (fail-closed), and PENDING_MIGRATIONS.md lists the two migrations"
+      ]
+    },
+    {
+      "id": "US-3082",
+      "passes": false,
+      "title": "eBay Partner Network: affiliate attribution on every outbound eBay link from Scout, Prospect and trigger alerts",
+      "description": "As the operator, I want every eBay listing link that GradeThread hands a seller (Scout results, Prospect comps, Standing Scout alerts) to carry eBay Partner Network attribution, so that a purchase made through our alert earns a commission on top of the subscription.",
+      "acceptanceCriteria": [
+        "OPERATOR: apply at partnernetwork.ebay.com for an eBay Partner Network (EPN) publisher account naming gradethread.com and the FlipDesk app as the properties, create one campaign for FlipDesk sourcing, and store the campaign id in Coolify as EBAY_EPN_CAMPAIGN_ID (reference only, value never written to the repo); vault/10-ops/env-reference.md gains the row and the runbook note says approval typically takes days and needs a live site with real traffic",
+        "OPERATOR: read the EPN rate card and program terms at approval time and record in the same vault note the apparel commission rate, the per-item cap, and the click-to-purchase attribution window, dated, so the margin math is checkable and re-checkable",
+        "When EBAY_EPN_CAMPAIGN_ID is set, searchBrowseComps and both newlyListed searches in lib/ebay-client.ts send the header X-EBAY-C-ENDUSERCTX: affiliateCampaignId=<id>,affiliateReferenceId=<ref> and map itemAffiliateWebUrl into the result's url field, falling back to itemWebUrl when eBay omits it; when the env var is unset the header is NOT sent and a unit test asserts both branches on a recorded fixture",
+        "affiliateReferenceId is an opaque per-user token (HMAC of the user id under an existing server secret, truncated), never the raw user uuid or email, so eBay's click reports cannot be joined to a person without our key; a test asserts the value is not the uuid",
+        "The Scout results, Prospect comps, and the Standing Scout hits feed and push (US-3081) all use the url field, so the affiliate link flows through with no per-surface link building; grep for '/itm/' string-building in src/ and the edge returns nothing new",
+        "Disclosure: the sourcing page and the alerts tab carry a one-line 'GradeThread may earn a commission when you buy through these eBay links; it never changes the price you pay' note, and src/pages/legal/privacy.tsx plus the terms page state the EPN relationship, per FTC endorsement guidance and the EPN terms",
+        "The browser extension (extension-unified) is EXPLICITLY excluded: its links stay plain and it sends no affiliate parameter, because EPN treats browser extensions and toolbars as software applications needing separate pre-approval, and an extension guard test in extension-unified/test fails if 'campid' or 'mkcid' or 'affiliateCampaignId' appears in the extension bundle",
+        "Attribution reporting: a nightly job or the existing analytics path records EPN click and purchase counts from the EPN reporting export (manual CSV import is acceptable for v1) into a gt_epn_reports table so the admin revenue page can show commission next to subscription revenue; if EPN offers no API at build time, the AC is met by the CSV importer and a vault note saying so"
+      ],
+      "dependsOn": [
+        "US-3081"
+      ],
+      "notes": "2026-09-02: EBAY_PARTNER_ACCOUNT_SID and EBAY_PARTNER_AUTH_TOKEN are ALREADY SET on the Coolify edge service (names only; values live in Coolify). These are the eBay Partner Network Reporting API credentials (Account SID + Auth Token pair), so AC8's click/purchase report import can call the reporting API directly instead of a CSV import. They are NOT the campaign id: link attribution (AC1/AC3) still needs an EPN campaign id, to be stored as EBAY_EPN_CAMPAIGN_ID once the EPN account and campaign exist. Buyer-side check done the same day: no buyer web surface (src/pages/buyer, src/components/buyer) links out to an eBay listing URL today, and the extension stays excluded on both the buyer and seller sides (EPN software-application rule), so there is no buyer-side link work in scope. | 2026-09-02: EPN campaign EXISTS. Campaign id = 5339154788 (campid= in the EPN link generator output; not a secret, it is in every public link). Link anatomy for reference: mkcid=1 (channel = EPN), mkrid=711-53200-19255-0 (eBay US rotation id, siteid=0), toolid=10001 (link generator), customid= is the slot for our per-user reference (AC4), and ssspo/sssrc/ssuid/stype/widget_ver/media are eBay share-widget tracking that the Browse API affiliate URL will not carry and we do not need. Still to do: set EBAY_EPN_CAMPAIGN_ID=5339154788 on the Coolify edge (AC1) and confirm the account is approved, not just created."
+    },
+    {
+      "id": "US-3083",
+      "passes": false,
+      "title": "Extension: a Standing Scout alert opens the eBay listing with the Flip panel already run",
+      "description": "As a FlipDesk seller who tapped a Standing Scout alert, I want the listing to open with the extension's Flip panel already expanded and showing the verdict against my trigger, so that the buy decision takes one look and one click instead of a second round of tapping.",
+      "acceptanceCriteria": [
+        "The alert URL (US-3081 hits feed and push) carries a fragment #gt-flip=<triggerId> appended to the eBay item URL, and extension-unified/research/marketplace.js reads it on load: when caps.sellerEnabled is true it calls the flip section's appraise path without the CTA click and scrolls the panel into view; when sellerEnabled is false the fragment is ignored and the overlay behaves exactly as today",
+        "The auto-run happens at most once per page load and never on a plain listing URL without the fragment, proven by a test in extension-unified/test that loads a fixture DOM with and without #gt-flip and counts calls to the appraise-url endpoint (1 and 0)",
+        "The Flip panel shows a 'Matched your trigger: <label>' line with the threshold beaten (max total price or minimum margin) when the fragment names a trigger the seller owns; the trigger label is fetched through GET /api/flipdesk/scout/triggers/:id and a 404 or 403 renders the panel with no trigger line rather than an error",
+        "An 'Add to inventory' button in the Flip panel posts to /api/flipdesk/scout/buy with the trigger id in the body, and /buy records trigger_id on the inventory_items row's acquisition metadata so the seller's Money tab can later show profit per trigger; tenant-isolation_test.ts gains the case for a trigger id the caller does not own (403, no write)",
+        "When the extension is not installed, the web alerts tab shows a one-time dismissible banner 'Get the buy-or-pass verdict on the listing itself' linking to the install funnel from US-1757; the dismissal persists in localStorage and the banner never shows on iOS or Android web views",
+        "The extension adds NO affiliate parameters to any link (US-3082 keeps the eBay Partner Network attribution server-side and out of the extension); the existing extension guard set passes and the bundle contains no 'affiliateCampaignId' string",
+        "extension-unified/README.md and TESTING.md document the #gt-flip fragment and the manual test on a live eBay listing, and the adapter version in marketplace-selectors.json is bumped"
+      ],
+      "dependsOn": [
+        "US-3081"
+      ]
+    },
+    {
+      "id": "US-3084",
+      "passes": false,
+      "title": "iOS and Android: Standing Scout triggers and alert handling at parity with the web",
+      "description": "As a FlipDesk seller on my phone, I want to create and manage sourcing triggers and tap a trigger alert straight into the listing, so that the feature that only matters when I am away from my desk actually works away from my desk.",
+      "acceptanceCriteria": [
+        "iOS: a Triggers screen under Tools next to Scout lists, creates, edits, toggles and deletes triggers through the /api/flipdesk/scout/triggers routes, using the shared client's plan-gate handling so a 402 shows the upgrade sheet with the action disabled (the US-1374 posture); an XCTest covers list decoding, the 402 branch and the trigger form validation (a trigger needs a query and exactly one of max total price or minimum margin)",
+        "Android: the same screen in Kotlin/Compose under scout/, through EdgeApi so the 402 reaches the shell's plan-gate dialog (US-1367), with JUnit cases mirroring the iOS ones",
+        "Both apps register the push category scout.trigger_hit and route data.kind == 'scout_trigger_hit' by opening the listing url in the system browser (SFSafariViewController / Chrome Custom Tab) with the #gt-flip fragment preserved, falling back to the Triggers screen when url is missing; a unit test covers both branches",
+        "Both apps expose the scout_trigger_hit notification preference in Settings alongside the existing categories so the alert can be muted without muting sales",
+        "The web-only sourcing Alerts tab shows nothing that the phones cannot do, and the parity-auditor agent run against this feature reports no gap"
+      ],
+      "dependsOn": [
+        "US-3081"
+      ]
+    },
+    {
+      "id": "US-3086",
+      "passes": false,
+      "title": "Lululemon size-dot rim: decode a transcription that starts mid-circle, and re-run the backfill on undecoded codes",
+      "description": "As a seller, I want a Lululemon size dot to decode wherever the OCR started reading around its circular rim, so that the style number reaches the listing instead of a raw rim string. Evidence from the 2026-09-02 backfill (US-3085) on prod: 10 Lululemon items got a code, 5 decoded (M3BF7S, M5609S, M7AK1S, M7BA0S, W5DLXS) and 5 were filed raw because the rim was transcribed from a random start point: S7502T9LM4C847, LW3DUTS224000011302, LW5EGTS253, 0000F80000DLW5B0303, ERNSFD78042289140204. Each contains the L?[WM]xxxxC style number as a substring. styleCodeSpellings (lib/listing-style-code.ts) only tries dot-separated prefixes and one confusable letter slot; a rim that wraps has no dots at the right places.",
+      "acceptanceCriteria": [
+        "styleCodeSpellings (or a Lululemon-scoped sibling) also tries the rotations of a long rim string: every window that matches the pack's anchored style-number shapes, in the order the decoder specs already define, and only inside a pack that carries decoders. Test: the five raw strings above each decode to a six-character canonical code; a Nike DD1391-100 and an unknown-brand ABC-123 are unchanged.",
+        "The decoder bar holds: the rotation search runs only inside an already-resolved pack (it re-confirms the pack's brand, never recovers one), and vault/20-domain/brands/brand-kb-decoder-bar.md gains a dated paragraph saying why a substring search is acceptable here and nowhere else (same commit).",
+        "scripts/backfill-tag-reads.ts gains --redo-undecoded: items whose attributes.mpn does not decode under their brand pack are re-planned from the stored mpn WITHOUT a new OCR call (no spend), and the canonical code replaces the raw one on attributes.mpn and the MPN / Style Code aspect only where the aspect still carries the raw value (inventory_derived provenance).",
+        "OPERATOR: run the backfill with --redo-undecoded --dry-run, confirm the five items above decode, then --apply, and paste the summary into this story's note."
+      ],
+      "priority": 11
     }
   ]
 }
