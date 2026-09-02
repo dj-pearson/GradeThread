@@ -126,7 +126,10 @@ const CONFIG_CACHE_KEY = "ccConfigCache";
 // reload; a token set/clear force-invalidates it so it reflects immediately.
 const ENT_TTL_MS = 5 * 60 * 1000;
 const ENT_CACHE_KEY = "gtEntCache";
-const MAX_RECENT = 20;
+// US-3057: 100, up from 20. The Reads tab filters in memory and paints at
+// most 40 rows, so a longer list costs nothing to open; the By seller
+// aggregate and the stats strip read all of it.
+const MAX_RECENT = 100;
 // Per-listing grade recall (so revisiting an item returns the SAME grade instead
 // of re-rolling a fresh — and slightly different — read, and doesn't spend quota).
 // Keyed by the normalized listing URL; a TTL keeps a stale read from masking a

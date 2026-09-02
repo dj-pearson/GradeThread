@@ -3062,19 +3062,6 @@
       "notes": "[BUILT 2026-09-02] New: extension-unified/queue/queue-view.js (pure view model, shared by popup + worker) and test/queue-view.test.cjs (11 groups; asserts cancel is queued-only, failures count toward the badge, every dead row carries a reason, and KIND_LABELS matches the edge EXTENSION_QUEUE_KINDS). background.js gains getQueue/cancelQueueRow and the GT_QUEUE_STATE / GT_QUEUE_CANCEL / GT_QUEUE_RUN_NOW / GT_CC_RUN_ACTIVE handlers (internal only — deliberately NOT in EXTERNAL_TYPES). manifest background.scripts + importScripts updated in lockstep. popup.html/js/css: work summary, queue block, reordered Selling panel, collapsed Channels with live count, Reads action button, footer link to the options page. Edge: flipdesk-extension-queue.ts withItemTitles() on GET only. Web: use-extension-queue.ts item_title, marketplaces.tsx claimed-row Cancel removed + revise/relist described + rows named. Verified with a stubbed-chrome Playwright render of popup.html at 340px on both tabs; 47/47 extension guards, tsc -b and eslint clean."
     },
     {
-      "id": "US-3057",
-      "passes": false,
-      "title": "Extension revision: search and marketplace filters over a longer read history",
-      "description": "Found in the 2026-09-02 extension deep dive. recentReads is capped at 20 (background.js MAX_RECENT) and the Reads tab lists them in one scroll. A shopper who read thirty jackets across three sites last week cannot find the one they want to go back to, and the By seller view only aggregates what is still in the last twenty.",
-      "acceptanceCriteria": [
-        "MAX_RECENT rises to 100; the options page Your data count and Clear still cover the whole list, and the stats strip and By seller aggregate over all of it.",
-        "The Reads tab gets a filter box (matches title and seller, case-insensitive) and marketplace chips that narrow both Recent reads and By seller; an empty result says what was filtered, not No reads yet.",
-        "Filtering runs on the in-memory list with no storage round trip per keystroke, and the list is virtualized or capped at 40 rendered rows so the popup stays under 100ms to paint with 100 reads.",
-        "A zero-dep test covers the filter function (pure, in research/ or queue/-style module) for title, seller and marketplace matches."
-      ],
-      "priority": 18
-    },
-    {
       "id": "US-3058",
       "passes": false,
       "title": "Extension revision: verify the redesigned overlay on live marketplace pages and ship 1.1.0 to the stores (operator)",

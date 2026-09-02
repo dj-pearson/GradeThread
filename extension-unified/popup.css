@@ -502,6 +502,40 @@ kbd {
   white-space: nowrap;
 }
 
+/* ── US-3057: the history filter ────────────────────────────────────────────
+   A search field and a row of marketplace chips. A chip is a toggle: pressed
+   = that marketplace only (several may be pressed). The field and the chips
+   share one hairline weight with the rest of the panel. */
+.pop-filter { display: flex; flex-direction: column; gap: 8px; }
+.pop-filter-q {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+}
+.pop-filter-q::placeholder { color: var(--muted); }
+.pop-filter-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pop-filter-chips:empty { display: none; }
+.pop-chipbtn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg-2);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pop-chipbtn[aria-pressed="true"] { background: var(--navy); border-color: var(--navy); color: #fff; }
+.pop-chipbtn .n { opacity: 0.7; font-weight: 500; }
+
 /* ── the compare card ─────────────────────────────────────────────────────── */
 .pop-compare {
   appearance: none;
@@ -1054,6 +1088,9 @@ kbd {
   .pop-site { background: #212137; border-color: #2c2c44; }
   .pop-lock { background: #1c1c30; border-color: #2c2c44; }
   .pop-flip { background: #1c1c30; border-color: #2c2c44; }
+  .pop-filter-q { background: #1c1c30; border-color: #3a3a56; color: #f5f5f5; }
+  .pop-chipbtn { background: #1c1c30; border-color: #3a3a56; color: #d0d0dc; }
+  .pop-chipbtn[aria-pressed="true"] { background: #24487f; border-color: #24487f; color: #fff; }
   .pop-flip-rows dt, .pop-flip-reason { color: #d0d0dc; }
   .pop-empty { border-color: #3a3a56; }
 

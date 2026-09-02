@@ -44425,6 +44425,20 @@
       ],
       "priority": 17,
       "notes": "Done 2026-09-02. compare-tray.js gains bestValueKey (highest overallScore per dollar among rows with a score and a parsed price, ties to the higher score then the earlier pin, null unless two rows qualify so a lone row is never tagged) and summaryText (one plain line per row: title | marketplace | grade | price | verdict | best value). compare.js marks the best row with a Best value tag on the listing cell, tints the row, says which rows sit out for having no price (and prints no price read on them), and a Copy summary control writes the summary in the on-screen sort order to the clipboard; nothing is fetched. compare.css stacks the table into one labelled card per listing under 640px (thead hidden, each cell prints attr(data-label), the body never scrolls sideways) with the unpin control kept; rendered at 480 and 1000px and inspected. compare-tray.test.cjs covers the selection (ties, missing prices, missing scores, zero price, one-row case), the summary, and the page wiring. compare-theme.css regenerated, screenshot baseline regenerated, 50 extension files pass, eslint clean, popup-theme 6 pass."
+    },
+    {
+      "id": "US-3057",
+      "passes": true,
+      "title": "Extension revision: search and marketplace filters over a longer read history",
+      "description": "Found in the 2026-09-02 extension deep dive. recentReads is capped at 20 (background.js MAX_RECENT) and the Reads tab lists them in one scroll. A shopper who read thirty jackets across three sites last week cannot find the one they want to go back to, and the By seller view only aggregates what is still in the last twenty.",
+      "acceptanceCriteria": [
+        "MAX_RECENT rises to 100; the options page Your data count and Clear still cover the whole list, and the stats strip and By seller aggregate over all of it.",
+        "The Reads tab gets a filter box (matches title and seller, case-insensitive) and marketplace chips that narrow both Recent reads and By seller; an empty result says what was filtered, not No reads yet.",
+        "Filtering runs on the in-memory list with no storage round trip per keystroke, and the list is virtualized or capped at 40 rendered rows so the popup stays under 100ms to paint with 100 reads.",
+        "A zero-dep test covers the filter function (pure, in research/ or queue/-style module) for title, seller and marketplace matches."
+      ],
+      "priority": 18,
+      "notes": "Done 2026-09-02. MAX_RECENT is 100 (background.js); the options page's count and Clear already cover the whole key, and the stats strip and By seller aggregate over allReads. research/read-filter.js (pure, classic script + UMD) gives filterReads (every word of the query must match title or seller, case-insensitive; marketplace chips union; never mutates), marketplacesOf (present marketplaces, most reads first) and emptyCopy (names the filter rather than saying No reads yet), RENDER_CAP 40. The Reads tab gets a search field and marketplace chips (shown from two reads / two marketplaces up); storage is read once in renderReads and every keystroke or chip press repaints from memory (paintReads, no storage access), painting at most 40 rows with a Showing 40 of N note; By seller groups the same filtered in-memory list and shows the same filtered-empty copy. test/read-filter.test.cjs covers title, seller, marketplace, combined and whitespace queries, immutability, chips, empty copy, the cap, the single storage read and the whole-history stats. Screenshot baseline regenerated (--check clean), a11y scan clean, 51 extension files pass, eslint clean, popup-theme 6 pass."
     }
   ]
 }

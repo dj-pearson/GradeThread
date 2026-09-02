@@ -183,6 +183,21 @@ html[data-theme="dark"] .pop-flip {
   background: #1c1c30;
   border-color: #2c2c44;
 }
+html[data-theme="dark"] .pop-filter-q {
+  background: #1c1c30;
+  border-color: #3a3a56;
+  color: #f5f5f5;
+}
+html[data-theme="dark"] .pop-chipbtn {
+  background: #1c1c30;
+  border-color: #3a3a56;
+  color: #d0d0dc;
+}
+html[data-theme="dark"] .pop-chipbtn[aria-pressed="true"] {
+  background: #24487f;
+  border-color: #24487f;
+  color: #fff;
+}
 html[data-theme="dark"] .pop-flip-rows dt,
 html[data-theme="dark"] .pop-flip-reason {
   color: #d0d0dc;
@@ -415,6 +430,21 @@ html[data-theme="light"] .pop-lock {
 html[data-theme="light"] .pop-flip {
   background: var(--surface);
   border-color: unset;
+}
+html[data-theme="light"] .pop-filter-q {
+  background: var(--surface);
+  border-color: unset;
+  color: var(--fg);
+}
+html[data-theme="light"] .pop-chipbtn {
+  background: var(--surface);
+  border-color: unset;
+  color: var(--fg-2);
+}
+html[data-theme="light"] .pop-chipbtn[aria-pressed="true"] {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
 }
 html[data-theme="light"] .pop-flip-rows dt {
   color: var(--fg-2);

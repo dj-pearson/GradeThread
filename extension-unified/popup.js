@@ -439,14 +439,60 @@ async function initReadNow(host) {
   });
 }
 
-async function renderReads() {
+// ── US-3057: the history, filtered in memory ────────────────────────────────
+//
+// storage.local is read ONCE (renderReads); every keystroke and chip press
+// narrows `allReads` through the pure filter and repaints. The stats strip
+// and the By seller aggregate read the WHOLE list — a filter narrows what is
+// shown, not what the shopper has learned. At most RENDER_CAP rows are painted.
+const RF = self.GT_READ_FILTER;
+let allReads = [];
+const readFilter = { q: "", marketplaces: [] };
+
+function currentReads() {
+  return RF ? RF.filterReads(allReads, readFilter) : allReads;
+}
+
+function renderReadChips() {
+  const wrap = document.getElementById("readChips");
+  const box = document.getElementById("readFilter");
+  if (!wrap || !box || !RF) return;
+  box.hidden = allReads.length < 2; // one read needs no filter
+  wrap.textContent = "";
+  const markets = RF.marketplacesOf(allReads);
+  if (markets.length < 2) return; // one marketplace: the chip would be a label
+  for (const m of markets) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "pop-chipbtn";
+    b.dataset.marketplace = m.key;
+    b.setAttribute("aria-pressed", readFilter.marketplaces.includes(m.key) ? "true" : "false");
+    b.textContent = MARKETPLACE_LABELS[m.key] || m.key;
+    const n = document.createElement("span");
+    n.className = "n";
+    n.textContent = String(m.count);
+    b.appendChild(n);
+    wrap.appendChild(b);
+  }
+}
+
+function paintReads() {
   const ul = document.getElementById("reads");
-  const { recentReads } = await ext.storage.local.get("recentReads");
-  const list = Array.isArray(recentReads) ? recentReads : [];
-  renderReadStats(list);
-  if (!list.length) return; // keep the empty-state <li>
+  const more = document.getElementById("readMore");
+  if (!ul) return;
+  const list = currentReads();
   ul.textContent = "";
-  for (const r of list) {
+  if (more) more.hidden = true;
+  if (!list.length) {
+    const li = document.createElement("li");
+    li.className = "pop-empty";
+    const copy = RF ? RF.emptyCopy(readFilter, allReads.length) : null;
+    li.textContent = copy || "No reads yet. Open a listing and get a condition read. It will show up here with its grade.";
+    ul.appendChild(li);
+    return;
+  }
+  const cap = RF ? RF.RENDER_CAP : list.length;
+  for (const r of list.slice(0, cap)) {
     const li = document.createElement("li");
     li.className = "pop-read";
     const a = document.createElement("a");
@@ -494,6 +540,43 @@ async function renderReads() {
     li.appendChild(a);
     ul.appendChild(li);
   }
+  if (more && list.length > cap) {
+    more.hidden = false;
+    more.textContent = "Showing " + cap + " of " + list.length + ". Search or pick a marketplace to narrow it.";
+  }
+}
+
+async function renderReads() {
+  const { recentReads } = await ext.storage.local.get("recentReads");
+  allReads = Array.isArray(recentReads) ? recentReads : [];
+  renderReadStats(allReads);
+  renderReadChips();
+  paintReads();
+}
+
+function wireReadFilter() {
+  const q = document.getElementById("readQuery");
+  const chips = document.getElementById("readChips");
+  if (!q || !chips) return;
+  const repaint = () => {
+    paintReads();
+    // By seller follows the same filter, when it has been opened.
+    if (sellersRendered) void renderSellers();
+  };
+  q.addEventListener("input", () => {
+    readFilter.q = q.value;
+    repaint();
+  });
+  chips.addEventListener("click", (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest(".pop-chipbtn") : null;
+    if (!btn) return;
+    const key = btn.dataset.marketplace;
+    const i = readFilter.marketplaces.indexOf(key);
+    if (i >= 0) readFilter.marketplaces.splice(i, 1);
+    else readFilter.marketplaces.push(key);
+    btn.setAttribute("aria-pressed", i >= 0 ? "false" : "true");
+    repaint();
+  });
 }
 
 /**
@@ -566,16 +649,20 @@ async function renderSellers() {
   const ul = document.getElementById("sellers");
   const empty = document.getElementById("sellersEmpty");
   const note = document.getElementById("sellersNote");
-  const { recentReads } = await ext.storage.local.get("recentReads");
-  const rows = self.GT_CC_SELLER.groupBySeller(recentReads);
+  // US-3057: the same in-memory list the Reads view paints, under the same
+  // filter. Grouped from the WHOLE history when nothing is filtered.
+  const filtered = currentReads();
+  const rows = self.GT_CC_SELLER.groupBySeller(filtered);
 
   ul.textContent = "";
   if (!rows.length) {
-    // Deliberately not "no sellers": the list is empty because nobody has been
-    // read TWICE yet, and saying so tells the shopper how to fill it.
     const li = document.createElement("li");
     li.className = "pop-empty";
-    li.textContent = self.GT_CC_SELLER.STRINGS.noneYet;
+    const filteredCopy = RF ? RF.emptyCopy(readFilter, allReads.length) : null;
+    // Deliberately not "no sellers": with no filter, the list is empty because
+    // nobody has been read TWICE yet, and saying so tells the shopper how to
+    // fill it. Under a filter, say what was filtered.
+    li.textContent = filteredCopy || self.GT_CC_SELLER.STRINGS.noneYet;
     ul.appendChild(li);
     note.hidden = true;
     empty.hidden = true;
@@ -583,7 +670,8 @@ async function renderSellers() {
   }
   note.hidden = false;
 
-  for (const row of rows) {
+  const cap = RF ? RF.RENDER_CAP : rows.length;
+  for (const row of rows.slice(0, cap)) {
     const li = document.createElement("li");
     li.className = "pop-read";
 
@@ -609,13 +697,14 @@ async function renderSellers() {
   }
 }
 
+let sellersRendered = false;
+
 function wireHistoryTabs() {
   const tabReads = document.getElementById("tabReads");
   const tabSellers = document.getElementById("tabSellers");
   const reads = document.getElementById("reads");
   const sellers = document.getElementById("sellers");
   const note = document.getElementById("sellersNote");
-  let sellersRendered = false;
 
   function show(which) {
     const onSellers = which === "sellers";
@@ -2523,6 +2612,7 @@ function applyCapabilities(caps) {
   wireLiveRefresh();   // US-3050
   wireFlip();          // US-3052
   wireHistoryTabs();
+  wireReadFilter();    // US-3057
   // US-2484: rendered UNCONDITIONALLY, not from renderSellerSections.
   //
   // It is a diagnostic — it runs our own bundled selectors against the page

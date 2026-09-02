@@ -124,6 +124,13 @@
               <span class="pop-stat-l" id="statGapLabel">vs. claimed</span>
             </div>
           </div>
+          <!-- US-3057: narrow the history in memory. The box matches title and
+               seller; the chips are the marketplaces present in the history.
+               Both apply to Recent reads and By seller alike. -->
+          <div class="pop-filter" id="readFilter" hidden>
+            <input type="search" id="readQuery" class="pop-filter-q" placeholder="Search reads by title or seller" aria-label="Search reads by title or seller" autocomplete="off" />
+            <div class="pop-filter-chips" id="readChips" role="group" aria-label="Filter by marketplace"></div>
+          </div>
           <div class="pop-section-head">
             <div class="pop-tabs" role="tablist" aria-label="Read history">
               <button type="button" class="pop-tab is-on" id="tabReads" role="tab" aria-selected="true" aria-controls="historyPanel">Recent reads</button>
@@ -137,6 +144,7 @@
           <ul class="pop-reads" id="sellers" hidden>
             <li class="pop-empty" id="sellersEmpty"></li>
           </ul>
+          <p class="pop-hint" id="readMore" aria-live="polite" hidden></p>
           <p class="pop-hint" id="sellersNote" hidden>
             Worked out from your own reads on this device. Nothing about a seller is
             ever sent to GradeThread.
@@ -580,6 +588,8 @@
     <script src="research/seller-memory.js"></script>
     <!-- US-2240: the tray key + helpers, shared with the worker and compare.html. -->
     <script src="research/compare-tray.js"></script>
+    <!-- US-3057: the pure history filter. Before popup.js, which reads self.GT_READ_FILTER. -->
+    <script src="research/read-filter.js"></script>
     <!-- US-3052: the flip panel's pure formatting + cache helpers, shared with
          the content script. Before popup.js, which reads self.GT_CC_FLIP. -->
     <script src="research/flip-format.js"></script>
