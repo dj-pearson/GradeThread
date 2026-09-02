@@ -381,10 +381,12 @@ measurement-first) took its median to $0.01 on the first two AFTER calls.
 Two more things the ledger says that the fill table cannot. Tag OCR ran on 11
 of 295 items: the pass only sees photos roled `tag`/`tag_2`, so the label
 reads that fill Country, Care and Product Line reach 4% of drafts until
-photo roles are assigned more often. And the refine pass shows zero cache
-reads, which means its cached system block is below the cache minimum
-and the per-category tool schema, the part that is large, is not under a
-breakpoint at all. Both are cheap to fix and belong ahead of US-3045.
+photo roles are assigned more often. And the refine pass shows a median of
+zero cache reads. That is consistent with the per-category tool schema (the
+large part) never being served from cache, but the `catalog_extract` feature
+tag is shared with the one-item extract path, whose schema differs on every
+call, so the ledger cannot say which. US-3047 separates the two and fixes
+whichever it is. Both findings belong ahead of US-3045.
 
 **AFTER** - two generations so far (one draft row: a regenerate upserts the
 same draft and keeps its created_at). The one draft filled Fabric Type,

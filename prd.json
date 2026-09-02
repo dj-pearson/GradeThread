@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3047",
+  "nextId": "US-3048",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3020,6 +3020,23 @@
         "The US-3044 gate story has its post-change numbers in its note before this story's prompt version is activated."
       ],
       "priority": 12,
+      "dependsOn": [
+        "US-3044"
+      ]
+    },
+    {
+      "id": "US-3047",
+      "passes": false,
+      "title": "Two per-draft cost lines the ledger exposed: refine-pass cache reads sit at zero, and tag OCR reaches 4% of drafts",
+      "description": "As the operator paying for AutoLister, I want the aspect-refine call to hit the prompt cache on the per-category tool schema and the tag-OCR pass to run on the label photo of most items, so that the two cheapest wins the 2026-09-02 ledger showed ($0.148 per draft) are taken before the observe-once refine (US-3045) is argued.",
+      "acceptanceCriteria": [
+        "AutoLister's refine call tags the ledger as feature 'autolister_refine' (a new enterAiFeature value) so it is separable from the one-item extract path that shares 'catalog_extract'; scripts/aspect-fill-report.ts lists it.",
+        "extractEbayAspects places a cache_control breakpoint on the LAST tool definition when caching is enabled, so the per-category tool schema (up to MAX_AI_ASPECTS aspects with up to MAX_ALLOWED_VALUES_PER_ASPECT values) is the cached prefix; a unit test pins the breakpoint on the tool and on the system block.",
+        "After a batch of 30+ items on prod, aspect-fill-report.ts shows median cache_read_tokens > 0 for 'autolister_refine' and the median $/call for that feature at or below the BEFORE catalog_extract median ($0.01); numbers go in this story's note.",
+        "processBatch assigns photo roles before generation when an item has no photo roled tag/tag_2: ai-photo-roles.ts (lightweight model, ~512 output tokens) runs once per such item, its cost lands in the item's ai_enrichment_log row, and it is skipped when every photo already carries a role.",
+        "After the same 30+ item batch, the ledger shows tag_ocr running on >= 60% of drafts (BEFORE: 11 of 295), and the Country of Origin / Garment Care / Product Line fill rates in the AFTER table are compared against BEFORE in this story's note."
+      ],
+      "priority": 10,
       "dependsOn": [
         "US-3044"
       ]
