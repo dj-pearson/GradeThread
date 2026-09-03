@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3096",
+  "nextId": "US-3110",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3362,9 +3362,13 @@
         "home.shortcuts: a two-column grid of up to six ProductSurface entries the seller picks in edit mode from ProductSurfaces.all, persisted in the same layout, each routing exactly as ToolsHubView does for that surface",
         "In a regular horizontal size class the sections lay out in two columns with the attention strip spanning both; the compact layout keeps one column. US-2905 owns the rest of the tablet work and is not blocked by or on this",
         "The time-saved tile is not built here: it is US-9207 AC3 and lands as flipdesk.stat-time-saved when that story does",
-        "All six ios/Scripts guards pass under npm run verify (no ungated print, no URLSession.shared, no bare user-facing string, no force unwrap) with new strings in Localizable.xcstrings, and the iOS CI build is green"
+        "All six ios/Scripts guards pass under npm run verify (no ungated print, no URLSession.shared, no bare user-facing string, no force unwrap) with new strings in Localizable.xcstrings, and the iOS CI build is green",
+        "The attention strip's chip builder ranks deadline first, then money, undated last, the rule src/pages/flipdesk/needs-you.ts rankNeedsYou encodes; the Swift port lives in ios/GradeThread/Dashboard/NeedsYou.swift with a test mirroring src/test's needs-you cases so both platforms agree on what is urgent",
+        "The Analytics and Certified grades link rows (DashboardView.swift analyticsCard, gradesCard) are removed as fixed sections and become ProductSurface entries the seller can pick into home.shortcuts; the default layout includes Certified grades only when the tenant has graded items",
+        "ToolRow (ToolsHubView.swift), AgingRow and DashboardCard (DashboardView.swift) are replaced by one NavRow in ios/GradeThread/Components/ before the new sections are added, so Home does not gain a fourth private copy of icon/title/subtitle/chevron"
       ],
-      "priority": 13
+      "priority": 13,
+      "notes": "2026-09-03 deep dive (ios/IOS_RESELLER_UX_DEEP_DIVE_2026-09-03.md): three ACs appended (Needs You ranking port, link rows folded into shortcuts, shared NavRow). The pill row in AC6 gains a Publish-drafts pill and the Marketplaces badge under US-3101; Recently prospected is US-3100 and depends on this story's HomeSection model."
     },
     {
       "id": "US-3081",
@@ -3385,7 +3389,8 @@
         "The web sourcing page src/pages/flipdesk/sourcing.tsx gains an 'Alerts' tab (?tab=alerts) that lists triggers with a toggle, an edit sheet, the hit count, and a hits feed where each row opens the eBay listing in a new tab; free and starter plans see the tab with an upgrade prompt instead of a create button",
         "The hits feed and the push deep link open the eBay listing URL returned by the Browse API for that item (itemWebUrl), never a search page; tapping the push on web routes to /dashboard/flipdesk/sourcing?tab=alerts&hit=<id>",
         "The sweep is off until the ops flag scout_triggers_sweep_enabled in lib/feature-flags.ts is on (fail-closed), and PENDING_MIGRATIONS.md lists the two migrations"
-      ]
+      ],
+      "notes": "2026-09-03: the manual Scout scan gets the same total-price rule (asking plus cheapest shippingOptions.shippingCost, null when absent) under US-3098, implemented once in lib/scout-scoring.ts so trigger hits and manual scans agree."
     },
     {
       "id": "US-3082",
@@ -3405,7 +3410,7 @@
       "dependsOn": [
         "US-3081"
       ],
-      "notes": "2026-09-02: EBAY_PARTNER_ACCOUNT_SID and EBAY_PARTNER_AUTH_TOKEN are ALREADY SET on the Coolify edge service (names only; values live in Coolify). These are the eBay Partner Network Reporting API credentials (Account SID + Auth Token pair), so AC8's click/purchase report import can call the reporting API directly instead of a CSV import. They are NOT the campaign id: link attribution (AC1/AC3) still needs an EPN campaign id, to be stored as EBAY_EPN_CAMPAIGN_ID once the EPN account and campaign exist. Buyer-side check done the same day: no buyer web surface (src/pages/buyer, src/components/buyer) links out to an eBay listing URL today, and the extension stays excluded on both the buyer and seller sides (EPN software-application rule), so there is no buyer-side link work in scope. | 2026-09-02: EPN campaign EXISTS. Campaign id = 5339154788 (campid= in the EPN link generator output; not a secret, it is in every public link). Link anatomy for reference: mkcid=1 (channel = EPN), mkrid=711-53200-19255-0 (eBay US rotation id, siteid=0), toolid=10001 (link generator), customid= is the slot for our per-user reference (AC4), and ssspo/sssrc/ssuid/stype/widget_ver/media are eBay share-widget tracking that the Browse API affiliate URL will not carry and we do not need. Still to do: set EBAY_EPN_CAMPAIGN_ID=5339154788 on the Coolify edge (AC1) and confirm the account is approved, not just created."
+      "notes": "2026-09-02: EBAY_PARTNER_ACCOUNT_SID and EBAY_PARTNER_AUTH_TOKEN are ALREADY SET on the Coolify edge service (names only; values live in Coolify). These are the eBay Partner Network Reporting API credentials (Account SID + Auth Token pair), so AC8's click/purchase report import can call the reporting API directly instead of a CSV import. They are NOT the campaign id: link attribution (AC1/AC3) still needs an EPN campaign id, to be stored as EBAY_EPN_CAMPAIGN_ID once the EPN account and campaign exist. Buyer-side check done the same day: no buyer web surface (src/pages/buyer, src/components/buyer) links out to an eBay listing URL today, and the extension stays excluded on both the buyer and seller sides (EPN software-application rule), so there is no buyer-side link work in scope. | 2026-09-02: EPN campaign EXISTS. Campaign id = 5339154788 (campid= in the EPN link generator output; not a secret, it is in every public link). Link anatomy for reference: mkcid=1 (channel = EPN), mkrid=711-53200-19255-0 (eBay US rotation id, siteid=0), toolid=10001 (link generator), customid= is the slot for our per-user reference (AC4), and ssspo/sssrc/ssuid/stype/widget_ver/media are eBay share-widget tracking that the Browse API affiliate URL will not carry and we do not need. Still to do: set EBAY_EPN_CAMPAIGN_ID=5339154788 on the Coolify edge (AC1) and confirm the account is approved, not just created. | 2026-09-03: the iOS open path is US-3097 (UIApplication.open on the url field so the eBay app takes the universal link; no ebay:// scheme). Its last AC asks for the dated EPN-terms check on in-app purchase credit, which belongs in the vault note AC1 here creates."
     },
     {
       "id": "US-3083",
@@ -3606,6 +3611,50 @@
         "A full npx vitest run is quoted in this story's note, so the remaining pre-existing failures are named explicitly. As of 2026-09-02 they are react-router-8-contract (1, the installed react-router major is not 8) and time-saved-baseline (3, a vault note parsing empty). Neither is this story's to fix; naming them stops the next agent re-deriving the same list a fourth time."
       ],
       "priority": 13
+    },
+    {
+      "id": "US-3107",
+      "passes": false,
+      "title": "OPERATOR: turn on eBay image search for garment-only Prospect and apply for Marketplace Insights so prices come from sold data",
+      "description": "As the operator, I want the two eBay switches that change what a reseller sees in Prospect and Scout flipped or applied for, so that a garment photo without a tag costs no AI action and the prices shown are sold prices instead of asking prices.",
+      "acceptanceCriteria": [
+        "services/edge-functions/.env.example gains SCOUT_EBAY_IMAGE_SEARCH_ENABLED with the same one-line explanation vault/10-ops/env-reference.md already carries, and the vault row's status box is ticked once the value is set on the Coolify edge",
+        "OPERATOR: set SCOUT_EBAY_IMAGE_SEARCH_ENABLED=true on the Coolify edge, run one garment-only Prospect from a phone and record in the notes that identitySource came back 'visual' with no AI action charged (the ai_action ledger row is absent)",
+        "OPERATOR: apply for the Marketplace Insights API grant (buy.marketplace.insights scope) on the eBay developer account, after US-3042's compliance gaps are closed; record the application date and outcome in vault/10-ops/env-reference.md next to EBAY_MARKETPLACE_INSIGHTS",
+        "When the grant lands: add the scope to EBAY_SCOPES, set EBAY_MARKETPLACE_INSIGHTS=true, and confirm /prospect returns source 'sold' and stats.basis 'ebay_sold' for a query with three or more sold comps; the iOS and web basis lines change wording with no client release",
+        "Until the grant lands, the Prospect and Scout disclaimer strings on web and iOS say 'asking prices' rather than 'comps', checked by a string test on both clients"
+      ],
+      "priority": 15,
+      "notes": "Code half DONE and pushed; the story stays OPEN because three of its five ACs are operator actions I cannot perform from here. Not a blocker to be worked around - it is what an OPERATOR story is.\n\nDONE:\n\nAC1 - services/edge-functions/.env.example now carries SCOUT_EBAY_IMAGE_SEARCH_ENABLED with the vault one-liner verbatim (OFF unless exactly \"true\"; a stale false, a 1 or an operator yes all leave it off). check-env-reference.mjs green at 252 vars. The vault status box stays UNTICKED, correctly: nothing is set on Coolify yet.\n\nAC5 - and this was the part that was actually wrong. Scout on BOTH clients described its values as coming from \"comps\", which a reseller reads as sold. They are asking prices. Sellers ask what they hope for and realized prices are routinely lower, so somebody who confuses the two overpays for the item in their hand with nothing on screen to warn them. Both Scout disclaimers now say \"asking prices, not sold prices\" in the SAME words (two surfaces hedging one number two different ways teaches a seller to trust neither), and Prospect names it in its opening line rather than in a footnote under the number. Prospect has no web half - iOS-only by ADR (adr-prospect-stays-phone-only, US-2878) - so \"both clients\" is web+iOS for Scout and iOS for Prospect.\nsrc/test/asking-price-copy.test.ts (6 cases) guards it in BOTH directions: it fails if the qualifier is edited away for length, AND it fails if EBAY_MARKETPLACE_INSIGHTS is set to true in .env.example while the copy still says asking. The second failure is the useful one - the flag risk is a number changing meaning with no sentence changing alongside it.\n\nSCAFFOLDED for the operator - vault/10-ops/env-reference.md now carries two records with the steps and empty date/outcome fields:\n- Marketplace Insights grant application (state: not applied), plus the four-things-in-one-change list for when it lands. The third is the one that gets forgotten: the scope is baked into the OAuth token at consent, so an account connected before the change keeps the old token and reads active prices while its neighbour reads sold ones. Reconnect one account.\n- Image-search turn-on, with the exact phone check: identitySource == \"visual\" AND no ai_actions ledger row. Either one alone proves nothing - a visual source WITH a ledger row means the identify call ran anyway and the flag bought nothing.\n- The EBAY_MARKETPLACE_INSIGHTS row now states it is ungranted as of 2026-09-03 and that every price in the product is an asking price until it is not.\n\nBLOCKED, and each needs a human with credentials I do not have:\n- AC2: set SCOUT_EBAY_IMAGE_SEARCH_ENABLED=true on the Coolify edge and run one garment-only Prospect from a phone. Needs Coolify access and a physical device.\n- AC3: apply for the buy.marketplace.insights scope on the eBay developer account, after US-3042 compliance gaps close. Needs the eBay developer account, and eBay reviews the whole app rather than the endpoint - applying before US-3042 makes the application the review.\n- AC4: depends on AC3 landing.\n\nVerified on the code half: 12 ios/Scripts guards green, check-ios-orphans green, check-env-reference green, vault:lint green (217 notes), tsc -b clean, eslint clean on the touched files, 245 web tests passing across the flipdesk suites plus the new file, 46 edge tests on env-validation + scout-identify."
+    },
+    {
+      "id": "US-3108",
+      "passes": false,
+      "title": "Universal Links are dead in production: the live AASA file does not list the iOS app ID",
+      "description": "As a seller who taps a password-reset or magic-link email on my phone, I want the link to open the GradeThread app, so that the auth handshake completes in the app instead of stranding me in Safari signed out.",
+      "acceptanceCriteria": [
+        "OPERATOR: confirm the current failure first — ios/Scripts/check-aasa.sh reports 'AASA does not list appID RV6W9F4Y4P.com.gradethread.app' against https://gradethread.com/.well-known/apple-app-site-association as of 2026-09-03, while ios/GradeThread/GradeThread.entitlements declares applinks:gradethread.com; record the file's current contents in the story notes before changing it",
+        "The AASA file served at https://gradethread.com/.well-known/apple-app-site-association lists the app ID with the paths the app claims (at minimum /app/auth-callback, the target ContentView.onContinueUserActivity handles), is served as application/json with no redirect, and ios/Scripts/check-aasa.sh exits 0 against production",
+        "Whichever surface serves it (a Cloudflare Pages Function or a public/ file) is committed to this repo so the file cannot be lost on the next deploy, and a test asserts the app ID in it matches the one in GradeThread.entitlements — a mismatch between those two is exactly the failure being fixed and no build catches it",
+        "ios/Scripts/check-aasa.sh joins a CI workflow (not npm run verify, which must stay offline) so a regression is caught by a job rather than by a seller who cannot reset their password",
+        "OPERATOR: after the file is live, tap a real password-reset link from Mail on a device with the app installed and confirm it opens the app rather than Safari; record the date and the device in the notes"
+      ],
+      "priority": 12
+    },
+    {
+      "id": "US-3109",
+      "passes": false,
+      "title": "Prospect opens on a live viewfinder instead of a two-slot form",
+      "description": "As a reseller standing at a rack, I want Prospect to open on a camera that is already running, so that identifying an item is one motion instead of tapping into a form and then into a picker.",
+      "acceptanceCriteria": [
+        "ProspectView opens on a live viewfinder built from the existing CameraSession (Capture/CameraSession.swift) rather than presenting CameraPicker as a full-screen cover; the garment slot is armed by default and a Tag toggle switches which slot the next frame fills",
+        "The viewfinder reuses TagPhotoQuality (Capture/TagPhotoQuality.swift) so a blurry or badly-lit tag frame is refused with the same wording the intake flow uses, rather than being uploaded and failing to read",
+        "Scene-phase and AVCaptureSessionWasInterrupted handling matches PhotoIntakeView: backgrounding and returning must not leave a black viewfinder with a dead shutter (the US-1408 failure), and the check-chained-sheets guard stays green",
+        "The two-slot picker form stays reachable from a Library button, and the first captured frame is submitted without a second confirmation tap",
+        "US-3099 already ships the on-device tag read, the barcode scan and the hint plumbing; this story adds only the viewfinder, so the chips and the AI-action saving must behave identically before and after",
+        "OPERATOR: this is the part of Prospect that cannot be verified without hardware. Run the capture flow on a real device, background and foreground the app mid-capture, and record the device and iOS version in the notes"
+      ],
+      "priority": 20
     }
   ]
 }

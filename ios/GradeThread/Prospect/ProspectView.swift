@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import SwiftData
 
 /// Item Prospecting (US-1107): the in-store "should I buy this?" scan. Snap the
 /// front + the brand/size tag and the app identifies the item, counts how many
@@ -11,7 +12,37 @@ struct ProspectView: View {
     // US-1180: @Observable store via @State (was @StateObject/ObservableObject).
     @State private var store = ProspectStore()
     @Environment(\.dismiss) private var dismiss
-    @State private var showCamera = false
+    // US-3100: the sourcing log. Prospect answered "is this worth buying" and
+    // then threw the answer away when the sheet closed, so a seller who wanted
+    // to go back to the one they passed on had to re-scan it — a second metered
+    // AI action for an answer we already had.
+    @Environment(\.modelContext) private var modelContext
+    @Environment(AuthStore.self) private var authStore
+    /// The saved row this session wrote, so an add can stamp it "Added".
+    @State private var loggedRowId: String?
+
+    // ── US-3106: what buyers are asking for ─────────────────────────────────
+    /// The demand chips on the empty state. Silent on failure and on the plan
+    /// gate — this is a hint before a scan, not a step, and a seller standing in
+    /// a shop with no signal needs the shutter button, not an error about a
+    /// market summary they did not ask for.
+    @State private var demand = DemandStrip()
+    /// The term a chip handed off, applied AFTER this sheet is gone. Setting the
+    /// router while the sheet is still animating out asks SwiftUI to swap one
+    /// sheet for another mid-transition, which is how a tap silently does
+    /// nothing.
+    @State private var pendingScoutTerm: String?
+    /// US-3099: ONE full-screen cover slot, two destinations. A view gets one
+    /// (`check-chained-sheets`), and chaining a second is undefined in SwiftUI —
+    /// the same lesson ``ToolModule`` records for the Home tab.
+    @State private var cover: ProspectCover?
+
+    private enum ProspectCover: String, Identifiable {
+        case camera
+        case barcode
+        var id: String { rawValue }
+    }
+
     @State private var showLibrary = false
     /// US-2923: which named slot the next captured photo fills. Set before the
     /// picker opens, because the picker's callback has no way to know which slot
@@ -20,6 +51,13 @@ struct ProspectView: View {
     // US-1225: surface a library pick that fails to load instead of a silent
     // no-op (mirrors Snap's loadError pattern from US-1181).
     @State private var loadError: String?
+    // ── US-3099: the on-device reading ──────────────────────────────────────
+    /// The chip being corrected, if any. One alert rather than one per chip:
+    /// a view gets one alert slot, the same reason ``ToolModule`` exists.
+    @State private var editingChipTitle: String?
+    @State private var editingChipValue: String = ""
+    @State private var editingChipCommit: ((String) -> Void)?
+
 
     private var cameraAvailable: Bool {
         UIImagePickerController.isSourceTypeAvailable(.camera)
@@ -29,12 +67,21 @@ struct ProspectView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Snap the item, and its tag if it has one. We'll identify it and pull eBay comps: how many are listed, what they're asking, and how fast it should move. Got the wrong item? Tap the title to fix it.")
+                    // US-3107: "comps" was doing too much work. Until the Marketplace
+                    // Insights grant lands every number here comes from what
+                    // sellers are ASKING today, and asking prices are the right
+                    // input for a sourcing ceiling and the wrong one for how
+                    // fast a thing sells. The difference is the seller's to know,
+                    // so the screen says it in the first sentence rather than in
+                    // a footnote under the result.
+                    Text(String(localized: "Snap the item, and its tag if it has one. We'll identify it and pull eBay asking prices: how many are listed, what they're asking, and how fast it should move. Got the wrong item? Tap the title to fix it."))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
+                    demandStrip
                     photoStrip
                     captureButtons
+                    onDeviceHints
                     costField
 
                     Button {
@@ -70,6 +117,8 @@ struct ProspectView: View {
 
                     if let result = store.result {
                         resultCard(result)
+                    } else if let saved = store.restored {
+                        savedCard(saved)
                     }
                 }
                 .padding()
@@ -116,9 +165,23 @@ struct ProspectView: View {
                 }
                 .ignoresSafeArea()
             }
-            .fullScreenCover(isPresented: $showCamera) {
-                CameraPicker { img in store.setImage(img, for: pendingRole) }
+            .fullScreenCover(item: $cover) { which in
+                switch which {
+                case .camera:
+                    CameraPicker { img in store.setImage(img, for: pendingRole) }
+                        .ignoresSafeArea()
+                case .barcode:
+                    // US-3099: the EXISTING Vision-based scanner (US-179), not a
+                    // second AVCaptureMetadataOutput path. `ProspectBarcode`
+                    // narrows what it accepts — that scanner also reads Code 128
+                    // and QR, which are thrift SKU stickers and seller batch
+                    // tags, and neither identifies a product in any catalogue we
+                    // can query.
+                    BarcodeScanView { payload in
+                        store.acceptBarcode(payload)
+                    }
                     .ignoresSafeArea()
+                }
             }
             .alert(
                 "Couldn't load photo",
@@ -128,7 +191,141 @@ struct ProspectView: View {
             } message: {
                 Text(loadError ?? "")
             }
+            // US-3099: correcting a chip. An alert rather than a second sheet —
+            // the view's one sheet and one cover are already spent, and a
+            // one-field correction does not want a screen.
+            .alert(
+                editingChipTitle ?? String(localized: "Correct"),
+                isPresented: Binding(
+                    get: { editingChipTitle != nil },
+                    set: { if !$0 { editingChipTitle = nil } }
+                )
+            ) {
+                TextField("", text: $editingChipValue)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                Button("Save") {
+                    editingChipCommit?(editingChipValue)
+                    editingChipTitle = nil
+                }
+                Button("Cancel", role: .cancel) { editingChipTitle = nil }
+            } message: {
+                Text(String(localized: "What does the tag actually say? Your correction is used as-is."))
+            }
+            // ── US-3106: the demand strip ───────────────────────────────────
+            .task { await demand.loadIfNeeded() }
+            .onDisappear {
+                guard let term = pendingScoutTerm else { return }
+                pendingScoutTerm = nil
+                router.pendingScoutKeyword = term
+                router.pendingToolModule = .scout
+            }
+            // ── US-3100: the sourcing log ───────────────────────────────────
+            .onAppear(perform: restoreIfRequested)
+            .onChange(of: store.resultToken) { _, _ in recordResult() }
+            .onChange(of: store.addedItemId) { _, itemId in
+                guard let itemId, let rowId = loggedRowId ?? store.restored?.id else { return }
+                log?.markAdded(rowId: rowId, itemId: itemId)
+            }
         }
+    }
+
+    // MARK: - US-3100: remembering the verdict
+
+    /// The log for the signed-in tenant, or nil when there is no session to
+    /// scope it to. Nil is a no-op everywhere rather than an error: a seller
+    /// whose session lapsed mid-scan should lose the note, not the scan.
+    private var log: ProspectLog? {
+        guard case let .signedIn(user) = authStore.phase else { return nil }
+        return ProspectLog(
+            context: modelContext,
+            userId: WorkspaceScope.tenantOwnerId(selfId: user.id.uuidString)
+        )
+    }
+
+    private func recordResult() {
+        guard let result = store.result, let log else { return }
+        // The FRONT photo, falling back to the tag. A thumbnail of a care label
+        // is a poor row, but a row with no picture at all is worse — the seller
+        // recognises the garment before they read the title.
+        loggedRowId = log.record(result, thumbnail: store.itemPhoto ?? store.tagPhoto)
+    }
+
+    /// Reopen a verdict the seller tapped on Home.
+    ///
+    /// Cleared as it is read, the same way ``AppRouter/pendingToolModule`` is:
+    /// otherwise every return from the background reopens the same saved row
+    /// over whatever the seller is scanning now.
+    private func restoreIfRequested() {
+        guard let rowId = router.pendingProspectResultId else { return }
+        router.pendingProspectResultId = nil
+        guard let row = log?.row(id: rowId) else { return }
+        store.restore(row)
+        loggedRowId = row.id
+    }
+
+    // MARK: - US-3106: what buyers want
+
+    /// Up to eight of the most-wanted brands and categories, before the seller
+    /// has taken a photo.
+    ///
+    /// ON THE EMPTY STATE ONLY. Once there is a garment on screen the question
+    /// has changed from "what should I look for" to "is THIS one worth buying",
+    /// and a row of other people's wants next to a verdict about the thing in
+    /// your hand is noise at the worst moment.
+    ///
+    /// Hidden when the route returns nothing and when the plan does not carry
+    /// `compPulls` — the gate is the same one the scan below uses, and a second
+    /// upgrade prompt on a screen that already has one sells nothing.
+    @ViewBuilder private var demandStrip: some View {
+        if demand.isVisible, store.photos.isEmpty, store.result == nil, store.restored == nil {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(String(localized: "What buyers are asking for"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(demand.facets) { facet in
+                            Button {
+                                AppRouter.haptic()
+                                // Hand off to Scout, which searches live
+                                // listings for it — the same move the web
+                                // demand page makes.
+                                pendingScoutTerm = facet.term
+                                dismiss()
+                            } label: {
+                                demandChip(facet)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 1)
+                }
+            }
+        }
+    }
+
+    private func demandChip(_ facet: DemandFacet) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(facet.term)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+            HStack(spacing: 4) {
+                Text(String(localized: "\(facet.wantCount) want\(facet.wantCount == 1 ? "" : "s")"))
+                if let ceiling = facet.topMaxPriceCents, ceiling > 0 {
+                    // The budget is the half that decides whether it is worth
+                    // sourcing. "Twelve people want it" and "twelve people want
+                    // it and one will pay $180" are different sentences.
+                    Text(String(localized: "· \(dollars(ceiling))"))
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.brandNavy.opacity(0.07), in: Capsule())
+        .foregroundStyle(Color.brandNavy)
     }
 
     // MARK: - Capture
@@ -177,7 +374,7 @@ struct ProspectView: View {
                 guard image == nil else { return }
                 AppRouter.haptic()
                 pendingRole = role
-                if cameraAvailable { showCamera = true } else { showLibrary = true }
+                if cameraAvailable { cover = .camera } else { showLibrary = true }
             }
             .overlay(alignment: .topTrailing) {
                 if image != nil {
@@ -212,7 +409,7 @@ struct ProspectView: View {
                     Button {
                         AppRouter.haptic()
                         if let target { pendingRole = target }
-                        showCamera = true
+                        cover = .camera
                     } label: {
                         Label("Take photo", systemImage: "camera.fill").frame(maxWidth: .infinity)
                     }
@@ -228,6 +425,101 @@ struct ProspectView: View {
                 .buttonStyle(.bordered)
             }
             .tint(Color.brandNavy)
+
+            // US-3099: shoes and sealed goods carry a barcode, which is a
+            // checksummed product id rather than a reading — the strongest
+            // identification available, and it needs no photo of a tag at all.
+            if cameraAvailable {
+                Button {
+                    AppRouter.haptic()
+                    cover = .barcode
+                } label: {
+                    Label(
+                        store.scannedBarcode == nil
+                            ? String(localized: "Scan a barcode")
+                            : String(localized: "Scan again"),
+                        systemImage: "barcode.viewfinder"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.brandNavy)
+            }
+        }
+    }
+
+    // ── US-3099: what the phone read, before anything was uploaded ──────────
+
+    /// The brand and size chips, editable, plus the scanned barcode.
+    ///
+    /// Shown only when there is something to show. An empty row of placeholder
+    /// chips would suggest the reading failed when in fact no tag was taken.
+    @ViewBuilder private var onDeviceHints: some View {
+        if store.isReadingTag {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text(String(localized: "Reading the tag\u{2026}"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if !store.outgoingHints.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                if let barcode = store.scannedBarcode {
+                    Label(String(localized: "Barcode \(barcode)"), systemImage: "barcode.viewfinder")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color.brandEmerald)
+                }
+                HStack(spacing: 8) {
+                    hintChip(
+                        title: String(localized: "Brand"),
+                        value: store.hints.brand,
+                        onEdit: { store.editHints(brand: $0, size: store.hints.size) }
+                    )
+                    hintChip(
+                        title: String(localized: "Size"),
+                        value: store.hints.size,
+                        onEdit: { store.editHints(brand: store.hints.brand, size: $0) }
+                    )
+                }
+                // Said plainly because it is the seller's own saving: a
+                // confident read means the server does not spend an AI action
+                // re-reading the tag they just photographed.
+                Text(TagHintParser.willSkipServerIdentify(store.outgoingHints)
+                     ? String(localized: "Read on your phone \u{2014} no AI charge to identify it.")
+                     : String(localized: "Tap to correct either one. A correction is used as-is."))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder private func hintChip(
+        title: String,
+        value: String?,
+        onEdit: @escaping (String) -> Void
+    ) -> some View {
+        if let value, !value.isEmpty {
+            Button {
+                AppRouter.haptic()
+                editingChipTitle = title
+                editingChipValue = value
+                editingChipCommit = onEdit
+            } label: {
+                HStack(spacing: 4) {
+                    Text(title).foregroundStyle(.secondary)
+                    Text(value).fontWeight(.semibold)
+                    Image(systemName: "pencil").font(.caption2).foregroundStyle(.tertiary)
+                }
+                .font(.caption)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Color.brandNavy.opacity(0.10), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("\(title): \(value). Tap to correct."))
         }
     }
 
@@ -277,6 +569,9 @@ struct ProspectView: View {
                 if let st = result.sellThrough, st.label != "unknown" {
                     sellThroughBlock(st, source: result.source)
                 }
+                if let ceiling = result.ceiling {
+                    ceilingBlock(ceiling)
+                }
                 if let decision = result.decision, result.costCents != nil {
                     decisionBlock(decision)
                 }
@@ -296,6 +591,93 @@ struct ProspectView: View {
         }
     }
 
+    /// US-3100: a verdict reopened from the log.
+    ///
+    /// Deliberately a DIFFERENT card from ``resultCard``, showing only what was
+    /// saved. The temptation was to rebuild a `ProspectResponse` from the row
+    /// and reuse the live card, and that would put "0 comps", "unknown
+    /// sell-through" and a missing disclaimer on screen beside a real price —
+    /// numbers the server never returned, presented as though it had.
+    @ViewBuilder private func savedCard(_ row: LocalProspectResult) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                savedThumbnail(row)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(row.displayTitle)
+                        .font(.headline)
+                    if let brand = row.brand, !brand.isEmpty {
+                        Text(brand)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(row.createdAt, format: .relative(presentation: .named))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                if let decision = row.decision {
+                    Text(ProspectDecisionCopy.label(decision))
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            recommendationColor(decision).opacity(0.15),
+                            in: Capsule()
+                        )
+                        .foregroundStyle(recommendationColor(decision))
+                }
+            }
+
+            Divider()
+
+            metricRow(String(localized: "Going rate"), dollars(row.medianCents))
+            if row.lowCents != nil || row.highCents != nil {
+                metricRow(
+                    String(localized: "Range"),
+                    "\(dollars(row.lowCents)) – \(dollars(row.highCents))"
+                )
+            }
+            if let ceiling = row.ceilingCents {
+                metricRow(String(localized: "Pay up to"), dollars(ceiling))
+            }
+            if let grade = row.gradeValue {
+                metricRow(
+                    String(localized: "Condition"),
+                    row.gradeTier.map { "\(String(format: "%.1f", grade)) · \($0)" }
+                        ?? String(format: "%.1f", grade)
+                )
+            }
+
+            // The numbers are from the scan, not from now. Saying so is the
+            // difference between a saved note and a stale price the seller
+            // believes is live.
+            Text(String(localized: "Saved from your scan. Prices move — re-scan the item for today's numbers."))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            addToInventoryButton
+        }
+        .padding()
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+    }
+
+    @ViewBuilder private func savedThumbnail(_ row: LocalProspectResult) -> some View {
+        if let data = row.thumbnailData, let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 56, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous)
+                .fill(Color.secondary.opacity(0.15))
+                .frame(width: 56, height: 56)
+                .overlay {
+                    Image(systemName: "tshirt").foregroundStyle(.secondary)
+                }
+        }
+    }
+
     /// US-3026: the sold-comps links, with the search terms visible.
     ///
     /// The old row was one link labelled "See sold comps on eBay" and nothing
@@ -310,10 +692,14 @@ struct ProspectView: View {
     /// until it returns an empty page, and an empty sold page reads as "nothing
     /// like this ever sold".
     @ViewBuilder private func soldCompsLinks(_ result: ProspectResponse) -> some View {
-        if let urlString = result.ebaySoldSearchUrl, let url = URL(string: urlString) {
+        if let url = EbayOutboundURL.resolve(url: result.ebaySoldSearchUrl, fallback: nil) {
             VStack(alignment: .leading, spacing: 4) {
-                Link(destination: url) {
-                    Label("See sold comps on eBay", systemImage: "arrow.up.right.square")
+                // US-3097: `EbayOutboundLink`, not `Link`. A SwiftUI Link lands
+                // in an in-app browser; only UIApplication.open hands an
+                // ebay.com universal link to the installed eBay app, which is
+                // where the seller is already signed in.
+                EbayOutboundLink(url: url, surface: "prospect_sold_comps") {
+                    Label(String(localized: "See sold comps on eBay"), systemImage: "arrow.up.right.square")
                         .font(.footnote.weight(.medium))
                 }
                 .tint(Color.brandNavy)
@@ -326,9 +712,8 @@ struct ProspectView: View {
                         .accessibilityLabel(Text("Sold comps search terms: \(terms)"))
                 }
 
-                if let broadString = result.ebayBroadSearchUrl,
-                   let broadURL = URL(string: broadString) {
-                    Link(destination: broadURL) {
+                if let broadURL = EbayOutboundURL.resolve(url: result.ebayBroadSearchUrl, fallback: nil) {
+                    EbayOutboundLink(url: broadURL, surface: "prospect_broad_comps") {
                         Label(
                             result.ebayBroadSearchQuery
                                 .map { String(localized: "Too few results? Search \($0)") }
@@ -455,6 +840,59 @@ struct ProspectView: View {
         }
     }
 
+    /// The one-line "what is this number", when the server sent one.
+    ///
+    /// Renders NOTHING when there is no basis, exactly as the web component
+    /// does: a value from a response built before the provenance shipped is
+    /// silent rather than mislabelled.
+    @ViewBuilder private func basisLine(_ basis: ValueBasis?) -> some View {
+        if let basis {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(basis.headline)
+                    .font(.caption2.weight(.medium))
+                if let detail = basis.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    /// US-3097: the most to pay, which is the number a seller standing over a
+    /// rack is actually trying to work out.
+    ///
+    /// Shown whether or not it resolved. A ceiling that is simply absent from
+    /// the card teaches nothing; "we have not measured this kind of item yet"
+    /// tells the seller the app is not guessing on their behalf, which is the
+    /// same reason `sourcingCeiling` refuses to invent one server-side.
+    @ViewBuilder private func ceilingBlock(_ ceiling: ProspectCeiling) -> some View {
+        let roiPct = Int((ceiling.targetRoi * 100).rounded())
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "tag")
+                .foregroundStyle(ceiling.maxPriceCents == nil ? Color.secondary : Color.brandEmerald)
+            VStack(alignment: .leading, spacing: 1) {
+                if let max = ceiling.maxPriceCents {
+                    Text(String(localized: "Pay at most \(dollars(max)) for \(roiPct)% ROI"))
+                        .font(.subheadline.weight(.semibold))
+                    if let net = ceiling.netResaleCents {
+                        Text(String(localized: "Net after fees at the going rate: \(dollars(net))"))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let copy = ceiling.absentCopy {
+                    Text(copy)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     @ViewBuilder private func priceBlock(_ result: ProspectResponse) -> some View {
         if let stats = result.stats, stats.sufficient, stats.medianCents != nil {
             VStack(alignment: .leading, spacing: 2) {
@@ -471,6 +909,13 @@ struct ProspectView: View {
                 Text("Based on \(stats.count) condition-matched \(result.source == "sold" ? "sold" : "active") listing\(stats.count == 1 ? "" : "s")")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                // US-3097: the provenance line, in the server's words.
+                //
+                // The sentence is NOT written here — `headline` and `detail`
+                // come phrased from lib/value-disclosure.ts, the same source the
+                // web's ValueBasisNote renders, so the two clients can never
+                // describe the same number differently.
+                basisLine(stats.basis)
             }
         } else {
             VStack(alignment: .leading, spacing: 2) {
@@ -606,11 +1051,10 @@ struct ProspectView: View {
         }
     }
 
+    /// US-3100: delegates to ``ProspectDecisionCopy`` so the saved card, the
+    /// live card and the Home row cannot drift into colouring "maybe" three
+    /// different ways.
     private func recommendationColor(_ rec: String) -> Color {
-        switch rec {
-        case "buy": return .green
-        case "maybe": return Color.brandAmber
-        default: return Color.brandRed
-        }
+        ProspectDecisionCopy.color(rec)
     }
 }

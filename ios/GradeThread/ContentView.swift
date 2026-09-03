@@ -144,6 +144,10 @@ struct ContentView: View {
                     // merge + cursor advance rather than re-saving those rows after
                     // the wipe below (a tenant leak on shared devices).
                     WorkspaceScope.clear()
+                    // US-3101: the next account's Marketplaces badge must not
+                    // open showing the last one's offers. Same reason the
+                    // watermarks and detection baselines are cleared below.
+                    sellerAttention.reset()
                     // Capture the engine strongly so the epoch bump still runs even
                     // though `syncEngine` is set to nil below — a late-returning pull
                     // must see the bumped epoch and discard.
@@ -343,6 +347,8 @@ struct ContentView: View {
             handleDeepLink(.marketplacesTab)
         case .money:
             handleDeepLink(.salesTab(inventoryItemId: nil))
+        case .prospect:
+            handleDeepLink(.prospect)
         }
     }
 
@@ -452,6 +458,17 @@ struct ContentView: View {
             try ctx.delete(model: LocalSale.self)
             try ctx.delete(model: LocalExpense.self)
             try ctx.delete(model: LocalSource.self)
+            // US-3100: LocalSourcer was registered in the schema and wiped by
+            // neither path, so the previous workspace's roster of people who
+            // source for you stayed readable to the next one. `SourcerStore`
+            // re-pulls it, so dropping it here costs a refresh and nothing else.
+            try ctx.delete(model: LocalSourcer.self)
+            // US-3100: the sourcing log is local-only and never synced, so
+            // nothing re-pulls it. It is wiped here anyway: a shared iPad
+            // handing the next workspace a list of what the last one was
+            // considering is the same leak whether or not a server was
+            // involved (US-2496).
+            try ctx.delete(model: LocalProspectResult.self)
             try ctx.save()
         } catch {
             // Best-effort — the scoped pull still corrects the view on success.
@@ -472,7 +489,10 @@ struct ContentView: View {
             try ctx.delete(model: LocalSale.self)
             try ctx.delete(model: LocalExpense.self)
             try ctx.delete(model: LocalSource.self)
+            try ctx.delete(model: LocalSourcer.self)
             try ctx.delete(model: LocalPendingMutation.self)
+            // US-3100: the local-only sourcing log goes with everything else.
+            try ctx.delete(model: LocalProspectResult.self)
             try ctx.save()
         } catch {
             // Best-effort — watermarks are reset too, so the next sign-in
@@ -619,6 +639,8 @@ struct MainShell: View {
     @State private var reconcileBadge = ReconcileBadgeStore()
     /// US-2557: unread notifications, for the Home tab badge and the app icon.
     @State private var unreadBadge = UnreadBadgeStore()
+    /// US-3101: the Marketplaces badge — offers and deadlines.
+    @State private var sellerAttention = SellerAttentionStore()
     /// US-2532 / US-794: an account-level workspace condition the app must
     /// explain ONCE rather than as a per-screen error. Both arrive on
     /// whichever request happened to be in flight, and neither is about the
@@ -717,7 +739,11 @@ struct MainShell: View {
                 if horizontalSizeClass == .regular {
                     SidebarSplitView(router: router)
                 } else {
-                    TabBarShell(router: router, unreadCount: unreadBadge.unreadCount)
+                    TabBarShell(
+                        router: router,
+                        unreadCount: unreadBadge.unreadCount,
+                        attentionCount: sellerAttention.badgeCount
+                    )
                 }
             }
         }
@@ -858,6 +884,10 @@ struct MainShell: View {
             refreshReconcileBadge()
             // US-2557: and the unread count behind the Home badge.
             await unreadBadge.refresh()
+            // US-3101: alongside the unread count, on the same foreground
+            // signal. Not polled — each refresh is real eBay calls against an
+            // app-wide rate limit.
+            await sellerAttention.refresh()
             // US-696: cold-launch / first-render unlock prompt.
             if appLock.state == .locked { await appLock.authenticate() }
         }
@@ -870,7 +900,10 @@ struct MainShell: View {
                 // US-2557: a push may have raised the badge while we were away,
                 // and rows may have been read on another device — the server
                 // only ever RAISES it, so the app is what brings it back down.
-                Task { await unreadBadge.refresh() }
+                Task {
+                    await unreadBadge.refresh()
+                    await sellerAttention.refresh()
+                }
                 // US-696: prompt to unlock when returning to the foreground.
                 if appLock.state == .locked { Task { await appLock.authenticate() } }
             }
@@ -1110,6 +1143,22 @@ struct MainShell: View {
             // the referenced thread when the push carried one.
             router.supportTicketId = ticketId
             router.shellSheet = .support
+        case .prospect:
+            // US-3101: a quick action, the Lock Screen widget or Siri. Home to a
+            // clean stack, then park the request for DashboardView to present —
+            // the sheet belongs to whichever view owns the one sheet slot.
+            router.selection = .home
+            router.homePath = NavigationPath()
+            router.pendingToolModule = .prospect
+        case .scout:
+            router.selection = .home
+            router.homePath = NavigationPath()
+            router.pendingToolModule = .scout
+        case .inventoryDrafts:
+            // US-3101: the listings already written and not yet earning.
+            router.selection = .inventory
+            router.inventoryPath = NavigationPath()
+            router.pendingInventoryFilter = .drafts
         }
     }
 
@@ -1180,6 +1229,14 @@ private struct TabBarShell: View {
     /// dependency on something only the shell has a reason to drive.
     var unreadCount: Int = 0
 
+    /// US-3101: offers awaiting a reply plus returns and disputes with a
+    /// deadline. Nil rather than 0, and hidden entirely at zero.
+    ///
+    /// Marketplaces, not Home: this is the number that decides whether a seller
+    /// LOSES money, and it was on a tab with no badge at all. Home's unread
+    /// count stays where it is.
+    var attentionCount: Int?
+
     var body: some View {
         TabView(selection: router.tabSelectionBinding) {
             NavigationStack(path: $router.homePath) {
@@ -1234,7 +1291,7 @@ private struct TabBarShell: View {
             .tag(AppSection.home)
 
             NavigationStack(path: $router.inventoryPath) {
-                InventoryPlaceholder()
+                InventoryPlaceholder(router: router)
                     .navigationDestination(for: IntakeRoute.self, destination: intakeDestination)
                     .navigationDestination(for: LocalInventoryItem.self) { item in
                         ItemCanvasSceneHost(item: item)
@@ -1290,6 +1347,10 @@ private struct TabBarShell: View {
                     }
             }
             .tabItem { Label("Marketplaces", systemImage: "antenna.radiowaves.left.and.right") }
+            // US-3101: what eBay is waiting on. `.badge(Int?)` renders nothing
+            // for nil, which is the whole reason the store hands out an
+            // optional rather than a count that can be 0.
+            .badge(attentionCount)
             .tag(AppSection.marketplaces)
         }
         .tint(Color.brandNavy)
@@ -1412,7 +1473,7 @@ private struct SidebarSplitView: View {
             // detail column's NavigationStack — they stay unwrapped.
             DashboardView(router: router)
         case .inventory:
-            InventoryListView()
+            InventoryListView(router: router)
         // US-1199/US-1260: Money/Marketplaces/Settings own their navigation in a
         // single content-column NavigationStack, so they render in the
         // two-column layout's `sectionStack` (detail column) instead — this
@@ -1560,6 +1621,53 @@ final class AppRouter {
     /// US-1136: the support thread a `support.reply` deep link asked for, opened
     /// with ``ShellSheet/support``. Nil when the inbox was opened by hand.
     var supportTicketId: String?
+
+    /// US-3101: a sourcing module a quick action, widget or Siri phrase asked
+    /// for, waiting for Home to present it.
+    ///
+    /// The router cannot present it itself: ``ToolModule`` sheets are owned by
+    /// whichever screen shows them, because a view gets ONE sheet slot (see
+    /// ``ToolModule``). So the route parks the request here and DashboardView
+    /// picks it up and CLEARS it, which is also what stops a backgrounded app
+    /// re-presenting Prospect every time it returns to the foreground.
+    var pendingToolModule: ToolModule?
+
+    /// US-3101: Inventory should open on drafts rather than everything.
+    ///
+    /// Consumed by the inventory list the same way — read once, then cleared.
+    var pendingInventoryFilter: InventoryDeepFilter?
+
+    /// US-3106: a search term a demand chip handed to Scout, waiting for the
+    /// Scout sheet to open on it.
+    ///
+    /// Parked here for the same reason as ``pendingToolModule``, which it always
+    /// travels with: Home owns the sheet, so the module and what it should open
+    /// on have to arrive together. Read once by the presentation, then cleared.
+    var pendingScoutKeyword: String?
+
+    /// US-3100: a saved Prospect verdict the seller tapped on Home, waiting for
+    /// ``ProspectView`` to open on it.
+    ///
+    /// Parked here for the same reason as ``pendingToolModule``: Home owns the
+    /// sheet, so the row that was tapped and the module that presents it have
+    /// to be handed over together. Read once, then cleared.
+    var pendingProspectResultId: String?
+
+    /// US-3106: read the parked Scout term and clear it in one step.
+    ///
+    /// One method rather than a read at the call site and a clear somewhere
+    /// else: the clear is the part that gets forgotten, and forgetting it means
+    /// every later open of Scout re-applies a search the seller made once.
+    func takePendingScoutKeyword() -> String? {
+        defer { pendingScoutKeyword = nil }
+        return pendingScoutKeyword
+    }
+
+    /// The filters a deep link can ask the inventory list to apply.
+    enum InventoryDeepFilter: Equatable {
+        /// Items with a draft listing and nothing live: written, not yet earning.
+        case drafts
+    }
 
     /// The shell-level sheets, in the order the toolbar offers them.
     enum ShellSheet: Identifiable, Equatable {
@@ -1726,8 +1834,10 @@ private struct ToolsButton: View {
 /// `View`s, not text labels, so the surrounding NavigationStack + toolbar
 /// patterns are exercised in CI immediately.
 private struct InventoryPlaceholder: View {
+    let router: AppRouter
+
     var body: some View {
-        InventoryListView()
+        InventoryListView(router: router)
     }
 }
 

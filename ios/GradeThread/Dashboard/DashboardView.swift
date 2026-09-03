@@ -24,6 +24,14 @@ struct DashboardView: View {
     private var items: [LocalInventoryItem]
     @Query private var sales: [LocalSale]
 
+    /// US-3100: the last verdicts Prospect handed back, newest first.
+    ///
+    /// Unfiltered by tenant for the same reason ``items`` is: the local cache
+    /// holds one tenant at a time and is wiped on every workspace switch and
+    /// sign-out. `ProspectLog` filters on `userId` where it writes.
+    @Query(sort: \LocalProspectResult.createdAt, order: .reverse)
+    private var prospects: [LocalProspectResult]
+
     /// US-693: lets the empty branch tell "first sync still running" apart from
     /// "genuinely no data yet" so a fresh launch shows skeletons, not a
     /// premature Welcome card.
@@ -69,6 +77,15 @@ struct DashboardView: View {
             NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
         }
         .toolModulePresentation($presentedModule, router: router)
+        // US-3101: a quick action, Lock Screen widget or Siri phrase parked a
+        // module on the router because the sheet slot belongs to this view.
+        // Read once and CLEAR: without the clear, every return from background
+        // would re-present Prospect over whatever the seller had moved on to.
+        .onChange(of: router.pendingToolModule, initial: true) { _, pending in
+            guard let pending else { return }
+            presentedModule = pending
+            router.pendingToolModule = nil
+        }
         // US-967: rebuild the 14-day trend series only when sales or items
         // change, not on every `body` re-evaluation (where it was read 3×).
         .onChange(of: trendSignature, initial: true) { _, _ in
@@ -213,6 +230,7 @@ struct DashboardView: View {
                 kpiGrid
                 if DashboardTrend.hasActivity(trendPoints) { trendCard }
                 analyticsCard
+                if !recentProspects.isEmpty { recentProspectsCard }
                 if !gradedItems.isEmpty { gradesCard }
                 if !agingItems.isEmpty { agingCard }
                 quickActions
@@ -362,6 +380,67 @@ struct DashboardView: View {
         .cardStyle(.flush)
     }
 
+    /// Items carrying a listing draft and nothing live yet.
+    ///
+    /// Read off the SAME local rows the Inventory Drafts tab filters on
+    /// (`InventoryStage.drafts.matchingStatuses`), rather than a second
+    /// definition of "a draft" — two answers to that question is how a Home
+    /// count and the list it opens end up disagreeing, which makes the seller
+    /// distrust both.
+    private var draftCount: Int {
+        items.filter { InventoryStage.drafts.matchingStatuses.contains($0.status) }.count
+    }
+
+    /// US-3100: the five most recent Prospect verdicts.
+    ///
+    /// Sits above the analytics cards because it is the only section on Home
+    /// that is about a decision the seller has not made yet. A verdict older
+    /// than the trip it came from is still worth showing: the whole point is
+    /// the garment they walked away from and are now driving back for.
+    ///
+    /// HIDDEN WHEN EMPTY, which is most of the first week. A "Recently
+    /// prospected" heading over nothing teaches the seller that this part of
+    /// Home is furniture.
+    ///
+    /// NOTE: US-3080 turns Home into ordered `HomeSection`s. This is the same
+    /// content either way; when that lands it becomes `home.recentProspects`
+    /// positioned after the attention strip and the pill row.
+    private var recentProspects: [LocalProspectResult] {
+        Array(prospects.prefix(5))
+    }
+
+    private var recentProspectsCard: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Label("Recently prospected", systemImage: "viewfinder.circle")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("\(prospects.count)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+
+            Divider().padding(.leading, 14)
+
+            ForEach(Array(recentProspects.enumerated()), id: \.element.id) { index, row in
+                Button {
+                    AppRouter.haptic()
+                    router.pendingProspectResultId = row.id
+                    presentedModule = .prospect
+                } label: {
+                    ProspectHistoryRow(row: row, currency: currency)
+                }
+                .buttonStyle(.plain)
+                if index < recentProspects.count - 1 {
+                    Divider().padding(.leading, 14)
+                }
+            }
+        }
+        .cardStyle(.flush)
+    }
+
     private var quickActions: some View {
         VStack(spacing: 10) {
             // US-690: brand button styles for the primary/secondary CTAs.
@@ -399,6 +478,31 @@ struct DashboardView: View {
                 Label("Scout deals", systemImage: "binoculars")
             }
             .buttonStyle(.brandSecondary)
+
+            // US-3101: the drafts already written and not yet earning.
+            //
+            // These are listings the seller has ALREADY paid for with their own
+            // time — photographed, priced, described — and every one sitting
+            // here is that work not making money yet. It was three taps away
+            // and invisible from Home. Hidden at zero: a row that says "0" is a
+            // row that teaches the seller to stop reading the column.
+            //
+            // NOTE: US-3080 turns these stacked buttons into a scrolling pill
+            // row. This is the same action either way; when that lands, this
+            // button becomes a pill and the count comes with it.
+            if draftCount > 0 {
+                Button {
+                    AppRouter.haptic()
+                    router.pendingInventoryFilter = .drafts
+                    router.selection = .inventory
+                } label: {
+                    Label(
+                        String(localized: "Publish \(draftCount) draft\(draftCount == 1 ? "" : "s")"),
+                        systemImage: "paperplane"
+                    )
+                }
+                .buttonStyle(.brandSecondary)
+            }
 
             Button {
                 AppRouter.haptic()
@@ -539,6 +643,82 @@ private struct DashboardCard: View {
 }
 
 /// One row in the aging-stock nudge list.
+/// US-3100: one saved Prospect verdict on Home.
+///
+/// Thumbnail first, because a seller recognises the garment before they read
+/// the title — and the titles a scan produces ("We The Free cropped waffle
+/// henley") are long enough that five of them stacked read as a wall of text.
+private struct ProspectHistoryRow: View {
+    let row: LocalProspectResult
+    let currency: CurrencyFormatter
+
+    var body: some View {
+        HStack(spacing: 10) {
+            thumbnail
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.displayTitle)
+                    .font(.subheadline)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    if let decision = row.decision {
+                        Text(ProspectDecisionCopy.label(decision))
+                            .font(.caption2.weight(.bold))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(ProspectDecisionCopy.color(decision).opacity(0.15), in: Capsule())
+                            .foregroundStyle(ProspectDecisionCopy.color(decision))
+                    }
+                    if row.addedItemId != nil {
+                        // Already in inventory, so the seller does not tap in
+                        // expecting to add it a second time.
+                        Label("Added", systemImage: "checkmark.circle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(median)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+        .contentShape(Rectangle())
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    /// The going rate at the time of the scan, or an em-dash when the comps
+    /// could not price it. Never a zero: "$0.00" is a claim, and "we could not
+    /// tell" is what actually happened.
+    private var median: String {
+        guard let cents = row.medianCents else { return "—" }
+        return currency.formatDisplay(Double(cents) / 100)
+    }
+
+    @ViewBuilder private var thumbnail: some View {
+        if let data = row.thumbnailData, let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.secondary.opacity(0.15))
+                .frame(width: 44, height: 44)
+                .overlay {
+                    Image(systemName: "tshirt")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+        }
+    }
+}
+
 private struct AgingRow: View {
     let item: LocalInventoryItem
 

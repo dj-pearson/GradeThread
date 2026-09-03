@@ -34,6 +34,21 @@ final class ProspectStore {
     /// joggers and a mini skirt for exactly that input.
     var itemPhoto: UIImage?
     var tagPhoto: UIImage?
+
+    // ── US-3099: what the phone read before uploading ────────────────────────
+    //
+    // Vision has read these tags on-device since US-177. Prospect threw the
+    // reading away and paid Claude to re-read the same tag from a JPEG that had
+    // to be uploaded first. Now it is reported, and the server decides whether
+    // it is good enough to skip that call.
+    /// The chips under the tag slot. Editable — a corrected chip is the
+    /// seller's own answer, which beats any reading.
+    var hints: OnDeviceHints = .none
+    /// A scanned retail barcode, which needs no tag photo at all.
+    var scannedBarcode: String?
+    /// True while the on-device read is running, so the chips can appear rather
+    /// than pop.
+    var isReadingTag = false
     /// Optional cost entry, in dollars, that unlocks the ROI verdict.
     var costText: String = ""
     var isLoading = false
@@ -51,6 +66,21 @@ final class ProspectStore {
     /// confirm + offer a jump to the inventory tab.
     var isAdding = false
     var addedItemId: String?
+
+    // ── US-3100: the sourcing log ────────────────────────────────────────────
+    /// Changes on every successful scan, so the view writes each verdict down
+    /// exactly once. A token rather than watching `result`: `ProspectResponse`
+    /// is not Equatable, and two scans of the same garment are two verdicts.
+    private(set) var resultToken: UUID?
+
+    /// A verdict reopened from the log instead of scanned.
+    ///
+    /// Held SEPARATELY from `result` rather than reconstructed into a fake
+    /// `ProspectResponse`. A saved row knows the headline numbers and not the
+    /// comp count, the sell-through or the disclaimer, and a response built
+    /// with zeros in those fields would render "0 comps" beside a real price —
+    /// a sentence the server never said.
+    var restored: LocalProspectResult?
     /// US-1225: separate from `errorMessage` so an add-to-inventory failure
     /// renders its OWN retry (which re-calls `addToInventory()`) instead of the
     /// top error card whose "Try again" re-runs the billable identify+comp pipeline.
@@ -127,12 +157,25 @@ final class ProspectStore {
         clearResult()
         errorMessage = nil
         addError = nil
+        // US-3099: read the tag the moment it arrives, not at submit. The
+        // reading takes about as long as the shutter animation, so doing it
+        // here puts the chips on screen while the seller is still looking at
+        // the photo they just took — and the upload, when it starts, already
+        // carries them.
+        if role == .tag {
+            Task { await readTagOnDevice(img) }
+        }
     }
 
     func removeImage(for role: ProspectPhotoRole) {
         switch role {
         case .front: itemPhoto = nil
-        case .tag: tagPhoto = nil
+        case .tag:
+            tagPhoto = nil
+            // US-3099: the chips described THAT tag. Keeping them would send a
+            // brand read off a photo the seller has removed, which is the same
+            // class of staleness `clearResult` exists to prevent one level up.
+            hints = OnDeviceHints(barcode: hints.barcode, brand: nil, size: nil, confidence: nil)
         }
         clearResult()
     }
@@ -142,8 +185,36 @@ final class ProspectStore {
     /// the one on screen.
     private func clearResult() {
         result = nil
+        // US-3100: a new photo is a new garment, so a verdict reopened from the
+        // log no longer describes what is on screen.
+        restored = nil
         addedItemId = nil
         titleDraft = nil
+    }
+
+    /// US-3100: reopen a saved verdict.
+    ///
+    /// Clears the photos with it. The log stores a thumbnail, not the originals,
+    /// so leaving the previous scan's photos in the slots would let "Find comps"
+    /// run a fresh scan of a DIFFERENT garment under this verdict's card.
+    func restore(_ row: LocalProspectResult) {
+        itemPhoto = nil
+        tagPhoto = nil
+        clearHints()
+        result = nil
+        errorMessage = nil
+        addError = nil
+        titleDraft = nil
+        costText = ""
+        restored = row
+        addedItemId = row.addedItemId
+    }
+
+    /// What "Add to inventory" would send, from a live scan or a saved verdict.
+    var commit: ProspectCommit? {
+        if let result { return ProspectCommit(result) }
+        if let restored { return ProspectCommit(restored) }
+        return nil
     }
 
     /// Parsed cost in integer cents, or nil when the field is empty/invalid.
@@ -206,13 +277,65 @@ final class ProspectStore {
                     images: payload,
                     roles: roles,
                     costCents: costCents,
-                    fix: await radarFix()
+                    fix: await radarFix(),
+                    hints: outgoingHints
                 )
             )
+            resultToken = UUID()
         } catch {
             result = nil
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    /// The hints as they will be sent.
+    ///
+    /// A scanned barcode overrides whatever the tag OCR made of the label: it
+    /// is a checksummed product id, not a reading, and the two disagreeing
+    /// means the label was misread rather than that the barcode was.
+    var outgoingHints: OnDeviceHints {
+        var out = hints
+        out.barcode = scannedBarcode
+        return out
+    }
+
+    /// Read the tag photo on-device, before anything is uploaded.
+    ///
+    /// Failures are SILENT and leave the hints empty. The reading is an
+    /// optimization, not a step: a Vision error must degrade to today's flow
+    /// (upload, let the server identify) rather than stop a seller who is
+    /// standing in a shop.
+    func readTagOnDevice(_ image: UIImage) async {
+        isReadingTag = true
+        defer { isReadingTag = false }
+        guard let lines = try? await TagTextRecognizer().recognize(image) else { return }
+        let read = TagHintParser.hints(from: lines)
+        // Keep a scanned barcode: it outranks anything the label says.
+        hints = OnDeviceHints(
+            barcode: hints.barcode,
+            brand: read.brand,
+            size: read.size,
+            confidence: read.confidence
+        )
+    }
+
+    /// The seller corrected a chip. That is their own answer about the garment,
+    /// so it goes up at full confidence rather than at what Vision managed.
+    func editHints(brand: String?, size: String?) {
+        hints = TagHintParser.edited(hints, brand: brand, size: size)
+    }
+
+    /// A barcode came off the viewfinder. Accepted only when it is a retail
+    /// symbology of a retail length — see ``ProspectBarcode``.
+    func acceptBarcode(_ payload: String) {
+        guard let accepted = ProspectBarcode.accepted(payload) else { return }
+        scannedBarcode = accepted
+    }
+
+    /// Clear everything the phone read, for a fresh scan.
+    func clearHints() {
+        hints = .none
+        scannedBarcode = nil
     }
 
     // MARK: - US-2923: correcting the identification
@@ -278,6 +401,11 @@ final class ProspectStore {
                 )
             )
             titleDraft = nil
+            // US-3100: a correction is a NEW verdict about the same garment —
+            // different title, different comps, different numbers — so it is
+            // logged in its own right rather than silently replacing the row
+            // the seller may already have acted on.
+            resultToken = UUID()
         } catch {
             // The previous result STAYS on screen. A failed correction that
             // blanked the card would cost the seller the numbers they already
@@ -287,10 +415,15 @@ final class ProspectStore {
         }
     }
 
-    /// Commit the current result into inventory at `sourced` via the existing
-    /// Scout buy endpoint. Prefills cost/grade/target from what we just learned.
+    /// Commit the verdict on screen into inventory at `sourced` via the
+    /// existing Scout buy endpoint. Prefills cost/grade/target from what we
+    /// just learned.
+    ///
+    /// US-3100: works from a SAVED verdict as well as a live scan. Both map to
+    /// ``ProspectCommit`` first, so the row a seller adds an hour later carries
+    /// exactly what the row they added on the spot would have.
     func addToInventory() async {
-        guard let result, result.identified, let title = result.item.title, !title.isEmpty else {
+        guard let commit else {
             addError = "Nothing to add — identify an item first."
             return
         }
@@ -298,48 +431,11 @@ final class ProspectStore {
         addError = nil
         defer { isAdding = false }
 
-        // US-1170: don't discard the AI's read on commit. The keywords + resolved
-        // category are folded into notes so the catalog step starts from the AI's
-        // read instead of a blank item.
-        //
-        // US-3026: size and colour used to be sent as nil, because the response
-        // carried only brand/title/keywords. It carries fields now, so the two
-        // things the seller would otherwise re-type off the same tag we just
-        // read are filled in.
-        let request = ProspectBuyRequest(
-            title: title,
-            brand: result.item.brand,
-            size: result.item.size,
-            color: result.item.color,
-            // US-1275: commit the cost the run was computed with (result.costCents),
-            // not the current field — if the user edited cost after the run
-            // (costNeedsRerun), targetCents/grade below come from the prior run, so
-            // persisting the edited cost would store a verdict the comps never used.
-            costCents: result.costCents,
-            targetCents: result.stats?.medianCents,
-            gradeValue: result.grade?.value,
-            gradeLabel: result.grade?.tier,
-            conditionNotes: prospectNotes(result)
-        )
         do {
-            let response = try await service.buy(request)
+            let response = try await service.buy(commit.request)
             addedItemId = response.id
         } catch {
             addError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
-    }
-
-    /// US-1170: distill the AI's read (keywords + resolved category) into a
-    /// notes string so it carries into the new inventory item. Returns nil when
-    /// there's nothing useful to record.
-    private func prospectNotes(_ result: ProspectResponse) -> String? {
-        var parts: [String] = []
-        if !result.item.keywords.isEmpty {
-            parts.append(result.item.keywords.joined(separator: ", "))
-        }
-        if let path = result.category?.path, !path.isEmpty {
-            parts.append("Category: \(path)")
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

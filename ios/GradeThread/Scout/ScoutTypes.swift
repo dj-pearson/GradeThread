@@ -13,11 +13,26 @@ import Foundation
 /// route reads.
 
 /// `POST /api/flipdesk/scout` request body.
+///
+/// US-3098 added the deal filter. Every added field is Optional and omitted
+/// when nil (`JSONEncoder` drops nil by default), so a scan with no filter set
+/// sends exactly the body it always did.
 struct ScoutScanRequest: Encodable {
     let categoryId: String
     let q: String?
     let brand: String?
     let limit: Int
+    /// Asking plus shipping, in cents.
+    var maxTotalCents: Int?
+    /// Profit after fees, in cents.
+    var minMarginCents: Int?
+    /// A FRACTION: 0.3 is thirty percent. The route refuses 30.
+    var minMarginPct: Double?
+    /// Subset of FIXED_PRICE, AUCTION, BEST_OFFER. Nil = all three.
+    var buyingOptions: [String]?
+    var freeShippingOnly: Bool?
+    /// "bestMatch" | "newlyListed" | "endingSoonest" | "priceAsc".
+    var sort: String?
 }
 
 /// `POST /api/flipdesk/scout` response. `candidates` is empty (with a `note`)
@@ -27,6 +42,14 @@ struct ScoutScanResponse: Decodable {
     let candidates: [ScoutCandidate]
     let disclaimer: String?
     let note: String?
+    /// US-3098: how many listings phase one looked at before spending any AI.
+    ///
+    /// The denominator. Eight results with no denominator is a scan a seller
+    /// cannot judge; "looked at 42, graded 8" is one they can. Optional so a
+    /// response from an older edge still decodes.
+    let considered: Int?
+    /// How many phase two shadow-graded. Equals `scanned`.
+    let graded: Int?
 }
 
 /// One ranked candidate listing with its private shadow grade + arbitrage math.
@@ -51,6 +74,29 @@ struct ScoutCandidate: Decodable, Identifiable, Equatable {
     /// A real buy signal: sufficient comps + confident grade + positive margin.
     let actionable: Bool
     let reason: String
+    /// US-2850: what the value behind this row actually is. The server has sent
+    /// it since that story and the row dropped it, so a measured number and an
+    /// unadjusted median looked identical on the phone.
+    let valueBasis: ValueBasis?
+    /// US-3098: what the buyer pays, shipping included when eBay stated it.
+    let totalCents: Int?
+    /// False when shipping was unknown, so `totalCents` is asking alone.
+    let totalIncludesShipping: Bool?
+    /// US-3098: the most to pay and still clear the seller's target return.
+    /// Same shape /prospect returns, so one decoder serves both.
+    let ceiling: ProspectCeiling?
+    /// US-3097: the link to open.
+    ///
+    /// Nil today. US-3082 puts eBay's `itemAffiliateWebUrl` here, and decoding
+    /// it NOW means the affiliate link starts flowing the day the server sends
+    /// it, with no App Store release in between. `outboundURL` picks between
+    /// this and `itemWebUrl`; nothing in the UI reads either directly.
+    let url: String?
 
     var id: String { itemId }
+
+    /// The URL a tap should open — affiliate when the server has one.
+    var outboundURL: URL? {
+        EbayOutboundURL.resolve(url: url, fallback: itemWebUrl)
+    }
 }

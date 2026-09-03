@@ -18,6 +18,13 @@ public enum WidgetDeepLink: String, CaseIterable, Sendable {
     case marketplaces
     /// Sold-today + payout metrics → the Money/Sales surface.
     case money
+    /// US-3101: the sourcing camera, from the Lock Screen widget.
+    ///
+    /// The only widget destination that is an ACTION rather than a number. It
+    /// exists because the moment a reseller needs Prospect is the moment they
+    /// are holding a garment in a shop, and every path to it went through
+    /// unlocking, finding the app, and finding a grid icon inside it.
+    case prospect
 
     private static let scheme = "com.gradethread.app"
     static let host = "widget"

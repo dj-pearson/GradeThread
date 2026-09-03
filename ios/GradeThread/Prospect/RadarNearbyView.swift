@@ -1,35 +1,134 @@
+import MapKit
+import SwiftData
 import SwiftUI
 
 /// US-1866 — Thrift Radar on the phone: "is this store worth walking into?"
 ///
-/// The web surface (US-1865) is a map. This one is a ranked LIST, and that is a
-/// decision rather than a shortcut: standing in a car park, the useful thing is
-/// an ordering — nearest-and-busiest first — not a canvas to pan. Both read the
-/// same endpoint and score with the same arithmetic (``RadarScoring``, ported
-/// from `src/lib/radar-map.ts`), so a store cannot read "Busiest near you" on
-/// one and "Quiet" on the other.
+/// A ranked LIST first, and that is still the decision: standing in a car park,
+/// the useful thing is an ordering — nearest-and-busiest first — not a canvas to
+/// pan. The web surface (US-1865) and this one read the same endpoint and score
+/// with the same arithmetic (``RadarScoring``, ported from
+/// `src/lib/radar-map.ts`), so a store cannot read "Busiest near you" on one and
+/// "Quiet" on the other.
 ///
-/// Nothing here draws a tile map, on this surface most of all: tile URLs ARE the
-/// viewport, so panning one would stream the user's neighbourhood to a third
-/// party — the exact disclosure the schema underneath was built to withhold.
+/// ⚠️ US-3106 ADDED A MAP, and the header here used to say it never would.
+/// The reasoning has not changed, only what it rules out: **tile URLs ARE the
+/// viewport**, so a third-party tile map streams the seller's neighbourhood to
+/// whoever serves the tiles — the disclosure US-1862's geohash cells exist to
+/// withhold, and still refused. MapKit is Apple's framework on Apple's device,
+/// under terms the seller already accepted, with no host for the ATS allowlist
+/// and no subprocessor to declare. The pins are cell centres, identical for
+/// everyone in the cell. See ``RadarMapPin``.
 struct RadarNearbyView: View {
 
     @State private var store = RadarStore()
     @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
 
+    /// US-3106: the venue a map pin selected, so the list can scroll to it and
+    /// mark it. Nil until a pin is tapped.
+    @State private var selectedPinId: String?
+    /// US-3106: which source is being linked to which venue, if any. ONE sheet
+    /// slot on this view (`check-chained-sheets`).
+    @State private var linkTarget: RadarLinkTarget?
+
     var body: some View {
-        List {
-            windowSection
-            statusSection
-            nearbySection
-            offMapSection
-            pitchSection
+        ScrollViewReader { proxy in
+            List {
+                windowSection
+                statusSection
+                mapSection
+                nearbySection
+                offMapSection
+                pitchSection
+            }
+            .listStyle(.insetGrouped)
+            .onChange(of: selectedPinId) { _, id in
+                guard let id else { return }
+                // The pin is the pointer; the ROW is where the numbers are. A
+                // map that highlighted a dot and left the seller to find the
+                // matching line themselves would be a second thing to read.
+                withAnimation { proxy.scrollTo(id, anchor: .center) }
+            }
         }
-        .listStyle(.insetGrouped)
         .navigationTitle("Nearby")
         .navigationBarTitleDisplayMode(.inline)
         .task { await store.load() }
         .refreshable { await store.refresh() }
+        .sheet(item: $linkTarget) { target in
+            RadarLinkSourceSheet(
+                target: target,
+                link: { sourceId, venueId in
+                    await store.link(sourceId: sourceId, venueId: venueId)
+                },
+                venues: store.rows
+            )
+        }
+    }
+
+    // MARK: - Map (US-3106)
+
+    /// The pins, or nothing at all.
+    ///
+    /// Hidden until the seller has turned contributions ON. Viewing is not
+    /// contributing everywhere else on this screen (``RadarCopy``), and this is
+    /// deliberately stricter: a map is the surface that makes "where this person
+    /// is" legible at a glance, so it waits for the same explicit yes the
+    /// location collection waits for.
+    @ViewBuilder private var mapSection: some View {
+        let pins = RadarMapPin.pins(from: store.rows)
+        if store.isContributing, !pins.isEmpty, let region = RadarMapPin.region(for: pins) {
+            Section {
+                Map(initialPosition: .region(MKCoordinateRegion(
+                    center: CLLocationCoordinate2D(
+                        latitude: region.centerLat,
+                        longitude: region.centerLng
+                    ),
+                    span: MKCoordinateSpan(
+                        latitudeDelta: region.spanLat,
+                        longitudeDelta: region.spanLng
+                    )
+                ))) {
+                    ForEach(pins) { pin in
+                        Annotation(pin.name, coordinate: pin.coordinate) {
+                            pinMarker(pin)
+                        }
+                    }
+                }
+                .frame(height: 240)
+                .listRowInsets(EdgeInsets())
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            } footer: {
+                Text(String(localized: "Pins sit at the centre of an approximate area, not at an exact address."))
+            }
+        }
+    }
+
+    private func pinMarker(_ pin: RadarMapPin) -> some View {
+        Button {
+            AppRouter.haptic()
+            selectedPinId = pin.id
+        } label: {
+            VStack(spacing: 2) {
+                Image(systemName: pin.isMine ? "bag.circle.fill" : "mappin.circle.fill")
+                    .font(.title2)
+                    // One switch for the band, shared with the list badge
+                    // (`RadarHotnessLevel.tint`), so the pin and the row cannot
+                    // disagree about the same score.
+                    .foregroundStyle(pin.level?.tint ?? .secondary)
+                    .background(Circle().fill(.background))
+                if pin.id == selectedPinId {
+                    Text(pin.name)
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.brandNavy, in: Capsule())
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(pin.name))
     }
 
     // MARK: - Controls
@@ -152,20 +251,30 @@ struct RadarNearbyView: View {
                 emptyState
             } else {
                 ForEach(store.rows) { row in
-                    if let venueId = row.venueId {
-                        NavigationLink {
-                            RadarVenueDetailView(
-                                venueId: venueId,
-                                name: row.name,
-                                window: store.window,
-                                personal: row.personal
-                            )
-                        } label: {
+                    Group {
+                        if let venueId = row.venueId {
+                            NavigationLink {
+                                RadarVenueDetailView(
+                                    venueId: venueId,
+                                    name: row.name,
+                                    window: store.window,
+                                    personal: row.personal
+                                )
+                            } label: {
+                                RadarRowView(row: row)
+                            }
+                        } else {
                             RadarRowView(row: row)
                         }
-                    } else {
-                        RadarRowView(row: row)
                     }
+                    // US-3106: the anchor a tapped pin scrolls to, and the tint
+                    // that says which row it was.
+                    .id(row.id)
+                    .listRowBackground(
+                        row.id == selectedPinId
+                            ? Color.brandNavy.opacity(0.08)
+                            : Color(uiColor: .secondarySystemGroupedBackground)
+                    )
                 }
             }
         } header: {
@@ -192,9 +301,19 @@ struct RadarNearbyView: View {
                 .font(.subheadline.weight(.medium))
             // The honest reading of a k-floored silence: not "no stores", but
             // "nothing we can say without giving away who scanned".
-            Text("Share your location to look around you, or link a source to a store on the web so your own places show up here.")
+            Text(String(localized: "Share your location to look around you, or link one of your sources to a place so your own stores show up here."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            // US-3106: this used to say "on the web". A seller reading it is
+            // standing in a car park, and the one thing the sentence asked of
+            // them was the one thing the phone could not do.
+            Button {
+                AppRouter.haptic()
+                linkTarget = RadarLinkTarget(sourceId: nil, venueId: nil, venueName: nil)
+            } label: {
+                Label(String(localized: "Link a source"), systemImage: "link")
+                    .font(.caption.weight(.semibold))
+            }
         }
         .padding(.vertical, 2)
     }
@@ -203,19 +322,36 @@ struct RadarNearbyView: View {
         if !store.offMapStores.isEmpty {
             Section {
                 ForEach(store.offMapStores.prefix(6)) { item in
-                    HStack {
-                        Text(item.name).lineLimit(1)
-                        Spacer()
-                        Text("\(item.itemsSourced) item\(item.itemsSourced == 1 ? "" : "s")")
-                            .font(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
+                    // US-3106: the row IS the link action now. Reading "link it
+                    // on the web" while holding the phone that could do it was
+                    // the whole complaint.
+                    Button {
+                        AppRouter.haptic()
+                        linkTarget = RadarLinkTarget(
+                            sourceId: item.sourceId,
+                            venueId: nil,
+                            venueName: nil
+                        )
+                    } label: {
+                        HStack {
+                            Text(item.name).lineLimit(1)
+                            Spacer()
+                            Text("\(item.itemsSourced) item\(item.itemsSourced == 1 ? "" : "s")")
+                                .font(.caption)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "link")
+                                .font(.caption2)
+                                .foregroundStyle(Color.brandNavy)
+                        }
                     }
+                    .buttonStyle(.plain)
+                    .disabled(item.sourceId == nil)
                 }
             } header: {
                 Text("Your stores that are not on the map")
             } footer: {
-                Text("These have your money in them but no place yet. Link one on the web (FlipDesk → My stores) and it joins this list.")
+                Text(String(localized: "These have your money in them but no place yet. Tap one to say which store on the map it is, and it joins this list."))
             }
         }
     }
@@ -307,14 +443,11 @@ private struct RadarRowView: View {
 
     /// A four-step ramp, one flat colour per level — no gradient, so the badge
     /// survives a screenshot and pairs with the text label beside it.
-    private func hotnessTint(_ level: RadarHotnessLevel) -> Color {
-        switch level {
-        case .quiet: return .secondary
-        case .warm: return Color.brandAmber
-        case .hot: return .orange
-        case .peak: return Color.brandRed
-        }
-    }
+    ///
+    /// US-3106 moved the switch onto ``RadarHotnessLevel`` so the map pin reads
+    /// the same one. Two copies is how a store shows amber on the list and red
+    /// on the map, and tells the seller the app disagrees with itself.
+    private func hotnessTint(_ level: RadarHotnessLevel) -> Color { level.tint }
 }
 
 // MARK: - Detail

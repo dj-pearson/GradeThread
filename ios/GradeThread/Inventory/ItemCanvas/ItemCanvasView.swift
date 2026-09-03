@@ -38,6 +38,11 @@ struct ItemCanvasView: View {
     /// Report the stale-row state at most once per appearance, so a screen left
     /// open doesn't spam telemetry.
     @State private var reportedStaleRow = false
+    // US-3105: per-listing state for the extension lifecycle actions. Keyed by
+    // listing id so one row queueing does not spin or silence the others.
+    @State private var extensionQueueBusyId: String?
+    @State private var extensionQueueNotice: [String: String] = [:]
+    @State private var extensionQueueError: [String: String] = [:]
     @State private var state: ItemCanvasState?
     /// The eBay specifics, now edited INLINE on this page rather than behind a
     /// push (see `specificsSection`). Owned here so this page's Save commits the
@@ -1037,6 +1042,132 @@ struct ItemCanvasView: View {
     /// US-748: where this item is listed, with a link out to the live listing —
     /// part of the Item↔Listing↔Sale thread so the item isn't a dead-end once
     /// it goes live.
+    // ── US-3105: revise and relist, from the phone ──────────────────────────
+    //
+    // The queue carried a first listing and a delist. A price dropped in a shop
+    // could not reach a live Poshmark listing until the seller was back at a
+    // desk, and until then the listing advertised the old price to everyone who
+    // saw it.
+
+    /// The queue action in flight, so only the tapped row spins.
+    @ViewBuilder
+    private func extensionLifecycleActions(for listing: LocalListing) -> some View {
+        let actions = ExtensionLifecycle.actions(
+            platform: listing.platform,
+            status: listing.listingStatus,
+            hasUrl: !(listing.externalURL ?? "").isEmpty,
+            targetPrice: item.targetPrice,
+            listedPrice: listing.listingPrice
+        )
+        if actions.hasAny {
+            VStack(alignment: .leading, spacing: 6) {
+                if let queued = extensionQueueNotice[listing.id] {
+                    // The one sentence every client shows for queued work. Not
+                    // softened: a queued job is not a done job, and for these
+                    // channels believing otherwise is how an item sells twice.
+                    Label(queued, systemImage: "clock")
+                        .font(.caption2)
+                        .foregroundStyle(Color.brandAmber)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    HStack(spacing: 12) {
+                        if actions.canRevise {
+                            Button {
+                                Task { await queueRevise(listing, fields: actions.reviseFields) }
+                            } label: {
+                                if extensionQueueBusyId == listing.id {
+                                    ProgressView().controlSize(.mini)
+                                } else {
+                                    Label(
+                                        String(localized: "Update on \(ExtensionLifecycle.platformLabel(listing.platform))"),
+                                        systemImage: "arrow.triangle.2.circlepath"
+                                    )
+                                    .font(.caption.weight(.semibold))
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(extensionQueueBusyId != nil)
+                        }
+                        if actions.canRelist {
+                            Button {
+                                Task { await queueRelist(listing) }
+                            } label: {
+                                Label(String(localized: "Relist"), systemImage: "arrow.clockwise")
+                                    .font(.caption.weight(.semibold))
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(extensionQueueBusyId != nil)
+                        }
+                    }
+                    if actions.canRevise {
+                        // Named because "Update" alone does not say what will
+                        // change, and the seller is about to hand this to a
+                        // browser they are not looking at.
+                        Text("Sends your new price the next time your desktop browser opens.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let warning = actions.relistWarning {
+                        // BEFORE the tap, not after: the alternative is a seller
+                        // with two copies of one garment on sale.
+                        Label(warning, systemImage: "exclamationmark.triangle")
+                            .font(.caption2)
+                            .foregroundStyle(Color.brandAmber)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if let error = extensionQueueError[listing.id] {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(Color.brandRed)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.bottom, 4)
+        }
+    }
+
+    private func queueRevise(
+        _ listing: LocalListing,
+        fields: [ExtensionQueueService.ReviseField]
+    ) async {
+        extensionQueueBusyId = listing.id
+        extensionQueueError[listing.id] = nil
+        defer { extensionQueueBusyId = nil }
+        do {
+            _ = try await ExtensionQueueService.shared.enqueueRevise(
+                listingId: listing.id,
+                platform: listing.platform,
+                fields: fields
+            )
+            extensionQueueNotice[listing.id] = ExtensionQueueService.queuedNotice
+        } catch {
+            // Surfaced, never swallowed: a seller who believes they queued an
+            // update and did not will keep selling at the old price.
+            extensionQueueError[listing.id] =
+                (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    private func queueRelist(_ listing: LocalListing) async {
+        extensionQueueBusyId = listing.id
+        extensionQueueError[listing.id] = nil
+        defer { extensionQueueBusyId = nil }
+        do {
+            _ = try await ExtensionQueueService.shared.enqueueRelist(
+                listingId: listing.id,
+                platform: listing.platform
+            )
+            extensionQueueNotice[listing.id] = ExtensionQueueService.queuedNotice
+        } catch {
+            extensionQueueError[listing.id] =
+                (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
     private var listingsSection: some View {
         Section {
             ForEach(itemListings) { listing in
@@ -1069,6 +1200,12 @@ struct ItemCanvasView: View {
                     }
                 }
                 .padding(.vertical, 2)
+
+                // US-3105: the lifecycle actions for a listing living on an
+                // extension channel. eBay's own controls are below; these are
+                // the channels with no write API, where the only thing the
+                // phone can do is queue an instruction for the desktop.
+                extensionLifecycleActions(for: listing)
             }
 
             if let active = activeEbayListing {

@@ -27,7 +27,10 @@ extension View {
         sheet(item: selection) { module in
             switch module {
             case .scout:
-                ScoutView()
+                // US-3106: a demand chip on Prospect's empty state hands its
+                // term over here. Cleared as it is read, so returning to Scout
+                // by hand does not re-run somebody's earlier tap.
+                ScoutView(initialKeyword: router.takePendingScoutKeyword())
             case .snap:
                 SnapView(router: router)
             case .prospect:

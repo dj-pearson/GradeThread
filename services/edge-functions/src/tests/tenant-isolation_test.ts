@@ -5752,6 +5752,60 @@ Deno.test({
 });
 
 Deno.test({
+  // US-3096: the claim route now HYDRATES a `list` row — it reads the item, its
+  // photos and the eBay draft, and hands the content back to the extension.
+  // That turned a route which only ever returned rows into one that returns a
+  // seller's garment title, description, price and photo URLs, so the scope is
+  // now carrying more than it was.
+  //
+  // item_photos has no user_id column of its own (migration 00008): its tenant
+  // is its parent item. The route therefore resolves the owned item ids FIRST,
+  // under .eq("user_id", ownerId), and only then reads photos for those ids. A
+  // row of B's naming A's item hydrates to nothing and comes back failed.
+  name: "B's claim never hydrates A's item content",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const aItemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/extension-queue/claim`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ limit: 10, installId: "isolation-test-hydrate" }),
+    });
+    if (res.status === 402) {
+      await res.body?.cancel();
+      return; // B has no FlipDesk plan; the earlier gate is a pass.
+    }
+    assertEquals(res.status, 200, "B must be able to claim B's own queue");
+    const body = await res.json() as {
+      claimed?: Array<{
+        inventory_item_id: string | null;
+        payload: Record<string, unknown> | null;
+      }>;
+    };
+    for (const row of body.claimed ?? []) {
+      assert(
+        row.inventory_item_id !== aItemId,
+        "B's claim returned a row pointing at A's item — the queue read is unscoped",
+      );
+      const payload = row.payload ?? {};
+      assert(
+        payload.itemId !== aItemId,
+        "B's claim hydrated A's item into a payload — the hydration read is unscoped",
+      );
+      // The photo URLs are the loudest half: they are public bucket links, so a
+      // leak here survives outside the session that produced it.
+      const urls = Array.isArray(payload.photoUrls) ? payload.photoUrls : [];
+      for (const u of urls) {
+        assert(
+          typeof u === "string" && !u.includes(aItemId),
+          "B's claim returned a photo URL under A's item path",
+        );
+      }
+    }
+  },
+});
+
+Deno.test({
   // Completing a job B does not own. A random uuid stands in for "an id B
   // guessed or scraped" — the handler must 404 on scope, not on existence.
   name: "B cannot complete a queue job outside their tenant",

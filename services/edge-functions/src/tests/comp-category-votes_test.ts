@@ -34,6 +34,9 @@ function comp(
     itemWebUrl: null,
     condition: "Pre-owned",
     buyingOptions: [],
+    // US-3098: fixtures state it explicitly; null means 'this source
+    // cannot say', which is not the same fact as free shipping.
+    shippingCents: null,
     categories: cats.map(([categoryId, categoryName]) => ({
       categoryId,
       categoryName,

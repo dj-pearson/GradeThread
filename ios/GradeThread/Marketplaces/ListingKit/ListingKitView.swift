@@ -13,6 +13,8 @@ struct ListingKitView: View {
     @State private var store: ListingKitStore
     /// The field key currently showing a transient "Copied" confirmation.
     @State private var copiedKey: String?
+    /// US-3103: the push-to picker.
+    @State private var showingPushTo = false
 
     init(itemId: String, itemTitle: String) {
         _store = State(initialValue: ListingKitStore(itemId: itemId, itemTitle: itemTitle))
@@ -34,7 +36,29 @@ struct ListingKitView: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("Listing Kit")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showingPushTo = true
+                } label: {
+                    Label(String(localized: "Push to"), systemImage: "paperplane")
+                }
+                // The route addresses a LISTING; with no draft there is nothing
+                // to push, and offering the button would open a sheet that can
+                // only fail.
+                .disabled(store.listingId == nil)
+            }
+        }
         .task { if store.phase == .idle { await store.load() } }
+        .sheet(isPresented: $showingPushTo) {
+            if let listingId = store.listingId {
+                PushToSheet(
+                    listingId: listingId,
+                    itemId: store.itemId,
+                    listingPrice: store.variants.first?.price
+                )
+            }
+        }
     }
 
     private var header: some View {

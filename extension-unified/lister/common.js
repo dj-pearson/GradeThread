@@ -491,6 +491,30 @@
       };
     }
 
+    // US-3096: a list job whose payload has no title has nothing to fill.
+    //
+    // This is not a hypothetical. Every client queued `payload: {}` and the
+    // server enriched only revise/relist, so a drained cross-post walked
+    // through probe (the FORM is fine — it is the CONTENT that is missing),
+    // filled empty strings into every field, and reported `ok: true`. The
+    // seller saw "cross-posted" against a blank form. The server hydrates the
+    // row now; this refuses the job if it ever arrives empty again, because a
+    // guard that only exists on the server is one deploy away from gone.
+    if (!payload.listingUrl && !String(payload.title || "").trim()) {
+      void GT.reportStage(payload.jobId, "failed");
+      GT.log("refusing an empty list payload for " + payload.platform);
+      return {
+        ok: false,
+        manual: true,
+        reason: "empty_payload",
+        error:
+          "GradeThread had no listing details for this " +
+          (payload.platformLabel || payload.platform) +
+          " cross-post, so nothing was filled in. Open the item in FlipDesk and queue it again.",
+        version: flow.version,
+      };
+    }
+
     const missing = await GT.probe(flow);
     if (missing.length > 0) {
       // FAIL LOUDLY (AC5): the form changed under us. Do NOT half-fill.

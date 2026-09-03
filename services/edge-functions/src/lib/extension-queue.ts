@@ -220,3 +220,192 @@ export function withSellerLocale(
   if (typeof locale !== "string" || locale === "") return payload;
   return { ...payload, locale };
 }
+
+// ── US-3096: what a `list` job actually carries ─────────────────────────────
+//
+// Every client enqueues kind `list` with `payload: {}` — web
+// (src/components/flipdesk/listing-kit.tsx, src/pages/flipdesk/review.tsx),
+// iOS (ListingKitView.swift) and Android (ExtensionQueue.kt). The route
+// enriched only `revise` and `relist`, `jobFromQueueRow` in
+// extension-unified/lister/job-store.js merged in nothing but
+// platform/itemId/listingId, and `GT.runFlow` then filled title and
+// description from that payload unconditionally. So a cross-post queued from a
+// phone opened the marketplace's form, filled NOTHING, passed its probe, and
+// reported success. The interactive web path never hit this because the page
+// builds the payload itself (src/lib/lister-extension.ts buildListerPayload).
+//
+// The content is assembled HERE, on the server, at CLAIM time:
+//
+//  - Server, not client, because three clients building the same payload is
+//    three places for it to be wrong and the phone has no business holding a
+//    marketplace's field list.
+//  - Claim time, not enqueue time, because a seller who queues from a rack and
+//    then fixes the title on the train expects the desktop to fill the fixed
+//    one. A payload frozen at enqueue is a snapshot nobody asked for.
+//
+// This stays a PURE function so the key set can be pinned against the web
+// payload in a unit test. The queries that feed it live in the route.
+
+/** The item facts the fallback path reads when no kit variant exists. */
+export interface ListPayloadItem {
+  id: string;
+  title: string | null;
+  brand: string | null;
+  color: string | null;
+  size: string | null;
+}
+
+/** One listing photo, as the builder needs it. */
+export interface ListPayloadPhoto {
+  id: string;
+  photo_url: string;
+  sort_order: number;
+}
+
+/** The eBay draft row a fallback borrows its words and price from. */
+export interface ListPayloadDraft {
+  listing_title: string | null;
+  listing_description: string | null;
+  listing_price: number | null;
+  primary_photo_id: string | null;
+}
+
+export interface BuildListPayloadInput {
+  platform: string;
+  itemId: string;
+  item: ListPayloadItem;
+  photos: ListPayloadPhoto[];
+  /** `listings.platform_fields[platform]` when the Listing Kit has run. */
+  platformFields: Record<string, unknown> | null;
+  /** The eBay draft, for the no-kit fallback. Null when there is none. */
+  draft: ListPayloadDraft | null;
+  /** Photo cap for this platform (`MarketplaceSpec.maxPhotos`). */
+  maxPhotos: number;
+  /** The platform's display name (`MarketplaceSpec.label`). */
+  platformLabel: string;
+}
+
+function str(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
+/**
+ * Cover first, then ascending sort_order, capped at the platform's limit.
+ *
+ * The same rule as `orderedCappedPhotos` in src/lib/photo-export.ts, restated
+ * rather than imported because the edge and the SPA share no module graph.
+ * `photo-order` in the test file pins the two against one fixture.
+ */
+export function orderedListPhotos(
+  photos: readonly ListPayloadPhoto[],
+  primaryId: string | null,
+  maxPhotos: number,
+): ListPayloadPhoto[] {
+  const sorted = [...photos].sort((a, b) => a.sort_order - b.sort_order);
+  if (primaryId) {
+    const idx = sorted.findIndex((p) => p.id === primaryId);
+    if (idx > 0) {
+      const cover = sorted.splice(idx, 1)[0];
+      if (cover) sorted.unshift(cover);
+    }
+  }
+  return sorted.slice(0, Math.max(0, maxPhotos));
+}
+
+/**
+ * Build the content half of a `list` job.
+ *
+ * Key-for-key the payload `buildListerPayload` sends from the browser, because
+ * `GT.runFlow` reads one shape and a second one would be a second set of bugs.
+ * `extension-queue-payload_test.ts` asserts the two key sets are equal.
+ *
+ * Values come from the kit variant when the Listing Kit has run for this
+ * platform, and from the eBay draft plus the item row when it has not — the
+ * same precedence `generatePlatformVariants` uses to build a variant in the
+ * first place, so a seller who skipped the kit gets their own words rather than
+ * a blank form.
+ */
+export function buildListPayload(
+  input: BuildListPayloadInput,
+): Record<string, unknown> {
+  const v = input.platformFields ?? {};
+  const draft = input.draft;
+
+  // The kit stores condition as { value, label }; the form wants the label.
+  const condition = v.condition;
+  const conditionLabel =
+    condition && typeof condition === "object" && !Array.isArray(condition)
+      ? str((condition as Record<string, unknown>).label)
+      : "";
+
+  const priceNumber = typeof v.price === "number" && v.price > 0
+    ? v.price
+    : (draft?.listing_price ?? null);
+
+  const photos = orderedListPhotos(
+    input.photos,
+    draft?.primary_photo_id ?? null,
+    input.maxPhotos,
+  );
+
+  return {
+    platform: input.platform,
+    platformLabel: input.platformLabel,
+    itemId: input.itemId,
+    // Deliberately EMPTY, and the key is still here.
+    //
+    // The extension resolves its own navigation target from its bundled
+    // selectors config (lister/lister-guard.js newListingUrlFor /
+    // newListingUrlForLocale) and never follows a URL that arrived on a
+    // message — US-1876, so that a compromised page cannot steer the browser.
+    // A marketplace URL written here would therefore be decoration, and a
+    // marketplace HOST in the edge's source is not free: it reads as an
+    // outbound call to the subprocessor scanner
+    // (src/test/subprocessors-complete.test.ts), which would have to carry a
+    // standing exception for a string nothing fetches. The key stays because
+    // GT.runFlow reads ONE payload shape and a missing key is a different bug.
+    newListingUrl: "",
+    title: str(v.title) || str(draft?.listing_title) || str(input.item.title),
+    description: str(v.description) || str(draft?.listing_description),
+    price: priceNumber != null && priceNumber > 0 ? String(priceNumber) : "",
+    // Never inferred. Poshmark's "original price" is a claim about retail, and
+    // guessing it from a purchase price would put a number the seller never
+    // typed onto a live listing.
+    originalPrice: "",
+    brand: str(v.brand) || str(input.item.brand),
+    color: str(v.color) || str(input.item.color),
+    size: str(v.size) || str(input.item.size),
+    category: str(v.category),
+    condition: conditionLabel,
+    tags: Array.isArray(v.tags) ? v.tags.filter((t) => typeof t === "string") : [],
+    photoUrls: photos.map((p) => p.photo_url),
+    maxPhotos: input.maxPhotos,
+  };
+}
+
+/** Why a claimed `list` row cannot be run, in the seller's words. */
+export type ListPayloadRefusal = "item_missing" | "no_photos";
+
+export const LIST_REFUSAL_REASON: Record<ListPayloadRefusal, string> = {
+  // Said as a fact about their inventory, not as an error code. A seller who
+  // deleted the item last week needs to recognise what happened, not debug it.
+  item_missing:
+    "This item was deleted after the cross-post was queued, so there was nothing left to list.",
+  no_photos:
+    "This item has no photos, and every marketplace requires at least one. Add photos and queue it again.",
+};
+
+/**
+ * Merge hydrated content UNDER whatever the client sent.
+ *
+ * Client keys win. `locale` is the one the phone may legitimately carry
+ * (US-2777 stamps it at enqueue), and a per-platform price from the push-to
+ * picker is the next one that will be — overwriting either with a server
+ * default would make the field unusable for anything, forever.
+ */
+export function mergeHydratedPayload(
+  stored: Record<string, unknown>,
+  hydrated: Record<string, unknown>,
+): Record<string, unknown> {
+  return { ...hydrated, ...stored };
+}

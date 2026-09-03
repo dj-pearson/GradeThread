@@ -7,6 +7,8 @@ import WidgetKit
 struct GradeThreadWidgetBundle: WidgetBundle {
     var body: some Widget {
         SnapshotWidget()
+        // US-3101: a Lock Screen launcher for the sourcing camera.
+        ProspectLauncherWidget()
     }
 }
 

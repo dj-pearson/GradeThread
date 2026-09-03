@@ -60,6 +60,17 @@ final class RadarStoreTests: XCTestCase {
                 unplacedVisits: unplacedVisits
             )
         }
+
+        // US-3106
+        private(set) var linkCalls: [(sourceId: String, venueId: String?)] = []
+        var linkError: Error?
+
+        @discardableResult
+        func linkStore(sourceId: String, venueId: String?) async throws -> String? {
+            linkCalls.append((sourceId, venueId))
+            if let linkError { throw linkError }
+            return venueId
+        }
     }
 
     private final class FakeLocation: RadarLocating {

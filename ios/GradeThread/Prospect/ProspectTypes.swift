@@ -70,8 +70,29 @@ struct ProspectRequest: Encodable {
     /// Carried across from the run being corrected, never recomputed.
     let gradeValue: Double?
     let gradeTier: String?
+    // ── US-3099: what the phone read before it uploaded anything ────────────
+    //
+    // The tag OCR and the barcode scanner both run on-device, for free, offline,
+    // in the time the shutter takes. Sending what they read lets the server skip
+    // a metered AI action spent re-reading the same tag from a JPEG that had to
+    // be uploaded first. The server applies its own confidence floor
+    // (lib/prospect-onboard-hints.ts); the phone reports, it does not decide.
+    /// A scanned retail barcode. Checksummed, so the server trusts it outright.
+    let barcode: String?
+    /// Brand read off the tag by Vision.
+    let brandHint: String?
+    /// Size read off the tag by Vision.
+    let sizeHint: String?
+    /// Vision's own confidence in the two hints above, 0..1.
+    let hintConfidence: Double?
 
-    init(images: [String], roles: [ProspectPhotoRole], costCents: Int?, fix: RadarFix? = nil) {
+    init(
+        images: [String],
+        roles: [ProspectPhotoRole],
+        costCents: Int?,
+        fix: RadarFix? = nil,
+        hints: OnDeviceHints = .none
+    ) {
         self.init(
             images: images,
             imageRoles: roles.map { $0.rawValue },
@@ -81,7 +102,11 @@ struct ProspectRequest: Encodable {
             titleOverride: nil,
             brandOverride: nil,
             gradeValue: nil,
-            gradeTier: nil
+            gradeTier: nil,
+            barcode: hints.barcode,
+            brandHint: hints.brand,
+            sizeHint: hints.size,
+            hintConfidence: hints.confidence
         )
     }
 
@@ -107,7 +132,12 @@ struct ProspectRequest: Encodable {
             titleOverride: title,
             brandOverride: brand,
             gradeValue: gradeValue,
-            gradeTier: gradeTier
+            gradeTier: gradeTier,
+            // A re-pull carries no photos, so it has nothing the phone read.
+            barcode: nil,
+            brandHint: nil,
+            sizeHint: nil,
+            hintConfidence: nil
         )
     }
 
@@ -146,6 +176,11 @@ struct ProspectResponse: Decodable {
     let sellThrough: ProspectSellThrough?
     let costCents: Int?
     let decision: ProspectDecision?
+    /// US-3097: the sourcing ceiling — the most to pay and still clear the
+    /// target return. The server has sent this since US-2851 and the app
+    /// dropped it, which left the single most useful number for someone
+    /// standing over a rack with a price tag in their hand off the screen.
+    let ceiling: ProspectCeiling?
     /// Deep link to eBay's SOLD/completed search for this item (browser).
     let ebaySoldSearchUrl: String?
     /// US-3026: the words that link searches for.
@@ -251,6 +286,64 @@ struct ProspectStats: Decodable {
     let currency: String
     let confidence: Double
     let sufficient: Bool
+    /// US-3097 / US-2850: what this number actually IS. Optional so a response
+    /// from before the provenance shipped still decodes.
+    let basis: ValueBasis?
+}
+
+/// Where a price came from, written by the server.
+///
+/// The WORDS are not built here. `headline` and `detail` arrive already
+/// phrased from services/edge-functions/src/lib/value-disclosure.ts, for the
+/// same reason the web's `ValueBasisNote` does not write them: a sentence about
+/// provenance that lives next to one surface's markup eventually says something
+/// another surface contradicts. This type decides nothing except how to decode.
+struct ValueBasis: Decodable, Equatable {
+    /// "measured_curve" | "comp_median".
+    let source: String
+    /// "active_asking" | "sold_realized" — asking prices until the Marketplace
+    /// Insights grant lands.
+    let prices: String
+    let sampleSize: Int
+    let headline: String
+    let detail: String?
+}
+
+/// US-2851's sourcing ceiling, decoded.
+///
+/// NOTE ON THE FIELD NAME: the server calls it `maxPriceCents`
+/// (`SourcingCeiling` in lib/scout-decision.ts). US-3097's acceptance criterion
+/// said `maxBuyCents`, which is not a key the edge has ever sent — decoding
+/// that name would have produced a permanently absent ceiling that looked like
+/// a server that never computes one.
+struct ProspectCeiling: Decodable, Equatable {
+    /// Highest price to pay and still clear `targetRoi`. Nil when unavailable,
+    /// and then `absentReason` says why.
+    let maxPriceCents: Int?
+    /// The target actually applied, as a fraction. 0.3 = 30%.
+    let targetRoi: Double
+    /// Net-of-fees resale at the condition-adjusted median.
+    let netResaleCents: Int?
+    /// "no_measured_curve" | "insufficient_comps" | "no_headroom", or nil.
+    let absentReason: String?
+
+    /// Why there is no ceiling, in the seller's words.
+    ///
+    /// Every one of these says what is MISSING rather than apologising, because
+    /// the honest answer here is that we do not know this garment well enough
+    /// yet, and a vaguer sentence would read as a bug in the app.
+    var absentCopy: String? {
+        switch absentReason {
+        case "no_measured_curve":
+            return String(localized: "No ceiling yet: we have not measured how condition moves the price for this kind of item.")
+        case "insufficient_comps":
+            return String(localized: "No ceiling yet: too few comparable listings to price this one.")
+        case "no_headroom":
+            return String(localized: "No ceiling: after fees there is nothing left at this item's going rate.")
+        default:
+            return nil
+        }
+    }
 }
 
 /// Transparent sell-through forecast (heuristic from price position in the comp
@@ -281,6 +374,10 @@ struct ProspectBuyRequest: Encodable {
     let brand: String?
     let size: String?
     let color: String?
+    /// US-3100: the eBay leaf category the scan resolved, written to
+    /// `ebay_category_id` on the new row. The composer opens on it instead of
+    /// asking the seller for a category the app already worked out.
+    let categoryId: String?
     let costCents: Int?
     let targetCents: Int?
     let gradeValue: Double?
@@ -291,4 +388,99 @@ struct ProspectBuyRequest: Encodable {
 struct ProspectBuyResponse: Decodable {
     let id: String
     let status: String
+}
+
+/// US-3100 — what "Add to inventory" sends, from a live scan OR a saved verdict.
+///
+/// Prospect could only ever commit the result currently on screen, because the
+/// buy request was assembled inline from a ``ProspectResponse``. A saved verdict
+/// is the same garment described by fewer fields, and re-scanning it to get an
+/// object of the right TYPE would spend a metered AI action to learn nothing.
+///
+/// So both sources map to this, and one commit path serves both. The mapping is
+/// a plain value type with no I/O, which is what makes "the saved row commits
+/// the same thing the live scan would have" a claim a test can check.
+struct ProspectCommit: Equatable {
+    var title: String
+    var brand: String?
+    var size: String?
+    var color: String?
+    /// The eBay leaf category, which becomes `ebay_category_id` on the item so
+    /// the composer opens on the right category instead of asking again.
+    var categoryId: String?
+    /// The human-readable path. There is no column for it — it rides in the
+    /// notes, where the catalog step reads it.
+    var categoryPath: String?
+    var costCents: Int?
+    var targetCents: Int?
+    var gradeValue: Double?
+    var gradeLabel: String?
+    var keywords: [String]
+
+    /// From a live scan. Nil when there is nothing to commit: an unidentified
+    /// result has no title, and an inventory row called "" is worse than none.
+    init?(_ result: ProspectResponse) {
+        guard result.identified, let title = result.item.title, !title.isEmpty else { return nil }
+        self.title = title
+        self.brand = result.item.brand
+        self.size = result.item.size
+        self.color = result.item.color
+        self.categoryId = result.category?.id
+        self.categoryPath = result.category?.path
+        // US-1275: the cost the run was COMPUTED with, not whatever is in the
+        // field now. If the seller edited it after the run, the grade and target
+        // below still come from the earlier one, and persisting the new cost
+        // would store a verdict the comps never used.
+        self.costCents = result.costCents
+        self.targetCents = result.stats?.medianCents
+        self.gradeValue = result.grade?.value
+        self.gradeLabel = result.grade?.tier
+        self.keywords = result.item.keywords
+    }
+
+    /// From a saved verdict.
+    ///
+    /// Carries no keywords and no size or colour: the log keeps what a Home row
+    /// shows, and storing the whole response to fill three more fields on a
+    /// commit that may never happen is the wrong trade. Everything the seller
+    /// SEES on the saved card is committed exactly as the live scan would have.
+    init?(_ row: LocalProspectResult) {
+        guard let title = row.title, !title.isEmpty else { return nil }
+        self.title = title
+        self.brand = row.brand
+        self.size = nil
+        self.color = nil
+        self.categoryId = row.categoryId
+        self.categoryPath = row.categoryPath
+        self.costCents = row.costCents
+        self.targetCents = row.medianCents
+        self.gradeValue = row.gradeValue
+        self.gradeLabel = row.gradeTier
+        self.keywords = []
+    }
+
+    /// US-1170: the AI's read, distilled into the notes so the catalog step
+    /// starts from it rather than from a blank item. Nil when there is nothing
+    /// worth recording.
+    var conditionNotes: String? {
+        var parts: [String] = []
+        if !keywords.isEmpty { parts.append(keywords.joined(separator: ", ")) }
+        if let categoryPath, !categoryPath.isEmpty { parts.append("Category: \(categoryPath)") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    var request: ProspectBuyRequest {
+        ProspectBuyRequest(
+            title: title,
+            brand: brand,
+            size: size,
+            color: color,
+            categoryId: categoryId,
+            costCents: costCents,
+            targetCents: targetCents,
+            gradeValue: gradeValue,
+            gradeLabel: gradeLabel,
+            conditionNotes: conditionNotes
+        )
+    }
 }

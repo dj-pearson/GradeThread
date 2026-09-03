@@ -8,6 +8,11 @@ import SwiftUI
 /// pro feature — on a free plan the scan returns a gate error which surfaces
 /// inline.
 struct ScoutView: View {
+    /// US-3106: a term handed over from Prospect's demand strip. Seeds the
+    /// keyword field and runs nothing on its own — a scan is a metered AI action
+    /// and a chip tap is an intent to look, not an instruction to spend.
+    var initialKeyword: String?
+
     @StateObject private var store = ScoutStore()
     @Environment(\.dismiss) private var dismiss
     /// US-1213: observe the app-wide plan-gate sink. A 402 from a scan routes
@@ -24,6 +29,11 @@ struct ScoutView: View {
     /// "See plans" can re-present, rather than reverting to a dead-end "Try
     /// again". Reset at the start of each scan.
     @State private var lockedGate: PlanGateError?
+    /// US-3098: the deal-filter sheet.
+    @State private var showFilters = false
+    /// US-3106: one-shot, so re-rendering does not overwrite what the seller
+    /// typed after the hand-off seeded the field.
+    @State private var didSeedKeyword = false
 
     var body: some View {
         NavigationStack {
@@ -53,6 +63,19 @@ struct ScoutView: View {
                     lockedGate = gate
                 }
             }
+            .sheet(isPresented: $showFilters) {
+                ScoutFilterSheet(store: store, onApply: runScan)
+            }
+            // US-3106: seed the field from a demand chip, once. Never runs the
+            // scan: that is a metered AI action, and "show me what people want"
+            // is not "spend one of my scans on it".
+            .onAppear {
+                guard !didSeedKeyword,
+                      let initialKeyword,
+                      !initialKeyword.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                didSeedKeyword = true
+                store.keyword = initialKeyword
+            }
         }
     }
 
@@ -77,6 +100,28 @@ struct ScoutView: View {
                 .autocorrectionDisabled()
                 .submitLabel(.search)
                 .onSubmit(runScan)
+
+            // US-3098: the deal filter, behind one row rather than six fields.
+            // A seller who just wants to look does not need them between
+            // themselves and the button; one who is hunting a margin sets them
+            // once and they persist across launches.
+            Button {
+                showFilters = true
+            } label: {
+                HStack {
+                    Label(String(localized: "Deal filter"), systemImage: "line.3.horizontal.decrease.circle")
+                    Spacer()
+                    if let summary = filterSummary {
+                        Text(summary)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                }
+                .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button(action: runScan) {
                 if store.isLoading {
@@ -103,13 +148,38 @@ struct ScoutView: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "info.circle")
                 .foregroundStyle(.brandAmber)
-            Text("Shadow grades are private AI estimates from each listing's photos — not a GradeThread certificate, and not visible to the seller. Always verify condition before buying.")
+            // US-3107: two claims, and the second one used to be missing. The
+            // value and ROI beside every result are computed from ACTIVE
+            // listings — asking prices — because the Marketplace Insights grant
+            // that would make them sold prices has not landed. A seller reading
+            // "condition-matched comps" has no way to tell which of the two they
+            // are being shown, and they price differently.
+            Text("Shadow grades are private AI estimates from each listing's photos — not a GradeThread certificate, and not visible to the seller. Values come from active eBay listings, so they are asking prices, not sold prices. Always verify condition before buying.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.brandAmber.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+    }
+
+    /// A one-line read of what is set, for the collapsed row. Nil when nothing
+    /// is, so the row does not carry an empty trailing space.
+    private var filterSummary: String? {
+        var parts: [String] = []
+        if let cap = ScoutStore.cents(from: store.maxTotalText) {
+            parts.append(String(localized: "under \(CurrencyFormatter.shared.formatDisplay(Double(cap) / 100))"))
+        }
+        if let pct = ScoutStore.fraction(fromPercent: store.minMarginPctText) {
+            parts.append(String(localized: "\(Int((pct * 100).rounded()))%+"))
+        }
+        if let margin = ScoutStore.cents(from: store.minMarginDollarsText) {
+            parts.append(CurrencyFormatter.shared.formatDisplay(Double(margin) / 100) + "+")
+        }
+        if store.buyItNowOnly { parts.append(String(localized: "BIN")) }
+        if store.freeShippingOnly { parts.append(String(localized: "free ship")) }
+        if store.browseSort != .bestMatch { parts.append(store.browseSort.label.lowercased()) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     // MARK: - Results
@@ -132,8 +202,19 @@ struct ScoutView: View {
                 // don't all instantiate eagerly inside the ScrollView.
                 LazyVStack(spacing: 12) {
                     ForEach(store.displayedCandidates) { candidate in
-                        ScoutCandidateRow(candidate: candidate)
+                        ScoutCandidateRow(
+                            candidate: candidate,
+                            isBuying: store.buyingItemId == candidate.itemId,
+                            isBought: store.boughtItemIds[candidate.itemId] != nil,
+                            onBuy: { Task { await store.buy(candidate) } }
+                        )
                     }
+                }
+                if let buyError = store.buyError {
+                    Text(buyError)
+                        .font(.caption)
+                        .foregroundStyle(Color.brandRed)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -142,7 +223,10 @@ struct ScoutView: View {
     private func resultsHeader(scanned: Int) -> some View {
         VStack(spacing: 8) {
             HStack {
-                Text("Scanned \(scanned) · \(store.displayedCandidates.count) shown")
+                // US-3098: the denominator. "Graded 8" alone is a number a
+                // seller cannot judge; "looked at 42, graded 8" says the scan
+                // searched wider than the eight rows in front of them.
+                Text("\(store.scanSummary ?? String(localized: "Scanned \(scanned) listings")) · \(store.displayedCandidates.count) shown")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()

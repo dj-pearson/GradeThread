@@ -18,6 +18,11 @@ final class ListingKitStore {
 
     private(set) var phase: Phase = .idle
     private(set) var variants: [PlatformVariant] = []
+    /// US-3103: the eBay draft the variants were generated from. The cross-push
+    /// route addresses a LISTING, not an item, so the push sheet cannot be
+    /// opened without it — the response has always carried it and the store
+    /// dropped it.
+    private(set) var listingId: String?
 
     let itemId: String
     let itemTitle: String
@@ -48,9 +53,11 @@ final class ListingKitStore {
                 platforms: Self.kitPlatforms
             )
             variants = res.variants
+            listingId = res.listingId
             phase = .ready
         } catch {
             variants = []
+            listingId = nil
             // EdgeAPIError is a LocalizedError, so a 409 ("no eBay draft yet")
             // surfaces its server detail; everything else gets a clean fallback.
             phase = .failed(error.localizedDescription)

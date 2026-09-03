@@ -346,3 +346,36 @@ struct RadarPersonalStoresPayload: Decodable, Equatable, Sendable {
         self.truncated = truncated
     }
 }
+
+// MARK: - Linking a source to a venue (US-3106)
+
+/// `POST /api/flipdesk/radar/my-stores/link` body.
+///
+/// The wire keys are `source_id` and `venue_id`. They are spelled camelCase
+/// here because the shared ``EdgeAPI`` encoder converts to snake_case on the
+/// way out — the same convention every other Radar call uses in reverse on the
+/// way in. Writing the snake_case spelling by hand would double-convert into
+/// `source__id` and the route would answer "source_id is required" for a
+/// request that plainly carries one.
+struct RadarLinkRequest: Encodable, Equatable {
+    let sourceId: String
+    /// Nil unlinks. Absent and explicit null mean the same thing to the route,
+    /// and the synthesized encoder omits the key, which is the absent case.
+    let venueId: String?
+
+    init(sourceId: String, venueId: String?) {
+        self.sourceId = sourceId
+        self.venueId = venueId
+    }
+}
+
+struct RadarLinkResponse: Decodable, Equatable {
+    let ok: Bool
+    /// What the link now points at, or nil after an unlink.
+    let venueId: String?
+
+    init(ok: Bool = true, venueId: String? = nil) {
+        self.ok = ok
+        self.venueId = venueId
+    }
+}
