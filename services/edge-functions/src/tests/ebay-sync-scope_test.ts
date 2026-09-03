@@ -18,7 +18,9 @@ import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import {
   CATALOG_REFRESH_MS,
+  OFFER_RECHECK_MS,
   resolveSyncScope,
+  selectSkusToSkip,
   SPECIFICS_RECHECK_MS,
 } from "../routes/flipdesk-ebay.ts";
 
@@ -75,4 +77,82 @@ Deno.test("the specifics negative cache outlives a day of syncing", () => {
   // The failure mode being prevented is a per-sync re-ask. Any window shorter
   // than a day would let the old behaviour back in through the front door.
   assertEquals(SPECIFICS_RECHECK_MS > 24 * 60 * 60 * 1000, true);
+});
+
+// ── US-3111: the per-SKU offer read stagger ──────────────────────────
+//
+// The fan-out is one `GET /sell/inventory/v1/offer?sku=` per SKU over eBay's
+// whole inventory list — 984 SKUs on production — repeated every catalog pass.
+// Two thirds of those SKUs are Seller-Hub listings with no Inventory-API offer,
+// so the call returns nothing and we ask again six hours later. selectSkusToSkip
+// is what stops that, which makes its edge cases worth pinning: every branch
+// below decides whether we spend about a thousand eBay calls.
+
+Deno.test("a SKU read inside the window is skipped", () => {
+  const skip = selectSkusToSkip(
+    [{ sku: "SKU-1", ebay_offer_checked_at: ago(60_000) }],
+    NOW,
+  );
+  assertEquals([...skip], ["SKU-1"]);
+});
+
+Deno.test("a SKU read outside the window is read again", () => {
+  const skip = selectSkusToSkip(
+    [{ sku: "SKU-1", ebay_offer_checked_at: ago(OFFER_RECHECK_MS) }],
+    NOW,
+  );
+  assertEquals(skip.size, 0);
+});
+
+Deno.test("a SKU never read is never skipped", () => {
+  // This is how a brand new SKU, and every SKU on the first pass after deploy,
+  // gets discovered at all.
+  const skip = selectSkusToSkip(
+    [{ sku: "SKU-1", ebay_offer_checked_at: null }],
+    NOW,
+  );
+  assertEquals(skip.size, 0);
+});
+
+Deno.test("rows with no sku or an unparseable stamp are read", () => {
+  const skip = selectSkusToSkip(
+    [
+      { sku: null, ebay_offer_checked_at: ago(60_000) },
+      { sku: "SKU-2", ebay_offer_checked_at: "not a date" },
+      { sku: "SKU-3", ebay_offer_checked_at: "" },
+    ],
+    NOW,
+  );
+  assertEquals(skip.size, 0);
+});
+
+Deno.test("a future timestamp is a clock problem, not a fresh read", () => {
+  // Treating it as fresh would skip the SKU until wall-clock caught up, which
+  // on a badly skewed clock could be indefinitely.
+  const skip = selectSkusToSkip(
+    [{ sku: "SKU-1", ebay_offer_checked_at: ago(-60 * 60 * 1000) }],
+    NOW,
+  );
+  assertEquals(skip.size, 0);
+});
+
+Deno.test("the window is a day, so a full pass never skips the whole catalog", () => {
+  // If OFFER_RECHECK_MS ever dropped below the catalog refresh interval the
+  // stagger would do nothing; if it grew unbounded, an ended listing could sit
+  // in 'listed' for a week. It belongs strictly between the two.
+  assertEquals(OFFER_RECHECK_MS > CATALOG_REFRESH_MS, true);
+  assertEquals(OFFER_RECHECK_MS <= 7 * 24 * 60 * 60 * 1000, true);
+});
+
+Deno.test("a mixed catalog skips only the fresh half", () => {
+  const skip = selectSkusToSkip(
+    [
+      { sku: "fresh-a", ebay_offer_checked_at: ago(60_000) },
+      { sku: "fresh-b", ebay_offer_checked_at: ago(OFFER_RECHECK_MS - 1_000) },
+      { sku: "stale-a", ebay_offer_checked_at: ago(OFFER_RECHECK_MS + 1_000) },
+      { sku: "never", ebay_offer_checked_at: null },
+    ],
+    NOW,
+  );
+  assertEquals([...skip].sort(), ["fresh-a", "fresh-b"]);
 });

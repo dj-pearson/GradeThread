@@ -1,5 +1,58 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00725 — stagger the per-SKU eBay offer read (US-3111)
+
+**Risk: LOW.** One nullable `timestamptz` on `inventory_items`. No backfill, no
+constraint, no index, no rewrite. Every row starts null, which is the "never
+asked" state that forces a read — so the first pass after deploy behaves exactly
+like today and the saving starts on the second.
+
+**Apply BEFORE the edge deploy.** The new edge SELECTs
+`inventory_items.ebay_offer_checked_at` by name. If the edge goes first,
+PostgREST answers 42703, `loadRecentlyReadOfferSkus` logs a warning and returns
+an empty set — so it degrades to today's full fan-out rather than breaking, but
+the stamp write would fail on every pass and fill the sync run with errors.
+
+**`NOTIFY pgrst, 'reload schema';`** after applying — one new column, read by
+name through PostgREST.
+
+**The frontend does not read it.** A Cloudflare Pages deploy alone is harmless.
+
+**What it is for.** 00724 took the catalog from ~41 full passes a day to 4 per
+connection. What remains is the pass itself: `listAllOffers` fans out one
+`GET /sell/inventory/v1/offer?sku=` per SKU across eBay's entire inventory list —
+984 SKUs — and only 301 of 940 eBay listing rows carry an offer id, so most of
+those calls ask about Seller-Hub listings that have no Inventory-API offer and
+never will. eBay returns nothing, we store nothing, we ask again in six hours.
+The same shape as the item-specifics bug 00724 fixed.
+
+**What moves to a daily cadence, and what does not.** Price, quantity, title,
+category and listing status for ACTIVE listings arrive from GetMyeBaySelling in
+about seven paged calls on the same pass, so nothing a seller reads goes stale.
+What the per-SKU offer read uniquely provides is the offer-level detail and the
+detection of a listing that ENDED WITHOUT SELLING. eBay publishes no notification
+topic for a listing ending, so polling is the only way we learn it. After this,
+an unsold ended listing moves back to Drafts within 24 hours instead of 6.
+
+**The rejected alternative, recorded so it is not re-proposed.** Treating
+"missing from the bulk active list" as proof a listing ended would take the
+per-SKU read close to zero. It is not worth it: if GetMyeBaySelling ever returns
+a truncated page, that logic moves LIVE listings into Drafts, and nobody would
+notice until a seller complained. The existing ended-detection is deliberately
+observation-based, never absence-based, and this keeps it that way.
+
+**Both failure paths fail open.** A missing column, a failed read, an
+unparseable or future-dated stamp all resolve to "read this SKU", which is the
+pre-change behaviour. A failed stamp write is logged and recorded on the sync
+run rather than swallowed, because a silent failure here restores the full
+fan-out invisibly.
+
+**Verified on a throwaway local stack:** applied from clean and re-applied
+(idempotent, only the expected "already exists, skipping" notice); the US-1108
+self-record footer present; `EXPECTED_SCHEMA_VERSION` bumped to 00725 in the same
+commit with the manifest regenerated; `migrations-lint` green at 721 migrations.
+
+
 ## ⏳ PENDING: 00724 — stop the eBay sync re-reading what it already knows (US-3110)
 
 **Risk: LOW-MEDIUM.** Two nullable `timestamptz` columns, three indexes, and one

@@ -2558,6 +2558,78 @@ export const CATALOG_REFRESH_MS = 6 * 60 * 60 * 1000;
  */
 export const SPECIFICS_RECHECK_MS = 14 * 24 * 60 * 60 * 1000;
 
+/**
+ * US-3111: how long a per-SKU offer read counts as current.
+ *
+ * The fan-out is one `GET /sell/inventory/v1/offer?sku=` per SKU across eBay's
+ * whole inventory list, and most of those SKUs have no Inventory-API offer at
+ * all — they are Seller-Hub listings created through Trading, so the call
+ * returns nothing every time it is made.
+ *
+ * A day is the right window because of what the offer read UNIQUELY provides.
+ * Price, quantity, title, category and listing status for ACTIVE listings come
+ * from GetMyeBaySelling in about seven paged calls on the same pass, so none of
+ * that goes stale. What the offer read alone tells us is the offer-level detail
+ * and that a listing ENDED without selling — and eBay publishes no notification
+ * topic for a listing ending, so polling is the only way we ever learn it. A
+ * day late on moving an unsold listing back to Drafts is a fair trade for
+ * roughly three quarters of the catalog's call volume.
+ */
+export const OFFER_RECHECK_MS = 24 * 60 * 60 * 1000;
+
+interface OfferCheckRow {
+  sku: string | null;
+  ebay_offer_checked_at: string | null;
+}
+
+/**
+ * Pure: which SKUs a catalog pass may skip.
+ *
+ * Separated from the query so the window arithmetic — the part that decides
+ * whether we spend a thousand eBay calls — is testable without a database. A
+ * row with no timestamp, or an unparseable one, is never skipped: failing
+ * toward an extra read is the cheap direction.
+ */
+export function selectSkusToSkip(
+  rows: readonly OfferCheckRow[],
+  nowMs: number,
+  windowMs: number = OFFER_RECHECK_MS,
+): Set<string> {
+  const skip = new Set<string>();
+  for (const row of rows) {
+    if (!row.sku || !row.ebay_offer_checked_at) continue;
+    const at = Date.parse(row.ebay_offer_checked_at);
+    if (!Number.isFinite(at)) continue;
+    // A timestamp in the future is a clock problem, not a fresh read. Treating
+    // it as fresh would skip the SKU until the clock caught up.
+    if (at > nowMs) continue;
+    if (nowMs - at < windowMs) skip.add(row.sku);
+  }
+  return skip;
+}
+
+/**
+ * The SKUs read inside the recheck window. FAILS OPEN to an empty set, which is
+ * exactly the pre-US-3111 behaviour of reading every SKU — a wasted call beats
+ * a catalog that silently stops reconciling.
+ */
+async function loadRecentlyReadOfferSkus(userId: string): Promise<Set<string>> {
+  const { data, error } = await supabaseAdmin
+    .from("inventory_items")
+    .select("sku, ebay_offer_checked_at")
+    .eq("user_id", userId)
+    .not("sku", "is", null)
+    .not("ebay_offer_checked_at", "is", null);
+  if (error) {
+    console.warn(
+      `[flipdesk-ebay] offer-recheck window unavailable (${error.message}); ` +
+        `reading every SKU this pass`,
+    );
+    return new Set<string>();
+  }
+  return selectSkusToSkip((data ?? []) as OfferCheckRow[], Date.now());
+}
+
 async function doListingsPull(
   userId: string,
   connId: string,
@@ -2581,9 +2653,22 @@ async function doListingsPull(
   // below, per-item errors). Declared up here so the offers/inventory fetch can
   // record a ceiling hit; a non-empty list flips the run to "partial".
   const errors: string[] = [];
+  // US-3111: the SKUs whose offer we read recently enough to skip this pass.
+  // Loaded before the fetch and empty on any failure, so the worst case is the
+  // old behaviour of reading every SKU.
+  const skipSkus = catalogPass
+    ? await loadRecentlyReadOfferSkus(userId)
+    : new Set<string>();
   let offers: RemoteOffer[];
+  let offerSkusRead: string[] = [];
   try {
-    offers = catalogPass ? await listAllOffers(userId, errors) : [];
+    if (catalogPass) {
+      const res = await listAllOffers(userId, errors, skipSkus);
+      offers = res.offers;
+      offerSkusRead = res.skusRead;
+    } else {
+      offers = [];
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[flipdesk-ebay] listings/pull fetch failed:", msg);
@@ -3454,6 +3539,32 @@ async function doListingsPull(
     errors.push(
       `trading api: ${err instanceof Error ? err.message : String(err)}`
     );
+  }
+
+  // US-3111: remember which SKUs we spent an offer read on, including the ones
+  // eBay had no offer for. Chunked because a large seller's pass can name a few
+  // thousand SKUs and PostgREST sends `.in()` in the URL.
+  if (offerSkusRead.length > 0) {
+    const CHUNK = 400;
+    for (let i = 0; i < offerSkusRead.length; i += CHUNK) {
+      const chunk = offerSkusRead.slice(i, i + CHUNK);
+      const { error } = await supabaseAdmin
+        .from("inventory_items")
+        .update({ ebay_offer_checked_at: new Date().toISOString() })
+        .eq("user_id", userId)
+        .in("sku", chunk);
+      if (error) {
+        // Not fatal: an unstamped SKU is simply read again next pass, which is
+        // the old behaviour. Say so, because a persistent failure here restores
+        // the full fan-out silently.
+        console.error(
+          "[flipdesk-ebay] failed to stamp ebay_offer_checked_at:",
+          error.message,
+        );
+        errors.push(`offer stamp: ${error.message.slice(0, 200)}`);
+        break;
+      }
+    }
   }
 
   // US-3110: remember which items we asked GetItem about, including the ones it

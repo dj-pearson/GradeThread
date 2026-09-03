@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3111",
+  "nextId": "US-3112",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3671,6 +3671,22 @@
         "OPERATOR: apply 00724 to prod, NOTIFY pgrst, then redeploy the edge (columns and RPC are read by name; the edge must not go first).",
         "OPERATOR: after 48 hours, re-read ebay_api_call_daily and confirm total daily calls and the Trading peak have both dropped; do not submit the growth check on the pre-fix numbers.",
         "OPERATOR: read the next ebay-notification-reconcile failure from the container log now that it names itself, and file the real defect."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-3111",
+      "passes": false,
+      "title": "Stagger the per-SKU eBay offer read",
+      "description": "US-3110 cut the number of full catalog passes from ~41 a day to 4 per connection. What remains is the cost of a pass: listAllOffers fans out one GET /sell/inventory/v1/offer?sku= per SKU across eBay's entire inventory list, 984 SKUs on prod, and only 301 of 940 eBay listing rows carry an offer id - the rest are Seller-Hub listings created through Trading that have no Inventory-API offer and never will. eBay returns nothing, we store nothing, we ask again six hours later. Same shape as the item-specifics bug. A per-SKU read stamp (inventory_items.ebay_offer_checked_at) takes the fan-out from every pass to once a day: roughly 4,000 calls a day down to roughly 1,000. Price, quantity, title, category and listing status for ACTIVE listings keep arriving from GetMyeBaySelling in about seven paged calls on the same pass, so nothing a seller reads goes stale. The one thing that moves to a daily cadence is detection of a listing that ENDED WITHOUT SELLING, because eBay publishes no notification topic for a listing ending and polling is the only way we learn it. Absence-based ending (treating 'missing from the bulk active list' as ended) was considered and REJECTED: a truncated GetMyeBaySelling page would move live listings into Drafts and nobody would notice until a seller complained.",
+      "acceptanceCriteria": [
+        "listAllOffers accepts a skip set, filters it BEFORE the per-sync fan-out ceiling so the budget is spent on SKUs that need a read, and returns the SKUs it actually spent a call on including the ones eBay had no offer for.",
+        "selectSkusToSkip is pure and tested: skips inside the window, reads outside it, and never skips a null, empty, unparseable or future-dated stamp.",
+        "Every SKU read is stamped in bulk, chunked so a large seller's pass does not overflow the PostgREST URL, and a rate-limit bail-out still stamps the SKUs it got through.",
+        "Both failure paths fail open to the pre-change full fan-out: a missing column or failed read returns an empty skip set with a warning; a failed stamp write is logged and recorded on the sync run rather than swallowed.",
+        "OFFER_RECHECK_MS sits strictly between CATALOG_REFRESH_MS and a week, enforced by a test, so the stagger can neither become a no-op nor leave an ended listing in 'listed' for days.",
+        "OPERATOR: apply 00725 to prod, NOTIFY pgrst, then redeploy the edge (the column is read by name; the edge must not go first).",
+        "OPERATOR: 48 hours after deploy, confirm from ebay_api_call_daily that GET /sell/inventory/v1/offer has fallen to roughly one read per SKU per day, and that no listing sits in 'listed' with an ended eBay listing for more than 24 hours."
       ],
       "priority": 1
     }
