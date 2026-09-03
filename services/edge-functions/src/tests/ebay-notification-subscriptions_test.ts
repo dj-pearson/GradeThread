@@ -73,6 +73,48 @@ Deno.test("payload picker takes the HTTPS+JSON schemaVersion and ignores others"
   assertEquals(pickHttpsJsonSchemaVersion(undefined), null);
 });
 
+// The reconcile cron died in production with
+// "(p.format ?? \"\").toUpperCase is not a function": eBay sent a payload whose
+// fields were not the strings our interface promised. The picker is the only
+// thing standing between eBay's JSON and a 500 on every tick, so it has to be
+// total over shapes we did not anticipate.
+Deno.test("payload picker survives non-string fields from eBay", () => {
+  // Arrays (eBay documents `deliveryProtocols` plural on some topics).
+  assertEquals(
+    pickHttpsJsonSchemaVersion([
+      { format: ["JSON"], schemaVersion: "3.1", deliveryProtocol: ["HTTPS", "AMQP"] },
+    ]),
+    "3.1",
+  );
+  // Objects wrapping the value.
+  assertEquals(
+    pickHttpsJsonSchemaVersion([
+      {
+        format: { value: "json" },
+        schemaVersion: { value: "1.7" },
+        deliveryProtocol: { value: "https" },
+      },
+    ]),
+    "1.7",
+  );
+  // A numeric schemaVersion still comes back as the string eBay wants echoed.
+  assertEquals(
+    pickHttpsJsonSchemaVersion([
+      { format: "JSON", schemaVersion: 2, deliveryProtocol: "HTTPS" },
+    ]),
+    "2",
+  );
+  // Shapes with nothing recoverable read as "not HTTPS+JSON" — null, not a throw.
+  assertEquals(
+    pickHttpsJsonSchemaVersion([
+      { format: 7, schemaVersion: true, deliveryProtocol: null },
+      { format: "JSON", schemaVersion: null, deliveryProtocol: "HTTPS" },
+      null as unknown as { format?: unknown },
+    ]),
+    null,
+  );
+});
+
 Deno.test("topics are bucketed by the SAME router the receiver uses", () => {
   const byBucket = topicsByBucket([
     ...TOPICS,

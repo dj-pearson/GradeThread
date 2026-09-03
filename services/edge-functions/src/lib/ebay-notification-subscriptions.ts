@@ -99,10 +99,15 @@ export function destinationNameFor(kind: DestinationKind, env: EbayEnv): string 
 
 // ── Wire types (only the fields we use) ────────────────────────────────
 
+// ⚠ Every field is `unknown` ON PURPOSE. These are eBay's words, not ours, and
+// the optimistic `format?: string` here is what crashed the reconcile cron with
+// "(p.format ?? "").toUpperCase is not a function" — eBay sent something that
+// was not a string and TypeScript, which only checks OUR code, had no say.
+// Read them through `tokens()` below, never directly.
 export interface TopicPayload {
-  format?: string;
-  schemaVersion?: string;
-  deliveryProtocol?: string;
+  format?: unknown;
+  schemaVersion?: unknown;
+  deliveryProtocol?: unknown;
 }
 
 export interface EbayNotificationTopic {
@@ -139,17 +144,55 @@ export function pickHttpsJsonSchemaVersion(
   payloads: TopicPayload[] | undefined,
 ): string | null {
   for (const p of payloads ?? []) {
-    const proto = (p.deliveryProtocol ?? "").toUpperCase();
-    const format = (p.format ?? "").toUpperCase();
-    if (proto === "HTTPS" && format === "JSON" && p.schemaVersion) {
-      return String(p.schemaVersion);
+    if (!p || typeof p !== "object") continue;
+    const proto = tokens(p.deliveryProtocol);
+    const format = tokens(p.format);
+    const version = scalar(p.schemaVersion);
+    if (proto.includes("HTTPS") && format.includes("JSON") && version) {
+      return version;
     }
   }
   return null;
 }
 
+/**
+ * Upper-case every string eBay might have hidden in a field that our types say
+ * is a scalar. Accepts the scalar itself, an array of them (eBay documents
+ * `deliveryProtocols` plural on some topics), or an object wrapping one under
+ * `value`/`format`/`protocol`. Anything else yields no tokens, which reads as
+ * "this payload is not HTTPS+JSON" — the safe answer, because an unsubscribable
+ * topic is skipped rather than created with a version eBay would reject.
+ */
+function tokens(value: unknown): string[] {
+  if (typeof value === "string") return [value.trim().toUpperCase()];
+  if (Array.isArray(value)) return value.flatMap(tokens);
+  if (value && typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    return tokens(o.value ?? o.format ?? o.protocol ?? o.name);
+  }
+  return [];
+}
+
+/** The scalar form of a field we hand back to eBay verbatim (schemaVersion). */
+function scalar(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) {
+    for (const v of value) {
+      const s = scalar(v);
+      if (s) return s;
+    }
+    return null;
+  }
+  if (value && typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    return scalar(o.value ?? o.schemaVersion ?? o.version);
+  }
+  return null;
+}
+
 const isEnabled = (status: string | null | undefined): boolean =>
-  (status ?? "").toUpperCase() === "ENABLED";
+  tokens(status).includes("ENABLED");
 
 /** Group eBay's topic catalog by the lifecycle bucket our router assigns it. */
 export function topicsByBucket(
@@ -444,7 +487,7 @@ export async function listNotificationTopics(): Promise<EbayNotificationTopic[]>
   return await listPaged<
     {
       topicId?: string;
-      status?: string;
+      status?: unknown;
       supportedPayloads?: TopicPayload[];
     },
     EbayNotificationTopic
@@ -452,7 +495,7 @@ export async function listNotificationTopics(): Promise<EbayNotificationTopic[]>
     row.topicId
       ? {
           topicId: row.topicId,
-          status: row.status ?? null,
+          status: scalar(row.status),
           schemaVersion: pickHttpsJsonSchemaVersion(row.supportedPayloads),
         }
       : null);
@@ -463,7 +506,7 @@ export async function listSubscriptions(): Promise<EbaySubscription[]> {
     {
       subscriptionId?: string;
       topicId?: string;
-      status?: string;
+      status?: unknown;
       destinationId?: string;
     },
     EbaySubscription
@@ -472,7 +515,7 @@ export async function listSubscriptions(): Promise<EbaySubscription[]> {
       ? {
           subscriptionId: row.subscriptionId,
           topicId: row.topicId,
-          status: row.status ?? null,
+          status: scalar(row.status),
           destinationId: row.destinationId ?? null,
         }
       : null);
@@ -482,18 +525,18 @@ export async function listDestinations(): Promise<EbayDestination[]> {
   return await listPaged<
     {
       destinationId?: string;
-      name?: string;
-      status?: string;
-      deliveryConfig?: { endpoint?: string };
+      name?: unknown;
+      status?: unknown;
+      deliveryConfig?: { endpoint?: unknown };
     },
     EbayDestination
   >("/destination", "destinations", (row) =>
     row.destinationId
       ? {
           destinationId: row.destinationId,
-          name: row.name ?? null,
-          status: row.status ?? null,
-          endpoint: row.deliveryConfig?.endpoint ?? null,
+          name: scalar(row.name),
+          status: scalar(row.status),
+          endpoint: scalar(row.deliveryConfig?.endpoint),
         }
       : null);
 }

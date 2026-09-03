@@ -2672,6 +2672,23 @@ export function isOfferAlreadyExistsError(err: unknown): boolean {
   return /already exists/i.test(msg) && /offer/i.test(msg);
 }
 
+// eBay answers "this SKU has no offer" with a 404 + errorId 25713 ("This Offer
+// is not available.") rather than an empty list. That is a NORMAL state — an
+// inventory item that was never offered, or whose offer was withdrawn — so
+// treating it as a failure logged one console.error per SKU per sync forever
+// and buried the real errors next to it. Absence is not an error.
+export const OFFER_NOT_AVAILABLE_ERROR_ID = 25713;
+export function isOfferNotFoundError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { status?: number; ebayErrorIds?: number[] };
+  if (e.status !== 404) return false;
+  const ids = e.ebayErrorIds;
+  // Only the specific id. A 404 we cannot identify stays an error: it may be a
+  // wrong host, a revoked scope or a path typo, and swallowing those would turn
+  // a broken sync into a silently empty one.
+  return Array.isArray(ids) && ids.includes(OFFER_NOT_AVAILABLE_ERROR_ID);
+}
+
 // Returns every offer eBay has for this SKU, in the full RemoteOffer shape.
 // (Sell Inventory API's GET /offer endpoint REQUIRES a sku query param —
 // there is no documented "list all" endpoint; you walk inventory_item first.)
@@ -2679,7 +2696,7 @@ export async function listOffersForSku(
   userId: string,
   sku: string
 ): Promise<RemoteOffer[]> {
-  const payload = await fetchAuthed<{
+  type OfferListPayload = {
     offers?: Array<{
       offerId?: string;
       sku?: string;
@@ -2696,7 +2713,18 @@ export async function listOffersForSku(
         listingStartDate?: string;
       };
     }>;
-  }>(userId, `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`);
+  };
+
+  let payload: OfferListPayload;
+  try {
+    payload = await fetchAuthed<OfferListPayload>(
+      userId,
+      `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`,
+    );
+  } catch (err) {
+    if (isOfferNotFoundError(err)) return [];
+    throw err;
+  }
 
   return (payload.offers ?? [])
     .filter((o): o is typeof o & { offerId: string } =>

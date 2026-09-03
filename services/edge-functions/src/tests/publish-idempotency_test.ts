@@ -17,7 +17,9 @@ Deno.env.set(
 const {
   isOfferAlreadyExistsError,
   livePublishedListingId,
+  isOfferNotFoundError,
   OFFER_ALREADY_EXISTS_ERROR_ID,
+  OFFER_NOT_AVAILABLE_ERROR_ID,
   publishOrAdoptOffer,
 } = await import("../lib/ebay-client.ts");
 
@@ -191,4 +193,34 @@ Deno.test("publishOrAdoptOffer: an ended offer republishes instead of adopting",
   });
   assertEquals(r, { listingId: "L-NEW", adopted: false });
   assertEquals(publishCalls, 1);
+});
+
+// eBay answers "no offer for this SKU" with a 404 + 25713 rather than an empty
+// list, and the offers fan-out logged one console.error per such SKU per sync.
+// The detector has to be narrow: an unlabelled 404 is a real failure (wrong
+// host, revoked scope, path typo) and must keep throwing, because swallowing it
+// turns a broken sync into a silently empty catalog.
+Deno.test("a 25713 404 reads as 'no offers', any other 404 stays an error", () => {
+  const notFound = ebayErr(
+    "eBay GET /sell/inventory/v1/offer?sku=749 failed (404): ...",
+    [OFFER_NOT_AVAILABLE_ERROR_ID],
+  ) as Error & { status?: number };
+  notFound.status = 404;
+  assert(isOfferNotFoundError(notFound));
+
+  const unlabelled = ebayErr("eBay GET /whatever failed (404): <html>") as Error & {
+    status?: number;
+  };
+  unlabelled.status = 404;
+  assertEquals(isOfferNotFoundError(unlabelled), false);
+
+  // Same errorId on a non-404 is not the "absent offer" case.
+  const wrongStatus = ebayErr("boom", [OFFER_NOT_AVAILABLE_ERROR_ID]) as Error & {
+    status?: number;
+  };
+  wrongStatus.status = 500;
+  assertEquals(isOfferNotFoundError(wrongStatus), false);
+
+  assertEquals(isOfferNotFoundError(null), false);
+  assertEquals(isOfferNotFoundError("404"), false);
 });
