@@ -4,7 +4,11 @@ import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MAX_QA_ITEMS, runChunkedQa } from "@/lib/photo-qa-chunking";
+import { fetchCapped } from "@/lib/paged-read";
+import { supabase } from "@/lib/supabase";
+import { useAuthStore } from "@/stores/auth-store";
 import type {
+  AspectReviewEntry,
   ListingGenerationJobStatus,
   ListingGenerationStatus,
   PhotoQaIssue,
@@ -648,5 +652,71 @@ export function useDiscardAutolisterHandoff() {
     },
     onError: (err) => toastError(err),
     onSettled: () => qc.invalidateQueries({ queryKey: ["autolister_handoffs"] }),
+  });
+}
+
+// -- The drafts cockpit's read (US-3077 AC6) --------------------------------
+//
+// Lifted out of src/pages/flipdesk/autolister-drafts.tsx unchanged: same query
+// key, same columns, same filters, same cap. The page still renders the
+// cockpit; it just no longer owns the read, so the overview widget counts the
+// SAME rows rather than a second query that could drift apart from it. A widget
+// saying 12 beside a page saying 9 is worse than no widget.
+
+/** One unpublished, unreviewed AutoLister draft. */
+export interface AutolisterDraftRow {
+  id: string;
+  inventory_item_id: string;
+  listing_title: string | null;
+  listing_price: number | null;
+  batch_id: string | null;
+  created_at: string;
+  scheduled_publish_at: string | null;
+  price_is_estimated: boolean | null;
+  price_comp_source: string | null;
+  platform_category_id: string | null;
+  needs_review: boolean | null;
+  // US-828: per-aspect needs-review entries from generation reconciliation; its
+  // length drives the "N to fix" count badge on the row.
+  aspect_review: AspectReviewEntry[] | null;
+}
+
+/**
+ * Every AutoLister draft waiting on a human.
+ *
+ * US-2169: capped reads report their own truncation. `.limit(500)` rendered as
+ * if it were everything meant a seller past 500 drafts published against a
+ * queue they could not tell was cut short. fetchCapped asks for one row past
+ * the cap, so `truncated` is a fact rather than a guess.
+ *
+ * US-2867: the queryFn THROWS on a PostgREST error rather than returning [],
+ * so a caller's `?? []` fallback cannot render "no drafts yet" during an
+ * outage. An empty state is a claim about the data, and a failed read has no
+ * data to make claims about.
+ */
+export function useAutolisterDrafts(enabled = true) {
+  const user = useAuthStore((s) => s.user);
+  return useQuery({
+    queryKey: ["autolister_drafts", user?.id],
+    enabled: enabled && !!user,
+    staleTime: 30_000,
+    queryFn: () =>
+      fetchCapped<AutolisterDraftRow>(async (limit) => {
+        const { data, error } = await supabase
+          .from("listings")
+          .select(
+            "id, inventory_item_id, listing_title, listing_price, batch_id, created_at, scheduled_publish_at, price_is_estimated, price_comp_source, platform_category_id, needs_review, aspect_review",
+          )
+          .eq("listing_status", "draft")
+          .not("batch_id", "is", null)
+          // US-1568: this cockpit is the 'AI-processed, not yet human-reviewed'
+          // queue. A composer Save stamps reviewed_at and the draft drops off
+          // here; its durable home is Inventory > Drafts until published.
+          .is("reviewed_at", null)
+          .order("created_at", { ascending: false })
+          .limit(limit);
+        if (error) throw error;
+        return (data ?? []) as AutolisterDraftRow[];
+      }),
   });
 }

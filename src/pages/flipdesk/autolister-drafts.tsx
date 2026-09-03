@@ -27,7 +27,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { TruncatedNotice } from "@/components/flipdesk/truncated-notice";
-import { fetchCapped } from "@/lib/paged-read";
 import { itemRowLabel } from "@/lib/item-row-label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -50,7 +49,12 @@ import {
 import { ClickableRow } from "@/components/clickable-row";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
-import { useBulkPublish, useGeneratePlatformFields } from "@/hooks/use-autolister";
+import {
+  useAutolisterDrafts,
+  useBulkPublish,
+  useGeneratePlatformFields,
+  type AutolisterDraftRow,
+} from "@/hooks/use-autolister";
 // US-3046: fill the cross-list copy kit for a selection of drafts in one go
 // (a batch that ran before the seller narrowed their channels, or one whose
 // kit pass failed).
@@ -68,7 +72,6 @@ import { useAuthStore } from "@/stores/auth-store";
 import { cn } from "@/lib/utils";
 import { titleQuality } from "@/lib/title-quality";
 import { estimateListingProfit } from "@/lib/listing-profit";
-import type { AspectReviewEntry } from "@/types/database";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 
@@ -79,22 +82,10 @@ import { ErrorState } from "@/components/ui/error-state";
 // each draft's editor and to its batch's queue (where publish-all + bulk edit
 // live). RLS scopes the reads to the active workspace via the parent item.
 
-interface DraftRow {
-  id: string;
-  inventory_item_id: string;
-  listing_title: string | null;
-  listing_price: number | null;
-  batch_id: string | null;
-  created_at: string;
-  scheduled_publish_at: string | null;
-  price_is_estimated: boolean | null;
-  price_comp_source: string | null;
-  platform_category_id: string | null;
-  needs_review: boolean | null;
-  // US-828: per-aspect needs-review entries from generation reconciliation; its
-  // length drives the "N to fix" count badge on the row.
-  aspect_review: AspectReviewEntry[] | null;
-}
+// US-3077 AC6: the row shape and the read both live in
+// @/hooks/use-autolister now, so the overview's drafts widget counts exactly
+// the rows this page lists. The alias keeps the rest of this file unchanged.
+type DraftRow = AutolisterDraftRow;
 
 // US-548: sort options for the cockpit.
 type SortKey =
@@ -148,10 +139,8 @@ export function FlipdeskAutolisterDraftsPage() {
   const [kitFilling, setKitFilling] = useState<{ done: number; total: number } | null>(null);
   const { data: ebayConnection } = useEbayConnection();
 
-  // US-2169: capped reads report their own truncation. `.limit(500)` rendered
-  // as if it were everything meant a seller past 500 drafts published against a
-  // queue they could not tell was cut short. fetchCapped asks for one row past
-  // the cap, so `truncated` is a fact rather than a guess.
+  // US-3077 AC6: the read itself is useAutolisterDrafts(), shared with the
+  // overview widget. Its capped-read and throw-on-error reasoning moved with it.
   // US-2867: `error` and `refetch` are read here because the queryFn throws on
   // a PostgREST error and the `?? []` fallback below would otherwise render
   // "No unpublished drafts yet" during an outage -- an empty state is a claim
@@ -162,28 +151,7 @@ export function FlipdeskAutolisterDraftsPage() {
     error: draftsError,
     refetch: refetchDrafts,
     isFetching: draftsFetching,
-  } = useQuery({
-    queryKey: ["autolister_drafts", user?.id],
-    enabled: !!user,
-    staleTime: 30_000,
-    queryFn: () => fetchCapped<DraftRow>(async (limit) => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select(
-          "id, inventory_item_id, listing_title, listing_price, batch_id, created_at, scheduled_publish_at, price_is_estimated, price_comp_source, platform_category_id, needs_review, aspect_review",
-        )
-        .eq("listing_status", "draft")
-        .not("batch_id", "is", null)
-        // US-1568: this cockpit is the 'AI-processed, not yet human-reviewed'
-        // queue. A composer Save stamps reviewed_at and the draft drops off
-        // here — its durable home is Inventory → Drafts until published.
-        .is("reviewed_at", null)
-        .order("created_at", { ascending: false })
-        .limit(limit);
-      if (error) throw error;
-      return (data ?? []) as DraftRow[];
-    }),
-  });
+  } = useAutolisterDrafts();
   // Memoized so the `?? []` fallback does not mint a new array each render —
   // several useMemos below take it as a dependency.
   const drafts = useMemo<DraftRow[]>(() => draftsRead?.rows ?? [], [draftsRead]);

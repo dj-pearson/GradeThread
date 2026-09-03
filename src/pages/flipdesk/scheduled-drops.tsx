@@ -18,7 +18,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { TruncatedNotice } from "@/components/flipdesk/truncated-notice";
-import { fetchCapped } from "@/lib/paged-read";
+import {
+  useScheduledDrops,
+  type ScheduledDropRow as HookScheduledDropRow,
+} from "@/hooks/use-scheduled-drops";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -42,15 +45,10 @@ import { Term } from "@/components/help/term";
 // surface is the human-facing companion: see what's queued, in which timezone,
 // and whether each drop carries a Promoted-Listings boost on go-live.
 
-interface ScheduledDropRow {
-  id: string;
-  inventory_item_id: string;
-  listing_title: string | null;
-  listing_price: number | null;
-  scheduled_publish_at: string;
-  promo_opt_out: boolean | null;
-  promo_rate_pct: number | null;
-}
+// US-3077 AC7: the row shape and the read live in @/hooks/use-scheduled-drops
+// now, so the overview widget names a drop off the same rows this calendar
+// draws. The alias keeps the rest of this file unchanged.
+type ScheduledDropRow = HookScheduledDropRow;
 
 // US-2522: how many drops a day cell shows before it collapses to "+N more".
 // Four rows is what fits without the calendar row growing past the fold.
@@ -100,34 +98,15 @@ export function FlipdeskScheduledDropsPage() {
     return { y: Number(parts[0]), m: Number(parts[1]) - 1 };
   });
 
-  // US-2169: `.limit(500)` rendered as if it were the whole queue meant a seller
-  // with more scheduled drops than that saw a calendar quietly missing entries —
-  // on the surface whose entire job is telling them what publishes when.
-  // fetchCapped asks for one row past the cap so the shortfall is stated.
+  // US-3077 AC7: the read itself is useScheduledDrops(), shared with the
+  // overview widget; its capped-read reasoning moved along with it.
   const {
     data: dropsRead,
     isLoading,
     isError,
     refetch,
     isFetching,
-  } = useQuery({
-    queryKey: ["scheduled_drops", user?.id],
-    enabled: !!user,
-    staleTime: 30_000,
-    queryFn: () => fetchCapped<ScheduledDropRow>(async (limit) => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select(
-          "id, inventory_item_id, listing_title, listing_price, scheduled_publish_at, promo_opt_out, promo_rate_pct",
-        )
-        .eq("listing_status", "draft")
-        .not("scheduled_publish_at", "is", null)
-        .order("scheduled_publish_at", { ascending: true })
-        .limit(limit);
-      if (error) throw error;
-      return (data ?? []) as ScheduledDropRow[];
-    }),
-  });
+  } = useScheduledDrops();
   // Memoized so the `?? []` fallback does not mint a new array each render —
   // several useMemos below take it as a dependency.
   const drops = useMemo<ScheduledDropRow[]>(() => dropsRead?.rows ?? [], [dropsRead]);

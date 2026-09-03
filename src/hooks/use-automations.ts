@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 import { toastError } from "@/lib/toast-error";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -263,20 +268,62 @@ export function useDryRunAutomationRule() {
   });
 }
 
+/** The key both readers below use, so they share one cache entry per rule. */
+function ruleActionsKey(ruleId: string): [string, string] {
+  return ["automation_rule_actions", ruleId];
+}
+
+async function fetchRuleActions(ruleId: string): Promise<AutomationActionRow[]> {
+  const res = await edgeFetch(`/api/flipdesk/automations/rules/${ruleId}/actions`);
+  if (!res.ok) throw new Error("Failed to load the activity log");
+  const data = (await res.json()) as { actions: AutomationActionRow[] };
+  return data.actions ?? [];
+}
+
 export function useAutomationRuleActions(ruleId: string, enabled: boolean) {
   return useQuery({
-    queryKey: ["automation_rule_actions", ruleId],
+    queryKey: ruleActionsKey(ruleId),
     enabled,
     staleTime: 30_000,
-    queryFn: async (): Promise<AutomationActionRow[]> => {
-      const res = await edgeFetch(
-        `/api/flipdesk/automations/rules/${ruleId}/actions`,
-      );
-      if (!res.ok) throw new Error("Failed to load the activity log");
-      const data = (await res.json()) as { actions: AutomationActionRow[] };
-      return data.actions ?? [];
-    },
+    queryFn: () => fetchRuleActions(ruleId),
   });
+}
+
+/**
+ * The same activity log, for SEVERAL rules at once (US-3077 AC8).
+ *
+ * The overview widget counts what every active rule did in the last seven days,
+ * and the per-rule endpoint is the only place that number lives. React forbids
+ * calling useAutomationRuleActions in a loop, so this is useQueries over the
+ * SAME key and the SAME fetch: one cache entry per rule, shared with the
+ * automations page, and no second server read invented for the widget.
+ *
+ * `ruleIds` should be capped by the caller. Twelve parallel requests on a
+ * dashboard render is already generous.
+ */
+export function useAutomationRuleActionsForRules(ruleIds: readonly string[]) {
+  return useQueries({
+    queries: ruleIds.map((id) => ({
+      queryKey: ruleActionsKey(id),
+      staleTime: 30_000,
+      queryFn: () => fetchRuleActions(id),
+    })),
+  });
+}
+
+/** Actions taken since `sinceMs`, across a set of per-rule activity logs. */
+export function countActionsSince(
+  logs: ReadonlyArray<readonly AutomationActionRow[] | undefined>,
+  sinceMs: number,
+): number {
+  let n = 0;
+  for (const rows of logs) {
+    for (const row of rows ?? []) {
+      const t = Date.parse(row.created_at);
+      if (Number.isFinite(t) && t >= sinceMs) n += 1;
+    }
+  }
+  return n;
 }
 
 export function useRunAutomations() {

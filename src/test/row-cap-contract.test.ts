@@ -165,16 +165,26 @@ describe("no surface reintroduces the stop-on-short-page loop", () => {
 });
 
 describe("the capped surfaces tell the seller", () => {
-  const CAPPED = [
-    "src/pages/flipdesk/autolister-drafts.tsx",
-    "src/pages/flipdesk/scheduled-drops.tsx",
+  // US-3077 split two of these in half: the READ moved into a hook so the
+  // overview widgets could count the same rows, while the page kept the
+  // rendering. Both halves still have to hold, so each surface names the file
+  // that caps and the file that says so, rather than assuming one file.
+  const CAPPED: Array<{ reads: string; renders: string }> = [
+    {
+      reads: "src/hooks/use-autolister.ts",
+      renders: "src/pages/flipdesk/autolister-drafts.tsx",
+    },
+    {
+      reads: "src/hooks/use-scheduled-drops.ts",
+      renders: "src/pages/flipdesk/scheduled-drops.tsx",
+    },
   ];
 
-  it.each(CAPPED)("%s renders a truncation notice", (file) => {
-    const src = read(file);
-    expect(src).toContain("fetchCapped");
+  it.each(CAPPED)("$renders renders a truncation notice", ({ reads, renders }) => {
+    expect(read(reads)).toContain("fetchCapped");
     // The read reporting truncation and nothing rendering it is the same
     // silence with extra steps.
+    const src = read(renders);
     expect(src).toContain("TruncatedNotice");
     expect(src).toContain("truncated &&");
   });
