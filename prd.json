@@ -3613,23 +3613,6 @@
       "priority": 13
     },
     {
-      "id": "US-3098",
-      "passes": false,
-      "title": "Scout deal filters: target profit in dollars or percent, max total price with shipping, buying option, condition and sort, with a two-phase rank so more than eight listings are considered",
-      "description": "As a reseller hunting arbitrage, I want to tell Scout how much I need to make and the most I will pay, and get back the listings that clear that bar sorted the way I choose, so that a scan is a buy list instead of eight guesses.",
-      "acceptanceCriteria": [
-        "POST /api/flipdesk/scout in routes/flipdesk-scout.ts accepts minMarginCents, minMarginPct, maxTotalCents, buyingOptions (subset of FIXED_PRICE, AUCTION, BEST_OFFER), conditionIds, freeShippingOnly and sort (bestMatch, newlyListed, endingSoonest, priceAsc); each is validated and a bad value returns 400 naming the field; a unit test covers each validation branch",
-        "searchBrowseComps in lib/ebay-client.ts takes optional price, buyingOptions, deliveryOptions and sort arguments and maps them to the Browse item_summary/search filter and sort params; the existing comps callers pass nothing new and a recorded-fixture test asserts their request URL is byte-identical to before",
-        "Total price per candidate is asking plus the cheapest shippingOptions.shippingCost from the item summary, 0 when free shipping, and null when the summary carries no shipping (compared on asking alone), the same rule US-3081 specifies, implemented once in lib/scout-scoring.ts and imported by both",
-        "Two-phase ranking: phase one fetches up to 50 summaries with no AI, drops anything failing maxTotalCents, ranks by asking-vs-cachedValueAtGrade at the category default grade, and phase two shadow-grades only the top MAX_CANDIDATES; the response carries considered (phase-one count) and graded (phase-two count) so the UI can say 'looked at 42, graded 8'; a test proves a run with maxTotalCents that excludes every listing makes zero AI calls",
-        "minMarginCents and minMarginPct filter on scoreCandidate's estMarginCents / estMarginPct after fees; the ceiling from sourcingCeiling (lib/scout-decision.ts) is returned per candidate as maxBuyCents when a measured curve exists, else null with absentReason",
-        "Web src/pages/flipdesk/scout.tsx gains a Deal filter sheet with the new inputs persisted in the URL (?minMarginPct=, ?maxTotal=, ?sort=), and iOS ScoutView.swift gains the same sheet with @AppStorage persistence; both show the considered/graded counts and the ceiling per row",
-        "The web Scout page's SourcingTargetSetting (target ROI) prefills minMarginPct so a seller who set a target once does not type it again",
-        "Tenant scoping is unchanged (the route reads only public Browse data plus the caller's quota) and routes/tenant-isolation_test.ts keeps its existing scout cases green"
-      ],
-      "priority": 15
-    },
-    {
       "id": "US-3099",
       "passes": false,
       "title": "iOS Prospect opens on the camera, reads the tag on-device before upload, and scans a barcode on the same viewfinder",
