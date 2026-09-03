@@ -3644,20 +3644,6 @@
       ]
     },
     {
-      "id": "US-3103",
-      "passes": false,
-      "title": "iOS Listing Kit: a push-to picker with a price per platform, calling the same cross-push route the web composer uses",
-      "description": "As a reseller listing from my phone, I want to choose which marketplaces this draft goes to and what it should cost on each, so that a cross-listing built on the phone matches the one the web composer would build.",
-      "acceptanceCriteria": [
-        "ListingKitView.swift gains a platform chip row built from the same registry the web reads (CROSS_LISTING_PLATFORMS split into API and extension channels, mirrored in a Swift constant with a drift test against src/lib/constants.ts the way MARKETPLACE_EXTENSION_FLOW is guarded), each chip showing the platform's tier label (API / browser extension / coming soon) and disabled when coming soon",
-        "Each selected chip exposes a price field that defaults to blank and reads 'uses the listing price' when blank, matching src/components/flipdesk/composer/push-to-card.tsx",
-        "For API channels the sheet calls POST /api/flipdesk/listings/cross-push with listing_id, platforms and prices, exactly the body src/hooks/use-cross-listing.ts sends; for extension channels it enqueues one 'list' row per platform through ExtensionQueueService with the per-platform price carried in payload.price so US-3096's hydration keeps a client-supplied price",
-        "Results render per platform (listed with URL, queued for desktop, failed with the server's error) and the listings rows the server writes appear on the item canvas after the existing sync pull",
-        "An XCTest covers the request body shape for both branches and the blank-price rule; the ios/Scripts guards pass"
-      ],
-      "priority": 19
-    },
-    {
       "id": "US-3104",
       "passes": false,
       "title": "iOS: an eBay View Item preview sheet before publish, at parity with the web composer's preview",
