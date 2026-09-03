@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3108",
+  "nextId": "US-3109",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3644,21 +3644,6 @@
       ]
     },
     {
-      "id": "US-3101",
-      "passes": false,
-      "title": "iOS quick entry: home-screen quick actions, deep-link routes for Prospect and Scout, a Lock Screen widget that opens Prospect, and a Home pill that opens drafts to publish",
-      "description": "As a reseller opening the app in a store, I want to long-press the icon or tap a Lock Screen widget and be on the camera, and I want the listings waiting to be published one tap from Home, so that the things I do most do not start with a hunt.",
-      "acceptanceCriteria": [
-        "Info.plist declares three UIApplicationShortcutItems (Prospect an item, Add an item, Scout deals) and the scene delegate's performActionFor posts DeepLinkRoute.prospect, .addItem and .scout through DeepLinkRouter, including the cold-launch replay path (drainPending) so a shortcut from a killed app still lands",
-        "DeepLinkRoute in ios/GradeThread/Notifications/NotificationDelegate.swift gains .prospect, .scout and .inventoryDrafts; MainShell.apply(route:) presents the Prospect or Scout sheet and, for drafts, selects the Inventory tab with the Drafts filter applied; a unit test covers each new route through the existing DeepLinkRoute parsing and the rate gate",
-        "GradeThreadWidget gains a second widget kind ProspectLauncherWidget in accessoryCircular and accessoryRectangular families whose widgetURL is a new WidgetDeepLink.prospect; WidgetDeepLink.from(url:) parses it and ContentView routes it like the existing widget links",
-        "The Home pill row (US-3080 AC6) includes a 'Publish' pill carrying the count of inventory items with a draft listing and no live listing, read from the same local store the Inventory Drafts filter reads; tapping it applies DeepLinkRoute.inventoryDrafts; the pill hides at zero",
-        "The Marketplaces tab badge shows the count of offers awaiting reply plus returns and cases with a deadline (from NegotiationInbox and PostSale stores); Home keeps its unread badge; a test asserts the badge is nil at zero rather than 0",
-        "All new user-facing strings are in Localizable.xcstrings and the six ios/Scripts guards pass under npm run verify"
-      ],
-      "priority": 14
-    },
-    {
       "id": "US-3102",
       "passes": false,
       "title": "iOS composer: per-listing business policy pickers and a draft-time quantity field",
@@ -3741,6 +3726,20 @@
         "Until the grant lands, the Prospect and Scout disclaimer strings on web and iOS say 'asking prices' rather than 'comps', checked by a string test on both clients"
       ],
       "priority": 15
+    },
+    {
+      "id": "US-3108",
+      "passes": false,
+      "title": "Universal Links are dead in production: the live AASA file does not list the iOS app ID",
+      "description": "As a seller who taps a password-reset or magic-link email on my phone, I want the link to open the GradeThread app, so that the auth handshake completes in the app instead of stranding me in Safari signed out.",
+      "acceptanceCriteria": [
+        "OPERATOR: confirm the current failure first — ios/Scripts/check-aasa.sh reports 'AASA does not list appID RV6W9F4Y4P.com.gradethread.app' against https://gradethread.com/.well-known/apple-app-site-association as of 2026-09-03, while ios/GradeThread/GradeThread.entitlements declares applinks:gradethread.com; record the file's current contents in the story notes before changing it",
+        "The AASA file served at https://gradethread.com/.well-known/apple-app-site-association lists the app ID with the paths the app claims (at minimum /app/auth-callback, the target ContentView.onContinueUserActivity handles), is served as application/json with no redirect, and ios/Scripts/check-aasa.sh exits 0 against production",
+        "Whichever surface serves it (a Cloudflare Pages Function or a public/ file) is committed to this repo so the file cannot be lost on the next deploy, and a test asserts the app ID in it matches the one in GradeThread.entitlements — a mismatch between those two is exactly the failure being fixed and no build catches it",
+        "ios/Scripts/check-aasa.sh joins a CI workflow (not npm run verify, which must stay offline) so a regression is caught by a job rather than by a seller who cannot reset their password",
+        "OPERATOR: after the file is live, tap a real password-reset link from Mail on a device with the app installed and confirm it opens the app rather than Safari; record the date and the device in the notes"
+      ],
+      "priority": 12
     }
   ]
 }
