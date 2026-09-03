@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3109",
+  "nextId": "US-3110",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3613,21 +3613,6 @@
       "priority": 13
     },
     {
-      "id": "US-3099",
-      "passes": false,
-      "title": "iOS Prospect opens on the camera, reads the tag on-device before upload, and scans a barcode on the same viewfinder",
-      "description": "As a reseller standing at a rack, I want Prospect to open on a live viewfinder, show me the brand and size the moment I frame the tag, and accept a UPC for shoes and sealed goods, so that identifying an item takes one motion instead of a form.",
-      "acceptanceCriteria": [
-        "ProspectView.swift opens on a live AVCaptureSession viewfinder (reusing the Capture module's session and TagPhotoQuality checks) with the garment slot armed and a Tag toggle; the two-slot picker form remains reachable from a Library button; the first frame captured is submitted without a second confirmation tap",
-        "When the Tag toggle is on, Vision/TagTextRecognizer.swift runs VNRecognizeTextRequest on the captured tag frame before upload and shows the recognised brand and size as editable chips within 300 ms on a device-class simulator; the chips are sent as brandOverride and a new sizeHint on POST /api/flipdesk/scout/prospect, and the edge uses them as identify hints without an extra Claude call when their confidence is at or above 0.8 (lib/prospect-identify.ts), proven by a unit test that asserts no anthropic call for a high-confidence hint",
-        "AVCaptureMetadataOutput on the same session detects EAN-13, EAN-8, UPC-A and UPC-E; a detected code is sent as barcode to /prospect (the field POST /scout/appraise already accepts, extended to /prospect in the same change) and the result shows identitySource 'barcode'",
-        "Both Prospect capture paths go through the foreground upload rule in vault/20-domain/ios-photo-upload.md (no background URLSession); ios/Scripts guards pass under npm run verify",
-        "An XCTest covers: OCR chip parsing from a fixture recognition result, the barcode symbology filter, and that a garment-only frame with the toggle off sends imageRoles ['front'] only",
-        "The android /prospect call is unchanged by this story (US-3027 owns its imageRoles fix)"
-      ],
-      "priority": 16
-    },
-    {
       "id": "US-3100",
       "passes": false,
       "title": "Recently prospected: keep the last 20 Prospect verdicts on the phone and surface them on Home, and carry the identity into the inventory row",
@@ -3698,6 +3683,21 @@
         "OPERATOR: after the file is live, tap a real password-reset link from Mail on a device with the app installed and confirm it opens the app rather than Safari; record the date and the device in the notes"
       ],
       "priority": 12
+    },
+    {
+      "id": "US-3109",
+      "passes": false,
+      "title": "Prospect opens on a live viewfinder instead of a two-slot form",
+      "description": "As a reseller standing at a rack, I want Prospect to open on a camera that is already running, so that identifying an item is one motion instead of tapping into a form and then into a picker.",
+      "acceptanceCriteria": [
+        "ProspectView opens on a live viewfinder built from the existing CameraSession (Capture/CameraSession.swift) rather than presenting CameraPicker as a full-screen cover; the garment slot is armed by default and a Tag toggle switches which slot the next frame fills",
+        "The viewfinder reuses TagPhotoQuality (Capture/TagPhotoQuality.swift) so a blurry or badly-lit tag frame is refused with the same wording the intake flow uses, rather than being uploaded and failing to read",
+        "Scene-phase and AVCaptureSessionWasInterrupted handling matches PhotoIntakeView: backgrounding and returning must not leave a black viewfinder with a dead shutter (the US-1408 failure), and the check-chained-sheets guard stays green",
+        "The two-slot picker form stays reachable from a Library button, and the first captured frame is submitted without a second confirmation tap",
+        "US-3099 already ships the on-device tag read, the barcode scan and the hint plumbing; this story adds only the viewfinder, so the chips and the AI-action saving must behave identically before and after",
+        "OPERATOR: this is the part of Prospect that cannot be verified without hardware. Run the capture flow on a real device, background and foreground the app mid-capture, and record the device and iOS version in the notes"
+      ],
+      "priority": 20
     }
   ]
 }
