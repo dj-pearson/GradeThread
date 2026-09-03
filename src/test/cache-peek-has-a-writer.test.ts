@@ -65,6 +65,17 @@ const DECLARED: readonly DeclaredPeek[] = [
     why: "instant source matches; useSources owns the key",
   },
   {
+    file: "src/hooks/use-dashboard-layout.ts",
+    key: "getQueryData<LayoutEntry[]>(key)",
+    writer: "src/hooks/use-dashboard-layout.ts",
+    writes: "queryKey: dashboardLayoutKey(user?.id, surface)",
+    why:
+      "the US-3073 optimistic layout save snapshots the current widget list " +
+      "before patching it, so onError can roll back; `key` is " +
+      "dashboardLayoutKey(user?.id, surface), and useDashboardLayout in the " +
+      "same module is the writer",
+  },
+  {
     file: "src/pages/flipdesk/listings.tsx",
     key: "listingsPageKey",
     writer: "src/pages/flipdesk/listings.tsx",
