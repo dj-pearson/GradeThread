@@ -3613,22 +3613,6 @@
       "priority": 13
     },
     {
-      "id": "US-3100",
-      "passes": false,
-      "title": "Recently prospected: keep the last 20 Prospect verdicts on the phone and surface them on Home, and carry the identity into the inventory row",
-      "description": "As a reseller who prospects several items per trip, I want the app to remember what I scanned, what it was worth and what I decided, so that I can go back to a rack for the one I passed on and the item I add to inventory arrives already named.",
-      "acceptanceCriteria": [
-        "A SwiftData model LocalProspectResult in ios/GradeThread/Persistence/Models stores the last 20 results per tenant (thumbnail path, title, brand, category path, grade, median/low/high cents, decision, ceiling, costCents, createdAt, tenant id); insert on every successful /prospect response, prune to 20 on insert, and delete all on sign-out (the US-2496 per-tenant boundary)",
-        "A HomeSection case home.recentProspects (iOS-only id, default position after the attention strip and pill row) renders up to five rows with thumbnail, title, decision chip, median and a chevron; tapping a row reopens Prospect with the stored result and its Add to inventory action; the section hides itself when empty",
-        "Add to inventory from a Prospect result writes brand, title, category id and path, condition grade and the median as the price suggestion onto the created inventory_items row via the existing create path, and links the local result to the item id so the row shows 'Added' afterwards",
-        "ios/GradeThreadTests cover prune-to-20, tenant wipe on sign-out, and the section hiding when empty; strings live in Localizable.xcstrings and the ios/Scripts guards pass"
-      ],
-      "priority": 17,
-      "dependsOn": [
-        "US-3080"
-      ]
-    },
-    {
       "id": "US-3104",
       "passes": false,
       "title": "iOS: an eBay View Item preview sheet before publish, at parity with the web composer's preview",
