@@ -49,6 +49,15 @@ public final class ExtensionQueueService {
     public enum Kind: String, Codable, CaseIterable, Sendable {
         case list
         case delist
+        /// US-9202 / US-3105: carry a FlipDesk edit to a listing already live on
+        /// an extension channel. The values are read off the listing row at
+        /// apply time, not sent from here, so a second edit before the first
+        /// drains never delivers a stale number — the phone names WHICH fields
+        /// changed and nothing else.
+        case revise
+        /// US-9203 / US-3105: copy a live extension-channel listing into a fresh
+        /// one and end the old once the copy is up.
+        case relist
     }
 
     public struct QueueItem: Codable, Identifiable, Sendable {
@@ -80,6 +89,26 @@ public final class ExtensionQueueService {
         /// `pending` on purpose — rendering it as "still coming" is the silence
         /// this queue would otherwise reintroduce (US-2481 AC6).
         public let needsAttention: [QueueItem]
+    }
+
+    /// Thrown before a request that could only be refused.
+    public enum ExtensionQueueError: LocalizedError, Equatable {
+        case nothingToRevise
+
+        public var errorDescription: String? {
+            switch self {
+            case .nothingToRevise:
+                return String(localized: "Nothing has changed on this listing since it went live.")
+            }
+        }
+    }
+
+    private struct ReviseBody: Encodable {
+        let kind: String
+        let platform: String
+        let listing_id: String
+        let fields: [String]
+        let source: String
     }
 
     private struct EnqueueBody: Encodable {
@@ -132,6 +161,59 @@ public final class ExtensionQueueService {
     /// What is still waiting, and what never ran.
     public func snapshot() async throws -> QueueSnapshot {
         try await api.getJSON("/api/flipdesk/extension-queue")
+    }
+
+    // ── US-3105: the two kinds the phone could not queue ────────────────────
+    //
+    // The server has accepted all four since US-9202/US-9203 and the extension
+    // has run all four since then too. The phone's enum stopped at two, so a
+    // seller who dropped a price in a shop had no way to get that price onto
+    // their Poshmark listing until they were back at a desk — and the listing
+    // sat there advertising the old one.
+
+    /// Queue a field edit for a listing that is already live on an extension
+    /// channel.
+    ///
+    /// `fields` names what changed. The route validates it against
+    /// REVISABLE_FIELDS and refuses an empty list, so a caller with nothing to
+    /// report must not call this rather than sending an empty array.
+    @discardableResult
+    public func enqueueRevise(
+        listingId: String,
+        platform: String,
+        fields: [ReviseField]
+    ) async throws -> QueueItem {
+        guard !fields.isEmpty else {
+            throw ExtensionQueueError.nothingToRevise
+        }
+        let body = ReviseBody(
+            kind: Kind.revise.rawValue,
+            platform: platform,
+            listing_id: listingId,
+            fields: fields.map(\.rawValue),
+            source: "ios"
+        )
+        let response: EnqueueResponse = try await api.postJSON(
+            "/api/flipdesk/extension-queue",
+            body: body
+        )
+        return response.queued
+    }
+
+    /// Queue a relist: the server creates the copy's draft row now, and the
+    /// desktop opens the old listing and follows its copy control.
+    @discardableResult
+    public func enqueueRelist(
+        listingId: String,
+        platform: String
+    ) async throws -> QueueItem {
+        try await enqueue(kind: .relist, platform: platform, listingId: listingId)
+    }
+
+    /// The fields a revise can name. Mirrors REVISABLE_FIELDS in
+    /// `services/edge-functions/src/lib/pending-revises.ts`.
+    public enum ReviseField: String, CaseIterable, Sendable {
+        case price, title, description, photos
     }
 
     /// Remove a job the seller no longer wants run.
