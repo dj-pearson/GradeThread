@@ -21,6 +21,10 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { blockerTarget } from "@/lib/publish-blockers";
+import { itemPhotoThumb } from "@/lib/images";
+import { needsSignedDisplayUrl, type PhotoLike } from "@/lib/item-photo-url";
+import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
+import { ItemPhotoHoverPreview } from "@/components/flipdesk/item-photo-hover-preview";
 import type { PhotoQaIssue } from "@/types/database";
 import type { SizeConflict } from "@/pages/flipdesk/autolister/group-warnings";
 
@@ -37,6 +41,46 @@ export interface PreflightItem {
 // US-2520: the queue's per-row badges and its publish confirm, lifted out of
 // autolister-queue.tsx. Each is prop-only, so none of them needed to sit inside
 // the page component's file.
+
+/**
+ * The row's cover photo at 40px, matching the Inventory table's thumbnail
+ * cell, with the same hover preview. A private-bucket cover (iOS tag/cert
+ * with an empty photo_url) still shows via a signed URL (US-2273). No photo
+ * yet renders a camera placeholder of the same size so the rows line up.
+ */
+export function QueueCoverThumb({
+  cover,
+  label,
+}: {
+  cover: PhotoLike | undefined;
+  label: string;
+}) {
+  const canShow = cover && (itemPhotoThumb(cover) || needsSignedDisplayUrl(cover));
+  if (!canShow) {
+    return (
+      <div
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-muted text-muted-foreground"
+        role="img"
+        aria-label="No photo yet"
+      >
+        <Camera className="h-4 w-4" />
+      </div>
+    );
+  }
+  return (
+    <ItemPhotoHoverPreview photo={cover} label={label}>
+      <ItemPhotoImg
+        photo={cover}
+        displayWidth={40}
+        alt=""
+        loading="lazy"
+        width={40}
+        height={40}
+        className="h-10 w-10 shrink-0 rounded object-cover ring-1 ring-border"
+      />
+    </ItemPhotoHoverPreview>
+  );
+}
 
 export function PhotoQaBadge({
   meta,
