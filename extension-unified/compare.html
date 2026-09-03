@@ -51,9 +51,17 @@
         again, and nothing is sent anywhere — it all lives in this browser.
         <span id="bestNote"></span>
       </p>
+
+      <!-- US-3112: filled by compare.js from the marketplaces actually pinned.
+           Empty when no row came from a marketplace that requires a notice, so
+           this table never claims a relationship with a site it is not showing. -->
+      <div class="cmp-attribution" id="attribution"></div>
     </main>
 
     <script src="research/compare-tray.js"></script>
+    <!-- US-3112: the marketplace attribution notices. Before compare.js, which
+         reads self.GT_MP_NOTICE while rendering. -->
+    <script src="research/marketplace-notice.js"></script>
     <script src="theme.js"></script>
     <script src="compare.js"></script>
   </body>

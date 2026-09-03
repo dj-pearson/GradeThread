@@ -47,6 +47,18 @@ pre-change behaviour. A failed stamp write is logged and recorded on the sync
 run rather than swallowed, because a silent failure here restores the full
 fan-out invisibly.
 
+**Also in this file: `marketplace_connections.disputes_access_denied` (US-3112).**
+`payment_dispute_summary` needs the `sell.payment.dispute` scope, which
+`sell.fulfillment` does NOT cover despite the shared URL prefix. Measured on
+prod 2026-09-03: one of the two connections does not hold it, and the
+marketplace-event sweep asked anyway every fifteen minutes — about 160 calls a
+day that could never succeed. The flag stops the asking and is the signal a
+"reconnect your eBay account" prompt can read. Mirrors `analytics_access_denied`
+and `negotiation_access_denied`, which are on this table for the same reason.
+It is NOT set on eBay's "no disputes" 404: an account with no disputes today can
+have one tomorrow and must keep being polled. Reads fail OPEN — an unreadable
+flag means ask eBay, never stay silent about a seller's disputes.
+
 **Verified on a throwaway local stack:** applied from clean and re-applied
 (idempotent, only the expected "already exists, skipping" notice); the US-1108
 self-record footer present; `EXPECTED_SCHEMA_VERSION` bumped to 00725 in the same

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3112",
+  "nextId": "US-3113",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3687,6 +3687,25 @@
         "OFFER_RECHECK_MS sits strictly between CATALOG_REFRESH_MS and a week, enforced by a test, so the stagger can neither become a no-op nor leave an ended listing in 'listed' for days.",
         "OPERATOR: apply 00725 to prod, NOTIFY pgrst, then redeploy the edge (the column is read by name; the edge must not go first).",
         "OPERATOR: 48 hours after deploy, confirm from ebay_api_call_daily that GET /sell/inventory/v1/offer has fallen to roughly one read per SKU per day, and that no listing sits in 'listed' with an ended eBay listing for more than 24 hours."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-3112",
+      "passes": false,
+      "title": "eBay compliance: extension attribution, and stop calling APIs we cannot use",
+      "description": "Three things found while auditing what was left for the eBay Application Growth Check. (1) COMPLIANCE GAP: the browser extension displays eBay listing titles, prices and images in the overlay and the compare view and carried no eBay attribution and no non-endorsement notice anywhere. The web app has had both since US-3033 but on only two surfaces, and nothing tested coverage, so nobody could tell 'this surface needs no notice' from 'this surface was forgotten'. (2) The notification reconcile cron records only a COUNT of its per-topic failures, because readJobOutcome sums numbers and has nowhere to put a sentence - the 2026-09-03 18:17 run recorded {failures:{errors:12}} and nothing else. (3) Two eBay calls that can never succeed on this keyset were being made forever: /commerce/identity/v1/user needs commerce.identity.readonly, which is deliberately NOT requested because the production keyset is not licensed for it, and it was called on every token refresh (~33/day); payment_dispute_summary needs sell.payment.dispute, which one of the two prod connections does not hold, and the event sweep asked every 15 minutes (~160/day). Also fixed two suites that were failing on a Windows checkout only, one of them ebay-no-scrape.test.cjs - the guard that proves we do not scrape eBay - which matched a bare newline against CRLF source and so was green in CI and red locally.",
+      "acceptanceCriteria": [
+        "The extension carries eBay's attribution and non-endorsement notice on the in-page overlay and the compare view, worded identically to the web component, and a test asserts that wording still matches src/components/marketplace/ebay-attribution.tsx phrase for phrase.",
+        "The notice is keyed by marketplace: eBay gets it, Poshmark/Grailed/Mercari/Depop/Vinted get null rather than a generic sentence, matching is case-insensitive, and a mixed compare table carries it once and only when an eBay row is present.",
+        "test/ebay-attribution.test.cjs names the surfaces that must wire it up and fails when one stops, and also checks the manifest load order, since a classic script loaded after its consumer leaves the global undefined and the notice silently never renders.",
+        "The notification reconcile cron logs each per-topic failure with its topicId, bounded and truncated like the marketplace-event sweep, so a count becomes a diagnosis.",
+        "getUserIdentityFromToken returns null without calling eBay when commerce.identity.readonly is not in the requested scopes; re-adding the scope re-enables it with no other change. Mirrors isNegotiationScopeAvailable and isLogisticsScopeAvailable.",
+        "The event sweep skips payment-dispute reads for a connection flagged disputes_access_denied, sets the flag on an insufficient-scope refusal (never on the no-disputes 404), clears it when access works again, and reads it fail-open.",
+        "ebay-no-scrape.test.cjs and queue-view.test.cjs normalise line endings, so all 53 extension suites pass on a Windows checkout as well as in CI.",
+        "OPERATOR: apply 00725 to prod (it now carries disputes_access_denied too), NOTIFY pgrst, then redeploy the edge.",
+        "OPERATOR: one prod eBay connection lacks sell.payment.dispute and one lacks nothing else of note; that seller must reconnect at /oauth/start before dispute notifications work for them.",
+        "OPERATOR: read the next ebay-notification-reconcile run's log line and file the real cause of its 12 per-topic errors."
       ],
       "priority": 1
     }

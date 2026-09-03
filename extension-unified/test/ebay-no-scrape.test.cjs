@@ -16,7 +16,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const ROOT = path.join(__dirname, "..");
-const read = (rel) => fs.readFileSync(path.join(ROOT, rel), "utf8");
+// US-3112: normalise line endings. This suite matches a literal newline against
+// the source, and a Windows checkout hands it CRLF, so every one of those
+// probes silently missed and the guard failed for a reason that has nothing to
+// do with scraping. It passed in CI on Linux the whole time, which is the worst
+// version of this: a compliance guard green where nobody looks and red where
+// they do.
+const read = (rel) =>
+  fs.readFileSync(path.join(ROOT, rel), "utf8").replace(/\r\n/g, "\n");
 
 /** Comments argue about scraping; code must not scrape. Strip the argument. */
 function codeOnly(src) {

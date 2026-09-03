@@ -252,8 +252,8 @@ function row(over) {
 // that reads it at module scope.
 {
   const dir = path.resolve(__dirname, "..");
-  const html = fs.readFileSync(path.join(dir, "popup.html"), "utf8");
-  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8");
+  const html = fs.readFileSync(path.join(dir, "popup.html"), "utf8").replace(/\r\n/g, "\n");
+  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8").replace(/\r\n/g, "\n");
 
   for (const id of [
     "queueBlock", "queueList", "queueNote", "queueStatus", "queueRunNow", "queueRunNote",
@@ -290,12 +290,12 @@ function row(over) {
 
   // The worker needs it too, and by both bootstraps: Chrome importScripts and
   // the Firefox event page's manifest background.scripts.
-  const bg = fs.readFileSync(path.join(dir, "background.js"), "utf8");
+  const bg = fs.readFileSync(path.join(dir, "background.js"), "utf8").replace(/\r\n/g, "\n");
   assert.ok(
     /importScripts\([^)]*queue\/queue-view\.js/s.test(bg),
     "background.js must importScripts queue/queue-view.js",
   );
-  const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
+  const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8").replace(/\r\n/g, "\n"));
   assert.ok(
     manifest.background.scripts.includes("queue/queue-view.js"),
     "manifest background.scripts must carry queue/queue-view.js — Firefox has no " +
@@ -351,7 +351,7 @@ function row(over) {
 // a number, so the pending-delist block — the most time-critical thing in this
 // popup — rendered "Poshmark · NaNd ago" on every row for as long as it existed.
 {
-  const js = fs.readFileSync(path.resolve(__dirname, "..", "popup.js"), "utf8");
+  const js = fs.readFileSync(path.resolve(__dirname, "..", "popup.js"), "utf8").replace(/\r\n/g, "\n");
   const m = /function timeAgo\(ts\)[\s\S]*?\n}/.exec(js);
   assert.ok(m, "popup.js must define timeAgo");
   const timeAgo = new Function("return " + m[0])();
@@ -429,9 +429,9 @@ function row(over) {
 
   // The popup wires the retry and the bulk controls, and the worker answers.
   const dir = path.resolve(__dirname, "..");
-  const html = fs.readFileSync(path.join(dir, "popup.html"), "utf8");
-  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8");
-  const bg = fs.readFileSync(path.join(dir, "background.js"), "utf8");
+  const html = fs.readFileSync(path.join(dir, "popup.html"), "utf8").replace(/\r\n/g, "\n");
+  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8").replace(/\r\n/g, "\n");
+  const bg = fs.readFileSync(path.join(dir, "background.js"), "utf8").replace(/\r\n/g, "\n");
   for (const id of ["queueRetryAll", "queueClearFailed", "queueCancelAll"]) {
     assert.ok(html.includes(`id="${id}"`), `popup.html is missing #${id}`);
     assert.ok(js.includes(`"${id}"`), `popup.js never uses #${id}`);
@@ -470,16 +470,16 @@ function row(over) {
   // The chain: content script reports the two new stages, the worker answers
   // GT_QUEUE_JOBS, the popup asks for it, shows it, and re-renders on change.
   const dir = path.resolve(__dirname, "..");
-  const common = fs.readFileSync(path.join(dir, "lister", "common.js"), "utf8");
+  const common = fs.readFileSync(path.join(dir, "lister", "common.js"), "utf8").replace(/\r\n/g, "\n");
   for (const stage of ["filling", "photos"]) {
     assert.ok(new RegExp('reportStage\\(payload\\.jobId, "' + stage + '"\\)').test(common),
       "lister/common.js must report the " + stage + " stage");
   }
-  const bg = fs.readFileSync(path.join(dir, "background.js"), "utf8");
+  const bg = fs.readFileSync(path.join(dir, "background.js"), "utf8").replace(/\r\n/g, "\n");
   assert.ok(bg.includes('case "GT_QUEUE_JOBS"'), "background.js never handles GT_QUEUE_JOBS");
   assert.ok(/isPending\(job\)\) continue/.test(bg.slice(bg.indexOf("async function getQueueJobStages"))),
     "getQueueJobStages must skip terminal jobs");
-  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8");
+  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8").replace(/\r\n/g, "\n");
   assert.ok(js.includes("GT_QUEUE_JOBS"), "popup.js never asks for GT_QUEUE_JOBS");
   assert.ok(/row\.stageLabel \|\| row\.stateLabel/.test(js), "the badge must prefer the stage and fall back to the state");
   assert.ok(/storage\.onChanged\.addListener\(onStorageChanged\)/.test(js), "popup.js must subscribe to storage.onChanged");

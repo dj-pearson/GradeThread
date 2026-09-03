@@ -372,6 +372,17 @@ function getScopes(): string {
 // a guaranteed 403. The send-offer surfaces gate on this to return a clean
 // `feature_unavailable` instead of letting clients round-trip into that 403.
 // Incoming Best Offers (Trading API, sell scope) are NOT affected by this.
+// US-3112: same question for commerce.identity.readonly. It is omitted from the
+// default list above for the same reason as the other two, which makes
+// /commerce/identity/v1/user a GUARANTEED 4xx on this keyset — and it was being
+// called on every token refresh, so it failed ~33 times a day forever. eBay
+// answers the same way every time; asking again is not diligence, it is noise
+// in the call ledger the growth check reads. Re-adding the scope to getScopes()
+// re-enables the lookup with no other change.
+export function isIdentityScopeAvailable(): boolean {
+  return getScopes().includes("api_scope/commerce.identity.readonly");
+}
+
 export function isNegotiationScopeAvailable(): boolean {
   return getScopes().includes("api_scope/sell.negotiation");
 }
@@ -438,6 +449,11 @@ export async function getUserIdentityFromToken(
   accessToken: string,
   attempts = 3,
 ): Promise<{ username: string | null; externalAccountId: string | null } | null> {
+  // US-3112: without the scope this call cannot succeed, so don't make it. The
+  // caller's contract is unchanged — a null return already means "account_handle
+  // stays null", which is exactly the situation.
+  if (!isIdentityScopeAvailable()) return null;
+
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       const res = await ebayFetch(`${apiHost()}/commerce/identity/v1/user`, {

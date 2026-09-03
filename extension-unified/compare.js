@@ -95,7 +95,9 @@ function render(list, sortBy) {
   const bestNote = document.getElementById("bestNote");
   const copy = document.getElementById("copy");
   const tbody = document.getElementById("rows");
+  const attribution = document.getElementById("attribution");
   tbody.textContent = "";
+  if (attribution) attribution.textContent = "";
 
   if (!list.length) {
     table.hidden = true;
@@ -109,6 +111,21 @@ function render(list, sortBy) {
   table.hidden = false;
   note.hidden = false;
   if (copy) copy.hidden = false;
+
+  // US-3112: attribution for the marketplaces actually on the table, rebuilt on
+  // every render because the tray changes underneath it. Driven by the pinned
+  // rows rather than hard-coded, so clearing the last eBay row also clears
+  // eBay's notice instead of leaving a claim about data no longer shown.
+  if (attribution && self.GT_MP_NOTICE) {
+    const notices = self.GT_MP_NOTICE.noticesForMarketplaces(
+      list.map((e) => e.marketplace),
+    );
+    for (const text of notices) {
+      const p = document.createElement("p");
+      p.textContent = text;
+      attribution.appendChild(p);
+    }
+  }
 
   // US-3056: the best condition per dollar, over rows with a score AND a price.
   const bestKey = TRAY.bestValueKey(list);

@@ -257,3 +257,19 @@ button, select, input { font: inherit; }
   .cmp-fair-low { color: #8fe0ae; }
   .cmp-fair-high { color: #ffb4ae; }
 }
+
+/* US-3112: eBay asks for attribution plus the non-endorsement notice on the
+   surface that shows its data. Quiet by design — it is a statement of fact the
+   reader can check, not a banner competing with the comparison above it. */
+.cmp-attribution {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cmp-attribution p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--cmp-muted, #6b7280);
+}
