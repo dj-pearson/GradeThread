@@ -3644,20 +3644,6 @@
       ]
     },
     {
-      "id": "US-3102",
-      "passes": false,
-      "title": "iOS composer: per-listing business policy pickers and a draft-time quantity field",
-      "description": "As a reseller publishing from my phone, I want to pick the shipping, payment and return policy for this listing and set the quantity before it goes live, so that a heavy item or a multi-quantity lot can be listed without opening the web.",
-      "acceptanceCriteria": [
-        "PublishDialog.swift gains a Policies section with three pickers (shipping, payment, returns) fed by GET /api/flipdesk/ebay/policies through a new EbayPoliciesService in ios/GradeThread/Marketplaces/ with a 15 minute in-memory cache; the pickers default to the applied template's ids when a template is applied and to the account defaults the route returns otherwise",
-        "A 'Sync policies' row calls POST /api/flipdesk/ebay/policies/sync and refreshes the pickers; a 403 or a not-connected state shows the same reconnect posture as EbaySyncModal",
-        "The chosen ids are sent as fulfillmentPolicyId, paymentPolicyId and returnPolicyId on the publish request exactly as the web composer sends them (src/components/flipdesk/composer/policies-card.tsx), and EbayPublishService.swift no longer reads them only from ListingTemplate",
-        "A quantity stepper (min 1, max 999) sits next to price in PublishDialog for fixed-price listings, disabled for auctions and hidden when a variations matrix is present (per-variant quantity already exists); the value is sent as quantity on publish and prefilled from the item's on-hand count",
-        "XCTests cover policy decoding from a fixture, the template-default rule, the quantity bounds and the auction/variations gating; the ios/Scripts guards pass and strings are in Localizable.xcstrings"
-      ],
-      "priority": 18
-    },
-    {
       "id": "US-3103",
       "passes": false,
       "title": "iOS Listing Kit: a push-to picker with a price per platform, calling the same cross-push route the web composer uses",
