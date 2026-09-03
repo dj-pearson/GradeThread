@@ -2521,6 +2521,43 @@ async function snapshotOrphanSale(
 // 60-120s (N eBay API calls + Supabase writes) which exceeds Cloudflare's
 // 100s proxy timeout.  Returning 202 prevents the 524 → CORS-error cycle
 // the browser would otherwise see.
+/**
+ * US-3110: what a pull is allowed to read from eBay.
+ *
+ * "full" is the historical behaviour — read every offer in the catalog (one
+ * `GET /sell/inventory/v1/offer?sku=` per SKU) and every active legacy listing
+ * (GetMyeBaySelling), then reconcile orders.
+ *
+ * "orders" skips both of those and goes straight to the orders pass. The order
+ * backstop and the notification-driven sync only ever need orders, and paying a
+ * whole-catalog read to find one is what put us at 25,312 Inventory calls and
+ * 98.8% of the Trading quota on two connected sellers.
+ */
+export type EbaySyncScope = "full" | "orders";
+
+/**
+ * US-3110: how long an orders-only pull may run before it upgrades itself to a
+ * full catalog read.
+ *
+ * eBay-side edits a seller makes in Seller Hub (a price change, a listing ended
+ * by hand) reach us ONLY through the offer catalog, so this is the longest we
+ * can be wrong about them. Six hours turns ~41 full catalog reads a day into 4
+ * per connection while leaving the notification stream to carry anything
+ * time-sensitive.
+ */
+export const CATALOG_REFRESH_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * US-3110: how long a GetItem specifics answer counts as current.
+ *
+ * The fill is fill-if-blank, so the only reason to re-ask is that the seller
+ * edited the listing on eBay and added an aspect we lack. That is rare and not
+ * urgent; a fortnight is generous. The point is that "eBay has no Material for
+ * this shirt" is an answer worth remembering, not a question worth re-asking 41
+ * times a day.
+ */
+export const SPECIFICS_RECHECK_MS = 14 * 24 * 60 * 60 * 1000;
+
 async function doListingsPull(
   userId: string,
   connId: string,
@@ -2531,7 +2568,14 @@ async function doListingsPull(
   // finalizers below update it via runId; the handler's .catch fails it on an
   // unexpected throw. null only on the best-effort path where the claim errored.
   runId: string | null = null,
+  scope: EbaySyncScope = "full",
 ): Promise<void> {
+  // Gates the two active-listing passes AND, by consequence, the
+  // ended-without-sale sweep: endedItemIds is populated only by those passes, so
+  // an orders-only run leaves it empty and the sweep is a no-op. That ordering
+  // is load-bearing — a run that skipped the catalog must never conclude that
+  // every listing ended.
+  const catalogPass = scope === "full";
   const startedAt = new Date().toISOString();
   // US-466: collects truncation warnings from the paginated eBay fetches (and,
   // below, per-item errors). Declared up here so the offers/inventory fetch can
@@ -2539,7 +2583,7 @@ async function doListingsPull(
   const errors: string[] = [];
   let offers: RemoteOffer[];
   try {
-    offers = await listAllOffers(userId, errors);
+    offers = catalogPass ? await listAllOffers(userId, errors) : [];
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[flipdesk-ebay] listings/pull fetch failed:", msg);
@@ -2571,10 +2615,18 @@ async function doListingsPull(
   // join in memory rather than N+1 queries against Supabase. Catalog fields
   // come along so the sync can make eBay the source of truth (title overwrite,
   // brand/size/color/style/material fill-if-blank) without a per-item read.
-  type ItemRow = { id: string; sku: string } & LocalCatalog;
+  type ItemRow = {
+    id: string;
+    sku: string;
+    // US-3110: when GetItem was last asked about this item, whether or not eBay
+    // had anything to give. See SPECIFICS_RECHECK_MS.
+    ebay_specifics_checked_at: string | null;
+  } & LocalCatalog;
   const { data: itemsBySku } = await supabaseAdmin
     .from("inventory_items")
-    .select("id, sku, title, brand, size, color, style, material")
+    .select(
+      "id, sku, title, brand, size, color, style, material, ebay_specifics_checked_at",
+    )
     .eq("user_id", userId)
     .not("sku", "is", null);
   const skuToItemId = new Map<string, string>();
@@ -2781,6 +2833,11 @@ async function doListingsPull(
   let catalogUpdated = 0;
   let specificsFetched = 0;
   let specificsCapped = false;
+  // US-3110: items we asked GetItem about this run, flushed as one bulk stamp
+  // below. Without this stamp a field eBay has no value for stays blank, so
+  // needsSpecifics is true again on the next sync and the same item is re-read
+  // forever — measured at ~3,300 Trading calls a day against a 5,000 ceiling.
+  const specificsCheckedItemIds: string[] = [];
 
   // Apply an eBay-sourced catalog patch to a matched inventory_item, keeping
   // our in-memory ItemRow in sync so the orders pass below sees fresh values.
@@ -3213,7 +3270,9 @@ async function doListingsPull(
   let legacyUnmatched = 0;
   let legacyDuplicates = 0;
   try {
-    const legacy: LegacyEbayListing[] = await getAllActiveEbaySelling(userId);
+    const legacy: LegacyEbayListing[] = catalogPass
+      ? await getAllActiveEbaySelling(userId)
+      : [];
     for (const l of legacy) {
       try {
         if (processedListingIds.has(l.ebayItemId)) {
@@ -3319,14 +3378,26 @@ async function doListingsPull(
           // syncs cost ~0 calls). Title still syncs even when the cap is hit.
           const localRow = sku ? itemBySku.get(sku) : undefined;
           if (localRow) {
-            const needsSpecifics = FILL_IF_BLANK_FIELDS.some(
-              (f) => !localRow[f] || !localRow[f]!.trim(),
-            );
+            // A blank field is only worth an API call if we have not already
+            // asked recently. eBay genuinely has no Material on plenty of
+            // listings; re-asking every sync never fills the field, it just
+            // spends the Trading quota.
+            const askedAt = localRow.ebay_specifics_checked_at;
+            const askedRecently = !!askedAt &&
+              Date.now() - Date.parse(askedAt) < SPECIFICS_RECHECK_MS;
+            const needsSpecifics = !askedRecently &&
+              FILL_IF_BLANK_FIELDS.some(
+                (f) => !localRow[f] || !localRow[f]!.trim(),
+              );
             let specifics: Record<string, string> = {};
             if (needsSpecifics) {
               if (specificsFetched < MAX_SPECIFICS_FETCH_PER_SYNC) {
                 specificsFetched += 1;
                 specifics = await getItemSpecifics(userId, l.ebayItemId);
+                specificsCheckedItemIds.push(localRow.id);
+                // Keep the in-memory row honest so a second listing pointing at
+                // the same item in this run doesn't re-ask.
+                localRow.ebay_specifics_checked_at = new Date().toISOString();
               } else {
                 specificsCapped = true;
               }
@@ -3383,6 +3454,26 @@ async function doListingsPull(
     errors.push(
       `trading api: ${err instanceof Error ? err.message : String(err)}`
     );
+  }
+
+  // US-3110: remember which items we asked GetItem about, including the ones it
+  // had nothing for. One bulk stamp, not one write per item.
+  if (specificsCheckedItemIds.length > 0) {
+    const { error } = await supabaseAdmin
+      .from("inventory_items")
+      .update({ ebay_specifics_checked_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .in("id", specificsCheckedItemIds);
+    if (error) {
+      // Not fatal: the worst case is that the next sync re-asks, which is the
+      // behaviour we had before. Say so rather than swallowing it, because a
+      // persistent failure here restores the 3,300-calls-a-day burn silently.
+      console.error(
+        "[flipdesk-ebay] failed to stamp ebay_specifics_checked_at:",
+        error.message,
+      );
+      errors.push(`specifics stamp: ${error.message.slice(0, 200)}`);
+    }
   }
 
   // ── US-405: flush the batched writes from the offers + legacy passes ─────
@@ -4162,6 +4253,18 @@ async function doListingsPull(
     );
   }
 
+  // US-3110: record that the offer catalog was read. Orders-only pulls consult
+  // this and upgrade themselves to a full read once it goes stale, so nothing
+  // schedules the catalog reconcile separately. Stamped even when the orders
+  // pass below fails — the catalog really was read, and conflating the two
+  // cursors is what makes one failure re-trigger the expensive half.
+  if (catalogPass) {
+    await supabaseAdmin
+      .from("marketplace_connections")
+      .update({ last_catalog_synced_at: new Date().toISOString() })
+      .eq("id", connId);
+  }
+
   // Stamp last_synced_at so the UI can show "Synced 2m ago" + the next
   // /listings/pull picks up where this one left off.
   //
@@ -4311,14 +4414,46 @@ flipdeskEbayRoutes.post("/listings/pull", async (c) => {
 // from processEbayWebhookEvent after the seller has been resolved from the
 // verified payload. Always incremental (never a backfill) and best-effort —
 // returns a status string instead of throwing so a webhook ack is never blocked.
+/**
+ * US-3110: decide what a caller's requested scope actually becomes.
+ *
+ * "orders" is a request, not a guarantee: once the offer catalog goes stale the
+ * next orders-only pull upgrades itself to a full read. That keeps the catalog
+ * reconcile on a schedule without a separate cron, and means a caller can never
+ * starve it by asking for "orders" forever.
+ *
+ * Pure so the decision is testable without a database.
+ */
+export function resolveSyncScope(
+  requested: EbaySyncScope,
+  lastCatalogSyncedAt: string | null,
+  nowMs: number = Date.now(),
+): EbaySyncScope {
+  if (requested === "full") return "full";
+  if (!lastCatalogSyncedAt) return "full";
+  const at = Date.parse(lastCatalogSyncedAt);
+  if (!Number.isFinite(at)) return "full";
+  return nowMs - at >= CATALOG_REFRESH_MS ? "full" : "orders";
+}
+
+interface EbayConnectionCursor {
+  id: string;
+  last_synced_at: string | null;
+  last_catalog_synced_at: string | null;
+}
+
 export async function triggerEbaySyncForUser(
   userId: string,
+  // Default stays "full" so every existing caller behaves exactly as before.
+  // Only the two paths that demonstrably need orders alone — the notification
+  // webhook and the order backstop — pass "orders".
+  requestedScope: EbaySyncScope = "full",
 ): Promise<"started" | "already_running" | "no_connection" | "not_configured"> {
   if (!isEbayConfigured()) return "not_configured";
 
   const { data: conn } = await supabaseAdmin
     .from("marketplace_connections")
-    .select("id, last_synced_at")
+    .select("id, last_synced_at, last_catalog_synced_at")
     .eq("user_id", userId)
     .eq("marketplace", "ebay")
     .eq("is_active", true)
@@ -4328,9 +4463,10 @@ export async function triggerEbaySyncForUser(
     .maybeSingle();
   if (!conn) return "no_connection";
 
-  const connId = (conn as { id: string; last_synced_at: string | null }).id;
-  const lastSyncedAt =
-    (conn as { id: string; last_synced_at: string | null }).last_synced_at ?? null;
+  const row = conn as EbayConnectionCursor;
+  const connId = row.id;
+  const lastSyncedAt = row.last_synced_at ?? null;
+  const scope = resolveSyncScope(requestedScope, row.last_catalog_synced_at ?? null);
 
   // Reuse the same per-tenant lock the manual pull uses: if a sync is already
   // running (manual, scheduled, or a prior webhook), don't race — the in-flight
@@ -4339,7 +4475,7 @@ export async function triggerEbaySyncForUser(
   if (claim.status === "already_running") return "already_running";
   const runId = claim.status === "claimed" ? claim.runId : null;
 
-  void doListingsPull(userId, connId, lastSyncedAt, false, runId).catch(
+  void doListingsPull(userId, connId, lastSyncedAt, false, runId, scope).catch(
     async (err) => {
       console.error("[flipdesk-ebay] webhook-triggered sync crashed:", err);
       if (runId) {

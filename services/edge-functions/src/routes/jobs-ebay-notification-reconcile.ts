@@ -78,7 +78,18 @@ export async function handleEbayNotificationReconcileCron(
     });
   } catch (err) {
     captureException(err, { route: "jobs-ebay-notification-reconcile.cron" });
-    return c.json({ error: "eBay notification reconcile failed" }, 500);
+    // US-3110: say what actually broke. This job has failed on every run since
+    // 2026-08-20 — 128 errors, zero successes — and left no trace anywhere an
+    // operator looks: cron_runs.detail only carries numeric failure counts, so
+    // it recorded `{}`, and captureException writes to Sentry alone. A restart
+    // then rotated away whatever the container log held. One console.error is
+    // the difference between "the reconcile is red" and a fixable defect.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[ebay-notify] reconcile failed: ${message}`);
+    return c.json(
+      { error: "eBay notification reconcile failed", message: message.slice(0, 500) },
+      500,
+    );
   } finally {
     await lock.release();
   }

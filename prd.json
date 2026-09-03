@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3110",
+  "nextId": "US-3111",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3655,6 +3655,24 @@
         "OPERATOR: this is the part of Prospect that cannot be verified without hardware. Run the capture flow on a real device, background and foreground the app mid-capture, and record the device and iOS version in the notes"
       ],
       "priority": 20
+    },
+    {
+      "id": "US-3110",
+      "passes": false,
+      "title": "Cut eBay API call volume before the Application Growth Check",
+      "description": "Measured on prod 2026-09-01..03: two connected sellers made 33,002 eBay calls a day and peaked at 4,941 of the 5,000 daily Trading allowance (98.8%), read from eBay's own getRateLimits. Three causes, all fixed together. (1) doListingsPull always fanned out one GET /sell/inventory/v1/offer?sku= per SKU before it looked at orders, and the two callers that only ever need orders - the notification webhook and the order backstop - fired it every few minutes. 25,312 calls a day, about 41 full catalog reads against 618 listings. (2) The item-specifics fill had no negative cache: buildCatalogPatch writes nothing when eBay has no value for a blank field, so needsSpecifics was true again next sync and the same item was re-read forever, roughly 3,300 Trading calls a day into the pool that is already at 98.8%. (3) The marketplace-event sweep polled six eBay endpoints for every connected seller every fifteen minutes whether or not anything could have happened to them: 576 calls per seller per day of fixed cost, paid identically by a dormant trial account and a real shop - the cost that scales linearly with signups and nothing else. Also makes the eBay notification reconcile cron say what it is failing on; it has failed 128 times with zero successes since 2026-08-20 and left nothing behind but an empty cron_runs.detail.",
+      "acceptanceCriteria": [
+        "An orders-only sync (webhook, order backstop, adapter syncOrders) skips both active-listing passes and the ended-without-sale sweep, and reaches the orders pass without reading the offer catalog.",
+        "resolveSyncScope is pure and tested: a full request is never downgraded, orders stays orders while the catalog is fresh, and it upgrades to full on a null, unparseable, or stale (>= CATALOG_REFRESH_MS) catalog cursor, so no caller can starve the reconcile.",
+        "getItemSpecifics is not re-asked for an item within SPECIFICS_RECHECK_MS, whether or not eBay had anything to give; the stamp is one bulk write, and a failure to stamp is logged and recorded on the run rather than swallowed.",
+        "The marketplace-event sweep polls only owners with an active eBay listing, a sale inside the post-sale window, or an open case; the gate fails OPEN to polling everyone if the RPC is missing or errors.",
+        "pollable_ebay_owner_ids is SECURITY DEFINER with a pinned search_path, revoked from public/anon/authenticated and granted only to service_role.",
+        "The notification reconcile cron logs the real error message, and a non-array list payload from eBay throws naming the endpoint, the key and the payload's own keys instead of 'rows is not iterable'.",
+        "OPERATOR: apply 00724 to prod, NOTIFY pgrst, then redeploy the edge (columns and RPC are read by name; the edge must not go first).",
+        "OPERATOR: after 48 hours, re-read ebay_api_call_daily and confirm total daily calls and the Trading peak have both dropped; do not submit the growth check on the pre-fix numbers.",
+        "OPERATOR: read the next ebay-notification-reconcile failure from the container log now that it names itself, and file the real defect."
+      ],
+      "priority": 1
     }
   ]
 }

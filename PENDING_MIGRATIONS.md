@@ -1,5 +1,61 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00724 — stop the eBay sync re-reading what it already knows (US-3110)
+
+**Risk: LOW-MEDIUM.** Two nullable `timestamptz` columns, three indexes, and one
+new `SECURITY DEFINER` function. No backfill, no constraint, no rewrite. Every
+existing row keeps working with the columns null, which is the "never read yet"
+state the code already handles.
+
+**Apply BEFORE the edge deploy.** The new edge SELECTs
+`marketplace_connections.last_catalog_synced_at` and
+`inventory_items.ebay_specifics_checked_at` by name, and calls the RPC
+`pollable_ebay_owner_ids`. If the edge goes first, PostgREST answers 42703 on the
+two selects and the eBay sync fails outright. The RPC call is the one part that
+degrades gracefully: `loadPollableEbayOwnerIds` catches the error and falls back
+to polling every connected owner, which is exactly today's behaviour.
+
+**`NOTIFY pgrst, 'reload schema';`** after applying — two new columns and a new
+RPC, all reached through PostgREST by name.
+
+**The frontend does not read any of this.** A Cloudflare Pages deploy on its own
+is harmless.
+
+**What it is for.** Measured on prod over 2026-09-01..03, two connected sellers
+made 33,002 eBay calls a day and peaked at 4,941 of the 5,000 daily Trading
+allowance. Three causes, all fixed in the same commit:
+
+- `doListingsPull` always fanned out one `GET /sell/inventory/v1/offer?sku=` per
+  SKU before it looked at orders, and the two callers that only ever need orders
+  (the notification webhook and the order backstop) fired it every few minutes.
+  25,312 calls a day, about 41 full catalog reads. `last_catalog_synced_at` lets
+  an orders-only pull skip that and upgrade itself to a full read every 6 hours.
+- The item-specifics fill had no negative cache. A field eBay has no value for
+  stays blank, so `needsSpecifics` was true again on the next sync and the same
+  item was re-read forever — roughly 3,300 Trading calls a day against a 5,000
+  ceiling. `ebay_specifics_checked_at` remembers that we asked.
+- The marketplace-event sweep polled six eBay endpoints for every connected
+  seller every fifteen minutes whether or not anything could have happened to
+  them: 576 calls per seller per day of fixed cost, paid identically by a dormant
+  trial account and a real shop. `pollable_ebay_owner_ids` narrows it to owners
+  with an active listing, a recent sale, or an open case.
+
+**The `SECURITY DEFINER` function returns other tenants' owner ids by design**,
+which is why it is revoked from `public`, `anon` and `authenticated` and granted
+only to `service_role`. The edge calls it with the service-role key. It is a
+`stable` read with no writes and no dynamic SQL, and `search_path` is pinned.
+
+**The gate FAILS OPEN.** If the RPC is missing or errors, the sweep polls every
+connected owner and logs a warning. The failure we can afford is a wasted call;
+the one we cannot is a seller who never hears that a payment dispute was opened.
+
+**Verified on a throwaway local stack:** applied from clean and re-applied
+(idempotent, only the expected "already exists, skipping" notices); the RPC
+executes and returns 0 rows on an empty schema; the US-1108 self-record footer
+is present; `EXPECTED_SCHEMA_VERSION` bumped to 00724 in the same commit with the
+manifest regenerated; `migrations-lint` green at 720 migrations.
+
+
 ## ✅ APPLIED 2026-09-03: 00723 — credit functions must refuse anon (US-3094)
 
 **Applied.** The production edge's `/health/ready` reports

@@ -472,7 +472,22 @@ async function listPaged<TWire, TOut>(
     const payload = await notificationJson<
       Record<string, unknown> & { continuationToken?: string }
     >(`${path}?${qs.toString()}`);
-    const rows = (payload[key] as TWire[] | undefined) ?? [];
+    // US-3110: name what eBay sent. The reconcile cron has failed on every run
+    // since 2026-08-20 with nothing in cron_runs.detail but `{}` and nothing in
+    // the container log that survived a restart, and the call ledger shows both
+    // GETs returning 2xx before the throw — so the failure is HERE, in the parse,
+    // not on the wire. A bare `for (const row of rows)` over a non-array raises
+    // "rows is not iterable", which says nothing about which endpoint or which
+    // shape. Throwing with the payload's own keys turns the next failure into a
+    // diagnosis instead of another hour of guessing.
+    const raw = payload[key];
+    if (raw !== undefined && raw !== null && !Array.isArray(raw)) {
+      throw new Error(
+        `eBay Notification API GET ${path} returned a non-array '${key}' ` +
+          `(${typeof raw}); payload keys: ${Object.keys(payload).join(", ")}`,
+      );
+    }
+    const rows = (raw as TWire[] | undefined) ?? [];
     for (const row of rows) {
       const mapped = map(row);
       if (mapped) out.push(mapped);
