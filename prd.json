@@ -3613,20 +3613,6 @@
       "priority": 13
     },
     {
-      "id": "US-3104",
-      "passes": false,
-      "title": "iOS: an eBay View Item preview sheet before publish, at parity with the web composer's preview",
-      "description": "As a reseller publishing from my phone, I want to see the listing the way an eBay buyer will see it before I publish, so that a bad photo order or a description that renders wrong is caught on the phone and not on eBay.",
-      "acceptanceCriteria": [
-        "PublishDialog.swift gains a Preview button that presents an EbayViewItemPreviewSheet rendering the same sections in the same order as src/components/flipdesk/ebay-view-item-preview.tsx: photo gallery with the cover first, title, price with format (fixed / auction / best offer), condition and condition description, item specifics table, and the description",
-        "The description renders in a WKWebView when the resolved description carries the HTML marker the web component checks, and as plain text otherwise, using the block render from DescriptionBlocksService.swift so the preview and the published listing come from one string",
-        "A desktop / mobile toggle switches the layout width the way PreviewViewport does on web; the sheet is read-only and has no publish action of its own",
-        "WKWebView is configured with JavaScript disabled and no navigation allowed (link taps are swallowed), and the ATS guard in ios/Scripts stays green",
-        "An XCTest covers the HTML-marker branch selection and the section order against a fixture draft"
-      ],
-      "priority": 21
-    },
-    {
       "id": "US-3106",
       "passes": false,
       "title": "iOS Radar on a map with venue linking, and a 'What buyers want' strip on the Prospect empty state",
