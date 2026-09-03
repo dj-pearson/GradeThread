@@ -2,7 +2,7 @@
 # deno.lock is lockfile "version": 5, which requires Deno 2.x — Deno 1.46.x
 # cannot read a v5 lock and fails `deno cache` at build time. Stay on the debian
 # (glibc) variant: more compatible than alpine for esm.sh deps.
-FROM denoland/deno:debian-2.9.3
+FROM denoland/deno:debian-2.9.6
 
 # US-513/US-2001: stamp the build with the commit SHA so a specific prior image
 # can be redeployed deterministically and the running version is observable.
