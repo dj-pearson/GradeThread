@@ -25,6 +25,7 @@ final class SchemaVersioningTests: XCTestCase {
             "LocalSource",
             "LocalSourcer",
             "LocalPendingMutation",
+            "LocalProspectResult",
         ]
         let actual = Set(ModelStoreProvider.schema.entities.map(\.name))
         XCTAssertEqual(

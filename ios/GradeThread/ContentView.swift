@@ -458,6 +458,17 @@ struct ContentView: View {
             try ctx.delete(model: LocalSale.self)
             try ctx.delete(model: LocalExpense.self)
             try ctx.delete(model: LocalSource.self)
+            // US-3100: LocalSourcer was registered in the schema and wiped by
+            // neither path, so the previous workspace's roster of people who
+            // source for you stayed readable to the next one. `SourcerStore`
+            // re-pulls it, so dropping it here costs a refresh and nothing else.
+            try ctx.delete(model: LocalSourcer.self)
+            // US-3100: the sourcing log is local-only and never synced, so
+            // nothing re-pulls it. It is wiped here anyway: a shared iPad
+            // handing the next workspace a list of what the last one was
+            // considering is the same leak whether or not a server was
+            // involved (US-2496).
+            try ctx.delete(model: LocalProspectResult.self)
             try ctx.save()
         } catch {
             // Best-effort — the scoped pull still corrects the view on success.
@@ -478,7 +489,10 @@ struct ContentView: View {
             try ctx.delete(model: LocalSale.self)
             try ctx.delete(model: LocalExpense.self)
             try ctx.delete(model: LocalSource.self)
+            try ctx.delete(model: LocalSourcer.self)
             try ctx.delete(model: LocalPendingMutation.self)
+            // US-3100: the local-only sourcing log goes with everything else.
+            try ctx.delete(model: LocalProspectResult.self)
             try ctx.save()
         } catch {
             // Best-effort — watermarks are reset too, so the next sign-in
@@ -1622,6 +1636,14 @@ final class AppRouter {
     ///
     /// Consumed by the inventory list the same way — read once, then cleared.
     var pendingInventoryFilter: InventoryDeepFilter?
+
+    /// US-3100: a saved Prospect verdict the seller tapped on Home, waiting for
+    /// ``ProspectView`` to open on it.
+    ///
+    /// Parked here for the same reason as ``pendingToolModule``: Home owns the
+    /// sheet, so the row that was tapped and the module that presents it have
+    /// to be handed over together. Read once, then cleared.
+    var pendingProspectResultId: String?
 
     /// The filters a deep link can ask the inventory list to apply.
     enum InventoryDeepFilter: Equatable {

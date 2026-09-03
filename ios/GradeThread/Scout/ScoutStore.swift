@@ -244,6 +244,10 @@ final class ScoutStore: ObservableObject {
             brand: nil,
             size: nil,
             color: nil,
+            // Scout works from a live eBay listing, which the app never resolves
+            // to a leaf category — that happens at draft time. Sending a guess
+            // would put a wrong category on the item for the composer to trust.
+            categoryId: nil,
             costCents: candidate.askingCents,
             targetCents: candidate.valueMedianCents,
             gradeValue: candidate.shadowGrade,

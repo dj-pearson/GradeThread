@@ -59,6 +59,12 @@ enum GradeThreadSchemaV1: VersionedSchema {
             LocalSource.self,
             LocalSourcer.self,
             LocalPendingMutation.self,
+            // US-3100: local-only, never synced. It rides the single current
+            // version rather than earning a V2 — pre-production there is no
+            // deployed store to migrate from, and a V2 that re-listed these
+            // same live classes would hash identically to V1 and crash launch
+            // (the duplicate-checksum trap above).
+            LocalProspectResult.self,
         ]
     }
 }

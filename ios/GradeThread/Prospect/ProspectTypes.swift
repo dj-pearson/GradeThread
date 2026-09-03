@@ -374,6 +374,10 @@ struct ProspectBuyRequest: Encodable {
     let brand: String?
     let size: String?
     let color: String?
+    /// US-3100: the eBay leaf category the scan resolved, written to
+    /// `ebay_category_id` on the new row. The composer opens on it instead of
+    /// asking the seller for a category the app already worked out.
+    let categoryId: String?
     let costCents: Int?
     let targetCents: Int?
     let gradeValue: Double?
@@ -384,4 +388,99 @@ struct ProspectBuyRequest: Encodable {
 struct ProspectBuyResponse: Decodable {
     let id: String
     let status: String
+}
+
+/// US-3100 — what "Add to inventory" sends, from a live scan OR a saved verdict.
+///
+/// Prospect could only ever commit the result currently on screen, because the
+/// buy request was assembled inline from a ``ProspectResponse``. A saved verdict
+/// is the same garment described by fewer fields, and re-scanning it to get an
+/// object of the right TYPE would spend a metered AI action to learn nothing.
+///
+/// So both sources map to this, and one commit path serves both. The mapping is
+/// a plain value type with no I/O, which is what makes "the saved row commits
+/// the same thing the live scan would have" a claim a test can check.
+struct ProspectCommit: Equatable {
+    var title: String
+    var brand: String?
+    var size: String?
+    var color: String?
+    /// The eBay leaf category, which becomes `ebay_category_id` on the item so
+    /// the composer opens on the right category instead of asking again.
+    var categoryId: String?
+    /// The human-readable path. There is no column for it — it rides in the
+    /// notes, where the catalog step reads it.
+    var categoryPath: String?
+    var costCents: Int?
+    var targetCents: Int?
+    var gradeValue: Double?
+    var gradeLabel: String?
+    var keywords: [String]
+
+    /// From a live scan. Nil when there is nothing to commit: an unidentified
+    /// result has no title, and an inventory row called "" is worse than none.
+    init?(_ result: ProspectResponse) {
+        guard result.identified, let title = result.item.title, !title.isEmpty else { return nil }
+        self.title = title
+        self.brand = result.item.brand
+        self.size = result.item.size
+        self.color = result.item.color
+        self.categoryId = result.category?.id
+        self.categoryPath = result.category?.path
+        // US-1275: the cost the run was COMPUTED with, not whatever is in the
+        // field now. If the seller edited it after the run, the grade and target
+        // below still come from the earlier one, and persisting the new cost
+        // would store a verdict the comps never used.
+        self.costCents = result.costCents
+        self.targetCents = result.stats?.medianCents
+        self.gradeValue = result.grade?.value
+        self.gradeLabel = result.grade?.tier
+        self.keywords = result.item.keywords
+    }
+
+    /// From a saved verdict.
+    ///
+    /// Carries no keywords and no size or colour: the log keeps what a Home row
+    /// shows, and storing the whole response to fill three more fields on a
+    /// commit that may never happen is the wrong trade. Everything the seller
+    /// SEES on the saved card is committed exactly as the live scan would have.
+    init?(_ row: LocalProspectResult) {
+        guard let title = row.title, !title.isEmpty else { return nil }
+        self.title = title
+        self.brand = row.brand
+        self.size = nil
+        self.color = nil
+        self.categoryId = row.categoryId
+        self.categoryPath = row.categoryPath
+        self.costCents = row.costCents
+        self.targetCents = row.medianCents
+        self.gradeValue = row.gradeValue
+        self.gradeLabel = row.gradeTier
+        self.keywords = []
+    }
+
+    /// US-1170: the AI's read, distilled into the notes so the catalog step
+    /// starts from it rather than from a blank item. Nil when there is nothing
+    /// worth recording.
+    var conditionNotes: String? {
+        var parts: [String] = []
+        if !keywords.isEmpty { parts.append(keywords.joined(separator: ", ")) }
+        if let categoryPath, !categoryPath.isEmpty { parts.append("Category: \(categoryPath)") }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    var request: ProspectBuyRequest {
+        ProspectBuyRequest(
+            title: title,
+            brand: brand,
+            size: size,
+            color: color,
+            categoryId: categoryId,
+            costCents: costCents,
+            targetCents: targetCents,
+            gradeValue: gradeValue,
+            gradeLabel: gradeLabel,
+            conditionNotes: conditionNotes
+        )
+    }
 }

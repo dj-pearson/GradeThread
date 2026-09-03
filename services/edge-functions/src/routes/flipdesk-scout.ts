@@ -1720,6 +1720,7 @@ flipdeskScoutRoutes.post("/buy", async (c) => {
     brand?: unknown;
     size?: unknown;
     color?: unknown;
+    categoryId?: unknown;
     costCents?: unknown;
     targetCents?: unknown;
     gradeValue?: unknown;
@@ -1737,6 +1738,15 @@ flipdeskScoutRoutes.post("/buy", async (c) => {
   const brand = typeof body.brand === "string" && body.brand.trim() ? body.brand.trim() : null;
   const size = typeof body.size === "string" && body.size.trim() ? body.size.trim() : null;
   const color = typeof body.color === "string" && body.color.trim() ? body.color.trim() : null;
+  // US-3100: the eBay leaf category the scan already resolved. Dropped until
+  // now, so a seller who prospected an item and added it then had to answer the
+  // category question again in the composer — for a category the identify step
+  // had worked out and thrown away. Digits only: eBay category ids are numeric,
+  // and anything else here would be written straight into the composer's
+  // category field to fail at publish time.
+  const categoryId = typeof body.categoryId === "string" && /^\d{1,20}$/.test(body.categoryId.trim())
+    ? body.categoryId.trim()
+    : null;
   const conditionNotes = typeof body.conditionNotes === "string" && body.conditionNotes.trim()
     ? body.conditionNotes.trim()
     : null;
@@ -1769,6 +1779,7 @@ flipdeskScoutRoutes.post("/buy", async (c) => {
       grade_value: gradeValue,
       grade_label: gradeLabel,
       condition_notes: conditionNotes,
+      ebay_category_id: categoryId,
     } as never)
     .select("id")
     .single();

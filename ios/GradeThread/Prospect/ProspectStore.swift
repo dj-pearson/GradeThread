@@ -66,6 +66,21 @@ final class ProspectStore {
     /// confirm + offer a jump to the inventory tab.
     var isAdding = false
     var addedItemId: String?
+
+    // ── US-3100: the sourcing log ────────────────────────────────────────────
+    /// Changes on every successful scan, so the view writes each verdict down
+    /// exactly once. A token rather than watching `result`: `ProspectResponse`
+    /// is not Equatable, and two scans of the same garment are two verdicts.
+    private(set) var resultToken: UUID?
+
+    /// A verdict reopened from the log instead of scanned.
+    ///
+    /// Held SEPARATELY from `result` rather than reconstructed into a fake
+    /// `ProspectResponse`. A saved row knows the headline numbers and not the
+    /// comp count, the sell-through or the disclaimer, and a response built
+    /// with zeros in those fields would render "0 comps" beside a real price —
+    /// a sentence the server never said.
+    var restored: LocalProspectResult?
     /// US-1225: separate from `errorMessage` so an add-to-inventory failure
     /// renders its OWN retry (which re-calls `addToInventory()`) instead of the
     /// top error card whose "Try again" re-runs the billable identify+comp pipeline.
@@ -170,8 +185,36 @@ final class ProspectStore {
     /// the one on screen.
     private func clearResult() {
         result = nil
+        // US-3100: a new photo is a new garment, so a verdict reopened from the
+        // log no longer describes what is on screen.
+        restored = nil
         addedItemId = nil
         titleDraft = nil
+    }
+
+    /// US-3100: reopen a saved verdict.
+    ///
+    /// Clears the photos with it. The log stores a thumbnail, not the originals,
+    /// so leaving the previous scan's photos in the slots would let "Find comps"
+    /// run a fresh scan of a DIFFERENT garment under this verdict's card.
+    func restore(_ row: LocalProspectResult) {
+        itemPhoto = nil
+        tagPhoto = nil
+        clearHints()
+        result = nil
+        errorMessage = nil
+        addError = nil
+        titleDraft = nil
+        costText = ""
+        restored = row
+        addedItemId = row.addedItemId
+    }
+
+    /// What "Add to inventory" would send, from a live scan or a saved verdict.
+    var commit: ProspectCommit? {
+        if let result { return ProspectCommit(result) }
+        if let restored { return ProspectCommit(restored) }
+        return nil
     }
 
     /// Parsed cost in integer cents, or nil when the field is empty/invalid.
@@ -238,6 +281,7 @@ final class ProspectStore {
                     hints: outgoingHints
                 )
             )
+            resultToken = UUID()
         } catch {
             result = nil
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -357,6 +401,11 @@ final class ProspectStore {
                 )
             )
             titleDraft = nil
+            // US-3100: a correction is a NEW verdict about the same garment —
+            // different title, different comps, different numbers — so it is
+            // logged in its own right rather than silently replacing the row
+            // the seller may already have acted on.
+            resultToken = UUID()
         } catch {
             // The previous result STAYS on screen. A failed correction that
             // blanked the card would cost the seller the numbers they already
@@ -366,10 +415,15 @@ final class ProspectStore {
         }
     }
 
-    /// Commit the current result into inventory at `sourced` via the existing
-    /// Scout buy endpoint. Prefills cost/grade/target from what we just learned.
+    /// Commit the verdict on screen into inventory at `sourced` via the
+    /// existing Scout buy endpoint. Prefills cost/grade/target from what we
+    /// just learned.
+    ///
+    /// US-3100: works from a SAVED verdict as well as a live scan. Both map to
+    /// ``ProspectCommit`` first, so the row a seller adds an hour later carries
+    /// exactly what the row they added on the spot would have.
     func addToInventory() async {
-        guard let result, result.identified, let title = result.item.title, !title.isEmpty else {
+        guard let commit else {
             addError = "Nothing to add — identify an item first."
             return
         }
@@ -377,48 +431,11 @@ final class ProspectStore {
         addError = nil
         defer { isAdding = false }
 
-        // US-1170: don't discard the AI's read on commit. The keywords + resolved
-        // category are folded into notes so the catalog step starts from the AI's
-        // read instead of a blank item.
-        //
-        // US-3026: size and colour used to be sent as nil, because the response
-        // carried only brand/title/keywords. It carries fields now, so the two
-        // things the seller would otherwise re-type off the same tag we just
-        // read are filled in.
-        let request = ProspectBuyRequest(
-            title: title,
-            brand: result.item.brand,
-            size: result.item.size,
-            color: result.item.color,
-            // US-1275: commit the cost the run was computed with (result.costCents),
-            // not the current field — if the user edited cost after the run
-            // (costNeedsRerun), targetCents/grade below come from the prior run, so
-            // persisting the edited cost would store a verdict the comps never used.
-            costCents: result.costCents,
-            targetCents: result.stats?.medianCents,
-            gradeValue: result.grade?.value,
-            gradeLabel: result.grade?.tier,
-            conditionNotes: prospectNotes(result)
-        )
         do {
-            let response = try await service.buy(request)
+            let response = try await service.buy(commit.request)
             addedItemId = response.id
         } catch {
             addError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
-    }
-
-    /// US-1170: distill the AI's read (keywords + resolved category) into a
-    /// notes string so it carries into the new inventory item. Returns nil when
-    /// there's nothing useful to record.
-    private func prospectNotes(_ result: ProspectResponse) -> String? {
-        var parts: [String] = []
-        if !result.item.keywords.isEmpty {
-            parts.append(result.item.keywords.joined(separator: ", "))
-        }
-        if let path = result.category?.path, !path.isEmpty {
-            parts.append("Category: \(path)")
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

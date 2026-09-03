@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import SwiftData
 
 /// Item Prospecting (US-1107): the in-store "should I buy this?" scan. Snap the
 /// front + the brand/size tag and the app identifies the item, counts how many
@@ -11,6 +12,14 @@ struct ProspectView: View {
     // US-1180: @Observable store via @State (was @StateObject/ObservableObject).
     @State private var store = ProspectStore()
     @Environment(\.dismiss) private var dismiss
+    // US-3100: the sourcing log. Prospect answered "is this worth buying" and
+    // then threw the answer away when the sheet closed, so a seller who wanted
+    // to go back to the one they passed on had to re-scan it — a second metered
+    // AI action for an answer we already had.
+    @Environment(\.modelContext) private var modelContext
+    @Environment(AuthStore.self) private var authStore
+    /// The saved row this session wrote, so an add can stamp it "Added".
+    @State private var loggedRowId: String?
     /// US-3099: ONE full-screen cover slot, two destinations. A view gets one
     /// (`check-chained-sheets`), and chaining a second is undefined in SwiftUI —
     /// the same lesson ``ToolModule`` records for the Home tab.
@@ -88,6 +97,8 @@ struct ProspectView: View {
 
                     if let result = store.result {
                         resultCard(result)
+                    } else if let saved = store.restored {
+                        savedCard(saved)
                     }
                 }
                 .padding()
@@ -181,7 +192,48 @@ struct ProspectView: View {
             } message: {
                 Text(String(localized: "What does the tag actually say? Your correction is used as-is."))
             }
+            // ── US-3100: the sourcing log ───────────────────────────────────
+            .onAppear(perform: restoreIfRequested)
+            .onChange(of: store.resultToken) { _, _ in recordResult() }
+            .onChange(of: store.addedItemId) { _, itemId in
+                guard let itemId, let rowId = loggedRowId ?? store.restored?.id else { return }
+                log?.markAdded(rowId: rowId, itemId: itemId)
+            }
         }
+    }
+
+    // MARK: - US-3100: remembering the verdict
+
+    /// The log for the signed-in tenant, or nil when there is no session to
+    /// scope it to. Nil is a no-op everywhere rather than an error: a seller
+    /// whose session lapsed mid-scan should lose the note, not the scan.
+    private var log: ProspectLog? {
+        guard case let .signedIn(user) = authStore.phase else { return nil }
+        return ProspectLog(
+            context: modelContext,
+            userId: WorkspaceScope.tenantOwnerId(selfId: user.id.uuidString)
+        )
+    }
+
+    private func recordResult() {
+        guard let result = store.result, let log else { return }
+        // The FRONT photo, falling back to the tag. A thumbnail of a care label
+        // is a poor row, but a row with no picture at all is worse — the seller
+        // recognises the garment before they read the title.
+        loggedRowId = log.record(result, thumbnail: store.itemPhoto ?? store.tagPhoto)
+    }
+
+    /// Reopen a verdict the seller tapped on Home.
+    ///
+    /// Cleared as it is read, the same way ``AppRouter/pendingToolModule`` is:
+    /// otherwise every return from the background reopens the same saved row
+    /// over whatever the seller is scanning now.
+    private func restoreIfRequested() {
+        guard let rowId = router.pendingProspectResultId else { return }
+        router.pendingProspectResultId = nil
+        guard let row = log?.row(id: rowId) else { return }
+        store.restore(row)
+        loggedRowId = row.id
     }
 
     // MARK: - Capture
@@ -444,6 +496,93 @@ struct ProspectView: View {
             }
             .padding()
             .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+        }
+    }
+
+    /// US-3100: a verdict reopened from the log.
+    ///
+    /// Deliberately a DIFFERENT card from ``resultCard``, showing only what was
+    /// saved. The temptation was to rebuild a `ProspectResponse` from the row
+    /// and reuse the live card, and that would put "0 comps", "unknown
+    /// sell-through" and a missing disclaimer on screen beside a real price —
+    /// numbers the server never returned, presented as though it had.
+    @ViewBuilder private func savedCard(_ row: LocalProspectResult) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                savedThumbnail(row)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(row.displayTitle)
+                        .font(.headline)
+                    if let brand = row.brand, !brand.isEmpty {
+                        Text(brand)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(row.createdAt, format: .relative(presentation: .named))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                if let decision = row.decision {
+                    Text(ProspectDecisionCopy.label(decision))
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            recommendationColor(decision).opacity(0.15),
+                            in: Capsule()
+                        )
+                        .foregroundStyle(recommendationColor(decision))
+                }
+            }
+
+            Divider()
+
+            metricRow(String(localized: "Going rate"), dollars(row.medianCents))
+            if row.lowCents != nil || row.highCents != nil {
+                metricRow(
+                    String(localized: "Range"),
+                    "\(dollars(row.lowCents)) – \(dollars(row.highCents))"
+                )
+            }
+            if let ceiling = row.ceilingCents {
+                metricRow(String(localized: "Pay up to"), dollars(ceiling))
+            }
+            if let grade = row.gradeValue {
+                metricRow(
+                    String(localized: "Condition"),
+                    row.gradeTier.map { "\(String(format: "%.1f", grade)) · \($0)" }
+                        ?? String(format: "%.1f", grade)
+                )
+            }
+
+            // The numbers are from the scan, not from now. Saying so is the
+            // difference between a saved note and a stale price the seller
+            // believes is live.
+            Text(String(localized: "Saved from your scan. Prices move — re-scan the item for today's numbers."))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            addToInventoryButton
+        }
+        .padding()
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+    }
+
+    @ViewBuilder private func savedThumbnail(_ row: LocalProspectResult) -> some View {
+        if let data = row.thumbnailData, let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 56, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
+        } else {
+            RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous)
+                .fill(Color.secondary.opacity(0.15))
+                .frame(width: 56, height: 56)
+                .overlay {
+                    Image(systemName: "tshirt").foregroundStyle(.secondary)
+                }
         }
     }
 
@@ -820,11 +959,10 @@ struct ProspectView: View {
         }
     }
 
+    /// US-3100: delegates to ``ProspectDecisionCopy`` so the saved card, the
+    /// live card and the Home row cannot drift into colouring "maybe" three
+    /// different ways.
     private func recommendationColor(_ rec: String) -> Color {
-        switch rec {
-        case "buy": return .green
-        case "maybe": return Color.brandAmber
-        default: return Color.brandRed
-        }
+        ProspectDecisionCopy.color(rec)
     }
 }
