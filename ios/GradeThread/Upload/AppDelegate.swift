@@ -121,6 +121,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         }
     }
 
+    /// US-3101: a long-press on the app icon.
+    ///
+    /// Handled on the delegate rather than a scene delegate because this app
+    /// has no scene delegate — SwiftUI owns the scene, and this adaptor is the
+    /// only UIKit seam. `HomeScreenShortcut.handle` posts through
+    /// ``DeepLinkRouter``, which is what makes a shortcut that COLD-LAUNCHES
+    /// the app work: the route is held until the SwiftUI layer subscribes and
+    /// ContentView drains it (US-1410), rather than being posted into a bus
+    /// nothing is listening to yet.
+    func application(
+        _ application: UIApplication,
+        performActionFor shortcutItem: UIApplicationShortcutItem,
+        completionHandler: @escaping (Bool) -> Void
+    ) {
+        completionHandler(HomeScreenShortcut.handle(shortcutItem))
+    }
+
     func applicationDidEnterBackground(_ application: UIApplication) {
         // Schedule the next BG refresh whenever the user backgrounds the
         // app. The system uses this as a hint; real cadence is up to

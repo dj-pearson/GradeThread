@@ -69,6 +69,15 @@ struct DashboardView: View {
             NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
         }
         .toolModulePresentation($presentedModule, router: router)
+        // US-3101: a quick action, Lock Screen widget or Siri phrase parked a
+        // module on the router because the sheet slot belongs to this view.
+        // Read once and CLEAR: without the clear, every return from background
+        // would re-present Prospect over whatever the seller had moved on to.
+        .onChange(of: router.pendingToolModule, initial: true) { _, pending in
+            guard let pending else { return }
+            presentedModule = pending
+            router.pendingToolModule = nil
+        }
         // US-967: rebuild the 14-day trend series only when sales or items
         // change, not on every `body` re-evaluation (where it was read 3×).
         .onChange(of: trendSignature, initial: true) { _, _ in
@@ -362,6 +371,17 @@ struct DashboardView: View {
         .cardStyle(.flush)
     }
 
+    /// Items carrying a listing draft and nothing live yet.
+    ///
+    /// Read off the SAME local rows the Inventory Drafts tab filters on
+    /// (`InventoryStage.drafts.matchingStatuses`), rather than a second
+    /// definition of "a draft" — two answers to that question is how a Home
+    /// count and the list it opens end up disagreeing, which makes the seller
+    /// distrust both.
+    private var draftCount: Int {
+        items.filter { InventoryStage.drafts.matchingStatuses.contains($0.status) }.count
+    }
+
     private var quickActions: some View {
         VStack(spacing: 10) {
             // US-690: brand button styles for the primary/secondary CTAs.
@@ -399,6 +419,31 @@ struct DashboardView: View {
                 Label("Scout deals", systemImage: "binoculars")
             }
             .buttonStyle(.brandSecondary)
+
+            // US-3101: the drafts already written and not yet earning.
+            //
+            // These are listings the seller has ALREADY paid for with their own
+            // time — photographed, priced, described — and every one sitting
+            // here is that work not making money yet. It was three taps away
+            // and invisible from Home. Hidden at zero: a row that says "0" is a
+            // row that teaches the seller to stop reading the column.
+            //
+            // NOTE: US-3080 turns these stacked buttons into a scrolling pill
+            // row. This is the same action either way; when that lands, this
+            // button becomes a pill and the count comes with it.
+            if draftCount > 0 {
+                Button {
+                    AppRouter.haptic()
+                    router.pendingInventoryFilter = .drafts
+                    router.selection = .inventory
+                } label: {
+                    Label(
+                        String(localized: "Publish \(draftCount) draft\(draftCount == 1 ? "" : "s")"),
+                        systemImage: "paperplane"
+                    )
+                }
+                .buttonStyle(.brandSecondary)
+            }
 
             Button {
                 AppRouter.haptic()

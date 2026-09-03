@@ -11,6 +11,11 @@ import UIKit
 /// Pull-to-refresh fires SyncEngine.pull() which re-populates the cache;
 /// SwiftData's reactive @Query refreshes the list automatically.
 struct InventoryListView: View {
+    /// US-3101: the shell's router, so a deep link can ask this list to open on
+    /// a stage. Optional because the two call sites are the only ones that have
+    /// one, and a preview does not.
+    var router: AppRouter?
+
     @Environment(\.photoUploadService) private var photoUploadService
     @Environment(AuthStore.self) private var authStore
 
@@ -27,6 +32,18 @@ struct InventoryListView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var selectedStage: InventoryStage = .all
+    /// US-3101: a deep link can ask this list to open on a stage.
+    ///
+    /// Read once and CLEARED, like the tool-module request: without the clear,
+    /// every later return to the Inventory tab would snap the seller back to
+    /// Drafts, whatever they had switched to.
+    private func applyPendingFilter(_ filter: AppRouter.InventoryDeepFilter?) {
+        guard let filter else { return }
+        switch filter {
+        case .drafts: selectedStage = .drafts
+        }
+        router?.pendingInventoryFilter = nil
+    }
     /// US-813: list vs. kanban-board layout. The board ignores the stage tabs
     /// (it shows every pipeline column) but still honors search + filters.
     @State private var viewMode: InventoryViewMode = .list
@@ -149,6 +166,12 @@ struct InventoryListView: View {
             }
         }
         .navigationTitle("Inventory")
+        // US-3101: a Publish pill on Home, a push, or a quick action can ask
+        // for the drafts stage. `initial: true` so a cold launch that routed
+        // straight here lands on Drafts rather than All.
+        .onChange(of: router?.pendingInventoryFilter, initial: true) { _, filter in
+            applyPendingFilter(filter)
+        }
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
             viewModeToolbarItem

@@ -180,6 +180,18 @@ public enum DeepLinkRoute: Equatable {
     /// US-1136: a support reply push opens the native ticket inbox — straight
     /// into the referenced thread when the payload carried its id.
     case supportTickets(ticketId: String?)
+    /// US-3101: the sourcing camera, from a home-screen quick action, a Lock
+    /// Screen widget, or Siri. No push uses it — a seller reaches for Prospect
+    /// standing in front of a rack, which is exactly when hunting for a grid
+    /// icon inside Tools costs them the aisle.
+    case prospect
+    /// US-3101: the deal finder, from a home-screen quick action.
+    case scout
+    /// US-3101: Inventory, filtered to drafts waiting to be published.
+    ///
+    /// The listings a seller has already paid for with their own time and not
+    /// yet made money from. It was three taps and invisible from Home.
+    case inventoryDrafts
 
     /// Builds a route from the push payload. Returns nil when the
     /// category isn't one we know how to handle.
@@ -283,6 +295,14 @@ extension DeepLinkRoute {
         switch self {
         case .captureItem: return "captureItem"
         case .addItem: return "addItem"
+        // US-3101: a home-screen quick action or a Lock Screen widget tap on a
+        // KILLED app is a cold launch by definition — it is the whole reason
+        // someone long-presses the icon. Without a token these three post into
+        // a bus nothing is subscribed to yet and the seller lands on a bare
+        // Home, which is the exact bug US-1410 fixed for Siri.
+        case .prospect: return "prospect"
+        case .scout: return "scout"
+        case .inventoryDrafts: return "inventoryDrafts"
         default: return nil
         }
     }
@@ -291,6 +311,9 @@ extension DeepLinkRoute {
         switch token {
         case "captureItem": self = .captureItem
         case "addItem": self = .addItem
+        case "prospect": self = .prospect
+        case "scout": self = .scout
+        case "inventoryDrafts": self = .inventoryDrafts
         default: return nil
         }
     }

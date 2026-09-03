@@ -101,5 +101,40 @@
             </array>
         </dict>
     </array>
+    <!-- US-3101: long-press the app icon. The three things a reseller does most
+         from a standing start, in the order they do them: work out whether to
+         buy it, record what they bought, and hunt for the next one. Each one
+         used to begin with opening the app and then finding a grid icon. -->
+    <key>UIApplicationShortcutItems</key>
+    <array>
+        <dict>
+            <key>UIApplicationShortcutItemType</key>
+            <string>com.gradethread.app.shortcut.prospect</string>
+            <key>UIApplicationShortcutItemTitle</key>
+            <string>What's it worth?</string>
+            <key>UIApplicationShortcutItemSubtitle</key>
+            <string>Photograph an item for comps</string>
+            <key>UIApplicationShortcutItemIconType</key>
+            <string>UIApplicationShortcutIconTypeCapturePhoto</string>
+        </dict>
+        <dict>
+            <key>UIApplicationShortcutItemType</key>
+            <string>com.gradethread.app.shortcut.addItem</string>
+            <key>UIApplicationShortcutItemTitle</key>
+            <string>Add an item</string>
+            <key>UIApplicationShortcutItemIconType</key>
+            <string>UIApplicationShortcutIconTypeAdd</string>
+        </dict>
+        <dict>
+            <key>UIApplicationShortcutItemType</key>
+            <string>com.gradethread.app.shortcut.scout</string>
+            <key>UIApplicationShortcutItemTitle</key>
+            <string>Scout deals</string>
+            <key>UIApplicationShortcutItemSubtitle</key>
+            <string>Find underpriced listings</string>
+            <key>UIApplicationShortcutItemIconType</key>
+            <string>UIApplicationShortcutIconTypeSearch</string>
+        </dict>
+    </array>
 </dict>
 </plist>

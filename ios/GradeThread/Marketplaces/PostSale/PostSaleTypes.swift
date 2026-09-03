@@ -12,12 +12,20 @@ struct EbayReturn: Decodable, Identifiable, Equatable {
     let itemId: String?
     let reason: String?
     let creationDate: String?
+    /// US-3101: the date eBay decides this for you if you do not.
+    ///
+    /// The edge has sent it since US-2933 (`respondBy` in lib/ebay-postorder.ts)
+    /// and this type dropped it, so the one field on a return that costs money
+    /// to ignore never reached the phone. Optional: eBay omits it on some
+    /// returns, and an absent deadline is a real state, not a parse failure.
+    let respondBy: String?
 
     var id: String { returnId }
 
     init(
         returnId: String, state: String? = nil, orderId: String? = nil,
-        itemId: String? = nil, reason: String? = nil, creationDate: String? = nil
+        itemId: String? = nil, reason: String? = nil, creationDate: String? = nil,
+        respondBy: String? = nil
     ) {
         self.returnId = returnId
         self.state = state
@@ -25,6 +33,7 @@ struct EbayReturn: Decodable, Identifiable, Equatable {
         self.itemId = itemId
         self.reason = reason
         self.creationDate = creationDate
+        self.respondBy = respondBy
     }
 }
 
