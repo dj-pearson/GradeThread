@@ -3613,22 +3613,6 @@
       "priority": 13
     },
     {
-      "id": "US-3097",
-      "passes": false,
-      "title": "iOS: eBay links from Scout and Prospect open the eBay app on the affiliate URL, and the phone decodes the ceiling, basis and value provenance the server already sends",
-      "description": "As a reseller using Scout or Prospect on my phone, I want a tap on a listing to land in the eBay app on that item through GradeThread's partner link, and I want the buy ceiling and the price basis on the result, so that I can buy on the spot and know what the number is made of.",
-      "acceptanceCriteria": [
-        "ProspectResponse in ios/GradeThread/Prospect/ProspectTypes.swift decodes ceiling (maxBuyCents, targetRoi, absentReason) and stats.basis; the result card in ProspectView.swift shows 'Pay at most $X for Y% ROI' when present and the absentReason copy when absent, and the basis line under the median says asking prices / your sales / sold comps using the same wording as the web ValueBasisNote; an XCTest decodes a fixture with and without ceiling",
-        "ScoutCandidate in ios/GradeThread/Scout/ScoutTypes.swift decodes valueBasis and url; ScoutCandidateRow.swift shows the basis text under the value range",
-        "A single EbayOutboundLink helper in ios/GradeThread/Marketplaces/ opens a listing with UIApplication.shared.open on the url field the edge returns (the itemAffiliateWebUrl once US-3082 lands, itemWebUrl until then), never with SwiftUI Link or SFSafariViewController, so an ebay.com universal link is handed to the installed eBay app; no ebay:// scheme and no LSApplicationQueriesSchemes entry is added; the ios/Scripts guards stay green",
-        "Every eBay listing link in Prospect, Scout and the Comps section goes through EbayOutboundLink; a unit test over the view models asserts no other openURL call site builds an ebay.com/itm URL (grep-based test in ios/GradeThreadTests, the ios-guard-lane idiom)",
-        "Scout rows gain a 'Bought it' action that calls POST /api/flipdesk/scout/buy with the asking price as costCents and the candidate's itemId, then routes to the new inventory item; the row shows 'Added' and disables the action after success",
-        "Telemetry event scout.outbound_open fires with platform 'ios' and whether the affiliate URL was present, so EPN click reports can be reconciled against app opens (no user id in the event beyond the existing session key)",
-        "vault/50-business or the EPN note that US-3082 creates records, dated, whether an in-app eBay purchase reached through a universal link is credited by EPN per its terms; if it is not, the helper opens Safari with the affiliate URL and offers 'Open in eBay app' as the secondary action, and the story notes say which branch shipped"
-      ],
-      "priority": 14
-    },
-    {
       "id": "US-3098",
       "passes": false,
       "title": "Scout deal filters: target profit in dollars or percent, max total price with shipping, buying option, condition and sort, with a two-phase rank so more than eight listings are considered",
