@@ -432,9 +432,15 @@ export function FlipdeskScoutPage() {
       <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
         <Info className="mt-0.5 h-4 w-4 flex-shrink-0" />
         <span>
+          {/* US-3107: the second sentence used to be missing. Values and ROI
+              here are computed from ACTIVE listings — asking prices — because
+              the Marketplace Insights grant that would make them sold prices has
+              not landed. A seller reading "comps" cannot tell the two apart, and
+              they price differently. */}
           Shadow grades are private AI estimates from each listing's photos — not
-          a GradeThread certificate, and not visible to the seller. Always verify
-          condition before buying.
+          a GradeThread certificate, and not visible to the seller. Values come
+          from active eBay listings, so they are asking prices, not sold prices.
+          Always verify condition before buying.
         </span>
       </div>
 

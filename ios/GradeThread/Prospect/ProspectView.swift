@@ -67,7 +67,14 @@ struct ProspectView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Snap the item, and its tag if it has one. We'll identify it and pull eBay comps: how many are listed, what they're asking, and how fast it should move. Got the wrong item? Tap the title to fix it.")
+                    // US-3107: "comps" was doing too much work. Until the Marketplace
+                    // Insights grant lands every number here comes from what
+                    // sellers are ASKING today, and asking prices are the right
+                    // input for a sourcing ceiling and the wrong one for how
+                    // fast a thing sells. The difference is the seller's to know,
+                    // so the screen says it in the first sentence rather than in
+                    // a footnote under the result.
+                    Text(String(localized: "Snap the item, and its tag if it has one. We'll identify it and pull eBay asking prices: how many are listed, what they're asking, and how fast it should move. Got the wrong item? Tap the title to fix it."))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 

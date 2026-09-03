@@ -148,7 +148,13 @@ struct ScoutView: View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "info.circle")
                 .foregroundStyle(.brandAmber)
-            Text("Shadow grades are private AI estimates from each listing's photos — not a GradeThread certificate, and not visible to the seller. Always verify condition before buying.")
+            // US-3107: two claims, and the second one used to be missing. The
+            // value and ROI beside every result are computed from ACTIVE
+            // listings — asking prices — because the Marketplace Insights grant
+            // that would make them sold prices has not landed. A seller reading
+            // "condition-matched comps" has no way to tell which of the two they
+            // are being shown, and they price differently.
+            Text("Shadow grades are private AI estimates from each listing's photos — not a GradeThread certificate, and not visible to the seller. Values come from active eBay listings, so they are asking prices, not sold prices. Always verify condition before buying.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }

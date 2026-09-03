@@ -483,7 +483,7 @@ The first three are a **feature group** (`quickbooks`) on `/health/ready`, so an
 | `EBAY_VERIFICATION_TOKEN` 🔒 | ⬜ Coolify edge | Shared secret for eBay Notification API (incl. account-deletion). |
 | `EBAY_DELETION_ENDPOINT_URL` | ⬜ Coolify edge | Public URL eBay calls for account-deletion notices. |
 | `EBAY_DEFAULT_AD_RATE` | ⬜ Coolify edge | Default promoted-listing ad rate. |
-| `EBAY_MARKETPLACE_INSIGHTS` | ⬜ Coolify edge | Toggle for the eBay Marketplace Insights comp source. |
+| `EBAY_MARKETPLACE_INSIGHTS` | ⬜ Coolify edge | Toggle for the eBay Marketplace Insights comp source. **Ungranted as of 2026-09-03 — see the application record below.** Every price the product shows is an ASKING price until this is on. |
 | `CONDITION_VALUE_SHADOW` | ⬜ Coolify edge | US-2848 kill switch for the live-vs-measured value comparison inside `valueAtGrade`. ON unless set to `false`. Costs one cached Supabase read per call and writes nothing until a cell has a measured curve. |
 | `CONDITION_VALUE_MEASURED` | ⬜ Coolify edge | US-2849 flip. OFF unless set to `true`/`1`/`on`. When on, every condition-adjusted price serves the measured curve for cells that have a publishable one and falls back to the comp median otherwise. Turn on only after the shadow deltas justify it. |
 | `DEPOP_ENABLED` | ⬜ Coolify edge | Master toggle for the Depop integration. |
@@ -498,6 +498,41 @@ The first three are a **feature group** (`quickbooks`) on `/health/ready`, so an
 | `WHATNOT_REDIRECT_URI` / `WHATNOT_SCOPES` / `WHATNOT_AUTH_URL` / `WHATNOT_TOKEN_URL` / `WHATNOT_API_BASE` | ⬜ Coolify edge | Whatnot OAuth callback, scopes, auth/token/API URLs (all modeled — verify vs live). |
 | `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET` 🔒 / `SHOPIFY_REDIRECT_URI` | ⬜ Coolify edge | Shopify app OAuth (the `shopify` boot feature). |
 | `SHOPIFY_SCOPES` / `SHOPIFY_WEBHOOK_CALLBACK_URL` | ⬜ Coolify edge | Shopify scope list and the URL Shopify posts webhooks to (both default to built-in values). |
+
+#### Marketplace Insights grant — application record (US-3107)
+
+`buy.marketplace.insights` is a RESTRICTED eBay scope: it is applied for, not
+switched on. Until it is granted, every price in Prospect, Scout, AutoLister and
+the composer comes from ACTIVE listings — what somebody is asking today, which
+is the right input for a sourcing ceiling and the wrong one for how fast a thing
+sells. The product says so in those words, and
+`src/test/asking-price-copy.test.ts` fails if the copy stops saying it while
+this row still reads "not applied".
+
+| Step | State | Date | Notes |
+|---|---|---|---|
+| US-3042 compliance gaps closed | ⬜ | — | eBay reviews the whole app, not the endpoint. Apply before this and the application is the review. |
+| Application submitted | ⬜ not applied | — | eBay developer account → Application Growth Check → request `buy.marketplace.insights`. |
+| Outcome | ⬜ | — | Granted / declined / more information requested. Record the reason verbatim if declined — it names what to fix. |
+
+**When the grant lands, all four in one change:**
+
+1. Append `https://api.ebay.com/oauth/api_scope/buy.marketplace.insights` to `EBAY_SCOPES`.
+2. Set `EBAY_MARKETPLACE_INSIGHTS=true` on the Coolify edge.
+3. Reconnect one eBay account — the scope is baked into the token at consent, so
+   an account connected before the change keeps the old one and reads active
+   prices while its neighbour reads sold ones.
+4. Reword the client disclaimers (the test above names the files) and confirm
+   `/prospect` returns `source: "sold"` and `stats.basis.prices: "sold_realized"`
+   for a query with three or more sold comps. Both clients read that wording off
+   the response, so this needs no app release.
+
+#### Image search — turn-on record (US-3107)
+
+| Step | State | Date | Notes |
+|---|---|---|---|
+| `SCOUT_EBAY_IMAGE_SEARCH_ENABLED=true` on Coolify edge | ⬜ not set | — | Needs no eBay approval; it is our own flag over the Browse `search_by_image` call. |
+| Verified from a phone | ⬜ | — | Run ONE garment-only Prospect (no tag photo). Expect `item.identitySource == "visual"` and NO `ai_actions` ledger row for the scan. Both together: a `visual` source with a ledger row means the identify call ran anyway and the flag bought nothing. |
 
 ### 3j. Images / storage
 
