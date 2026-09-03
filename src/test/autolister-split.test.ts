@@ -31,7 +31,11 @@ const CEILINGS: Record<string, number> = {
   // not end up smaller -- the extraction paid for the fix and nothing more.
   "src/pages/flipdesk/autolister.tsx": 3639,
   "src/pages/flipdesk/autolister-bulk-edit.tsx": 2010,
-  "src/pages/flipdesk/autolister-queue.tsx": 1120,
+  // Lowered from 1120 when the rows gained the generated title and a cover
+  // thumbnail, and the listing review query, the cover query, the title rule
+  // and the finish toast moved into autolister/ (use-listing-review.ts,
+  // use-item-covers.ts, queue-row-title.ts, use-batch-finished-toast.ts).
+  "src/pages/flipdesk/autolister-queue.tsx": 1069,
 };
 
 function lineCount(rel: string): number {

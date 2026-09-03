@@ -1,6 +1,14 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ PENDING: 00723 — credit functions must refuse anon (US-3094)
+## ✅ APPLIED 2026-09-03: 00723 — credit functions must refuse anon (US-3094)
+
+**Applied.** The production edge's `/health/ready` reports
+`schema: { expected: "00723", applied: "00723", status: "match" }` (read from
+the running service on 2026-09-03, not inferred), and the edge only boots when
+the database is at its expected version. The heading below was never flipped
+after the re-apply, which is what left CI's held-migration gate red on main.
+The apply notes are kept as written.
+
 
 > **REVISED 2026-09-02 after this migration FAILED its first prod apply, which
 > is the point of it.** The assertion refused the apply and named one offender:

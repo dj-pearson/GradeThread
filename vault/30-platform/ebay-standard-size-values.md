@@ -10,12 +10,18 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/scripts/refresh-ebay-aspect-cache.ts
   - src/lib/aspect-normalize.ts
-reviewed: 2026-09-01
+reviewed: 2026-09-03
 tags: [ebay, publishing, aspects, gotcha]
 summary: eBay now rejects a custom Size or Size Type value at publish; the size aspects are treated as closed lists whatever the cached Taxonomy mode says, a rejection refetches the spec and repairs the draft on the spot, and the aspect cache lives seven days instead of thirty.
 ---
 
 # eBay standardized size values at publish
+
+> **Re-reviewed 2026-09-03.** Drift flagged `ebay-client.ts` for `57eff0f03`
+> (the offer-absent 404 in `listOffersForSku`) and `f9144c69a` (the US-3098
+> Browse sourcing filters). Neither is in the aspect or size neighbourhood:
+> `aspect-reconcile.ts`, `ebay-size-enforcement.ts` and the aspect cache refresh
+> script are untouched, and the Browse changes are search-side only.
 
 ## What eBay changed
 

@@ -15,12 +15,26 @@ code_refs:
   - services/edge-functions/src/lib/ebay-webhook-topics.ts
   - services/edge-functions/src/lib/ebay-notification-subscriptions.ts
   - services/edge-functions/src/routes/flipdesk-webhooks.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-03
 tags: [ebay, listings, sync, gotcha]
 summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error - and to keep WHICH of those it was, since ended and removed-by-eBay need opposite actions.
 ---
 
 # Reconciling eBay-ended and policy-removed listings
+
+> **Re-reviewed 2026-09-03.** Drift flagged `ebay-client.ts` and
+> `ebay-notification-subscriptions.ts` for `57eff0f03`, and `ebay-client.ts`
+> again for `f9144c69a`. The first adds `isOfferNotFoundError`: `listOffersForSku`
+> now returns an empty list on eBay's 404 + errorId 25713 ("This Offer is not
+> available"), and an unlabelled 404 still throws, so a wrong host or a revoked
+> scope cannot read as an empty catalog. In the subscriptions module the topic
+> catalog's wire fields became `unknown` and are read through `tokens()` /
+> `scalar()`, because eBay sent a non-string `format` and the reconcile cron
+> crashed on `.toUpperCase`. Neither touches a lifecycle verb: the router in
+> `ebay-webhook-topics.ts` still decides what is subscribed, and the
+> already-not-live classification in `isOfferAlreadyEndedError` is untouched.
+> The second commit is the US-3098 sourcing filters on Browse comps (price,
+> buying options, conditions, shipping, sort), which is search-side only.
 
 > **Re-reviewed 2026-09-02, and one lifecycle verb genuinely grew a second
 > meaning.** US-9203 adds RELIST ON EXTENSION CHANNELS, and it is not this

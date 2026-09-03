@@ -5,7 +5,7 @@ status: current
 source_of_truth: code
 code_refs:
   - src/lib/admin/runbooks.ts
-reviewed: 2026-08-31
+reviewed: 2026-09-03
 tags: [ops, runbooks, duplication, migration]
 summary: Ops procedures are duplicated across repo root, docs/, and a shipped in-app admin feature — and the in-app copy is the one on-call actually reads.
 ---
@@ -15,6 +15,10 @@ summary: Ops procedures are duplicated across repo root, docs/, and a shipped in
      finding describe a state that never existed. -->
 
 # Ops runbooks exist in four places, not two
+
+> **Re-reviewed 2026-09-03.** Drift flagged `src/lib/admin/runbooks.ts` for
+> `e89944d64`: only the `reviewed` dates and the re-read comments inside two
+> shipped copies changed. Nothing to carry, and the count is still not quoted.
 
 Found 2026-07-18 while dry-running `vault-move.mjs` against `ROLLBACK.md` for
 US-2047. The reference scan reported a mention in `src/lib/admin/runbooks.ts`,
