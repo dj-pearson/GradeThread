@@ -79,3 +79,27 @@ export function overviewRangeBounds(
   const days = id === "d7" ? 7 : id === "d30" ? 30 : 90;
   return { from: new Date(now.getTime() - days * DAY_MS).toISOString(), to };
 }
+
+/**
+ * The range expressed as a whole number of days back from now, or null when it
+ * has no lower bound (US-3078 AC2).
+ *
+ * Some cards take a day window rather than two instants, and eBay's Finances
+ * feed is one of them. `null` for "all time" is the honest answer rather than a
+ * large number: a caller that has a maximum has to apply its OWN maximum and
+ * say so, instead of being handed 3650 and printing "all time" over it.
+ *
+ * "Year to date" is counted in whole days from Jan 1 in the viewer's own time,
+ * so it agrees with overviewRangeBounds() rather than approximating a year.
+ */
+export function overviewRangeDays(
+  id: OverviewRangeId,
+  now: Date = new Date(),
+): number | null {
+  if (id === "all") return null;
+  if (id === "d7") return 7;
+  if (id === "d30") return 30;
+  if (id === "d90") return 90;
+  const startOfYear = new Date(now.getFullYear(), 0, 1).getTime();
+  return Math.max(1, Math.ceil((now.getTime() - startOfYear) / DAY_MS));
+}

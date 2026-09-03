@@ -62,6 +62,15 @@ export const DEFAULT_PERSONA: WidgetPersona = "seller";
 export interface LayoutContext {
   /** True once the account has at least one inventory_items row. */
   hasInventory?: boolean;
+  /**
+   * True once the account has at least one consignors row (US-3078 AC6).
+   *
+   * False is what removes the consignor-payout widget, so an account that does
+   * not run consignment never has to read a card about it; undefined leaves it
+   * alone, which is what a count still in flight and a count that failed both
+   * mean.
+   */
+  hasConsignors?: boolean;
 }
 
 /** Props every widget component accepts. Widgets that need none ignore them all. */
@@ -819,6 +828,157 @@ export const DASHBOARD_WIDGETS: readonly WidgetDef[] = [
       import("@/components/dashboard/widgets/flipdesk-repricing").then((m) => ({
         default: m.FlipdeskRepricingWidget as ComponentType<WidgetProps>,
       })),
+  },
+
+  // The money and the account health (US-3078)
+  //
+  // Six cards that already existed on four different pages: Money, Analytics,
+  // Marketplaces, Scout and Consignment. Every entry below LOADS THE EXISTING
+  // COMPONENT and the source page keeps rendering it. Nothing here is a second
+  // copy of a card, which is the point of the story rather than a detail of it:
+  // two payout lists, or two equity figures, disagree eventually, and the
+  // seller finds out by reading two numbers for the same thing.
+  //
+  // CATALOG-ONLY. None of the six is on the default board. The board already
+  // opens with fourteen widgets, and six more would push the queue past a
+  // laptop screen to answer a question most sellers ask weekly, not daily.
+  // They are in the Add-widget sheet for the sellers who want them there.
+  {
+    id: "flipdesk.payouts",
+    surface: "flipdesk",
+    title: "eBay payouts",
+    blurb: "Bank deposits from eBay, what is still on the way and when it lands.",
+    category: "data",
+    sizes: ["md", "lg"],
+    defaultSize: "lg",
+    // The Finances feed is a fixed 90-day window, not the picker's.
+    rangeAware: false,
+    windowPhrase: "in the last 90 days",
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["ebay_payouts", "ebay_connection"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-payouts").then((m) => ({
+        default: m.FlipdeskPayoutsWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.ad-spend",
+    surface: "flipdesk",
+    title: "What advertising cost",
+    blurb: "Promoted Listings fees against the sales they came out of.",
+    category: "data",
+    sizes: ["md", "lg"],
+    defaultSize: "md",
+    // AC2: the one widget in this block that takes the board's window.
+    rangeAware: true,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["ebay_ad_spend"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-ad-spend").then((m) => ({
+        default: m.FlipdeskAdSpendWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.equity",
+    surface: "flipdesk",
+    title: "Inventory equity",
+    blurb: "Estimated liquidation value of your graded inventory, and its trend.",
+    category: "data",
+    sizes: ["md", "lg"],
+    defaultSize: "md",
+    // A live valuation of what is on the racks: "right now" is the true label.
+    rangeAware: false,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["flipdesk-equity", "flipdesk-equity-trend"],
+    // Loaded straight, with no wrapper module, the way grading.charts and
+    // flipdesk.community-insights are. The card needs nothing adapting, and a
+    // wrapper that only forwards would be a SECOND file named for equity:
+    // src/test/inventory-equity-scope-fence.test.ts requires the estimate
+    // disclosure verbatim on every one of those, so the wrapper would either
+    // print the sentence twice in one frame or make the fence a formality.
+    load: () =>
+      import("@/components/flipdesk/inventory-equity-card").then((m) => ({
+        default: m.InventoryEquityCard as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.forecast",
+    surface: "flipdesk",
+    title: "Resale forecast",
+    blurb: "Price, days to sell and 12-month value for a brand, from your own sales.",
+    category: "data",
+    sizes: ["md", "lg"],
+    defaultSize: "lg",
+    // It looks FORWARD a year off a history the seller does not pick a window
+    // for, so the picker's phrase would be wrong about both ends.
+    rangeAware: false,
+    windowPhrase: "12 months ahead, from your own sales",
+    personas: FLIPDESK_PERSONAS,
+    // Nothing to invalidate: the forecast is a mutation the seller fires by
+    // pressing Forecast, not a query a board refresh could re-run.
+    queryKeys: [],
+    // AC4's "no seed brand" is what loading the card straight gives: the board
+    // passes size, surface and range, never a brand, so the field opens empty
+    // and waits. Scout still passes the brand it was searching.
+    load: () =>
+      import("@/components/flipdesk/forecast-card").then((m) => ({
+        default: m.ForecastCard as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.marketplace-health",
+    surface: "flipdesk",
+    title: "Marketplace health",
+    blurb: "Which platforms are connected, and where eBay says your account stands.",
+    category: "data",
+    sizes: ["md", "lg"],
+    defaultSize: "md",
+    // Connection status and a current standing are both snapshots.
+    rangeAware: false,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: [
+      "ebay_connection",
+      "ebay_connection_issue",
+      "ebay_account_health",
+      "shopify_connection",
+      "google_connection",
+    ],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-marketplace-health").then(
+        (m) => ({
+          default:
+            m.FlipdeskMarketplaceHealthWidget as ComponentType<WidgetProps>,
+        }),
+      ),
+  },
+  {
+    id: "flipdesk.consignor-payouts",
+    surface: "flipdesk",
+    title: "Consignors owed",
+    blurb: "Consignors with a payout still due, and what it adds up to.",
+    category: "data",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    // An open balance, not a window.
+    rangeAware: false,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["consignor-payouts"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-consignor-payouts").then(
+        (m) => ({
+          default:
+            m.FlipdeskConsignorPayoutsWidget as ComponentType<WidgetProps>,
+        }),
+      ),
+    // AC6: an account that runs no consignment never sees this in the catalog.
+    // Absent, not quiet -- "0 consignors owed" forever is a card about someone
+    // else's business, and the frame's "nothing to show yet" is a promise that
+    // something will show up.
+    //
+    // `=== false` and not `!hasConsignors`: undefined means the count has not
+    // answered (or failed), and a widget must never blink out of the catalog
+    // and back in while a query is in flight.
+    omitWhen: (context) => context.hasConsignors === false,
   },
 ];
 

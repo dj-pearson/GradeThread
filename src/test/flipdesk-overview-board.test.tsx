@@ -74,10 +74,11 @@ describe("the page is a header and a board (US-3076 AC1)", () => {
 });
 
 describe("the shipped board (US-3076 AC4)", () => {
-  // US-3077 added the eight action widgets below the thirteen data ones. The
-  // list stays exact rather than becoming a length check: this is the one
-  // assertion that would catch a widget quietly disappearing from the catalog.
-  it("registers the thirteen data widgets, then US-3077's eight action ones", () => {
+  // US-3077 added the eight action widgets below the thirteen data ones, and
+  // US-3078 the six money and account-health ones below those. The list stays
+  // exact rather than becoming a length check: this is the one assertion that
+  // would catch a widget quietly disappearing from the catalog.
+  it("registers thirteen data widgets, eight action ones, then six for the money", () => {
     expect(registry.map((w) => w.id)).toEqual([
       "flipdesk.north-star",
       "flipdesk.stat-items",
@@ -100,6 +101,14 @@ describe("the shipped board (US-3076 AC4)", () => {
       "flipdesk.scheduled-drops",
       "flipdesk.automations",
       "flipdesk.repricing",
+      // US-3078: catalog-only, so none of these six is in the default layout
+      // asserted below.
+      "flipdesk.payouts",
+      "flipdesk.ad-spend",
+      "flipdesk.equity",
+      "flipdesk.forecast",
+      "flipdesk.marketplace-health",
+      "flipdesk.consignor-payouts",
     ]);
   });
 

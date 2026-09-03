@@ -54,8 +54,17 @@ function money(cents: number): string {
   return `${sign}$${Math.abs(cents / 100).toFixed(2)}`;
 }
 
-export function AdSpendCard() {
-  const [days, setDays] = useState<number>(90);
+/**
+ * `days` lets a caller that already has a reporting window drive this card
+ * (US-3078 AC2: the FlipDesk overview board hands down its range picker).
+ *
+ * It seeds the window rather than freezing it: the seller can still pick one of
+ * the three buttons below, and that pick wins until the caller's window moves.
+ * On the Money page nothing passes it and the card opens at 90 days as it
+ * always has.
+ */
+export function AdSpendCard({ days: seedDays }: { days?: number }) {
+  const [days, setDays] = useState<number>(seedDays ?? 90);
   const { data, isLoading, isError } = useQuery({
     queryKey: ["ebay_ad_spend", days],
     staleTime: 10 * 60_000,

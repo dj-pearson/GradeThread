@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useInventoryItemCount } from "@/hooks/use-inventory-item-count";
+import { useConsignorCount } from "@/hooks/use-consignor-count";
 import { layoutDocument, normalize, personaOf } from "@/lib/dashboard-layout";
 import {
   LAYOUT_VERSION,
@@ -80,16 +81,21 @@ function fallbackLayout(
 /**
  * What normalize() needs to know about the account beyond its persona.
  *
- * One question so far (US-3075 AC5): does this account have any inventory. The
- * count is undefined until it resolves and undefined on failure, and an
- * undefined field omits nothing, so a widget can never flicker off the board
- * and back on while a query is in flight.
+ * Two questions so far: does this account have any inventory (US-3075 AC5) and
+ * does it have any consignors (US-3078 AC6). Each count is undefined until it
+ * resolves and undefined on failure, and an undefined field omits nothing, so a
+ * widget can never flicker off the board and back on while a query is in
+ * flight.
  */
 function useLayoutContext(): LayoutContext {
   const itemCount = useInventoryItemCount();
+  const consignorCount = useConsignorCount();
   return useMemo(
-    () => ({ hasInventory: itemCount === undefined ? undefined : itemCount > 0 }),
-    [itemCount],
+    () => ({
+      hasInventory: itemCount === undefined ? undefined : itemCount > 0,
+      hasConsignors: consignorCount === undefined ? undefined : consignorCount > 0,
+    }),
+    [itemCount, consignorCount],
   );
 }
 
