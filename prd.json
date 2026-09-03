@@ -3613,22 +3613,6 @@
       "priority": 13
     },
     {
-      "id": "US-3096",
-      "passes": false,
-      "title": "A cross-post queued from the phone drains into an empty marketplace form: hydrate list rows with listing content at claim time",
-      "description": "As a FlipDesk seller who queues a cross-post from iOS or Android and opens the laptop later, I want the extension to prefill the marketplace form with the same title, description, price, brand, size, tags and photos the web page sends, so that the queue does what the button says instead of opening a blank form and reporting success.",
-      "acceptanceCriteria": [
-        "Root cause recorded in the story and the code: every client enqueues kind 'list' with payload {} (src/pages/flipdesk/listing-kit path at src/components/flipdesk/listing-kit.tsx, src/pages/flipdesk/review.tsx, ios/GradeThread/Marketplaces/ListingKit/ListingKitView.swift, android ExtensionQueue.kt), the server enriches only revise and relist in routes/flipdesk-extension-queue.ts, jobFromQueueRow in extension-unified/lister/job-store.js adds only platform/itemId/listingId, and GT.runFlow in extension-unified/lister/common.js fills title and description from that payload unconditionally",
-        "A pure buildListPayload(item, photos, platformFields, spec) in services/edge-functions/src/lib/extension-queue.ts returns exactly the keys src/lib/lister-extension.ts buildListerPayload sends (platform, platformLabel, itemId, newListingUrl, title, description, price, originalPrice, brand, color, size, category, condition, tags, photoUrls, maxPhotos, locale), reading listings.platform_fields for the platform when the Listing Kit ran and the inventory_items row otherwise, with photoUrls ordered by item_photos.sort_order (cover first) and capped at the platform's maxPhotos from lib/marketplace-specs.ts; a unit test in services/edge-functions/src/tests asserts the key set equals the web payload's key set so the two cannot drift",
-        "POST /api/flipdesk/extension-queue/claim hydrates every claimed row of kind 'list' with buildListPayload at claim time, not enqueue time, so an edit made on the phone after queuing is what the desktop fills; the row's stored payload keeps whatever the client sent (locale wins when present, per US-2777) and hydrated keys never overwrite a client-supplied key",
-        "Every hydration query is tenant-scoped with .eq('user_id', ownerId) on inventory_items, item_photos and listings (US-268), and routes/tenant-isolation_test.ts gains a case proving a claim by workspace B never hydrates workspace A's item",
-        "A claimed 'list' row whose item no longer exists or has zero photos is returned with status 'failed' and a reason the popup shows ('Item was deleted' / 'No photos on this item') rather than a job the extension runs against a blank form; queue/queue-view.js renders that reason in the needs-you group and extension-unified/test/queue-view.test.cjs covers it",
-        "extension-unified/lister/common.js refuses to run a 'list' job whose payload has no title (logs and reports stage 'failed' with reason 'empty_payload' via reportStage) instead of filling nothing and reporting success; extension-unified/test/lister-empty-payload.test.cjs asserts the refusal and that a hydrated payload still runs",
-        "An end-to-end check on the throwaway stack: enqueue a 'list' row with payload {} for an item with three photos, claim it, and assert the claimed row's payload carries the title and three photoUrls; documented in the story notes with the command used"
-      ],
-      "priority": 9
-    },
-    {
       "id": "US-3097",
       "passes": false,
       "title": "iOS: eBay links from Scout and Prospect open the eBay app on the affiliate URL, and the phone decodes the ceiling, basis and value provenance the server already sends",
