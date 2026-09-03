@@ -74,7 +74,10 @@ describe("the page is a header and a board (US-3076 AC1)", () => {
 });
 
 describe("the shipped board (US-3076 AC4)", () => {
-  it("registers all thirteen widgets", () => {
+  // US-3077 added the eight action widgets below the thirteen data ones. The
+  // list stays exact rather than becoming a length check: this is the one
+  // assertion that would catch a widget quietly disappearing from the catalog.
+  it("registers the thirteen data widgets, then US-3077's eight action ones", () => {
     expect(registry.map((w) => w.id)).toEqual([
       "flipdesk.north-star",
       "flipdesk.stat-items",
@@ -89,6 +92,14 @@ describe("the shipped board (US-3076 AC4)", () => {
       "flipdesk.top-brands",
       "flipdesk.recent-sales",
       "flipdesk.community-insights",
+      "flipdesk.needs-you",
+      "flipdesk.offers",
+      "flipdesk.extension-queue",
+      "flipdesk.sync-conflicts",
+      "flipdesk.autolister-drafts",
+      "flipdesk.scheduled-drops",
+      "flipdesk.automations",
+      "flipdesk.repricing",
     ]);
   });
 
@@ -117,6 +128,9 @@ describe("the shipped board (US-3076 AC4)", () => {
 
   it("opens in the order the story fixes, at the shipped sizes", () => {
     expect(defaultLayoutFor("flipdesk", "seller")).toEqual([
+      // US-3077: the ranked eBay queue is the one action widget on the default
+      // board, and it opens it. Everything below is US-3076's order, unmoved.
+      { id: "flipdesk.needs-you", size: "lg" },
       { id: "flipdesk.north-star", size: "sm" },
       { id: "flipdesk.stat-items", size: "sm" },
       { id: "flipdesk.stat-listed", size: "sm" },

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
+import { ErrorState } from "@/components/ui/error-state";
 import { PREVIEW_ROWS } from "@/lib/flipdesk-overview-format";
 
 // US-3076: the pieces every FlipDesk Overview widget is built out of.
@@ -98,6 +99,40 @@ export function MetricsUnavailable({
         {retrying ? "Trying again..." : "Try again"}
       </Button>
     </div>
+  );
+}
+
+/**
+ * A widget's read failed (US-3077 AC10).
+ *
+ * The shared <ErrorState>, trimmed to fit a frame: no support line, because
+ * twenty-one frames each offering to email support is not twenty-one offers of
+ * help, it is noise. The distinction it protects is the one MetricsUnavailable
+ * above protects too, and the reason both exist rather than a quiet frame: the
+ * frame's "Nothing to show yet" is a claim that the number is zero, and a read
+ * that failed has no number to make claims about.
+ *
+ * `what` completes "Could not load ___", so pass a noun phrase in the seller's
+ * words ("your open offers"), not a table name.
+ */
+export function WidgetLoadError({
+  what,
+  onRetry,
+  retrying,
+}: {
+  what: string;
+  onRetry: () => void;
+  retrying?: boolean;
+}) {
+  return (
+    <ErrorState
+      className="rounded-xl border border-dashed px-4 py-6"
+      title={`Could not load ${what}`}
+      description="Nothing was lost. This is usually temporary."
+      onRetry={onRetry}
+      retrying={retrying}
+      hideSupport
+    />
   );
 }
 

@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { Inbox } from "lucide-react";
 import {
   Card,
@@ -13,19 +12,10 @@ import { EmptyState } from "@/components/ui/empty-state";
 import {
   KIND_LABEL,
   needsYouKey,
-  rankNeedsYou,
   type NeedsYouItem,
 } from "@/pages/flipdesk/needs-you";
 import { deadlineBucket, deadlineLabel } from "@/pages/flipdesk/post-sale-state";
-import {
-  useEbayBestOffers,
-  useEbayCancellations,
-  useEbayCases,
-  useEbayInquiries,
-  useEbayPaymentDisputes,
-  useEbayReturns,
-} from "@/hooks/use-ebay";
-import { isClosedCase, splitByOpenState } from "@/pages/flipdesk/post-sale-state";
+import { useNeedsYou } from "@/hooks/use-needs-you";
 
 // US-2934: one ranked list of everything eBay is waiting on.
 //
@@ -34,7 +24,11 @@ import { isClosedCase, splitByOpenState } from "@/pages/flipdesk/post-sale-state
 // runs out first. The cards below this one are still where the work gets done;
 // this is the answer to "what do I open".
 //
-// ── DEADLINE, THEN MONEY ────────────────────────────────────────────────────
+// US-3077 moved the merge into useNeedsYou() so the overview widget shows the
+// same list from the same code. What is left here is this card's markup, and
+// the relative anchors that only work on the page it renders on.
+//
+// ── DEADLINE, THEN MONEY ──────────────────────────────────────────────
 //
 // The ranking lives in a pure module with its own tests. The rule worth
 // repeating here is the one every "sort by value" version of this screen gets
@@ -55,96 +49,17 @@ function money(cents: number | null): string | null {
 }
 
 export function NeedsYouCard() {
-  const returns = useEbayReturns();
-  const cancellations = useEbayCancellations();
-  const inquiries = useEbayInquiries();
-  const cases = useEbayCases();
-  const disputes = useEbayPaymentDisputes();
-  const offers = useEbayBestOffers();
+  const { items, queues } = useNeedsYou();
 
+  // The five case queues only. Offers refresh on a 90s interval against eBay
+  // and can be slow; making the whole card wait on them would put a skeleton
+  // over five queues that are already answered.
   const loading =
-    returns.isLoading ||
-    cancellations.isLoading ||
-    inquiries.isLoading ||
-    cases.isLoading ||
-    disputes.isLoading;
-
-  const items = useMemo(() => {
-    const out: NeedsYouItem[] = [];
-    for (const r of splitByOpenState(returns.data ?? []).open) {
-      out.push({
-        kind: "return",
-        id: r.returnId,
-        subject: r.reason?.replace(/_/g, " ") ?? `Return ${r.returnId}`,
-        deadline: r.respondBy ?? null,
-        amountCents: null,
-        action: "Approve, decline or refund",
-      });
-    }
-    for (const ca of splitByOpenState(cancellations.data ?? []).open) {
-      out.push({
-        kind: "cancellation",
-        id: ca.cancelId,
-        subject: ca.reason?.replace(/_/g, " ") ?? `Order ${ca.orderId ?? ca.cancelId}`,
-        // eBay's cancellation summary carries no deadline. Null rather than an
-        // invented one — see the ranking module's undated-last rule.
-        deadline: null,
-        amountCents: null,
-        action: "Approve or reject",
-      });
-    }
-    for (const q of splitByOpenState(inquiries.data ?? []).open) {
-      out.push({
-        kind: "inquiry",
-        id: q.inquiryId,
-        subject: `Order ${q.orderId ?? q.inquiryId}`,
-        deadline: q.respondBy,
-        amountCents: null,
-        action: "Add tracking",
-      });
-    }
-    for (const k of splitByOpenState(cases.data ?? []).open) {
-      out.push({
-        kind: "case",
-        id: k.caseId,
-        subject: k.reason?.replace(/_/g, " ") ?? `Case ${k.caseId}`,
-        deadline: k.respondBy,
-        amountCents: k.amountCents,
-        action: "Respond before eBay decides",
-      });
-    }
-    for (const d of splitByOpenState(disputes.data ?? []).open) {
-      out.push({
-        kind: "dispute",
-        id: d.paymentDisputeId,
-        subject: d.reason?.replace(/_/g, " ") ?? `Order ${d.orderId ?? d.paymentDisputeId}`,
-        deadline: d.respondByDate ?? null,
-        amountCents: d.amount != null ? Math.round(d.amount * 100) : null,
-        action: "Accept or contest",
-      });
-    }
-    // Offers belong here for one reason: they expire, and an unanswered offer
-    // is not a deferred decision, it is a lost sale.
-    for (const o of offers.data ?? []) {
-      if (o.status && isClosedCase({ state: o.status })) continue;
-      out.push({
-        kind: "offer",
-        id: o.bestOfferId,
-        subject: o.itemTitle || o.itemId,
-        deadline: o.expiresAt ?? null,
-        amountCents: o.price != null ? Math.round(o.price * 100) : null,
-        action: "Accept, counter or decline",
-      });
-    }
-    return rankNeedsYou(out);
-  }, [
-    returns.data,
-    cancellations.data,
-    inquiries.data,
-    cases.data,
-    disputes.data,
-    offers.data,
-  ]);
+    queues.returns.isLoading ||
+    queues.cancellations.isLoading ||
+    queues.inquiries.isLoading ||
+    queues.cases.isLoading ||
+    queues.disputes.isLoading;
 
   return (
     <Card>

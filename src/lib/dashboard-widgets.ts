@@ -649,6 +649,177 @@ export const DASHBOARD_WIDGETS: readonly WidgetDef[] = [
         default: m.CommunityInsightsWidget as ComponentType<WidgetProps>,
       })),
   },
+
+  // ── The work with a clock on it (US-3077) ─────────────────────────────────
+  //
+  // Everything above reports; these eight say what to DO, which is why they are
+  // `category: "action"` and shelve together in the Add-widget catalog.
+  //
+  // Only the first ships on the default board. The other seven are real work
+  // for the sellers who have that work and dead frames for the sellers who do
+  // not: an account with no cross-listing extension, no Sheets sync and no
+  // automation rules would open the overview to five permanent zeroes, and a
+  // board that is mostly zeroes teaches the seller to stop reading it. The
+  // catalog is where they belong until the seller says otherwise.
+  //
+  // None follows the range picker. Every one of them is a live queue, so
+  // "in the last 30 days" over an open-offer count would be a plain lie; the
+  // two with a genuine fixed window name it themselves.
+  {
+    id: "flipdesk.needs-you",
+    surface: "flipdesk",
+    title: "Needs you",
+    blurb: "Everything eBay is waiting on, soonest deadline first.",
+    category: "action",
+    sizes: ["md", "lg"],
+    defaultSize: "lg",
+    rangeAware: false,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: [
+      "ebay_returns",
+      "ebay_cancellations",
+      "ebay_inquiries",
+      "ebay_cases",
+      "ebay_payment_disputes",
+      "ebay_best_offers",
+    ],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-needs-you").then((m) => ({
+        default: m.FlipdeskNeedsYouWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.offers",
+    surface: "flipdesk",
+    title: "Open offers",
+    blurb: "Best Offers waiting on your answer, and how long the soonest has.",
+    category: "action",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    rangeAware: false,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["ebay_best_offers"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-offers").then((m) => ({
+        default: m.FlipdeskOffersWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.extension-queue",
+    surface: "flipdesk",
+    title: "Extension queue",
+    blurb: "Listings, delists and edits waiting for your desktop browser to run them.",
+    category: "action",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    rangeAware: false,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: [
+      "extension_queue",
+      "pending_delists",
+      "pending_revises",
+      "extension_setup",
+    ],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-extension-queue").then(
+        (m) => ({
+          default: m.FlipdeskExtensionQueueWidget as ComponentType<WidgetProps>,
+        }),
+      ),
+  },
+  {
+    id: "flipdesk.sync-conflicts",
+    surface: "flipdesk",
+    title: "Sync conflicts",
+    blurb: "Where FlipDesk, eBay and your sheet disagree about the same listing.",
+    category: "action",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    rangeAware: false,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["sync_conflicts"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-sync-conflicts").then(
+        (m) => ({
+          default: m.FlipdeskSyncConflictsWidget as ComponentType<WidgetProps>,
+        }),
+      ),
+  },
+  {
+    id: "flipdesk.autolister-drafts",
+    surface: "flipdesk",
+    title: "Drafts to review",
+    blurb: "AutoLister drafts written and priced, waiting on your read-through.",
+    category: "action",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    rangeAware: false,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["autolister_drafts", "billing-summary"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-autolister-drafts").then(
+        (m) => ({
+          default:
+            m.FlipdeskAutolisterDraftsWidget as ComponentType<WidgetProps>,
+        }),
+      ),
+  },
+  {
+    id: "flipdesk.scheduled-drops",
+    surface: "flipdesk",
+    title: "Scheduled drops",
+    blurb: "Drafts queued to publish soon, and which one goes first.",
+    category: "action",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    // The only widget on this board that looks FORWARD. The picker's phrase
+    // would print "in the last 30 days" over a list of future publishes.
+    rangeAware: false,
+    windowPhrase: "in the next 7 days",
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["scheduled_drops"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-scheduled-drops").then(
+        (m) => ({
+          default: m.FlipdeskScheduledDropsWidget as ComponentType<WidgetProps>,
+        }),
+      ),
+  },
+  {
+    id: "flipdesk.automations",
+    surface: "flipdesk",
+    title: "Automations",
+    blurb: "Rules running on their own, and what they did this week.",
+    category: "action",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    // The rule count is live; the activity behind it is a fixed week, which is
+    // the window that answers "is this still working" whatever the picker says.
+    rangeAware: false,
+    windowPhrase: "in the last 7 days",
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["automation_rules", "automation_rule_actions"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-automations").then((m) => ({
+        default: m.FlipdeskAutomationsWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
+    id: "flipdesk.repricing",
+    surface: "flipdesk",
+    title: "Repricing nudges",
+    blurb: "Listings the comps say are mispriced, waiting on your call.",
+    category: "action",
+    sizes: ["sm", "md"],
+    defaultSize: "sm",
+    rangeAware: false,
+    personas: FLIPDESK_PERSONAS,
+    queryKeys: ["repricing_suggestions"],
+    load: () =>
+      import("@/components/dashboard/widgets/flipdesk-repricing").then((m) => ({
+        default: m.FlipdeskRepricingWidget as ComponentType<WidgetProps>,
+      })),
+  },
 ];
 
 /**
@@ -695,6 +866,15 @@ export function widgetById(
  * places for the next widget to be added to two of.
  */
 const FLIPDESK_DEFAULT_LAYOUT: readonly LayoutEntry[] = [
+  // US-3077: the ranked eBay queue opens the board, above the weekly goal.
+  //
+  // The story it belongs to is "I open the overview and know what to do first
+  // instead of touring six pages", and a widget the seller has to discover in
+  // the catalog cannot do that. It is also the only one of the eight action
+  // widgets that is never a dead frame: an account with nothing waiting reads
+  // "Nothing waiting on you", which is a real answer, where an extension-queue
+  // tile on an account with no extension is a permanent zero.
+  { id: "flipdesk.needs-you", size: "lg" },
   { id: "flipdesk.north-star", size: "sm" },
   { id: "flipdesk.stat-items", size: "sm" },
   { id: "flipdesk.stat-listed", size: "sm" },
