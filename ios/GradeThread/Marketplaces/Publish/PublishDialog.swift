@@ -816,6 +816,19 @@ private struct ComposerForm: View {
     @State private var templateShippingPolicyId: String?
     @State private var templatePaymentPolicyId: String?
 
+    // ── US-3102: per-listing business policies and quantity ─────────────────
+    //
+    // The three ids above already reach the draft (`ComposerEdits`) and publish
+    // has always honoured them — they were only ever SET by an applied
+    // template. So changing shipping for one heavy item meant leaving the phone.
+    /// Loaded policies, nil until the first read finishes.
+    @State private var policies: EbayPoliciesResponse?
+    @State private var policiesError: String?
+    @State private var isSyncingPolicies = false
+    /// US-3102: units to list. Fixed-price, single-SKU listings only — a
+    /// variation matrix carries a quantity per variant already.
+    @State private var quantity: Int
+
     /// US-969: keyboard Next/Return traversal across the editable text fields
     /// (the condition Picker and read-only price are skipped).
     @FocusState private var focusedField: Field?
@@ -908,6 +921,9 @@ private struct ComposerForm: View {
 
     // US-674: listing templates, selectable to pre-fill the draft.
     @State private var templateStore = TemplateStore()
+    /// US-3102: the policy list behind the three pickers. Shared, so opening the
+    /// composer twice in one session costs one load.
+    private let policiesService: EbayPoliciesProviding = EbayPoliciesService.shared
     /// US-972: a template the user picked that would overwrite existing content,
     /// pending confirmation before it's applied.
     @State private var pendingTemplate: ListingTemplate?
@@ -971,6 +987,10 @@ private struct ComposerForm: View {
         _formatChoice = State(
             initialValue: Self.seededFormatChoice(summary: summary, settings: draftSettings)
         )
+        // US-3102: the draft's own quantity when it has one, else one unit —
+        // which is what `listings.quantity` defaults to and what the great
+        // majority of second-hand listings are.
+        _quantity = State(initialValue: max(1, min(999, draftSettings.quantity ?? 1)))
     }
 
     /// US-1975: what the format editor starts from. The SELECTOR reads the
@@ -1120,7 +1140,8 @@ private struct ComposerForm: View {
                 : nil,
             bestOffer: effectiveBestOffer,
             schedule: schedule,
-            listingFormat: formatChoice
+            listingFormat: formatChoice,
+            quantity: showsQuantity ? quantity : nil
         )
     }
 
@@ -1266,9 +1287,11 @@ private struct ComposerForm: View {
                 }
 
                 priceSection
+                quantitySection
                 formatSection
                 bestOfferSection
                 scheduleSection
+                policiesSection
                 promoSection
                 profitEstimate
                 // US-1167: comp context (median + spread) from eBay so the seller
@@ -1323,6 +1346,9 @@ private struct ComposerForm: View {
         // are no comps yet to show / the price section's layout changes.
         .task { await loadComps() }
         .task { await loadPublishAccountNote() }
+        // US-3102: the policy list for the three pickers. Cached for fifteen
+        // minutes, so reopening the composer does not re-ask.
+        .task { await loadPolicies() }
         // US-972: applying a template overwrites the condition note (and adds
         // boilerplate to the description) — confirm before replacing the user's
         // existing content rather than silently clobbering it.
@@ -1622,6 +1648,163 @@ private struct ComposerForm: View {
     /// number shown is the server-RESOLVED publish price (US-1504 — a real
     /// item.target_price wins over an AutoLister AI estimate, so this is never the
     /// stale estimate once the seller set a target), and the item canvas / target
+    // ── US-3102: quantity ────────────────────────────────────────────────────
+
+    /// Whether a single quantity is a meaningful thing to ask for.
+    ///
+    /// Hidden on an auction (eBay auctions are one unit by definition) and on a
+    /// variation matrix (each variant already carries its own). Showing it in
+    /// either case would offer a control whose value the server discards, which
+    /// is worse than not offering it — the seller sets a number and nothing
+    /// happens.
+    private var showsQuantity: Bool {
+        !formatChoice.isAuction && formatChoice.variations == nil
+    }
+
+    @ViewBuilder
+    private var quantitySection: some View {
+        if showsQuantity {
+            VStack(alignment: .leading, spacing: 4) {
+                Stepper(value: $quantity, in: 1...999) {
+                    HStack {
+                        Text("Quantity")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(quantity)")
+                            .font(.subheadline.weight(.semibold))
+                            .monospacedDigit()
+                    }
+                }
+                .accessibilityLabel(Text("Quantity to list"))
+                .accessibilityValue(Text("\(quantity)"))
+                if quantity > 1 {
+                    // Said because the alternative is a seller listing five of
+                    // something they own one of, and finding out when it sells.
+                    Text("Listing \(quantity) units of this item.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    // ── US-3102: business policies ───────────────────────────────────────────
+
+    /// The three per-listing policy pickers.
+    ///
+    /// Nil means "use the account default", which is what publish already falls
+    /// back to — so the picker's first row is a real choice rather than an empty
+    /// state, and the great majority of listings never leave it.
+    @ViewBuilder
+    private var policiesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Shipping & returns")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    Task { await syncPolicies() }
+                } label: {
+                    if isSyncingPolicies {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Text("Sync policies").font(.caption)
+                    }
+                }
+                .disabled(isSyncingPolicies)
+            }
+
+            policyPicker(
+                title: String(localized: "Shipping"),
+                type: "fulfillment",
+                selection: $templateShippingPolicyId
+            )
+            policyPicker(
+                title: String(localized: "Payment"),
+                type: "payment",
+                selection: $templatePaymentPolicyId
+            )
+            policyPicker(
+                title: String(localized: "Returns"),
+                type: "return",
+                selection: $templateReturnPolicyId
+            )
+
+            if let policiesError {
+                // The same posture EbaySyncModal takes: name the reconnect,
+                // never a raw status code.
+                Label(policiesError, systemImage: "exclamationmark.triangle")
+                    .font(.caption2)
+                    .foregroundStyle(Color.brandAmber)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if policies?.policies.isEmpty == true {
+                Text("No business policies on this eBay account yet. Publish uses your account defaults.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func policyPicker(
+        title: String,
+        type: String,
+        selection: Binding<String?>
+    ) -> some View {
+        let options = policies?.options(ofType: type) ?? []
+        Picker(title, selection: selection) {
+            Text("Use account default").tag(String?.none)
+            ForEach(options) { policy in
+                Text(policy.policyName).tag(String?.some(policy.policyId))
+            }
+        }
+        .pickerStyle(.menu)
+        .disabled(options.isEmpty)
+    }
+
+    /// Load the policies for the pickers. Failures are shown, not thrown: a
+    /// composer that cannot reach the policy list must still publish, because
+    /// publish falls back to the account defaults on its own.
+    private func loadPolicies() async {
+        do {
+            policies = try await policiesService.policies(forceRefresh: false)
+            policiesError = nil
+        } catch {
+            policiesError = Self.policiesFailureCopy(error)
+        }
+    }
+
+    private func syncPolicies() async {
+        isSyncingPolicies = true
+        defer { isSyncingPolicies = false }
+        do {
+            policies = try await policiesService.sync()
+            policiesError = nil
+        } catch {
+            policiesError = Self.policiesFailureCopy(error)
+        }
+    }
+
+    /// What to say when the policy list will not load.
+    ///
+    /// A 401/403 here means the eBay connection is what needs fixing, and
+    /// saying "unauthorized" sends the seller looking for a GradeThread problem.
+    /// Pure and static so the mapping is testable.
+    static func policiesFailureCopy(_ error: Error) -> String {
+        if let apiError = error as? EdgeAPIError {
+            switch apiError {
+            case .unauthorized, .forbidden, .workspaceAccessRevoked:
+                return String(localized: "Reconnect eBay in Marketplaces to load your shipping and return policies.")
+            default:
+                break
+            }
+        }
+        return String(localized: "Couldn't load your eBay policies. Publish will use your account defaults.")
+    }
+
     /// price is where you change it.
     @ViewBuilder
     private var priceSection: some View {

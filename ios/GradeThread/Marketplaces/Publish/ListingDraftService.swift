@@ -35,6 +35,9 @@ struct ListingDraftSettings: Equatable {
     /// already normalized (an in-progress matrix with one in-stock row normalizes
     /// to null, and re-seeding from that would silently discard the seller's work).
     var variations: ListingVariationsPayload?
+    /// US-3102: units to list. `listings.quantity` is NOT NULL with a default of
+    /// 1, so nil here means "this item has no listing row yet", not "zero".
+    var quantity: Int?
 
     /// No listing row yet (a camera-created item that was never saved), or the
     /// read failed — the composer falls back to the summary's own defaults.
@@ -153,6 +156,7 @@ struct ListingDraftService {
         let auction_buy_it_now_price_cents: Int?
         let auction_duration: String?
         let variations: ListingVariationsPayload?
+        let quantity: Int?
     }
 
     /// Read the composer-relevant settings off the item's most-recent eBay
@@ -166,7 +170,7 @@ struct ListingDraftService {
                 "best_offer_enabled, best_offer_auto_accept_cents, "
                     + "best_offer_auto_decline_cents, scheduled_publish_at, "
                     + "auction_start_price_cents, auction_reserve_price_cents, "
-                    + "auction_buy_it_now_price_cents, auction_duration, variations"
+                    + "auction_buy_it_now_price_cents, auction_duration, variations, quantity"
             )
             .eq("inventory_item_id", value: inventoryItemId)
             .eq("platform", value: "ebay")
@@ -187,7 +191,8 @@ struct ListingDraftService {
             auctionReservePriceCents: row.auction_reserve_price_cents,
             auctionBuyItNowPriceCents: row.auction_buy_it_now_price_cents,
             auctionDuration: row.auction_duration,
-            variations: row.variations
+            variations: row.variations,
+            quantity: row.quantity
         )
     }
 
@@ -333,6 +338,10 @@ struct ListingDraftService {
                 let schedule: ComposerScheduleEdit
                 // US-1975: `known == false` leaves every format column alone.
                 let format: FormatColumns
+                /// US-3102: nil = the control was never shown (auction, or a
+                /// variation matrix that carries per-variant quantities), so the
+                /// column is omitted and whatever is there survives.
+                let quantity: Int?
 
                 enum CodingKeys: String, CodingKey {
                     case listing_price
@@ -351,6 +360,7 @@ struct ListingDraftService {
                     case auction_buy_it_now_price_cents
                     case auction_duration
                     case variations
+                    case quantity
                 }
                 // US-1501: `ebay_condition_description` is encoded EXPLICITLY (null
                 // when nil) so CLEARING the composer condition note actually clears
@@ -415,6 +425,12 @@ struct ListingDraftService {
                         try c.encode(format.duration, forKey: .auction_duration)
                         try c.encode(format.variations, forKey: .variations)
                     }
+                    // US-3102: nil-OMITTED, deliberately, unlike the format
+                    // columns above. A quantity the composer never showed (an
+                    // auction, a variation matrix) must leave the column alone;
+                    // writing 1 over a seller's real number is the exact damage
+                    // an explicit encode would do here.
+                    try c.encodeIfPresent(quantity, forKey: .quantity)
                 }
             }
             try await supabase
@@ -430,6 +446,7 @@ struct ListingDraftService {
                     return_policy_id: edits.returnPolicyId,
                     shipping_policy_id: edits.shippingPolicyId,
                     payment_policy_id: edits.paymentPolicyId,
+                    quantity: edits.quantity,
                     promo_opt_out: edits.promoteEnabled.map { !$0 },
                     promo_rate_pct: edits.promoteEnabled == true ? edits.promoRatePct : nil,
                     best_offer_enabled: bestOfferEnabled,
@@ -474,6 +491,8 @@ struct ListingDraftService {
                 let auction_start_price_cents: Int?
                 let auction_reserve_price_cents: Int?
                 let auction_buy_it_now_price_cents: Int?
+                /// US-3102: nil-omission again — the column defaults to 1.
+                let quantity: Int?
                 let auction_duration: String?
                 let variations: ListingVariationsPayload?
             }
@@ -504,7 +523,8 @@ struct ListingDraftService {
                     auction_reserve_price_cents: format.reserveCents,
                     auction_buy_it_now_price_cents: format.buyItNowCents,
                     auction_duration: format.duration,
-                    variations: format.variations
+                    variations: format.variations,
+                    quantity: edits.quantity
                 ))
                 .execute()
         }
@@ -585,6 +605,10 @@ struct ComposerEdits: Equatable {
     /// nil = the control was never shown, so `saveDraft` leaves `listing_format`,
     /// the `auction_*` columns, and `variations` untouched.
     var listingFormat: ComposerFormatChoice? = nil
+    /// US-3102: units to list. nil = the control was never shown (an auction or
+    /// a variation matrix, which carries a quantity per variant), so `saveDraft`
+    /// leaves the column alone rather than writing a 1 over a real number.
+    var quantity: Int? = nil
 }
 
 /// US-1972: what the composer currently holds, reported up to the parent on
