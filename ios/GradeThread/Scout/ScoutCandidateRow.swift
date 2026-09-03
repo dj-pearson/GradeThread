@@ -61,6 +61,16 @@ struct ScoutCandidateRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+
+                // US-3098: the ceiling, when the server could compute one.
+                // Shown only when it resolved — the reason it did not would be
+                // the same sentence six times down a list, which is noise.
+                if let max = candidate.ceiling?.maxPriceCents,
+                   let roi = candidate.ceiling?.targetRoi {
+                    Text("Pay at most \(Self.dollars(max)) for \(Int((roi * 100).rounded()))% ROI")
+                        .font(.caption2.weight(.medium))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilitySummary)
@@ -192,7 +202,17 @@ struct ScoutCandidateRow: View {
 
     private var metricsRow: some View {
         HStack(spacing: 0) {
-            metric("Asking", Self.dollars(candidate.askingCents), tint: .primary)
+            // US-3098: the asking price is what eBay prints; the total is what
+            // the seller pays. Labelled "Total" only when shipping is actually
+            // in it, so a free-shipping listing does not claim a fact eBay
+            // never stated.
+            metric(
+                candidate.totalIncludesShipping == true
+                    ? String(localized: "Total")
+                    : String(localized: "Asking"),
+                Self.dollars(candidate.totalCents ?? candidate.askingCents),
+                tint: .primary
+            )
             Divider().frame(height: 28)
             metric("Est. value", valueText, tint: .primary)
             Divider().frame(height: 28)

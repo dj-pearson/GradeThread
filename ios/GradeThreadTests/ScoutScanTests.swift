@@ -96,7 +96,8 @@ final class ScoutScanTests: XCTestCase {
         )
         let fake = FakeScoutService(
             suggestion: suggestion,
-            result: .success(ScoutScanResponse(scanned: 1, candidates: [makeCandidate(id: "x", margin: 100)], disclaimer: "d", note: nil))
+            result: .success(ScoutScanResponse(scanned: 1, candidates: [makeCandidate(id: "x", margin: 100)], disclaimer: "d",
+                              note: nil, considered: 1, graded: 1))
         )
         let store = ScoutStore(service: fake)
         store.keyword = "wool blazer"
@@ -113,7 +114,8 @@ final class ScoutScanTests: XCTestCase {
     func test_scan_fallsBackToApparelRoot_whenNoSuggestion() async {
         let fake = FakeScoutService(
             suggestion: nil,
-            result: .success(ScoutScanResponse(scanned: 0, candidates: [], disclaimer: nil, note: "none"))
+            result: .success(ScoutScanResponse(scanned: 0, candidates: [], disclaimer: nil, note: "none",
+                              considered: 0, graded: 0))
         )
         let store = ScoutStore(service: fake)
         store.brand = "Nike"
@@ -180,7 +182,8 @@ final class ScoutScanTests: XCTestCase {
         let candidate = makeCandidate(id: "v1", margin: 6000)
         let service = FakeScoutService(
             suggestion: nil,
-            result: .success(ScoutScanResponse(scanned: 1, candidates: [candidate], disclaimer: nil, note: nil))
+            result: .success(ScoutScanResponse(scanned: 1, candidates: [candidate], disclaimer: nil, note: nil,
+                              considered: 1, graded: 1))
         )
         let store = ScoutStore(service: service)
 
@@ -209,7 +212,8 @@ final class ScoutScanTests: XCTestCase {
         let candidate = makeCandidate(id: "v1")
         let service = FakeScoutService(
             suggestion: nil,
-            result: .success(ScoutScanResponse(scanned: 1, candidates: [candidate], disclaimer: nil, note: nil))
+            result: .success(ScoutScanResponse(scanned: 1, candidates: [candidate], disclaimer: nil, note: nil,
+                              considered: 1, graded: 1))
         )
         let store = ScoutStore(service: service)
 
@@ -223,7 +227,8 @@ final class ScoutScanTests: XCTestCase {
         let candidate = makeCandidate(id: "v1")
         let service = FakeScoutService(
             suggestion: nil,
-            result: .success(ScoutScanResponse(scanned: 1, candidates: [candidate], disclaimer: nil, note: nil))
+            result: .success(ScoutScanResponse(scanned: 1, candidates: [candidate], disclaimer: nil, note: nil,
+                              considered: 1, graded: 1))
         )
         service.buyResult = .failure(EdgeAPIError.network("offline"))
         let store = ScoutStore(service: service)
@@ -235,6 +240,155 @@ final class ScoutScanTests: XCTestCase {
             store.boughtItemIds["v1"],
             "a failed buy must not mark the row added — the seller would think it was recorded"
         )
+    }
+
+    // MARK: - US-3098: the deal filter
+
+    func test_blankFiltersSendNothingAtAll() async {
+        // A scan with no filter set must send exactly the body it always did,
+        // or every request is a new one to the server and to any cache.
+        let service = FakeScoutService(
+            suggestion: nil,
+            result: .success(ScoutScanResponse(scanned: 0, candidates: [], disclaimer: nil,
+                                               note: nil, considered: 0, graded: 0))
+        )
+        let store = ScoutStore(service: service)
+        store.clearFilters()
+        store.keyword = "patagonia"
+
+        await store.scan()
+
+        let request = service.lastRequest
+        XCTAssertNil(request?.maxTotalCents)
+        XCTAssertNil(request?.minMarginCents)
+        XCTAssertNil(request?.minMarginPct)
+        XCTAssertNil(request?.buyingOptions)
+        XCTAssertNil(request?.freeShippingOnly)
+        XCTAssertNil(request?.sort, "bestMatch is the ABSENCE of a sort, not a value")
+    }
+
+    func test_filtersAreConvertedToTheUnitsTheRouteWants() async {
+        let service = FakeScoutService(
+            suggestion: nil,
+            result: .success(ScoutScanResponse(scanned: 0, candidates: [], disclaimer: nil,
+                                               note: nil, considered: 0, graded: 0))
+        )
+        let store = ScoutStore(service: service)
+        store.keyword = "patagonia"
+        store.maxTotalText = "40"
+        store.minMarginDollarsText = "20"
+        store.minMarginPctText = "40"
+        store.buyItNowOnly = true
+        store.freeShippingOnly = true
+        store.browseSort = .newlyListed
+
+        await store.scan()
+
+        let request = service.lastRequest
+        XCTAssertEqual(request?.maxTotalCents, 4000, "dollars typed become cents")
+        XCTAssertEqual(request?.minMarginCents, 2000)
+        XCTAssertEqual(
+            request?.minMarginPct, 0.4,
+            "the field is whole percent; the wire is a fraction, and the route refuses 30"
+        )
+        XCTAssertEqual(
+            request?.buyingOptions, ["FIXED_PRICE", "BEST_OFFER"],
+            "Buy It Now means no auctions — a best-offer listing is still fixed price, and the better find"
+        )
+        XCTAssertEqual(request?.freeShippingOnly, true)
+        XCTAssertEqual(request?.sort, "newlyListed")
+    }
+
+    func test_halfTypedAndNonsenseValuesAreNotFilters() {
+        // A "4" on the way to "40" must not become a live $4 cap, and a filter
+        // nobody set must never become a filter of zero.
+        XCTAssertNil(ScoutStore.cents(from: ""))
+        XCTAssertNil(ScoutStore.cents(from: "   "))
+        XCTAssertNil(ScoutStore.cents(from: "abc"))
+        XCTAssertNil(ScoutStore.cents(from: "0"))
+        XCTAssertNil(ScoutStore.cents(from: "-5"))
+        XCTAssertEqual(ScoutStore.cents(from: "4"), 400)
+        XCTAssertEqual(ScoutStore.cents(from: "12.50"), 1250)
+    }
+
+    func test_anAbsurdPercentIsClampedRatherThanRefusedByTheServer() {
+        // A seller typing 400 into "min return" means "only the real steals".
+        // Sending 4.0 gets a 400 naming a field they are looking straight at.
+        XCTAssertEqual(ScoutStore.fraction(fromPercent: "40"), 0.4)
+        XCTAssertEqual(ScoutStore.fraction(fromPercent: "100"), 1)
+        XCTAssertEqual(ScoutStore.fraction(fromPercent: "400"), 1)
+        XCTAssertNil(ScoutStore.fraction(fromPercent: ""))
+        XCTAssertNil(ScoutStore.fraction(fromPercent: "0"))
+    }
+
+    func test_scanSummaryNamesTheDenominator() async {
+        let service = FakeScoutService(
+            suggestion: nil,
+            result: .success(ScoutScanResponse(scanned: 8, candidates: [], disclaimer: nil,
+                                               note: nil, considered: 42, graded: 8))
+        )
+        let store = ScoutStore(service: service)
+        store.keyword = "patagonia"
+        await store.scan()
+
+        let summary = store.scanSummary
+        XCTAssertNotNil(summary)
+        XCTAssertTrue(summary?.contains("42") == true, "the denominator has to be in it")
+        XCTAssertTrue(summary?.contains("8") == true)
+    }
+
+    func test_anOlderEdgeWithNoCountsStillReadsSensibly() async {
+        // `considered` is optional on the wire; a response from before US-3098
+        // must not produce "looked at 0".
+        let service = FakeScoutService(
+            suggestion: nil,
+            result: .success(ScoutScanResponse(scanned: 8, candidates: [], disclaimer: nil,
+                                               note: nil, considered: nil, graded: nil))
+        )
+        let store = ScoutStore(service: service)
+        store.keyword = "patagonia"
+        await store.scan()
+
+        XCTAssertEqual(store.scanSummary?.contains("Looked at"), false)
+        XCTAssertTrue(store.scanSummary?.contains("8") == true)
+    }
+
+    func test_hasFiltersAndClearAreConsistent() {
+        let store = ScoutStore(service: FakeScoutService(
+            suggestion: nil,
+            result: .success(ScoutScanResponse(scanned: 0, candidates: [], disclaimer: nil,
+                                               note: nil, considered: 0, graded: 0))
+        ))
+        store.clearFilters()
+        XCTAssertFalse(store.hasFilters, "a cleared store offers nothing to clear")
+        store.maxTotalText = "40"
+        XCTAssertTrue(store.hasFilters)
+        store.clearFilters()
+        XCTAssertFalse(store.hasFilters)
+        XCTAssertEqual(store.maxTotalText, "")
+        XCTAssertEqual(store.browseSort, .bestMatch)
+    }
+
+    func test_decodesTotalAndCeilingOnACandidate() throws {
+        let json = #"""
+        {"scanned":1,"considered":42,"graded":1,"candidates":[
+          {"itemId":"v1","title":"Arc'teryx Beta AR","imageUrl":null,
+           "itemWebUrl":"https://www.ebay.com/itm/1","askingCents":6200,
+           "shadowGrade":8.0,"gradeConfidence":0.8,"valueLowCents":12000,
+           "valueMedianCents":15000,"valueHighCents":18000,"estMarginCents":6000,
+           "estMarginPct":0.97,"underpriced":true,"actionable":true,"reason":"x",
+           "totalCents":7100,"totalIncludesShipping":true,
+           "ceiling":{"maxPriceCents":9800,"targetRoi":0.3,"netResaleCents":12740,
+                      "absentReason":null}}
+        ]}
+        """#
+        let r = try JSONDecoder().decode(ScoutScanResponse.self, from: Data(json.utf8))
+        XCTAssertEqual(r.considered, 42)
+        XCTAssertEqual(r.graded, 1)
+        let c = try XCTUnwrap(r.candidates.first)
+        XCTAssertEqual(c.totalCents, 7100, "asking 62 plus 9 shipping")
+        XCTAssertEqual(c.totalIncludesShipping, true)
+        XCTAssertEqual(c.ceiling?.maxPriceCents, 9800)
     }
 
     // MARK: - Helpers
@@ -252,7 +406,8 @@ final class ScoutScanTests: XCTestCase {
             valueLowCents: 1500, valueMedianCents: 2000, valueHighCents: 2500,
             estMarginCents: margin, estMarginPct: margin.map { Double($0) / 1000 },
             underpriced: false, actionable: actionable, reason: "",
-            valueBasis: nil, url: nil
+            valueBasis: nil, totalCents: 1000, totalIncludesShipping: true,
+            ceiling: nil, url: nil
         )
     }
 }
@@ -278,8 +433,11 @@ private final class FakeScoutService: ScoutScanning {
         suggestion
     }
 
-    func scan(categoryId: String, q: String?, brand: String?, limit: Int) async throws -> ScoutScanResponse {
-        lastCategoryId = categoryId
+    private(set) var lastRequest: ScoutScanRequest?
+
+    func scan(_ request: ScoutScanRequest) async throws -> ScoutScanResponse {
+        lastCategoryId = request.categoryId
+        lastRequest = request
         switch result {
         case .success(let response): return response
         case .failure(let error): throw error

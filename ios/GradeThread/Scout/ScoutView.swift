@@ -24,6 +24,8 @@ struct ScoutView: View {
     /// "See plans" can re-present, rather than reverting to a dead-end "Try
     /// again". Reset at the start of each scan.
     @State private var lockedGate: PlanGateError?
+    /// US-3098: the deal-filter sheet.
+    @State private var showFilters = false
 
     var body: some View {
         NavigationStack {
@@ -53,6 +55,9 @@ struct ScoutView: View {
                     lockedGate = gate
                 }
             }
+            .sheet(isPresented: $showFilters) {
+                ScoutFilterSheet(store: store, onApply: runScan)
+            }
         }
     }
 
@@ -77,6 +82,28 @@ struct ScoutView: View {
                 .autocorrectionDisabled()
                 .submitLabel(.search)
                 .onSubmit(runScan)
+
+            // US-3098: the deal filter, behind one row rather than six fields.
+            // A seller who just wants to look does not need them between
+            // themselves and the button; one who is hunting a margin sets them
+            // once and they persist across launches.
+            Button {
+                showFilters = true
+            } label: {
+                HStack {
+                    Label(String(localized: "Deal filter"), systemImage: "line.3.horizontal.decrease.circle")
+                    Spacer()
+                    if let summary = filterSummary {
+                        Text(summary)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                }
+                .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Button(action: runScan) {
                 if store.isLoading {
@@ -110,6 +137,25 @@ struct ScoutView: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.brandAmber.opacity(0.10), in: RoundedRectangle(cornerRadius: CornerRadius.control))
+    }
+
+    /// A one-line read of what is set, for the collapsed row. Nil when nothing
+    /// is, so the row does not carry an empty trailing space.
+    private var filterSummary: String? {
+        var parts: [String] = []
+        if let cap = ScoutStore.cents(from: store.maxTotalText) {
+            parts.append(String(localized: "under \(CurrencyFormatter.shared.formatDisplay(Double(cap) / 100))"))
+        }
+        if let pct = ScoutStore.fraction(fromPercent: store.minMarginPctText) {
+            parts.append(String(localized: "\(Int((pct * 100).rounded()))%+"))
+        }
+        if let margin = ScoutStore.cents(from: store.minMarginDollarsText) {
+            parts.append(CurrencyFormatter.shared.formatDisplay(Double(margin) / 100) + "+")
+        }
+        if store.buyItNowOnly { parts.append(String(localized: "BIN")) }
+        if store.freeShippingOnly { parts.append(String(localized: "free ship")) }
+        if store.browseSort != .bestMatch { parts.append(store.browseSort.label.lowercased()) }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     // MARK: - Results
@@ -153,7 +199,10 @@ struct ScoutView: View {
     private func resultsHeader(scanned: Int) -> some View {
         VStack(spacing: 8) {
             HStack {
-                Text("Scanned \(scanned) · \(store.displayedCandidates.count) shown")
+                // US-3098: the denominator. "Graded 8" alone is a number a
+                // seller cannot judge; "looked at 42, graded 8" says the scan
+                // searched wider than the eight rows in front of them.
+                Text("\(store.scanSummary ?? String(localized: "Scanned \(scanned) listings")) · \(store.displayedCandidates.count) shown")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()

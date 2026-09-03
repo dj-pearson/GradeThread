@@ -19,6 +19,7 @@ import { checkQuota } from "./flipdesk-ai.ts";
 import { refundAiAction, reserveAiActionSafe } from "../lib/ai-metering.ts";
 import {
   type BrowseCompsResult,
+  type BrowseSort,
   searchBrowseComps,
 } from "../lib/ebay-client.ts";
 import { type VisionImage } from "../lib/ai-reconcile.ts";
@@ -76,6 +77,7 @@ import {
   scoreCandidate,
   type ScoutCandidate,
   type ScoutScored,
+  totalPriceCents,
 } from "../lib/scout-scoring.ts";
 import {
   EXTENSION_MAX_IMAGES_ANON,
@@ -106,6 +108,158 @@ const MAX_CANDIDATES = 8;
 // able to hold eight model slots on a replica that is also grading submissions.
 const SCAN_CONCURRENCY = 4;
 
+// ── US-3098: the sourcing filters, parsed once ──────────────────────────────
+//
+// PURE and exported so every validation branch has a test that does not need a
+// request. The scan route is the one endpoint a seller drives from a phone
+// while standing in a shop, so each refusal names its own field: "Invalid
+// request" there costs them the aisle.
+
+/** Phase one looks at this many summaries before any AI is spent. */
+export const SCAN_CONSIDER_LIMIT = 50;
+
+/**
+ * The grade phase one prices at, before anything has been graded.
+ *
+ * 7.0 is the middle of the used band — good, worn, not beat up — which is what
+ * the great majority of a sourcing search actually is. It is a RANKING input,
+ * not a claim: no number derived from it reaches the seller, and phase two
+ * replaces it with a real shadow grade for every row that survives.
+ */
+export const PHASE_ONE_NOMINAL_GRADE = 7.0;
+
+const BUYING_OPTIONS = ["FIXED_PRICE", "AUCTION", "BEST_OFFER"] as const;
+const SORTS: readonly BrowseSort[] = ["bestMatch", "newlyListed", "endingSoonest", "priceAsc"];
+
+export interface ScanFilters {
+  minMarginCents: number | null;
+  minMarginPct: number | null;
+  maxTotalCents: number | null;
+  buyingOptions: string[] | null;
+  conditionIds: string[] | null;
+  freeShippingOnly: boolean;
+  sort: BrowseSort;
+}
+
+export function parseScanFilters(body: Record<string, unknown>): ScanFilters | { error: string } {
+  const num = (key: string): number | null | { error: string } => {
+    const raw = body[key];
+    if (raw == null) return null;
+    if (typeof raw !== "number" || !Number.isFinite(raw)) {
+      return { error: `${key} must be a number` };
+    }
+    if (raw < 0) return { error: `${key} cannot be negative` };
+    return raw;
+  };
+
+  const minMarginCents = num("minMarginCents");
+  if (minMarginCents !== null && typeof minMarginCents === "object") return minMarginCents;
+  const maxTotalCents = num("maxTotalCents");
+  if (maxTotalCents !== null && typeof maxTotalCents === "object") return maxTotalCents;
+
+  const rawPct = body.minMarginPct;
+  let minMarginPct: number | null = null;
+  if (rawPct != null) {
+    if (typeof rawPct !== "number" || !Number.isFinite(rawPct)) {
+      return { error: "minMarginPct must be a number" };
+    }
+    if (rawPct < 0) return { error: "minMarginPct cannot be negative" };
+    // A FRACTION, not a percentage: 0.3 is thirty percent, matching
+    // targetRoi everywhere else in this module. A caller sending 30 means
+    // 3000% and would get an empty scan with no way to see why, so it is
+    // refused rather than guessed at.
+    if (rawPct > 1) {
+      return { error: "minMarginPct is a fraction (0.3 = 30%), not a percentage" };
+    }
+    minMarginPct = rawPct;
+  }
+
+  let buyingOptions: string[] | null = null;
+  if (body.buyingOptions != null) {
+    if (!Array.isArray(body.buyingOptions) || body.buyingOptions.length === 0) {
+      return { error: "buyingOptions must be a non-empty array" };
+    }
+    const picked: string[] = [];
+    for (const option of body.buyingOptions) {
+      if (typeof option !== "string" || !(BUYING_OPTIONS as readonly string[]).includes(option)) {
+        return { error: `buyingOptions must each be one of ${BUYING_OPTIONS.join(", ")}` };
+      }
+      if (!picked.includes(option)) picked.push(option);
+    }
+    buyingOptions = picked;
+  }
+
+  let conditionIds: string[] | null = null;
+  if (body.conditionIds != null) {
+    if (!Array.isArray(body.conditionIds) || body.conditionIds.length === 0) {
+      return { error: "conditionIds must be a non-empty array" };
+    }
+    const picked: string[] = [];
+    for (const id of body.conditionIds) {
+      // eBay condition ids are numeric strings (1000 New … 7000 For parts).
+      // A number is accepted and normalized rather than refused, because a
+      // JSON body written by hand will carry one about half the time.
+      const asString = typeof id === "number" ? String(id) : id;
+      if (typeof asString !== "string" || !/^[0-9]{4}$/.test(asString)) {
+        return { error: "conditionIds must each be a four-digit eBay condition id" };
+      }
+      if (!picked.includes(asString)) picked.push(asString);
+    }
+    conditionIds = picked;
+  }
+
+  if (body.freeShippingOnly != null && typeof body.freeShippingOnly !== "boolean") {
+    return { error: "freeShippingOnly must be true or false" };
+  }
+
+  let sort: BrowseSort = "bestMatch";
+  if (body.sort != null) {
+    if (typeof body.sort !== "string" || !SORTS.includes(body.sort as BrowseSort)) {
+      return { error: `sort must be one of ${SORTS.join(", ")}` };
+    }
+    sort = body.sort as BrowseSort;
+  }
+
+  return {
+    minMarginCents: minMarginCents as number | null,
+    minMarginPct,
+    maxTotalCents: maxTotalCents as number | null,
+    buyingOptions,
+    conditionIds,
+    freeShippingOnly: body.freeShippingOnly === true,
+    sort,
+  };
+}
+
+/**
+ * Phase one: rank by how far the asking price sits under a rough value, with
+ * NO AI spent.
+ *
+ * The rough value is one `cachedValueAtGrade` read at a nominal grade for the
+ * whole search — one question to eBay for the entire phase, not one per
+ * listing. It is deliberately crude: its only job is to decide WHICH eight of
+ * fifty listings are worth a real shadow grade, and being approximately right
+ * about the ordering costs nothing, while grading all fifty would cost the
+ * seller fifty AI actions to answer a question about eight.
+ *
+ * Cheapest-relative-to-value first. A listing with no asking price sorts last:
+ * it cannot be compared, and it cannot be bought on a number either.
+ */
+export function rankByRoughValue(
+  candidates: ScoutCandidate[],
+  roughMedianCents: number | null,
+): ScoutCandidate[] {
+  return [...candidates].sort((a, b) => {
+    const ratio = (cand: ScoutCandidate): number => {
+      const total = totalPriceCents(cand.askingCents, cand.shippingCents).cents;
+      if (total == null || total <= 0) return Number.POSITIVE_INFINITY;
+      if (roughMedianCents == null || roughMedianCents <= 0) return total;
+      return total / roughMedianCents;
+    };
+    return ratio(a) - ratio(b);
+  });
+}
+
 flipdeskScoutRoutes.post("/", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
@@ -114,7 +268,19 @@ flipdeskScoutRoutes.post("/", async (c) => {
   const gate = await requireFlipdesk(c, { feature: "compPulls", userId });
   if (gate) return gate;
 
-  let body: { categoryId?: unknown; q?: unknown; brand?: unknown; limit?: unknown };
+  let body: {
+    categoryId?: unknown;
+    q?: unknown;
+    brand?: unknown;
+    limit?: unknown;
+    minMarginCents?: unknown;
+    minMarginPct?: unknown;
+    maxTotalCents?: unknown;
+    buyingOptions?: unknown;
+    conditionIds?: unknown;
+    freeShippingOnly?: unknown;
+    sort?: unknown;
+  };
   try {
     body = await c.req.json();
   } catch {
@@ -132,17 +298,49 @@ flipdeskScoutRoutes.post("/", async (c) => {
     return jsonError(c, 400, "Provide a keyword (q) and/or brand to search");
   }
 
+  // US-3098: the sourcing filters.
+  //
+  // Each is validated on its own and the 400 NAMES the field. A scan is run
+  // from a phone in a thrift store; "Invalid request" there costs the seller
+  // the aisle they are standing in, and they have no console to inspect.
+  const filters = parseScanFilters(body);
+  if ("error" in filters) return jsonError(c, 400, filters.error);
+
   // US-619: AI gate — enabled + within the monthly cap (whose plan = the owner's).
   const quota = await checkQuota(userId);
   if (!quota.ok) {
     return c.json(quota.body, quota.status);
   }
 
-  // US-615: ingest candidate listings via the public Browse search.
-  let candidates: ScoutCandidate[];
+  // US-3098: the seller's target return, for the ceiling on each row. One read,
+  // reused for every candidate.
+  const targetRoi = await sourcingTargetRoi(userId);
+
+  // ── PHASE ONE: look wide, spend nothing ──────────────────────────────────
+  //
+  // US-615 fetched exactly MAX_CANDIDATES listings and graded every one, so a
+  // scan considered eight listings and the seller's filters could only ever
+  // narrow those eight — a "$40 maximum" on a search whose first eight results
+  // were all $60 returned nothing at all, while the ninth was a $32 jacket.
+  //
+  // Phase one now pulls up to fifty summaries, drops what fails the price
+  // filters, and ranks the rest against ONE rough value read. No AI is spent
+  // here at all, which is the point: the expensive step gets the best eight
+  // rather than the first eight.
+  let considered: ScoutCandidate[];
   try {
-    const search = await searchBrowseComps({ categoryId, q, brand, limit });
-    candidates = search.items
+    const search = await searchBrowseComps({
+      categoryId,
+      q,
+      brand,
+      limit: SCAN_CONSIDER_LIMIT,
+      maxPriceCents: filters.maxTotalCents ?? undefined,
+      buyingOptions: filters.buyingOptions ?? undefined,
+      conditionIds: filters.conditionIds ?? undefined,
+      freeShippingOnly: filters.freeShippingOnly,
+      sort: filters.sort,
+    });
+    considered = search.items
       .filter((i) => i.itemId)
       .map((i) => ({
         itemId: i.itemId,
@@ -150,20 +348,57 @@ flipdeskScoutRoutes.post("/", async (c) => {
         imageUrl: i.imageUrl,
         itemWebUrl: i.itemWebUrl,
         askingCents: i.price != null && i.price > 0 ? Math.round(i.price * 100) : null,
+        shippingCents: i.shippingCents,
       }));
   } catch (err) {
     return failSafe(c, 502, "Couldn't reach eBay to search candidates. Try again shortly.", err, "scout.search");
   }
 
-  if (candidates.length === 0) {
-    return c.json({ candidates: [], scanned: 0, note: "No candidate listings matched that search." });
+  const consideredCount = considered.length;
+
+  // eBay's own price filter bounds the ASKING price; the seller's cap is on
+  // what they PAY. So the total-price rule is applied again here, where
+  // shipping is known — which is the whole reason a $12 tee with $9 shipping
+  // stops passing a $15 cap.
+  if (filters.maxTotalCents != null) {
+    const cap = filters.maxTotalCents;
+    considered = considered.filter((cand) => {
+      const total = totalPriceCents(cand.askingCents, cand.shippingCents).cents;
+      // A listing with no asking price cannot clear a cap it cannot be
+      // compared against, so it is dropped rather than passed through.
+      return total != null && total <= cap;
+    });
+  }
+
+  if (considered.length === 0) {
+    return c.json({
+      candidates: [],
+      scanned: 0,
+      considered: consideredCount,
+      graded: 0,
+      note: consideredCount === 0
+        ? "No candidate listings matched that search."
+        : `Looked at ${consideredCount} listings; none of them cleared your filters.`,
+    });
+  }
+
+  // The rough value: ONE question to eBay for the whole phase, at a nominal
+  // grade. Crude on purpose — see rankByRoughValue. A failure here is not fatal;
+  // the phase falls back to cheapest-first, which is still a better eight than
+  // whichever eight eBay listed first.
+  let roughMedianCents: number | null = null;
+  try {
+    const rough = await cachedValueAtGrade({ categoryId, q, brand }, PHASE_ONE_NOMINAL_GRADE);
+    roughMedianCents = rough.sufficient ? rough.medianCents : null;
+  } catch (err) {
+    captureException(err, { level: "warn", route: "scout.rough-value" });
   }
 
   // A candidate with no photo cannot be shadow-graded, so it never enters the
   // queue rather than being skipped inside it.
-  const queue = candidates.filter(
-    (cand): cand is ScoutCandidate & { imageUrl: string } => Boolean(cand.imageUrl),
-  );
+  const queue = rankByRoughValue(considered, roughMedianCents)
+    .filter((cand): cand is ScoutCandidate & { imageUrl: string } => Boolean(cand.imageUrl))
+    .slice(0, limit);
 
   const scored: ScoutScored[] = [];
   let graded = 0;
@@ -200,7 +435,9 @@ flipdeskScoutRoutes.post("/", async (c) => {
           // rather than one per candidate.
           const value = await cachedValueAtGrade({ categoryId, q, brand }, grade.overallScore);
           // US-617: score by condition-adjusted margin.
-          scored.push(scoreCandidate(cand, grade.overallScore, grade.confidence, value));
+          scored.push(
+            scoreCandidate(cand, grade.overallScore, grade.confidence, value, { targetRoi }),
+          );
           graded += 1;
         } catch (err) {
           // Refund the reserved action on failure so a transient error isn't billed.
@@ -211,14 +448,42 @@ flipdeskScoutRoutes.post("/", async (c) => {
     }),
   );
 
-  recordMetric("scout.scan", graded, { actionable: String(scored.filter((s) => s.actionable).length) });
+  // US-3098: the margin bar, applied AFTER scoring because the margin is only
+  // known once the shadow grade and the condition-adjusted value are.
+  //
+  // Filtering here rather than in phase one is deliberate: a listing's margin
+  // cannot be estimated without grading it, so a margin filter can only ever
+  // narrow what was graded. It is still worth having — a seller who needs $20 a
+  // flip should not have to read past the six rows that make $4.
+  const cleared = scored.filter((row) => {
+    if (filters.minMarginCents != null) {
+      if (row.estMarginCents == null || row.estMarginCents < filters.minMarginCents) return false;
+    }
+    if (filters.minMarginPct != null) {
+      if (row.estMarginPct == null || row.estMarginPct < filters.minMarginPct) return false;
+    }
+    return true;
+  });
+
+  recordMetric("scout.scan", graded, { actionable: String(cleared.filter((s) => s.actionable).length) });
 
   return c.json({
+    // `scanned` is what phase two actually graded, unchanged from before so no
+    // client breaks. `considered` and `graded` are the new pair, which is what
+    // lets a surface say "looked at 42, graded 8" — the sentence that makes a
+    // scan legible instead of eight results with no denominator.
     scanned: graded,
-    candidates: rankCandidates(scored),
+    considered: consideredCount,
+    graded,
+    candidates: rankCandidates(cleared),
     // US-620: be explicit about what this is.
     disclaimer:
       "Shadow grades are private estimates from the listing's photos — not a GradeThread certificate, and not visible to the seller. Verify condition before buying.",
+    ...(cleared.length === 0 && scored.length > 0
+      ? {
+        note: `Graded ${graded} of ${consideredCount} listings; none of them cleared your margin filter.`,
+      }
+      : {}),
   });
 });
 

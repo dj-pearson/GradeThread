@@ -1300,6 +1300,32 @@ export function getCategoryTreeId(): string {
 }
 
 /**
+ * The currency of the configured marketplace (US-3098).
+ *
+ * eBay's Browse `price` filter is rejected with a 400 unless `priceCurrency`
+ * rides alongside it, and the error names neither field — so a max-price filter
+ * without this looks like a broken search rather than a missing parameter.
+ *
+ * A small map rather than a lookup: these are the marketplaces the product
+ * supports, and an unknown one falls back to USD, which is what every other
+ * currency default in this file does.
+ */
+export function getMarketplaceCurrency(): string {
+  const byMarketplace: Record<string, string> = {
+    EBAY_US: "USD",
+    EBAY_CA: "CAD",
+    EBAY_GB: "GBP",
+    EBAY_AU: "AUD",
+    EBAY_DE: "EUR",
+    EBAY_FR: "EUR",
+    EBAY_IT: "EUR",
+    EBAY_ES: "EUR",
+    EBAY_IE: "EUR",
+  };
+  return byMarketplace[getMarketplaceId()] ?? "USD";
+}
+
+/**
  * US-2325 AC4: check the CONFIGURED category tree id against eBay's own answer.
  *
  * `getCategoryTreeId()` reads an env var and falls back to "0". Nothing ever
@@ -4341,6 +4367,14 @@ export interface BrowseComp {
   title: string;
   price: number | null;
   currency: string;
+  /**
+   * Cheapest advertised shipping, in cents. 0 for free shipping.
+   *
+   * NULL means eBay's summary carried no shipping at all, which is a different
+   * fact from free and is treated as one: US-3098 compares such a listing on
+   * its asking price rather than inventing a zero.
+   */
+  shippingCents: number | null;
   imageUrl: string | null;
   itemWebUrl: string | null;
   condition: string | null;
@@ -4402,7 +4436,46 @@ export interface BrowseCompsArgs {
   // Maps to eBay conditionId. Defaults to "3000" (Used) for pre-owned resale.
   conditionId?: string;
   limit?: number;
+
+  // ── US-3098: the sourcing filters ────────────────────────────────────────
+  //
+  // Every one of these is OPTIONAL and, when absent, emits nothing. That is not
+  // tidiness: `cachedSearchBrowseComps` keys its shared cache on the request,
+  // and the comp-pricing callers on the seller's Add flow must keep producing a
+  // byte-identical URL or every cached comp read in the system misses at once.
+  // `browse-comps-url_test.ts` holds that line.
+
+  /** Upper bound on the ASKING price, in cents. Maps to `filter=price:[..x]`. */
+  maxPriceCents?: number;
+  /** Subset of FIXED_PRICE, AUCTION, BEST_OFFER. Absent = all three. */
+  buyingOptions?: readonly string[];
+  /**
+   * Several condition ids at once, for a sourcing scan that will take anything
+   * from "Used" to "For parts". Wins over `conditionId` when both are given.
+   */
+  conditionIds?: readonly string[];
+  /** `filter=maxDeliveryCost:0` — free shipping only. */
+  freeShippingOnly?: boolean;
+  /** eBay Browse sort. Omitted = Best Match, which is relevance. */
+  sort?: BrowseSort;
 }
+
+/**
+ * The sorts a sourcing scan can ask for.
+ *
+ * Named in OUR words, mapped to eBay's below. `bestMatch` is the absence of a
+ * sort parameter rather than a value, which is exactly the sort of detail that
+ * should not leak into a route handler or a phone.
+ */
+export type BrowseSort = "bestMatch" | "newlyListed" | "endingSoonest" | "priceAsc";
+
+const BROWSE_SORT_PARAM: Record<BrowseSort, string | null> = {
+  bestMatch: null,
+  newlyListed: "newlyListed",
+  endingSoonest: "endingSoonest",
+  // eBay spells ascending price as the bare field name; `-price` is descending.
+  priceAsc: "price",
+};
 
 export interface BrowseCompsResult {
   items: BrowseComp[];
@@ -4464,6 +4537,31 @@ export interface BrowseItemSummary {
   buyingOptions?: string[];
   categories?: Array<{ categoryId?: string; categoryName?: string }>;
   leafCategoryIds?: string[];
+  /**
+   * US-3098: what delivery costs, so a sourcing filter can compare on what the
+   * buyer actually pays rather than on the asking price alone.
+   *
+   * eBay omits this entirely on plenty of summaries. That is why the total-price
+   * rule treats absent shipping as UNKNOWN rather than free — see
+   * `totalPriceCents` in lib/scout-scoring.ts.
+   */
+  shippingOptions?: Array<{ shippingCost?: { value?: string; currency?: string } }>;
+}
+
+/** Cheapest shipping across the advertised options, in cents; null when eBay
+ * sent none. Free shipping is a real 0 and must not collapse into the null. */
+function cheapestShippingCents(s: BrowseItemSummary): number | null {
+  const options = s.shippingOptions ?? [];
+  let cheapest: number | null = null;
+  for (const option of options) {
+    const raw = option?.shippingCost?.value;
+    if (raw == null) continue;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0) continue;
+    const cents = Math.round(value * 100);
+    if (cheapest == null || cents < cheapest) cheapest = cents;
+  }
+  return cheapest;
 }
 
 function toBrowseComp(s: BrowseItemSummary): BrowseComp {
@@ -4472,6 +4570,7 @@ function toBrowseComp(s: BrowseItemSummary): BrowseComp {
     title: s.title ?? "",
     price: s.price?.value ? Number(s.price.value) : null,
     currency: s.price?.currency ?? "USD",
+    shippingCents: cheapestShippingCents(s),
     imageUrl: s.image?.imageUrl ?? s.thumbnailImages?.[0]?.imageUrl ?? null,
     itemWebUrl: s.itemWebUrl ?? null,
     condition: s.condition ?? null,
@@ -4683,8 +4782,27 @@ export async function searchBrowseComps(
 ): Promise<BrowseCompsResult> {
   const token = await getAppAccessToken();
   const filters: string[] = [];
-  filters.push(`conditionIds:{${args.conditionId ?? "3000"}}`);
-  filters.push(`buyingOptions:{FIXED_PRICE|AUCTION|BEST_OFFER}`);
+  // US-3098: `conditionIds` (plural) wins when given; otherwise the single
+  // `conditionId`, whose default is the one every existing caller relies on.
+  const conditions = args.conditionIds && args.conditionIds.length > 0
+    ? args.conditionIds.join("|")
+    : (args.conditionId ?? "3000");
+  filters.push(`conditionIds:{${conditions}}`);
+  const buying = args.buyingOptions && args.buyingOptions.length > 0
+    ? args.buyingOptions.join("|")
+    : "FIXED_PRICE|AUCTION|BEST_OFFER";
+  filters.push(`buyingOptions:{${buying}}`);
+  // Appended AFTER the two above so the existing callers' filter string is
+  // unchanged character for character.
+  if (args.maxPriceCents != null && args.maxPriceCents > 0) {
+    // eBay's price filter is in the marketplace currency, not cents, and the
+    // range form is `[low..high]`. An open lower bound is `[..high]`.
+    filters.push(`price:[..${(args.maxPriceCents / 100).toFixed(2)}]`);
+    // eBay REQUIRES priceCurrency alongside any price filter, and returns a
+    // 400 naming neither field when it is missing.
+    filters.push(`priceCurrency:${getMarketplaceCurrency()}`);
+  }
+  if (args.freeShippingOnly) filters.push("maxDeliveryCost:0");
 
   // Aspect filter: only the most reliable item-specifics. Brand alone moves
   // the needle hard for clothing comps. Size is more variable across brands.
@@ -4732,6 +4850,11 @@ export async function searchBrowseComps(
   // US-1059: default to eBay Best Match (relevance), which is what Browse uses
   // when `sort` is OMITTED. The old hardcoded "newlyListed" surfaced the newest
   // — not the most comparable — listings. Leaving sort unset = relevance.
+  //
+  // US-3098: a sourcing scan may ask for another one. `bestMatch` maps to null
+  // and still emits nothing, so the comp callers' URL is untouched.
+  const sortParam = args.sort ? BROWSE_SORT_PARAM[args.sort] : null;
+  if (sortParam) params.set("sort", sortParam);
 
   const url = `${apiHost()}/buy/browse/v1/item_summary/search?${params.toString()}`;
   const res = await ebayFetch(url, {
@@ -5047,6 +5170,9 @@ export async function searchSoldComps(
       itemWebUrl: s.itemWebUrl ?? null,
       condition: s.condition ?? null,
       buyingOptions: [],
+      // Marketplace Insights reports no shipping on a completed sale, and the
+      // honest value for "this source cannot say" is null, not zero (US-3098).
+      shippingCents: null,
       // Marketplace Insights reports no category on a sale, so these stay empty
       // and categoryVotes comes back empty with them. That is the honest
       // answer: "this source cannot say", not "the listings disagreed".

@@ -33,6 +33,62 @@ final class ScoutStore: ObservableObject {
     @Published var sortKey: SortKey = .margin
     @Published var actionableOnly = false
 
+    // ── US-3098: the deal filter ────────────────────────────────────────────
+    //
+    // Persisted in UserDefaults rather than held for the session. Sourcing is a
+    // handful of searches run over and over — a seller who set "under $40, at
+    // least 40%" on Saturday wants it still set on Sunday, and re-typing it in
+    // a shop is how a filter stops getting used.
+    //
+    // Typed as TEXT, not numbers, because these are text fields: a half-typed
+    // "4" while someone is reaching for "40" must not become a live filter, and
+    // an Int binding cannot represent an empty field at all.
+    @Published var maxTotalText = UserDefaults.standard.string(forKey: Keys.maxTotal) ?? "" {
+        didSet { UserDefaults.standard.set(maxTotalText, forKey: Keys.maxTotal) }
+    }
+    @Published var minMarginPctText = UserDefaults.standard.string(forKey: Keys.minMarginPct) ?? "" {
+        didSet { UserDefaults.standard.set(minMarginPctText, forKey: Keys.minMarginPct) }
+    }
+    @Published var minMarginDollarsText = UserDefaults.standard.string(forKey: Keys.minMargin) ?? "" {
+        didSet { UserDefaults.standard.set(minMarginDollarsText, forKey: Keys.minMargin) }
+    }
+    @Published var buyItNowOnly = UserDefaults.standard.bool(forKey: Keys.buyItNowOnly) {
+        didSet { UserDefaults.standard.set(buyItNowOnly, forKey: Keys.buyItNowOnly) }
+    }
+    @Published var freeShippingOnly = UserDefaults.standard.bool(forKey: Keys.freeShipping) {
+        didSet { UserDefaults.standard.set(freeShippingOnly, forKey: Keys.freeShipping) }
+    }
+    @Published var browseSort: BrowseSort = BrowseSort(
+        rawValue: UserDefaults.standard.string(forKey: Keys.browseSort) ?? ""
+    ) ?? .bestMatch {
+        didSet { UserDefaults.standard.set(browseSort.rawValue, forKey: Keys.browseSort) }
+    }
+
+    private enum Keys {
+        static let maxTotal = "scout.filter.maxTotal"
+        static let minMarginPct = "scout.filter.minMarginPct"
+        static let minMargin = "scout.filter.minMargin"
+        static let buyItNowOnly = "scout.filter.buyItNowOnly"
+        static let freeShipping = "scout.filter.freeShipping"
+        static let browseSort = "scout.filter.browseSort"
+    }
+
+    /// Which listings eBay shows us first. Distinct from ``SortKey``, which
+    /// reorders the graded results already on screen: this one decides which
+    /// fifty listings phase one ever looks at, and the two are easy to conflate.
+    enum BrowseSort: String, CaseIterable, Identifiable {
+        case bestMatch, newlyListed, endingSoonest, priceAsc
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .bestMatch:     return String(localized: "Best match")
+            case .newlyListed:   return String(localized: "Newly listed")
+            case .endingSoonest: return String(localized: "Ending soonest")
+            case .priceAsc:      return String(localized: "Cheapest first")
+            }
+        }
+    }
+
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var response: ScoutScanResponse?
@@ -86,12 +142,25 @@ final class ScoutStore: ObservableObject {
         if let suggestion { categoryId = suggestion.categoryId }
 
         do {
-            response = try await service.scan(
+            var request = ScoutScanRequest(
                 categoryId: categoryId,
                 q: kw.isEmpty ? nil : kw,
                 brand: br.isEmpty ? nil : br,
                 limit: Self.scanLimit
             )
+            request.maxTotalCents = Self.cents(from: maxTotalText)
+            request.minMarginCents = Self.cents(from: minMarginDollarsText)
+            // The field is typed in whole percent because that is how a seller
+            // says it; the wire wants a fraction, and the route refuses 30.
+            request.minMarginPct = Self.fraction(fromPercent: minMarginPctText)
+            // "Buy It Now only" means no auctions. BEST_OFFER stays in: it is a
+            // fixed-price listing whose price is negotiable, which is if
+            // anything the better find, and dropping it would silently hide
+            // half the results a seller ticking this box wants.
+            request.buyingOptions = buyItNowOnly ? ["FIXED_PRICE", "BEST_OFFER"] : nil
+            request.freeShippingOnly = freeShippingOnly ? true : nil
+            request.sort = browseSort == .bestMatch ? nil : browseSort.rawValue
+            response = try await service.scan(request)
             // US-701: announce the result so VoiceOver users know the scan
             // finished (the spinner silently swaps to the results list).
             let shown = displayedCandidates.count
@@ -104,6 +173,57 @@ final class ScoutStore: ObservableObject {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             A11yAnnounce.announce("Scan failed. \(errorMessage ?? "")")
         }
+    }
+
+    /// True when any filter is set, so Clear can be disabled rather than
+    /// offered as a button that does nothing.
+    var hasFilters: Bool {
+        !maxTotalText.trimmed.isEmpty
+            || !minMarginPctText.trimmed.isEmpty
+            || !minMarginDollarsText.trimmed.isEmpty
+            || buyItNowOnly
+            || freeShippingOnly
+            || browseSort != .bestMatch
+    }
+
+    /// Reset every filter, and the stored copy with it.
+    func clearFilters() {
+        maxTotalText = ""
+        minMarginPctText = ""
+        minMarginDollarsText = ""
+        buyItNowOnly = false
+        freeShippingOnly = false
+        browseSort = .bestMatch
+    }
+
+    /// Dollars typed by a human to integer cents. Nil for blank or nonsense —
+    /// a filter nobody set must not become a filter of zero.
+    nonisolated static func cents(from text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let value = Double(trimmed), value > 0 else { return nil }
+        return Int((value * 100).rounded())
+    }
+
+    /// A whole-percent field to the fraction the route wants. 40 becomes 0.4.
+    ///
+    /// Anything above 100% is CLAMPED rather than refused: a seller who types
+    /// 400 into "min return" means "only show me the real steals", and a 400
+    /// that goes to the server as 4.0 comes back a 400 error naming a field
+    /// they are looking straight at.
+    nonisolated static func fraction(fromPercent text: String) -> Double? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let value = Double(trimmed), value > 0 else { return nil }
+        return min(value / 100, 1)
+    }
+
+    /// "Looked at 42, graded 8" — or just the graded count on an older edge.
+    var scanSummary: String? {
+        guard let response else { return nil }
+        guard let considered = response.considered else {
+            return String(localized: "Scanned \(response.scanned) listings")
+        }
+        let graded = response.graded ?? response.scanned
+        return String(localized: "Looked at \(considered) listings, graded \(graded)")
     }
 
     /// Commit a candidate into inventory at `sourced`, priced at what the

@@ -59,6 +59,9 @@ function comps(n: number, prefix: string): Comp[] {
     itemWebUrl: null,
     condition: "Used",
     buyingOptions: ["FIXED_PRICE"],
+    // US-3098: fixtures state it explicitly; null means 'this source
+    // cannot say', which is not the same fact as free shipping.
+    shippingCents: null,
     categories: [],
     leafCategoryIds: [],
   }));

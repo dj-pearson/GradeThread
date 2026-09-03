@@ -21,8 +21,18 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
   useScoutScan,
+  type ScoutBuyingOption,
+  type ScoutScanInput,
   type ScoutScored,
+  type ScoutSort,
 } from "@/hooks/use-scout";
+import {
+  DEFAULT_SOURCING_TARGET_PCT,
+  SourcingTargetSetting,
+} from "@/components/flipdesk/sourcing-target-setting";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/use-auth";
+import { useQuery } from "@tanstack/react-query";
 import { ForecastCard } from "@/components/flipdesk/forecast-card";
 import { PageHeader } from "@/components/ui/page-header";
 import { ValueBasisNote } from "@/components/value/value-basis-note";
@@ -72,6 +82,14 @@ function CandidateRow({ c }: { c: ScoutScored }) {
             <span className={cn("rounded-full px-2 py-0.5 font-semibold", gradeClasses(c.shadowGrade))}>
               Shadow grade {c.shadowGrade != null ? c.shadowGrade.toFixed(1) : "—"}
             </span>
+            {/* US-3098: what the buyer actually pays. Shown only when it
+                differs from the asking price, so a free-shipping listing does
+                not carry a second identical number. */}
+            {c.totalCents != null && c.totalCents !== c.askingCents ? (
+              <span className="text-muted-foreground">
+                {dollars(c.totalCents)} with shipping
+              </span>
+            ) : null}
             <span className="text-muted-foreground">
               {Math.round(c.gradeConfidence * 100)}% confidence
             </span>
@@ -116,6 +134,18 @@ function CandidateRow({ c }: { c: ScoutScored }) {
               bury the price in a list a seller scans standing in a shop. */}
           <ValueBasisNote basis={c.valueBasis} variant="short" />
 
+          {/* US-3098: the ceiling — the most to pay and still clear the target.
+              Absent for most rows, because sourcingCeiling refuses to produce
+              one without a measured curve. Shown only when it resolved; the
+              per-row explanation for why it did not would be six identical
+              sentences down a list. */}
+          {c.ceiling?.maxPriceCents != null ? (
+            <p className="text-xs font-medium">
+              Pay at most {dollars(c.ceiling.maxPriceCents)} for{" "}
+              {Math.round(c.ceiling.targetRoi * 100)}% ROI
+            </p>
+          ) : null}
+
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-muted-foreground">{c.reason}</p>
             {c.itemWebUrl && (
@@ -138,12 +168,59 @@ function CandidateRow({ c }: { c: ScoutScored }) {
 export function FlipdeskScoutPage() {
   // US-1064: community-insights "Source more <brand>" recommendations deep-link
   // here with ?brand=<brand> so the comps scan is prefilled.
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuth();
   const [keyword, setKeyword] = useState("");
   const [brand, setBrand] = useState(() => searchParams.get("brand") ?? "");
   const [categoryId, setCategoryId] = useState("11450"); // Clothing, Shoes & Accessories
   const [sortKey, setSortKey] = useState<SortKey>("margin");
   const [actionableOnly, setActionableOnly] = useState(false);
+
+  // ── US-3098: the deal filter ────────────────────────────────────────────
+  //
+  // In the URL, not just in state, so a seller can bookmark "Patagonia under
+  // $40 that makes me 40%" and open it next Saturday — which is how sourcing
+  // actually works, a handful of searches run over and over.
+  const [maxTotal, setMaxTotal] = useState(() => searchParams.get("maxTotal") ?? "");
+  const [minMarginPctText, setMinMarginPctText] = useState(
+    () => searchParams.get("minMarginPct") ?? "",
+  );
+  const [minMarginDollars, setMinMarginDollars] = useState(
+    () => searchParams.get("minMargin") ?? "",
+  );
+  const [browseSort, setBrowseSort] = useState<ScoutSort>(
+    () => (searchParams.get("sort") as ScoutSort | null) ?? "bestMatch",
+  );
+  const [buyItNowOnly, setBuyItNowOnly] = useState(
+    () => searchParams.get("bin") === "1",
+  );
+  const [freeShippingOnly, setFreeShippingOnly] = useState(
+    () => searchParams.get("freeShip") === "1",
+  );
+  const [showFilters, setShowFilters] = useState(
+    () => Boolean(searchParams.get("maxTotal") ?? searchParams.get("minMarginPct")),
+  );
+
+  // The seller's standing target, so a number set once in Buy decision is not
+  // typed again here. Read-only: the field below overrides it for this scan.
+  const { data: storedTargetPct } = useQuery({
+    queryKey: ["sourcing-target", user?.id],
+    enabled: Boolean(user?.id),
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("flipdesk_settings")
+        .select("sourcing_target_roi_pct")
+        .eq("user_id", user?.id ?? "")
+        .maybeSingle();
+      return (data as { sourcing_target_roi_pct: number | null } | null)
+        ?.sourcing_target_roi_pct ?? null;
+    },
+  });
+  const targetPct = storedTargetPct ?? DEFAULT_SOURCING_TARGET_PCT;
+  // The URL wins over the standing target: a link someone bookmarked said what
+  // it meant, and silently replacing it with an account setting would make the
+  // bookmark mean something different on a different day.
+  const effectiveMinMarginPct = minMarginPctText.trim() || String(targetPct);
 
   const scan = useScoutScan();
   const result = scan.data;
@@ -161,14 +238,49 @@ export function FlipdeskScoutPage() {
     return sorted;
   }, [result, actionableOnly, sortKey]);
 
+  /** Dollars typed by a human to integer cents, or undefined for blank. */
+  function centsFrom(text: string): number | undefined {
+    const value = Number(text.trim());
+    if (!text.trim() || !Number.isFinite(value) || value < 0) return undefined;
+    return Math.round(value * 100);
+  }
+
   function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSearch) return;
-    scan.mutate({
+
+    // US-3098: mirror the filter into the URL so this scan is a link.
+    const next = new URLSearchParams(searchParams);
+    const setOrDrop = (key: string, value: string) => {
+      if (value) next.set(key, value);
+      else next.delete(key);
+    };
+    setOrDrop("maxTotal", maxTotal.trim());
+    setOrDrop("minMarginPct", minMarginPctText.trim());
+    setOrDrop("minMargin", minMarginDollars.trim());
+    setOrDrop("sort", browseSort === "bestMatch" ? "" : browseSort);
+    setOrDrop("bin", buyItNowOnly ? "1" : "");
+    setOrDrop("freeShip", freeShippingOnly ? "1" : "");
+    setSearchParams(next, { replace: true });
+
+    // minMarginPct is a FRACTION on the wire (0.3 = 30%); the field is typed in
+    // whole percent because that is how a seller says it.
+    const pct = Number(effectiveMinMarginPct);
+    const input: ScoutScanInput = {
       categoryId: categoryId.trim(),
       q: keyword.trim() || undefined,
       brand: brand.trim() || undefined,
-    });
+      maxTotalCents: centsFrom(maxTotal),
+      minMarginCents: centsFrom(minMarginDollars),
+      minMarginPct:
+        showFilters && Number.isFinite(pct) && pct > 0 ? pct / 100 : undefined,
+      buyingOptions: buyItNowOnly
+        ? (["FIXED_PRICE", "BEST_OFFER"] as ScoutBuyingOption[])
+        : undefined,
+      freeShippingOnly: freeShippingOnly || undefined,
+      sort: browseSort === "bestMatch" ? undefined : browseSort,
+    };
+    scan.mutate(input);
   }
 
   return (
@@ -208,6 +320,97 @@ export function FlipdeskScoutPage() {
                 onChange={(e) => setCategoryId(e.target.value)}
               />
             </div>
+            {/* US-3098: the deal filter. Collapsed by default — a seller who
+                just wants to look does not need six more fields between them
+                and the button, and one who is hunting a margin opens it once
+                and then bookmarks the URL. */}
+            <div className="sm:col-span-4">
+              <button
+                type="button"
+                className="text-xs font-medium text-primary hover:underline"
+                onClick={() => setShowFilters((open) => !open)}
+                aria-expanded={showFilters}
+              >
+                {showFilters ? "Hide deal filter" : "Deal filter"}
+              </button>
+            </div>
+
+            {showFilters ? (
+              <>
+                <div className="space-y-1">
+                  <Label htmlFor="scout-max-total">Max I will pay</Label>
+                  <Input
+                    id="scout-max-total"
+                    inputMode="decimal"
+                    placeholder="40"
+                    value={maxTotal}
+                    onChange={(e) => setMaxTotal(e.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Item plus shipping.
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="scout-min-margin-pct">Min return</Label>
+                  <Input
+                    id="scout-min-margin-pct"
+                    inputMode="decimal"
+                    placeholder={String(targetPct)}
+                    value={minMarginPctText}
+                    onChange={(e) => setMinMarginPctText(e.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Percent after fees. Blank uses your {targetPct}% target.
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="scout-min-margin">Min profit</Label>
+                  <Input
+                    id="scout-min-margin"
+                    inputMode="decimal"
+                    placeholder="20"
+                    value={minMarginDollars}
+                    onChange={(e) => setMinMarginDollars(e.target.value)}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Dollars after fees.
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="scout-browse-sort">Look at</Label>
+                  <select
+                    id="scout-browse-sort"
+                    className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                    value={browseSort}
+                    onChange={(e) => setBrowseSort(e.target.value as ScoutSort)}
+                  >
+                    <option value="bestMatch">Best match</option>
+                    <option value="newlyListed">Newly listed</option>
+                    <option value="endingSoonest">Ending soonest</option>
+                    <option value="priceAsc">Cheapest first</option>
+                  </select>
+                </div>
+                <div className="flex flex-wrap items-center gap-4 sm:col-span-4">
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={buyItNowOnly}
+                      onChange={(e) => setBuyItNowOnly(e.target.checked)}
+                    />
+                    Buy It Now only (no auctions)
+                  </label>
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={freeShippingOnly}
+                      onChange={(e) => setFreeShippingOnly(e.target.checked)}
+                    />
+                    Free shipping only
+                  </label>
+                </div>
+              </>
+            ) : null}
+
             <div className="sm:col-span-4">
               <Button type="submit" disabled={!canSearch || scan.isPending}>
                 {scan.isPending ? (
@@ -234,6 +437,11 @@ export function FlipdeskScoutPage() {
           condition before buying.
         </span>
       </div>
+
+      {/* US-3098: the standing target the Min return field falls back to, set
+          here rather than only on the Buy decision page — a seller who filters
+          by it here is the one most likely to want to change it. */}
+      {showFilters ? <SourcingTargetSetting /> : null}
 
       {/* US-1104: longitudinal resale-value & depreciation forecast from the
           reseller's own sale ledger. Seeds the brand from the search above. */}
@@ -268,7 +476,13 @@ export function FlipdeskScoutPage() {
           <div className="space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-sm text-muted-foreground">
-                Scanned {result.scanned} listing{result.scanned === 1 ? "" : "s"} ·{" "}
+                {/* US-3098: the denominator. "Graded 8" alone is a number a
+                    seller cannot judge; "looked at 42, graded 8" says the scan
+                    searched wider than the eight rows in front of them. */}
+                {result.considered != null
+                  ? `Looked at ${result.considered} listing${result.considered === 1 ? "" : "s"}, graded ${result.graded ?? result.scanned}`
+                  : `Scanned ${result.scanned} listing${result.scanned === 1 ? "" : "s"}`}
+                {" · "}
                 {candidates.length} shown
               </p>
               <div className="flex items-center gap-2 text-xs">

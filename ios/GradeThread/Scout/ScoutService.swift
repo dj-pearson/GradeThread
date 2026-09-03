@@ -11,7 +11,7 @@ protocol ScoutScanning {
 
     /// Runs a scan: searches eBay within `categoryId` (narrowed by q/brand),
     /// shadow-grades each candidate, and returns them ranked.
-    func scan(categoryId: String, q: String?, brand: String?, limit: Int) async throws -> ScoutScanResponse
+    func scan(_ request: ScoutScanRequest) async throws -> ScoutScanResponse
 
     /// US-3097: commit a candidate the seller actually bought into inventory at
     /// `sourced`, with the asking price as the cost basis. Same
@@ -55,9 +55,11 @@ final class ScoutService: ScoutScanning {
         return response.suggestions.first
     }
 
-    func scan(categoryId: String, q: String?, brand: String?, limit: Int) async throws -> ScoutScanResponse {
-        let body = ScoutScanRequest(categoryId: categoryId, q: q, brand: brand, limit: limit)
-        return try await post(path: "/api/flipdesk/scout", body: body)
+    func scan(_ request: ScoutScanRequest) async throws -> ScoutScanResponse {
+        // US-3098: the whole request is built by the store now. It used to be
+        // four positional arguments, which is one more filter away from being
+        // eleven — and the filter set is exactly the thing that keeps growing.
+        return try await post(path: "/api/flipdesk/scout", body: request)
     }
 
     func buy(_ request: ProspectBuyRequest) async throws -> ProspectBuyResponse {
