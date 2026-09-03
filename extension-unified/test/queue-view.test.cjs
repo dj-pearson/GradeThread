@@ -487,8 +487,64 @@ function row(over) {
   assert.ok(!/setInterval\(/.test(js), "no polling: the refresh is event-driven");
 }
 
+// ── 17. a server-refused list row reads as an inventory fact (US-3096) ─────
+//
+// The claim route now fails a `list` row whose item was deleted, or has no
+// photos, rather than handing the extension a job it would run against a blank
+// form. Those rows come back with `result.error` set to a sentence about the
+// seller's own inventory, and the popup has to show it in the needs-you group
+// like any other dead row — a failure the seller cannot see is the same silence
+// this whole view model exists to end.
+{
+  const deleted = V.viewRow(
+    row({
+      status: "failed",
+      completed_at: new Date(NOW - HOUR).toISOString(),
+      result: {
+        ok: false,
+        error:
+          "This item was deleted after the cross-post was queued, so there was nothing left to list.",
+      },
+    }),
+    { now: NOW },
+  );
+  assert.strictEqual(deleted.state, "failed");
+  assert.strictEqual(deleted.needsAttention, true, "a refused cross-post needs the seller");
+  assert.match(deleted.reason, /deleted after the cross-post was queued/);
+  assert.strictEqual(
+    deleted.canCancel,
+    false,
+    "there is nothing left to cancel on a row that already failed",
+  );
+
+  const noPhotos = V.viewRow(
+    row({
+      status: "failed",
+      completed_at: new Date(NOW - HOUR).toISOString(),
+      result: {
+        ok: false,
+        error:
+          "This item has no photos, and every marketplace requires at least one. Add photos and queue it again.",
+      },
+    }),
+    { now: NOW },
+  );
+  assert.match(noPhotos.reason, /no photos/i);
+  assert.match(
+    noPhotos.reason,
+    /queue it again/i,
+    "the reason has to name the fix, not just the fault",
+  );
+
+  // Both land in the group a seller opens first.
+  const grouped = V.groupRows([deleted, noPhotos]);
+  const attention = grouped.find((g) => g.key === "attention");
+  assert.ok(attention, "refused rows must appear in the needs-you group");
+  assert.strictEqual(attention.rows.length, 2);
+}
+
 console.log(
-  "queue-view.test.cjs: 16 groups — cancel is queued-only, failures count " +
+  "queue-view.test.cjs: 17 groups — cancel is queued-only, failures count " +
     "toward the badge, every dead row carries a reason, kinds match the edge, " +
-    "the popup wires all of it, timeAgo takes ISO, retry re-queues only dead known rows, grouping omits empties, and a claimed row carries its stage",
+    "the popup wires all of it, timeAgo takes ISO, retry re-queues only dead known rows, grouping omits empties, and a claimed row carries its stage, and a server-refused cross-post reads as an inventory fact",
 );

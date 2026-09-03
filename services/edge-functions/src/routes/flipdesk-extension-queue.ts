@@ -24,8 +24,14 @@ import {
   normalizeQueuePayload,
   planExpiry,
   withSellerLocale,
+  buildListPayload,
+  mergeHydratedPayload,
+  LIST_REFUSAL_REASON,
   type ExtensionQueueKind,
+  type ListPayloadPhoto,
+  type ListPayloadRefusal,
 } from "../lib/extension-queue.ts";
+import { getMarketplaceSpec } from "../lib/marketplace-specs.ts";
 
 // US-2481: queue extension work from mobile, drain it on the desktop.
 //
@@ -477,6 +483,129 @@ async function withItemTitles(
   }));
 }
 
+/**
+ * US-3096: fill a claimed `list` row with the listing content the extension
+ * fills the marketplace form from.
+ *
+ * Runs at CLAIM, not enqueue, so the desktop fills the title the seller has by
+ * now — see the note above `buildListPayload`. Returns the rows to hand back
+ * plus the ones that can never run, which the caller marks failed rather than
+ * sending to a form they would fill with nothing.
+ *
+ * Tenant scope (US-268): inventory_items and listings are filtered on
+ * `user_id`; item_photos has no user_id column of its own, so it is filtered by
+ * the item ids the owner-scoped query returned — ownership via the parent row.
+ * A queue row naming another workspace's item therefore hydrates to nothing and
+ * fails as `item_missing`, which is the correct answer and not a leak.
+ */
+async function hydrateListRows(
+  ownerId: string,
+  rows: QueueRow[],
+): Promise<{ rows: QueueRow[]; refused: { row: QueueRow; reason: ListPayloadRefusal }[] }> {
+  const listRows = rows.filter((r) => r.kind === "list" && r.inventory_item_id);
+  if (listRows.length === 0) return { rows, refused: [] };
+
+  const requestedIds = [...new Set(listRows.map((r) => r.inventory_item_id as string))];
+
+  // The items FIRST, scoped to the owner, because everything below is scoped by
+  // what this returns. item_photos carries no user_id of its own (00008): its
+  // tenant is its parent item, so the owner check has to happen here and the
+  // photo query is then restricted to ids this workspace was proved to own.
+  const { data: itemRows } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, title, brand, color, size")
+    .eq("user_id", ownerId) // US-268
+    .in("id", requestedIds);
+
+  const items = new Map<string, { id: string; title: string | null; brand: string | null; color: string | null; size: string | null }>();
+  for (const r of (itemRows ?? []) as { id: string; title: string | null; brand: string | null; color: string | null; size: string | null }[]) {
+    items.set(r.id, r);
+  }
+
+  const ownedIds = [...items.keys()];
+  const [photosRes, draftsRes] = ownedIds.length === 0
+    ? [{ data: [] }, { data: [] }]
+    : await Promise.all([
+      supabaseAdmin
+        .from("item_photos")
+        // US-268 via the parent: ownedIds came out of the owner-scoped query
+        // above, so no row here can belong to another workspace.
+        .select("id, inventory_item_id, photo_url, sort_order")
+        .in("inventory_item_id", ownedIds)
+        .order("sort_order", { ascending: true }),
+      supabaseAdmin
+        .from("listings")
+        .select(
+          "inventory_item_id, platform, listing_title, listing_description, listing_price, primary_photo_id, platform_fields",
+        )
+        .eq("user_id", ownerId) // US-268
+        .eq("platform", "ebay")
+        .in("inventory_item_id", ownedIds),
+    ]);
+
+  const photos = new Map<string, ListPayloadPhoto[]>();
+  for (const r of (photosRes.data ?? []) as (ListPayloadPhoto & { inventory_item_id: string })[]) {
+    const list = photos.get(r.inventory_item_id) ?? [];
+    list.push({ id: r.id, photo_url: r.photo_url, sort_order: r.sort_order });
+    photos.set(r.inventory_item_id, list);
+  }
+
+  const drafts = new Map<string, {
+    listing_title: string | null;
+    listing_description: string | null;
+    listing_price: number | null;
+    primary_photo_id: string | null;
+    platform_fields: Record<string, unknown> | null;
+  }>();
+  for (const r of (draftsRes.data ?? []) as (
+    & { inventory_item_id: string | null; platform_fields: Record<string, unknown> | null }
+    & { listing_title: string | null; listing_description: string | null; listing_price: number | null; primary_photo_id: string | null }
+  )[]) {
+    if (r.inventory_item_id) drafts.set(r.inventory_item_id, r);
+  }
+
+  const refused: { row: QueueRow; reason: ListPayloadRefusal }[] = [];
+  const out = rows.map((row) => {
+    if (row.kind !== "list" || !row.inventory_item_id) return row;
+    const item = items.get(row.inventory_item_id);
+    if (!item) {
+      refused.push({ row, reason: "item_missing" });
+      return row;
+    }
+    const itemPhotos = photos.get(row.inventory_item_id) ?? [];
+    if (itemPhotos.length === 0) {
+      refused.push({ row, reason: "no_photos" });
+      return row;
+    }
+    const draft = drafts.get(row.inventory_item_id) ?? null;
+    const spec = getMarketplaceSpec(row.platform);
+    const pf = draft?.platform_fields?.[row.platform];
+    const hydrated = buildListPayload({
+      platform: row.platform,
+      itemId: row.inventory_item_id,
+      item,
+      photos: itemPhotos,
+      platformFields: pf && typeof pf === "object" && !Array.isArray(pf)
+        ? pf as Record<string, unknown>
+        : null,
+      draft: draft
+        ? {
+          listing_title: draft.listing_title,
+          listing_description: draft.listing_description,
+          listing_price: draft.listing_price,
+          primary_photo_id: draft.primary_photo_id,
+        }
+        : null,
+      maxPhotos: spec?.maxPhotos ?? 12,
+      platformLabel: spec?.label ?? row.platform,
+    });
+    return { ...row, payload: mergeHydratedPayload(row.payload ?? {}, hydrated) };
+  });
+
+  const refusedIds = new Set(refused.map((r) => r.row.id));
+  return { rows: out.filter((r) => !refusedIds.has(r.id)), refused };
+}
+
 // POST /claim — the desktop extension takes the next batch.
 //
 // Claiming rather than plain reading is what stops two open browsers running the
@@ -524,7 +653,33 @@ flipdeskExtensionQueueRoutes.post("/claim", async (c) => {
     return failSafe(c, 500, "Could not claim the queue.", error, "flipdesk.queue.claim");
   }
 
-  return c.json({ claimed: claimed ?? [] });
+  // US-3096: fill the `list` rows before handing them over, and fail the ones
+  // that can never be filled instead of sending the extension to a form it
+  // would leave blank while reporting success.
+  const hydrated = await hydrateListRows(
+    ownerId,
+    (claimed ?? []) as unknown as QueueRow[],
+  );
+
+  for (const { row, reason } of hydrated.refused) {
+    const { error: failError } = await supabaseAdmin
+      .from("extension_work_queue")
+      .update({
+        status: "failed",
+        completed_at: nowIso,
+        result: { ok: false, error: LIST_REFUSAL_REASON[reason] },
+      })
+      .eq("id", row.id)
+      .eq("user_id", ownerId); // US-268
+    if (failError) {
+      // Non-fatal: the row stays claimed and expires on its own clock. A drain
+      // that 500s because one dead row could not be marked is worse than a
+      // drain that runs the other four.
+      console.error("flipdesk.queue.claim: could not fail row", row.id, failError.message);
+    }
+  }
+
+  return c.json({ claimed: hydrated.rows });
 });
 
 // POST /:id/complete — the extension reports what happened.
