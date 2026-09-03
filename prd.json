@@ -3658,20 +3658,6 @@
       "priority": 21
     },
     {
-      "id": "US-3105",
-      "passes": false,
-      "title": "iOS extension queue: revise and relist from the phone, matching the four kinds the server and the extension already run",
-      "description": "As a reseller who changed a price on my phone, I want the Poshmark or Mercari listing brought up to date the next time my desktop drains the queue, and I want to relist a stale one from the same sheet, so that the phone can run the whole lifecycle instead of only the first listing.",
-      "acceptanceCriteria": [
-        "ExtensionQueueService.Kind in ios/GradeThread/Marketplaces/ExtensionQueueService.swift gains revise and relist, matching EXTENSION_QUEUE_KINDS in services/edge-functions/src/lib/extension-queue.ts, with a test that decodes each of the four",
-        "The live-listing actions on the item canvas offer 'Update on <platform>' for a listing on an extension channel whose price, title or description changed since it was listed; it enqueues kind revise with fields naming what changed, the body the server validates in routes/flipdesk-extension-queue.ts (REVISABLE_FIELDS), and the canvas shows the server's 'Stale on <platform> since' marker until the drain confirms",
-        "The same actions offer 'Relist' for a stale extension-channel listing, enqueuing kind relist with the listing_id, and show the copied draft row the server creates; Grailed, whose delist is never, shows the needs-you sentence that the old listing must be ended by hand",
-        "Both actions are hidden when the seller has no extension install recorded (the existing lister availability signal the Listing Kit uses) and show the queue position when queued; the ios/Scripts guards pass",
-        "Android is not in scope; US-3071 owns turning the per-channel revise and relist selectors on"
-      ],
-      "priority": 24
-    },
-    {
       "id": "US-3106",
       "passes": false,
       "title": "iOS Radar on a map with venue linking, and a 'What buyers want' strip on the Prospect empty state",
