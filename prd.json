@@ -3613,20 +3613,6 @@
       "priority": 13
     },
     {
-      "id": "US-3106",
-      "passes": false,
-      "title": "iOS Radar on a map with venue linking, and a 'What buyers want' strip on the Prospect empty state",
-      "description": "As a reseller planning a sourcing run, I want to see the nearby venues on a map, link my own sources to them, and see what buyers are asking for before I leave, so that the phone plans the trip the web can only plan at a desk.",
-      "acceptanceCriteria": [
-        "RadarNearbyView.swift renders a MapKit map above the list with one annotation per venue from GET /api/flipdesk/radar/venues, colored by the RadarScoring band the list already uses, and the list scrolls to and highlights the tapped annotation; the k-anonymity explainer and the Pro upsell card are unchanged",
-        "The empty states at RadarNearbyView.swift that say to link a source on the web are replaced by a Link a source sheet that lists the tenant's sources and calls POST /api/flipdesk/radar/my-stores/link with the same body the web my-stores tab sends; the linked venue shows the personal panel immediately",
-        "Location use stays behind RadarConsent and the map never renders before consent; the ATS and URLSession.shared guards in ios/Scripts pass",
-        "ProspectView.swift's empty state shows up to eight facets from GET /api/flipdesk/demand (term, wantCount, topMaxPriceCents) as chips; tapping one opens Scout with q set to the term, the same hand-off the web demand page makes; the strip hides when the route returns no facets or the plan lacks compPulls",
-        "XCTests cover the annotation mapping, the link body and the demand facet decoding; strings in Localizable.xcstrings"
-      ],
-      "priority": 25
-    },
-    {
       "id": "US-3107",
       "passes": false,
       "title": "OPERATOR: turn on eBay image search for garment-only Prospect and apply for Marketplace Insights so prices come from sold data",
