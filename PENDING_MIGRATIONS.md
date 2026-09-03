@@ -1,6 +1,10 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ PENDING: 00725 — stagger the per-SKU eBay offer read (US-3111)
+## ✅ APPLIED 2026-09-03: 00725 — stagger the per-SKU eBay offer read (US-3111)
+
+**Verified applied 2026-09-03** by `npm run migrate:prod` (dry run): prod records
+version 00725 and `inventory_items.ebay_offer_checked_at` exists. The doc had
+gone stale, which is the drift the new tool exists to catch.
 
 **Risk: LOW.** One nullable `timestamptz` on `inventory_items`. No backfill, no
 constraint, no index, no rewrite. Every row starts null, which is the "never
@@ -65,7 +69,10 @@ self-record footer present; `EXPECTED_SCHEMA_VERSION` bumped to 00725 in the sam
 commit with the manifest regenerated; `migrations-lint` green at 721 migrations.
 
 
-## ⏳ PENDING: 00724 — stop the eBay sync re-reading what it already knows (US-3110)
+## ✅ APPLIED 2026-09-03: 00724 — stop the eBay sync re-reading what it already knows (US-3110)
+
+**Verified applied 2026-09-03** by `npm run migrate:prod` (dry run): every one of
+the 721 local migration files is recorded on prod, 00724 included.
 
 **Risk: LOW-MEDIUM.** Two nullable `timestamptz` columns, three indexes, and one
 new `SECURITY DEFINER` function. No backfill, no constraint, no rewrite. Every

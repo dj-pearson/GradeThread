@@ -5,7 +5,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-23
+reviewed: 2026-09-03
 tags: [ops, database, migrations]
 summary: How migrations are authored, verified and applied to self-hosted prod.
 ---
@@ -71,27 +71,47 @@ unmeasured claim. It is measured now, and enforced by
 
 ## Applying to production (gated runbook)
 
-Self-hosted Supabase exposes Postgres directly. Always take a backup first
-(see `vault/10-ops/backups.md`). **Prefer the apply script** — it applies pending files in
-order AND records the version rows the edge boot guard reads, in one shot:
+Self-hosted Supabase exposes Postgres directly, but not on a public port — it
+runs in a Coolify container, which is why the Studio-paste loop existed. Since
+US-3113 there is a direct path that needs no connection string and no browser:
 
 ```bash
-# 1. Confirm what's applied vs. what's in the repo.
-psql "$SUPABASE_DB_URL" -c "select public.latest_schema_migration();"
+# 1. Read-only. Asks prod which versions it has recorded and diffs the repo.
+npm run migrate:prod
 
-# 2. Dry-run on a fresh scratch DB (CI does this automatically — see below).
-# 3. Back up prod (BACKUPS.md), then apply + record pending files IN ORDER:
-SUPABASE_DB_URL="$SUPABASE_DB_URL" ./scripts/apply-prod-migrations.sh
+# 2. Backs up with pg_dump, applies pending files in order, stops at the first
+#    failure, then sends NOTIFY pgrst, 'reload schema'.
+npm run migrate:prod -- --apply --yes
 
-# 4. Re-test the endpoints that depend on the new schema, e.g.:
+# 3. Redeploy the edge on Coolify, then re-test what depends on the new schema:
 curl -fsS https://functions.gradethread.com/api/grading/public | jq .
 ```
 
-Pasting into the Studio SQL editor also works for a one-off: every migration
-**self-records its own version** (footer below), so the guard stays in sync
-without a manual catchup either way — **as long as the paste happens before the
-edge redeploys.** When a push redeploys edge first (the common case), use the
-`npm run catchup` recovery at the top of this doc.
+It reaches the database over ssh (`PROD_SSH_HOST`) and finds the right container
+by asking each Supabase stack on the host whether it carries our marker tables,
+so no host or container id lives in the repo. `--apply` alone does nothing;
+`--yes` is a second, deliberate flag. `--check` exits non-zero when anything is
+pending, which makes it usable as a gate.
+
+`PROD_SSH_HOST` is read from the shell or from the gitignored repo-root `.env`,
+with the shell winning. Setting `PROD_DB_CONTAINER` there too skips discovery,
+which saves one ssh round trip per container on the host.
+
+> [!important] It compares by membership; `apply-prod-migrations.sh` compares by maximum
+> The shell script skips every file at or below the highest recorded version, so
+> a gap BELOW that maximum is never re-applied. That is exactly how
+> `listings.draft_id` from 00134 stayed missing in production for months while
+> every version above it was recorded (US-2726, US-2832). `npm run migrate:prod`
+> checks each file against the full `applied_migrations` set instead, so it sees
+> the hole. Read the grandfathering warning above before applying anything at or
+> below 00291.
+
+The older paths still work and are still correct where a connection string is
+available: `SUPABASE_DB_URL="…" ./scripts/apply-prod-migrations.sh`, or pasting
+into the Studio SQL editor for a one-off. Every migration **self-records its own
+version** (footer below), so the guard stays in sync whichever route is used —
+**as long as the apply happens before the edge redeploys.** When a push
+redeploys edge first, use the `npm run catchup` recovery at the top of this doc.
 
 Record each production apply (date, migrations applied, operator) in the deploy
 log / incident channel.

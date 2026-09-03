@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3113",
+  "nextId": "US-3114",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3708,6 +3708,21 @@
         "OPERATOR: read the next ebay-notification-reconcile run's log line and file the real cause of its 12 per-topic errors."
       ],
       "priority": 1
+    },
+    {
+      "id": "US-3113",
+      "passes": false,
+      "title": "Apply prod migrations over ssh from the terminal, with an immediate answer",
+      "description": "As the operator, I want to see what prod is missing and apply it from one command, so that I stop pasting SQL into the Supabase Studio editor and waiting to find out whether it worked.",
+      "acceptanceCriteria": [
+        "scripts/migrate-prod.mjs with no flags is read-only: it prints the local file count, the count prod records, the pending list in apply order, and any version recorded on prod with no local file. It never writes.",
+        "Pending is computed by MEMBERSHIP in public.applied_migrations, not by comparing to the highest recorded version, so a gap below the maximum is reported. scripts/migrate-prod.test.mjs asserts a local 00134 between an applied 00100 and 00200 comes back pending.",
+        "No host, container id, or IP appears in scripts/migrate-prod.mjs or scripts/lib/prod-db.mjs. PROD_SSH_HOST is required and unset raises a ConfigError with exit code 2; the container is discovered by probing each container matching PROD_DB_CONTAINER_FILTER for the tables in PROD_DB_MARKER_TABLES. A test greps both sources for an IPv4 literal and a container id and fails if either appears.",
+        "Applying requires BOTH --apply and --yes. decideAction() returns action 'refuse' with exit 1 for --apply alone, and 'apply' only when both are present.",
+        "applyPending() stops at the first failing migration, leaves the rest unapplied, and does NOT send the schema reload; on full success it sends NOTIFY pgrst, 'reload schema'. ssh propagates psql's non-zero exit so a failed file is reported with its psql error text.",
+        "A six-digit filename prefix (000355, 000375, 000385) is canonicalized to the five digits prod records, so those three files are not reported as permanently pending.",
+        "The 'nothing pending' output states that a recorded version is not proof the migration took effect and points at scripts/prod-schema-audit.sql."
+      ]
     }
   ]
 }

@@ -68,7 +68,7 @@
     "android:device": "node android/scripts/device.mjs",
     "verify:vault": "node scripts/verify.mjs --vault",
     "catchup": "node scripts/make-catchup.mjs",
-    "migrate:prod": "bash scripts/apply-prod-migrations.sh",
+    "migrate:prod": "node scripts/migrate-prod.mjs",
     "smoke:functions": "node scripts/smoke-functions.mjs",
     "smoke:staging": "node scripts/smoke-staging.mjs",
     "setup:stripe": "node scripts/setup-stripe-pricing.mjs",
