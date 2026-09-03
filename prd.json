@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3096",
+  "nextId": "US-3108",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3362,9 +3362,13 @@
         "home.shortcuts: a two-column grid of up to six ProductSurface entries the seller picks in edit mode from ProductSurfaces.all, persisted in the same layout, each routing exactly as ToolsHubView does for that surface",
         "In a regular horizontal size class the sections lay out in two columns with the attention strip spanning both; the compact layout keeps one column. US-2905 owns the rest of the tablet work and is not blocked by or on this",
         "The time-saved tile is not built here: it is US-9207 AC3 and lands as flipdesk.stat-time-saved when that story does",
-        "All six ios/Scripts guards pass under npm run verify (no ungated print, no URLSession.shared, no bare user-facing string, no force unwrap) with new strings in Localizable.xcstrings, and the iOS CI build is green"
+        "All six ios/Scripts guards pass under npm run verify (no ungated print, no URLSession.shared, no bare user-facing string, no force unwrap) with new strings in Localizable.xcstrings, and the iOS CI build is green",
+        "The attention strip's chip builder ranks deadline first, then money, undated last, the rule src/pages/flipdesk/needs-you.ts rankNeedsYou encodes; the Swift port lives in ios/GradeThread/Dashboard/NeedsYou.swift with a test mirroring src/test's needs-you cases so both platforms agree on what is urgent",
+        "The Analytics and Certified grades link rows (DashboardView.swift analyticsCard, gradesCard) are removed as fixed sections and become ProductSurface entries the seller can pick into home.shortcuts; the default layout includes Certified grades only when the tenant has graded items",
+        "ToolRow (ToolsHubView.swift), AgingRow and DashboardCard (DashboardView.swift) are replaced by one NavRow in ios/GradeThread/Components/ before the new sections are added, so Home does not gain a fourth private copy of icon/title/subtitle/chevron"
       ],
-      "priority": 13
+      "priority": 13,
+      "notes": "2026-09-03 deep dive (ios/IOS_RESELLER_UX_DEEP_DIVE_2026-09-03.md): three ACs appended (Needs You ranking port, link rows folded into shortcuts, shared NavRow). The pill row in AC6 gains a Publish-drafts pill and the Marketplaces badge under US-3101; Recently prospected is US-3100 and depends on this story's HomeSection model."
     },
     {
       "id": "US-3081",
@@ -3385,7 +3389,8 @@
         "The web sourcing page src/pages/flipdesk/sourcing.tsx gains an 'Alerts' tab (?tab=alerts) that lists triggers with a toggle, an edit sheet, the hit count, and a hits feed where each row opens the eBay listing in a new tab; free and starter plans see the tab with an upgrade prompt instead of a create button",
         "The hits feed and the push deep link open the eBay listing URL returned by the Browse API for that item (itemWebUrl), never a search page; tapping the push on web routes to /dashboard/flipdesk/sourcing?tab=alerts&hit=<id>",
         "The sweep is off until the ops flag scout_triggers_sweep_enabled in lib/feature-flags.ts is on (fail-closed), and PENDING_MIGRATIONS.md lists the two migrations"
-      ]
+      ],
+      "notes": "2026-09-03: the manual Scout scan gets the same total-price rule (asking plus cheapest shippingOptions.shippingCost, null when absent) under US-3098, implemented once in lib/scout-scoring.ts so trigger hits and manual scans agree."
     },
     {
       "id": "US-3082",
@@ -3405,7 +3410,7 @@
       "dependsOn": [
         "US-3081"
       ],
-      "notes": "2026-09-02: EBAY_PARTNER_ACCOUNT_SID and EBAY_PARTNER_AUTH_TOKEN are ALREADY SET on the Coolify edge service (names only; values live in Coolify). These are the eBay Partner Network Reporting API credentials (Account SID + Auth Token pair), so AC8's click/purchase report import can call the reporting API directly instead of a CSV import. They are NOT the campaign id: link attribution (AC1/AC3) still needs an EPN campaign id, to be stored as EBAY_EPN_CAMPAIGN_ID once the EPN account and campaign exist. Buyer-side check done the same day: no buyer web surface (src/pages/buyer, src/components/buyer) links out to an eBay listing URL today, and the extension stays excluded on both the buyer and seller sides (EPN software-application rule), so there is no buyer-side link work in scope. | 2026-09-02: EPN campaign EXISTS. Campaign id = 5339154788 (campid= in the EPN link generator output; not a secret, it is in every public link). Link anatomy for reference: mkcid=1 (channel = EPN), mkrid=711-53200-19255-0 (eBay US rotation id, siteid=0), toolid=10001 (link generator), customid= is the slot for our per-user reference (AC4), and ssspo/sssrc/ssuid/stype/widget_ver/media are eBay share-widget tracking that the Browse API affiliate URL will not carry and we do not need. Still to do: set EBAY_EPN_CAMPAIGN_ID=5339154788 on the Coolify edge (AC1) and confirm the account is approved, not just created."
+      "notes": "2026-09-02: EBAY_PARTNER_ACCOUNT_SID and EBAY_PARTNER_AUTH_TOKEN are ALREADY SET on the Coolify edge service (names only; values live in Coolify). These are the eBay Partner Network Reporting API credentials (Account SID + Auth Token pair), so AC8's click/purchase report import can call the reporting API directly instead of a CSV import. They are NOT the campaign id: link attribution (AC1/AC3) still needs an EPN campaign id, to be stored as EBAY_EPN_CAMPAIGN_ID once the EPN account and campaign exist. Buyer-side check done the same day: no buyer web surface (src/pages/buyer, src/components/buyer) links out to an eBay listing URL today, and the extension stays excluded on both the buyer and seller sides (EPN software-application rule), so there is no buyer-side link work in scope. | 2026-09-02: EPN campaign EXISTS. Campaign id = 5339154788 (campid= in the EPN link generator output; not a secret, it is in every public link). Link anatomy for reference: mkcid=1 (channel = EPN), mkrid=711-53200-19255-0 (eBay US rotation id, siteid=0), toolid=10001 (link generator), customid= is the slot for our per-user reference (AC4), and ssspo/sssrc/ssuid/stype/widget_ver/media are eBay share-widget tracking that the Browse API affiliate URL will not carry and we do not need. Still to do: set EBAY_EPN_CAMPAIGN_ID=5339154788 on the Coolify edge (AC1) and confirm the account is approved, not just created. | 2026-09-03: the iOS open path is US-3097 (UIApplication.open on the url field so the eBay app takes the universal link; no ebay:// scheme). Its last AC asks for the dated EPN-terms check on in-app purchase credit, which belongs in the vault note AC1 here creates."
     },
     {
       "id": "US-3083",
@@ -3606,6 +3611,185 @@
         "A full npx vitest run is quoted in this story's note, so the remaining pre-existing failures are named explicitly. As of 2026-09-02 they are react-router-8-contract (1, the installed react-router major is not 8) and time-saved-baseline (3, a vault note parsing empty). Neither is this story's to fix; naming them stops the next agent re-deriving the same list a fourth time."
       ],
       "priority": 13
+    },
+    {
+      "id": "US-3096",
+      "passes": false,
+      "title": "A cross-post queued from the phone drains into an empty marketplace form: hydrate list rows with listing content at claim time",
+      "description": "As a FlipDesk seller who queues a cross-post from iOS or Android and opens the laptop later, I want the extension to prefill the marketplace form with the same title, description, price, brand, size, tags and photos the web page sends, so that the queue does what the button says instead of opening a blank form and reporting success.",
+      "acceptanceCriteria": [
+        "Root cause recorded in the story and the code: every client enqueues kind 'list' with payload {} (src/pages/flipdesk/listing-kit path at src/components/flipdesk/listing-kit.tsx, src/pages/flipdesk/review.tsx, ios/GradeThread/Marketplaces/ListingKit/ListingKitView.swift, android ExtensionQueue.kt), the server enriches only revise and relist in routes/flipdesk-extension-queue.ts, jobFromQueueRow in extension-unified/lister/job-store.js adds only platform/itemId/listingId, and GT.runFlow in extension-unified/lister/common.js fills title and description from that payload unconditionally",
+        "A pure buildListPayload(item, photos, platformFields, spec) in services/edge-functions/src/lib/extension-queue.ts returns exactly the keys src/lib/lister-extension.ts buildListerPayload sends (platform, platformLabel, itemId, newListingUrl, title, description, price, originalPrice, brand, color, size, category, condition, tags, photoUrls, maxPhotos, locale), reading listings.platform_fields for the platform when the Listing Kit ran and the inventory_items row otherwise, with photoUrls ordered by item_photos.sort_order (cover first) and capped at the platform's maxPhotos from lib/marketplace-specs.ts; a unit test in services/edge-functions/src/tests asserts the key set equals the web payload's key set so the two cannot drift",
+        "POST /api/flipdesk/extension-queue/claim hydrates every claimed row of kind 'list' with buildListPayload at claim time, not enqueue time, so an edit made on the phone after queuing is what the desktop fills; the row's stored payload keeps whatever the client sent (locale wins when present, per US-2777) and hydrated keys never overwrite a client-supplied key",
+        "Every hydration query is tenant-scoped with .eq('user_id', ownerId) on inventory_items, item_photos and listings (US-268), and routes/tenant-isolation_test.ts gains a case proving a claim by workspace B never hydrates workspace A's item",
+        "A claimed 'list' row whose item no longer exists or has zero photos is returned with status 'failed' and a reason the popup shows ('Item was deleted' / 'No photos on this item') rather than a job the extension runs against a blank form; queue/queue-view.js renders that reason in the needs-you group and extension-unified/test/queue-view.test.cjs covers it",
+        "extension-unified/lister/common.js refuses to run a 'list' job whose payload has no title (logs and reports stage 'failed' with reason 'empty_payload' via reportStage) instead of filling nothing and reporting success; extension-unified/test/lister-empty-payload.test.cjs asserts the refusal and that a hydrated payload still runs",
+        "An end-to-end check on the throwaway stack: enqueue a 'list' row with payload {} for an item with three photos, claim it, and assert the claimed row's payload carries the title and three photoUrls; documented in the story notes with the command used"
+      ],
+      "priority": 9
+    },
+    {
+      "id": "US-3097",
+      "passes": false,
+      "title": "iOS: eBay links from Scout and Prospect open the eBay app on the affiliate URL, and the phone decodes the ceiling, basis and value provenance the server already sends",
+      "description": "As a reseller using Scout or Prospect on my phone, I want a tap on a listing to land in the eBay app on that item through GradeThread's partner link, and I want the buy ceiling and the price basis on the result, so that I can buy on the spot and know what the number is made of.",
+      "acceptanceCriteria": [
+        "ProspectResponse in ios/GradeThread/Prospect/ProspectTypes.swift decodes ceiling (maxBuyCents, targetRoi, absentReason) and stats.basis; the result card in ProspectView.swift shows 'Pay at most $X for Y% ROI' when present and the absentReason copy when absent, and the basis line under the median says asking prices / your sales / sold comps using the same wording as the web ValueBasisNote; an XCTest decodes a fixture with and without ceiling",
+        "ScoutCandidate in ios/GradeThread/Scout/ScoutTypes.swift decodes valueBasis and url; ScoutCandidateRow.swift shows the basis text under the value range",
+        "A single EbayOutboundLink helper in ios/GradeThread/Marketplaces/ opens a listing with UIApplication.shared.open on the url field the edge returns (the itemAffiliateWebUrl once US-3082 lands, itemWebUrl until then), never with SwiftUI Link or SFSafariViewController, so an ebay.com universal link is handed to the installed eBay app; no ebay:// scheme and no LSApplicationQueriesSchemes entry is added; the ios/Scripts guards stay green",
+        "Every eBay listing link in Prospect, Scout and the Comps section goes through EbayOutboundLink; a unit test over the view models asserts no other openURL call site builds an ebay.com/itm URL (grep-based test in ios/GradeThreadTests, the ios-guard-lane idiom)",
+        "Scout rows gain a 'Bought it' action that calls POST /api/flipdesk/scout/buy with the asking price as costCents and the candidate's itemId, then routes to the new inventory item; the row shows 'Added' and disables the action after success",
+        "Telemetry event scout.outbound_open fires with platform 'ios' and whether the affiliate URL was present, so EPN click reports can be reconciled against app opens (no user id in the event beyond the existing session key)",
+        "vault/50-business or the EPN note that US-3082 creates records, dated, whether an in-app eBay purchase reached through a universal link is credited by EPN per its terms; if it is not, the helper opens Safari with the affiliate URL and offers 'Open in eBay app' as the secondary action, and the story notes say which branch shipped"
+      ],
+      "priority": 14
+    },
+    {
+      "id": "US-3098",
+      "passes": false,
+      "title": "Scout deal filters: target profit in dollars or percent, max total price with shipping, buying option, condition and sort, with a two-phase rank so more than eight listings are considered",
+      "description": "As a reseller hunting arbitrage, I want to tell Scout how much I need to make and the most I will pay, and get back the listings that clear that bar sorted the way I choose, so that a scan is a buy list instead of eight guesses.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/scout in routes/flipdesk-scout.ts accepts minMarginCents, minMarginPct, maxTotalCents, buyingOptions (subset of FIXED_PRICE, AUCTION, BEST_OFFER), conditionIds, freeShippingOnly and sort (bestMatch, newlyListed, endingSoonest, priceAsc); each is validated and a bad value returns 400 naming the field; a unit test covers each validation branch",
+        "searchBrowseComps in lib/ebay-client.ts takes optional price, buyingOptions, deliveryOptions and sort arguments and maps them to the Browse item_summary/search filter and sort params; the existing comps callers pass nothing new and a recorded-fixture test asserts their request URL is byte-identical to before",
+        "Total price per candidate is asking plus the cheapest shippingOptions.shippingCost from the item summary, 0 when free shipping, and null when the summary carries no shipping (compared on asking alone), the same rule US-3081 specifies, implemented once in lib/scout-scoring.ts and imported by both",
+        "Two-phase ranking: phase one fetches up to 50 summaries with no AI, drops anything failing maxTotalCents, ranks by asking-vs-cachedValueAtGrade at the category default grade, and phase two shadow-grades only the top MAX_CANDIDATES; the response carries considered (phase-one count) and graded (phase-two count) so the UI can say 'looked at 42, graded 8'; a test proves a run with maxTotalCents that excludes every listing makes zero AI calls",
+        "minMarginCents and minMarginPct filter on scoreCandidate's estMarginCents / estMarginPct after fees; the ceiling from sourcingCeiling (lib/scout-decision.ts) is returned per candidate as maxBuyCents when a measured curve exists, else null with absentReason",
+        "Web src/pages/flipdesk/scout.tsx gains a Deal filter sheet with the new inputs persisted in the URL (?minMarginPct=, ?maxTotal=, ?sort=), and iOS ScoutView.swift gains the same sheet with @AppStorage persistence; both show the considered/graded counts and the ceiling per row",
+        "The web Scout page's SourcingTargetSetting (target ROI) prefills minMarginPct so a seller who set a target once does not type it again",
+        "Tenant scoping is unchanged (the route reads only public Browse data plus the caller's quota) and routes/tenant-isolation_test.ts keeps its existing scout cases green"
+      ],
+      "priority": 15
+    },
+    {
+      "id": "US-3099",
+      "passes": false,
+      "title": "iOS Prospect opens on the camera, reads the tag on-device before upload, and scans a barcode on the same viewfinder",
+      "description": "As a reseller standing at a rack, I want Prospect to open on a live viewfinder, show me the brand and size the moment I frame the tag, and accept a UPC for shoes and sealed goods, so that identifying an item takes one motion instead of a form.",
+      "acceptanceCriteria": [
+        "ProspectView.swift opens on a live AVCaptureSession viewfinder (reusing the Capture module's session and TagPhotoQuality checks) with the garment slot armed and a Tag toggle; the two-slot picker form remains reachable from a Library button; the first frame captured is submitted without a second confirmation tap",
+        "When the Tag toggle is on, Vision/TagTextRecognizer.swift runs VNRecognizeTextRequest on the captured tag frame before upload and shows the recognised brand and size as editable chips within 300 ms on a device-class simulator; the chips are sent as brandOverride and a new sizeHint on POST /api/flipdesk/scout/prospect, and the edge uses them as identify hints without an extra Claude call when their confidence is at or above 0.8 (lib/prospect-identify.ts), proven by a unit test that asserts no anthropic call for a high-confidence hint",
+        "AVCaptureMetadataOutput on the same session detects EAN-13, EAN-8, UPC-A and UPC-E; a detected code is sent as barcode to /prospect (the field POST /scout/appraise already accepts, extended to /prospect in the same change) and the result shows identitySource 'barcode'",
+        "Both Prospect capture paths go through the foreground upload rule in vault/20-domain/ios-photo-upload.md (no background URLSession); ios/Scripts guards pass under npm run verify",
+        "An XCTest covers: OCR chip parsing from a fixture recognition result, the barcode symbology filter, and that a garment-only frame with the toggle off sends imageRoles ['front'] only",
+        "The android /prospect call is unchanged by this story (US-3027 owns its imageRoles fix)"
+      ],
+      "priority": 16
+    },
+    {
+      "id": "US-3100",
+      "passes": false,
+      "title": "Recently prospected: keep the last 20 Prospect verdicts on the phone and surface them on Home, and carry the identity into the inventory row",
+      "description": "As a reseller who prospects several items per trip, I want the app to remember what I scanned, what it was worth and what I decided, so that I can go back to a rack for the one I passed on and the item I add to inventory arrives already named.",
+      "acceptanceCriteria": [
+        "A SwiftData model LocalProspectResult in ios/GradeThread/Persistence/Models stores the last 20 results per tenant (thumbnail path, title, brand, category path, grade, median/low/high cents, decision, ceiling, costCents, createdAt, tenant id); insert on every successful /prospect response, prune to 20 on insert, and delete all on sign-out (the US-2496 per-tenant boundary)",
+        "A HomeSection case home.recentProspects (iOS-only id, default position after the attention strip and pill row) renders up to five rows with thumbnail, title, decision chip, median and a chevron; tapping a row reopens Prospect with the stored result and its Add to inventory action; the section hides itself when empty",
+        "Add to inventory from a Prospect result writes brand, title, category id and path, condition grade and the median as the price suggestion onto the created inventory_items row via the existing create path, and links the local result to the item id so the row shows 'Added' afterwards",
+        "ios/GradeThreadTests cover prune-to-20, tenant wipe on sign-out, and the section hiding when empty; strings live in Localizable.xcstrings and the ios/Scripts guards pass"
+      ],
+      "priority": 17,
+      "dependsOn": [
+        "US-3080"
+      ]
+    },
+    {
+      "id": "US-3101",
+      "passes": false,
+      "title": "iOS quick entry: home-screen quick actions, deep-link routes for Prospect and Scout, a Lock Screen widget that opens Prospect, and a Home pill that opens drafts to publish",
+      "description": "As a reseller opening the app in a store, I want to long-press the icon or tap a Lock Screen widget and be on the camera, and I want the listings waiting to be published one tap from Home, so that the things I do most do not start with a hunt.",
+      "acceptanceCriteria": [
+        "Info.plist declares three UIApplicationShortcutItems (Prospect an item, Add an item, Scout deals) and the scene delegate's performActionFor posts DeepLinkRoute.prospect, .addItem and .scout through DeepLinkRouter, including the cold-launch replay path (drainPending) so a shortcut from a killed app still lands",
+        "DeepLinkRoute in ios/GradeThread/Notifications/NotificationDelegate.swift gains .prospect, .scout and .inventoryDrafts; MainShell.apply(route:) presents the Prospect or Scout sheet and, for drafts, selects the Inventory tab with the Drafts filter applied; a unit test covers each new route through the existing DeepLinkRoute parsing and the rate gate",
+        "GradeThreadWidget gains a second widget kind ProspectLauncherWidget in accessoryCircular and accessoryRectangular families whose widgetURL is a new WidgetDeepLink.prospect; WidgetDeepLink.from(url:) parses it and ContentView routes it like the existing widget links",
+        "The Home pill row (US-3080 AC6) includes a 'Publish' pill carrying the count of inventory items with a draft listing and no live listing, read from the same local store the Inventory Drafts filter reads; tapping it applies DeepLinkRoute.inventoryDrafts; the pill hides at zero",
+        "The Marketplaces tab badge shows the count of offers awaiting reply plus returns and cases with a deadline (from NegotiationInbox and PostSale stores); Home keeps its unread badge; a test asserts the badge is nil at zero rather than 0",
+        "All new user-facing strings are in Localizable.xcstrings and the six ios/Scripts guards pass under npm run verify"
+      ],
+      "priority": 14
+    },
+    {
+      "id": "US-3102",
+      "passes": false,
+      "title": "iOS composer: per-listing business policy pickers and a draft-time quantity field",
+      "description": "As a reseller publishing from my phone, I want to pick the shipping, payment and return policy for this listing and set the quantity before it goes live, so that a heavy item or a multi-quantity lot can be listed without opening the web.",
+      "acceptanceCriteria": [
+        "PublishDialog.swift gains a Policies section with three pickers (shipping, payment, returns) fed by GET /api/flipdesk/ebay/policies through a new EbayPoliciesService in ios/GradeThread/Marketplaces/ with a 15 minute in-memory cache; the pickers default to the applied template's ids when a template is applied and to the account defaults the route returns otherwise",
+        "A 'Sync policies' row calls POST /api/flipdesk/ebay/policies/sync and refreshes the pickers; a 403 or a not-connected state shows the same reconnect posture as EbaySyncModal",
+        "The chosen ids are sent as fulfillmentPolicyId, paymentPolicyId and returnPolicyId on the publish request exactly as the web composer sends them (src/components/flipdesk/composer/policies-card.tsx), and EbayPublishService.swift no longer reads them only from ListingTemplate",
+        "A quantity stepper (min 1, max 999) sits next to price in PublishDialog for fixed-price listings, disabled for auctions and hidden when a variations matrix is present (per-variant quantity already exists); the value is sent as quantity on publish and prefilled from the item's on-hand count",
+        "XCTests cover policy decoding from a fixture, the template-default rule, the quantity bounds and the auction/variations gating; the ios/Scripts guards pass and strings are in Localizable.xcstrings"
+      ],
+      "priority": 18
+    },
+    {
+      "id": "US-3103",
+      "passes": false,
+      "title": "iOS Listing Kit: a push-to picker with a price per platform, calling the same cross-push route the web composer uses",
+      "description": "As a reseller listing from my phone, I want to choose which marketplaces this draft goes to and what it should cost on each, so that a cross-listing built on the phone matches the one the web composer would build.",
+      "acceptanceCriteria": [
+        "ListingKitView.swift gains a platform chip row built from the same registry the web reads (CROSS_LISTING_PLATFORMS split into API and extension channels, mirrored in a Swift constant with a drift test against src/lib/constants.ts the way MARKETPLACE_EXTENSION_FLOW is guarded), each chip showing the platform's tier label (API / browser extension / coming soon) and disabled when coming soon",
+        "Each selected chip exposes a price field that defaults to blank and reads 'uses the listing price' when blank, matching src/components/flipdesk/composer/push-to-card.tsx",
+        "For API channels the sheet calls POST /api/flipdesk/listings/cross-push with listing_id, platforms and prices, exactly the body src/hooks/use-cross-listing.ts sends; for extension channels it enqueues one 'list' row per platform through ExtensionQueueService with the per-platform price carried in payload.price so US-3096's hydration keeps a client-supplied price",
+        "Results render per platform (listed with URL, queued for desktop, failed with the server's error) and the listings rows the server writes appear on the item canvas after the existing sync pull",
+        "An XCTest covers the request body shape for both branches and the blank-price rule; the ios/Scripts guards pass"
+      ],
+      "priority": 19
+    },
+    {
+      "id": "US-3104",
+      "passes": false,
+      "title": "iOS: an eBay View Item preview sheet before publish, at parity with the web composer's preview",
+      "description": "As a reseller publishing from my phone, I want to see the listing the way an eBay buyer will see it before I publish, so that a bad photo order or a description that renders wrong is caught on the phone and not on eBay.",
+      "acceptanceCriteria": [
+        "PublishDialog.swift gains a Preview button that presents an EbayViewItemPreviewSheet rendering the same sections in the same order as src/components/flipdesk/ebay-view-item-preview.tsx: photo gallery with the cover first, title, price with format (fixed / auction / best offer), condition and condition description, item specifics table, and the description",
+        "The description renders in a WKWebView when the resolved description carries the HTML marker the web component checks, and as plain text otherwise, using the block render from DescriptionBlocksService.swift so the preview and the published listing come from one string",
+        "A desktop / mobile toggle switches the layout width the way PreviewViewport does on web; the sheet is read-only and has no publish action of its own",
+        "WKWebView is configured with JavaScript disabled and no navigation allowed (link taps are swallowed), and the ATS guard in ios/Scripts stays green",
+        "An XCTest covers the HTML-marker branch selection and the section order against a fixture draft"
+      ],
+      "priority": 21
+    },
+    {
+      "id": "US-3105",
+      "passes": false,
+      "title": "iOS extension queue: revise and relist from the phone, matching the four kinds the server and the extension already run",
+      "description": "As a reseller who changed a price on my phone, I want the Poshmark or Mercari listing brought up to date the next time my desktop drains the queue, and I want to relist a stale one from the same sheet, so that the phone can run the whole lifecycle instead of only the first listing.",
+      "acceptanceCriteria": [
+        "ExtensionQueueService.Kind in ios/GradeThread/Marketplaces/ExtensionQueueService.swift gains revise and relist, matching EXTENSION_QUEUE_KINDS in services/edge-functions/src/lib/extension-queue.ts, with a test that decodes each of the four",
+        "The live-listing actions on the item canvas offer 'Update on <platform>' for a listing on an extension channel whose price, title or description changed since it was listed; it enqueues kind revise with fields naming what changed, the body the server validates in routes/flipdesk-extension-queue.ts (REVISABLE_FIELDS), and the canvas shows the server's 'Stale on <platform> since' marker until the drain confirms",
+        "The same actions offer 'Relist' for a stale extension-channel listing, enqueuing kind relist with the listing_id, and show the copied draft row the server creates; Grailed, whose delist is never, shows the needs-you sentence that the old listing must be ended by hand",
+        "Both actions are hidden when the seller has no extension install recorded (the existing lister availability signal the Listing Kit uses) and show the queue position when queued; the ios/Scripts guards pass",
+        "Android is not in scope; US-3071 owns turning the per-channel revise and relist selectors on"
+      ],
+      "priority": 24
+    },
+    {
+      "id": "US-3106",
+      "passes": false,
+      "title": "iOS Radar on a map with venue linking, and a 'What buyers want' strip on the Prospect empty state",
+      "description": "As a reseller planning a sourcing run, I want to see the nearby venues on a map, link my own sources to them, and see what buyers are asking for before I leave, so that the phone plans the trip the web can only plan at a desk.",
+      "acceptanceCriteria": [
+        "RadarNearbyView.swift renders a MapKit map above the list with one annotation per venue from GET /api/flipdesk/radar/venues, colored by the RadarScoring band the list already uses, and the list scrolls to and highlights the tapped annotation; the k-anonymity explainer and the Pro upsell card are unchanged",
+        "The empty states at RadarNearbyView.swift that say to link a source on the web are replaced by a Link a source sheet that lists the tenant's sources and calls POST /api/flipdesk/radar/my-stores/link with the same body the web my-stores tab sends; the linked venue shows the personal panel immediately",
+        "Location use stays behind RadarConsent and the map never renders before consent; the ATS and URLSession.shared guards in ios/Scripts pass",
+        "ProspectView.swift's empty state shows up to eight facets from GET /api/flipdesk/demand (term, wantCount, topMaxPriceCents) as chips; tapping one opens Scout with q set to the term, the same hand-off the web demand page makes; the strip hides when the route returns no facets or the plan lacks compPulls",
+        "XCTests cover the annotation mapping, the link body and the demand facet decoding; strings in Localizable.xcstrings"
+      ],
+      "priority": 25
+    },
+    {
+      "id": "US-3107",
+      "passes": false,
+      "title": "OPERATOR: turn on eBay image search for garment-only Prospect and apply for Marketplace Insights so prices come from sold data",
+      "description": "As the operator, I want the two eBay switches that change what a reseller sees in Prospect and Scout flipped or applied for, so that a garment photo without a tag costs no AI action and the prices shown are sold prices instead of asking prices.",
+      "acceptanceCriteria": [
+        "services/edge-functions/.env.example gains SCOUT_EBAY_IMAGE_SEARCH_ENABLED with the same one-line explanation vault/10-ops/env-reference.md already carries, and the vault row's status box is ticked once the value is set on the Coolify edge",
+        "OPERATOR: set SCOUT_EBAY_IMAGE_SEARCH_ENABLED=true on the Coolify edge, run one garment-only Prospect from a phone and record in the notes that identitySource came back 'visual' with no AI action charged (the ai_action ledger row is absent)",
+        "OPERATOR: apply for the Marketplace Insights API grant (buy.marketplace.insights scope) on the eBay developer account, after US-3042's compliance gaps are closed; record the application date and outcome in vault/10-ops/env-reference.md next to EBAY_MARKETPLACE_INSIGHTS",
+        "When the grant lands: add the scope to EBAY_SCOPES, set EBAY_MARKETPLACE_INSIGHTS=true, and confirm /prospect returns source 'sold' and stats.basis 'ebay_sold' for a query with three or more sold comps; the iOS and web basis lines change wording with no client release",
+        "Until the grant lands, the Prospect and Scout disclaimer strings on web and iOS say 'asking prices' rather than 'comps', checked by a string test on both clients"
+      ],
+      "priority": 15
     }
   ]
 }
