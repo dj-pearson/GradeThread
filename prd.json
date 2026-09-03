@@ -3329,26 +3329,6 @@
       "priority": 12
     },
     {
-      "id": "US-3078",
-      "passes": false,
-      "title": "FlipDesk money and health widgets: payouts, ad spend, inventory equity, forecast, marketplace health, consignor payouts",
-      "description": "As a reseller, I want the money and account-health cards that live on Money, Marketplaces and Analytics to be available on my overview, so that I do not open four pages to learn whether cash is coming and whether eBay is happy with me. The components exist; none of them can be placed on the overview.",
-      "acceptanceCriteria": [
-        "flipdesk.payouts wraps EbayPayoutsCard (useEbayPayouts): pending count and net, the next payout date, linking to /dashboard/flipdesk/money?view=reconcile",
-        "flipdesk.ad-spend wraps AdSpendCard (the ebay_ad_spend query) and passes the board range where the card accepts a day window",
-        "flipdesk.equity wraps InventoryEquityCard (queries flipdesk-equity and flipdesk-equity-trend)",
-        "flipdesk.forecast wraps ForecastCard with no seed brand",
-        "flipdesk.marketplace-health renders MarketplaceConnectionSummary and useEbayAccountHealth in one frame; a disconnected or expiring eBay connection (useEbayConnectionIssue) becomes the frame's alert state with a Reconnect link to /dashboard/flipdesk/marketplaces",
-        "flipdesk.consignor-payouts: consignors with a payout due from useConsignorPayouts, total due, linking to /dashboard/flipdesk/consignment; normalize removes it from the catalog for an account with no consignors rows, so it is absent rather than quiet",
-        "No card is duplicated: each widget module imports the named component and passes props, and the source pages keep rendering the same component; a test resolves every widget id in this story to its module and asserts the import of the named component",
-        "npm run verify passes and npm run ui:check reports zero"
-      ],
-      "priority": 13,
-      "dependsOn": [
-        "US-3076"
-      ]
-    },
-    {
       "id": "US-3079",
       "passes": false,
       "title": "Attention rail: one strip above both overviews that ranks what needs the seller now, with last-updated and refresh-all",
