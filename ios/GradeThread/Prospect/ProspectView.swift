@@ -277,6 +277,9 @@ struct ProspectView: View {
                 if let st = result.sellThrough, st.label != "unknown" {
                     sellThroughBlock(st, source: result.source)
                 }
+                if let ceiling = result.ceiling {
+                    ceilingBlock(ceiling)
+                }
                 if let decision = result.decision, result.costCents != nil {
                     decisionBlock(decision)
                 }
@@ -310,10 +313,14 @@ struct ProspectView: View {
     /// until it returns an empty page, and an empty sold page reads as "nothing
     /// like this ever sold".
     @ViewBuilder private func soldCompsLinks(_ result: ProspectResponse) -> some View {
-        if let urlString = result.ebaySoldSearchUrl, let url = URL(string: urlString) {
+        if let url = EbayOutboundURL.resolve(url: result.ebaySoldSearchUrl, fallback: nil) {
             VStack(alignment: .leading, spacing: 4) {
-                Link(destination: url) {
-                    Label("See sold comps on eBay", systemImage: "arrow.up.right.square")
+                // US-3097: `EbayOutboundLink`, not `Link`. A SwiftUI Link lands
+                // in an in-app browser; only UIApplication.open hands an
+                // ebay.com universal link to the installed eBay app, which is
+                // where the seller is already signed in.
+                EbayOutboundLink(url: url, surface: "prospect_sold_comps") {
+                    Label(String(localized: "See sold comps on eBay"), systemImage: "arrow.up.right.square")
                         .font(.footnote.weight(.medium))
                 }
                 .tint(Color.brandNavy)
@@ -326,9 +333,8 @@ struct ProspectView: View {
                         .accessibilityLabel(Text("Sold comps search terms: \(terms)"))
                 }
 
-                if let broadString = result.ebayBroadSearchUrl,
-                   let broadURL = URL(string: broadString) {
-                    Link(destination: broadURL) {
+                if let broadURL = EbayOutboundURL.resolve(url: result.ebayBroadSearchUrl, fallback: nil) {
+                    EbayOutboundLink(url: broadURL, surface: "prospect_broad_comps") {
                         Label(
                             result.ebayBroadSearchQuery
                                 .map { String(localized: "Too few results? Search \($0)") }
@@ -455,6 +461,59 @@ struct ProspectView: View {
         }
     }
 
+    /// The one-line "what is this number", when the server sent one.
+    ///
+    /// Renders NOTHING when there is no basis, exactly as the web component
+    /// does: a value from a response built before the provenance shipped is
+    /// silent rather than mislabelled.
+    @ViewBuilder private func basisLine(_ basis: ValueBasis?) -> some View {
+        if let basis {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(basis.headline)
+                    .font(.caption2.weight(.medium))
+                if let detail = basis.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    /// US-3097: the most to pay, which is the number a seller standing over a
+    /// rack is actually trying to work out.
+    ///
+    /// Shown whether or not it resolved. A ceiling that is simply absent from
+    /// the card teaches nothing; "we have not measured this kind of item yet"
+    /// tells the seller the app is not guessing on their behalf, which is the
+    /// same reason `sourcingCeiling` refuses to invent one server-side.
+    @ViewBuilder private func ceilingBlock(_ ceiling: ProspectCeiling) -> some View {
+        let roiPct = Int((ceiling.targetRoi * 100).rounded())
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "tag")
+                .foregroundStyle(ceiling.maxPriceCents == nil ? Color.secondary : Color.brandEmerald)
+            VStack(alignment: .leading, spacing: 1) {
+                if let max = ceiling.maxPriceCents {
+                    Text(String(localized: "Pay at most \(dollars(max)) for \(roiPct)% ROI"))
+                        .font(.subheadline.weight(.semibold))
+                    if let net = ceiling.netResaleCents {
+                        Text(String(localized: "Net after fees at the going rate: \(dollars(net))"))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                } else if let copy = ceiling.absentCopy {
+                    Text(copy)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     @ViewBuilder private func priceBlock(_ result: ProspectResponse) -> some View {
         if let stats = result.stats, stats.sufficient, stats.medianCents != nil {
             VStack(alignment: .leading, spacing: 2) {
@@ -471,6 +530,13 @@ struct ProspectView: View {
                 Text("Based on \(stats.count) condition-matched \(result.source == "sold" ? "sold" : "active") listing\(stats.count == 1 ? "" : "s")")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                // US-3097: the provenance line, in the server's words.
+                //
+                // The sentence is NOT written here — `headline` and `detail`
+                // come phrased from lib/value-disclosure.ts, the same source the
+                // web's ValueBasisNote renders, so the two clients can never
+                // describe the same number differently.
+                basisLine(stats.basis)
             }
         } else {
             VStack(alignment: .leading, spacing: 2) {

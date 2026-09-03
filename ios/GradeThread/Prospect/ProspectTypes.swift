@@ -146,6 +146,11 @@ struct ProspectResponse: Decodable {
     let sellThrough: ProspectSellThrough?
     let costCents: Int?
     let decision: ProspectDecision?
+    /// US-3097: the sourcing ceiling — the most to pay and still clear the
+    /// target return. The server has sent this since US-2851 and the app
+    /// dropped it, which left the single most useful number for someone
+    /// standing over a rack with a price tag in their hand off the screen.
+    let ceiling: ProspectCeiling?
     /// Deep link to eBay's SOLD/completed search for this item (browser).
     let ebaySoldSearchUrl: String?
     /// US-3026: the words that link searches for.
@@ -251,6 +256,64 @@ struct ProspectStats: Decodable {
     let currency: String
     let confidence: Double
     let sufficient: Bool
+    /// US-3097 / US-2850: what this number actually IS. Optional so a response
+    /// from before the provenance shipped still decodes.
+    let basis: ValueBasis?
+}
+
+/// Where a price came from, written by the server.
+///
+/// The WORDS are not built here. `headline` and `detail` arrive already
+/// phrased from services/edge-functions/src/lib/value-disclosure.ts, for the
+/// same reason the web's `ValueBasisNote` does not write them: a sentence about
+/// provenance that lives next to one surface's markup eventually says something
+/// another surface contradicts. This type decides nothing except how to decode.
+struct ValueBasis: Decodable, Equatable {
+    /// "measured_curve" | "comp_median".
+    let source: String
+    /// "active_asking" | "sold_realized" — asking prices until the Marketplace
+    /// Insights grant lands.
+    let prices: String
+    let sampleSize: Int
+    let headline: String
+    let detail: String?
+}
+
+/// US-2851's sourcing ceiling, decoded.
+///
+/// NOTE ON THE FIELD NAME: the server calls it `maxPriceCents`
+/// (`SourcingCeiling` in lib/scout-decision.ts). US-3097's acceptance criterion
+/// said `maxBuyCents`, which is not a key the edge has ever sent — decoding
+/// that name would have produced a permanently absent ceiling that looked like
+/// a server that never computes one.
+struct ProspectCeiling: Decodable, Equatable {
+    /// Highest price to pay and still clear `targetRoi`. Nil when unavailable,
+    /// and then `absentReason` says why.
+    let maxPriceCents: Int?
+    /// The target actually applied, as a fraction. 0.3 = 30%.
+    let targetRoi: Double
+    /// Net-of-fees resale at the condition-adjusted median.
+    let netResaleCents: Int?
+    /// "no_measured_curve" | "insufficient_comps" | "no_headroom", or nil.
+    let absentReason: String?
+
+    /// Why there is no ceiling, in the seller's words.
+    ///
+    /// Every one of these says what is MISSING rather than apologising, because
+    /// the honest answer here is that we do not know this garment well enough
+    /// yet, and a vaguer sentence would read as a bug in the app.
+    var absentCopy: String? {
+        switch absentReason {
+        case "no_measured_curve":
+            return String(localized: "No ceiling yet: we have not measured how condition moves the price for this kind of item.")
+        case "insufficient_comps":
+            return String(localized: "No ceiling yet: too few comparable listings to price this one.")
+        case "no_headroom":
+            return String(localized: "No ceiling: after fees there is nothing left at this item's going rate.")
+        default:
+            return nil
+        }
+    }
 }
 
 /// Transparent sell-through forecast (heuristic from price position in the comp

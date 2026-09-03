@@ -79,7 +79,7 @@ final class ProspectStoreTests: XCTestCase {
                           costCents: Int?) -> ProspectResponse {
         let stats = medianCents.map {
             ProspectStats(count: 12, lowCents: 3000, medianCents: $0, highCents: 6000,
-                          currency: "USD", confidence: 0.8, sufficient: true)
+                          currency: "USD", confidence: 0.8, sufficient: true, basis: nil)
         }
         let grade = gradeValue.map { ProspectGrade(value: $0, tier: "excellent", confidence: 0.8) }
         return ProspectResponse(
@@ -91,6 +91,7 @@ final class ProspectStoreTests: XCTestCase {
             sellThrough: nil,
             costCents: costCents,
             decision: nil,
+            ceiling: nil,
             ebaySoldSearchUrl: nil,
             ebaySoldSearchQuery: nil,
             ebayBroadSearchUrl: nil,
@@ -99,6 +100,90 @@ final class ProspectStoreTests: XCTestCase {
             disclaimer: nil,
             note: nil
         )
+    }
+
+    // MARK: - US-3097: the ceiling and the basis, decoded
+
+    /// The server has sent both since US-2851 / US-2850 and the phone dropped
+    /// them. The ceiling is the number a seller standing over a rack is trying
+    /// to work out; the basis is what says whether the median is a measured
+    /// figure or an unadjusted comp median.
+    func test_decodesCeilingAndBasis() throws {
+        let json = #"""
+        {"identified":true,
+         "item":{"brand":"Arc'teryx","title":"Arc'teryx Beta AR","keywords":[],
+                 "identifyConfidence":0.9},
+         "stats":{"count":42,"lowCents":12000,"medianCents":15000,"highCents":18000,
+                  "currency":"USD","confidence":0.8,"sufficient":true,
+                  "basis":{"source":"measured_curve","prices":"active_asking",
+                           "sampleSize":42,"slopeCentsPerPoint":800,
+                           "slopeShape":"rises_with_condition",
+                           "measuredAt":"2026-09-01T00:00:00Z",
+                           "headline":"Measured from 42 listings",
+                           "detail":"Prices are what sellers are asking."}},
+         "ceiling":{"maxPriceCents":9800,"targetRoi":0.3,"netResaleCents":12740,
+                    "absentReason":null},
+         "source":"active"}
+        """#
+        let r = try JSONDecoder().decode(ProspectResponse.self, from: Data(json.utf8))
+        // The server's field is `maxPriceCents` (SourcingCeiling in
+        // lib/scout-decision.ts). US-3097's AC called it `maxBuyCents`, which
+        // the edge has never sent — decoding that name would have produced a
+        // permanently absent ceiling that looked like a server that never
+        // computes one.
+        XCTAssertEqual(r.ceiling?.maxPriceCents, 9800)
+        XCTAssertEqual(r.ceiling?.targetRoi, 0.3)
+        XCTAssertEqual(r.ceiling?.netResaleCents, 12740)
+        XCTAssertNil(r.ceiling?.absentReason)
+        XCTAssertNil(r.ceiling?.absentCopy, "a resolved ceiling has nothing to explain")
+        XCTAssertEqual(r.stats?.basis?.headline, "Measured from 42 listings")
+        XCTAssertEqual(r.stats?.basis?.prices, "active_asking")
+    }
+
+    func test_decodesAnAbsentCeilingAndNamesWhy() throws {
+        // Absent is the COMMON case today: sourcingCeiling refuses to produce
+        // one without a measured curve, and most cells do not have one yet.
+        let json = #"""
+        {"identified":true,
+         "item":{"brand":null,"title":"Flannel shirt","keywords":[],"identifyConfidence":0.5},
+         "ceiling":{"maxPriceCents":null,"targetRoi":0.3,"netResaleCents":null,
+                    "absentReason":"no_measured_curve"},
+         "source":"active"}
+        """#
+        let r = try JSONDecoder().decode(ProspectResponse.self, from: Data(json.utf8))
+        XCTAssertNil(r.ceiling?.maxPriceCents)
+        XCTAssertEqual(r.ceiling?.absentReason, "no_measured_curve")
+        let copy = try XCTUnwrap(r.ceiling?.absentCopy)
+        XCTAssertTrue(
+            copy.contains("not measured"),
+            "the copy has to say what is missing — a vaguer sentence reads as a bug in the app"
+        )
+    }
+
+    func test_aResponseWithNoCeilingOrBasisStillDecodes() throws {
+        // An older server, and the not-identified response, both send neither.
+        let json = #"""
+        {"identified":false,"item":{"brand":null,"title":null,"keywords":[],
+         "identifyConfidence":0},"source":"active","note":"Could not identify."}
+        """#
+        let r = try JSONDecoder().decode(ProspectResponse.self, from: Data(json.utf8))
+        XCTAssertNil(r.ceiling)
+        XCTAssertNil(r.stats?.basis)
+    }
+
+    func test_everyAbsentReasonHasCopyAndAnUnknownOneStaysSilent() {
+        for reason in ["no_measured_curve", "insufficient_comps", "no_headroom"] {
+            let ceiling = ProspectCeiling(
+                maxPriceCents: nil, targetRoi: 0.3, netResaleCents: nil, absentReason: reason
+            )
+            XCTAssertNotNil(ceiling.absentCopy, "\(reason) has no sentence")
+        }
+        // A reason this build has never heard of says nothing rather than
+        // printing a raw enum at a seller.
+        let unknown = ProspectCeiling(
+            maxPriceCents: nil, targetRoi: 0.3, netResaleCents: nil, absentReason: "future_reason"
+        )
+        XCTAssertNil(unknown.absentCopy)
     }
 
     // MARK: - costNeedsRerun

@@ -143,6 +143,100 @@ final class ScoutScanTests: XCTestCase {
         XCTAssertTrue(store.canSearch)
     }
 
+    // MARK: - US-3097: basis, affiliate url, and Bought it
+
+    func test_decodesValueBasisAndAffiliateURL() throws {
+        // Both fields are optional on the wire. `url` is nil until US-3082
+        // ships, and `valueBasis` is nil on a response built before US-2850 —
+        // neither may break the decode, or a scan returns nothing at all.
+        let json = #"""
+        {"scanned":1,"candidates":[
+          {"itemId":"v1","title":"Arc'teryx Beta AR","imageUrl":null,
+           "itemWebUrl":"https://www.ebay.com/itm/1","askingCents":6200,
+           "shadowGrade":8.0,"gradeConfidence":0.8,"valueLowCents":12000,
+           "valueMedianCents":15000,"valueHighCents":18000,"estMarginCents":6000,
+           "estMarginPct":0.97,"underpriced":true,"actionable":true,
+           "reason":"Underpriced for its condition",
+           "url":"https://www.ebay.com/itm/1?mkcid=1&campid=5339154788",
+           "valueBasis":{"source":"measured_curve","prices":"active_asking",
+             "sampleSize":42,"slopeCentsPerPoint":800,
+             "slopeShape":"rises_with_condition","measuredAt":"2026-09-01T00:00:00Z",
+             "headline":"Measured from 42 listings","detail":"Prices are what sellers are asking."}}
+        ]}
+        """#
+        let r = try JSONDecoder().decode(ScoutScanResponse.self, from: Data(json.utf8))
+        let c = try XCTUnwrap(r.candidates.first)
+        XCTAssertEqual(c.valueBasis?.headline, "Measured from 42 listings")
+        XCTAssertEqual(c.valueBasis?.source, "measured_curve")
+        XCTAssertEqual(c.valueBasis?.sampleSize, 42)
+        XCTAssertEqual(
+            c.outboundURL?.absoluteString,
+            "https://www.ebay.com/itm/1?mkcid=1&campid=5339154788",
+            "the affiliate URL must win, or the commission is never credited"
+        )
+    }
+
+    func test_boughtItWritesTheAskingPriceAsTheCostBasis() async throws {
+        let candidate = makeCandidate(id: "v1", margin: 6000)
+        let service = FakeScoutService(
+            suggestion: nil,
+            result: .success(ScoutScanResponse(scanned: 1, candidates: [candidate], disclaimer: nil, note: nil))
+        )
+        let store = ScoutStore(service: service)
+
+        await store.buy(candidate)
+
+        XCTAssertEqual(service.buyCalls.count, 1)
+        let request = try XCTUnwrap(service.buyCalls.first)
+        XCTAssertEqual(request.title, candidate.title)
+        XCTAssertEqual(
+            request.costCents, candidate.askingCents,
+            "the asking price IS the cost basis — it is what the flipper hands over"
+        )
+        XCTAssertEqual(
+            request.targetCents, candidate.valueMedianCents,
+            "the item lands carrying the number Scout just worked out"
+        )
+        XCTAssertEqual(request.gradeValue, candidate.shadowGrade)
+        XCTAssertEqual(store.boughtItemIds["v1"], "item-1")
+        XCTAssertNil(store.buyError)
+    }
+
+    func test_boughtItIsIdempotentPerCandidate() async {
+        // A second tap on a row already committed would write a second
+        // inventory item for one garment, and the seller finds the duplicate
+        // days later with no way to tell which one is real.
+        let candidate = makeCandidate(id: "v1")
+        let service = FakeScoutService(
+            suggestion: nil,
+            result: .success(ScoutScanResponse(scanned: 1, candidates: [candidate], disclaimer: nil, note: nil))
+        )
+        let store = ScoutStore(service: service)
+
+        await store.buy(candidate)
+        await store.buy(candidate)
+
+        XCTAssertEqual(service.buyCalls.count, 1, "the second tap must be refused")
+    }
+
+    func test_boughtItSurfacesAFailureAndStaysBuyable() async {
+        let candidate = makeCandidate(id: "v1")
+        let service = FakeScoutService(
+            suggestion: nil,
+            result: .success(ScoutScanResponse(scanned: 1, candidates: [candidate], disclaimer: nil, note: nil))
+        )
+        service.buyResult = .failure(EdgeAPIError.network("offline"))
+        let store = ScoutStore(service: service)
+
+        await store.buy(candidate)
+
+        XCTAssertNotNil(store.buyError)
+        XCTAssertNil(
+            store.boughtItemIds["v1"],
+            "a failed buy must not mark the row added — the seller would think it was recorded"
+        )
+    }
+
     // MARK: - Helpers
 
     private func makeCandidate(
@@ -157,7 +251,8 @@ final class ScoutScanTests: XCTestCase {
             askingCents: 1000, shadowGrade: grade, gradeConfidence: confidence,
             valueLowCents: 1500, valueMedianCents: 2000, valueHighCents: 2500,
             estMarginCents: margin, estMarginPct: margin.map { Double($0) / 1000 },
-            underpriced: false, actionable: actionable, reason: ""
+            underpriced: false, actionable: actionable, reason: "",
+            valueBasis: nil, url: nil
         )
     }
 }
@@ -189,5 +284,16 @@ private final class FakeScoutService: ScoutScanning {
         case .success(let response): return response
         case .failure(let error): throw error
         }
+    }
+
+    // US-3097
+    var buyResult: Result<ProspectBuyResponse, Error> = .success(
+        ProspectBuyResponse(id: "item-1", status: "sourced")
+    )
+    private(set) var buyCalls: [ProspectBuyRequest] = []
+
+    func buy(_ request: ProspectBuyRequest) async throws -> ProspectBuyResponse {
+        buyCalls.append(request)
+        return try buyResult.get()
     }
 }

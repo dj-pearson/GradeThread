@@ -5,6 +5,11 @@ import SwiftUI
 /// eBay listing. Mirrors the web `CandidateRow`.
 struct ScoutCandidateRow: View {
     let candidate: ScoutCandidate
+    /// US-3097: the row's two actions live with the store, not the row, so a
+    /// buy survives the row scrolling out of the LazyVStack.
+    var isBuying: Bool = false
+    var isBought: Bool = false
+    var onBuy: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -44,15 +49,35 @@ struct ScoutCandidateRow: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                // US-3097 / US-2850: what the est. value is made of. Without it
+                // a measured number and an unadjusted comp median render
+                // identically, and the seller has no way to tell which one they
+                // are about to spend money on.
+                if let basis = candidate.valueBasis {
+                    Text(basis.headline)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(accessibilitySummary)
 
-            // The link stays a separate, reachable accessibility element.
-            if let urlString = candidate.itemWebUrl, let url = URL(string: urlString) {
-                HStack {
-                    Spacer(minLength: 0)
-                    Link(destination: url) {
+            // The actions stay separate, reachable accessibility elements.
+            HStack(spacing: 12) {
+                if onBuy != nil {
+                    boughtItButton
+                }
+                Spacer(minLength: 0)
+                // US-3097: UIApplication.open, not a SwiftUI Link. Only the
+                // former hands an ebay.com universal link to the installed eBay
+                // app — where the seller is already signed in and can buy the
+                // item they are standing in front of. `outboundURL` prefers the
+                // affiliate URL the server will send once US-3082 lands.
+                if let url = candidate.outboundURL {
+                    EbayOutboundLink(url: url, surface: "scout_candidate") {
                         HStack(spacing: 3) {
                             Text("eBay")
                             Image(systemName: "arrow.up.right.square")
@@ -92,6 +117,35 @@ struct ScoutCandidateRow: View {
     }
 
     // MARK: - Subviews
+
+    /// "Bought it" → an inventory row at `sourced`, priced at the asking price.
+    ///
+    /// Disabled and relabelled once it has run. A second tap would write a
+    /// second item for one garment, and the seller would find the duplicate
+    /// days later with no way to tell which one is real.
+    @ViewBuilder private var boughtItButton: some View {
+        if isBought {
+            Label("Added", systemImage: "checkmark.circle.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.brandEmerald)
+                .accessibilityLabel("Added to inventory")
+        } else {
+            Button {
+                onBuy?()
+            } label: {
+                if isBuying {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Label("Bought it", systemImage: "bag.badge.plus")
+                        .font(.caption.weight(.semibold))
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(isBuying)
+            .accessibilityLabel("Bought it, add to inventory")
+        }
+    }
 
     @ViewBuilder
     private var thumbnail: some View {

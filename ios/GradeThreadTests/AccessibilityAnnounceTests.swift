@@ -42,7 +42,9 @@ final class AccessibilityAnnounceTests: XCTestCase {
             estMarginPct: 0.72,
             underpriced: true,
             actionable: true,
-            reason: "Priced below comparable condition")
+            reason: "Priced below comparable condition",
+            valueBasis: nil,
+            url: nil)
         let summary = ScoutCandidateRow(candidate: candidate).accessibilitySummary
 
         XCTAssertTrue(summary.contains("Patagonia Better Sweater"))
@@ -72,7 +74,8 @@ final class AccessibilityAnnounceTests: XCTestCase {
             askingCents: 1000, shadowGrade: nil, gradeConfidence: 0.4,
             valueLowCents: nil, valueMedianCents: nil, valueHighCents: nil,
             estMarginCents: nil, estMarginPct: nil,
-            underpriced: false, actionable: false, reason: "Not enough comps")
+            underpriced: false, actionable: false, reason: "Not enough comps",
+            valueBasis: nil, url: nil)
         let summary = ScoutCandidateRow(candidate: candidate).accessibilitySummary
         XCTAssertTrue(summary.contains("uncertain"))
         XCTAssertFalse(summary.contains("Deal"))

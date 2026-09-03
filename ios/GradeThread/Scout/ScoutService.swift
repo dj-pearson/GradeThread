@@ -12,6 +12,13 @@ protocol ScoutScanning {
     /// Runs a scan: searches eBay within `categoryId` (narrowed by q/brand),
     /// shadow-grades each candidate, and returns them ranked.
     func scan(categoryId: String, q: String?, brand: String?, limit: Int) async throws -> ScoutScanResponse
+
+    /// US-3097: commit a candidate the seller actually bought into inventory at
+    /// `sourced`, with the asking price as the cost basis. Same
+    /// `/api/flipdesk/scout/buy` route Prospect already posts to — a scout row
+    /// and a prospected garment become the same kind of inventory row, so
+    /// giving this one its own endpoint would be two ways to make one thing.
+    func buy(_ request: ProspectBuyRequest) async throws -> ProspectBuyResponse
 }
 
 /// Talks to the edge ScoutAI route. Uses a *plain* `JSONEncoder`/`JSONDecoder`
@@ -51,6 +58,15 @@ final class ScoutService: ScoutScanning {
     func scan(categoryId: String, q: String?, brand: String?, limit: Int) async throws -> ScoutScanResponse {
         let body = ScoutScanRequest(categoryId: categoryId, q: q, brand: brand, limit: limit)
         return try await post(path: "/api/flipdesk/scout", body: body)
+    }
+
+    func buy(_ request: ProspectBuyRequest) async throws -> ProspectBuyResponse {
+        // NOTE: the route takes no eBay item id — it writes an inventory_items
+        // row from title/brand/size/color/cost/target/grade and nothing else
+        // (routes/flipdesk-scout.ts). Sending the candidate's itemId would be
+        // silently dropped, so it is not sent; the listing is identified by its
+        // title and the price the seller paid.
+        return try await post(path: "/api/flipdesk/scout/buy", body: request)
     }
 
     // MARK: - Transport

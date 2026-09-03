@@ -51,6 +51,22 @@ struct ScoutCandidate: Decodable, Identifiable, Equatable {
     /// A real buy signal: sufficient comps + confident grade + positive margin.
     let actionable: Bool
     let reason: String
+    /// US-2850: what the value behind this row actually is. The server has sent
+    /// it since that story and the row dropped it, so a measured number and an
+    /// unadjusted median looked identical on the phone.
+    let valueBasis: ValueBasis?
+    /// US-3097: the link to open.
+    ///
+    /// Nil today. US-3082 puts eBay's `itemAffiliateWebUrl` here, and decoding
+    /// it NOW means the affiliate link starts flowing the day the server sends
+    /// it, with no App Store release in between. `outboundURL` picks between
+    /// this and `itemWebUrl`; nothing in the UI reads either directly.
+    let url: String?
 
     var id: String { itemId }
+
+    /// The URL a tap should open — affiliate when the server has one.
+    var outboundURL: URL? {
+        EbayOutboundURL.resolve(url: url, fallback: itemWebUrl)
+    }
 }

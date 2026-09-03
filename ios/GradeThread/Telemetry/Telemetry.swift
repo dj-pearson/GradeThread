@@ -356,6 +356,14 @@ public enum TelemetryEvent {
     public static let ebaySynced = "ebay_synced"
     public static let listingPublished = "listing_published"
     public static let saleRecorded = "sale_recorded"
+    /// US-3097: a tap that hands the seller to eBay from Scout or Prospect.
+    ///
+    /// Carries `platform`, the `surface` it came from, and whether the URL
+    /// opened had eBay Partner Network attribution on it. That last flag is the
+    /// point: without it an EPN click report cannot be reconciled against the
+    /// opens this app performed, and a missing commission is indistinguishable
+    /// from a broken link. No user identifier beyond the session key.
+    public static let scoutOutboundOpen = "scout.outbound_open"
 }
 
 /// Stable, non-PII screen identifiers for explicit `Telemetry.screen(_:)`

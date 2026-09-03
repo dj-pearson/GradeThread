@@ -132,8 +132,19 @@ struct ScoutView: View {
                 // don't all instantiate eagerly inside the ScrollView.
                 LazyVStack(spacing: 12) {
                     ForEach(store.displayedCandidates) { candidate in
-                        ScoutCandidateRow(candidate: candidate)
+                        ScoutCandidateRow(
+                            candidate: candidate,
+                            isBuying: store.buyingItemId == candidate.itemId,
+                            isBought: store.boughtItemIds[candidate.itemId] != nil,
+                            onBuy: { Task { await store.buy(candidate) } }
+                        )
                     }
+                }
+                if let buyError = store.buyError {
+                    Text(buyError)
+                        .font(.caption)
+                        .foregroundStyle(Color.brandRed)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
