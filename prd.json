@@ -3329,28 +3329,6 @@
       "priority": 12
     },
     {
-      "id": "US-3077",
-      "passes": false,
-      "title": "FlipDesk action widgets: Needs you, offers waiting, extension queue, sync conflicts, AutoLister drafts, scheduled drops, automations, repricing",
-      "description": "As a reseller, I want the overview to carry the work that has a clock on it (eBay queues, open offers, jobs the extension is waiting to run, sync conflicts, drafts to review, drops about to publish), so that I open the overview and know what to do first instead of touring six pages. Today src/components/flipdesk/needs-you-card.tsx is mounted only on post-sale and none of these queues reaches the overview.",
-      "acceptanceCriteria": [
-        "The six-queue merge inside needs-you-card.tsx moves into useNeedsYou() in src/hooks/use-needs-you.ts, returning the rankNeedsYou output plus per-queue loading and error flags; NeedsYouCard and the new widget both consume it and src/pages/flipdesk/__tests__/needs-you.test.ts stays green untouched",
-        "flipdesk.needs-you: the ranked list (deadline first, then money), five rows at md and ten at lg, each row linking to its queue anchor on /dashboard/flipdesk/post-sale or to /dashboard/flipdesk/offers; quiet state 'Nothing waiting on you'",
-        "flipdesk.offers: open best offers from useEbayBestOffers with the count and the soonest expiry rendered through deadlineLabel, linking to /dashboard/flipdesk/offers",
-        "flipdesk.extension-queue: pending and failed counts from useExtensionQueue plus usePendingDelists and usePendingRevises, linking to the surface that runs them; when no extension has checked in, the widget says so and links to /connect-extension",
-        "flipdesk.sync-conflicts: unresolved count from useSyncConflicts, linking to the resolver on the inventory surface",
-        "flipdesk.autolister-drafts: drafts waiting review, using the drafts read from src/pages/flipdesk/autolister-drafts.tsx extracted into src/hooks/use-autolister.ts, linking to /dashboard/flipdesk/autolister?view=drafts; plan-gated the way the sidebar entry is (a locked state that names the plan, never hidden)",
-        "flipdesk.scheduled-drops: drops due in the next seven days from the read src/pages/flipdesk/scheduled-drops.tsx performs, extracted into src/hooks/use-scheduled-drops.ts, naming the next drop and its local time, linking to /dashboard/flipdesk/scheduled-drops",
-        "flipdesk.automations: active rule count and actions taken in the last seven days from useAutomationRules and useAutomationRuleActions, linking to /dashboard/flipdesk/pricing?tab=automations",
-        "flipdesk.repricing: open suggestion count from useRepricingSuggestions excluding reason_code OK, linking to /dashboard/flipdesk/pricing?tab=repricing",
-        "Every widget uses only hooks that exist or are extracted from a page in this story; no new edge route and no new table. Every count shows a skeleton while loading and an inline retry on error (the ErrorState pattern). npm run verify passes and npm run ui:check reports zero"
-      ],
-      "priority": 13,
-      "dependsOn": [
-        "US-3076"
-      ]
-    },
-    {
       "id": "US-3078",
       "passes": false,
       "title": "FlipDesk money and health widgets: payouts, ad spend, inventory equity, forecast, marketplace health, consignor payouts",
