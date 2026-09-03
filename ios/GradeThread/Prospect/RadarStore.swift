@@ -153,7 +153,8 @@ final class RadarStore {
                 distanceKm: distance(to: RadarPoint(lat: venue.lat, lng: venue.lng)),
                 network: venue.network,
                 personal: mineByVenue[venue.id],
-                score: RadarScoring.hotnessScore(activity, weights: weights, peak: peak)
+                score: RadarScoring.hotnessScore(activity, weights: weights, peak: peak),
+                point: RadarPoint(lat: venue.lat, lng: venue.lng)
             ))
         }
 
@@ -172,7 +173,8 @@ final class RadarStore {
                 distanceKm: distance(to: point),
                 network: nil,
                 personal: store,
-                score: nil
+                score: nil,
+                point: point
             ))
         }
 
@@ -342,6 +344,23 @@ final class RadarStore {
         centre = point
         area = RadarScoring.quantize(RadarScoring.boundingBox(around: point))
         await loadNetwork()
+    }
+
+    /// US-3106: say that one of the seller's sources IS a venue on the map.
+    ///
+    /// Returns an error message, or nil on success. The personal layer is
+    /// re-read on the way out rather than patched locally: the link changes
+    /// which store owns which items, spend and sales, and the server is the one
+    /// that knows the answer. Re-reading is one free, ungated call and it is
+    /// what makes the venue show its personal panel immediately.
+    func link(sourceId: String, venueId: String?) async -> String? {
+        do {
+            _ = try await service.linkStore(sourceId: sourceId, venueId: venueId)
+            await loadPersonal()
+            return nil
+        } catch {
+            return (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
     }
 }
 

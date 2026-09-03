@@ -20,6 +20,18 @@ struct ProspectView: View {
     @Environment(AuthStore.self) private var authStore
     /// The saved row this session wrote, so an add can stamp it "Added".
     @State private var loggedRowId: String?
+
+    // ── US-3106: what buyers are asking for ─────────────────────────────────
+    /// The demand chips on the empty state. Silent on failure and on the plan
+    /// gate — this is a hint before a scan, not a step, and a seller standing in
+    /// a shop with no signal needs the shutter button, not an error about a
+    /// market summary they did not ask for.
+    @State private var demand = DemandStrip()
+    /// The term a chip handed off, applied AFTER this sheet is gone. Setting the
+    /// router while the sheet is still animating out asks SwiftUI to swap one
+    /// sheet for another mid-transition, which is how a tap silently does
+    /// nothing.
+    @State private var pendingScoutTerm: String?
     /// US-3099: ONE full-screen cover slot, two destinations. A view gets one
     /// (`check-chained-sheets`), and chaining a second is undefined in SwiftUI —
     /// the same lesson ``ToolModule`` records for the Home tab.
@@ -59,6 +71,7 @@ struct ProspectView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
 
+                    demandStrip
                     photoStrip
                     captureButtons
                     onDeviceHints
@@ -192,6 +205,14 @@ struct ProspectView: View {
             } message: {
                 Text(String(localized: "What does the tag actually say? Your correction is used as-is."))
             }
+            // ── US-3106: the demand strip ───────────────────────────────────
+            .task { await demand.loadIfNeeded() }
+            .onDisappear {
+                guard let term = pendingScoutTerm else { return }
+                pendingScoutTerm = nil
+                router.pendingScoutKeyword = term
+                router.pendingToolModule = .scout
+            }
             // ── US-3100: the sourcing log ───────────────────────────────────
             .onAppear(perform: restoreIfRequested)
             .onChange(of: store.resultToken) { _, _ in recordResult() }
@@ -234,6 +255,70 @@ struct ProspectView: View {
         guard let row = log?.row(id: rowId) else { return }
         store.restore(row)
         loggedRowId = row.id
+    }
+
+    // MARK: - US-3106: what buyers want
+
+    /// Up to eight of the most-wanted brands and categories, before the seller
+    /// has taken a photo.
+    ///
+    /// ON THE EMPTY STATE ONLY. Once there is a garment on screen the question
+    /// has changed from "what should I look for" to "is THIS one worth buying",
+    /// and a row of other people's wants next to a verdict about the thing in
+    /// your hand is noise at the worst moment.
+    ///
+    /// Hidden when the route returns nothing and when the plan does not carry
+    /// `compPulls` — the gate is the same one the scan below uses, and a second
+    /// upgrade prompt on a screen that already has one sells nothing.
+    @ViewBuilder private var demandStrip: some View {
+        if demand.isVisible, store.photos.isEmpty, store.result == nil, store.restored == nil {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(String(localized: "What buyers are asking for"))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(demand.facets) { facet in
+                            Button {
+                                AppRouter.haptic()
+                                // Hand off to Scout, which searches live
+                                // listings for it — the same move the web
+                                // demand page makes.
+                                pendingScoutTerm = facet.term
+                                dismiss()
+                            } label: {
+                                demandChip(facet)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 1)
+                }
+            }
+        }
+    }
+
+    private func demandChip(_ facet: DemandFacet) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(facet.term)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+            HStack(spacing: 4) {
+                Text(String(localized: "\(facet.wantCount) want\(facet.wantCount == 1 ? "" : "s")"))
+                if let ceiling = facet.topMaxPriceCents, ceiling > 0 {
+                    // The budget is the half that decides whether it is worth
+                    // sourcing. "Twelve people want it" and "twelve people want
+                    // it and one will pay $180" are different sentences.
+                    Text(String(localized: "· \(dollars(ceiling))"))
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.brandNavy.opacity(0.07), in: Capsule())
+        .foregroundStyle(Color.brandNavy)
     }
 
     // MARK: - Capture

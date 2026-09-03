@@ -394,6 +394,7 @@ enum RadarHotnessLevel: String, CaseIterable, Sendable {
         case .peak: return "Busiest near you"
         }
     }
+
 }
 
 struct RadarDayBar: Equatable, Sendable, Identifiable {
@@ -428,6 +429,11 @@ struct RadarNearbyRow: Equatable, Sendable, Identifiable {
     /// Nil for a row with no network data. NOT zero: zero would claim we looked
     /// and found it quiet.
     let score: Double?
+    /// US-3106: where the row goes on the map. A geohash CELL CENTRE (US-1862),
+    /// identical for everyone in that cell — it places a store, and is not a
+    /// record of where anybody stood. Nil for one of the reseller's own sources
+    /// that has never been linked to a place.
+    let point: RadarPoint?
 
     var level: RadarHotnessLevel? { score.map(RadarScoring.hotnessLevel) }
 
@@ -439,7 +445,8 @@ struct RadarNearbyRow: Equatable, Sendable, Identifiable {
         distanceKm: Double? = nil,
         network: RadarNetworkStats? = nil,
         personal: RadarPersonalStore? = nil,
-        score: Double? = nil
+        score: Double? = nil,
+        point: RadarPoint? = nil
     ) {
         self.id = id
         self.venueId = venueId
@@ -449,5 +456,6 @@ struct RadarNearbyRow: Equatable, Sendable, Identifiable {
         self.network = network
         self.personal = personal
         self.score = score
+        self.point = point
     }
 }

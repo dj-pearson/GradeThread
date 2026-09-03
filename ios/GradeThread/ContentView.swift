@@ -1637,6 +1637,14 @@ final class AppRouter {
     /// Consumed by the inventory list the same way — read once, then cleared.
     var pendingInventoryFilter: InventoryDeepFilter?
 
+    /// US-3106: a search term a demand chip handed to Scout, waiting for the
+    /// Scout sheet to open on it.
+    ///
+    /// Parked here for the same reason as ``pendingToolModule``, which it always
+    /// travels with: Home owns the sheet, so the module and what it should open
+    /// on have to arrive together. Read once by the presentation, then cleared.
+    var pendingScoutKeyword: String?
+
     /// US-3100: a saved Prospect verdict the seller tapped on Home, waiting for
     /// ``ProspectView`` to open on it.
     ///
@@ -1644,6 +1652,16 @@ final class AppRouter {
     /// sheet, so the row that was tapped and the module that presents it have
     /// to be handed over together. Read once, then cleared.
     var pendingProspectResultId: String?
+
+    /// US-3106: read the parked Scout term and clear it in one step.
+    ///
+    /// One method rather than a read at the call site and a clear somewhere
+    /// else: the clear is the part that gets forgotten, and forgetting it means
+    /// every later open of Scout re-applies a search the seller made once.
+    func takePendingScoutKeyword() -> String? {
+        defer { pendingScoutKeyword = nil }
+        return pendingScoutKeyword
+    }
 
     /// The filters a deep link can ask the inventory list to apply.
     enum InventoryDeepFilter: Equatable {

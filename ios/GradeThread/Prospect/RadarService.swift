@@ -33,6 +33,11 @@ protocol RadarReading {
 
     /// The caller's own sourcing history per store. Free, ungated, works at n=1.
     func myStores(sort: String) async throws -> RadarPersonalStoresPayload
+
+    /// US-3106: say that one of your sources IS a place on the map. `venueId`
+    /// nil unlinks.
+    @discardableResult
+    func linkStore(sourceId: String, venueId: String?) async throws -> String?
 }
 
 @MainActor
@@ -67,6 +72,30 @@ final class RadarService: RadarReading {
             "/api/flipdesk/radar/my-stores",
             query: [URLQueryItem(name: "sort", value: sort)]
         )
+    }
+
+    /// POST /my-stores/link — the join that makes the personal layer whole.
+    ///
+    /// Money lives on a source (items, spend, sales) and visits live on a venue;
+    /// until somebody says they are the same shop the two halves cannot meet.
+    /// Until now that somebody had to be at a desk: both empty states on this
+    /// screen told a seller standing in a car park to go and do it on the web.
+    ///
+    /// The body is `{ source_id, venue_id }` — the same two keys
+    /// `useLinkRadarStore` sends. It is spelled camelCase here because the
+    /// shared ``EdgeAPI`` encoder converts to snake_case on the way out; see
+    /// ``RadarLinkRequest``.
+    @discardableResult
+    func linkStore(sourceId: String, venueId: String?) async throws -> String? {
+        do {
+            let response: RadarLinkResponse = try await EdgeAPI.shared.postJSON(
+                "/api/flipdesk/radar/my-stores/link",
+                body: RadarLinkRequest(sourceId: sourceId, venueId: venueId)
+            )
+            return response.venueId
+        } catch let error as EdgeAPIError {
+            throw RadarService.mapped(error)
+        }
     }
 
     // MARK: - Transport

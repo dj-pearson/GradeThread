@@ -8,6 +8,11 @@ import SwiftUI
 /// pro feature — on a free plan the scan returns a gate error which surfaces
 /// inline.
 struct ScoutView: View {
+    /// US-3106: a term handed over from Prospect's demand strip. Seeds the
+    /// keyword field and runs nothing on its own — a scan is a metered AI action
+    /// and a chip tap is an intent to look, not an instruction to spend.
+    var initialKeyword: String?
+
     @StateObject private var store = ScoutStore()
     @Environment(\.dismiss) private var dismiss
     /// US-1213: observe the app-wide plan-gate sink. A 402 from a scan routes
@@ -26,6 +31,9 @@ struct ScoutView: View {
     @State private var lockedGate: PlanGateError?
     /// US-3098: the deal-filter sheet.
     @State private var showFilters = false
+    /// US-3106: one-shot, so re-rendering does not overwrite what the seller
+    /// typed after the hand-off seeded the field.
+    @State private var didSeedKeyword = false
 
     var body: some View {
         NavigationStack {
@@ -57,6 +65,16 @@ struct ScoutView: View {
             }
             .sheet(isPresented: $showFilters) {
                 ScoutFilterSheet(store: store, onApply: runScan)
+            }
+            // US-3106: seed the field from a demand chip, once. Never runs the
+            // scan: that is a metered AI action, and "show me what people want"
+            // is not "spend one of my scans on it".
+            .onAppear {
+                guard !didSeedKeyword,
+                      let initialKeyword,
+                      !initialKeyword.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+                didSeedKeyword = true
+                store.keyword = initialKeyword
             }
         }
     }
