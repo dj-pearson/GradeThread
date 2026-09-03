@@ -60,6 +60,7 @@ import {
   planProspectIdentification,
 } from "../lib/prospect-identify.ts";
 import { parseProspectOverride } from "../lib/prospect-repull.ts";
+import { normalizeBarcode, planFromHints } from "../lib/prospect-onboard-hints.ts";
 import {
   chooseProviders,
   ebayImageProvider,
@@ -1088,6 +1089,16 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     brandOverride?: unknown;
     gradeValue?: unknown;
     gradeTier?: unknown;
+    // US-3099: what the PHONE already read before it uploaded anything. The
+    // on-device OCR (Vision/TagTextRecognizer.swift) and barcode scanner are
+    // free, offline and instant; paying Claude to re-read the same tag from a
+    // JPEG that had to be uploaded first is the cost this removes. See
+    // lib/prospect-onboard-hints.ts for the confidence floor and why a barcode
+    // needs none.
+    barcode?: unknown;
+    brandHint?: unknown;
+    sizeHint?: unknown;
+    hintConfidence?: unknown;
   };
   try {
     body = await c.req.json();
@@ -1114,6 +1125,14 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   const override = parseProspectOverride(body);
   if (override.kind === "invalid") return jsonError(c, 400, override.error);
   const isRepull = override.kind === "override";
+
+  // US-3099: what the phone read on-device, and what that buys.
+  const hintPlan = planFromHints({
+    barcode: body.barcode,
+    brandHint: body.brandHint,
+    sizeHint: body.sizeHint,
+    hintConfidence: body.hintConfidence,
+  });
 
   // Accept a single `image` or up to two `images` (front + tag). Front is used
   // for the condition grade; all are fed to the identifier (the tag carries the
@@ -1243,6 +1262,18 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     identitySource = "seller";
     // The one authoritative source in the union. A human looked at the garment.
     identityIsAuthoritative = true;
+  } else if (hintPlan.skipIdentify) {
+    // US-3099: the phone already read it, and read it well enough. Nothing to
+    // identify, so no AI action is spent here at all.
+    identity = identityFromKeywords(
+      hintPlan.brand ?? "",
+      [hintPlan.brand, hintPlan.size].filter((v): v is string => Boolean(v)),
+    );
+    if (hintPlan.brand) identity.brand = hintPlan.brand;
+    if (hintPlan.size) identity.size = hintPlan.size;
+    identity.confidence = hintPlan.authoritative ? 1 : 0.8;
+    identitySource = hintPlan.source;
+    identityIsAuthoritative = hintPlan.authoritative;
   } else if (idPlan.useVisual) {
     const vIdx = pickVisualImageIndex(cappedRoles);
     // -1 would mean the plan and the picker disagree; a unit test pins that they
@@ -1271,6 +1302,10 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     // Already identified by the seller, above. Deliberately first, so that
     // adding a branch below can never reach a re-pull by accident: the cost
     // claim in prospect-repull_test.ts is that NO AI action is spent here.
+  } else if (hintPlan.skipIdentify) {
+    // US-3099: identified by the phone, above. Same shape and same reason as
+    // the re-pull branch — the identification already happened, so reaching the
+    // identifier below would spend an action to re-derive what we have.
   } else if (visualComps?.matchedTitle) {
     // Visual search carried it. NO AI action was spent here.
     //
@@ -1398,6 +1433,12 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   const compQuery = {
     q: buildCompQuerySeed(identity) || keywords.join(" ") || undefined,
     brand: brand ?? undefined,
+    // US-3099: a scanned barcode pins the EXACT product, which is a stronger
+    // comp match than any keyword built off a title. searchBrowseComps already
+    // lets `gtin` dominate and skips the keyword query when one is present, so
+    // this is the whole of what a scan buys on the comps side — and it is the
+    // reason a barcode is worth scanning rather than photographing the tag.
+    gtin: normalizeBarcode(body.barcode) ?? undefined,
   };
 
   const [categoryOutcome, gradeOutcome] = await Promise.all([

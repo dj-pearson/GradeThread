@@ -70,8 +70,29 @@ struct ProspectRequest: Encodable {
     /// Carried across from the run being corrected, never recomputed.
     let gradeValue: Double?
     let gradeTier: String?
+    // ── US-3099: what the phone read before it uploaded anything ────────────
+    //
+    // The tag OCR and the barcode scanner both run on-device, for free, offline,
+    // in the time the shutter takes. Sending what they read lets the server skip
+    // a metered AI action spent re-reading the same tag from a JPEG that had to
+    // be uploaded first. The server applies its own confidence floor
+    // (lib/prospect-onboard-hints.ts); the phone reports, it does not decide.
+    /// A scanned retail barcode. Checksummed, so the server trusts it outright.
+    let barcode: String?
+    /// Brand read off the tag by Vision.
+    let brandHint: String?
+    /// Size read off the tag by Vision.
+    let sizeHint: String?
+    /// Vision's own confidence in the two hints above, 0..1.
+    let hintConfidence: Double?
 
-    init(images: [String], roles: [ProspectPhotoRole], costCents: Int?, fix: RadarFix? = nil) {
+    init(
+        images: [String],
+        roles: [ProspectPhotoRole],
+        costCents: Int?,
+        fix: RadarFix? = nil,
+        hints: OnDeviceHints = .none
+    ) {
         self.init(
             images: images,
             imageRoles: roles.map { $0.rawValue },
@@ -81,7 +102,11 @@ struct ProspectRequest: Encodable {
             titleOverride: nil,
             brandOverride: nil,
             gradeValue: nil,
-            gradeTier: nil
+            gradeTier: nil,
+            barcode: hints.barcode,
+            brandHint: hints.brand,
+            sizeHint: hints.size,
+            hintConfidence: hints.confidence
         )
     }
 
@@ -107,7 +132,12 @@ struct ProspectRequest: Encodable {
             titleOverride: title,
             brandOverride: brand,
             gradeValue: gradeValue,
-            gradeTier: gradeTier
+            gradeTier: gradeTier,
+            // A re-pull carries no photos, so it has nothing the phone read.
+            barcode: nil,
+            brandHint: nil,
+            sizeHint: nil,
+            hintConfidence: nil
         )
     }
 

@@ -34,6 +34,21 @@ final class ProspectStore {
     /// joggers and a mini skirt for exactly that input.
     var itemPhoto: UIImage?
     var tagPhoto: UIImage?
+
+    // ── US-3099: what the phone read before uploading ────────────────────────
+    //
+    // Vision has read these tags on-device since US-177. Prospect threw the
+    // reading away and paid Claude to re-read the same tag from a JPEG that had
+    // to be uploaded first. Now it is reported, and the server decides whether
+    // it is good enough to skip that call.
+    /// The chips under the tag slot. Editable — a corrected chip is the
+    /// seller's own answer, which beats any reading.
+    var hints: OnDeviceHints = .none
+    /// A scanned retail barcode, which needs no tag photo at all.
+    var scannedBarcode: String?
+    /// True while the on-device read is running, so the chips can appear rather
+    /// than pop.
+    var isReadingTag = false
     /// Optional cost entry, in dollars, that unlocks the ROI verdict.
     var costText: String = ""
     var isLoading = false
@@ -127,12 +142,25 @@ final class ProspectStore {
         clearResult()
         errorMessage = nil
         addError = nil
+        // US-3099: read the tag the moment it arrives, not at submit. The
+        // reading takes about as long as the shutter animation, so doing it
+        // here puts the chips on screen while the seller is still looking at
+        // the photo they just took — and the upload, when it starts, already
+        // carries them.
+        if role == .tag {
+            Task { await readTagOnDevice(img) }
+        }
     }
 
     func removeImage(for role: ProspectPhotoRole) {
         switch role {
         case .front: itemPhoto = nil
-        case .tag: tagPhoto = nil
+        case .tag:
+            tagPhoto = nil
+            // US-3099: the chips described THAT tag. Keeping them would send a
+            // brand read off a photo the seller has removed, which is the same
+            // class of staleness `clearResult` exists to prevent one level up.
+            hints = OnDeviceHints(barcode: hints.barcode, brand: nil, size: nil, confidence: nil)
         }
         clearResult()
     }
@@ -206,13 +234,64 @@ final class ProspectStore {
                     images: payload,
                     roles: roles,
                     costCents: costCents,
-                    fix: await radarFix()
+                    fix: await radarFix(),
+                    hints: outgoingHints
                 )
             )
         } catch {
             result = nil
             errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    /// The hints as they will be sent.
+    ///
+    /// A scanned barcode overrides whatever the tag OCR made of the label: it
+    /// is a checksummed product id, not a reading, and the two disagreeing
+    /// means the label was misread rather than that the barcode was.
+    var outgoingHints: OnDeviceHints {
+        var out = hints
+        out.barcode = scannedBarcode
+        return out
+    }
+
+    /// Read the tag photo on-device, before anything is uploaded.
+    ///
+    /// Failures are SILENT and leave the hints empty. The reading is an
+    /// optimization, not a step: a Vision error must degrade to today's flow
+    /// (upload, let the server identify) rather than stop a seller who is
+    /// standing in a shop.
+    func readTagOnDevice(_ image: UIImage) async {
+        isReadingTag = true
+        defer { isReadingTag = false }
+        guard let lines = try? await TagTextRecognizer().recognize(image) else { return }
+        let read = TagHintParser.hints(from: lines)
+        // Keep a scanned barcode: it outranks anything the label says.
+        hints = OnDeviceHints(
+            barcode: hints.barcode,
+            brand: read.brand,
+            size: read.size,
+            confidence: read.confidence
+        )
+    }
+
+    /// The seller corrected a chip. That is their own answer about the garment,
+    /// so it goes up at full confidence rather than at what Vision managed.
+    func editHints(brand: String?, size: String?) {
+        hints = TagHintParser.edited(hints, brand: brand, size: size)
+    }
+
+    /// A barcode came off the viewfinder. Accepted only when it is a retail
+    /// symbology of a retail length — see ``ProspectBarcode``.
+    func acceptBarcode(_ payload: String) {
+        guard let accepted = ProspectBarcode.accepted(payload) else { return }
+        scannedBarcode = accepted
+    }
+
+    /// Clear everything the phone read, for a fresh scan.
+    func clearHints() {
+        hints = .none
+        scannedBarcode = nil
     }
 
     // MARK: - US-2923: correcting the identification

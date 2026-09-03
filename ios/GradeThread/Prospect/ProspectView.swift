@@ -11,7 +11,17 @@ struct ProspectView: View {
     // US-1180: @Observable store via @State (was @StateObject/ObservableObject).
     @State private var store = ProspectStore()
     @Environment(\.dismiss) private var dismiss
-    @State private var showCamera = false
+    /// US-3099: ONE full-screen cover slot, two destinations. A view gets one
+    /// (`check-chained-sheets`), and chaining a second is undefined in SwiftUI —
+    /// the same lesson ``ToolModule`` records for the Home tab.
+    @State private var cover: ProspectCover?
+
+    private enum ProspectCover: String, Identifiable {
+        case camera
+        case barcode
+        var id: String { rawValue }
+    }
+
     @State private var showLibrary = false
     /// US-2923: which named slot the next captured photo fills. Set before the
     /// picker opens, because the picker's callback has no way to know which slot
@@ -20,6 +30,13 @@ struct ProspectView: View {
     // US-1225: surface a library pick that fails to load instead of a silent
     // no-op (mirrors Snap's loadError pattern from US-1181).
     @State private var loadError: String?
+    // ── US-3099: the on-device reading ──────────────────────────────────────
+    /// The chip being corrected, if any. One alert rather than one per chip:
+    /// a view gets one alert slot, the same reason ``ToolModule`` exists.
+    @State private var editingChipTitle: String?
+    @State private var editingChipValue: String = ""
+    @State private var editingChipCommit: ((String) -> Void)?
+
 
     private var cameraAvailable: Bool {
         UIImagePickerController.isSourceTypeAvailable(.camera)
@@ -35,6 +52,7 @@ struct ProspectView: View {
 
                     photoStrip
                     captureButtons
+                    onDeviceHints
                     costField
 
                     Button {
@@ -116,9 +134,23 @@ struct ProspectView: View {
                 }
                 .ignoresSafeArea()
             }
-            .fullScreenCover(isPresented: $showCamera) {
-                CameraPicker { img in store.setImage(img, for: pendingRole) }
+            .fullScreenCover(item: $cover) { which in
+                switch which {
+                case .camera:
+                    CameraPicker { img in store.setImage(img, for: pendingRole) }
+                        .ignoresSafeArea()
+                case .barcode:
+                    // US-3099: the EXISTING Vision-based scanner (US-179), not a
+                    // second AVCaptureMetadataOutput path. `ProspectBarcode`
+                    // narrows what it accepts — that scanner also reads Code 128
+                    // and QR, which are thrift SKU stickers and seller batch
+                    // tags, and neither identifies a product in any catalogue we
+                    // can query.
+                    BarcodeScanView { payload in
+                        store.acceptBarcode(payload)
+                    }
                     .ignoresSafeArea()
+                }
             }
             .alert(
                 "Couldn't load photo",
@@ -127,6 +159,27 @@ struct ProspectView: View {
                 Button("OK") { loadError = nil }
             } message: {
                 Text(loadError ?? "")
+            }
+            // US-3099: correcting a chip. An alert rather than a second sheet —
+            // the view's one sheet and one cover are already spent, and a
+            // one-field correction does not want a screen.
+            .alert(
+                editingChipTitle ?? String(localized: "Correct"),
+                isPresented: Binding(
+                    get: { editingChipTitle != nil },
+                    set: { if !$0 { editingChipTitle = nil } }
+                )
+            ) {
+                TextField("", text: $editingChipValue)
+                    .textInputAutocapitalization(.words)
+                    .autocorrectionDisabled()
+                Button("Save") {
+                    editingChipCommit?(editingChipValue)
+                    editingChipTitle = nil
+                }
+                Button("Cancel", role: .cancel) { editingChipTitle = nil }
+            } message: {
+                Text(String(localized: "What does the tag actually say? Your correction is used as-is."))
             }
         }
     }
@@ -177,7 +230,7 @@ struct ProspectView: View {
                 guard image == nil else { return }
                 AppRouter.haptic()
                 pendingRole = role
-                if cameraAvailable { showCamera = true } else { showLibrary = true }
+                if cameraAvailable { cover = .camera } else { showLibrary = true }
             }
             .overlay(alignment: .topTrailing) {
                 if image != nil {
@@ -212,7 +265,7 @@ struct ProspectView: View {
                     Button {
                         AppRouter.haptic()
                         if let target { pendingRole = target }
-                        showCamera = true
+                        cover = .camera
                     } label: {
                         Label("Take photo", systemImage: "camera.fill").frame(maxWidth: .infinity)
                     }
@@ -228,6 +281,101 @@ struct ProspectView: View {
                 .buttonStyle(.bordered)
             }
             .tint(Color.brandNavy)
+
+            // US-3099: shoes and sealed goods carry a barcode, which is a
+            // checksummed product id rather than a reading — the strongest
+            // identification available, and it needs no photo of a tag at all.
+            if cameraAvailable {
+                Button {
+                    AppRouter.haptic()
+                    cover = .barcode
+                } label: {
+                    Label(
+                        store.scannedBarcode == nil
+                            ? String(localized: "Scan a barcode")
+                            : String(localized: "Scan again"),
+                        systemImage: "barcode.viewfinder"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.brandNavy)
+            }
+        }
+    }
+
+    // ── US-3099: what the phone read, before anything was uploaded ──────────
+
+    /// The brand and size chips, editable, plus the scanned barcode.
+    ///
+    /// Shown only when there is something to show. An empty row of placeholder
+    /// chips would suggest the reading failed when in fact no tag was taken.
+    @ViewBuilder private var onDeviceHints: some View {
+        if store.isReadingTag {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.mini)
+                Text(String(localized: "Reading the tag\u{2026}"))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } else if !store.outgoingHints.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                if let barcode = store.scannedBarcode {
+                    Label(String(localized: "Barcode \(barcode)"), systemImage: "barcode.viewfinder")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(Color.brandEmerald)
+                }
+                HStack(spacing: 8) {
+                    hintChip(
+                        title: String(localized: "Brand"),
+                        value: store.hints.brand,
+                        onEdit: { store.editHints(brand: $0, size: store.hints.size) }
+                    )
+                    hintChip(
+                        title: String(localized: "Size"),
+                        value: store.hints.size,
+                        onEdit: { store.editHints(brand: store.hints.brand, size: $0) }
+                    )
+                }
+                // Said plainly because it is the seller's own saving: a
+                // confident read means the server does not spend an AI action
+                // re-reading the tag they just photographed.
+                Text(TagHintParser.willSkipServerIdentify(store.outgoingHints)
+                     ? String(localized: "Read on your phone \u{2014} no AI charge to identify it.")
+                     : String(localized: "Tap to correct either one. A correction is used as-is."))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder private func hintChip(
+        title: String,
+        value: String?,
+        onEdit: @escaping (String) -> Void
+    ) -> some View {
+        if let value, !value.isEmpty {
+            Button {
+                AppRouter.haptic()
+                editingChipTitle = title
+                editingChipValue = value
+                editingChipCommit = onEdit
+            } label: {
+                HStack(spacing: 4) {
+                    Text(title).foregroundStyle(.secondary)
+                    Text(value).fontWeight(.semibold)
+                    Image(systemName: "pencil").font(.caption2).foregroundStyle(.tertiary)
+                }
+                .font(.caption)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(Color.brandNavy.opacity(0.10), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("\(title): \(value). Tap to correct."))
         }
     }
 
