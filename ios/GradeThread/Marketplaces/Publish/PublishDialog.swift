@@ -829,6 +829,11 @@ private struct ComposerForm: View {
     /// variation matrix carries a quantity per variant already.
     @State private var quantity: Int
 
+    /// US-3104: the buyer preview. The composer's ONE sheet slot — the parent
+    /// dialog's is already spent on Safari, and a view gets one (the
+    /// `check-chained-sheets` rule, and the ``ToolModule`` lesson behind it).
+    @State private var showingPreview = false
+
     /// US-969: keyboard Next/Return traversal across the editable text fields
     /// (the condition Picker and read-only price are skipped).
     @FocusState private var focusedField: Field?
@@ -1319,6 +1324,7 @@ private struct ComposerForm: View {
                         .accessibilityElement(children: .combine)
                 }
 
+                previewButton
                 actionButtons
             }
             .padding(16)
@@ -1369,6 +1375,54 @@ private struct ComposerForm: View {
         } message: { _ in
             Text("This appends the template's boilerplate to your description and replaces your condition note. Your current description text is kept above the boilerplate.")
         }
+        // US-3104: the buyer preview, at parity with the web composer's.
+        .sheet(isPresented: $showingPreview) {
+            EbayViewItemPreviewSheet(
+                model: previewModel,
+                inventoryItemId: inventoryItemId
+            )
+        }
+    }
+
+    // MARK: - US-3104: the buyer preview
+
+    /// What the preview draws, built from the composer's CURRENT fields.
+    ///
+    /// From the live `@State`, not from `summary`: the seller opens this to
+    /// check the edit they just made, and a preview of the last validated
+    /// server response would show them the listing they are trying to change.
+    private var previewModel: EbayPreviewModel {
+        EbayPreviewModel(
+            title: trimmedTitle,
+            priceLabel: EbayPreviewModel.priceLabel(
+                effectivePriceCents,
+                currency: summary.currency
+            ),
+            formatLabel: EbayPreviewModel.formatLabel(
+                formatChoice,
+                bestOffer: effectiveBestOffer?.enabled == true
+            ),
+            conditionLabel: condition.label,
+            conditionDescription: conditionDescription
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+            specifics: EbayPreviewModel.specifics(
+                aspects: summary.aspects,
+                templateSpecifics: templateItemSpecifics
+            ),
+            description: EbayPreviewModel.describe(description),
+            shippingPolicyName: policyName(templateShippingPolicyId, ofType: "fulfillment"),
+            returnPolicyName: policyName(templateReturnPolicyId, ofType: "return")
+        )
+    }
+
+    /// The assigned policy's name, or nil when the account default applies.
+    ///
+    /// Nil rather than "Use account default": the preview shows what a BUYER
+    /// sees, and eBay's page never says the words "account default" — it shows
+    /// the resolved shipping line or nothing.
+    private func policyName(_ id: String?, ofType type: String) -> String? {
+        guard let id, !id.isEmpty else { return nil }
+        return policies?.options(ofType: type).first { $0.policyId == id }?.policyName
     }
 
     // MARK: - Templates (US-674)
@@ -1858,6 +1912,26 @@ private struct ComposerForm: View {
     /// to eBay" is deliberately replaced rather than shown alongside — offering
     /// both would let one tap contradict the schedule the seller just set.
     @ViewBuilder
+    /// US-3104: open the buyer preview.
+    ///
+    /// Above the commit buttons and styled as neither of them, because it
+    /// commits nothing. A seller who taps this has not published and has not
+    /// saved, and the button should not look like they might have.
+    private var previewButton: some View {
+        Button {
+            AppRouter.haptic()
+            showingPreview = true
+        } label: {
+            Label("Preview as a buyer", systemImage: "eye")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+        }
+        .buttonStyle(.bordered)
+        .tint(Color.brandNavy)
+        .accessibilityHint("Shows the listing the way an eBay buyer will see it")
+    }
+
     private var actionButtons: some View {
         let offline = NetworkMonitor.isOffline(networkMonitor)
         let busy = isPushing || isSaving
