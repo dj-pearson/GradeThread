@@ -285,6 +285,7 @@ describe("resetLayout", () => {
     expect(ids(resetLayout(registry, "buyer"))).toEqual([
       "grading.quick-actions",
       "grading.discover",
+      "grading.get-apps",
       "grading.invite",
     ]);
     expect(ids(resetLayout(registry, "buyer"))).not.toEqual(

@@ -103,6 +103,16 @@ export const ANALYTICS_EVENTS = {
   "extension_install_cta_click":
     "An install call to action for the browser extension was pressed. Properties `page`, `store`.",
 
+  // ── App and extension downloads (US-3110) ─────────────────────────────────
+  // The always-on download row (footer, dashboard widget, onboarding welcome),
+  // as against `extension_install_cta_click`, which is the in-context CTA on a
+  // marketing page about the marketplace the reader is heading to. Two events
+  // because they answer different questions: this one is "does anyone ever find
+  // the apps", that one is "does the pitch on THIS page work".
+  // Properties `app` (ios | chrome | firefox) and `surface` (where it was shown).
+  "app_download_click":
+    "A link to the iOS app or a browser extension was pressed. Properties `app`, `surface`.",
+
   // ── Marketplace comparison handoff (US-9018) ──────────────────────────────
   // The two migration sections on /compare/{a}-vs-{b} answer "how do I move my
   // listings from X to Y" — 13 queries and 202 impressions of intent that had

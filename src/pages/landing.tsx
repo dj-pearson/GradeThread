@@ -40,6 +40,7 @@ import { HeroBackdrop } from "@/components/marketing/hero-backdrop";
 import { ScrollExperience } from "@/components/marketing/scroll-experience/scroll-experience";
 import { NewsletterSignup } from "@/components/newsletter-signup";
 import { WaitlistForm } from "@/components/waitlist-form";
+import { AppDownloadRow } from "@/components/get-the-apps";
 import { useWaitlistGating } from "@/hooks/use-waitlist-gating";
 import { FLIPDESK_STAGES } from "@/components/marketing/flipdesk-stages";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
@@ -1080,6 +1081,13 @@ export function LandingPage() {
                 FAQ
               </a>
             </nav>
+          </div>
+          {/* US-3110: the home page never said GradeThread had an iPhone app or
+              a browser extension. It does now, above the legal row, where the
+              eye already stops on its way down. */}
+          <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-medium">Get GradeThread</p>
+            <AppDownloadRow surface="landing-footer" />
           </div>
           <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">
             <nav className="flex flex-wrap gap-4 text-xs text-muted-foreground sm:gap-6">

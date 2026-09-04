@@ -160,15 +160,20 @@ describe("the install CTA (US-2719 AC4)", () => {
     expect(buildSteps(state()).find((s) => s.key === "install")!.action).toBeTruthy();
   });
 
-  it("offers a sentence, not a dead control, when it does not", () => {
-    // The rule AC4 exists for: never fall back to /buyer/settings, which is
-    // where the buyer home used to send people and is not where anyone gets an
-    // extension. An explanatory node is still truthy, so this checks the CTA is
-    // gone rather than that `action` is undefined.
+  it("still resolves a store, and never /buyer/settings, with both vars blank", () => {
+    // This case used to assert the OPPOSITE half of AC4: with no id configured
+    // there was no store URL, so the step had to render a sentence rather than
+    // a dead control. US-3110 removed the "no store URL" state — the extension
+    // is published, and src/lib/app-links.ts falls back to the real listing
+    // instead of to null, so a blank deployment gets a working link rather than
+    // a working explanation of why there is no link.
+    //
+    // The rule AC4 exists for is unchanged and still checked: never fall back
+    // to /buyer/settings, which is not where anyone gets an extension.
     vi.stubEnv("VITE_LISTER_EXTENSION_ID", "");
     vi.stubEnv("VITE_EXTENSION_WEBSTORE_URL", "");
     const action = buildSteps(state()).find((s) => s.key === "install")!.action;
-    expect(JSON.stringify(action)).not.toContain("chromewebstore");
+    expect(JSON.stringify(action)).toContain("chromewebstore");
     expect(JSON.stringify(action)).not.toContain("/buyer/settings");
   });
 });

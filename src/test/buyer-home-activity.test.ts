@@ -18,6 +18,7 @@ const ACTIVATION = "src/hooks/use-activation.ts";
 const CHECKLIST = "src/components/onboarding/activation-checklist.tsx";
 const ACTIVITY = "src/components/buyer/buyer-activity.tsx";
 const EXT = "src/lib/lister-extension.ts";
+const LINKS = "src/lib/app-links.ts";
 const PLACEHOLDER = "src/pages/buyer/placeholder.tsx";
 // US-2859: the seller checklist's dismissal moved out of the component and
 // into the shared hook, and the key was renamed with it.
@@ -137,11 +138,15 @@ describe("the home shows the buyer's own activity (US-2553 AC3)", () => {
 
 describe("the extension link points at the extension (US-2553 AC4)", () => {
   it("the store URL is derived from the id already configured", () => {
-    const src = read(EXT);
-    expect(src).toContain("export function extensionWebStoreUrl()");
-    expect(src).toContain("https://chromewebstore.google.com/detail/");
+    // US-3110 moved the resolution into src/lib/app-links.ts so the footer, the
+    // dashboard and this buyer card cannot point at different stores. The
+    // assertion follows it rather than being deleted: lister-extension.ts still
+    // owns the exported name every caller uses, app-links.ts owns the URL.
+    expect(read(EXT)).toContain("export function extensionWebStoreUrl()");
+    const links = read(LINKS);
+    expect(links).toContain("https://chromewebstore.google.com/detail/");
     // Explicit override wins, so a vanity URL does not need a code change.
-    expect(src).toContain("VITE_EXTENSION_WEBSTORE_URL");
+    expect(links).toContain("VITE_EXTENSION_WEBSTORE_URL");
   });
 
   it("the card no longer sends people to settings to find an extension", () => {

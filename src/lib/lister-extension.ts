@@ -13,6 +13,7 @@ import type { MarketplacePlatform } from "@/lib/marketplace-specs";
 import { getMarketplaceSpec } from "@/lib/marketplace-specs";
 import { orderedCappedPhotos, type ExportablePhoto } from "@/lib/photo-export";
 import type { PlatformKitVariant } from "@/hooks/use-autolister";
+import { chromeWebStoreUrl, firefoxAddonUrl, isFirefoxUa } from "@/lib/app-links";
 
 // Platforms the extension automates (no write API). Depop is excluded — it has
 // a partner API path (US-712..714), not the extension path.
@@ -223,10 +224,14 @@ export function isExtensionInstalled(): boolean {
  * second thing to keep in sync.
  */
 export function extensionWebStoreUrl(): string | null {
-  const explicit = (import.meta.env.VITE_EXTENSION_WEBSTORE_URL as string | undefined)?.trim();
-  if (explicit) return explicit;
-  const id = listerExtensionId();
-  return id ? `https://chromewebstore.google.com/detail/${id}` : null;
+  // US-3110: the resolution (override -> derived from the id -> the published
+  // listing) moved to src/lib/app-links.ts, so the footer, the dashboard and
+  // this cross-listing UI cannot drift apart on which store they point at.
+  //
+  // The return type stays `string | null` because every caller already checks
+  // it, and because a build that deliberately blanks the listing is still
+  // something a future deployment can want. In practice it is now never null.
+  return chromeWebStoreUrl();
 }
 
 /**
@@ -235,13 +240,12 @@ export function extensionWebStoreUrl(): string | null {
  * have nothing to do with the Chrome id.
  */
 export function extensionAmoUrl(): string | null {
-  const explicit = (import.meta.env.VITE_EXTENSION_AMO_URL as string | undefined)?.trim();
-  return explicit || null;
+  return firefoxAddonUrl();
 }
 
 /** Firefox and its forks say so in the user agent; nothing else does. */
 export function isFirefoxUserAgent(ua: string | null | undefined): boolean {
-  return /\bFirefox\/\d|\bFxiOS\/|\bSeamonkey\//.test(ua ?? "");
+  return isFirefoxUa(ua);
 }
 
 /**

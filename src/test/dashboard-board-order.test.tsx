@@ -73,6 +73,8 @@ describe("the widget board renders the seller default in order", () => {
       "Rewards",
       "Try FlipDesk",
       "Discover GradeThread",
+      // US-3110: the iOS app and the two browser extensions.
+      "Get GradeThread everywhere",
       "Invite a friend",
       "Circularity impact",
     ]);
@@ -85,14 +87,16 @@ describe("the widget board renders the seller default in order", () => {
       "Needs your attention",
       "Recent submissions",
       "Quick actions",
+      "Get GradeThread everywhere",
       "Garment passports",
     ]);
   });
 
-  it("renders the buyer board as three frames", () => {
+  it("renders the buyer board as four frames", () => {
     expect(frameTitles(render(defaultLayoutFor("grading", "buyer")))).toEqual([
       "Quick actions",
       "Discover GradeThread",
+      "Get GradeThread everywhere",
       "Invite a friend",
     ]);
   });

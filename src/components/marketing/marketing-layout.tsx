@@ -1,4 +1,5 @@
 import { ExtensionInstallCta } from "@/components/marketing/extension-install-cta";
+import { AppDownloadLinks } from "@/components/get-the-apps";
 import { Link } from "react-router";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -148,7 +149,7 @@ export function MarketingLayout({
               height={24}
               className="h-6 w-auto"
             />
-            <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-8 sm:grid-cols-3 lg:grid-cols-5">
               <FooterColumn title="Product">
                 {/* US-9211: FlipDesk first — it is the product the reseller
                     came for. Condition Grading keeps its link one column over,
@@ -179,6 +180,13 @@ export function MarketingLayout({
                 <FooterLink to="/verified">Verified Directory</FooterLink>
                 <FooterLink to="/leaderboard">Top Referrers</FooterLink>
                 <FooterLink to="/faq">FAQ</FooterLink>
+              </FooterColumn>
+              {/* US-3110: the apps, on every public page. The iOS app and both
+                  extensions existed with nothing on the marketing site linking
+                  to any of them. External links, so these are plain <a>s and
+                  the footer-links-routed test correctly ignores them. */}
+              <FooterColumn title="Get GradeThread">
+                <AppDownloadLinks surface="marketing-footer" />
               </FooterColumn>
               <FooterColumn title="Trust">
                 {/* US-593: buyer-facing verify entry point, not just seller pages. */}

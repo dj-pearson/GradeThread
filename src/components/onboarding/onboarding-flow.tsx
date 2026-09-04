@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
+import { AppDownloadRow } from "@/components/get-the-apps";
 import { supabase } from "@/lib/supabase";
 import { track } from "@/lib/analytics";
 import { trackActivation } from "@/lib/activation-analytics";
@@ -288,6 +289,18 @@ export function OnboardingFlow() {
                 Let's set things up — this takes about 30 seconds.
               </DialogDescription>
             </DialogHeader>
+            {/* US-3110: the apps, on the first screen of the first session.
+                Deliberately NOT a tour step of its own — every tour step points
+                at a sidebar entry and offers "Take me there", and
+                src/test/onboarding-copy-routes.test.ts checks each one against
+                the real sidebar. An App Store link has no sidebar entry, so it
+                belongs on the welcome screen, where it costs nobody a click. */}
+            <div className="flex flex-col items-center gap-2 border-t pt-4">
+              <p className="text-xs text-muted-foreground">
+                Also available on your phone and in your browser
+              </p>
+              <AppDownloadRow surface="onboarding-welcome" className="flex flex-wrap justify-center gap-2" />
+            </div>
           </>
         )}
 

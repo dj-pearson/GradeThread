@@ -26,6 +26,7 @@ import {
   sendToLister,
   type ListerPayload,
 } from "@/lib/lister-extension";
+import { CHROME_WEB_STORE_URL } from "@/lib/app-links";
 
 const PAYLOAD = { platform: "poshmark", title: "Test" } as unknown as ListerPayload;
 
@@ -263,12 +264,21 @@ describe("US-1882: transport selection", () => {
       );
     });
 
-    it("is null with no id, so the caller renders no link rather than a broken one", () => {
-      // null is the honest answer and the callers check it. A URL ending in an
-      // empty path segment would be a link to the store's 404.
+    it("falls back to the PUBLISHED listing with no id, never to a dead link", () => {
+      // US-3110 changed this. It used to return null, on the reasoning that a
+      // URL ending in an empty path segment links to the store's 404 and null
+      // is the honest answer — correct while the extension was unpublished.
+      //
+      // It is published now, so null stopped being honest and started being the
+      // same bug in a different place: every deployment with a blank
+      // VITE_LISTER_EXTENSION_ID rendered "Add to Chrome" with nowhere to go,
+      // which is the exact defect the block above this one was written about.
+      // A real store URL is the better default; the empty-segment URL this test
+      // was guarding against is still never built (see the id branch).
       vi.stubEnv("VITE_LISTER_EXTENSION_ID", "");
       vi.stubEnv("VITE_EXTENSION_WEBSTORE_URL", "");
-      expect(extensionWebStoreUrl()).toBeNull();
+      expect(extensionWebStoreUrl()).toBe(CHROME_WEB_STORE_URL);
+      expect(CHROME_WEB_STORE_URL).toContain("chromewebstore.google.com/detail/");
     });
 
     it("an explicit override wins, which is how Firefox gets an AMO link", () => {

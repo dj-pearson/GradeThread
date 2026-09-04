@@ -376,6 +376,26 @@ export const DASHBOARD_WIDGETS: readonly WidgetDef[] = [
       })),
   },
   {
+    // US-3110: the iOS app and both browser extensions, on the board. Nothing
+    // on the seller's dashboard linked to any of the three, so the only people
+    // who found them were the ones already deep in the cross-listing UI.
+    id: "grading.get-apps",
+    surface: "grading",
+    title: "Get GradeThread everywhere",
+    blurb: "The iPhone app and the Chrome and Firefox extensions.",
+    category: "promo",
+    sizes: ["md", "lg"],
+    defaultSize: "lg",
+    rangeAware: false,
+    personas: ALL_PERSONAS,
+    // Three static links. Nothing to invalidate, so nothing to declare.
+    queryKeys: [],
+    load: () =>
+      import("@/components/dashboard/widgets/grading-get-apps").then((m) => ({
+        default: m.GradingGetAppsWidget as ComponentType<WidgetProps>,
+      })),
+  },
+  {
     id: "grading.invite",
     surface: "grading",
     title: "Invite a friend",
@@ -1001,6 +1021,7 @@ export const PROMOTIONAL_WIDGET_IDS: readonly string[] = [
   "grading.rewards",
   "grading.flipdesk-promo",
   "grading.discover",
+  "grading.get-apps",
   "grading.invite",
   "grading.impact",
 ];
@@ -1080,6 +1101,9 @@ export const DEFAULT_LAYOUTS: Record<
       { id: "grading.rewards", size: "lg" },
       { id: "grading.flipdesk-promo", size: "lg" },
       { id: "grading.discover", size: "lg" },
+      // US-3110: below Discover, above the invite tile. Promotional, so it sits
+      // under every data widget (src/test/dashboard-own-data-first.test.ts).
+      { id: "grading.get-apps", size: "lg" },
       { id: "grading.invite", size: "md" },
       { id: "grading.impact", size: "md" },
     ],
@@ -1105,6 +1129,9 @@ export const DEFAULT_LAYOUTS: Record<
       { id: "grading.rewards", size: "lg" },
       { id: "grading.flipdesk-promo", size: "lg" },
       { id: "grading.discover", size: "lg" },
+      // US-3110: below Discover, above the invite tile. Promotional, so it sits
+      // under every data widget (src/test/dashboard-own-data-first.test.ts).
+      { id: "grading.get-apps", size: "lg" },
       { id: "grading.invite", size: "md" },
       { id: "grading.impact", size: "md" },
     ],
@@ -1114,11 +1141,13 @@ export const DEFAULT_LAYOUTS: Record<
       { id: "grading.attention", size: "lg" },
       { id: "grading.recent-submissions", size: "lg" },
       { id: "grading.quick-actions", size: "lg" },
+      { id: "grading.get-apps", size: "lg" },
       { id: "grading.passports", size: "md" },
     ],
     buyer: [
       { id: "grading.quick-actions", size: "lg" },
       { id: "grading.discover", size: "lg" },
+      { id: "grading.get-apps", size: "lg" },
       { id: "grading.invite", size: "md" },
     ],
   },
