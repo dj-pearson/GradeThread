@@ -90,7 +90,14 @@ Deno.test("AC1: renderAndPersistDescription writes both columns in ONE update", 
 
 Deno.test("AC6: the persisted string is the render of the persisted blocks", () => {
   // Same `next` feeds both the render and the update, so they cannot diverge.
-  assertStringIncludes(renderSrc, "const description = renderDescription(next, ctx);");
+  // US-3114: the render goes through `renderSegments`, and the string is those
+  // segments glued — one render, so the pieces the composer lets a seller click
+  // and the bytes eBay receives cannot be two different things.
+  assertStringIncludes(renderSrc, "const segments = renderSegments(next, ctx);");
+  assertStringIncludes(
+    renderSrc,
+    'const description = segments.map((s) => s.sep + s.body).join("");',
+  );
   assertStringIncludes(renderSrc, "description_blocks: next,");
   assertStringIncludes(renderSrc, "listing_description: description,");
 });

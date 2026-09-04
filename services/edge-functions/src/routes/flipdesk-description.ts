@@ -27,6 +27,7 @@ import {
   type DescriptionBlock,
   type DescriptionBlockKey,
   renderDescription,
+  renderSegments,
   replaceBlockText,
   scrubRestatedFacts,
 } from "../lib/description-blocks.ts";
@@ -119,9 +120,15 @@ flipdeskDescriptionRoutes.get("/:listingId/blocks", async (c) => {
   // No write. A conversion is shown, not stored — the seller's first save is
   // what persists it (US-2957 reconciliation guarantees the preview below
   // equals the stored description byte for byte until they change something).
+  // `segments` is the SAME render, handed back in pieces so the composer's
+  // preview knows which block each region came from (US-3114). Gluing them
+  // reproduces `preview` byte for byte, which is asserted in
+  // description-segments_test.ts — the preview panel is a clickable view of
+  // this string, never a second rendering of it.
   return c.json({
     blocks,
     preview: renderDescription(blocks, ctx),
+    segments: renderSegments(blocks, ctx),
     converted: listing.description_blocks === null,
   });
 });
@@ -154,7 +161,10 @@ flipdeskDescriptionRoutes.post("/preview", async (c) => {
   if (!listing) return c.json({ error: "Listing not found" }, 404);
 
   const ctx = await buildRenderContext(listing, ownerId, unitFrom(body.unit));
-  return c.json({ preview: renderDescription(blocks, ctx) });
+  return c.json({
+    preview: renderDescription(blocks, ctx),
+    segments: renderSegments(blocks, ctx),
+  });
 });
 
 // ─── POST /:listingId/save ─────────────────────────────────────────
@@ -180,7 +190,11 @@ flipdeskDescriptionRoutes.post("/:listingId/save", async (c) => {
   );
   if (!result) return c.json({ error: "Listing not found" }, 404);
 
-  return c.json({ blocks: result.blocks, description: result.description });
+  return c.json({
+    blocks: result.blocks,
+    description: result.description,
+    segments: result.segments,
+  });
 });
 
 // ─── POST /:listingId/regenerate ───────────────────────────────────
@@ -223,7 +237,11 @@ flipdeskDescriptionRoutes.post("/:listingId/regenerate", async (c) => {
   const result = await renderAndPersistDescription(listingId, ownerId, next, unit);
   if (!result) return c.json({ error: "Listing not found" }, 404);
 
-  return c.json({ blocks: result.blocks, description: result.description });
+  return c.json({
+    blocks: result.blocks,
+    description: result.description,
+    segments: result.segments,
+  });
 });
 
 // ─── POST /snippets/:snippetId/apply ───────────────────────────────

@@ -28,6 +28,7 @@
 
 import {
   buildMeasurementsBlock,
+  buildMeasurementsBlockParts,
   type LengthUnit,
   MEASUREMENTS_BLOCK_END,
   MEASUREMENTS_BLOCK_START,
@@ -142,15 +143,33 @@ const ATTRIBUTE_LABELS: Record<string, string> = {
 // ─── Rendering ─────────────────────────────────────────────────────
 
 function renderAttributes(block: DescriptionBlock, ctx: RenderContext): string {
+  return attributeLines(block, ctx).map((l) => l.text).join("\n");
+}
+
+/**
+ * The attribute lines WITH the item field each one renders (US-3114).
+ *
+ * `renderAttributes` is this joined by "\n". The field name is what lets the
+ * preview open an input on `inventory_items.brand` when a seller clicks
+ * "- Brand: Levi's"; parsing the label back out of the line would break the
+ * moment ATTRIBUTE_LABELS is reworded.
+ */
+function attributeLines(
+  block: DescriptionBlock,
+  ctx: RenderContext,
+): { field: string; text: string }[] {
   const fields = block.fields?.length ? block.fields : DEFAULT_ATTRIBUTE_FIELDS;
-  const lines: string[] = [];
+  const lines: { field: string; text: string }[] = [];
   for (const field of fields) {
     const raw = (ctx.item as Record<string, unknown>)[field];
     const value = typeof raw === "string" ? raw.trim() : "";
     if (!value) continue;
-    lines.push(`- ${ATTRIBUTE_LABELS[field] ?? titleCase(field)}: ${value}`);
+    lines.push({
+      field,
+      text: `- ${ATTRIBUTE_LABELS[field] ?? titleCase(field)}: ${value}`,
+    });
   }
-  return lines.join("\n");
+  return lines;
 }
 
 function titleCase(s: string): string {
@@ -247,29 +266,144 @@ export function renderDescription(
   blocks: DescriptionBlock[],
   ctx: RenderContext,
 ): string {
+  return renderSegments(blocks, ctx).map((s) => s.sep + s.body).join("");
+}
+
+// ─── Segments (US-3114) ────────────────────────────────────────────
+
+/**
+ * One line of a text segment, tagged with what produced it.
+ *
+ * `field` is set on the lines a seller can edit — an item column on the
+ * attributes block, a measurements key on the measurements block — and absent
+ * on headers and notes. `hidden` marks the comment markers: they are part of
+ * the bytes and are never shown.
+ */
+export interface DescriptionSegmentLine {
+  text: string;
+  field?: string;
+  hidden?: boolean;
+}
+
+/**
+ * One rendered block, still knowing which block it came from.
+ *
+ * `sep + body` is the block's exact contribution to the description, so gluing
+ * every segment in order reproduces `renderDescription` byte for byte. That is
+ * not a coincidence to be maintained by hand: `renderDescription` IS this
+ * function glued, which is the property that keeps a clickable preview from
+ * ever disagreeing with what publishes.
+ */
+export interface DescriptionSegment {
+  /** Index into the blocks array the caller passed, NOT the render order. */
+  index: number;
+  key: DescriptionBlockKey;
+  src: DescriptionBlockSource;
+  /** The exact bytes emitted before `body`. Already resolved; may be "". */
+  sep: string;
+  /** The block's rendered bytes. Never "" — empty blocks emit no segment. */
+  body: string;
+  kind: "text" | "html";
+  /** kind "text" only. `lines.map(l => l.text).join("\n")` equals `body`. */
+  lines?: DescriptionSegmentLine[];
+  /** kind "html" only: the markup to render, with the comment markers gone. */
+  html?: string;
+}
+
+/** The three blocks whose bytes are GradeThread-built markup, not prose. */
+const HTML_KEYS = new Set<DescriptionBlockKey>([
+  "disclosure",
+  "credentials",
+  "facts",
+]);
+
+/** Every marker in this module is an HTML comment, so one rule strips them all. */
+const MARKER_COMMENT = /<!--[\s\S]*?-->/g;
+
+function segmentShape(
+  block: DescriptionBlock,
+  body: string,
+  ctx: RenderContext,
+): Pick<DescriptionSegment, "kind" | "lines" | "html"> {
+  if (HTML_KEYS.has(block.key)) {
+    return { kind: "html", html: body.replace(MARKER_COMMENT, "").trim() };
+  }
+  if (block.key === "attributes") {
+    return {
+      kind: "text",
+      lines: attributeLines(block, ctx).map((l) => ({
+        text: l.text,
+        field: l.field,
+      })),
+    };
+  }
+  if (block.key === "measurements") {
+    return {
+      kind: "text",
+      lines: buildMeasurementsBlockParts(
+        ctx.item.measurements,
+        block.unit ?? ctx.unit,
+        { calibrated: ctx.calibrated },
+      ).map((p) => ({
+        text: p.text,
+        ...(p.key ? { field: p.key } : {}),
+        ...(p.marker ? { hidden: true } : {}),
+      })),
+    };
+  }
+  // Prose and the grade line are edited (or not) as a whole, so they are one
+  // line carrying newlines rather than a line per newline.
+  return { kind: "text", lines: [{ text: body }] };
+}
+
+/**
+ * Render the blocks as the list of pieces they are.
+ *
+ * Same order and same first-block separator rule as `renderDescription`, which
+ * now delegates here. A block that is off, or that renders nothing, produces no
+ * segment at all — so an item with no measurements leaves no gap and no empty
+ * region for a seller to click.
+ */
+export function renderSegments(
+  blocks: DescriptionBlock[],
+  ctx: RenderContext,
+): DescriptionSegment[] {
+  const indexed = blocks.map((block, index) => ({ block, index }));
   const ordered = [
-    ...blocks.filter((b) => b.key !== "facts"),
-    ...blocks.filter((b) => b.key === "facts"),
+    ...indexed.filter((e) => e.block.key !== "facts"),
+    ...indexed.filter((e) => e.block.key === "facts"),
   ];
 
-  let out = "";
+  const out: DescriptionSegment[] = [];
   let first = true;
-  for (const block of ordered) {
+  for (let pos = 0; pos < ordered.length; pos++) {
+    const { block, index } = ordered[pos];
     if (!block.on) continue;
-    const content = renderBlock(block, ctx);
+    const body = renderBlock(block, ctx);
     // An empty block contributes no content AND no separator, so an item with
     // no measurements does not leave a gap where the block used to be.
-    if (!content) continue;
+    if (!body) continue;
+
+    let sep: string;
     if (first) {
       // Only the array's own first block keeps its separator, which is how
       // leading whitespace on a parsed legacy description survives. A block
       // promoted to first because the ones above it were switched off starts
       // clean instead of dragging three newlines to the top.
-      out += (block === ordered[0] ? block.sep ?? "" : "") + content;
+      sep = pos === 0 ? block.sep ?? "" : "";
       first = false;
     } else {
-      out += (block.sep ?? DEFAULT_SEP) + content;
+      sep = block.sep ?? DEFAULT_SEP;
     }
+
+    out.push({
+      index,
+      key: block.key,
+      src: block.src,
+      sep,
+      body,
+      ...segmentShape(block, body, ctx),
+    });
   }
   return out;
 }

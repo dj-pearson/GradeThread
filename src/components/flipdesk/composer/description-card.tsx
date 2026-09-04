@@ -28,6 +28,10 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
+import {
+  DescriptionPreview,
+  type DerivedFieldCommit,
+} from "@/components/flipdesk/composer/description-preview";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,7 +56,11 @@ import {
   type BlockRowContext,
 } from "@/lib/description-blocks";
 import type { ListingAiSnapshot } from "@/types/database";
-import type { DescriptionBlock, DescriptionBlockKey } from "@/types/database";
+import type {
+  DescriptionBlock,
+  DescriptionBlockKey,
+  DescriptionSegment,
+} from "@/types/database";
 import type { RewriteAction } from "@/hooks/use-ai-extract";
 
 // US-2960: the description, as the ordered list of blocks it actually is.
@@ -79,6 +87,12 @@ export interface DescriptionCardProps {
   onBlocksChange: (next: DescriptionBlock[]) => void;
   /** The exact string eBay will receive, straight from the edge renderer. */
   preview: string;
+  /**
+   * The same render in pieces (US-3114), so the preview below can be clicked.
+   * Empty means an edge that has not been redeployed yet: the panel falls back
+   * to the read-only raw view rather than showing regions that lead nowhere.
+   */
+  segments: DescriptionSegment[];
   previewPending: boolean;
   /** False until the listing row exists — /preview needs one for context. */
   previewAvailable: boolean;
@@ -98,6 +112,10 @@ export interface DescriptionCardProps {
   regenerating: DescriptionBlockKey | null;
   /** Scroll to and focus the composer card a derived block reads from. */
   onGoToField: (anchorId: string) => void;
+  /** Current measurement values, for prefilling an inline measurement edit. */
+  measurementValues: Record<string, number | string>;
+  /** Write an item value a generated preview line renders (US-3114). */
+  onDerivedCommit: DerivedFieldCommit;
   /** Which template group the item maps to. */
   group: string;
   applyTemplate: () => void;
@@ -116,6 +134,7 @@ export function DescriptionCard({
   blocks,
   onBlocksChange,
   preview,
+  segments,
   previewPending,
   previewAvailable,
   blocksLoading,
@@ -126,6 +145,8 @@ export function DescriptionCard({
   onRegenerate,
   regenerating,
   onGoToField,
+  measurementValues,
+  onDerivedCommit,
   group,
   applyTemplate,
   photoCount,
@@ -138,7 +159,10 @@ export function DescriptionCard({
   ebayOwnedHint,
 }: DescriptionCardProps) {
   const [editing, setEditing] = useState<number | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  // US-3114: open by default. The preview is where the seller works now — the
+  // rows above are the structural controls (on/off, order, remove), and the
+  // wording lives in the thing that shows the wording.
+  const [previewOpen, setPreviewOpen] = useState(true);
 
   const sensors = useSensors(useSensor(PointerSensor), useSensor(KeyboardSensor));
 
@@ -317,28 +341,29 @@ export function DescriptionCard({
             ) : (
               <ChevronRight className="mr-2 h-3 w-3" />
             )}
-            Preview what eBay receives
+            Preview and edit
             <span className="ml-2 text-xs font-normal text-muted-foreground">
               {preview.length.toLocaleString()} characters
               {previewPending ? " · updating" : ""}
             </span>
           </Button>
           {previewOpen && (
-            <>
-              {previewAvailable ? (
-                <Textarea
-                  readOnly
-                  value={preview}
-                  rows={14}
-                  className="font-mono text-xs"
-                  aria-label="Rendered description preview"
-                />
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Save the draft once and the rendered description shows up here.
-                </p>
-              )}
-            </>
+            <DescriptionPreview
+              segments={segments}
+              preview={preview}
+              pending={previewPending}
+              available={previewAvailable}
+              proseText={(index) => blocks[index]?.text ?? ""}
+              onProseChange={(index, text) =>
+                onBlocksChange(setBlockTextAt(blocks, index, text))
+              }
+              attributeValues={rowContext.attributes}
+              measurementValues={measurementValues}
+              onDerivedCommit={onDerivedCommit}
+              onGoToField={onGoToField}
+              disabled={isEbayOrigin}
+              disabledHint={ebayOwnedHint}
+            />
           )}
         </div>
 

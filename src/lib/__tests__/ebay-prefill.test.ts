@@ -8,6 +8,7 @@ import {
   mapEbayCondition,
   projectColumnAspectsForSpec,
   reverseProjectAspectColumns,
+  syncedAspectNameFor,
   syncedItemFieldFor,
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
@@ -566,5 +567,56 @@ describe("clearing a specific reaches its backing field", () => {
     // read as "the seller emptied Material".
     const wb = reverseProjectAspectColumns(item, {}, {}, saved, [free("Pattern")]);
     expect(wb.columns).toEqual({});
+  });
+});
+
+// US-3114: the composer's description preview writes a column AND the specific
+// that reverse projection reads back. If these two ever disagree, the preview
+// edit lands and the very next save quietly puts the old value back — which is
+// exactly the failure nobody notices until a listing publishes with it.
+describe("syncedAspectNameFor (US-3114)", () => {
+  const spec = [free("Brand"), free("Type"), free("Style"), free("Pattern")];
+
+  it("names the specific a column is two-way synced with", () => {
+    expect(syncedAspectNameFor("brand", "clothing", spec)).toBe("Brand");
+  });
+
+  it("agrees with the aspect reverse projection reads back", () => {
+    // Women's Tops lists "Type" ahead of "Style"; the registry's priority order
+    // is what keeps the style column bound to "Style", and this has to make the
+    // same choice or the pair written from the preview is a mismatched pair.
+    const name = syncedAspectNameFor("style", "clothing", spec);
+    expect(name).not.toBeNull();
+    const wb = reverseProjectAspectColumns(
+      base,
+      { [name as string]: ["Bootcut"] },
+      { [name as string]: "manual" },
+      null,
+      spec,
+    );
+    expect(wb.columns.style).toBe("Bootcut");
+  });
+
+  it("returns null when the category exposes no such specific", () => {
+    expect(syncedAspectNameFor("brand", "clothing", [free("Pattern")])).toBeNull();
+  });
+
+  it("returns null with no spec loaded, rather than guessing a name", () => {
+    expect(syncedAspectNameFor("brand", "clothing", null)).toBeNull();
+    expect(syncedAspectNameFor("brand", "clothing", [])).toBeNull();
+  });
+
+  it("is the inverse of syncedItemFieldFor", () => {
+    for (const column of ["brand", "size", "color", "material", "style"]) {
+      const name = syncedAspectNameFor(column, "clothing", [
+        free("Brand"),
+        free("Size"),
+        free("Color"),
+        free("Material"),
+        free("Style"),
+      ]);
+      if (!name) continue;
+      expect(syncedItemFieldFor(name, "clothing")).toBe(column);
+    }
   });
 });

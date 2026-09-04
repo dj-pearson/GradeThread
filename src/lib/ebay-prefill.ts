@@ -546,6 +546,33 @@ export function syncedItemFieldFor(
   return null;
 }
 
+/**
+ * US-3114: the ONE eBay specific a structured column is two-way synced with,
+ * for this category. The inverse of `syncedItemFieldFor`.
+ *
+ * `ownedAspectName` is deliberately the same call `reverseProjectAspectColumns`
+ * makes, so a caller that writes a column AND this aspect together writes the
+ * pair the next save will read back. Picking any other candidate — the first
+ * one the spec happens to list, say — would mean the save reverse-projects a
+ * different specific over the column and silently undoes the edit.
+ *
+ * Returns null when the category exposes no such specific, which is the signal
+ * to write only the column.
+ */
+export function syncedAspectNameFor(
+  column: string,
+  category: string | null,
+  aspectList: EbayAspect[] | null | undefined,
+): string | null {
+  if (!column || !aspectList?.length) return null;
+  for (const entry of ASPECT_REGISTRY.entries) {
+    if (entry.source !== "column" || entry.column !== column) continue;
+    const name = ownedAspectName(entry, category, aspectList);
+    if (name) return name;
+  }
+  return null;
+}
+
 // The write-back a specifics-editor save owes the item: column patches +
 // changed canonical-attribute keys (caller merges the latter over the item's
 // existing `attributes` jsonb before persisting).

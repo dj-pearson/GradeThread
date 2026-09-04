@@ -182,8 +182,31 @@ export function buildMeasurementLines(
   measurements: Measurements,
   unit: LengthUnit = "in",
 ): string[] {
+  return buildMeasurementLineParts(measurements, unit).map((p) => p.text);
+}
+
+/** One rendered measurement line, still carrying the key it came from. */
+export interface MeasurementLinePart {
+  /** The measurements-object key, e.g. "chest". */
+  key: string;
+  /** The rendered line, e.g. "- Chest: 42 in (21 in flat)". */
+  text: string;
+}
+
+/**
+ * The measurement lines WITH the key each one renders (US-3114).
+ *
+ * `buildMeasurementLines` is this function with the keys thrown away, which is
+ * the only reason the two cannot drift. The keys are what let the composer's
+ * preview turn a line a seller clicked back into the field that produced it —
+ * matching on the rendered label would break the moment a label is reworded.
+ */
+export function buildMeasurementLineParts(
+  measurements: Measurements,
+  unit: LengthUnit = "in",
+): MeasurementLinePart[] {
   if (!measurements || typeof measurements !== "object") return [];
-  const lines: string[] = [];
+  const lines: MeasurementLinePart[] = [];
   // Canonical (spec) order first, then any extra keys in insertion order.
   const ordered = [
     ...Object.keys(MEASUREMENT_SPECS).filter((k) => k in measurements),
@@ -199,11 +222,12 @@ export function buildMeasurementLines(
     const worn = isCircumferenceMeasurement(key)
       ? formatListingMeasurement(key, measurements[key], unit)
       : null;
-    lines.push(
-      worn
+    lines.push({
+      key,
+      text: worn
         ? `- ${measurementLabel(key)}: ${worn} (${formatted} flat)`
         : `- ${measurementLabel(key)}: ${formatted}`,
-    );
+    });
   }
   return lines;
 }
@@ -248,15 +272,42 @@ export function buildMeasurementsBlock(
   unit: LengthUnit = "in",
   opts: MeasurementsBlockOpts = {},
 ): string {
-  const lines = buildMeasurementLines(measurements, unit);
-  if (lines.length === 0) return "";
+  return buildMeasurementsBlockParts(measurements, unit, opts)
+    .map((p) => p.text)
+    .join("\n");
+}
+
+/** One line of the measurements block, tagged with what it is. */
+export interface MeasurementsBlockPart {
+  text: string;
+  /** Set on the value lines: the measurements key this line renders. */
+  key?: string;
+  /** A marker comment. Part of the bytes, never shown to a seller. */
+  marker?: boolean;
+}
+
+/**
+ * The measurements block as its lines, each tagged (US-3114).
+ *
+ * `buildMeasurementsBlock` is this joined by "\n", so the composer's preview can
+ * show the header, hide the markers and open an input on exactly the value line
+ * a seller clicked without any of it being a second copy of the layout.
+ * Returns `[]` when there is nothing to render, which joins to "".
+ */
+export function buildMeasurementsBlockParts(
+  measurements: Measurements,
+  unit: LengthUnit = "in",
+  opts: MeasurementsBlockOpts = {},
+): MeasurementsBlockPart[] {
+  const lines = buildMeasurementLineParts(measurements, unit);
+  if (lines.length === 0) return [];
   return [
-    MEASUREMENTS_BLOCK_START,
-    "Measurements (garment laid flat):",
-    ...lines,
-    ...(opts.calibrated ? [CALIBRATED_MEASURE_NOTE] : []),
-    MEASUREMENTS_BLOCK_END,
-  ].join("\n");
+    { text: MEASUREMENTS_BLOCK_START, marker: true },
+    { text: "Measurements (garment laid flat):" },
+    ...lines.map((l) => ({ text: l.text, key: l.key })),
+    ...(opts.calibrated ? [{ text: CALIBRATED_MEASURE_NOTE }] : []),
+    { text: MEASUREMENTS_BLOCK_END, marker: true },
+  ];
 }
 
 /**

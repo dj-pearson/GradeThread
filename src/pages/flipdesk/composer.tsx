@@ -92,15 +92,25 @@ import {
   stripRenderedBlocks,
   type BlockRowContext,
 } from "@/lib/description-blocks";
-import type { DescriptionBlock } from "@/types/database";
+import type { DescriptionBlock, DescriptionBlockKey } from "@/types/database";
 import {
   inferDepartment,
   mapEbayCondition,
   projectColumnAspectsForSpec,
   reverseProjectAspectColumns,
+  syncedAspectNameFor,
   type AspectWriteBack,
   type ItemAspectSource,
 } from "@/lib/ebay-prefill";
+
+/**
+ * The item columns an attributes line in the description preview may write.
+ *
+ * The same five `AspectWriteBack.columns` covers, and the list is here rather
+ * than derived from a preview line so a crafted `field` cannot reach a column
+ * the seller never asked to edit.
+ */
+const ATTRIBUTE_COLUMNS = ["brand", "size", "color", "material", "style"];
 import {
   INITIAL_ASPECT_DIRTY_STATE,
   reduceAspectReport,
@@ -1279,6 +1289,106 @@ export function FlipdeskComposerPage({
     : item
       ? interpolateDescription(description, item)
       : description;
+
+  // US-3114: a generated line in the description preview edits the field behind
+  // it — a measurement, or Brand/Size/Color/Material/Style.
+  //
+  // WHY IT WRITES IMMEDIATELY. The description is rendered SERVER-side from the
+  // item row, so a value parked in composer state would leave the seller staring
+  // at the number they just corrected. The write lands, the item query is
+  // invalidated, and the panel re-renders against what is actually stored.
+  //
+  // WHY AN ATTRIBUTE WRITES TWICE. brand/size/color/material/style live in two
+  // places by design (US-557 single-entry): the item column, which the
+  // description reads, and the eBay specific, which the seller edits. saveDraft
+  // reverse-projects the specific ONTO the column, so writing only the column
+  // would have the next save quietly restore the old value. `syncedAspectNameFor`
+  // returns the same specific that reverse projection reads back, so the pair
+  // written here is the pair it agrees with.
+  const commitDerivedField = useCallback(
+    async (
+      key: DescriptionBlockKey,
+      field: string,
+      value: string,
+    ): Promise<void> => {
+      if (!item) return;
+      const next = value.trim();
+
+      if (key === "measurements") {
+        const parsed = Number.parseFloat(next);
+        const updated = { ...measurements };
+        if (next === "") {
+          delete updated[field];
+        } else if (Number.isFinite(parsed)) {
+          updated[field] = parsed;
+        } else {
+          // Not a number. Silently keeping the old value would look like the
+          // edit landed, so say so and leave the row alone.
+          toast.error(`"${value}" is not a measurement.`);
+          return;
+        }
+        applyMeasurements(updated);
+        const { error } = await supabase
+          .from("inventory_items")
+          .update({ measurements: updated } as never)
+          .eq("id", item.id);
+        if (error) {
+          toast.error(`Couldn't save that measurement: ${errorMessage(error)}`);
+          return;
+        }
+        await qc.invalidateQueries({ queryKey: ["items_full"] });
+        descriptionBlocks.refreshPreview();
+        return;
+      }
+
+      if (key !== "attributes") return;
+      if (!ATTRIBUTE_COLUMNS.includes(field)) return;
+
+      const { error } = await supabase
+        .from("inventory_items")
+        .update({ [field]: next === "" ? null : next } as never)
+        .eq("id", item.id);
+      if (error) {
+        toast.error(`Couldn't save that: ${errorMessage(error)}`);
+        return;
+      }
+
+      const aspectName = syncedAspectNameFor(
+        field,
+        itemAspectSource?.item_category ?? null,
+        specAspects,
+      );
+      if (aspectName) {
+        const merged = { ...(livePickedAspects ?? savedAspects ?? {}) };
+        if (next === "") delete merged[aspectName];
+        else merged[aspectName] = [next];
+        // The seller typed this, so it outranks anything projected or guessed —
+        // and marking the edit is what lets the dirty reducer see a real change.
+        sellerEditedAspects.current = true;
+        handleAspectsChange(merged);
+        setLivePickedSources({
+          ...(livePickedSources ?? {}),
+          [aspectName]: "manual",
+        });
+      }
+
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
+      descriptionBlocks.refreshPreview();
+    },
+    [
+      item,
+      measurements,
+      applyMeasurements,
+      qc,
+      descriptionBlocks,
+      itemAspectSource,
+      specAspects,
+      livePickedAspects,
+      savedAspects,
+      livePickedSources,
+    ],
+  );
 
   function applyTemplate() {
     if (!item) return;
@@ -3579,6 +3689,7 @@ export function FlipdeskComposerPage({
             blocks={descriptionBlocks.blocks}
             onBlocksChange={descriptionBlocks.setBlocks}
             preview={descriptionBlocks.preview}
+            segments={descriptionBlocks.segments}
             previewPending={descriptionBlocks.previewPending}
             previewAvailable={!!item.listing_id && descriptionBlocks.ready}
             blocksLoading={descriptionBlocks.loading}
@@ -3596,6 +3707,8 @@ export function FlipdeskComposerPage({
             onRegenerate={(key) => void descriptionBlocks.regenerate(key)}
             regenerating={descriptionBlocks.regenerating}
             onGoToField={focusSection}
+            measurementValues={measurements}
+            onDerivedCommit={commitDerivedField}
             group={group}
             applyTemplate={applyTemplate}
             photoCount={photos.length}

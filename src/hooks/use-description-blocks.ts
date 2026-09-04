@@ -20,13 +20,23 @@ import {
   createPreviewScheduler,
   PREVIEW_DEBOUNCE_MS,
 } from "@/lib/description-preview";
-import type { DescriptionBlock, DescriptionBlockKey } from "@/types/database";
+import type {
+  DescriptionBlock,
+  DescriptionBlockKey,
+  DescriptionSegment,
+} from "@/types/database";
 
 export interface UseDescriptionBlocksResult {
   blocks: DescriptionBlock[];
   setBlocks: (next: DescriptionBlock[]) => void;
   /** The exact string eBay will receive, or "" while it has never been rendered. */
   preview: string;
+  /**
+   * The same render in pieces (US-3114). Glued in order it equals `preview`, so
+   * the clickable preview panel and the published string are one render, not
+   * two. Empty until the edge has rendered once.
+   */
+  segments: DescriptionSegment[];
   previewPending: boolean;
   loading: boolean;
   /** True when the blocks shown came from parsing a legacy description. */
@@ -36,6 +46,15 @@ export interface UseDescriptionBlocksResult {
    * listing's real blocks. `save` refuses in that state — see the note there.
    */
   ready: boolean;
+  /**
+   * Re-render the CURRENT array against fresh item data (US-3114).
+   *
+   * The preview effect below only fires when the blocks or the unit change, and
+   * a derived block's content lives on the item row instead — so editing a
+   * measurement from the preview changes what the description says without
+   * changing a single block. This is how that edit reaches the panel.
+   */
+  refreshPreview: () => void;
   /** Persist the current array. Returns the rendered description, or null. */
   save: (listingId: string) => Promise<string | null>;
   /** Rewrite one AI block server-side. Returns true when it landed. */
@@ -46,6 +65,7 @@ export interface UseDescriptionBlocksResult {
 interface BlocksResponse {
   blocks?: DescriptionBlock[];
   preview?: string;
+  segments?: DescriptionSegment[];
   converted?: boolean;
   description?: string;
 }
@@ -62,6 +82,7 @@ export function useDescriptionBlocks(opts: {
 
   const [blocks, setBlocksState] = useState<DescriptionBlock[]>(seed);
   const [preview, setPreview] = useState("");
+  const [segments, setSegments] = useState<DescriptionSegment[]>([]);
   const [previewPending, setPreviewPending] = useState(false);
   const [loading, setLoading] = useState(false);
   const [converted, setConverted] = useState(false);
@@ -87,12 +108,23 @@ export function useDescriptionBlocks(opts: {
   const previewedUnit = useRef<string>(unit);
 
   /** Adopt a server response: blocks, the string they rendered to, and the guard. */
-  const adopt = useCallback((next: DescriptionBlock[], description: string) => {
-    blocksRef.current = next;
-    previewedBlocks.current = next;
-    setBlocksState(next);
-    setPreview(description);
-  }, []);
+  const adopt = useCallback(
+    (
+      next: DescriptionBlock[],
+      description: string,
+      nextSegments?: DescriptionSegment[],
+    ) => {
+      blocksRef.current = next;
+      previewedBlocks.current = next;
+      setBlocksState(next);
+      setPreview(description);
+      // An older edge build answers without segments. The panel falls back to
+      // the raw string then rather than showing a preview with no regions, so a
+      // deploy lag degrades the clicking, never the description.
+      setSegments(Array.isArray(nextSegments) ? nextSegments : []);
+    },
+    [],
+  );
 
   // ── Load ────────────────────────────────────────────────────────
   const loadedFor = useRef<string | null>(null);
@@ -111,7 +143,7 @@ export function useDescriptionBlocks(opts: {
         const body = (await res.json()) as BlocksResponse;
         if (cancelled || !Array.isArray(body.blocks)) return;
         // The preview is adopted VERBATIM, not re-rendered. See the header note.
-        adopt(body.blocks, body.preview ?? "");
+        adopt(body.blocks, body.preview ?? "", body.segments);
         setConverted(body.converted === true);
         setHydrated(true);
       } catch {
@@ -132,7 +164,7 @@ export function useDescriptionBlocks(opts: {
     () =>
       createPreviewScheduler<
         { listingId: string; blocks: DescriptionBlock[]; unit: string },
-        string
+        { preview: string; segments: DescriptionSegment[] }
       >({
         delayMs: PREVIEW_DEBOUNCE_MS,
         fetcher: async (payload) => {
@@ -145,10 +177,16 @@ export function useDescriptionBlocks(opts: {
             },
           });
           if (!res.ok) throw new Error(`preview ${res.status}`);
-          const body = (await res.json()) as { preview?: string };
-          return body.preview ?? "";
+          const body = (await res.json()) as BlocksResponse;
+          return {
+            preview: body.preview ?? "",
+            segments: Array.isArray(body.segments) ? body.segments : [],
+          };
         },
-        onResult: setPreview,
+        onResult: (result) => {
+          setPreview(result.preview);
+          setSegments(result.segments);
+        },
         onPending: setPreviewPending,
       }),
     [],
@@ -170,6 +208,19 @@ export function useDescriptionBlocks(opts: {
     previewedUnit.current = unit;
     scheduler.request({ listingId, blocks, unit });
   }, [enabled, listingId, blocks, unit, scheduler]);
+
+  const refreshPreview = useCallback(() => {
+    if (!enabled || !listingId) return;
+    // Clearing the guard matters: it holds the array the panel's current string
+    // was rendered from, and leaving it set would make the effect above skip the
+    // very next legitimate block edit as "already previewed".
+    previewedBlocks.current = null;
+    scheduler.request({
+      listingId,
+      blocks: blocksRef.current,
+      unit: unitRef.current,
+    });
+  }, [enabled, listingId, scheduler]);
 
   // ── Save ────────────────────────────────────────────────────────
   //
@@ -195,7 +246,11 @@ export function useDescriptionBlocks(opts: {
       const description = body.description ?? "";
       // The array the server echoed back IS what it just rendered, so `adopt`
       // records it and the preview effect does not ask for it again.
-      adopt(Array.isArray(body.blocks) ? body.blocks : blocksRef.current, description);
+      adopt(
+        Array.isArray(body.blocks) ? body.blocks : blocksRef.current,
+        description,
+        body.segments,
+      );
       setConverted(false);
       return description;
     } catch {
@@ -218,6 +273,7 @@ export function useDescriptionBlocks(opts: {
         adopt(
           Array.isArray(body.blocks) ? body.blocks : blocksRef.current,
           body.description ?? "",
+          body.segments,
         );
         return true;
       } catch {
@@ -233,10 +289,12 @@ export function useDescriptionBlocks(opts: {
     blocks,
     setBlocks,
     preview,
+    segments,
     previewPending,
     loading,
     converted,
     ready,
+    refreshPreview,
     save,
     regenerate,
     regenerating,

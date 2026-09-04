@@ -27,6 +27,7 @@ const base: React.ComponentProps<typeof DescriptionCard> = {
   blocks: DEFAULT_DESCRIPTION_BLOCKS.map((b) => ({ ...b })) as DescriptionBlock[],
   onBlocksChange: () => {},
   preview: "Veronica Beard jogger-style pants, new with tags.",
+  segments: [],
   previewPending: false,
   previewAvailable: true,
   blocksLoading: false,
@@ -37,6 +38,8 @@ const base: React.ComponentProps<typeof DescriptionCard> = {
   onRegenerate: () => {},
   regenerating: null,
   onGoToField: () => {},
+  measurementValues: {},
+  onDerivedCommit: async () => {},
   group: "pants",
   applyTemplate: () => {},
   photoCount: 3,
@@ -112,12 +115,14 @@ describe("DescriptionCard rows (US-2960)", () => {
     expect(html).toContain("8.3 / 10");
   });
 
-  it("shows a character count and keeps the preview closed by default", () => {
+  it("shows a character count and opens the preview by default (US-3114)", () => {
     const html = markup();
-    expect(html).toContain("Preview what eBay receives");
+    expect(html).toContain("Preview and edit");
     expect(html).toContain(`${base.preview.length} characters`);
-    // Closed: the panel's textarea is not in the first paint.
-    expect(html).not.toContain('aria-label="Rendered description preview"');
+    // Open: the preview is where the wording is edited now, so it is not
+    // something the seller has to go and find first. With no segments (an edge
+    // that has not been redeployed) it opens on the read-only raw view.
+    expect(html).toContain('aria-label="Rendered description preview"');
   });
 
   it("says the preview needs a saved row rather than showing an empty one", () => {

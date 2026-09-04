@@ -24,9 +24,10 @@ import { supabaseAdmin } from "./supabase.ts";
 import {
   type DescriptionBlock,
   defaultBlocks,
+  type DescriptionSegment,
   parseLegacyDescription,
-  renderDescription,
   type RenderContext,
+  renderSegments,
 } from "./description-blocks.ts";
 import { loadSellerCredential } from "./seller-credentials-job.ts";
 import { factorScoresToFacts } from "./listing-facts-block.ts";
@@ -223,6 +224,8 @@ export function blocksForListing(
 export interface PersistResult {
   blocks: DescriptionBlock[];
   description: string;
+  /** The same render in pieces, so a client can map it back to blocks (US-3114). */
+  segments: DescriptionSegment[];
 }
 
 /**
@@ -254,6 +257,8 @@ export interface RenderedListing {
   listing: OwnedListing;
   blocks: DescriptionBlock[];
   description: string;
+  /** The same render in pieces. Glued back together it equals `description`. */
+  segments: DescriptionSegment[];
 }
 
 /**
@@ -277,8 +282,12 @@ export async function renderListingDescription(
 
   const ctx = await buildRenderContext(listing, ownerId, unit);
   const next = stampUnit(blocks ?? blocksForListing(listing, ctx), unit);
-  const description = renderDescription(next, ctx);
-  return { listing, blocks: next, description };
+  const segments = renderSegments(next, ctx);
+  // One render, two views of it. `renderDescription` is `renderSegments` glued,
+  // so deriving the string from the segments here cannot produce a description
+  // that disagrees with the pieces the composer lets a seller click.
+  const description = segments.map((s) => s.sep + s.body).join("");
+  return { listing, blocks: next, description, segments };
 }
 
 /**
@@ -301,7 +310,7 @@ export async function renderAndPersistDescription(
 ): Promise<PersistResult | null> {
   const rendered = await renderListingDescription(listingId, ownerId, blocks, unit);
   if (!rendered) return null;
-  const { listing, blocks: next, description } = rendered;
+  const { listing, blocks: next, description, segments } = rendered;
 
   const { error } = await supabaseAdmin
     .from("listings")
@@ -316,7 +325,7 @@ export async function renderAndPersistDescription(
     .eq("inventory_item_id", listing.inventory_item_id);
   if (error) return null;
 
-  return { blocks: next, description };
+  return { blocks: next, description, segments };
 }
 
 // ─── US-2961: apply a snippet edit to the drafts that reference it ──

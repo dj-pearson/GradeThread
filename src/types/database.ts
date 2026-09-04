@@ -1310,6 +1310,42 @@ export interface DescriptionBlock {
   sep?: string;
 }
 
+/**
+ * US-3114: one line of a rendered text segment, tagged with what produced it.
+ *
+ * `field` is set only on the lines a seller can actually change — an
+ * `inventory_items` column on the attributes block, a measurements key on the
+ * measurements block. `hidden` marks the HTML comment markers: they are part of
+ * the bytes eBay receives and are never shown in the preview.
+ */
+export interface DescriptionSegmentLine {
+  text: string;
+  field?: string;
+  hidden?: boolean;
+}
+
+/**
+ * US-3114: one rendered block, still knowing which block it came from.
+ *
+ * `sep + body`, glued in order across every segment, IS the string eBay
+ * receives — the edge renderer builds the description this way and joins it,
+ * so the clickable preview cannot show something other than what publishes.
+ * `index` points into the blocks array the client sent, NOT the render order,
+ * which is what lets a click map back to `setBlockTextAt`.
+ */
+export interface DescriptionSegment {
+  index: number;
+  key: DescriptionBlockKey;
+  src: DescriptionBlockSource;
+  sep: string;
+  body: string;
+  kind: "text" | "html";
+  /** kind "text" only. `lines.map(l => l.text).join("\n")` equals `body`. */
+  lines?: DescriptionSegmentLine[];
+  /** kind "html" only: GradeThread-built markup, with the markers removed. */
+  html?: string;
+}
+
 export interface ListingRow {
   id: string;
   inventory_item_id: string;

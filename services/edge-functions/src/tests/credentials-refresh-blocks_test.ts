@@ -208,7 +208,13 @@ Deno.test("renderListingDescription writes nothing", () => {
   assert(start > 0 && end > start);
   const body = renderSrc.slice(start, end);
   assert(!body.includes(".update("), "the read half must not write");
-  assertStringIncludes(body, "const description = renderDescription(next, ctx);");
+  // US-3114: the render goes through `renderSegments` and the string is those
+  // segments glued. Still ONE render of `next` — the property this guards.
+  assertStringIncludes(body, "const segments = renderSegments(next, ctx);");
+  assertStringIncludes(
+    body,
+    'const description = segments.map((s) => s.sep + s.body).join("");',
+  );
 });
 
 Deno.test("the unit is stamped onto measurement blocks at the single write path", () => {
