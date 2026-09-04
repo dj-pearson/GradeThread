@@ -160,6 +160,7 @@
         "research/compare-tray.js",
         "research/overlay-css.js",
         "research/overlay-host.js",
+        "research/marketplace-notice.js",
         "research/marketplace.js"
       ],
       "run_at": "document_idle"

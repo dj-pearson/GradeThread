@@ -766,6 +766,19 @@ function EbaySetup({
               last ~24 months, including items not yet in FlipDesk (those land in
               Reconciliation).
             </p>
+            {/*
+              US-3111: say what "synced" actually covers. Not every field
+              refreshes on the same clock, and a seller who assumes it does
+              reads the slowest one as a bug — an ended listing taking a day to
+              reach Drafts is the usual report. Stating the three cadences turns
+              that into expected behaviour, and it is also the honest answer to
+              anyone asking how hard we lean on eBay's API.
+            */}
+            <p className="text-[11px] text-muted-foreground">
+              Sales, offers and returns arrive from eBay as they happen. Prices
+              and quantities refresh every few hours. Listings that ended
+              without selling move back to Drafts once a day.
+            </p>
           </div>
         )}
       </CardContent>

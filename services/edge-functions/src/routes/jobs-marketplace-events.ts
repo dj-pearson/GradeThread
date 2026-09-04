@@ -18,6 +18,20 @@ import { sweepMarketplaceEvents } from "../lib/marketplace-event-poll.ts";
 // not a budget — the poll itself is already per-connection rate-limited.
 const ACTIVE_CONNECTION_SCAN_CAP = 10_000;
 
+/**
+ * US-3110: how far back a sale still counts as "this seller could get a return".
+ *
+ * eBay's own windows are shorter than this — 30 days for most return policies,
+ * 30 days after delivery for a payment dispute — so 120 days is deliberately
+ * generous. The cost of being too generous is one seller polled for nothing;
+ * the cost of being too tight is a missed notification.
+ */
+export const POST_SALE_ACTIVITY_WINDOW_DAYS = 120;
+
+/**
+ * Every connected eBay owner, unfiltered. The fallback when the activity gate
+ * cannot be evaluated — see loadPollableEbayOwnerIds.
+ */
 async function loadActiveEbayOwnerIds(): Promise<string[]> {
   const { data, error } = await supabaseAdmin
     .from("marketplace_connections")
@@ -39,6 +53,43 @@ async function loadActiveEbayOwnerIds(): Promise<string[]> {
   return [...ids];
 }
 
+/**
+ * US-3110: the owners this sweep actually has a reason to poll.
+ *
+ * Each polled owner costs six eBay calls a tick, ninety-six ticks a day, whether
+ * or not anything could have happened to them — 576 calls a day per connected
+ * account, paid identically by a dormant trial and a real shop. The pollable
+ * set is owners with an active eBay listing, a sale inside the post-sale window,
+ * or an open case.
+ *
+ * FAILS OPEN. If the gate cannot be evaluated we poll everyone, because the
+ * failure we can afford is a wasted call and the one we cannot is a seller who
+ * never hears that a payment dispute was opened against them.
+ */
+async function loadPollableEbayOwnerIds(): Promise<string[]> {
+  const since = new Date(
+    Date.now() - POST_SALE_ACTIVITY_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+
+  const { data, error } = await supabaseAdmin
+    .rpc("pollable_ebay_owner_ids", { p_since: since })
+    .limit(ACTIVE_CONNECTION_SCAN_CAP);
+
+  if (error) {
+    console.warn(
+      `[marketplace-events] activity gate unavailable (${error.message}); ` +
+        `polling every connected owner`,
+    );
+    return await loadActiveEbayOwnerIds();
+  }
+
+  const ids = new Set<string>();
+  for (const row of (data ?? []) as Array<{ owner_user_id: string | null }>) {
+    if (row.owner_user_id) ids.add(row.owner_user_id);
+  }
+  return [...ids];
+}
+
 export async function handleMarketplaceEventsCron(
   c: Context,
 ): Promise<Response> {
@@ -56,7 +107,7 @@ export async function handleMarketplaceEventsCron(
     return c.json({ ok: true, skipped: true, reason: lock.reason });
   }
   try {
-    const result = await sweepMarketplaceEvents(loadActiveEbayOwnerIds);
+    const result = await sweepMarketplaceEvents(loadPollableEbayOwnerIds);
     return c.json({ ok: true, ...result });
   } catch (err) {
     captureException(err, { route: "jobs-marketplace-events.cron" });

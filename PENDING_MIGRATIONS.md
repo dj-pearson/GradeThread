@@ -1,6 +1,142 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ PENDING: 00723 — credit functions must refuse anon (US-3094)
+## ✅ APPLIED 2026-09-03: 00725 — stagger the per-SKU eBay offer read (US-3111)
+
+**Verified applied 2026-09-03** by `npm run migrate:prod` (dry run): prod records
+version 00725 and `inventory_items.ebay_offer_checked_at` exists. The doc had
+gone stale, which is the drift the new tool exists to catch.
+
+**Risk: LOW.** One nullable `timestamptz` on `inventory_items`. No backfill, no
+constraint, no index, no rewrite. Every row starts null, which is the "never
+asked" state that forces a read — so the first pass after deploy behaves exactly
+like today and the saving starts on the second.
+
+**Apply BEFORE the edge deploy.** The new edge SELECTs
+`inventory_items.ebay_offer_checked_at` by name. If the edge goes first,
+PostgREST answers 42703, `loadRecentlyReadOfferSkus` logs a warning and returns
+an empty set — so it degrades to today's full fan-out rather than breaking, but
+the stamp write would fail on every pass and fill the sync run with errors.
+
+**`NOTIFY pgrst, 'reload schema';`** after applying — one new column, read by
+name through PostgREST.
+
+**The frontend does not read it.** A Cloudflare Pages deploy alone is harmless.
+
+**What it is for.** 00724 took the catalog from ~41 full passes a day to 4 per
+connection. What remains is the pass itself: `listAllOffers` fans out one
+`GET /sell/inventory/v1/offer?sku=` per SKU across eBay's entire inventory list —
+984 SKUs — and only 301 of 940 eBay listing rows carry an offer id, so most of
+those calls ask about Seller-Hub listings that have no Inventory-API offer and
+never will. eBay returns nothing, we store nothing, we ask again in six hours.
+The same shape as the item-specifics bug 00724 fixed.
+
+**What moves to a daily cadence, and what does not.** Price, quantity, title,
+category and listing status for ACTIVE listings arrive from GetMyeBaySelling in
+about seven paged calls on the same pass, so nothing a seller reads goes stale.
+What the per-SKU offer read uniquely provides is the offer-level detail and the
+detection of a listing that ENDED WITHOUT SELLING. eBay publishes no notification
+topic for a listing ending, so polling is the only way we learn it. After this,
+an unsold ended listing moves back to Drafts within 24 hours instead of 6.
+
+**The rejected alternative, recorded so it is not re-proposed.** Treating
+"missing from the bulk active list" as proof a listing ended would take the
+per-SKU read close to zero. It is not worth it: if GetMyeBaySelling ever returns
+a truncated page, that logic moves LIVE listings into Drafts, and nobody would
+notice until a seller complained. The existing ended-detection is deliberately
+observation-based, never absence-based, and this keeps it that way.
+
+**Both failure paths fail open.** A missing column, a failed read, an
+unparseable or future-dated stamp all resolve to "read this SKU", which is the
+pre-change behaviour. A failed stamp write is logged and recorded on the sync
+run rather than swallowed, because a silent failure here restores the full
+fan-out invisibly.
+
+**Also in this file: `marketplace_connections.disputes_access_denied` (US-3112).**
+`payment_dispute_summary` needs the `sell.payment.dispute` scope, which
+`sell.fulfillment` does NOT cover despite the shared URL prefix. Measured on
+prod 2026-09-03: one of the two connections does not hold it, and the
+marketplace-event sweep asked anyway every fifteen minutes — about 160 calls a
+day that could never succeed. The flag stops the asking and is the signal a
+"reconnect your eBay account" prompt can read. Mirrors `analytics_access_denied`
+and `negotiation_access_denied`, which are on this table for the same reason.
+It is NOT set on eBay's "no disputes" 404: an account with no disputes today can
+have one tomorrow and must keep being polled. Reads fail OPEN — an unreadable
+flag means ask eBay, never stay silent about a seller's disputes.
+
+**Verified on a throwaway local stack:** applied from clean and re-applied
+(idempotent, only the expected "already exists, skipping" notice); the US-1108
+self-record footer present; `EXPECTED_SCHEMA_VERSION` bumped to 00725 in the same
+commit with the manifest regenerated; `migrations-lint` green at 721 migrations.
+
+
+## ✅ APPLIED 2026-09-03: 00724 — stop the eBay sync re-reading what it already knows (US-3110)
+
+**Verified applied 2026-09-03** by `npm run migrate:prod` (dry run): every one of
+the 721 local migration files is recorded on prod, 00724 included.
+
+**Risk: LOW-MEDIUM.** Two nullable `timestamptz` columns, three indexes, and one
+new `SECURITY DEFINER` function. No backfill, no constraint, no rewrite. Every
+existing row keeps working with the columns null, which is the "never read yet"
+state the code already handles.
+
+**Apply BEFORE the edge deploy.** The new edge SELECTs
+`marketplace_connections.last_catalog_synced_at` and
+`inventory_items.ebay_specifics_checked_at` by name, and calls the RPC
+`pollable_ebay_owner_ids`. If the edge goes first, PostgREST answers 42703 on the
+two selects and the eBay sync fails outright. The RPC call is the one part that
+degrades gracefully: `loadPollableEbayOwnerIds` catches the error and falls back
+to polling every connected owner, which is exactly today's behaviour.
+
+**`NOTIFY pgrst, 'reload schema';`** after applying — two new columns and a new
+RPC, all reached through PostgREST by name.
+
+**The frontend does not read any of this.** A Cloudflare Pages deploy on its own
+is harmless.
+
+**What it is for.** Measured on prod over 2026-09-01..03, two connected sellers
+made 33,002 eBay calls a day and peaked at 4,941 of the 5,000 daily Trading
+allowance. Three causes, all fixed in the same commit:
+
+- `doListingsPull` always fanned out one `GET /sell/inventory/v1/offer?sku=` per
+  SKU before it looked at orders, and the two callers that only ever need orders
+  (the notification webhook and the order backstop) fired it every few minutes.
+  25,312 calls a day, about 41 full catalog reads. `last_catalog_synced_at` lets
+  an orders-only pull skip that and upgrade itself to a full read every 6 hours.
+- The item-specifics fill had no negative cache. A field eBay has no value for
+  stays blank, so `needsSpecifics` was true again on the next sync and the same
+  item was re-read forever — roughly 3,300 Trading calls a day against a 5,000
+  ceiling. `ebay_specifics_checked_at` remembers that we asked.
+- The marketplace-event sweep polled six eBay endpoints for every connected
+  seller every fifteen minutes whether or not anything could have happened to
+  them: 576 calls per seller per day of fixed cost, paid identically by a dormant
+  trial account and a real shop. `pollable_ebay_owner_ids` narrows it to owners
+  with an active listing, a recent sale, or an open case.
+
+**The `SECURITY DEFINER` function returns other tenants' owner ids by design**,
+which is why it is revoked from `public`, `anon` and `authenticated` and granted
+only to `service_role`. The edge calls it with the service-role key. It is a
+`stable` read with no writes and no dynamic SQL, and `search_path` is pinned.
+
+**The gate FAILS OPEN.** If the RPC is missing or errors, the sweep polls every
+connected owner and logs a warning. The failure we can afford is a wasted call;
+the one we cannot is a seller who never hears that a payment dispute was opened.
+
+**Verified on a throwaway local stack:** applied from clean and re-applied
+(idempotent, only the expected "already exists, skipping" notices); the RPC
+executes and returns 0 rows on an empty schema; the US-1108 self-record footer
+is present; `EXPECTED_SCHEMA_VERSION` bumped to 00724 in the same commit with the
+manifest regenerated; `migrations-lint` green at 720 migrations.
+
+
+## ✅ APPLIED 2026-09-03: 00723 — credit functions must refuse anon (US-3094)
+
+**Applied.** The production edge's `/health/ready` reports
+`schema: { expected: "00723", applied: "00723", status: "match" }` (read from
+the running service on 2026-09-03, not inferred), and the edge only boots when
+the database is at its expected version. The heading below was never flipped
+after the re-apply, which is what left CI's held-migration gate red on main.
+The apply notes are kept as written.
+
 
 > **REVISED 2026-09-02 after this migration FAILED its first prod apply, which
 > is the point of it.** The assertion refused the apply and named one offender:

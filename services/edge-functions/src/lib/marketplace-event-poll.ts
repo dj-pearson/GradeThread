@@ -30,6 +30,7 @@ import { sendOfferDigestForUser, utcDayStamp } from "./offer-digest.ts";
 import { loadRankedOfferCandidates } from "./offer-candidates-load.ts";
 import { isNegotiationScopeAvailable } from "./ebay-client.ts";
 import { logEvent } from "./observability.ts";
+import { supabaseAdmin } from "./supabase.ts";
 import {
   incomingOfferToInput,
   loadListPricesByItemId,
@@ -93,6 +94,11 @@ export interface MarketplacePollDeps {
   fetchOffers: (userId: string) => Promise<IncomingBestOffer[]>;
   fetchReturns: (userId: string) => Promise<ReturnSummary[]>;
   fetchDisputes: (userId: string) => Promise<PaymentDisputeSummary[]>;
+  // US-3112: whether this connection has already told us it cannot read
+  // disputes. Seams, so the skip is provable without a database. Optional like
+  // the rest, and an omitted pair means "always ask" — the old behaviour.
+  disputesDenied?: (userId: string) => Promise<boolean>;
+  setDisputesDenied?: (userId: string, denied: boolean) => Promise<void>;
   // US-2560. Optional so every existing fake keeps type-checking; an omitted
   // fetcher yields no cancellations rather than a crash, which is the safe way
   // for a seam to default and is what the other optional deps here already do.
@@ -153,10 +159,77 @@ export interface MarketplacePollDeps {
   record?: (ownerId: string, inputs: PostSaleCaseInput[]) => Promise<number>;
 }
 
+/**
+ * US-3112: the connection has already told us it cannot read disputes.
+ *
+ * A sentinel rather than a plain `return`, so the skip lands in the same catch
+ * as a real failure and there is exactly one place that decides what a dispute
+ * failure means.
+ */
+class DisputesAccessDenied extends Error {
+  constructor() {
+    super("dispute polling is off for this connection");
+    this.name = "DisputesAccessDenied";
+  }
+}
+
+/**
+ * eBay refusing for want of scope, as opposed to a blip.
+ *
+ * Same shape as isAnalyticsAccessDenied in ebay-client.ts, deliberately: this
+ * is the third feature on this table gated behind a scope a seller's existing
+ * token may predate, and they should all read the same.
+ *
+ * NOT a 404. searchPaymentDisputes already treats eBay's "this account has no
+ * disputes" 404 as an empty list, and an account that simply has no disputes
+ * must keep being polled — it can get one tomorrow.
+ */
+function isDisputesAccessDenied(err: unknown): boolean {
+  const status = (err as { status?: number } | null)?.status;
+  if (status === 403 || status === 401) return true;
+  const ids = (err as { ebayErrorIds?: number[] } | null)?.ebayErrorIds ?? [];
+  if (ids.includes(1100)) return true;
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  return /insufficient (permissions|scope)|not authorized|access.*denied/.test(msg);
+}
+
+async function readDisputesDenied(userId: string): Promise<boolean> {
+  const { data, error } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("disputes_access_denied")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+  // Fail OPEN: an unreadable flag must mean "ask eBay", never "stay silent
+  // about this seller's disputes".
+  if (error || !data) return false;
+  return (data as { disputes_access_denied: boolean | null }).disputes_access_denied === true;
+}
+
+async function writeDisputesDenied(userId: string, denied: boolean): Promise<void> {
+  const q = supabaseAdmin
+    .from("marketplace_connections")
+    .update({ disputes_access_denied: denied })
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay");
+  // Clearing only touches rows that are actually set, so the common path (every
+  // healthy tick) is a no-op write rather than a pointless row update.
+  const { error } = denied ? await q : await q.eq("disputes_access_denied", true);
+  if (error) {
+    console.warn(
+      `[marketplace-events] could not ${denied ? "set" : "clear"} disputes_access_denied for ${userId}: ${error.message}`,
+    );
+  }
+}
+
 const defaultDeps: MarketplacePollDeps = {
   fetchOffers: getBestOffers,
   fetchReturns: (userId) => searchReturns(userId, { limit: 100 }),
   fetchDisputes: (userId) => searchPaymentDisputes(userId, { limit: 100 }),
+  disputesDenied: readDisputesDenied,
+  setDisputesDenied: writeDisputesDenied,
   fetchCancellations: (userId) => searchCancellations(userId, { limit: 100 }),
   fetchInquiries: (userId) => searchInquiries(userId, { limit: 100 }),
   fetchCases: (userId) => searchCases(userId, { limit: 100 }),
@@ -464,9 +537,21 @@ export async function pollMarketplaceEventsForUser(
 
   // ── Payment disputes ──────────────────────────────────────────────
   try {
+    // US-3112: /sell/fulfillment/v1/payment_dispute_summary needs the
+    // sell.payment.dispute scope, which sell.fulfillment does NOT cover despite
+    // the shared URL prefix. A seller who connected before that scope was added
+    // holds a token without it, and this call insufficient-scopes on every one
+    // of the ninety-six ticks a day until they reconnect. Ask once, remember the
+    // answer, and let the reconnect clear it.
+    if (await deps.disputesDenied?.(ownerId)) {
+      throw new DisputesAccessDenied();
+    }
     // fetchDisputes (searchPaymentDisputes) already treats the eBay "no
     // disputes" 404 as an empty list, so a clean account is a no-op here.
     const disputes = await deps.fetchDisputes(ownerId);
+    // Access worked. Clear a stale flag so a reconnected seller starts being
+    // polled again without anyone noticing they had stopped.
+    await deps.setDisputesDenied?.(ownerId, false);
     const disputeNowIso = new Date().toISOString();
     await deps.record?.(
       ownerId,
@@ -498,7 +583,21 @@ export async function pollMarketplaceEventsForUser(
       }
     }
   } catch (err) {
-    result.errors.push(`disputes: ${err instanceof Error ? err.message : String(err)}`);
+    if (err instanceof DisputesAccessDenied) {
+      // Already known and already recorded — not an error worth reporting on
+      // every tick. The seller needs to reconnect; saying so ninety-six times a
+      // day in the run ledger buries the failures that ARE new.
+    } else if (isDisputesAccessDenied(err)) {
+      // First refusal. Remember it so the next ninety-five ticks cost nothing.
+      await deps.setDisputesDenied?.(ownerId, true);
+      result.errors.push(
+        "disputes: eBay refused the payment-dispute read for want of the " +
+          "sell.payment.dispute scope. This seller must reconnect their eBay " +
+          "account; dispute polling is off for them until they do.",
+      );
+    } else {
+      result.errors.push(`disputes: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // ── Link stored cases to local items (US-2936) ────────────────────

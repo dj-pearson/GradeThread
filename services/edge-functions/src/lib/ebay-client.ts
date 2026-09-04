@@ -372,6 +372,17 @@ function getScopes(): string {
 // a guaranteed 403. The send-offer surfaces gate on this to return a clean
 // `feature_unavailable` instead of letting clients round-trip into that 403.
 // Incoming Best Offers (Trading API, sell scope) are NOT affected by this.
+// US-3112: same question for commerce.identity.readonly. It is omitted from the
+// default list above for the same reason as the other two, which makes
+// /commerce/identity/v1/user a GUARANTEED 4xx on this keyset — and it was being
+// called on every token refresh, so it failed ~33 times a day forever. eBay
+// answers the same way every time; asking again is not diligence, it is noise
+// in the call ledger the growth check reads. Re-adding the scope to getScopes()
+// re-enables the lookup with no other change.
+export function isIdentityScopeAvailable(): boolean {
+  return getScopes().includes("api_scope/commerce.identity.readonly");
+}
+
 export function isNegotiationScopeAvailable(): boolean {
   return getScopes().includes("api_scope/sell.negotiation");
 }
@@ -438,6 +449,11 @@ export async function getUserIdentityFromToken(
   accessToken: string,
   attempts = 3,
 ): Promise<{ username: string | null; externalAccountId: string | null } | null> {
+  // US-3112: without the scope this call cannot succeed, so don't make it. The
+  // caller's contract is unchanged — a null return already means "account_handle
+  // stays null", which is exactly the situation.
+  if (!isIdentityScopeAvailable()) return null;
+
   for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
       const res = await ebayFetch(`${apiHost()}/commerce/identity/v1/user`, {
@@ -3615,25 +3631,55 @@ const OFFERS_FANOUT_CONCURRENCY = 5;
 // endpoint — you must walk inventory_item, then for each SKU fetch offers.
 // Bounded concurrency keeps us under the Sell API rate limits without
 // dragging too much on accounts with hundreds of items.
+/**
+ * US-3111: what a catalog pass actually read, so the caller can remember it.
+ *
+ * `skusRead` is every SKU we spent a call on this pass, INCLUDING the ones eBay
+ * had no offer for — that is the whole point. A SKU that returns nothing is an
+ * answer worth storing; without it, the two thirds of the catalog that are
+ * Seller-Hub listings with no Inventory-API offer get re-asked forever.
+ */
+export interface AllOffersResult {
+  offers: RemoteOffer[];
+  skusRead: string[];
+}
+
 export async function listAllOffers(
   userId: string,
   warnings?: string[],
-): Promise<RemoteOffer[]> {
+  // SKUs read recently enough that this pass can skip them. Empty means read
+  // everything, which is the behaviour before US-3111 and the behaviour the
+  // caller falls back to whenever it cannot work out the set.
+  skipSkus: ReadonlySet<string> = new Set(),
+): Promise<AllOffersResult> {
   const allItems = await listAllInventoryItems(userId, warnings);
-  if (allItems.length === 0) return [];
+  if (allItems.length === 0) return { offers: [], skusRead: [] };
+
+  // US-3111: drop the SKUs whose offer we already read inside the recheck
+  // window. Filtering BEFORE the ceiling below is deliberate — the per-sync
+  // budget should be spent on SKUs we actually need, not burned on ones we
+  // asked about an hour ago.
+  const dueItems = skipSkus.size > 0
+    ? allItems.filter((it) => !skipSkus.has(it.sku))
+    : allItems;
+  if (dueItems.length === 0) return { offers: [], skusRead: [] };
 
   // US-406: bound the fan-out. Beyond the ceiling we stop and flag the run
   // partial rather than fire thousands of calls at eBay's quota in one sync.
-  const items = allItems.slice(0, MAX_OFFERS_FANOUT_PER_SYNC);
-  if (allItems.length > items.length) {
+  const items = dueItems.slice(0, MAX_OFFERS_FANOUT_PER_SYNC);
+  if (dueItems.length > items.length) {
     warnings?.push(
       `Partial sync: fetched offers for the first ${items.length} of ` +
-        `${allItems.length} SKUs (the ${MAX_OFFERS_FANOUT_PER_SYNC}-SKU per-sync ` +
-        `fan-out ceiling, to stay under eBay's daily call quota). The remaining ` +
-        `SKUs will sync on the next run.`,
+        `${dueItems.length} SKUs due a read (the ${MAX_OFFERS_FANOUT_PER_SYNC}-SKU ` +
+        `per-sync fan-out ceiling, to stay under eBay's daily call quota). The ` +
+        `remaining SKUs will sync on the next run.`,
     );
   }
 
+  // Recorded before the loop so a rate-limit bail-out still stamps the SKUs we
+  // got through. Stamping only on a clean finish would mean a throttled sync
+  // re-reads everything it already paid for.
+  const skusRead: string[] = [];
   const all: RemoteOffer[] = [];
   // US-406: set when a per-SKU call exhausts retries on a 429/quota error. Once
   // eBay is rate-limiting us, continuing the fan-out only deepens the throttle
@@ -3664,6 +3710,8 @@ export async function listAllOffers(
       )
     );
     for (const offers of results) all.push(...offers);
+    // Every SKU in this slice cost a call, whether or not it produced an offer.
+    for (const it of slice) skusRead.push(it.sku);
     if (rateLimited) {
       const reached = Math.min(i + OFFERS_FANOUT_CONCURRENCY, items.length);
       warnings?.push(
@@ -3674,7 +3722,7 @@ export async function listAllOffers(
       break;
     }
   }
-  return all;
+  return { offers: all, skusRead };
 }
 
 // Best-effort eBay item-URL builder. eBay's documented format is

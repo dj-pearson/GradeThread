@@ -204,15 +204,19 @@ test("changing the tab re-asks the server instead of filtering in the browser", 
   await expect(page.getByRole("button", { name: /Open Alpha Jacket/i })).toBeVisible({ timeout: 20_000 });
 
   const before = calls.length;
-  await page.getByRole("tab", { name: /drafts/i }).first()
-    .or(page.getByRole("button", { name: /^drafts/i }).first())
+  // The table opens on Unlisted (which absorbed the old To List and Drafts
+  // tabs on 2026-09-02), so the click has to land on a DIFFERENT tab for a
+  // new request to be the only explanation. Active is the one every seller
+  // has.
+  await page.getByRole("tab", { name: /^active/i }).first()
+    .or(page.getByRole("button", { name: /^active/i }).first())
     .click();
 
   // A new request naming the new tab. Filtering the loaded page in the browser
   // would produce no request at all — and would be wrong for every row of the
   // other 134.
   await expect
-    .poll(() => calls.filter((c) => c.tab === "drafts").length, { timeout: 15_000 })
+    .poll(() => calls.filter((c) => c.tab === "active").length, { timeout: 15_000 })
     .toBeGreaterThan(0);
   expect(calls.length).toBeGreaterThan(before);
   expect(itemsFullHits).toEqual([]);

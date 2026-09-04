@@ -20,13 +20,19 @@ import type { Context } from "hono";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { isEbayConfigured } from "../lib/ebay-client.ts";
-import { captureException, recordMetric } from "../lib/observability.ts";
+import { captureException, logEvent, recordMetric } from "../lib/observability.ts";
 import {
   reconcileNotifications,
   warnOnMissingTopics,
 } from "../lib/ebay-notification-subscriptions.ts";
 
 const JOB_LOCK_LEASE_SECONDS = 300;
+
+// Matches the marketplace-event sweep's bounds, for the same reason: enough
+// lines to diagnose, few enough that a total misconfiguration cannot flood the
+// log every six hours.
+const MAX_LOGGED_ERRORS = 8;
+const MAX_ERROR_CHARS = 300;
 
 export async function handleEbayNotificationReconcileCron(
   c: Context,
@@ -59,6 +65,32 @@ export async function handleEbayNotificationReconcileCron(
   try {
     const result = await reconcileNotifications({ verificationToken });
     warnOnMissingTopics(result.health, "scheduled reconcile");
+
+    // US-3112: NAME the per-topic failures.
+    //
+    // reconcileNotifications does not throw on a subscription it could not
+    // create or re-point; it collects each one into result.errors and returns
+    // 200. The cron ledger then records only a COUNT, because readJobOutcome
+    // sums numbers and has nowhere to put a sentence — which is how the 18:17
+    // run on 2026-09-03 came to say `{"failures":{"errors":12}}` and nothing
+    // else. Twelve of what, for which topic, is the entire question.
+    //
+    // Bounded and truncated for the same reason the marketplace-event sweep
+    // bounds its own: a wholesale misconfiguration would otherwise emit one
+    // eBay error body per topic every six hours, and the first few say what the
+    // last few say.
+    if (result.errors.length > 0) {
+      logEvent("warn", "ebay_notification.reconcile_failed", {
+        env: result.env,
+        count: result.errors.length,
+        errors: result.errors.slice(0, MAX_LOGGED_ERRORS).map((e) => ({
+          topicId: e.topicId,
+          message: e.message.length > MAX_ERROR_CHARS
+            ? `${e.message.slice(0, MAX_ERROR_CHARS)}...`
+            : e.message,
+        })),
+      });
+    }
     // Meter the drift so "how often does eBay's config fall out from under us"
     // is answerable from a dashboard, not by grepping logs.
     recordMetric("ebay.notification_missing_buckets", result.health.missingBuckets.length, {
@@ -78,7 +110,18 @@ export async function handleEbayNotificationReconcileCron(
     });
   } catch (err) {
     captureException(err, { route: "jobs-ebay-notification-reconcile.cron" });
-    return c.json({ error: "eBay notification reconcile failed" }, 500);
+    // US-3110: say what actually broke. This job has failed on every run since
+    // 2026-08-20 — 128 errors, zero successes — and left no trace anywhere an
+    // operator looks: cron_runs.detail only carries numeric failure counts, so
+    // it recorded `{}`, and captureException writes to Sentry alone. A restart
+    // then rotated away whatever the container log held. One console.error is
+    // the difference between "the reconcile is red" and a fixable defect.
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`[ebay-notify] reconcile failed: ${message}`);
+    return c.json(
+      { error: "eBay notification reconcile failed", message: message.slice(0, 500) },
+      500,
+    );
   } finally {
     await lock.release();
   }

@@ -170,10 +170,13 @@ export const ebayAdapter: MarketplaceAdapter = {
 
   // The eBay pull-sync reconciles both listings and orders in one run.
   async syncListings(input) {
-    return syncResultFrom(await triggerEbaySyncForUser(input.ownerId));
+    return syncResultFrom(await triggerEbaySyncForUser(input.ownerId, "full"));
   },
+  // US-3110: an order sync does not need the offer catalog. Asking for "orders"
+  // skips the per-SKU fan-out; resolveSyncScope upgrades it to a full read
+  // anyway once the catalog is stale.
   async syncOrders(input) {
-    return syncResultFrom(await triggerEbaySyncForUser(input.ownerId));
+    return syncResultFrom(await triggerEbaySyncForUser(input.ownerId, "orders"));
   },
 
   mapDraftToListing(input) {

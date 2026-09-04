@@ -153,7 +153,13 @@ export async function handleEbayOrderBackstopCron(c: Context): Promise<Response>
       notConfigured: 0,
     };
     for (const ownerId of owners) {
-      const status = await triggerEbaySyncForUser(ownerId);
+      // US-3110: this job exists to catch a MISSED ORDER. It used to pay a
+      // whole-catalog read (one GET /offer per SKU, plus GetMyeBaySelling) on
+      // every tick to do it — 25,312 Inventory calls a day across two sellers.
+      // "orders" skips both active-listing passes; resolveSyncScope still
+      // upgrades this to a full read once the catalog goes stale, so eBay-side
+      // edits are never missed for longer than CATALOG_REFRESH_MS.
+      const status = await triggerEbaySyncForUser(ownerId, "orders");
       switch (status) {
         case "started":
           result.started++;

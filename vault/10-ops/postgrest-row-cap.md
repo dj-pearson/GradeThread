@@ -9,12 +9,19 @@ code_refs:
   - src/hooks/use-items-full.ts
   - services/edge-functions/src/routes/admin-dashboard.ts
   - services/edge-functions/src/tests/admin-dashboard-kpi-provenance_test.ts
-reviewed: 2026-08-17
+reviewed: 2026-09-03
 tags: [postgrest, supabase, perf, correctness, flipdesk, admin]
 summary: There is NO row cap in prod (db-max-rows is unset, read from pg_roles) — the bound that actually bites is an 8s statement_timeout, 3s for anonymous; every read must still page until empty, count without rows, or aggregate in SQL.
 ---
 
 # PostgREST row cap (db-max-rows)
+
+> **Re-reviewed 2026-09-03.** Drift flagged `src/test/row-cap-contract.test.ts`
+> for `2fcefa411` (US-3077): the capped-surface list became `{ reads, renders }`
+> pairs because the AutoLister drafts and scheduled drops reads moved into
+> `use-autolister.ts` and `use-scheduled-drops.ts` so the overview widgets can
+> count the same rows. Each pair must still call `fetchCapped()` in the hook and
+> render the truncation notice on the page. The cap rule below is unchanged.
 
 > **Re-reviewed 2026-08-17.** Drift flagged `use-items-full.ts` for `b0c2eda3`,
 > which added a `DeleteBlockingListing` type so a refused delete can name the

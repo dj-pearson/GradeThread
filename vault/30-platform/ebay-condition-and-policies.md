@@ -8,12 +8,21 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/publish-preflight.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-03
 tags: [ebay, publishing, conditions, gotcha]
 summary: Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
 ---
 
 # eBay condition mapping and the policy endpoint
+
+> **Re-reviewed 2026-09-03.** Drift flagged `ebay-client.ts` for `57eff0f03`
+> and `f9144c69a`. The first is `isOfferNotFoundError` (an absent offer is an
+> empty list, not an error) and touches no condition or policy code. The second
+> adds optional `conditionIds` (plural) and `buyingOptions` to the Browse comps
+> search for US-3098 sourcing scans; when neither is given the filter string is
+> still `conditionIds:{3000}` and all three buying options, character for
+> character, so the comp-pricing callers' cached URLs are unchanged. The
+> publish-side condition mapping and the policy endpoint did not move.
 
 > **Re-reviewed 2026-09-02.** Drift flagged `ebay-client.ts` for the size
 > enforcement work: a shorter category-aspect cache TTL (30 days to 7), a

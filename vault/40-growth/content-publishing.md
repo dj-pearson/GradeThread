@@ -5,11 +5,18 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/routes/content-scheduler.ts
-reviewed: 2026-07-31
+reviewed: 2026-09-03
 tags: [content, publishing, contract]
 summary: The webhook fan-out contract for publishing a post to every downstream channel.
 ---
 # Content Publishing — Webhook Fan-out Contract & Channel Wiring
+
+> **Re-reviewed 2026-09-03.** Drift flagged `content-scheduler.ts` for
+> `935e7735d`: `aiPublishedLast7Days` now counts SOCIAL posts only (blog is
+> uncapped by product decision, and summing both kept the weekly ceiling
+> permanently closed), and social generation's token budget and effort changed.
+> This note owns the webhook fan-out contract, and none of the events, headers
+> or payloads below moved.
 
 When a blog or social post is published (from the dashboard **or** the autonomous
 scheduler), the edge service fires an **outbound webhook** to a downstream

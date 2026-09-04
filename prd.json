@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3112",
+  "nextId": "US-3114",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3655,6 +3655,74 @@
         "OPERATOR: this is the part of Prospect that cannot be verified without hardware. Run the capture flow on a real device, background and foreground the app mid-capture, and record the device and iOS version in the notes"
       ],
       "priority": 20
+    },
+    {
+      "id": "US-3110",
+      "passes": false,
+      "title": "Cut eBay API call volume before the Application Growth Check",
+      "description": "Measured on prod 2026-09-01..03: two connected sellers made 33,002 eBay calls a day and peaked at 4,941 of the 5,000 daily Trading allowance (98.8%), read from eBay's own getRateLimits. Three causes, all fixed together. (1) doListingsPull always fanned out one GET /sell/inventory/v1/offer?sku= per SKU before it looked at orders, and the two callers that only ever need orders - the notification webhook and the order backstop - fired it every few minutes. 25,312 calls a day, about 41 full catalog reads against 618 listings. (2) The item-specifics fill had no negative cache: buildCatalogPatch writes nothing when eBay has no value for a blank field, so needsSpecifics was true again next sync and the same item was re-read forever, roughly 3,300 Trading calls a day into the pool that is already at 98.8%. (3) The marketplace-event sweep polled six eBay endpoints for every connected seller every fifteen minutes whether or not anything could have happened to them: 576 calls per seller per day of fixed cost, paid identically by a dormant trial account and a real shop - the cost that scales linearly with signups and nothing else. Also makes the eBay notification reconcile cron say what it is failing on; it has failed 128 times with zero successes since 2026-08-20 and left nothing behind but an empty cron_runs.detail.",
+      "acceptanceCriteria": [
+        "An orders-only sync (webhook, order backstop, adapter syncOrders) skips both active-listing passes and the ended-without-sale sweep, and reaches the orders pass without reading the offer catalog.",
+        "resolveSyncScope is pure and tested: a full request is never downgraded, orders stays orders while the catalog is fresh, and it upgrades to full on a null, unparseable, or stale (>= CATALOG_REFRESH_MS) catalog cursor, so no caller can starve the reconcile.",
+        "getItemSpecifics is not re-asked for an item within SPECIFICS_RECHECK_MS, whether or not eBay had anything to give; the stamp is one bulk write, and a failure to stamp is logged and recorded on the run rather than swallowed.",
+        "The marketplace-event sweep polls only owners with an active eBay listing, a sale inside the post-sale window, or an open case; the gate fails OPEN to polling everyone if the RPC is missing or errors.",
+        "pollable_ebay_owner_ids is SECURITY DEFINER with a pinned search_path, revoked from public/anon/authenticated and granted only to service_role.",
+        "The notification reconcile cron logs the real error message, and a non-array list payload from eBay throws naming the endpoint, the key and the payload's own keys instead of 'rows is not iterable'.",
+        "OPERATOR: apply 00724 to prod, NOTIFY pgrst, then redeploy the edge (columns and RPC are read by name; the edge must not go first).",
+        "OPERATOR: after 48 hours, re-read ebay_api_call_daily and confirm total daily calls and the Trading peak have both dropped; do not submit the growth check on the pre-fix numbers.",
+        "OPERATOR: read the next ebay-notification-reconcile failure from the container log now that it names itself, and file the real defect."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-3111",
+      "passes": false,
+      "title": "Stagger the per-SKU eBay offer read",
+      "description": "US-3110 cut the number of full catalog passes from ~41 a day to 4 per connection. What remains is the cost of a pass: listAllOffers fans out one GET /sell/inventory/v1/offer?sku= per SKU across eBay's entire inventory list, 984 SKUs on prod, and only 301 of 940 eBay listing rows carry an offer id - the rest are Seller-Hub listings created through Trading that have no Inventory-API offer and never will. eBay returns nothing, we store nothing, we ask again six hours later. Same shape as the item-specifics bug. A per-SKU read stamp (inventory_items.ebay_offer_checked_at) takes the fan-out from every pass to once a day: roughly 4,000 calls a day down to roughly 1,000. Price, quantity, title, category and listing status for ACTIVE listings keep arriving from GetMyeBaySelling in about seven paged calls on the same pass, so nothing a seller reads goes stale. The one thing that moves to a daily cadence is detection of a listing that ENDED WITHOUT SELLING, because eBay publishes no notification topic for a listing ending and polling is the only way we learn it. Absence-based ending (treating 'missing from the bulk active list' as ended) was considered and REJECTED: a truncated GetMyeBaySelling page would move live listings into Drafts and nobody would notice until a seller complained.",
+      "acceptanceCriteria": [
+        "listAllOffers accepts a skip set, filters it BEFORE the per-sync fan-out ceiling so the budget is spent on SKUs that need a read, and returns the SKUs it actually spent a call on including the ones eBay had no offer for.",
+        "selectSkusToSkip is pure and tested: skips inside the window, reads outside it, and never skips a null, empty, unparseable or future-dated stamp.",
+        "Every SKU read is stamped in bulk, chunked so a large seller's pass does not overflow the PostgREST URL, and a rate-limit bail-out still stamps the SKUs it got through.",
+        "Both failure paths fail open to the pre-change full fan-out: a missing column or failed read returns an empty skip set with a warning; a failed stamp write is logged and recorded on the sync run rather than swallowed.",
+        "OFFER_RECHECK_MS sits strictly between CATALOG_REFRESH_MS and a week, enforced by a test, so the stagger can neither become a no-op nor leave an ended listing in 'listed' for days.",
+        "OPERATOR: apply 00725 to prod, NOTIFY pgrst, then redeploy the edge (the column is read by name; the edge must not go first).",
+        "OPERATOR: 48 hours after deploy, confirm from ebay_api_call_daily that GET /sell/inventory/v1/offer has fallen to roughly one read per SKU per day, and that no listing sits in 'listed' with an ended eBay listing for more than 24 hours."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-3112",
+      "passes": false,
+      "title": "eBay compliance: extension attribution, and stop calling APIs we cannot use",
+      "description": "Three things found while auditing what was left for the eBay Application Growth Check. (1) COMPLIANCE GAP: the browser extension displays eBay listing titles, prices and images in the overlay and the compare view and carried no eBay attribution and no non-endorsement notice anywhere. The web app has had both since US-3033 but on only two surfaces, and nothing tested coverage, so nobody could tell 'this surface needs no notice' from 'this surface was forgotten'. (2) The notification reconcile cron records only a COUNT of its per-topic failures, because readJobOutcome sums numbers and has nowhere to put a sentence - the 2026-09-03 18:17 run recorded {failures:{errors:12}} and nothing else. (3) Two eBay calls that can never succeed on this keyset were being made forever: /commerce/identity/v1/user needs commerce.identity.readonly, which is deliberately NOT requested because the production keyset is not licensed for it, and it was called on every token refresh (~33/day); payment_dispute_summary needs sell.payment.dispute, which one of the two prod connections does not hold, and the event sweep asked every 15 minutes (~160/day). Also fixed two suites that were failing on a Windows checkout only, one of them ebay-no-scrape.test.cjs - the guard that proves we do not scrape eBay - which matched a bare newline against CRLF source and so was green in CI and red locally.",
+      "acceptanceCriteria": [
+        "The extension carries eBay's attribution and non-endorsement notice on the in-page overlay and the compare view, worded identically to the web component, and a test asserts that wording still matches src/components/marketplace/ebay-attribution.tsx phrase for phrase.",
+        "The notice is keyed by marketplace: eBay gets it, Poshmark/Grailed/Mercari/Depop/Vinted get null rather than a generic sentence, matching is case-insensitive, and a mixed compare table carries it once and only when an eBay row is present.",
+        "test/ebay-attribution.test.cjs names the surfaces that must wire it up and fails when one stops, and also checks the manifest load order, since a classic script loaded after its consumer leaves the global undefined and the notice silently never renders.",
+        "The notification reconcile cron logs each per-topic failure with its topicId, bounded and truncated like the marketplace-event sweep, so a count becomes a diagnosis.",
+        "getUserIdentityFromToken returns null without calling eBay when commerce.identity.readonly is not in the requested scopes; re-adding the scope re-enables it with no other change. Mirrors isNegotiationScopeAvailable and isLogisticsScopeAvailable.",
+        "The event sweep skips payment-dispute reads for a connection flagged disputes_access_denied, sets the flag on an insufficient-scope refusal (never on the no-disputes 404), clears it when access works again, and reads it fail-open.",
+        "ebay-no-scrape.test.cjs and queue-view.test.cjs normalise line endings, so all 53 extension suites pass on a Windows checkout as well as in CI.",
+        "OPERATOR: apply 00725 to prod (it now carries disputes_access_denied too), NOTIFY pgrst, then redeploy the edge.",
+        "OPERATOR: one prod eBay connection lacks sell.payment.dispute and one lacks nothing else of note; that seller must reconnect at /oauth/start before dispute notifications work for them.",
+        "OPERATOR: read the next ebay-notification-reconcile run's log line and file the real cause of its 12 per-topic errors."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-3113",
+      "passes": false,
+      "title": "Apply prod migrations over ssh from the terminal, with an immediate answer",
+      "description": "As the operator, I want to see what prod is missing and apply it from one command, so that I stop pasting SQL into the Supabase Studio editor and waiting to find out whether it worked.",
+      "acceptanceCriteria": [
+        "scripts/migrate-prod.mjs with no flags is read-only: it prints the local file count, the count prod records, the pending list in apply order, and any version recorded on prod with no local file. It never writes.",
+        "Pending is computed by MEMBERSHIP in public.applied_migrations, not by comparing to the highest recorded version, so a gap below the maximum is reported. scripts/migrate-prod.test.mjs asserts a local 00134 between an applied 00100 and 00200 comes back pending.",
+        "No host, container id, or IP appears in scripts/migrate-prod.mjs or scripts/lib/prod-db.mjs. PROD_SSH_HOST is required and unset raises a ConfigError with exit code 2; the container is discovered by probing each container matching PROD_DB_CONTAINER_FILTER for the tables in PROD_DB_MARKER_TABLES. A test greps both sources for an IPv4 literal and a container id and fails if either appears.",
+        "Applying requires BOTH --apply and --yes. decideAction() returns action 'refuse' with exit 1 for --apply alone, and 'apply' only when both are present.",
+        "applyPending() stops at the first failing migration, leaves the rest unapplied, and does NOT send the schema reload; on full success it sends NOTIFY pgrst, 'reload schema'. ssh propagates psql's non-zero exit so a failed file is reported with its psql error text.",
+        "A six-digit filename prefix (000355, 000375, 000385) is canonicalized to the five digits prod records, so those three files are not reported as permanently pending.",
+        "The 'nothing pending' output states that a recorded version is not proof the migration took effect and points at scripts/prod-schema-audit.sql."
+      ]
     }
   ]
 }

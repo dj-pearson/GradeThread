@@ -700,6 +700,20 @@
       if (FLIP && caps && caps.sellerEnabled === true) {
         body.appendChild(flipSection());
       }
+
+      // US-3112: eBay asks for attribution and the non-endorsement notice on the
+      // surface where its data is shown. This card is drawn inside eBay's own
+      // page, so it is the surface that most needs it — a shopper here could
+      // otherwise take us for an eBay feature. Appended last, and only for the
+      // marketplaces that have a notice, so a Vinted page never carries eBay's.
+      if (self.GT_MP_NOTICE) {
+        self.GT_MP_NOTICE.appendNotice(
+          document,
+          body,
+          (adapter && adapter.key) || "",
+          "gt-cc-note gt-cc-attribution",
+        );
+      }
     }, { focusClose: true });
   }
 

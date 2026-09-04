@@ -3133,18 +3133,47 @@ if (ext.commands && ext.commands.onCommand) {
 }
 
 if (ext.contextMenus && ext.contextMenus.create) {
+  // US-3113: create() does NOT throw on a duplicate id under MV3. It reports
+  // through runtime.lastError in its callback, so the try/catch this used to
+  // rely on never fired and Chrome logged, on every startup after an install:
+  //
+  //   Unchecked runtime.lastError: Cannot create item with duplicate id
+  //   gt-grade-image
+  //
+  // Harmless in effect — the menu still works — but it is a red line in the
+  // console of an extension whose whole job is to look trustworthy on somebody
+  // else's marketplace, and it was reported as a bug more than once.
+  //
+  // removeAll first is the idiomatic fix and is genuinely idempotent: it makes
+  // the second registration a no-op rather than a race we swallow. We own the
+  // only menu item, so clearing all of them clears exactly ours.
   const createMenu = function () {
+    const create = function () {
+      ext.contextMenus.create(
+        {
+          id: CONTEXT_MENU_ID,
+          title: "Grade this image with GradeThread",
+          contexts: ["image"],
+        },
+        function () {
+          // READING lastError is what marks it checked. Do not remove this
+          // because it "does nothing" — without the read, Chrome logs the very
+          // warning this block exists to stop.
+          void ext.runtime.lastError;
+        },
+      );
+    };
     try {
-      ext.contextMenus.create({
-        id: CONTEXT_MENU_ID,
-        title: "Grade this image with GradeThread",
-        contexts: ["image"],
-      });
-    } catch (_e) { /* already created (worker restart) — harmless */ }
+      if (ext.contextMenus.removeAll) {
+        ext.contextMenus.removeAll(create);
+      } else {
+        create();
+      }
+    } catch (_e) { /* namespace present but unusable — no menu, no crash */ }
   };
   ext.runtime.onInstalled.addListener(createMenu);
   // Menus do not survive a worker restart on every browser, so re-create on
-  // startup too. A duplicate-id create throws and is swallowed above.
+  // startup too. removeAll above makes the repeat harmless.
   if (ext.runtime.onStartup) ext.runtime.onStartup.addListener(createMenu);
 
   if (ext.contextMenus.onClicked) {

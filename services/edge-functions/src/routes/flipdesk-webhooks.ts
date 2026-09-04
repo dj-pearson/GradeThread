@@ -920,7 +920,9 @@ async function processEbayWebhookEvent(
       );
       return;
     }
-    const result = await triggerEbaySyncForUser(userId);
+    // US-3110: an order/return notification tells us an ORDER changed. Reading
+    // the whole offer catalog to find it cost one GET per SKU per notification.
+    const result = await triggerEbaySyncForUser(userId, "orders");
     recordMetric("webhook.sync_triggered", 1, {
       provider: "ebay",
       topic,
@@ -1171,7 +1173,7 @@ export async function drainPendingEbayWebhookEvents(): Promise<PendingDrainResul
         await ingestPayoutForUser(userId, row.payload, row.topic);
       } else {
         // order/return → the same targeted incremental sync the live path runs.
-        await triggerEbaySyncForUser(userId);
+        await triggerEbaySyncForUser(userId, "orders");
       }
       await supabaseAdmin
         .from("ebay_pending_webhook_events")

@@ -8,6 +8,7 @@ import {
   PublishConfirmDialog,
   SizeConflictBadge,
   type PreflightItem,
+  QueueCoverThumb,
 } from "./autolister/queue-cells";
 import {
   sizeCheckableDraft,
@@ -15,7 +16,10 @@ import {
   useSizeConflicts,
 } from "./autolister/use-size-conflicts";
 import { useAutolisterItemMeta } from "./autolister/use-item-meta";
-import { useQuery } from "@tanstack/react-query";
+import { useAutolisterListingReview } from "./autolister/use-listing-review";
+import { ITEM_COVERS_KEY, useAutolisterItemCovers } from "./autolister/use-item-covers";
+import { queueRowTitle } from "./autolister/queue-row-title";
+import { useBatchFinishedToast } from "./autolister/use-batch-finished-toast";
 import { toast } from "sonner";
 import {
   CheckCircle2,
@@ -159,6 +163,7 @@ export function FlipdeskAutolisterQueuePage() {
   const itemIdsKey = useMemo(() => [...itemIds].sort().join(","), [itemIds]);
 
   const { data: itemMeta = {} } = useAutolisterItemMeta(batchId, itemIds, itemIdsKey);
+  const { data: coverByItem = {} } = useAutolisterItemCovers(batchId, itemIds, itemIdsKey);
 
   // US-2919: does each generated draft's size agree with its own measurements?
   // Band tables are fetched once per distinct brand + garment + gender in the
@@ -192,15 +197,6 @@ export function FlipdeskAutolisterQueuePage() {
     });
     return map;
   }, [jobs]);
-  // Titles arrive from a separate query and are null until the AI names the
-  // draft, so this fallback is the common case while a batch is still running.
-  const titleOf = (id: string): string => {
-    const title = itemMeta[id]?.title?.trim();
-    if (title) return title;
-    const n = ordinalOf[id];
-    return n ? `Generation ${n}` : "Generation";
-  };
-
   // US-541: which generated drafts the AI flagged as needing a human look, plus
   // the specific low-confidence fields (for the badge tooltip). Keyed by
   // listing_id; RLS scopes the read to the owner via the parent item.
@@ -210,69 +206,27 @@ export function FlipdeskAutolisterQueuePage() {
   );
   // Content key, not count — see itemIdsKey above.
   const listingIdsKey = useMemo(() => [...listingIds].sort().join(","), [listingIds]);
-  const { data: reviewByListing = {} } = useQuery<
-    Record<string, { needsReview: boolean; fields: string[]; price: number | null }>
-  >({
-    queryKey: ["autolister_listing_review", batchId, listingIdsKey],
-    enabled: listingIds.length > 0,
-    queryFn: async () => {
-      // US-554: chunk the id list so a very large batch can't blow the URL/`in`
-      // length limit (was a single unbounded .in()).
-      const CHUNK = 200;
-      const map: Record<
-        string,
-        { needsReview: boolean; fields: string[]; price: number | null }
-      > = {};
-      for (let i = 0; i < listingIds.length; i += CHUNK) {
-        const { data: rows } = await supabase
-          .from("listings")
-          .select("id, needs_review, ai_field_confidence, listing_price")
-          .in("id", listingIds.slice(i, i + CHUNK));
-        for (
-          const r of (rows ?? []) as Array<{
-            id: string;
-            needs_review: boolean | null;
-            ai_field_confidence: Record<string, number> | null;
-            listing_price: number | null;
-          }>
-        ) {
-          const low = r.ai_field_confidence
-            ? Object.entries(r.ai_field_confidence)
-              // US-956: listing_price confidence rides in ai_field_confidence to
-              // gate the "est." badge — it's not an item-specific aspect, so keep
-              // it out of the "AI is unsure about: …" aspect tooltip.
-              .filter(([name, c]) => name !== "listing_price" && c < 0.7)
-              .map(([name]) => name)
-            : [];
-          map[r.id] = {
-            needsReview: !!r.needs_review,
-            fields: low,
-            price: r.listing_price,
-          };
-        }
-      }
-      return map;
-    },
-  });
+  const { data: reviewByListing = {} } = useAutolisterListingReview(
+    batchId,
+    listingIds,
+    listingIdsKey,
+  );
 
-  // Notify once when the generation batch finishes (US-325 AC4).
-  const notifiedRef = useRef<string | null>(null);
-  const batchStatus = data?.batch.status;
-  useEffect(() => {
-    if (!data || !batchId) return;
-    const terminal = batchStatus === "completed" || batchStatus === "partial" ||
-      batchStatus === "failed";
-    if (!terminal || notifiedRef.current === batchId) return;
-    notifiedRef.current = batchId;
-    const { succeeded_count: ok, failed_count: bad } = data.batch;
-    if (bad === 0) {
-      toast.success(`Generated ${ok} listing${ok === 1 ? "" : "s"}.`);
-    } else {
-      toast.warning(`Generation finished — ${ok} ready, ${bad} failed.`, {
-        description: "Use “Retry failed” to re-run the ones that didn't generate.",
-      });
-    }
-  }, [data, batchId, batchStatus]);
+  // The row label: generated listing title, then item title, then position.
+  // The rule and its reasons live in autolister/queue-row-title.ts.
+  const listingIdByItem = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const j of jobs) if (j.listing_id) map[j.inventory_item_id] = j.listing_id;
+    return map;
+  }, [jobs]);
+  const titleOf = (id: string): string =>
+    queueRowTitle({
+      generated: listingIdByItem[id] ? reviewByListing[listingIdByItem[id]]?.title : null,
+      itemTitle: itemMeta[id]?.title,
+      ordinal: ordinalOf[id],
+    });
+
+  useBatchFinishedToast(data, batchId);
 
   // US-954: background pre-flight. As each draft finishes generating, validate
   // it against eBay (category, required aspects, price range, policies) with
@@ -599,6 +553,8 @@ export function FlipdeskAutolisterQueuePage() {
     setPhotoItem(null);
     photosDirtyRef.current = false;
     if (!edited || !dirty) return;
+    // The cover may have changed even if the re-score below fails.
+    void queryClient.invalidateQueries({ queryKey: [ITEM_COVERS_KEY] });
     try {
       await runPhotoQa.mutateAsync({ itemIds: [edited.id] });
       await queryClient.invalidateQueries({ queryKey: ["autolister_item_meta"] });
@@ -917,6 +873,10 @@ export function FlipdeskAutolisterQueuePage() {
                 />
               )}
               <StatusIcon status={job.status} />
+              <QueueCoverThumb
+                cover={coverByItem[job.inventory_item_id]}
+                label={titleOf(job.inventory_item_id)}
+              />
               <span className="flex-1 truncate">
                 {titleOf(job.inventory_item_id)}
               </span>
