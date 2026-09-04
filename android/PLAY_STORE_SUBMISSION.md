@@ -40,7 +40,7 @@ Read this first. Everything else in this file is fillable once these are true.
 | 3 | **Upload key.** The Play Console record exists (`com.gradethread.myapp`). `ANDROID_KEYSTORE_BASE64` / `PLAY_SERVICE_ACCOUNT_JSON` must be in Infisical `prod /` before the release lane can build a signed bundle. | Operator | ☐ |
 | 4 | **10 in-app products created in Play Console** with ids matching `ANDROID_CATALOG` exactly (§5). The server fails closed on an unknown id, so a typo is a charge with no entitlement. | Operator | ☐ |
 | 5 | **Reviewer demo account.** The app is login-gated end to end; without credentials in App access, review returns "we could not access the app". | Operator | ☐ |
-| 6 | **Screenshots.** `metadata/.../phoneScreenshots/` holds a README and no PNGs. Play will not accept a listing without at least 2 phone screenshots. | Operator | ☐ |
+| 6 | **Screenshots.** `metadata/.../phoneScreenshots/` held a README and no PNGs. | Code | **Fixed** — US-2894, 2026-09-04. `node android/scripts/make-play-graphics.mjs` builds the icon, the feature graphic, six phone shots and two tablet shots from assets already in the repo, so the set is reproducible rather than a folder somebody dragged files into. |
 | 7 | **Server env for Play billing** — `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON`, `GOOGLE_PLAY_PACKAGE_NAME`, `GOOGLE_RTDN_WEBHOOK_SECRET` in Coolify (§5.4). Without them every purchase verifies as an error and the buyer is charged with no plan. | Operator | ☐ |
 | 8 | **App config in the bundle.** `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `EDGE_API_URL` must be in Infisical `prod /`. `secret()` defaults the anon key to an empty string and `AppConfig.validateAtStartup()` throws on it, so a release built without it is signed, versioned, under budget — and **crashes on launch for every user**, with every gate in the lane green. | Code | **Fixed** — US-2892. The release lane asserts all three before building and then re-checks the finished AAB's dex, because the env being right does not prove the value reached the binary. The seven optional values (`SENTRY_DSN`, `POSTHOG_API_KEY`, `TURNSTILE_SITE_KEY`, the four `FIREBASE_*`) warn into the job summary naming what ships dead. Operator still has to put them in Infisical. |
 
@@ -161,7 +161,10 @@ half-finished work, and every tester sees this text.
 
 ## 2. Graphics
 
-Play rejects a listing with any of these missing. None of them exist in the repo yet.
+Play rejects a listing with any of these missing. **All of them are in the repo
+now** (US-2894, 2026-09-04), built by `node android/scripts/make-play-graphics.mjs`
+from sources that already existed. Re-run it after a UI change rather than
+editing a PNG by hand; it names its sources and its crops in its own header.
 
 | Asset | Spec | Where it goes |
 |---|---|---|
@@ -172,9 +175,16 @@ Play rejects a listing with any of these missing. None of them exist in the repo
 | 10" tablet | 0–8, same rules | `.../images/tenInchScreenshots/` |
 | Promo video | YouTube URL, optional | Console only, not fastlane |
 
-The tablet sets are optional, but omitting them puts a "not designed for tablets"
-notice on the listing for tablet and ChromeOS users. The app is Compose with
-`material3-window-size-class` wired in, so it adapts; take the shots.
+**The tablet sets are DELIBERATELY SKIPPED at first release, and the listing
+consequence is accepted.** Omitting them puts a "not designed for tablets" notice
+on the listing for tablet and ChromeOS users. Taking them today costs more:
+US-2905 is open precisely because the tablet layout is the phone layout with a
+rail down the side, and the tablet goldens show it — the right half of a
+2560×1600 frame is blank, the charts render empty, and the visible copy reads
+"No completed sales yet". A browser who opens that screenshot learns something
+worse than the notice tells them. `make-play-graphics.mjs` carries the two
+entries commented out with this reason; re-add them and regenerate once the
+two-pane layout lands.
 
 Screenshots sort by filename, so name them `1_capture.png`, `2_ai_draft.png` and so
 on. Suggested storyline, in the order that matches what the app actually does:

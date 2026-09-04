@@ -156,15 +156,24 @@ usually this, not a wrong key. Wait a day before debugging it.
 
 ---
 
-## Phase 4. The build-time values, which nothing checks
+## Phase 4. The build-time values, three of which are checked
 
 This phase has no visible output and is the one most likely to cost you a
 rejected review, so it is not optional.
 
-`android/app/build.gradle.kts` bakes seven values into the binary from the
+`android/app/build.gradle.kts` bakes eleven values into the binary from the
 environment. **A missing value produces an empty string and a build that
-succeeds.** There is no guard. An AAB built without `SUPABASE_ANON_KEY` installs
-fine, opens fine, and cannot sign anyone in, including the reviewer.
+succeeds.** An AAB built without `SUPABASE_ANON_KEY` installs fine, opens fine,
+and cannot sign anyone in, including the reviewer.
+
+⚠ This paragraph used to end "There is no guard." Three of the eleven are guarded
+now: US-2892 made the release lane assert `SUPABASE_URL`, `SUPABASE_ANON_KEY` and
+`EDGE_API_URL` by name before it builds, and then re-check the finished AAB's dex,
+because the environment being right does not prove the value reached the binary.
+Seven more (`SENTRY_DSN`, `POSTHOG_API_KEY`, `TURNSTILE_SITE_KEY` and the four
+`FIREBASE_*`) warn into the job summary naming what ships dead. `POSTHOG_HOST` is
+baked in and checked by neither, which is the eleventh value and the only one
+nothing would tell you about. Putting any of them into Infisical is still yours.
 
 Confirm every one of these exists in Infisical `prod /` before you build:
 
@@ -372,9 +381,14 @@ News (no), Data safety, Government apps (no), Financial features (no), Health
 
 Two things to decide before you fill in Data safety:
 
-- **Analytics defaults to ON in the Android app and OFF on iOS.** Both are
-  declarable, but they cannot be described the same way. Changing it is a
-  one-line default in `Telemetry.kt`.
+- ⚠ **Analytics is location-aware and all three clients agree.** This line used
+  to say "defaults to ON in the Android app and OFF on iOS", and that was never
+  true of either - iOS read `object(forKey:) ?? true`, so both phones were
+  opt-out. Android mirrored the web in US-2897 and iOS followed in US-2914, so
+  the rule is now one rule: opt-in everywhere except the United States, opt-in
+  whenever the country is unknown, an explicit choice honoured under either
+  regime. Describe the three clients identically on the form. The reasoning is
+  in `vault/20-domain/client-analytics-consent.md`.
 - **The public support email**, which is shown on the listing.
   `support@gradethread.com` is the answer the checklist assumes, and it matches
   the domain that already has mail authentication set up.

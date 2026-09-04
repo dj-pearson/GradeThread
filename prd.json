@@ -2443,22 +2443,6 @@
       "notes": "Split out of US-2879 on 2026-08-25 rather than left as an unmet AC. It carries a migration (the token table) and session-minting logic, so it is a security-shaped story, not a UI one -- load the tenant-isolation and migrations skills before starting. The three surfaces it links out are pinned by src/test/web-only-surfaces.test.ts, so read that list rather than retyping it."
     },
     {
-      "id": "US-2894",
-      "title": "The Play listing has no icon, no feature graphic and no screenshots",
-      "description": "android/fastlane/metadata/android/en-US/ holds four text files and two READMEs. images/phoneScreenshots/ contains README.txt and nothing else. images/tenInchScreenshots/ contains README.txt and nothing else. There is no images/icon.png, no images/featureGraphic.png, and no sevenInchScreenshots directory at all.  Play will not publish a listing without a 512x512 icon, a 1024x500 feature graphic, and at least two phone screenshots. This is not a quality issue - it is a hard stop at the Console, and it is the one blocker on the list that cannot be delegated to a script, because someone has to decide what the app looks like to a stranger.  THE STORYLINE IS ALREADY DECIDED. PLAY_STORE_SUBMISSION.md section 2 names seven shots in order and says the first two are what 90% of browsers see: guided capture with AI fields filling in, then the AI-extracted draft. It also names the two ways to produce them - npm run android:device screenshot against a real device, or the Roborazzi renders - and the one rule that gets listings rejected, which is that a price, a rating or a Play badge inside the image is a claim Play has to enforce per region.  THE TABLET SETS ARE NOT OPTIONAL IN PRACTICE. Omitting them puts a 'not designed for tablets' notice on the listing for tablet and ChromeOS users. Note that the tablet shots are worth taking only after the two-pane work, because today a 10-inch device renders the same single stretched column with a navigation rail down the side, and a screenshot of that argues against taking the app to a tablet.",
-      "acceptanceCriteria": [
-        "images/icon.png exists at 512x512, 32-bit PNG, no alpha, under 1 MB, and is visually the same mark as the adaptive launcher icon rather than a separate drawing.",
-        "images/featureGraphic.png exists at 1024x500 with no alpha, and carries no price, no rating and no Play badge.",
-        "At least four phone screenshots exist, named to sort in the section 2 order (1_capture.png, 2_ai_draft.png, ...), each 320-3840px per side.",
-        "Every screenshot is taken against a seeded account with plausible garment data - no lorem, no empty states, no debug build banner, no personal data.",
-        "Tablet sets are either taken (after the two-pane story lands) or deliberately skipped, with the choice and its listing consequence written into PLAY_STORE_SUBMISSION.md.",
-        "bundle exec fastlane metadata pushes the images and the text, and the result is read back in the Console rather than assumed."
-      ],
-      "priority": 4,
-      "passes": false,
-      "notes": ""
-    },
-    {
       "id": "US-2899",
       "title": "A cold launch on a dark-mode phone flashes a white window",
       "description": "res/values/themes.xml is three lines: Theme.GradeThread extends android:Theme.Material.Light.NoActionBar. There is no values-night. So the window background is white on every device, in every system theme, from the moment the launcher starts the activity until Compose draws its first frame.  On a phone in dark mode that is a full-screen white flash before a dark app appears. It is the first thing anyone sees, it is the single most common 'this app feels cheap' tell on Android, and it is entirely a resource file.  IT COMPOUNDS WITH THE AUTH GATE. MainActivity renders `AuthRepository.Phase.Loading -> Unit`, deliberately, so a sign-in form does not flash and vanish on every cold start. The comment defending that is right about the flash and leaves a hole: for however long the session takes to restore from encrypted storage, the app shows an empty white window with nothing on it. The correct shape for both problems is the same one - the platform SplashScreen API, held on screen with keepOnScreenCondition until the auth phase leaves Loading, so the launch icon stays up instead of a blank rectangle, and it is themed for the system's dark mode.  Neither androidx.core:core-splashscreen nor any splash theme exists in the project today; grepping libs.versions.toml for splashscreen returns nothing.",
