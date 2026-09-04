@@ -141,6 +141,7 @@ const SingleStitchDatingPage = lazy(() => import("@/pages/tools/single-stitch-da
 const ResellerInventorySpreadsheetPage = lazy(() => import("@/pages/tools/reseller-inventory-spreadsheet").then(m => ({ default: m.ResellerInventorySpreadsheetPage })));
 const PhotographClothesToSellPage = lazy(() => import("@/pages/tools/photograph-clothes-to-sell").then(m => ({ default: m.PhotographClothesToSellPage })));
 const ForBrandsPage = lazy(() => import("@/pages/marketing/for-brands").then(m => ({ default: m.ForBrandsPage })));
+const DownloadPage = lazy(() => import("@/pages/marketing/download").then(m => ({ default: m.DownloadPage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
 const CareMatrixPage = lazy(() => import("@/pages/marketing/care-matrix").then(m => ({ default: m.CareMatrixPage })));
 const FlawPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawPage })));
@@ -485,6 +486,7 @@ export const router = createBrowserRouter([
       { path: "/tools/reseller-inventory-spreadsheet", element: <SuspenseWrapper><ResellerInventorySpreadsheetPage /></SuspenseWrapper> },
       { path: "/tools/photograph-clothes-to-sell", element: <SuspenseWrapper><PhotographClothesToSellPage /></SuspenseWrapper> },
       { path: "/for-brands", element: <SuspenseWrapper><ForBrandsPage /></SuspenseWrapper> },
+      { path: "/download", element: <SuspenseWrapper><DownloadPage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served
       // by a single dynamic route. The indexable set is registered in
       // PUBLIC_ROUTES (via glossaryRoutes()) and prerendered individually.

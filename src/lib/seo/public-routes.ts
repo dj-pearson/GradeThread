@@ -42,6 +42,7 @@ import { authenticityCheckRoute } from "./authenticity-check";
 import { fitCheckerRoute } from "./fit-checker";
 import { calculatorRoutes } from "./calculators";
 import { forBrandsRoute } from "./for-brands";
+import { downloadRoute } from "./downloads";
 import {
   SITE_URL,
   DEFAULT_OG_IMAGE_PATH,
@@ -746,6 +747,8 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   ...calculatorRoutes(),
   // Brand-partner pitch landing (US-1788).
   forBrandsRoute(),
+  // US-3111: the download page for the iOS app and the two extensions.
+  downloadRoute(),
 ];
 
 // US-427: per-route social share image (Open Graph / Twitter). High-value

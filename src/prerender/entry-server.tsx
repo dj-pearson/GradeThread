@@ -178,6 +178,8 @@ import { ResellerInventorySpreadsheetPage } from "@/pages/tools/reseller-invento
 import { PhotographClothesToSellPage } from "@/pages/tools/photograph-clothes-to-sell";
 import { FOR_BRANDS_PATH } from "@/lib/seo/for-brands";
 import { ForBrandsPage } from "@/pages/marketing/for-brands";
+import { DOWNLOAD_PATH } from "@/lib/seo/downloads";
+import { DownloadPage } from "@/pages/marketing/download";
 
 // Static map of prerenderable routes → page element.
 // US-9002: slug -> page element for the calculator family. Kept beside the
@@ -385,6 +387,7 @@ const PAGES: Record<string, React.ReactNode> = {
     liveCalculators().map((c) => [calculatorPath(c.slug), CALCULATOR_PAGES[c.slug]]),
   ),
   [FOR_BRANDS_PATH]: <ForBrandsPage />,
+  [DOWNLOAD_PATH]: <DownloadPage />,
 };
 
 export function renderRoute(path: string): string {
@@ -538,6 +541,7 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
     liveCalculators().map((c) => [calculatorPath(c.slug), `${M}${calculatorPageModule(c)}`]),
   ),
   [FOR_BRANDS_PATH]: `${M}marketing/for-brands`,
+  [DOWNLOAD_PATH]: `${M}marketing/download`,
 };
 
 // Lockstep guard: every prerendered path must have a page-module mapping and

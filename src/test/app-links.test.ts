@@ -141,6 +141,39 @@ describe("the surfaces that offer a download", () => {
     ],
   ];
 
+  // US-3111's page is not in SURFACES: it renders its own buttons rather than
+  // the shared component, because it is the one place with room to say what
+  // each install is FOR. It still reads its hrefs from app-links().
+  const DOWNLOAD_PAGE = "src/pages/marketing/download.tsx";
+
+  it("the download page builds its links from app-links, not from literals", () => {
+    const src = read(DOWNLOAD_PAGE);
+    expect(src).toContain('from "@/lib/app-links"');
+    expect(src).toContain("appLinks()");
+    expect(src).not.toContain("apps.apple.com");
+    expect(src).not.toContain("chromewebstore.google.com");
+    expect(src).not.toContain("addons.mozilla.org");
+  });
+
+  it("the download page is registered everywhere a public route has to be", () => {
+    // The four places a marketing page has to appear or it 404s, prerenders
+    // blank, or ships its structured data to the SPA only.
+    expect(read("src/lib/seo/public-routes.ts")).toContain("downloadRoute()");
+    expect(read("src/routes/index.tsx")).toContain('path: "/download"');
+    const entry = read("src/prerender/entry-server.tsx");
+    expect(entry).toContain("[DOWNLOAD_PATH]: <DownloadPage />");
+    expect(entry).toContain("[DOWNLOAD_PATH]: `${M}marketing/download`");
+    expect(read("src/prerender/head-builder.ts")).toContain(
+      '"/download": downloadsJsonLd',
+    );
+  });
+
+  it("the marketing footer links the page as well as the three stores", () => {
+    expect(read("src/components/marketing/marketing-layout.tsx")).toContain(
+      '<FooterLink to="/download">',
+    );
+  });
+
   for (const [name, path] of SURFACES) {
     it(`${name} renders the shared component`, () => {
       const src = read(path);

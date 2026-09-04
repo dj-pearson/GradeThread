@@ -93,6 +93,12 @@ import {
 } from "@/lib/seo/competitor-alternatives";
 import { CONDITION_CHART_META, CONDITION_CHART_PATH } from "@/lib/seo/condition-chart";
 import { GRADE_CHECKER_META, GRADE_CHECKER_PATH } from "@/lib/seo/grade-checker";
+import { DOWNLOAD_PATH } from "@/lib/seo/downloads";
+import {
+  APP_STORE_URL,
+  CHROME_WEB_STORE_URL,
+  FIREFOX_ADDON_URL,
+} from "@/lib/app-links";
 import {
   CALCULATOR_HUB_META,
   CALCULATOR_HUB_PATH,
@@ -2027,6 +2033,90 @@ export function forBrandsJsonLd(): JsonLd[] {
       areaServed: "US",
     } as JsonLd,
   ];
+}
+
+// US-3111: the questions the download page has to answer before somebody
+// installs anything. The extension one is the load-bearing one — "does this
+// see my marketplace password" is what stops a reseller mid-install.
+export const DOWNLOAD_FAQS = [
+  {
+    q: "Is the GradeThread app free?",
+    a: "The app and both extensions are free to install and are included with every plan, including the free one. You are charged for grades, not for the software: the free plan includes 3 grades a month and paid grading starts at $2.99 each.",
+  },
+  {
+    q: "Do I need the app and the extension, or just one?",
+    a: "Just one is enough to work. Most resellers end up with both because they cover different moments: the phone app is for sourcing, when the garment is in your hands, and the extension is for the desk, when the listing gets written. Both sign in to the same account and share the same inventory, so an item you photograph in a store is waiting for you on your laptop.",
+  },
+  {
+    q: "Does the browser extension see my eBay or Poshmark password?",
+    a: "No. The extension lists from the marketplace tab you are already signed in to, in your own browser. Your marketplace password and session cookies never leave your machine and GradeThread's servers never receive them.",
+  },
+  {
+    q: "Which marketplaces does the extension list to?",
+    a: "Poshmark, Mercari, Grailed, Vinted and Facebook Marketplace, which have no public listing API. eBay and Depop are connected directly through their own APIs instead, so those two need no extension at all.",
+  },
+  {
+    q: "What about Android and Safari?",
+    a: "There is nothing to link to on this page yet. In the meantime GradeThread installs as a web app from any modern browser, including Chrome on Android and Safari on iPad: open gradethread.com and use your browser's Install or Add to Home Screen. It gets its own icon and opens without the browser chrome.",
+  },
+  {
+    q: "Do I need an account before I install?",
+    a: "No, but you will need one to grade anything. Signing up is free and takes a minute, and you can do it from inside the app.",
+  },
+] as const;
+
+/**
+ * /download (US-3111) — one SoftwareApplication per platform, plus the FAQ.
+ *
+ * The URLs are the CONSTANTS from app-links.ts, never the env-resolved
+ * helpers. Structured data describes the published product, so a staging build
+ * pointed at a TestFlight link should still tell a crawler where the real app
+ * is, and the prerendered and runtime copies must be byte-identical whatever
+ * any deployment's env happens to say (jsonld-parity.test.tsx).
+ */
+export function downloadsJsonLd(): JsonLd[] {
+  const apps: JsonLd[] = [
+    {
+      "@context": "https://schema.org",
+      "@type": "MobileApplication",
+      "@id": `${SITE_URL}${DOWNLOAD_PATH}#ios`,
+      name: "GradeThread for iPhone",
+      operatingSystem: "iOS",
+      applicationCategory: "BusinessApplication",
+      url: APP_STORE_URL,
+      installUrl: APP_STORE_URL,
+      publisher: { "@id": ORG_ID },
+      description:
+        "Photograph, grade and list a garment from your phone while you are still standing in the aisle.",
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "@id": `${SITE_URL}${DOWNLOAD_PATH}#chrome`,
+      name: "GradeThread for Chrome",
+      operatingSystem: "Chrome",
+      applicationCategory: "BrowserApplication",
+      url: CHROME_WEB_STORE_URL,
+      installUrl: CHROME_WEB_STORE_URL,
+      publisher: { "@id": ORG_ID },
+      description:
+        "Grade and cross-list from the marketplace tab you are already signed in to. GradeThread never sees your marketplace password.",
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "@id": `${SITE_URL}${DOWNLOAD_PATH}#firefox`,
+      name: "GradeThread for Firefox",
+      operatingSystem: "Firefox",
+      applicationCategory: "BrowserApplication",
+      url: FIREFOX_ADDON_URL,
+      installUrl: FIREFOX_ADDON_URL,
+      publisher: { "@id": ORG_ID },
+      description:
+        "The same grading and cross-listing tools, as a Firefox add-on.",
+    },
+  ];
+  return [...apps, faqPageLd(DOWNLOAD_FAQS)];
 }
 
 /** /for-resellers — the same shape, aimed at individual sellers. */

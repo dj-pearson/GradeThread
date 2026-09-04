@@ -186,6 +186,9 @@ export function MarketingLayout({
                   to any of them. External links, so these are plain <a>s and
                   the footer-links-routed test correctly ignores them. */}
               <FooterColumn title="Get GradeThread">
+                {/* US-3111: the page that explains which one you want, above
+                    the three store links themselves. */}
+                <FooterLink to="/download">Apps & extensions</FooterLink>
                 <AppDownloadLinks surface="marketing-footer" />
               </FooterColumn>
               <FooterColumn title="Trust">
