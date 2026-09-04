@@ -4,7 +4,7 @@ type: reference
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-09-04
 tags: [brand, design-system, media-kit]
 summary: Welcome to the official design system, branding guidelines, and media kit for **GradeThread**.
 ---
@@ -67,28 +67,47 @@ Rather than binary green/orange/red styling, GradeThread assigns specialized vis
 ```mermaid
 graph TD
     classDef pristine fill:#10B981,stroke:#047857,color:#fff,stroke-width:2px;
-    classDef excellent fill:#0F3460,stroke:#1E3A8A,color:#fff,stroke-width:2px;
     classDef standard fill:#F59E0B,stroke:#D97706,color:#fff,stroke-width:2px;
     classDef damaged fill:#F03D5F,stroke:#BE123C,color:#fff,stroke-width:2px;
 
-    T1[Pristine / NWT: 9.5 - 10.0]:::pristine
-    T2[Excellent / NWOT: 7.0 - 9.0]:::excellent
-    T3[Good / Fair: 5.0 - 6.5]:::standard
-    T4[Poor / Damaged: 1.0 - 4.5]:::damaged
+    T1[Very Good and above: 7.0 - 10.0]:::pristine
+    T2[Good / Fair: 5.0 - 6.9]:::standard
+    T3[Poor / Damaged: 1.0 - 4.9]:::damaged
 ```
 
-*   **Pristine & NWT (9.5–10.0)**:
+*   **Very Good and above (7.0–10.0)**:
     *   **Color**: **Emerald Mint** (`#10B981` / `hsl(162, 84%, 39%)`)
-    *   **Visual Style**: Soft emerald border glows, high-contrast badges. Signifies maximum value.
-*   **Excellent & NWOT (7.0–9.0)**:
-    *   **Color**: **Steel Navy** (`#0F3460` / `hsl(213, 73%, 22%)`)
-    *   **Visual Style**: Clean, authoritative dark blue badge with standard styling.
-*   **Good & Fair (5.0–6.5)**:
+    *   **Visual Style**: Soft emerald border glows, high-contrast badges. Signifies a garment a buyer can trust.
+*   **Good & Fair (5.0–6.9)**:
     *   **Color**: **Amber Gold** (`#F59E0B` / `hsl(38, 92%, 50%)`)
     *   **Visual Style**: Warm amber/gold indicators indicating standard vintage/pre-owned wear.
-*   **Poor & Damaged (1.0–4.5)**:
+*   **Poor & Damaged (1.0–4.9)**:
     *   **Color**: **Crimson Red** (`#F03D5F` / `hsl(348, 87%, 59%)`)
     *   **Visual Style**: Strong red warnings indicating notable cosmetic or structural defects.
+
+> [!important] Three bands, not four. Steel Navy is not a grade colour.
+> Decided by the owner on 2026-09-04, closing US-3010 AC6. This section used to
+> define a fourth band, **Steel Navy #0F3460 for 7.0–9.0**, and only the two
+> phones ever implemented it. The web had shipped three bands since US-605
+> consolidated the ladder out of "6+ files", so every grade from 7.0 to 9.4 —
+> the ordinary band most resale garments land in — was GREEN on a laptop and
+> NAVY on a phone. The web's shape won because it is what sellers have been
+> looking at, and because Steel Navy is the primary surface colour: a grade
+> drawn in it competes with every navy chrome element around it, and on a dark
+> surface it was 1.36:1 against the background.
+>
+> **The band boundary is inclusive at 7.0** and lines up with `GRADE_TIER_BANDS`
+> in `src/lib/constants.ts`, where 7.0 is the floor of "Very Good". The web used
+> to test `> 7`, which put a 7.0 "Very Good" in amber next to a 5.0 "Fair" and
+> split one tier across two colours; that off-by-one was corrected in the same
+> commit.
+
+> [!warning] The Crimson Red hex above is the SURFACE value. Do not use it as text.
+> `#F03D5F` is 3.79:1 on white and fails WCAG AA. US-439 deepened the text value
+> to `#cc1f3d`, which the web (`text-brand-red-text`) and Android
+> (`colorScheme.error`) both use. iOS still draws grade text in the spec value
+> and mitigates with per-tier SF Symbols and a `contrast:high` asset variant.
+> Following this line literally re-introduces a defect its own consumers fixed.
 
 ### C. Typography
 

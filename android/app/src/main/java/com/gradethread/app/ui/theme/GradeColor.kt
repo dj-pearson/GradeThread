@@ -8,19 +8,25 @@ import androidx.compose.ui.graphics.Color
 /**
  * US-3004: the colour a grade is drawn in, in ONE place and theme-aware.
  *
- * ⚠ THE BUG THIS FIXES. The 7.0-9.4 band was the literal `Color(0xFF0F3460)` -
- * brand navy, the LIGHT-mode primary - and the dark surface is
- * `BrandPalette.Night`, which is also navy. So on a dark-mode phone the grade
- * was navy on navy: the 8.5 at the top of a grade report, the number this whole
- * product exists to produce, rendered barely legible. The dark golden had been
- * showing it since it was recorded.
+ * ⚠ THERE ARE THREE BANDS NOW, NOT FOUR, and the navy one is gone entirely.
+ * Owner's decision 2026-09-04, closing US-3010 AC6: a grade from 7.0 to 9.4 is
+ * GREEN. That band is the ordinary one - most resale garments land there - and
+ * it used to render green on the web and navy on both phones, so the same
+ * garment was a different colour depending on which screen the seller looked
+ * at. The web's shape won; iOS and Android changed to match it.
  *
- * 7.0-9.4 is not an edge case either. It is the ordinary band - most resale
- * garments land there - so this was the common rendering, not the rare one.
+ * THE THRESHOLD IS 7.0 INCLUSIVE, tied to the floor of "Very Good" in the web's
+ * GRADE_TIER_BANDS. The web tested `> 7` until the same commit, which put a 7.0
+ * "Very Good" in amber beside a 5.0 "Fair" - one tier drawn in two colours.
  *
- * `MaterialTheme.colorScheme.primary` resolves to the same navy in light and to
- * `BrandPalette.NavyDark` in dark, which is the blue the primary buttons already
- * use, so the grade now matches the rest of the theme rather than fighting it.
+ * ⚠ THE PARAGRAPH BELOW DESCRIBES A BUG THAT NO LONGER HAS A BAND TO LIVE IN,
+ * and is kept because it is the reason nobody should reach for navy again. The
+ * 7.0-9.4 band was once the literal `Color(0xFF0F3460)` - brand navy, the
+ * LIGHT-mode primary - while the dark surface is `BrandPalette.Night`, which is
+ * also navy. On a dark-mode phone the grade was navy on navy at 1.36:1: the 8.5
+ * at the top of a grade report, the number this whole product exists to produce,
+ * barely legible. US-3004 fixed it by moving to `colorScheme.primary`; US-3010
+ * removed the band. A grade is never drawn in a brand surface colour.
  *
  * ⚠ US-3010 CORRECTS THE PARAGRAPH THAT USED TO SIT HERE. It said green, amber
  * and red "stay literal, deliberately", because they are mid-tone hues that
@@ -69,12 +75,13 @@ import androidx.compose.ui.graphics.Color
 @Composable
 @ReadOnlyComposable
 fun gradeColor(value: Double): Color = when {
-    value >= GRADE_EXCELLENT -> statusEmerald()
-    value >= GRADE_GOOD -> MaterialTheme.colorScheme.primary
-    value >= GRADE_FAIR -> statusAmber()
+    value >= GRADE_GREEN -> statusEmerald()
+    value >= GRADE_AMBER -> statusAmber()
     else -> MaterialTheme.colorScheme.error
 }
 
-private const val GRADE_EXCELLENT = 9.5
-private const val GRADE_GOOD = 7.0
-private const val GRADE_FAIR = 5.0
+/** Inclusive floor of "Very Good" in `GRADE_TIER_BANDS`, and of the green band. */
+private const val GRADE_GREEN = 7.0
+
+/** Inclusive floor of "Fair". Below it is Poor, which is the red band. */
+private const val GRADE_AMBER = 5.0

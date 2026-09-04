@@ -1055,25 +1055,35 @@ export function getRoleBadgeClasses(role: string): string {
 }
 
 // ─── Grade-score color tokens ────────────────────────────────────
-// Single source for grade-score coloring across the app — vault/20-domain/brand-design-system.md §3B
-// refreshed media kit: Emerald Mint (>7), Amber Gold (5–7), AA-safe brand red
-// (<5). Used by certificate, submission/inventory detail, dashboard,
-// submissions. Edit these three to restyle every score everywhere.
+// Single source for grade-score coloring across the app, and now for iOS and
+// Android too: vault/20-domain/brand-design-system.md §3B was amended to THREE
+// bands on 2026-09-04 (US-3010 AC6, owner's decision) and both phones dropped
+// the Steel Navy band to match this shape. Emerald Mint (>= 7), Amber Gold
+// (5 to 6.9), AA-safe brand red (< 5).
+//
+// ⚠ THE BOUNDARY IS INCLUSIVE AT 7 AND IT USED TO BE `> 7`. That off-by-one put
+// a 7.0 in amber while GRADE_TIER_BANDS calls 7.0 the floor of "Very Good", so
+// one tier rendered in two colours and a 7.0 looked like a 5.0 "Fair". Corrected
+// with the same commit that made the phones agree, because leaving it would have
+// created a NEW cross-client disagreement at exactly 7.0 in place of the old one.
+//
+// Used by certificate, submission/inventory detail, dashboard, submissions.
+// Edit these to restyle every score everywhere.
 export function getScoreColor(score: number): string {
-  if (score > 7) return "text-emerald-500";
+  if (score >= 7) return "text-emerald-500";
   if (score >= 5) return "text-amber-500";
   return "text-brand-red-text";
 }
 
 export function getScoreBorderColor(score: number): string {
-  if (score > 7) return "border-emerald-500";
+  if (score >= 7) return "border-emerald-500";
   if (score >= 5) return "border-amber-500";
   return "border-brand-red";
 }
 
 // Progress-bar fill color (targets the inner <Progress> indicator div).
 export function getProgressColor(score: number): string {
-  if (score > 7) return "[&>div]:bg-emerald-500";
+  if (score >= 7) return "[&>div]:bg-emerald-500";
   if (score >= 5) return "[&>div]:bg-amber-500";
   return "[&>div]:bg-brand-red";
 }
@@ -1081,7 +1091,7 @@ export function getProgressColor(score: number): string {
 // Soft pill (bg + text + border) for a grade tier — used by the certificate
 // and submission detail's headline score badge.
 export function getTierBadgeClasses(score: number): string {
-  if (score > 7)
+  if (score >= 7)
     return "bg-emerald-100 text-emerald-800 border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800";
   if (score >= 5)
     return "bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800";
@@ -1110,7 +1120,7 @@ export const BRAND_NAVY = "#0F3460";
 // stops, for SVG/canvas/Recharts contexts (score bars, defect callouts). Keep
 // in lockstep with getScoreColor: emerald > 7, amber 5–7, brand red < 5.
 export const SCORE_STOP = {
-  high: "#10b981", // emerald (tailwind emerald-500) — score > 7
+  high: "#10b981", // emerald (tailwind emerald-500) - score >= 7
   mid: "#f59e0b", // amber (tailwind amber-500) — 5 <= score <= 7
   low: BRAND_RED, // AA-safe brand red — score < 5
 } as const;

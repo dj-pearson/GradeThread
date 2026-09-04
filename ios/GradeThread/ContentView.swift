@@ -2766,9 +2766,14 @@ private struct AppLockCoverView: View {
 /// src/index.css) and reads from the asset catalog (US-192) so iOS swaps to the
 /// high-contrast variant when Increase Contrast is on in Accessibility Settings.
 ///
-/// `brandNavy` is the Obsidian Navy (#0C1E36) brand anchor. The Excellent grade
-/// tier (7.0–9.0) uses the distinct Steel Navy (#0F3460) — `brandSteelNavy` —
-/// per vault/20-domain/brand-design-system.md §3B, so the anchor and the tier stay independently tunable.
+/// `brandNavy` is the Obsidian Navy (#0C1E36) brand anchor. `brandSteelNavy`
+/// (#0F3460) is the distinct primary surface navy.
+///
+/// ⚠ THIS COMMENT USED TO SAY Steel Navy was the Excellent grade tier (7.0–9.0).
+/// It is not, as of 2026-09-04: US-3010 AC6 collapsed the grade ladder to three
+/// bands and 7.0–9.4 is now emerald on all three clients. `brandSteelNavy` is
+/// still live — StatusBadge paints the pipeline phases with it — but nothing in
+/// the grade ladder should reach for it again.
 extension ShapeStyle where Self == Color {
     static var brandNavy: Color { Color("BrandNavy") }
     static var brandSteelNavy: Color { Color("BrandSteelNavy") }

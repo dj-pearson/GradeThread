@@ -122,18 +122,33 @@ enum GradeScale {
         confidence < gradeReviewConfidenceThreshold
     }
 
+    /// Three bands, not four. Owner's decision 2026-09-04 (US-3010 AC6): a grade
+    /// from 7.0 to 9.4 is GREEN. That band used to be Steel Navy here and on
+    /// Android while the web drew it emerald, so the same garment was a
+    /// different colour on a phone than on a laptop — and it is the ordinary
+    /// band, where most resale garments land. The web's shape won.
+    ///
+    /// 7.0 is inclusive and matches the floor of "Very Good" in the web's
+    /// `GRADE_TIER_BANDS`. Do not reach for `brandSteelNavy` here again: it is
+    /// the primary SURFACE colour, so a grade drawn in it competes with the
+    /// chrome around it and sat at 1.36:1 on Android's dark surface.
     static func color(for score: Double) -> Color {
-        if score >= 9.5 { return .brandEmerald }
-        if score >= 7.0 { return .brandSteelNavy }
+        if score >= 7.0 { return .brandEmerald }
         if score >= 5.0 { return .brandAmber }
         return .brandRed
     }
 
     /// A per-tier SF Symbol so a grade's tier is distinguishable WITHOUT color
     /// (US-1281, Differentiate Without Color). Each band gets a visually
-    /// distinct glyph — not one fixed seal — keyed to the same score bands as
-    /// ``color(for:)``: Pristine seal, Excellent checkmark-seal, Good/Fair a
-    /// half-filled disc, Poor/Damaged a warning triangle.
+    /// distinct glyph — not one fixed seal: Pristine seal, Excellent
+    /// checkmark-seal, Good/Fair a half-filled disc, Poor/Damaged a warning
+    /// triangle.
+    ///
+    /// ⚠ THESE ARE FOUR BANDS AND ``color(for:)`` IS NOW THREE. That is
+    /// deliberate, and this comment used to say they were "keyed to the same
+    /// score bands". Since US-3010 collapsed 9.5+ and 7.0+ into one green band,
+    /// the symbol is the only thing that still separates a 9.7 from a 7.2 —
+    /// which is exactly the job it was added for. Do not collapse it to match.
     static func tierSymbol(for score: Double) -> String {
         if score >= 9.5 { return "seal.fill" }
         if score >= 7.0 { return "checkmark.seal.fill" }

@@ -389,15 +389,21 @@ final class GradingTests: XCTestCase {
     }
 
     func test_gradeScaleColorThresholds() {
-        // Tiers follow the refreshed media kit (vault/20-domain/brand-design-system.md §3B):
-        // Pristine/NWT (>=9.5) Emerald, Excellent/NWOT (7.0-9.0) Steel Navy,
-        // Good/Fair (5.0-6.5) Amber, Poor/Damaged (<5.0) Crimson.
+        // THREE bands since 2026-09-04, matching the web and Android exactly
+        // (US-3010 AC6, owner's decision; vault/20-domain/brand-design-system.md §3B
+        // was amended in the same commit): >= 7.0 Emerald, 5.0 to 6.9 Amber,
+        // < 5.0 Crimson. The Steel Navy band this used to assert is gone - it
+        // made a 7.0-to-9.4 garment navy on a phone and green on a laptop.
         XCTAssertEqual(GradeScale.color(for: 9.5), .brandEmerald)
-        XCTAssertEqual(GradeScale.color(for: 9.4), .brandSteelNavy) // just below pristine
-        XCTAssertEqual(GradeScale.color(for: 7.0), .brandSteelNavy) // inclusive floor
+        XCTAssertEqual(GradeScale.color(for: 9.4), .brandEmerald) // was Steel Navy
+        XCTAssertEqual(GradeScale.color(for: 7.0), .brandEmerald) // inclusive floor, was Steel Navy
         XCTAssertEqual(GradeScale.color(for: 6.9), .brandAmber)
         XCTAssertEqual(GradeScale.color(for: 5.0), .brandAmber)
         XCTAssertEqual(GradeScale.color(for: 4.9), .brandRed)
+
+        // The tier SYMBOL still separates 9.5+ from 7.0+, which is the whole
+        // point of US-1281 now that both are the same colour.
+        XCTAssertNotEqual(GradeScale.tierSymbol(for: 9.5), GradeScale.tierSymbol(for: 7.0))
     }
 
     // MARK: - Helpers (US-1209)

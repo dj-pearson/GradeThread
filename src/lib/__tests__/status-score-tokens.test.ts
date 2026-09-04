@@ -27,26 +27,23 @@ describe("score color tokens", () => {
     // ⚠ THESE BOUNDARIES DISAGREE WITH THE DESIGN SYSTEM AND WITH BOTH PHONES,
     // and this test is what makes that hard to notice (US-3010).
     //
-    // vault/20-domain/brand-design-system.md §3B defines FOUR bands: Emerald
-    // >= 9.5, Steel Navy 7.0-9.0, Amber 5.0-6.5, Crimson < 5. The web has
-    // three and no Steel Navy at all, so every grade from 7.0 to 9.4 is GREEN
-    // here and NAVY on iOS and Android - and GradeColor.kt calls that "the
-    // ordinary band, most resale garments land there". Same garment, different
-    // colour per device.
+    // ⚠ THIS BLOCK USED TO PIN A KNOWN DIVERGENCE. It is now a settled rule,
+    // and the previous comment - warning that anyone correcting the ladder
+    // would hit a red test reading like they broke something - can go.
     //
-    // It was never decided: US-605 CONSOLIDATED this ladder from code
-    // "copy-pasted in 6+ files" onto "the media-kit emerald/amber/brand-red
-    // palette" - three colours, no navy - so the shape came in from the copies.
-    // Nothing in vault/ mentions getScoreColor.
+    // The owner decided on 2026-09-04 (US-3010 AC6) that 7.0 to 9.4 is GREEN.
+    // vault §3B was amended from four bands to three, and iOS and Android both
+    // dropped the Steel Navy band to match this file rather than the other way
+    // round. Three clients now agree.
     //
-    // The assertion below is the trap. `getScoreColor(7.5) === emerald` is
-    // squarely inside §3B's Steel Navy band, so anyone correcting the ladder
-    // hits a red test that reads like they broke something. Left GREEN on
-    // purpose rather than changed: which side is authoritative - the web gains
-    // a navy band, or §3B becomes three - is a brand decision and US-3010
-    // carries it. This comment exists so the next reader knows the test is
-    // pinning a known divergence rather than a settled rule.
-    expect(getScoreColor(7)).toBe("text-amber-500");
+    // AND THE 7.0 BOUNDARY MOVED WITH IT. This line used to assert amber,
+    // because the ladder tested `> 7`. GRADE_TIER_BANDS calls 7.0 the floor of
+    // "Very Good", so that put one tier in two colours and painted a 7.0 the
+    // same as a 5.0 "Fair". Emerald at exactly 7.0 is the point of the change,
+    // not a side effect of it - leaving `> 7` would have swapped the old
+    // cross-client disagreement for a new one at exactly this value.
+    expect(getScoreColor(7)).toBe("text-emerald-500");
+    expect(getScoreColor(6.9)).toBe("text-amber-500");
     expect(getScoreColor(7.5)).toBe("text-emerald-500");
     expect(getScoreColor(5)).toBe("text-amber-500");
     expect(getScoreColor(4.5)).toBe("text-brand-red-text");

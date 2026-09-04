@@ -140,11 +140,17 @@ class GradeReportScreenshotTest {
     /**
      * US-3010: the POOR band, which no capture in this repo had ever shown.
      *
-     * gradeColor has four bands and only two were rendered anywhere: 8.5 and 7.0
-     * are Steel Navy, 6.0 is Amber. Emerald (>= 9.5) and Crimson (< 5.0) were in
-     * NO golden, light or dark, across every screenshot test. That is why the
-     * wrong red survived in GradeColor.kt - US-3004 caught the navy band because
-     * a dark golden had been showing it, and this band had nothing to show.
+     * When this was written gradeColor had FOUR bands and only two were rendered
+     * anywhere: 8.5 and 7.0 were Steel Navy, 6.0 Amber. Emerald (>= 9.5) and
+     * Crimson (< 5.0) were in NO golden, light or dark, across every screenshot
+     * test. That is why the wrong red survived in GradeColor.kt - US-3004 caught
+     * the navy band because a dark golden had been showing it, and this band had
+     * nothing to show.
+     *
+     * ⚠ THE LADDER IS THREE BANDS NOW (US-3010 AC6, 2026-09-04) and the navy one
+     * is gone, so 8.5 and 7.0 render EMERALD here. This capture matters more
+     * rather than less: two of the three bands now share the same fixtures, and
+     * the poor band is still the only place Crimson is drawn at all.
      *
      * The factor scores move with the overall score deliberately. A 3.5 report
      * with 8.5 fabric condition is incoherent, and an incoherent fixture invites
