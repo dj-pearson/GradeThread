@@ -41,11 +41,15 @@ import java.io.File
  * where it was legible. `statusEmerald()` / `statusAmber()` in StatusColor.kt
  * now resolve all four, and the grade ladder uses them.
  *
- * SEVENTEEN OTHER SITES DO NOT YET, and eight of those hold the raw hex rather
- * than the token - which is the same duplicate-of-a-token shape this test was
- * written to catch, just below its threshold because the value is semantic
- * rather than brand. They are legible and they are wrong, which is why this
- * scan still passes them and why the count is written down here.
+ * ⚠ AND THE COUNT THAT USED TO SIT HERE IS GONE, deliberately. It read
+ * "SEVENTEEN OTHER SITES DO NOT YET, and eight of those hold the raw hex" and
+ * nothing checked it, so it could only be right on the day it was typed - it
+ * was already wrong by the time the sites were migrated. StatusColorAdoptionTest
+ * now ASSERTS the set instead: every site outside ui/theme resolves through
+ * statusEmerald()/statusAmber() except three named exceptions, each carrying
+ * the reason it must stay fixed. Two of those three must never move, and that
+ * test pins them by name so a later "finish the migration" pass cannot quietly
+ * break an exported disclosure image or a line drawn over a photograph.
  *
  * It starts green: the sweep behind US-3009 found exactly one offender in the
  * whole app and it is fixed.

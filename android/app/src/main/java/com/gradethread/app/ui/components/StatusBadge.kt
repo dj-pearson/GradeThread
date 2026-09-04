@@ -84,7 +84,15 @@ object StatusStyle {
         ?.let { UiMessage(it) }
         ?: UiMessage(R.string.status_other, detail = label(status))
 
-    /** Pipeline-phase tone. Pure; unit-tested. */
+    /**
+     * Pipeline-phase tone. Pure; unit-tested.
+     *
+     * ⚠ DELIBERATELY NOT theme-aware, unlike the other status colours moved to
+     * [statusEmerald]/[statusAmber] in US-3010. Making this @Composable would
+     * cost its purity and the seven StatusStyleTest assertions that read it
+     * directly, and the swap is not mechanical: a caller would have to resolve
+     * the colour and pass it in. Worth doing, worth doing on purpose.
+     */
     fun tone(status: String): Color = when (status) {
         "sold", "shipped", "completed" -> BrandPalette.Emerald
         "listed", "active" -> BrandPalette.Navy

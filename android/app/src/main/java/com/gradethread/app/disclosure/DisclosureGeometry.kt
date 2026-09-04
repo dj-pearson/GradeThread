@@ -71,7 +71,14 @@ object DisclosureGeometry {
         return Size(canvas.width, canvas.height + legendHeight(annotationCount))
     }
 
-    /** Severity → colour, matching the web's SEVERITY_COLOR. */
+    /**
+     * Severity → colour, matching the web's SEVERITY_COLOR.
+     *
+     * ⚠ US-3010: these stay raw and fixed. DisclosureRenderer paints them into
+     * a BITMAP that is exported and shown to buyers, so they must match the
+     * web's values rather than the reader's theme - the same annotation has to
+     * be the same colour wherever the image is opened.
+     */
     object SeverityColor {
         const val MAJOR = 0xFFF03D5F.toInt()
         const val MODERATE = 0xFFF59E0B.toInt()

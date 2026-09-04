@@ -13,6 +13,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -23,6 +24,8 @@ import com.gradethread.app.ui.theme.BrandPalette
 import com.gradethread.app.ui.theme.GradeThreadTheme
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.cardStyle
+import com.gradethread.app.ui.theme.statusAmber
+import com.gradethread.app.ui.theme.statusEmerald
 
 /**
  * US-1303: informational callout card (iOS InfoCard) — icon + title + body
@@ -31,10 +34,12 @@ import com.gradethread.app.ui.theme.cardStyle
  */
 enum class InfoTone { Info, Success, Warning, Error }
 
+@Composable
+@ReadOnlyComposable
 private fun InfoTone.color(): Color = when (this) {
     InfoTone.Info -> BrandPalette.Navy
-    InfoTone.Success -> BrandPalette.Emerald
-    InfoTone.Warning -> BrandPalette.Amber
+    InfoTone.Success -> statusEmerald()
+    InfoTone.Warning -> statusAmber()
     InfoTone.Error -> BrandPalette.Red
 }
 
@@ -45,12 +50,7 @@ private fun InfoTone.icon(): ImageVector = when (this) {
 }
 
 @Composable
-fun InfoCard(
-    title: String,
-    body: String,
-    modifier: Modifier = Modifier,
-    tone: InfoTone = InfoTone.Info,
-) {
+fun InfoCard(title: String, body: String, modifier: Modifier = Modifier, tone: InfoTone = InfoTone.Info) {
     val color = tone.color()
     Row(
         modifier = modifier

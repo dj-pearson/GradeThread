@@ -33,6 +33,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.gradethread.app.ui.theme.Spacing
+import com.gradethread.app.ui.theme.statusAmber
+import com.gradethread.app.ui.theme.statusEmerald
 import kotlin.math.roundToInt
 
 /**
@@ -99,8 +101,11 @@ fun AiFillReviewSheet(
                         field = field,
                         checked = field.field in keptApplied,
                         onToggle = { on ->
-                            keptApplied = if (on) keptApplied + field.field
-                            else keptApplied - field.field
+                            keptApplied = if (on) {
+                                keptApplied + field.field
+                            } else {
+                                keptApplied - field.field
+                            }
                         },
                     )
                 }
@@ -118,8 +123,11 @@ fun AiFillReviewSheet(
                         entry = entry,
                         checked = entry.field in acceptedLow,
                         onToggle = { on ->
-                            acceptedLow = if (on) acceptedLow + entry.field
-                            else acceptedLow - entry.field
+                            acceptedLow = if (on) {
+                                acceptedLow + entry.field
+                            } else {
+                                acceptedLow - entry.field
+                            }
                         },
                     )
                 }
@@ -174,7 +182,9 @@ fun AiFillReviewSheet(
         }
         // Cancel dismisses WITHOUT consuming the review (US-1182) — a stray
         // back-press must not silently discard the seller's edits.
-        TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.aifill_cancel)) }
+        TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) {
+            Text(stringResource(R.string.aifill_cancel))
+        }
     }
 }
 
@@ -213,11 +223,7 @@ private fun Banner(title: String, body: String) {
 }
 
 @Composable
-private fun AppliedRow(
-    field: AiExtractReview.AppliedField,
-    checked: Boolean,
-    onToggle: (Boolean) -> Unit,
-) {
+private fun AppliedRow(field: AiExtractReview.AppliedField, checked: Boolean, onToggle: (Boolean) -> Unit) {
     val label = FieldSuggestionEntry(
         field.field,
         FieldSuggestion(field.value, field.confidence, field.source),
@@ -254,7 +260,7 @@ private fun AppliedRow(
             Text(
                 text = field.previousValue?.takeIf { it.isNotBlank() }
                     ?.let { stringResource(R.string.aifill_will_revert, it) }
-                        ?: stringResource(R.string.aifill_will_clear),
+                    ?: stringResource(R.string.aifill_will_clear),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.tertiary,
                 modifier = Modifier.padding(start = Spacing.xl),
@@ -264,11 +270,7 @@ private fun AppliedRow(
 }
 
 @Composable
-private fun SuggestionRow(
-    entry: FieldSuggestionEntry,
-    checked: Boolean,
-    onToggle: (Boolean) -> Unit,
-) {
+private fun SuggestionRow(entry: FieldSuggestionEntry, checked: Boolean, onToggle: (Boolean) -> Unit) {
     val percent = (entry.clampedConfidence * 100).roundToInt()
     // See AppliedRow: `semantics { }` is not a composable scope.
     val spoken = stringResource(
@@ -336,7 +338,7 @@ private fun ConfidenceBar(confidence: Double) {
 /** High / Medium / Low, matching the iOS GradeScale confidence bands. */
 @Composable
 private fun confidenceColor(confidence: Double): Color = when {
-    confidence >= 0.75 -> Color(0xFF10B981)
-    confidence >= 0.5 -> Color(0xFFF59E0B)
+    confidence >= 0.75 -> statusEmerald()
+    confidence >= 0.5 -> statusAmber()
     else -> MaterialTheme.colorScheme.error
 }

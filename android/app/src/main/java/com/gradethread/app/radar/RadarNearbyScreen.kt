@@ -30,10 +30,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.R
-import com.gradethread.app.ui.theme.BrandPalette
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.cardStyle
+import com.gradethread.app.ui.theme.statusAmber
 
 /**
  * US-2492: Sourcing Radar on the phone - "is this shop worth walking into?"
@@ -409,7 +409,7 @@ internal fun hotnessLabel(level: RadarHotnessLevel): String = stringResource(
 @Composable
 internal fun hotnessTint(level: RadarHotnessLevel): Color = when (level) {
     RadarHotnessLevel.QUIET -> MaterialTheme.colorScheme.onSurfaceVariant
-    RadarHotnessLevel.WARM -> BrandPalette.Amber
+    RadarHotnessLevel.WARM -> statusAmber()
     RadarHotnessLevel.HOT -> MaterialTheme.colorScheme.primary
     RadarHotnessLevel.PEAK -> MaterialTheme.colorScheme.error
 }

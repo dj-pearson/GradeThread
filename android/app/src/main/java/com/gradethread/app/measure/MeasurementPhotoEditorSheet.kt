@@ -322,6 +322,10 @@ private fun MeasureCanvas(state: MeasurementEditorViewModel.State, viewModel: Me
                 // seller moves the line it is their number, and colouring their
                 // own correction as suspect would be telling them they are
                 // wrong about their own garment.
+                // US-3010: stays the FIXED amber, not statusAmber(). This is
+                // drawn over the seller's photograph behind a white halo, not
+                // over an app surface, so the dark-theme variant would be
+                // solving for a background that is never there.
                 val color = if (state.isFlagged(line.key)) BrandPalette.Amber else BrandPalette.Navy
 
                 // Halo first: a navy line on a dark garment is invisible, and

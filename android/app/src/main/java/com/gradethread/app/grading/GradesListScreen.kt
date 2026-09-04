@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -37,6 +38,8 @@ import com.gradethread.app.sync.db.InventoryItemEntity
 import com.gradethread.app.ui.text
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.gradeColor
+import com.gradethread.app.ui.theme.statusAmber
+import com.gradethread.app.ui.theme.statusEmerald
 import java.util.Locale
 
 /**
@@ -259,7 +262,7 @@ private fun GradeRow(item: InventoryItemEntity, onClick: () -> Unit) {
             )
         }
         if (pending) {
-            Badge(stringResource(R.string.grades_pending_review), Color(0xFFF59E0B))
+            Badge(stringResource(R.string.grades_pending_review), statusAmber())
         }
         // US-819: dispute state rides the row, so the seller sees it without
         // opening each report.
@@ -282,8 +285,10 @@ private fun Badge(text: String, tone: Color) {
     )
 }
 
+@Composable
+@ReadOnlyComposable
 private fun disputeTone(status: String?): Color = when (status) {
-    "open", "under_review" -> Color(0xFFF59E0B)
-    "resolved" -> Color(0xFF10B981)
+    "open", "under_review" -> statusAmber()
+    "resolved" -> statusEmerald()
     else -> Color(0xFF6B7280)
 }

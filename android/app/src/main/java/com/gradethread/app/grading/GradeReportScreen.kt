@@ -38,6 +38,8 @@ import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 import com.gradethread.app.ui.theme.gradeColor
+import com.gradethread.app.ui.theme.statusAmber
+import com.gradethread.app.ui.theme.statusEmerald
 import java.util.Locale
 
 /**
@@ -401,9 +403,9 @@ private fun IntegrityBadge(verification: CertVerification, onRetry: () -> Unit) 
 
 @Composable
 private fun toneColor(tone: CertIntegrity.Tone): Color = when (tone) {
-    CertIntegrity.Tone.VERIFIED -> Color(0xFF10B981)
+    CertIntegrity.Tone.VERIFIED -> statusEmerald()
     CertIntegrity.Tone.DANGER -> MaterialTheme.colorScheme.error
-    CertIntegrity.Tone.WARNING -> Color(0xFFF59E0B)
+    CertIntegrity.Tone.WARNING -> statusAmber()
     CertIntegrity.Tone.NEUTRAL -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 

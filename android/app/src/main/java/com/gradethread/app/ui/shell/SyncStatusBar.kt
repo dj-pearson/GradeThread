@@ -24,6 +24,7 @@ import com.gradethread.app.R
 import com.gradethread.app.sync.SyncStatus
 import com.gradethread.app.ui.theme.BrandPalette
 import com.gradethread.app.ui.theme.Spacing
+import com.gradethread.app.ui.theme.statusAmber
 
 /**
  * US-1322: the slim shell banner reflecting sync state (iOS SyncStatusBar).
@@ -76,11 +77,7 @@ private data class Descriptor(
 // is correct in English and wrong in most other languages. Those are <plurals>
 // now, and the count is a positional argument so a translator can move it.
 @Composable
-private fun descriptorFor(
-    status: SyncStatus,
-    pendingCount: Int,
-    stuckCount: Int,
-): Descriptor? = when (status) {
+private fun descriptorFor(status: SyncStatus, pendingCount: Int, stuckCount: Int): Descriptor? = when (status) {
     SyncStatus.IDLE -> null
     SyncStatus.NEEDS_ATTENTION -> Descriptor(
         label = pluralStringResource(R.plurals.sync_needs_attention, stuckCount, stuckCount),
@@ -97,8 +94,8 @@ private fun descriptorFor(
     SyncStatus.PENDING -> Descriptor(
         label = pluralStringResource(R.plurals.sync_waiting, pendingCount, pendingCount),
         icon = Icons.Outlined.Info,
-        background = BrandPalette.Amber.copy(alpha = 0.15f),
-        foreground = BrandPalette.Amber,
+        background = statusAmber().copy(alpha = 0.15f),
+        foreground = statusAmber(),
     )
     SyncStatus.OFFLINE -> Descriptor(
         label = if (pendingCount > 0) {

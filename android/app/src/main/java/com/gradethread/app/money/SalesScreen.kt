@@ -34,6 +34,7 @@ import com.gradethread.app.R
 import com.gradethread.app.ui.text
 import com.gradethread.app.ui.UiMessage
 import com.gradethread.app.ui.theme.Spacing
+import com.gradethread.app.ui.theme.statusAmber
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -287,7 +288,7 @@ private fun StatusChip(status: String, label: UiMessage) {
     // grey and a refunded sale lost the only cue saying the money went back.
     val tone = when (status) {
         "refunded", "cancelled" -> MaterialTheme.colorScheme.error
-        "pending" -> Color(0xFFF59E0B)
+        "pending" -> statusAmber()
         else -> Color(0xFF6B7280)
     }
     Text(
