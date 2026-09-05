@@ -14,6 +14,7 @@ code_refs:
   - supabase/migrations/00686_ledger_rebuild_no_revoke.sql
   - supabase/migrations/00720_ebay_api_calls_no_revoke.sql
   - supabase/migrations/00726_pollable_ebay_owner_ids_no_revoke.sql
+  - services/edge-functions/src/tests/body-check-denies-anon_test.ts
   - scripts/check-credit-function-guards.mjs
 reviewed: 2026-09-04
 tags: [postgres, security, migrations, grants]

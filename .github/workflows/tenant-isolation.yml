@@ -139,6 +139,20 @@ jobs:
           TENANT_ISOLATION_REQUIRED: "1"
         run: deno test --allow-net --allow-env --allow-read src/tests/tenant-isolation_test.ts
 
+      # US-3118: the three functions whose ONLY authorization is an in-body
+      # service-role check, called for real as anon and as service_role.
+      # They need PostgREST and the two keys, both already up for the job
+      # above, and they need no fixture and no edge service -- a refusal
+      # needs no rows to prove. Kept a separate step so a failure here reads
+      # as "a body check stopped refusing" rather than as a fixture problem.
+      - name: Run body-check denial suite (required)
+        working-directory: services/edge-functions
+        env:
+          TEST_SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          TEST_SUPABASE_ANON_KEY: ${{ env.SUPABASE_ANON_KEY }}
+          TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ env.SUPABASE_SERVICE_ROLE_KEY }}
+        run: deno test --allow-net --allow-env --allow-read src/tests/body-check-denies-anon_test.ts
+
       - name: Stop edge service
         if: always()
         run: kill "$EDGE_PID" 2>/dev/null || true

@@ -3641,20 +3641,6 @@
         "A test or guard fails if a plurals id is passed where a string id is expected, so the next one is caught at build time rather than by a lint run nobody can complete."
       ],
       "priority": 5
-    },
-    {
-      "id": "US-3118",
-      "passes": false,
-      "title": "Nothing tests that pollable_ebay_owner_ids refuses anon, and the privilege layer behind it is gone",
-      "description": "As GradeThread, I want an automated test proving that a non-service-role caller gets no rows out of pollable_ebay_owner_ids, so that the body check is not the only thing standing between an unauthenticated request and a list of every connected seller's user id, with nothing verifying it. Migration 00726 deliberately restored the default EXECUTE on that SECURITY DEFINER function, because revoking it armed the US-2403 segfault. That is the right trade, and it was verified by hand against prod on 2026-09-04 (HTTP 401, code 42501, 'service role only', no rows, database still ok). But the verification was manual and lives only in a note. The only automated coverage is src/test/us2403-function-revoke-gate.test.ts, which scans MIGRATION TEXT and would stay green if someone reordered or relaxed the four-line IF at 00726 lines 52-55. This is the shape US-268 exists for: the function returns other tenants' owner ids by design, so a silent regression there is a tenant-isolation break with no permission layer underneath it. The same gap applies to the two sibling repairs, bump_ebay_api_calls (00720) and rebuild_ledger_for_user (00686).",
-      "acceptanceCriteria": [
-        "A case in services/edge-functions/src/tests/tenant-isolation_test.ts calls pollable_ebay_owner_ids through PostgREST as anon and as an authenticated non-service-role user, and asserts BOTH get 42501 and zero rows. It must be a real call, not a source scan: the gate that already scans migration text is what fails to catch this.",
-        "The same case covers bump_ebay_api_calls and rebuild_ledger_for_user, the two earlier body-check repairs, so the pattern is covered rather than one instance of it.",
-        "A caller with no apikey and no Authorization header is asserted too. PostgREST assigns db-anon-role when no JWT is present, so auth.role() is 'anon' rather than NULL and the body check still fires; that was probed on 2026-09-04 and must not silently become a bypass if the guard is ever rewritten to trust a NULL role.",
-        "The service_role path is asserted to still WORK (200, a result set), so a future tightening cannot pass by denying everyone.",
-        "vault/20-domain/postgres-revoke-from-anon-is-a-noop.md points at the new test from its code_refs, so the note that recommends the body-check pattern also names the thing that proves it holds."
-      ],
-      "priority": 5
     }
   ]
 }
