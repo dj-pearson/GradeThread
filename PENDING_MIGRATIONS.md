@@ -1,6 +1,14 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## PENDING: 00726 - undo 00724's REVOKE on pollable_ebay_owner_ids (US-3110 follow-up)
+## APPLIED 2026-09-04: 00726 - undo 00724's REVOKE on pollable_ebay_owner_ids (US-3110 follow-up)
+
+**Verified applied 2026-09-04, and verified WORKING, which is not the same check.** Three reads against production, all from a laptop with nothing but the anon key that ships in the browser bundle:
+
+1. `/health/ready` on the edge reports `applied: 00726`.
+2. PostgREST's OpenAPI document, fetched with the anon key, LISTS `/rpc/pollable_ebay_owner_ids` again. Visibility there means anon HOLDS execute, which is the whole fix: a role that holds execute never takes the denial path, so there is no permission error for supautils to decorate and nothing to segfault. It sits alongside `bump_ebay_api_calls` (00720) and `rebuild_ledger_for_user` (00686), the two earlier repairs of this same mistake, which is the shape to expect.
+3. `POST /rest/v1/rpc/pollable_ebay_owner_ids` as anon returns **HTTP 401, code 42501, 'pollable_ebay_owner_ids: service role only'** and NO rows. So the permission was not loosened by restoring the grant - the body check is doing the work the revoke used to do, and doing it without the crash surface. `/health/ready` still reports `database: ok` after that call, which under the old revoke on a hint_roles image is exactly the call that would have restarted the database.
+
+That third read is the one worth copying. A revoke can only be tested by making the call it forbids, which is why nobody tested one before; a body check can be tested by anyone, from anywhere, without credentials and without risk.
 
 **Why it exists.** 00724 shipped with
 
