@@ -7985,3 +7985,52 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  // US-3088 AC2. /api/grading/public/listing-draft is UNAUTHENTICATED, so there
+  // is no tenant to scope it to and the only safe posture is that it writes
+  // nothing at all. That claim is worth a case rather than a comment: the paid
+  // path it shares a prompt with (generateListing) creates an inventory_items
+  // row and a listings row, and the free endpoint is one accidental reuse away
+  // from doing the same for a stranger — into whichever tenant the service-role
+  // client happened to touch last.
+  //
+  // The OUTCOME of the call is deliberately not asserted. Whether the model
+  // answers, the daily ceiling refuses it, or the fixture has no real API key
+  // and it 500s, the property is the same and it is the one that matters: the
+  // row counts do not move.
+  name: "US-3088: an anonymous listing-draft call writes no item and no listing",
+  ignore: !CONFIGURED || !A_API_KEY,
+  fn: async () => {
+    const counts = async (): Promise<{ items: number; listings: number }> => {
+      const [i, l] = await Promise.all([
+        fetch(`${BASE}/api/v1/items?limit=1`, { headers: apiKeyHeaders(A_API_KEY!) }),
+        fetch(`${BASE}/api/v1/listings?limit=1`, { headers: apiKeyHeaders(A_API_KEY!) }),
+      ]);
+      const [ij, lj] = await Promise.all([i.json(), l.json()]);
+      assertEquals(i.status, 200, "items count read failed");
+      assertEquals(l.status, 200, "listings count read failed");
+      return { items: ij.meta?.total ?? -1, listings: lj.meta?.total ?? -1 };
+    };
+
+    const before = await counts();
+    assert(before.items >= 0 && before.listings >= 0, "the counts are not readable");
+
+    // A canonical 1x1 PNG, so the request passes the magic-byte sniff and gets
+    // as far into the handler as the fixture allows.
+    const onePx =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+    const res = await fetch(`${BASE}/api/grading/public/listing-draft`, {
+      method: "POST",
+      // No Authorization header, by design.
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ images: [onePx], target: "ebay", brand: "Patagonia" }),
+    });
+    await res.body?.cancel();
+    assert(res.status !== 401 && res.status !== 403, "the free tool now requires auth");
+
+    const after = await counts();
+    assertEquals(after.items, before.items, "an anonymous draft created an inventory item");
+    assertEquals(after.listings, before.listings, "an anonymous draft created a listing");
+  },
+});

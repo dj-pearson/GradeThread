@@ -174,6 +174,7 @@ import {
   selectTagOcrPhotos,
   shouldRunTagRolePass,
   tagAttributeFill,
+  tagImageSource,
   type TagGroundTruth,
 } from "./ai-tag-ocr.ts";
 import { classifyPhotoRoles } from "./ai-photo-roles.ts";
@@ -319,6 +320,11 @@ export interface ListingGenInput {
   // US-547: deterministic A/B key (the item id). Decides champion-vs-challenger
   // when a listing_gen challenger is in trial. Omit to force the champion.
   promptSelectKey?: string | null;
+  // US-3088: spend-attribution slug for the AI ledger. Defaults to "autolister"
+  // so every existing caller stays in the bucket it has always been in; the
+  // free /listing-draft tool passes its own so an anonymous surface's Vision
+  // spend is separable from a paying seller's.
+  feature?: string;
   // US-1529: the research-tier identification persisted on the item's
   // attributes (US-1527/1528). When present, the title leads with the
   // identified style and the description gets line/fabric/MSRP context.
@@ -998,7 +1004,7 @@ export function buildListingSystemBlocks(
 export async function generateListingFields(
   input: ListingGenInput,
 ): Promise<ListingGenResult> {
-  enterAiFeature("autolister"); // US-894 spend attribution
+  enterAiFeature(input.feature ?? "autolister"); // US-894 spend attribution
   if (!input.photos || input.photos.length === 0) {
     throw new Error("generateListingFields requires at least one photo");
   }
@@ -1013,7 +1019,12 @@ export async function generateListingFields(
       type: "text",
       text: `Photo ${i + 1}${photo.type ? ` (${photo.type})` : ""}:`,
     });
-    content.push({ type: "image", source: { type: "url", url: photo.url } });
+    // US-3088: a photo may arrive as a data URI rather than a fetchable URL -
+    // the free listing-draft tool holds the bytes in memory and never stores
+    // them, so there is no URL to give. tagImageSource is the same sniff the
+    // tag-OCR pass uses; it is not tag-specific, and a plain https URL comes
+    // back untouched, so every existing caller is byte-identical.
+    content.push({ type: "image", source: tagImageSource(photo.url) });
   });
 
   content.push({ type: "text", text: buildListingUserLines(input).join("\n\n") });

@@ -104,6 +104,14 @@ import {
 import { authenticityGateStatus } from "../lib/authenticity-eval.ts";
 import { getEffectiveTellsForBrand } from "../lib/brand-authenticity.ts";
 import { recordAiUsage } from "../lib/ai-usage.ts";
+import { generateListingFields } from "../lib/ai-listing.ts";
+import {
+  FREE_DRAFT_AI_FEATURE,
+  FREE_DRAFT_PROMPT_SELECT_KEY,
+  freeDraftLogLine,
+  parseFreeDraftBody,
+  shapeFreeDraft,
+} from "../lib/free-listing-draft.ts";
 import { clientIp } from "../middleware/rate-limit.ts";
 import { AiCeilingError, reserveGlobalDailyBudget } from "../lib/ai-limiter.ts";
 
@@ -2309,3 +2317,141 @@ publicGradingRoutes.post("/tag-read", async (c) => {
 export const TAG_READ_DISCLAIMER =
   "Read from one photo by AI. An RN names the company that made or imported " +
   "the item, never the brand on the tag, and a counterfeit can print a real one.";
+
+
+// ── Free listing generator (US-3088) ─────────────────────────────────
+// POST /listing-draft — UNAUTHENTICATED one-to-three-photo listing draft for
+// the /tools/listing-generator landing. Runs the SAME AutoLister prompt a
+// paying seller gets (generateListingFields), so what a stranger sees is the
+// product doing its job rather than a demo of it.
+//
+// Defended exactly like /grade-check and /tag-read, and for the same reason: it
+// is a Vision-cost and abuse surface reachable with no account. The body limit
+// caps the request, a per-IP sliding window caps calls here, the shared
+// ai-limiter's global daily ceiling caps total Vision spend, every image is
+// magic-byte sniffed and stripped of EXIF before the model sees bytes (US-276),
+// and NOTHING is persisted - no image, no draft, no row in any table.
+//
+// Tighter than its two siblings at 3/hour rather than 5, because one call here
+// is a multi-photo tool-use generation rather than a single-photo read, so it
+// is the most expensive thing an anonymous caller can spend our money on.
+const LISTING_DRAFT_PER_IP_PER_HOUR = 3;
+const LISTING_DRAFT_WINDOW_MS = 60 * 60 * 1000;
+const listingDraftHits = new Map<string, number[]>();
+
+export function listingDraftRateLimited(ip: string, now: number): boolean {
+  const recent = (listingDraftHits.get(ip) ?? []).filter(
+    (t) => now - t < LISTING_DRAFT_WINDOW_MS,
+  );
+  if (recent.length >= LISTING_DRAFT_PER_IP_PER_HOUR) {
+    listingDraftHits.set(ip, recent);
+    return true;
+  }
+  recent.push(now);
+  listingDraftHits.set(ip, recent);
+  if (listingDraftHits.size > 5000) {
+    for (const [k, v] of listingDraftHits) {
+      if (v.every((t) => now - t >= LISTING_DRAFT_WINDOW_MS)) listingDraftHits.delete(k);
+    }
+  }
+  return false;
+}
+
+publicGradingRoutes.post("/listing-draft", async (c) => {
+  try {
+    const ip = clientIpFor(c);
+    if (listingDraftRateLimited(ip, Date.now())) {
+      return c.json(
+        {
+          error: "You've reached the free listing-generator limit for now. Try again later.",
+          code: RATE_LIMITED_CODE,
+        },
+        429,
+      );
+    }
+
+    const parsed = parseFreeDraftBody(await c.req.json().catch(() => null));
+    if (!parsed.ok) return c.json({ error: parsed.error, code: parsed.code }, 400);
+
+    // US-276: magic-byte sniff + EXIF strip, per image, BEFORE the model sees
+    // bytes. prepareGradeCheckImage is the shared hardening the two sibling
+    // anonymous endpoints use and carries the same 8 MB per-image cap.
+    const cleaned: string[] = [];
+    for (const raw of parsed.images) {
+      const prepared = prepareGradeCheckImage(raw);
+      if (!prepared.ok) return c.json({ error: prepared.error, code: "bad_image" }, 400);
+      cleaned.push(prepared.cleanDataUri);
+    }
+
+    try {
+      await reserveGlobalDailyBudget();
+    } catch (err) {
+      if (err instanceof AiCeilingError) return c.json(atCapacityBody(), 503);
+      throw err;
+    }
+
+    const knownFields: Record<string, unknown> = {};
+    if (parsed.brand) knownFields.brand = parsed.brand;
+    if (parsed.size) knownFields.size = parsed.size;
+    if (parsed.condition) knownFields.condition = parsed.condition;
+
+    const startedAt = Date.now();
+    const result = await generateListingFields({
+      // No photo TYPE is sent on purpose. A seller's item carries roles the
+      // pipeline assigned; a stranger dropping three photos has none, and
+      // labelling the first one "front" would be a guess the model would then
+      // treat as given.
+      photos: cleaned.map((url) => ({ url })),
+      knownFields,
+      promptSelectKey: FREE_DRAFT_PROMPT_SELECT_KEY,
+      feature: FREE_DRAFT_AI_FEATURE,
+    });
+    const latencyMs = Date.now() - startedAt;
+
+    const draft = shapeFreeDraft(result.listing, parsed);
+
+    // An empty title means policyCleanTitle could not produce one free of
+    // eBay's search-manipulation policy. Handing that to a stranger as our
+    // sample output would teach the thing we exist to stop, so the call fails
+    // instead. See the post-condition note in lib/free-listing-draft.ts.
+    if (!draft.title.text) {
+      console.error(freeDraftLogLine({
+        target: parsed.target,
+        imageCount: cleaned.length,
+        latencyMs,
+        titleTrimmed: false,
+        warningCount: 0,
+        policyClean: false,
+      }));
+      return c.json(
+        { error: "Couldn't write a listing for that photo. Try another shot of the item." },
+        502,
+      );
+    }
+
+    console.log(freeDraftLogLine({
+      target: parsed.target,
+      imageCount: cleaned.length,
+      latencyMs,
+      titleTrimmed: draft.title.trimmed,
+      warningCount: draft.title.warnings.length,
+      policyClean: true,
+    }));
+
+    return c.json(draft, 200);
+  } catch (err) {
+    if (err instanceof AiCeilingError) return c.json(atCapacityBody(), 503);
+    // US-580: unauthenticated surface - never echo raw error detail.
+    console.error(
+      "public-grading /listing-draft:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json(
+      { error: "Couldn't write a listing for those photos. Try clearer, well-lit shots." },
+      500,
+    );
+  }
+});
+
+/** Exported for the route test: the per-IP hourly cap this endpoint enforces. */
+export const LISTING_DRAFT_LIMIT = LISTING_DRAFT_PER_IP_PER_HOUR;
