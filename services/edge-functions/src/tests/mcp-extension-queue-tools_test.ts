@@ -182,3 +182,58 @@ Deno.test("US-3065: the notice is imported, never re-written", () => {
     "the tools module writes its own notice string instead of QUEUED_NOTICE",
   );
 });
+
+// ── AC6: a queued job is reconstructable from the audit log ─────────────────
+
+Deno.test("US-3065: the row ids reach the audit log, and nothing else does", async () => {
+  // The row ids exist nowhere in the ARGUMENTS — the model asks for items and
+  // channels, and which rows that produced is only ever known to the handler.
+  // auditDetail is the seam the dispatcher merges into the audited arguments
+  // and strips from the JSON-RPC result, so the ids never reach the model.
+  const dispatcher = await Deno.readTextFile(
+    new URL("../routes/mcp.ts", import.meta.url),
+  );
+  assert.match(
+    dispatcher,
+    /const \{ auditDetail, \.\.\.result \} = await tool\.handler\(args, ctx\);/,
+    "the dispatcher no longer separates auditDetail from the result",
+  );
+  assert.match(dispatcher, /audit\((?:[^)]*)auditDetail\)/);
+
+  const src = await Deno.readTextFile(
+    new URL("../lib/mcp-extension-queue-tools.ts", import.meta.url),
+  );
+  assert.match(src, /auditDetail: \{ row_ids: created/);
+});
+
+// ── AC4: what the allowance does and does not charge ───────────────────────
+
+Deno.test("US-3065: one call costs one connector action, like every other bulk tool", async () => {
+  // ⚠ AC4 ASKS FOR SOMETHING THE MECHANISM DOES FOR NO TOOL, and this case
+  // records that rather than quietly implementing half of it.
+  //
+  // The allowance counts ROWS IN mcp_tool_calls — one per tool CALL. There is
+  // no weight column, so a per-row charge would need the CHECK and the COUNT to
+  // agree and only the check could be changed without a migration. Half a
+  // weighting is worse than none: it would refuse legitimate calls while still
+  // under-counting the month.
+  //
+  // And the precedent is already established and LOOSER than this tool.
+  // gradethread_end_listings takes up to 100 listings off their marketplaces
+  // for one allowance action. This tool's ceiling is MAX_QUEUE_TOOL_ITEMS items
+  // across the extension channels, which is smaller — so charging per row here
+  // alone would make QUEUEING cost more than ENDING a hundred live listings.
+  const lifecycle = await Deno.readTextFile(
+    new URL("../lib/mcp-lifecycle-tools.ts", import.meta.url),
+  );
+  const bulkCap = Number(lifecycle.match(/const MAX_BULK_END = (\d+);/)?.[1] ?? 0);
+  assert.ok(bulkCap > 0, "MAX_BULK_END moved; re-check this comparison");
+
+  const worstCase = MAX_QUEUE_TOOL_ITEMS * QUEUE_TOOL_PLATFORMS.length;
+  assert.ok(
+    worstCase <= bulkCap,
+    `one queue call can create ${worstCase} rows, more than the ${bulkCap} live ` +
+      `listings gradethread_end_listings ends for the same single allowance ` +
+      `action. That inverts the precedent and the cost should be revisited.`,
+  );
+});

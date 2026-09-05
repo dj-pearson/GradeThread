@@ -8,12 +8,25 @@ code_refs:
   - services/edge-functions/src/routes/content-public.ts
   - src/pages/certificate.tsx
   - src/test/public-grade-report-view-parity.test.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-05
 tags: [certificates, public, schema, gotcha]
 summary: A public certificate is served by two independent projections — an edge column allowlist and a Postgres view — and adding a column to one has twice shipped as "done" while the other stayed silent.
 ---
 
 # Public certificate read paths
+
+> **Re-reviewed 2026-09-05.** Drift flagged `certificate.tsx` for US-3060, which
+> adds ONE line to the SPA render: a "Seen via the GradeThread extension on
+> <marketplace>" note when the visit arrived from an on-marketplace badge
+> (`utm_medium=badge`). It reads only query parameters and the extension's DOM
+> marker, fetches nothing, and is `print:hidden` because it describes the
+> ARRIVAL rather than the certificate.
+>
+> Nothing about the read paths themselves changed — same SSR Pages Function,
+> same SPA fetch, same public columns. Worth knowing for whoever compares the
+> two: the note is SPA-only, so a crawler and the SSR path do not render it, and
+> that is correct — it is a fact about how this visitor got here, not about the
+> certificate.
 
 > **Re-reviewed 2026-09-02.** Drift flagged `routes/content-public.ts` for
 > US-9036's demand counter on the registered-number page. The certificate read

@@ -10,12 +10,24 @@ code_refs:
   - services/edge-functions/src/lib/connector-allowance.ts
   - services/edge-functions/src/middleware/mcp-auth.ts
   - services/edge-functions/src/lib/mcp-budget.ts
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [pricing, connector, plan-gating, contract]
 summary: connectorAccess opens at pro; connector write actions have their own monthly counter derived from the audit log, not a share of aiActionsPerMonth.
 ---
 
 # The connector's gate and its allowance
+
+> **Re-reviewed 2026-09-05.** Drift flagged `mcp-budget.ts` for a new budget
+> kind, `extension_queue` (US-3065), at 20 batches an hour — sized like publish.
+>
+> ⚠ Worth reading alongside this note's allowance section, because the two
+> answer different questions and US-3065's AC asked for something the allowance
+> does for no tool. The MONTHLY allowance counts rows in `mcp_tool_calls`, one
+> per tool CALL, and there is no weight column — so a per-row charge would need
+> the check and the count to agree, and only the check can change without a
+> migration. The precedent is also looser already:
+> `gradethread_end_listings` takes up to 100 live listings off their
+> marketplaces for one allowance action. See [[claude-connector]].
 
 > **Re-reviewed 2026-09-02.** Drift flagged `src/lib/constants.ts` for
 > `CREATOR_AFFILIATE` (US-9212). No connector, plan row or gate constant moved.

@@ -8,12 +8,23 @@ code_refs:
   - src/lib/analytics.ts
   - src/lib/buyer-analytics.ts
   - src/lib/__tests__/analytics-events.test.ts
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [analytics, posthog, measurement, naming]
 summary: Every product event name is declared in src/lib/analytics-events.ts and enforced by tsc; two naming conventions are live and neither may be renamed.
 ---
 
 # Analytics event registry
+
+> **Re-reviewed 2026-09-05.** Drift flagged `analytics-events.ts` for one added
+> entry, `badge_certificate_click` (US-3060), carrying `platform` and nothing
+> else — no listing id, no URL, because the on-marketplace badge works without
+> us learning what anyone browses.
+>
+> The registry's own rule did the work here and is worth recording as a live
+> example: the guard that refuses an entry nothing emits failed the build the
+> moment the name was declared, so the event could not land before its emitter
+> did. A declared, unemitted event is a dashboard that reads zero forever while
+> looking healthy.
 
 > **Re-reviewed 2026-09-02.** Drift flagged `src/lib/analytics-events.ts` for the
 > cross-listing batch, which adds four names, all snake_case, all declared rather

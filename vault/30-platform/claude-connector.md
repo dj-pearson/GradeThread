@@ -3,8 +3,9 @@ title: Claude connector (remote MCP server)
 type: reference
 status: current
 source_of_truth: vault
-code_refs: []
-reviewed: 2026-08-18
+code_refs:
+  - services/edge-functions/src/lib/mcp-extension-queue-tools.ts
+reviewed: 2026-09-05
 tags: [mcp, connector, claude, api, oauth, integration]
 summary: What the MCP specification and Anthropic's clients actually require of a GradeThread remote MCP server, as read from the primary sources on 2026-08-18.
 ---
@@ -202,6 +203,35 @@ The edge service (Deno + Hono on Coolify) is the only host that serves Hono
 routes. `api.gradethread.com` is Kong and holds Supabase routes only, so an MCP
 URL published there returns 404 with no obvious cause. See the DNS section of
 the root `CLAUDE.md`.
+
+## The two tools that queue work rather than doing it (US-3065)
+
+`gradethread_extension_queue` (read) and `gradethread_queue_extension_work`
+(write) let the connector answer "list these twelve on Poshmark and Mercari" by
+creating rows the seller's OWN browser drains. Nothing here reaches a
+marketplace, which is why the write tool's `openWorldHint` is **false** while
+`gradethread_publish_listing`'s is true: the ADR in
+[[adr-no-server-side-marketplace-automation]] holds, and the connector queues
+rather than acts.
+
+**The prompt says QUEUED, never live**, and that is the whole safety property. A
+model reporting "done, it's listed" about a queued job is the failure this
+feature is arranged around, because the seller's desktop may be shut.
+`QUEUED_NOTICE` is emitted verbatim in the preview, the result and the MRTR
+question, and a test fails if the module writes its own wording or if the prompt
+uses the words live or listed.
+
+> [!warning] One call is one connector action, and that is deliberate
+> The monthly allowance counts ROWS IN `mcp_tool_calls`, one per tool CALL.
+> There is no weight column, so a per-row charge would need the check and the
+> count to agree and only the check can change without a migration — half a
+> weighting would refuse legitimate calls while still under-counting the month.
+>
+> The precedent is also already looser: `gradethread_end_listings` takes up to
+> **100 live listings off their marketplaces** for one allowance action. This
+> tool's worst case is smaller, so charging per row here alone would make
+> QUEUEING cost more than ENDING a hundred listings. A test pins that comparison
+> and fails if the ceiling ever inverts it.
 
 ## Sources
 
