@@ -22,6 +22,7 @@ import { getSetting } from "../lib/system-settings.ts";
 import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import { isMcpEnabled } from "./mcp.ts";
 import { WATCHDOG_HEARTBEAT_KEY } from "./jobs-watchdog-heartbeat.ts";
+import { OTP_EXPIRY_KEY } from "./auth-hooks.ts";
 
 export const healthRoutes = new Hono();
 
@@ -268,6 +269,36 @@ export function watchdogReadiness(
 }
 
 /**
+ * US-2351 AC7: GoTrue's OTP expiry, which is the REAL ceiling on an
+ * impersonation token and was an operator lookup until now.
+ *
+ * Why it matters, stated so the number is not read as trivia: impersonation
+ * mints a magiclink through adminGenerateLink, and supabase/auth applies
+ * `config.Mailer.OtpExp` to signup, invite, recovery and magiclink alike
+ * through one `isOtpExpired()` call. So the 30-minute cap this codebase
+ * enforces is only the shorter of two limits, and this is the other one.
+ *
+ * "never observed" is a real answer with two causes, and they are worth
+ * telling apart: either no auth email has been sent since this shipped, or
+ * GoTrue is not calling the send-email hook at all — which the auth_email_hook
+ * line above cannot distinguish either, because it only proves OUR secret is
+ * set.
+ */
+export function otpExpiryReadiness(seconds: number | null): string {
+  if (seconds === null || !Number.isFinite(seconds) || seconds <= 0) {
+    return "never observed: no auth email has reached the send-email hook yet, " +
+      "so GoTrue's OTP expiry is unknown — it is the real ceiling on an " +
+      "impersonation token (US-2351)";
+  }
+  const mins = Math.round(seconds / 60);
+  const capMins = 30;
+  const binding = mins <= capMins
+    ? `GoTrue's ${mins}m is the binding limit`
+    : `the 30m code cap is the binding limit`;
+  return `ok — GoTrue OTP expiry ${seconds}s (~${mins}m); ${binding}`;
+}
+
+/**
  * US-2687: does the `claude_connector` flag say on, say off, or say nothing?
  *
  * isFeatureEnabled fails OPEN, so a missing row and an unreachable flag store
@@ -477,6 +508,17 @@ healthRoutes.get("/ready", async (c) => {
     }
   }
 
+  // US-2351 AC7: the same shape, and the same reason — a fact that only
+  // something reporting in can tell us, cached where a probe can read it.
+  let otpExpirySeconds: number | null = null;
+  if (dbOk) {
+    try {
+      otpExpirySeconds = await getSetting<number | null>(OTP_EXPIRY_KEY, null);
+    } catch {
+      otpExpirySeconds = null;
+    }
+  }
+
   // US-2687: the connector's two kill switches, neither of which could be
   // observed from outside. Best-effort like every other diagnostic here — the
   // env half needs no I/O, and a flag-store failure reports "unreadable"
@@ -511,6 +553,11 @@ healthRoutes.get("/ready", async (c) => {
       hostWatchdog: watchdogReadiness(
         typeof watchdogLastSeen === "number" ? watchdogLastSeen : null,
         Date.now(),
+      ),
+      // US-2351: the token lifetime that bounds an impersonation, which was
+      // an operator lookup because nobody recorded what GoTrue already tells us.
+      gotrueOtpExpiry: otpExpiryReadiness(
+        typeof otpExpirySeconds === "number" ? otpExpirySeconds : null,
       ),
       // US-2687: two kill switches that were invisible from outside.
       connector: connectorReadiness(isMcpEnabled(), connectorFlag),

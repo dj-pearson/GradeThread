@@ -10,7 +10,7 @@ code_refs:
   - supabase/migrations/00612_admin_revoke_user_sessions.sql
   - scripts/check-session-revocation.mjs
   - src/lib/impersonation.ts
-reviewed: 2026-08-17
+reviewed: 2026-09-05
 tags: [security, auth, impersonation, contract]
 summary: Stopping an impersonation falls back to deleting the target's auth.sessions rows through an RPC we own, because GoTrue's admin logout route does not exist on the version this project runs — and even a working revocation cannot kill an access token already issued.
 ---

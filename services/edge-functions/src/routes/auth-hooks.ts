@@ -12,7 +12,8 @@
 // this route is intentionally NOT behind authMiddleware (GoTrue has no JWT).
 import { Hono } from "hono";
 import { type AuthEmailActionType, sendAuthActionEmail } from "../lib/email.ts";
-import { captureException, recordMetric } from "../lib/observability.ts";
+import { captureException, logEvent, recordMetric } from "../lib/observability.ts";
+import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   parseWebhookSecrets,
   readWebhookHeaders,
@@ -146,6 +147,18 @@ authHookRoutes.post("/send-email", async (c) => {
     ? Math.round(emailData.otp_expiry / 60)
     : undefined;
 
+  // US-2351 AC7. GoTrue hands us its OTP expiry on every auth email and we used
+  // it only to write "expires in N minutes" into the copy. That number is the
+  // one the story asks an operator to go and look up, because it is the REAL
+  // ceiling on an impersonation token: adminGenerateLink mints a magiclink, and
+  // supabase/auth applies config.Mailer.OtpExp to every token type through one
+  // isOtpExpired() call, so the 30-minute cap we enforce in code is only the
+  // shorter of the two. Recording it here makes /health/ready answer it.
+  //
+  // Best-effort, always. The comment below is right that returning an error
+  // fails the user's signup or login outright, and no diagnostic is worth that.
+  await recordOtpExpiry(emailData.otp_expiry);
+
   try {
     const sent = await sendAuthActionEmail(recipient, {
       actionType: mapped.action,
@@ -168,3 +181,67 @@ authHookRoutes.post("/send-email", async (c) => {
     return c.json({ error: { message: "failed to send" } }, 500);
   }
 });
+
+/** system_settings key holding GoTrue's observed OTP expiry, in seconds. */
+export const OTP_EXPIRY_KEY = "ops.gotrue_otp_expiry_seconds";
+
+/**
+ * Last value written by this process, so a busy hour is not an upsert per email.
+ * Cleared on restart, which costs one redundant write and keeps the process
+ * stateless in every way that matters.
+ */
+let lastWrittenOtpExpiry: number | null = null;
+
+/** Exported for the test, which must be able to drive a fresh process. */
+export function resetOtpExpiryCache(): void {
+  lastWrittenOtpExpiry = null;
+}
+
+/**
+ * Record GoTrue's OTP expiry, best-effort.
+ *
+ * NEVER THROWS. It sits in the middle of the send-email hook, and a hook that
+ * answers non-200 fails the user's signup or login. A diagnostic that can break
+ * authentication is not a diagnostic, it is an outage with a nice comment.
+ */
+export async function recordOtpExpiry(
+  seconds: unknown,
+  deps: { write?: (v: number) => Promise<{ error: { message: string } | null }> } = {},
+): Promise<void> {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) return;
+  if (seconds === lastWrittenOtpExpiry) return;
+  try {
+    const write = deps.write ?? writeOtpExpiry;
+    const { error } = await write(seconds);
+    if (error) {
+      logEvent("warn", "auth_hook.otp_expiry_write_failed", { message: error.message });
+      return;
+    }
+    lastWrittenOtpExpiry = seconds;
+  } catch (err) {
+    logEvent("warn", "auth_hook.otp_expiry_write_failed", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function writeOtpExpiry(
+  seconds: number,
+): Promise<{ error: { message: string } | null }> {
+  const { error } = await supabaseAdmin.from("system_settings").upsert(
+    {
+      key: OTP_EXPIRY_KEY,
+      value: seconds,
+      value_type: "number",
+      default_value: 0,
+      description:
+        "US-2351 GoTrue's OTP expiry in seconds, as OBSERVED on the send-email " +
+        "hook payload. Not a tunable: editing it here changes nothing in " +
+        "GoTrue and makes /health/ready lie. Written only by " +
+        "POST /api/auth/hooks/send-email.",
+      category: "ops",
+    },
+    { onConflict: "key" },
+  );
+  return { error: error ? { message: error.message } : null };
+}

@@ -4,12 +4,13 @@ type: contract
 status: current
 source_of_truth: code
 code_refs:
+  - services/edge-functions/src/routes/auth-hooks.ts
   - services/edge-functions/src/routes/admin-impersonation.ts
   - services/edge-functions/src/lib/impersonation-session.ts
   - services/edge-functions/src/lib/destructive-guard.ts
   - supabase/migrations/00521_impersonation_sessions.sql
   - services/edge-functions/src/tests/impersonation-bounds_test.ts
-reviewed: 2026-08-17
+reviewed: 2026-09-05
 tags: [admin, security, impersonation, audit]
 summary: Impersonation is capped at 30 minutes, recorded server-side, revoked on stop, and refused by every destructive route while it is live.
 ---
@@ -142,12 +143,40 @@ Rows survive deletion of either party (SET NULL plus denormalized emails), for
 the same reason audit rows do: the record of an impersonation is not the
 impersonator's to erase.
 
-## Still open
+## The second clock, and how to read it
 
-**The GoTrue OTP TTL is unconfirmed in prod** (US-2351 AC7). It sets the real
-lifetime of the impersonation and resume tokens, so it is a second clock running
-alongside the 30-minute cap. The cap bounds what the *server* will honour; the
-TTL bounds how long the minted link is redeemable. Both should be known.
+**The GoTrue OTP TTL sets the real lifetime of the impersonation and resume
+tokens** (US-2351 AC7), so it is a second clock running alongside the 30-minute
+cap. The cap bounds what the *server* will honour; the TTL bounds how long the
+minted link is redeemable. The shorter of the two is what actually stops an
+abandoned session.
+
+It is ONE setting for every token type, which is worth knowing before anyone
+goes looking for an impersonation-specific one. Read from supabase/auth
+`internal/api/verify.go` at v2.174.0 (the version production runs): signup,
+invite, recovery and magiclink all resolve through a single
+`isOtpExpired(..., config.Mailer.OtpExp)` call. Impersonation mints a magiclink
+via `adminGenerateLink`, so it inherits that same number.
+
+**Read it from `/health/ready` → `checks.features.gotrueOtpExpiry`**, not from
+an operator lookup. GoTrue puts `otp_expiry` in the payload of every send-email
+hook call; that value was arriving on every password reset and being used only
+to write "expires in N minutes" into the email copy. It is now recorded to
+`system_settings` under `ops.gotrue_otp_expiry_seconds` and reported, with the
+line naming which of the two limits binds.
+
+> [!warning] `never observed` has two causes and the line cannot tell them apart
+> Either no auth email has reached the hook since this shipped, or GoTrue is not
+> calling the send-email hook at all. The neighbouring `auth_email_hook` check
+> cannot distinguish them either — it only proves `AUTH_EMAIL_HOOK_SECRET` is
+> set on our side. So a `never observed` reading is a prompt to trigger one
+> password reset, not evidence about the TTL.
+
+The recorded value is an **observation, not a tunable**. It sits in the
+[[system-settings]] registry because that is where the watchdog heartbeat sits
+and the shape is identical, but editing it in the admin settings editor changes
+nothing in GoTrue and makes the readiness line lie. The row's own `description`
+says so.
 
 ## Related
 
