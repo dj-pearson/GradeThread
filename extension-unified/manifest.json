@@ -7,7 +7,8 @@
     "storage",
     "activeTab",
     "alarms",
-    "contextMenus"
+    "contextMenus",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://gradethread.com/*",
@@ -299,5 +300,8 @@
   "options_ui": {
     "page": "options.html",
     "open_in_tab": true
+  },
+  "side_panel": {
+    "default_path": "panel.html"
   }
 }

@@ -312,6 +312,28 @@ function firefoxManifest(manifest, firefox) {
   // externally_connectable is unsupported on Firefox (AMO linter flags it); the
   // gradethread.com postMessage bridge content script replaces it (US-1882).
   delete m.externally_connectable;
+
+  // US-3062: the side panel. Chromium reads `side_panel.default_path` and the
+  // `sidePanel` permission; Firefox reads `sidebar_action` and has no such
+  // permission. Shipping either key to the wrong browser is a load warning at
+  // best and an AMO linter rejection at worst, so exactly one survives per zip.
+  //
+  // DERIVED by transform, never restated: the panel path comes out of the
+  // Chromium key rather than being written twice, so a rename cannot leave
+  // Firefox pointing at a file that no longer exists.
+  if (m.side_panel?.default_path) {
+    m.sidebar_action = {
+      default_panel: m.side_panel.default_path,
+      default_title: m.action?.default_title ?? m.name,
+      // Firefox draws the sidebar icon in the browser chrome at 16/32; reusing
+      // the action's icon set keeps one source for it.
+      default_icon: m.action?.default_icon ?? m.icons,
+    };
+  }
+  delete m.side_panel;
+  if (Array.isArray(m.permissions)) {
+    m.permissions = m.permissions.filter((p) => p !== "sidePanel");
+  }
   return m;
 }
 

@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- US-3062: the panel shares the popup's stylesheet rather than owning a
+         second one. Both surfaces show the same queue rows and the same account
+         chip, and two stylesheets is two places for the brand to drift. -->
+    <link rel="stylesheet" href="popup.css" />
+    <!-- GENERATED from popup.css's dark block (scripts/gen-extension-theme-css.mjs).
+         theme-css.test.cjs fails on drift, and the panel inherits that for free
+         by using the same file. -->
+    <link rel="stylesheet" href="popup-theme.css" />
+    <link rel="stylesheet" href="panel.css" />
+    <title>GradeThread</title>
+  </head>
+  <body class="gt-panel">
+    <header class="pop-head">
+      <img src="icons/icon48.png" alt="" class="pop-logo" />
+      <div class="pop-head-text">
+        <h1 class="pop-brand">GradeThread</h1>
+        <span class="pop-sub" id="roleSub">Work surface</span>
+      </div>
+      <button
+        type="button"
+        class="pop-headacct"
+        id="headAcct"
+        data-state="anon"
+        aria-label="Account: sign in"
+      >
+        <span class="pop-headacct-dot" id="headAcctDot" aria-hidden="true"></span>
+        <span id="headAcctLabel">Sign in</span>
+      </button>
+    </header>
+
+    <main class="gt-panel-main">
+      <!-- The item being listed in this tab. Rendered by panel/item-card.js
+           from a message round trip; the panel itself holds no token and makes
+           no fetch of its own. -->
+      <section
+        class="gt-panel-sec"
+        id="itemSection"
+        aria-labelledby="itemHeading"
+      >
+        <h2 class="gt-panel-h" id="itemHeading">This item</h2>
+        <div id="itemCard" role="status" aria-live="polite">
+          <p class="pop-muted" id="itemEmpty">
+            Open a marketplace listing to see the item here.
+          </p>
+        </div>
+      </section>
+
+      <!-- The queue, rendered from the SAME view model the popup uses
+           (queue/queue-view.js). Not a second implementation: the labels, the
+           grouping and the which-actions-a-row-offers rules are pinned by
+           test/queue-view.test.cjs and apply to both surfaces. -->
+      <section
+        class="gt-panel-sec"
+        id="queueSection"
+        aria-labelledby="queueHeading"
+      >
+        <h2 class="gt-panel-h" id="queueHeading">Your queue</h2>
+        <div class="gt-panel-actions">
+          <button type="button" class="pop-btn" id="queueRunNow">
+            Run these now
+          </button>
+          <button type="button" class="pop-btn pop-btn-ghost" id="queueRefresh">
+            Refresh
+          </button>
+        </div>
+        <div id="queueList" role="status" aria-live="polite">
+          <p class="pop-muted" id="queueEmpty">Nothing queued.</p>
+        </div>
+      </section>
+
+      <!-- Shown on a host the panel has nothing to say about. Firefox has no
+           per-tab sidebar toggle, so on Firefox this is what the sidebar shows
+           away from a marketplace tab; on Chromium the panel is simply not
+           enabled for that tab. -->
+      <section class="gt-panel-sec" id="offHostSection" hidden>
+        <p class="pop-muted">
+          Open a marketplace tab to use this panel.
+        </p>
+      </section>
+    </main>
+
+    <footer class="pop-foot">
+      <a href="options.html" target="_blank" rel="noopener">Settings</a>
+      <span class="pop-ver" id="panelVer"></span>
+    </footer>
+
+    <!-- Load order matters and is asserted by test/queue-view.test.cjs's
+         manifest check on the popup side: a classic script loaded AFTER its
+         consumer leaves the global undefined and the block silently never
+         renders. Shared modules first, then the panel's own. -->
+    <script src="theme.js"></script>
+    <script src="queue/queue-view.js"></script>
+    <script src="panel/item-card.js"></script>
+    <script src="panel/panel.js"></script>
+  </body>
+</html>
