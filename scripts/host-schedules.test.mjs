@@ -115,9 +115,25 @@ describe("US-2447 AC3: the host watchdog is in the repo and its absence is detec
     // monitor is worse than none.
     expect(PROBE).toMatch(/hostWatchdog/);
     expect(PROBE).toMatch(/bodyNote/);
-    // `up` must be computed from the status and bodyOk only — never the note.
+
+    // `up` must never be computed from a NOTE. That is the property; the exact
+    // set of hard checks is not.
+    //
+    // This asserted the literal string "up: statusOk && bodyOk" and broke the
+    // day US-2619 added a real third condition (bytesOk — a zero-byte OG image
+    // is a genuine failure, not a note). Pinning the spelling made a correct
+    // change look like a regression, which is the mode-0 trap: a scan that
+    // pins how a line is WRITTEN rather than what it MEANS. So: the expression
+    // must still start from statusOk, and must not mention note/Note at all.
     const upLine = PROBE.match(/up:\s*statusOk[^,\n]*/)?.[0] ?? "";
-    expect(upLine).toBe("up: statusOk && bodyOk");
+    expect(upLine, "up: must be derived from statusOk").toMatch(/^up:\s*statusOk/);
+    expect(
+      /\bnote\b/i.test(upLine),
+      `\`${upLine}\` folds the note into up. A note is informational by ` +
+        `construction — the watchdog reads "unconfigured" until an operator ` +
+        `installs the script, and an alert that fires every ten minutes ` +
+        `forever gets muted.`,
+    ).toBe(false);
   });
 
   it("the staleness window in the manifest matches the one the code enforces", () => {
