@@ -16,7 +16,12 @@ const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 
 function tableMinutes(md: string): Record<string, number> {
   const out: Record<string, number> = {};
-  for (const line of md.split("\n")) {
+  // Split on \r?\n, not \n. The row regex is anchored with `$`, so on a Windows
+  // checkout every line ended `... |\r` and matched nothing — `note` parsed as
+  // `{}` and all three cases failed, while CI stayed green because the runner
+  // checks out LF. A parser that only works on one platform's line endings is
+  // the same trap as the shebang+CRLF one .gitattributes exists for.
+  for (const line of md.split(/\r?\n/)) {
     const m = /^\|\s*([a-z_]+)\s*\|\s*(\d+)\s*\|\s*(.+?)\s*\|$/.exec(line);
     if (!m) continue;
     out[m[1]!] = Number(m[2]);
