@@ -55,11 +55,32 @@ assert.equal(
   `lastVerified drift: selectors.js=${bundled.lastVerified} json=${hosted.lastVerified} — update BOTH`,
 );
 
+// US-3067: the hosted file is shared with the UNIFIED extension, which carries
+// SOURCING adapters this one has no use for. A sourcing site is where a reseller
+// buys, not a resale listing with a seller claim to check, so the Condition
+// Check extension deliberately does not ship one -- and comparing the raw maps
+// would read that deliberate absence as drift.
+//
+// The exclusion is bounded at both ends so it cannot hide a real gap: the
+// hosted map is compared MINUS its sourcing adapters, and this extension is
+// asserted to define none of its own. Everything else still has to match
+// byte-for-byte, which is the property the guard exists for.
+const hostedServed = Object.fromEntries(
+  Object.entries(hosted.adapters).filter(([, a]) => a.sourcing !== true),
+);
+for (const [key, a] of Object.entries(bundled.adapters)) {
+  assert.notStrictEqual(
+    a.sourcing,
+    true,
+    `Condition Check must not ship the sourcing adapter ${key} (US-3067 AC4)`,
+  );
+}
+
 // The adapter maps must be byte-for-byte equivalent (order-independent). This is
 // the crux: a selector fixed in one file but not the other is the exact silent
 // failure this guard prevents.
 assert.deepStrictEqual(
-  hosted.adapters,
+  hostedServed,
   bundled.adapters,
   "adapters differ between selectors.js and marketplace-selectors.json — fix BOTH files identically",
 );

@@ -654,6 +654,10 @@ const SELECTOR_HEALTH_ADAPTERS = new Set([
   "mercari",
   "depop",
   "vinted",
+  // US-3067: the newest adapter, and the one whose selectors were probed on
+  // exactly two live pages. Omitting it would discard every health ping from
+  // precisely the marketplace most likely to break first.
+  "shopgoodwill",
 ]);
 const SELECTOR_HEALTH_PER_IP_PER_HOUR = 30;
 const SELECTOR_HEALTH_WINDOW_MS = 60 * 60 * 1000;

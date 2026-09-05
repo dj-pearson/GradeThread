@@ -1,5 +1,5 @@
 {
-  "_comment": "Remotely-updatable marketplace adapter config for the GradeThread Condition Check extension (US-1756). The extension bundles a copy (extension-condition/selectors.js) and fetches this hosted file to pick up selector fixes WITHOUT a Chrome Web Store / AMO resubmission. When a marketplace changes its listing DOM: fix its adapter below, bump version + lastVerified, deploy the frontend. MERGE SEMANTICS (US-1879): the extension uses this hosted config ONLY when its 'version' is >= the bundled version (dotted-numeric compare, e.g. 2026.07.10 > 2026.07.4); a stale or rolled-back hosted file NEVER downgrades the shipped adapters — the extension keeps the bundle and logs the blocked downgrade. So always bump 'version' when you edit this file, and keep it >= the bundled selectors.js version. This file and extension-condition/selectors.js must stay identical (version + lastVerified + adapters) — the config-sync guard test (extension-condition/test/config-sync.test.cjs, run in verify:web) fails the build otherwise. Served statically by Cloudflare Pages (not in _routes.json include). 'verified:false' adapters are best-effort until confirmed against the live site / production telemetry.",
+  "_comment": "Remotely-updatable marketplace adapter config for the GradeThread Condition Check extension (US-1756). The extension bundles a copy (extension-condition/selectors.js) and fetches this hosted file to pick up selector fixes WITHOUT a Chrome Web Store / AMO resubmission. When a marketplace changes its listing DOM: fix its adapter below, bump version + lastVerified, deploy the frontend. MERGE SEMANTICS (US-1879): the extension uses this hosted config ONLY when its 'version' is >= the bundled version (dotted-numeric compare, e.g. 2026.07.10 > 2026.07.4); a stale or rolled-back hosted file NEVER downgrades the shipped adapters \u2014 the extension keeps the bundle and logs the blocked downgrade. So always bump 'version' when you edit this file, and keep it >= the bundled selectors.js version. This file and extension-condition/selectors.js must stay identical (version + lastVerified + adapters) \u2014 the config-sync guard test (extension-condition/test/config-sync.test.cjs, run in verify:web) fails the build otherwise. Served statically by Cloudflare Pages (not in _routes.json include). 'verified:false' adapters are best-effort until confirmed against the live site / production telemetry.",
   "version": "2026.08.1",
   "lastVerified": "2026-08-16",
   "adapters": {
@@ -62,6 +62,10 @@
         "[data-testid='x-price-primary'] .ux-textspans",
         ".x-bin-price__content .ux-textspans"
       ],
+      "ownListing": [
+        "a[href*='ReviseItem']",
+        ".ux-layout-section__textual-display--reviseList"
+      ],
       "itemSpec": {
         "row": ".ux-labels-values",
         "label": ".ux-labels-values__labels",
@@ -117,11 +121,7 @@
           "img"
         ]
       },
-      "maxImages": 4,
-      "ownListing": [
-        "a[href*='ReviseItem']",
-        ".ux-layout-section__textual-display--reviseList"
-      ]
+      "maxImages": 4
     },
     "poshmark": {
       "label": "Poshmark",
@@ -526,6 +526,51 @@
         ]
       },
       "maxImages": 4
+    },
+    "shopgoodwill": {
+      "label": "ShopGoodwill",
+      "enabled": true,
+      "verified": true,
+      "lastVerified": "2026-09-05",
+      "sourcing": true,
+      "hosts": [
+        "shopgoodwill.com"
+      ],
+      "detect": {
+        "pathIncludes": [
+          "/item/"
+        ]
+      },
+      "assetIdPattern": "/item/(\\d+)",
+      "gallery": [
+        ".ngx-gallery-image",
+        ".ngx-gallery-thumbnail",
+        ".image-gallery img.sr-only"
+      ],
+      "imageAttrs": [
+        "style",
+        "src"
+      ],
+      "title": [
+        "h1"
+      ],
+      "priceRowLabel": "Current Price",
+      "price": [
+        "div.row.mb-2 div.col-4.text-right",
+        "div.row div.col-4.text-right h3"
+      ],
+      "detailTable": "table.table-borderless",
+      "detailLabels": {
+        "itemId": "Item ID",
+        "bidCount": "Number of Bids",
+        "bidIncrement": "Bid Increment",
+        "shipping": "Shipping Price",
+        "handling": "Handling Price",
+        "endsOn": "Ends On",
+        "seller": "Seller"
+      },
+      "endsOnFormat": "MM/DD/YYYY hh:mm:ss A [PT]",
+      "maxImages": 6
     }
   }
 }

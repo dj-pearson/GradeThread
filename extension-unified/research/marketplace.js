@@ -270,6 +270,14 @@
     // US-1880: pick the max-width srcset candidate (order is not guaranteed), not
     // whatever happened to be last.
     if (attr === "srcset") return IMG.srcsetLargest(raw);
+    // US-3067: ShopGoodwill's ngx-gallery paints each photo as an inline
+    // background-image, so the whole style string comes back and there is no
+    // `src` anywhere. Without this the gallery MATCHES and yields zero urls,
+    // which is US-1880's second failure mode and reads like a dead selector.
+    if (attr === "style") {
+      const m = raw.match(/url\(\s*["']?([^"')]+)/i);
+      return m ? m[1] : null;
+    }
     return raw;
   }
 
@@ -1530,6 +1538,19 @@
 
     adapter = IMG.resolveAdapter(CFG.adapters, location.host);
     if (!adapter || adapter.enabled === false) return; // unknown/disabled site — no-op
+
+    // US-3067 AC4: a SOURCING site is not a resale listing.
+    //
+    // The condition read answers "is this seller's description honest", and on
+    // ShopGoodwill there is no seller making a claim to check -- the lot is a
+    // charity's photographs of a donation. Running it there would put a
+    // confident-looking grade on a page where the question is "should I bid",
+    // and would offer the anonymous read on a surface no buyer is protected by.
+    //
+    // So the sourcing adapters render NOTHING here. Flip mode is their whole
+    // reason for existing and it is wired separately; until it is, silence is
+    // the correct output and not a gap.
+    if (adapter.sourcing === true) return;
 
     const onDetail = IMG.isDetailPage(adapter, location.pathname);
     const onSearch = IMG.isSearchPage(adapter, location.pathname);

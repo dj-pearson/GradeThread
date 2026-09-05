@@ -204,6 +204,18 @@ assert.strictEqual(
 // Every adapter's search block is complete enough to act on: without a card
 // selector there is nothing to badge, and without a link the badge's CTA is dead.
 for (const [key, a] of Object.entries(cfg.adapters)) {
+  // US-3067: a SOURCING adapter must have NO search block, and that is the
+  // stronger half of this loop rather than an exemption from it. The scan is
+  // the anonymous condition read applied to a results grid, and on a sourcing
+  // site there is no seller claim to check -- a search block here would put
+  // grades on a charity's donation photos. Absence is enforced, not tolerated.
+  if (a.sourcing === true) {
+    assert.ok(
+      !a.search,
+      `sourcing adapter ${key} must NOT carry a search block (US-3067 AC4)`,
+    );
+    continue;
+  }
   assert.ok(a.search, `adapter ${key} is missing its search block`);
   assert.ok(
     Array.isArray(a.search.card) && a.search.card.length,

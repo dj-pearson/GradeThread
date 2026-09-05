@@ -293,6 +293,98 @@ const GT_CC_CONFIG = {
         image: ["img"]
       },
       maxImages: 4
+    },
+
+    // ── ShopGoodwill (US-3067): a SOURCING site, not a resale marketplace ────
+    //
+    // Every other adapter above is a place a shopper BUYS from a reseller. This
+    // one is where the reseller buys, and the question flip mode answers on it
+    // is "should I bid on this", not "is this listing honest". Read-only in the
+    // strongest sense: it never bids, never refreshes the page and never
+    // navigates to a lot on its own (US-1876).
+    //
+    // ⚠ GOODWILLFINDS IS NOT HERE, AND CANNOT BE. US-3067 names
+    // goodwillfinds.com as the second host. It shut down on 2025-03-28 and the
+    // domain no longer resolves - measured 2026-09-05, SERVFAIL on Google
+    // public DNS for both the apex and www, with shopgoodwill.com resolving
+    // from the same command as the control. Chrome renders ERR_NAME_NOT_RESOLVED.
+    // See the story note; do not add an adapter for it.
+    //
+    // ── WHAT WAS PROBED, AND HOW ────────────────────────────────────────────
+    //
+    // 2026-09-05, two live item pages (/item/276277887 and /item/276278053),
+    // signed out. Confirmed on both: the /item/<digits> URL shape, a single
+    // `h1` carrying the title, `.image-gallery` wrapping an `ngx-gallery`, the
+    // `Current Price:` row, and a labelled details table whose rows are exactly
+    // Item ID / Number of Bids / Bid Increment / Shipping Price / Handling
+    // Price / Ends On / Seller.
+    //
+    // NOT probed: flip mode itself has never run on this site. That is AC8 and
+    // it stays open.
+    //
+    // ── THE GALLERY IS CSS, NOT <img> ───────────────────────────────────────
+    //
+    // ngx-gallery paints each photo as an inline `background-image`, so there
+    // is no `src` to read and `imageAttrs: ["src"]` returns nothing at all --
+    // matching elements, zero usable URLs, which is US-1880's second failure
+    // mode. `style` is handled in marketplace.js the way `srcset` already is.
+    //
+    // The carousel only mounts the three tiles around the current one, so
+    // `.ngx-gallery-image` is the FULL-SIZE set but incomplete on a 9-photo lot;
+    // `.ngx-gallery-thumbnail` is the complete set at thumbnail resolution. Both
+    // are listed, full-size first, and no urlUpgrade maps between them: the
+    // thumbnail is `..._0716t1.jpg` against `..._07161.png` and the mapping was
+    // NOT verified across enough lots to encode. Guessing it would send the
+    // grader a 404 that looks like a photo.
+    shopgoodwill: {
+      label: "ShopGoodwill",
+      enabled: true,
+      verified: true,
+      lastVerified: "2026-09-05",
+      sourcing: true,
+      hosts: ["shopgoodwill.com"],
+      detect: { pathIncludes: ["/item/"] },
+      // Digits only. The search grid links the same id twice per card, and the
+      // id is the only thing this adapter reads out of the URL.
+      assetIdPattern: "/item/(\\d+)",
+      gallery: [
+        ".ngx-gallery-image",
+        ".ngx-gallery-thumbnail",
+        ".image-gallery img.sr-only"
+      ],
+      imageAttrs: ["style", "src"],
+      title: ["h1"],
+      // `Current Price:` is the live figure on an auction and the asking price
+      // on a Buy It Now, which is why it is read rather than `Minimum Bid:`.
+      // Both sit in a two-column `div.row`, label left, value right, with no
+      // stable class on the value -- so the row is found by its LABEL text in
+      // marketplace.js rather than by a selector that Angular will rewrite.
+      priceRowLabel: "Current Price",
+      price: ["div.row.mb-2 div.col-4.text-right", "div.row div.col-4.text-right h3"],
+      // The labelled table. Read by label text for the same reason.
+      detailTable: "table.table-borderless",
+      detailLabels: {
+        itemId: "Item ID",
+        bidCount: "Number of Bids",
+        bidIncrement: "Bid Increment",
+        shipping: "Shipping Price",
+        handling: "Handling Price",
+        endsOn: "Ends On",
+        seller: "Seller"
+      },
+      // ⚠ THERE IS NO COUNTDOWN ELEMENT ON THE ITEM PAGE. US-3067 AC6 says to
+      // read the end time "from the page's own countdown element". `Ends On:`
+      // is an ABSOLUTE datetime with a trailing timezone, e.g.
+      // "09/05/2026 12:03:00 PM PT", so the ten-minute check has to parse that
+      // and do its own arithmetic. A countdown would have been self-updating;
+      // this is a fixed string read once.
+      endsOnFormat: "MM/DD/YYYY hh:mm:ss A [PT]",
+      // ⚠ AND THE SHIPPING ESTIMATE IS NOT ON THE PAGE. `Shipping Price:` reads
+      // "Estimate Shipping" -- a button that wants a ZIP. Handling IS stated
+      // ($3.99 on both probed lots). AC2 assumes both a buyer premium and a
+      // shipping estimate are readable; neither is. ShopGoodwill charges
+      // shipping + handling and no percentage premium at all.
+      maxImages: 6
     }
   }
 };

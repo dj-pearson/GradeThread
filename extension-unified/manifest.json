@@ -147,7 +147,8 @@
         "https://*.vinted.hr/*",
         "https://*.vinted.gr/*",
         "https://*.vinted.dk/*",
-        "https://*.vinted.fi/*"
+        "https://*.vinted.fi/*",
+        "https://*.shopgoodwill.com/*"
       ],
       "js": [
         "attribution.js",
