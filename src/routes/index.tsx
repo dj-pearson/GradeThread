@@ -102,6 +102,7 @@ const PartnersPage = lazy(() => import("@/pages/marketing/partners").then(m => (
 const FlipdeskLandingPage = lazy(() => import("@/pages/marketing/flipdesk-landing").then(m => ({ default: m.FlipdeskLandingPage })));
 const ResellingPillarPage = lazy(() => import("@/pages/marketing/reselling").then(m => ({ default: m.ResellingPillarPage })));
 const ResellingGuidePage = lazy(() => import("@/pages/marketing/reselling").then(m => ({ default: m.ResellingGuidePage })));
+const BuyingGuidePage = lazy(() => import("@/pages/marketing/buying-guide").then(m => ({ default: m.BuyingGuidePage })));
 const CompareHubPage = lazy(() => import("@/pages/marketing/compare").then(m => ({ default: m.CompareHubPage })));
 const ComparisonPage = lazy(() => import("@/pages/marketing/compare").then(m => ({ default: m.ComparisonPage })));
 const OpportunistGuidePage = lazy(() => import("@/pages/marketing/opportunist-guide").then(m => ({ default: m.OpportunistGuidePage })));
@@ -399,6 +400,10 @@ export const router = createBrowserRouter([
         element: <SuspenseWrapper><SwitchFromPageView slug={slug} /></SuspenseWrapper>,
       })),
       { path: "/reselling/:slug", element: <SuspenseWrapper><ResellingGuidePage /></SuspenseWrapper> },
+      // US-3093: the buyer-trust cluster. Its own directory, and deliberately no
+      // /buying index route — there is one page, and a hub page with a single
+      // link on it is a crawl target with nothing to say.
+      { path: "/buying/:slug", element: <SuspenseWrapper><BuyingGuidePage /></SuspenseWrapper> },
       // US-1667: marketplace comparison hub + pages.
       { path: "/compare", element: <SuspenseWrapper><CompareHubPage /></SuspenseWrapper> },
       { path: "/compare/:slug", element: <SuspenseWrapper><ComparisonPage /></SuspenseWrapper> },

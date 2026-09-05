@@ -225,6 +225,11 @@ function isCareRoute(path: string): boolean {
   return path === "/care" || path.startsWith("/care/");
 }
 
+/** US-3093: the buyer-trust cluster, /buying/*. */
+function isBuyingRoute(path: string): boolean {
+  return path === "/buying" || path.startsWith("/buying/");
+}
+
 function manifestRouteToUrl(base: string, r: ManifestRoute, generatedAt: string): SitemapUrl {
   return {
     loc: r.path === "/" ? `${base}/` : `${base}${r.path}`,
@@ -285,7 +290,12 @@ async function indexableConditionalPaths(env: PagesEnv): Promise<Set<string>> {
 /** US-1679: partition the manifest routes into marketing vs grading pSEO. */
 async function partitionedStaticUrls(
   env: PagesEnv,
-): Promise<{ marketing: SitemapUrl[]; grading: SitemapUrl[]; care: SitemapUrl[] }> {
+): Promise<{
+  marketing: SitemapUrl[];
+  grading: SitemapUrl[];
+  care: SitemapUrl[];
+  buying: SitemapUrl[];
+}> {
   const base = siteUrl(env);
   const manifest = await fetchManifest(env);
   if (!manifest) {
@@ -294,12 +304,14 @@ async function partitionedStaticUrls(
       marketing: [{ loc: `${base}/`, lastmod: today(), changefreq: "weekly", priority: 1.0 }],
       grading: [],
       care: [],
+      buying: [],
     };
   }
   const indexable = await indexableConditionalPaths(env);
   const marketing: SitemapUrl[] = [];
   const grading: SitemapUrl[] = [];
   const care: SitemapUrl[] = [];
+  const buying: SitemapUrl[] = [];
   for (const r of manifest.routes) {
     if (r.path in CONDITIONALLY_INDEXED && !indexable.has(r.path)) continue;
     // US-9008: a route whose canonical points elsewhere stays live and linked,
@@ -307,10 +319,14 @@ async function partitionedStaticUrls(
     if (r.canonicalPath && r.canonicalPath !== r.path) continue;
     const url = manifestRouteToUrl(base, r, manifest.generatedAt);
     if (isCareRoute(r.path)) care.push(url);
+    // US-3093: checked before grading for the same reason care is — a /buying
+    // page talks about condition and would otherwise be filed as grading, which
+    // would hide it inside the segment it is supposed to be measured against.
+    else if (isBuyingRoute(r.path)) buying.push(url);
     else if (isGradingRoute(r.path)) grading.push(url);
     else marketing.push(url);
   }
-  return { marketing, grading, care };
+  return { marketing, grading, care, buying };
 }
 
 /** US-1679: marketing (non-grading) static routes → sitemap-marketing.xml. */
@@ -337,11 +353,47 @@ export async function careUrls(env: PagesEnv): Promise<SitemapUrl[]> {
  * entity follows the content. This function is what makes the ceiling
  * checkable instead of aspirational.
  */
+/** US-3093: the buyer-trust cluster (/buying/*) -> sitemap-buying.xml, on its own. */
+export async function buyingUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  return (await partitionedStaticUrls(env)).buying;
+}
+
+/**
+ * US-3093 AC2: buying URLs as a share of all static URLs.
+ *
+ * THE CEILING IS 10%, a quarter of care's 40%, and the difference is the point.
+ * Care is off-topic but harmless: nobody confuses a laundry guide for a product
+ * page. /buying is written for the WRONG PERSON — a buyer, on a site whose
+ * customer is a seller — so its risk is not that the domain reads as being
+ * about laundry, it is that the domain reads as being FOR BUYERS. That misreads
+ * the entity in the direction the business is sold on, so the tolerance is much
+ * smaller.
+ *
+ * Four pages is the planned ceiling anyway (US-3093 builds one and gates the
+ * other three on a SERP check), so 10% is generous against the plan and tight
+ * against the failure. This function is what makes it checkable instead of
+ * aspirational.
+ */
+export async function buyingRatio(
+  env: PagesEnv,
+): Promise<{ buying: number; total: number; pct: number }> {
+  const { marketing, grading, care, buying } = await partitionedStaticUrls(env);
+  const total = marketing.length + grading.length + care.length + buying.length;
+  return {
+    buying: buying.length,
+    total,
+    pct: total === 0 ? 0 : Math.round((buying.length / total) * 1000) / 10,
+  };
+}
+
 export async function careRatio(
   env: PagesEnv,
 ): Promise<{ care: number; total: number; pct: number }> {
-  const { marketing, grading, care } = await partitionedStaticUrls(env);
-  const total = marketing.length + grading.length + care.length;
+  const { marketing, grading, care, buying } = await partitionedStaticUrls(env);
+  // US-3093: buying counts in the DENOMINATOR. Leaving it out would shrink the
+  // total and quietly inflate care's share, which is a ceiling reading high
+  // rather than low — the safe direction, but still a wrong number.
+  const total = marketing.length + grading.length + care.length + buying.length;
   return {
     care: care.length,
     total,

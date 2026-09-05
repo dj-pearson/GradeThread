@@ -62,6 +62,8 @@ import {
   resellingPillarBreadcrumbItems,
   resellingGuideJsonLd,
   resellingGuideBreadcrumbItems,
+  buyingGuideJsonLd,
+  buyingGuideBreadcrumbItems,
   compareHubJsonLd,
   compareHubBreadcrumbItems,
   comparisonJsonLd,
@@ -126,6 +128,7 @@ import {
   getResellingGuideByPath,
   isResellingPillarPath,
 } from "@/lib/seo/reselling-guides";
+import { getBuyingGuideByPath } from "@/lib/seo/buying-guides";
 import {
   getComparisonByPath,
   isCompareHubPath,
@@ -282,6 +285,15 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(resellingGuideBreadcrumbItems(resellingGuide)),
       ...resellingGuideJsonLd(resellingGuide),
+    ];
+  }
+  // Buyer-trust cluster (US-3093): Organization + breadcrumb + Article + FAQ.
+  const buyingGuide = getBuyingGuideByPath(path);
+  if (buyingGuide) {
+    return [
+      organizationLd(),
+      breadcrumbLd(buyingGuideBreadcrumbItems(buyingGuide)),
+      ...buyingGuideJsonLd(buyingGuide),
     ];
   }
   // Returns spine (US-1673): Organization + 3-level breadcrumb + Article + FAQ.

@@ -699,6 +699,27 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
     ],
   },
   {
+    // US-3093. `is vinted legit` is competition index 3, growing, and bids
+    // $21.67. The cluster is trust-verify, not selling-guide: this reader is a
+    // BUYER deciding whether to pay, and filing it with the seller how-tos
+    // would put it in the same GSC line as content it must be measured against.
+    path: "/buying/is-vinted-legit",
+    cluster: "trust-verify",
+    intent: "informational",
+    primary: "is vinted legit",
+    secondary: [
+      "vinted scams",
+      "vinted buyer protection",
+      "is vinted safe",
+    ],
+    questions: [
+      "is vinted safe for buyers",
+      "what does the vinted buyer protection fee cover",
+      "how long do i have to report a problem on vinted",
+      "can you get scammed on vinted",
+    ],
+  },
+  {
     // US-3092. `vinted scams` is 500/mo at competition index 0 with a $10.14
     // top-of-page bid, which is the tell that it is commercial traffic nobody
     // is serving. ONE page, not a spine: the dispute cluster is dead as a

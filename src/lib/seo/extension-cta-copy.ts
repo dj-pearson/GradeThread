@@ -10,6 +10,7 @@ import { COMPARISONS, comparePath } from "./comparison-guides";
 import { GARMENT_GUIDES, guidePath } from "./garment-guides";
 import { FLIPDESK_LANDINGS } from "./flipdesk-landing";
 import { CROSSLIST_PAIRS, crosslistPairPath, destinationMechanism } from "./crosslist-pairs";
+import { BUYING_GUIDES, buyingGuidePath } from "./buying-guides";
 
 export interface ExtensionCtaCopy {
   /** One line: what it does, where. */
@@ -92,6 +93,18 @@ export function extensionCtaFor(path: string): ExtensionCtaCopy | null {
     const garment = guide.garment.toLowerCase();
     return {
       does: `Shopping for a ${garment}? The GradeThread extension reads the condition from the listing's photos, on the marketplace you are already on.`,
+      role: "buyer",
+    };
+  }
+
+  // US-3093: the buyer-trust pages. This is the ONE product surface a /buying
+  // page may point at, and the copy names the marketplace the reader arrived
+  // asking about — they are one click from paying a stranger there, not
+  // shopping for software.
+  const buying = BUYING_GUIDES.find((g) => buyingGuidePath(g.slug) === clean);
+  if (buying) {
+    return {
+      does: `On a ${buying.marketplace} listing, the GradeThread extension reads the condition from the seller's own photos before you pay, so "very good" has to look it. No account needed.`,
       role: "buyer",
     };
   }

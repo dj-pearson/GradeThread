@@ -22,6 +22,7 @@ import { glossaryRoutes } from "./glossary";
 import { resellerGlossaryRoutes } from "./reseller-glossary";
 import { flipdeskLandingRoutes } from "./flipdesk-landing";
 import { resellingRoutes } from "./reselling-guides";
+import { buyingRoutes } from "./buying-guides";
 import { flawLibraryRoutes } from "./flaw-library";
 import { careMatrixRoutes } from "./care-matrix";
 import { garmentGuideRoutes } from "./garment-guides";
@@ -183,6 +184,8 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/reselling/how-to-sell-on-vinted": "2026-09-05",
   // US-3092, same read and the same `vinted` freshness group.
   "/reselling/vinted-scams-and-disputes": "2026-09-05",
+  // US-3093, same read of Vinted's own pages as the two seller guides above.
+  "/buying/is-vinted-legit": "2026-09-05",
   "/reselling/vendoo-alternative": "2026-07-20",
   "/reselling/list-perfectly-alternative": "2026-07-20",
   "/reselling/crosslist-alternative": "2026-07-20",
@@ -709,6 +712,10 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   ...flipdeskLandingRoutes(),
   // Reselling pillar + TOFU guides (US-1688): /reselling + /reselling/<slug>.
   ...resellingRoutes(),
+  // US-3093: the buyer-trust cluster. Registered here like any other public
+  // route because it must be crawlable and prerendered; it is CONTAINED by the
+  // interlink rules and its own sitemap segment, not by being hidden.
+  ...buyingRoutes(),
   // Flaw library pSEO (US-1683), moved to /care by US-9012: hub + /care/<flaw>.
   ...flawLibraryRoutes(),
   // US-9014: the flaw-crossed-with-fabric matrix, /care/<flaw>/<fabric>. 18

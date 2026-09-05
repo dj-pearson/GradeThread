@@ -85,8 +85,11 @@ import { FlipdeskLandingPage } from "@/pages/marketing/flipdesk-landing";
 import {
   RESELLING_PILLAR_PATH,
   RESELLING_GUIDES,
+
   resellingGuidePath,
 } from "@/lib/seo/reselling-guides";
+import { BUYING_GUIDES, buyingGuidePath } from "@/lib/seo/buying-guides";
+import { BuyingGuidePage } from "@/pages/marketing/buying-guide";
 import {
   ResellingPillarPage,
   ResellingGuidePage,
@@ -297,6 +300,13 @@ const PAGES: Record<string, React.ReactNode> = {
       <ResellingGuidePage key={g.slug} slug={g.slug} />,
     ]),
   ),
+  // US-3093: the buyer-trust cluster.
+  ...Object.fromEntries(
+    BUYING_GUIDES.map((g) => [
+      buyingGuidePath(g.slug),
+      <BuyingGuidePage key={g.slug} slug={g.slug} />,
+    ]),
+  ),
   // US-9014: the flaw-crossed-with-fabric matrix. Each page is resolved from
   // its own path, like the flaw pages, so the prerender renders the right one.
   ...Object.fromEntries(
@@ -490,6 +500,9 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
   [RESELLING_PILLAR_PATH]: `${M}marketing/reselling`,
   ...Object.fromEntries(
     RESELLING_GUIDES.map((g) => [resellingGuidePath(g.slug), `${M}marketing/reselling`]),
+  ),
+  ...Object.fromEntries(
+    BUYING_GUIDES.map((g) => [buyingGuidePath(g.slug), `${M}marketing/buying-guide`]),
   ),
   [FLAW_LIBRARY_HUB_PATH]: `${M}marketing/flaw-library`,
   ...Object.fromEntries(

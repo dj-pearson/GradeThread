@@ -28,7 +28,7 @@
  * US-9015 added "care". It is not a peer of the other three: it is the only hub
  * authority may leave but not enter. See CARE_HUB_PATH below.
  */
-export type Hub = "grading" | "reselling" | "flipdesk" | "care";
+export type Hub = "grading" | "reselling" | "flipdesk" | "care" | "buying";
 
 /**
  * The care cluster (US-9012), served under /care.
@@ -53,6 +53,50 @@ export type Hub = "grading" | "reselling" | "flipdesk" | "care";
  */
 export const CARE_HUB_PATH = "/care";
 
+/**
+ * The buyer-trust cluster (US-3093), served under /buying.
+ *
+ * SAME ONE-WAY RULE AS CARE, for a different reason. Care is contained because
+ * it is enormous and off-topic; this is contained because it is written for the
+ * WRONG PERSON. `is vinted legit` and its siblings are 155,000/mo of BUYERS on a
+ * site whose customer is a seller, and a buyer who lands on /pricing has been
+ * shown a $29/month reseller tool in answer to "am I about to be scammed".
+ *
+ * So nothing links into /buying, and /buying links out to exactly one product
+ * surface: the extension install, which is the thing that actually answers the
+ * question they asked. buying-containment.test.ts asserts both halves, including
+ * the list of seller pages these pages may not reach.
+ *
+ * ⚠ AND THE OUT-DIRECTION IS TIGHTER THAN CARE'S. A care page may link anywhere
+ * it likes; a /buying page may not, because a seller landing reached from a
+ * buyer page is not just wasted equity, it is the wrong answer to the query.
+ */
+export const BUYING_HUB_PATH = "/buying";
+
+/**
+ * Product surfaces a /buying page must never link to.
+ *
+ * Not a hub check — /pricing and /flipdesk are a non-hub path and another hub
+ * respectively, and isCrossHubLinkAllowed lets a non-hub target through. This
+ * is the list that makes AC6 checkable.
+ */
+export const BUYING_FORBIDDEN_TARGETS: readonly string[] = [
+  "/pricing",
+  "/flipdesk",
+  "/for-resellers",
+  "/reselling",
+  "/sell-used-clothes-ebay",
+  "/for-brands",
+];
+
+/** True when a /buying page may link at `toPath`. */
+export function isBuyingLinkAllowed(toPath: string): boolean {
+  const to = toPath.replace(/\/+$/, "") || "/";
+  return !BUYING_FORBIDDEN_TARGETS.some(
+    (bad) => to === bad || to.startsWith(`${bad}/`),
+  );
+}
+
 /** The canonical scale page — the PageRank sink every certificate/glossary page ladders up to. */
 export const CANONICAL_SCALE_PATH = "/grading/scale";
 
@@ -74,8 +118,10 @@ export const UPLINK_MAX_WORD_OFFSET = 100;
  * none, because no cross-hub link may reach care at all. Typing it as
  * Exclude<Hub, "care"> makes adding one a compile error rather than a quiet
  * hole in the containment.
+ *
+ * US-3093 excludes buying the same way and for the same reason.
  */
-export const HUB_PILLARS: Record<Exclude<Hub, "care">, string> = {
+export const HUB_PILLARS: Record<Exclude<Hub, "care" | "buying">, string> = {
   grading: CANONICAL_SCALE_PATH,
   reselling: "/reselling",
   flipdesk: "/flipdesk",
@@ -94,6 +140,10 @@ export function hubForPath(path: string): Hub | null {
   // grading hub on a keyword, which is exactly the classification that lets the
   // two become one graph.
   if (p === CARE_HUB_PATH || p.startsWith(`${CARE_HUB_PATH}/`)) return "care";
+  // US-3093: and buying, for the same reason. A /buying page talks about
+  // marketplaces and condition; without this it would fall through into the
+  // reselling hub on a keyword and stop being contained at all.
+  if (p === BUYING_HUB_PATH || p.startsWith(`${BUYING_HUB_PATH}/`)) return "buying";
   // The spine lives under /reselling but is the crossover — classify by its own hub.
   if (p === "/flipdesk" || p.startsWith("/flipdesk/")) return "flipdesk";
   if (
@@ -270,9 +320,19 @@ export function isCrossHubLinkAllowed(fromPath: string, toPath: string): boolean
   // otherwise-unconstrained non-hub pages (home, legal). Checked before the
   // null-hub escape below, or the homepage would be free to link at it.
   if (toHub === "care") return false;
+  // US-3093: nothing may link INTO buying either, and for a sharper reason than
+  // care's. A seller page pointing at "is vinted legit" tells Google this domain
+  // answers buyer-safety questions, which is a weaker match for the queries the
+  // business is actually sold on.
+  if (toHub === "buying") return false;
   // A care page linking OUT is deliberately unconstrained: the whole design is
   // that equity flows one way, down into the commercial pages.
   if (fromHub === "care") return true;
+  // A buying page linking out is constrained instead — see isBuyingLinkAllowed,
+  // which the containment test applies to every link these pages render. The
+  // hub check alone would pass a link to /pricing, because /pricing is a non-hub
+  // path and the rule below lets those through.
+  if (fromHub === "buying") return isBuyingLinkAllowed(toPath);
   if (fromHub === null || toHub === null) return true;
   const to = toPath.replace(/\/+$/, "") || "/";
   if (to === SPINE_PATH) return true;

@@ -7,12 +7,21 @@ code_refs:
   - services/edge-functions/src/lib/listing-ingest.ts
   - services/edge-functions/src/lib/data-retention.ts
   - services/edge-functions/src/lib/resale-condition.ts
-reviewed: 2026-08-22
+reviewed: 2026-09-05
 tags: [privacy, buyer, extension, aggregation, contract]
 summary: The fields the market condition index may extract from an ingested listing read, the k-anonymity floor, the retention rule, and the per-marketplace go/no-go.
 ---
 
 # Market condition index — what may be aggregated, and under what contract
+
+> **Re-reviewed 2026-09-05, no change.** Drift flagged `listing-ingest.ts`
+> for US-3067. The per-marketplace go/no-go this note governs is
+> `INGEST_MARKETPLACE_HOSTS`, and that map is untouched. The new
+> `SOURCING_MARKETPLACE_HOSTS` feeds one metric label on the scout and
+> nothing else: no listing is ingested from a sourcing host, so no
+> ShopGoodwill lot can enter the aggregate. The disjointness is asserted in
+> `sourcing-scout_test.ts`, which is the half a reader of this note would
+> want to check.
 
 US-2709, the decision spike for [[buyer-platform]]'s epic US-2708. Written
 **before** anything is built, because the source rows sit under an anti-crawl

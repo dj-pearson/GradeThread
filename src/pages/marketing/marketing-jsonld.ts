@@ -63,6 +63,7 @@ import {
   resellingGuidePath,
   type ResellingGuide,
 } from "@/lib/seo/reselling-guides";
+import { buyingGuidePath, type BuyingGuide } from "@/lib/seo/buying-guides";
 import {
   COMPARE_HUB_PATH,
   COMPARISONS,
@@ -754,6 +755,36 @@ export function resellingGuideBreadcrumbItems(
     { name: "GradeThread", url: `${SITE_URL}/` },
     { name: "Reselling", url: `${SITE_URL}${RESELLING_PILLAR_PATH}` },
     { name: guide.h1, url: `${SITE_URL}${resellingGuidePath(guide.slug)}` },
+  ];
+}
+
+// ── US-3093: the buyer-trust cluster ────────────────────────────────────────
+//
+// Article + FAQPage, the same shape the reselling guides use. There is no hub
+// index page yet, so the breadcrumb goes home -> the page rather than through a
+// /buying landing that does not exist.
+const BUYING_PUBLISHED = "2026-09-05";
+const BUYING_MODIFIED = "2026-09-05";
+
+export function buyingGuideBreadcrumbItems(
+  guide: BuyingGuide,
+): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: guide.h1, url: `${SITE_URL}${buyingGuidePath(guide.slug)}` },
+  ];
+}
+
+export function buyingGuideJsonLd(guide: BuyingGuide): JsonLd[] {
+  return [
+    articleLd({
+      headline: guide.h1,
+      description: guide.description,
+      url: absoluteUrl(buyingGuidePath(guide.slug)),
+      datePublished: BUYING_PUBLISHED,
+      dateModified: BUYING_MODIFIED,
+    }),
+    faqPageLd(guide.faqs),
   ];
 }
 

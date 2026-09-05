@@ -163,6 +163,10 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
           // containment decision says 32 laundry-repair pages are not the same
           // kind of thing as the pricing page.
           { name: "sitemap-care.xml", lastmod: newestLastmod(statics) },
+          // US-3093: and the buyer-trust cluster after it, for the sharper
+          // version of the same reason. Care is a different subject; /buying is
+          // a different READER, on a site whose customer is a seller.
+          { name: "sitemap-buying.xml", lastmod: newestLastmod(statics) },
           { name: "sitemap-blog.xml", lastmod: newestLastmod(blog) },
           { name: "sitemap-certs.xml", lastmod: newestLastmod(certs) },
           { name: "sitemap-passports.xml", lastmod: newestLastmod(passports) },

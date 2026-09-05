@@ -34,6 +34,17 @@ watch **Impressions** (the demand-created gauge) and **indexation rate**:
 | **Care, fabric matrix only** | `^/care/[^/]+/[^/]+$` | 1 |
 | **Vinted seller guide** | `^/reselling/how-to-sell-on-vinted$` | **5** |
 | **Vinted dispute page** | `^/reselling/vinted-scams-and-disputes$` | **5** |
+| **Buyer trust (/buying)** | `^/buying/` | **not judged on impressions** |
+
+US-3093 added the /buying row, and it is the second segment after the FlipDesk
+landings that is NOT judged on impressions. These pages will get impressions
+easily - `is vinted legit` and its three siblings are about 155,000/mo - and
+that is exactly why the number is worthless here. The reader is a BUYER on a
+site whose customer is a seller, so the only question that matters is whether
+they install the extension. Read `extension_install_cta_click` on /buying pages
+from the US-9210 PostHog insight. THE KILL CONDITION IS EXPLICIT: zero installs
+from more than 500 impressions at the 2026-11-15 read means stop adding buyer
+pages, whatever the impressions say.
 
 US-3092 added a second Vinted row the same day, also single-page and also
 anchored. The two are read SEPARATELY on purpose: `how to sell on vinted` is a

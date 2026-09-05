@@ -122,6 +122,11 @@ describe("public-routes registry guard (US-291)", () => {
     // indexable paths served by the single dynamic /compare/:slug route. The
     // hub (/compare) is a literal router path and is checked normally below.
     const hasCompareDynamicRoute = allRouterPaths.includes("/compare/:slug");
+    // US-3093: the buyer-trust pages (/buying/<slug>) are concrete indexable
+    // paths served by the single dynamic /buying/:slug route. There is
+    // deliberately no /buying index page — one page with one link on it is a
+    // crawl target with nothing to say — so nothing checks for the hub path.
+    const hasBuyingDynamicRoute = allRouterPaths.includes("/buying/:slug");
     // US-9012: the flaw library moved from /grading/flaws to /care, where its 32
     // concrete indexable paths are served by the single dynamic /care/:flaw
     // route. Under /grading/ they were covered by the glossary clause above, so
@@ -144,6 +149,10 @@ describe("public-routes registry guard (US-291)", () => {
       }
       if (r.path.startsWith("/compare/")) {
         expect(hasCompareDynamicRoute).toBe(true);
+        continue;
+      }
+      if (r.path.startsWith("/buying/")) {
+        expect(hasBuyingDynamicRoute).toBe(true);
         continue;
       }
       expect(allRouterPaths).toContain(r.path);

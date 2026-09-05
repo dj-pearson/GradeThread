@@ -25,12 +25,20 @@ code_refs:
   - supabase/migrations/00535_ingested_listings.sql
   - supabase/migrations/00536_buyer_video_grading.sql
   - supabase/migrations/00537_buyer_growth_metrics.sql
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [buyer, plans, entitlements, contract]
 summary: A buyer's effective tier is the higher of their buyer subscription and the tier their seller plan already includes; the plan matrix is written twice and only a cross-boundary parity test keeps the halves honest.
 ---
 
 # The buyer platform
+
+> **Re-reviewed 2026-09-05, no change.** Drift flagged `listing-ingest.ts`
+> for US-3067, which ADDED a map rather than touching one:
+> `SOURCING_MARKETPLACE_HOSTS` holds shopgoodwill.com and is kept disjoint
+> from `INGEST_MARKETPLACE_HOSTS`, which is the map this note's buyer
+> surfaces read. Nothing a buyer account can reach gained a host, and a test
+> asserts the two never overlap - a sourcing lot must never surface in a
+> buyer's alert feed.
 
 > **Re-reviewed 2026-09-02.** Drift flagged `src/lib/constants.ts` for
 > `CREATOR_AFFILIATE` (US-9212), the creator commission terms. That is a
