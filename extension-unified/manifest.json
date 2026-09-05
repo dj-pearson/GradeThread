@@ -72,6 +72,7 @@
       "closet-import/selectors.js",
       "sync/poll-plan.js",
       "queue/queue-view.js",
+      "panel/panel-host.js",
       "background.js"
     ]
   },

@@ -58,6 +58,11 @@ if (typeof importScripts === "function") {
     // the count on the Selling tab and the rows under it are shaped by one
     // function rather than two that drift.
     "queue/queue-view.js",
+    // US-3062: which tabs the side panel is offered on. Needed HERE because
+    // Chromium enables the panel per tab from this file, and the panel page
+    // asks the same question for the Firefox sidebar, which has no per-tab
+    // option. One rule, two mechanisms.
+    "panel/panel-host.js",
   );
 }
 const ext = globalThis.browser || globalThis.chrome;
@@ -324,6 +329,58 @@ async function getPendingRevises() {
 // `needsAttention` is kept SEPARATE all the way to the renderer, because the
 // API separates it for a reason: expired and failed work must never be drawn
 // as work that is still coming.
+// ── US-3062: what the side panel shows for a tab ──────────────────────────
+//
+// The item comes from the JOB in that tab — running, or the last one that
+// finished there — and from nothing else. Two things it deliberately does not
+// do:
+//
+//   1. It does not read the page. Guessing the item from the marketplace DOM is
+//      the exact practice US-3042 had to remove from the eBay path, and a wrong
+//      guess here attaches a grade to somebody else's listing.
+//   2. It does not fetch. The panel's facts are ones the extension already
+//      holds; anything richer (comps, the certificate) is the seller's own
+//      FlipDesk data and reaching it needs the token, which is a round trip the
+//      panel can ask for separately when there is something to show.
+//
+// So the honest answer is often `{ ok: true, item: null }`, and the card renders
+// that as "open a marketplace listing" rather than as an error.
+async function getPanelItem(tabId, url) {
+  const platform = self.GT_PANEL_HOST.platformFor(url, self.GT_LISTER_SELECTORS);
+  let job = null;
+  try {
+    job = await withJobs(async (jobs) => ({
+      value: self.GT_LISTER_JOBS.findByTab(jobs, tabId),
+    }));
+  } catch (_e) {
+    // storage.session unavailable. Not knowing is different from knowing there
+    // is nothing, and the card draws them differently, so say so.
+    return { ok: false, reason: "error", item: null };
+  }
+  if (!job || !job.itemId) return { ok: true, item: null };
+
+  const cfg = platform ? self.GT_LISTER_SELECTORS[platform] : null;
+  return {
+    ok: true,
+    item: {
+      id: job.itemId,
+      title: job.title || null,
+      platform: platform || job.platform || "",
+      // Absent rather than zero: the panel's card treats null as "not read" and
+      // a number as a fact, and the two must not be confused.
+      grade: typeof job.grade === "number" ? job.grade : null,
+      certificateId: job.certificateId || null,
+      targetPriceCents: typeof job.priceCents === "number" ? job.priceCents : null,
+      comps: null,
+      // selectors.js's own sentence for a platform that is off, so the panel
+      // does not invent a second wording for the same fact.
+      disabledReason: cfg && cfg.enabled === false
+        ? cfg.disabledReason || "List manually for now."
+        : null,
+    },
+  };
+}
+
 async function getQueue() {
   const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
   if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
@@ -2946,6 +3003,30 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       case "GT_GET_PENDING_REVISES":
         sendResponse(await getPendingRevises());
         break;
+      // ── US-3062: the side panel ──────────────────────────────────────
+      //
+      // INTERNAL ONLY, deliberately absent from EXTERNAL_TYPES. The panel is
+      // our own page; a web page asking "what item is in that tab" would be
+      // asking about a tab it does not own.
+      case "GT_PANEL_SUPPORTED":
+        sendResponse({
+          ok: true,
+          supported: self.GT_PANEL_HOST.isPanelHost(
+            msg.url,
+            self.GT_LISTER_SELECTORS,
+          ),
+        });
+        break;
+      // The item the seller is listing in this tab, if we know of one.
+      //
+      // "If we know of one" is the whole contract, and the answer is allowed to
+      // be nothing. It comes from the job that is running or last completed in
+      // that tab — a fact the extension already has — and NOT from reading the
+      // page. Reading the marketplace page to guess the item would be the exact
+      // thing US-3042 removed from the eBay path.
+      case "GT_PANEL_ITEM":
+        sendResponse(await getPanelItem(msg.tabId, msg.url));
+        break;
       // ── US-3048: the cross-listing queue ─────────────────────────────
       case "GT_QUEUE_STATE":
         sendResponse(await getQueue());
@@ -3034,7 +3115,43 @@ async function startListedWatch(job) {
   await withWatches(async (w) => ({ watches: self.GT_LISTER_JOBS.putWatch(w, watch) }));
 }
 
-if (ext.tabs.onUpdated && ext.tabs.onUpdated.addListener) {
+// ── US-3062: the side panel, enabled per tab ──────────────────────────────
+//
+// Chromium only. `sidePanel.setOptions({tabId, enabled})` is what makes the
+// toolbar button open the PANEL on a marketplace tab and keep opening
+// popup.html everywhere else. Firefox has no per-tab equivalent, so this whole
+// block is absent there and the panel page renders its own off-host state
+// instead — which is why that state is not dead code.
+//
+// Every call is wrapped. `sidePanel` is missing on Firefox and on older
+// Chromium, and an unhandled rejection in the background worker is the failure
+// that takes every OTHER listener down with it.
+function applyPanelForTab(tabId, url) {
+  if (!ext.sidePanel || !ext.sidePanel.setOptions) return;
+  if (typeof tabId !== "number") return;
+  const enabled = self.GT_PANEL_HOST.isPanelHost(url, self.GT_LISTER_SELECTORS);
+  try {
+    const p = ext.sidePanel.setOptions({
+      tabId: tabId,
+      path: "panel.html",
+      enabled: enabled,
+    });
+    if (p && typeof p.catch === "function") p.catch(function () {});
+  } catch (_e) {
+    // A tab that closed mid-navigation throws here. Nothing to do about it and
+    // nothing worth logging: the tab is gone.
+  }
+}
+
+if (ext.tabs && ext.tabs.onUpdated && ext.tabs.onUpdated.addListener) {
+  ext.tabs.onUpdated.addListener(function (tabId, changeInfo, tab) {
+    // Runs on every navigation, including the ones the watch logic below skips,
+    // because the panel's availability follows the URL and nothing else.
+    applyPanelForTab(tabId, (changeInfo && changeInfo.url) || (tab && tab.url));
+  });
+}
+
+if (ext.tabs && ext.tabs.onUpdated && ext.tabs.onUpdated.addListener) {
   ext.tabs.onUpdated.addListener(function (tabId, changeInfo) {
     const url = changeInfo && changeInfo.url;
     if (!url) return; // only navigations carry a url
