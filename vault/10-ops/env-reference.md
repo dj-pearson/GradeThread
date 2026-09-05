@@ -198,6 +198,7 @@ Legend: ✅ required · 🟡 required for that feature · ⬜ optional · 🔒 s
 | `VITE_LISTER_EXTENSION` | ⬜ CF Pages build | Feature toggle for the lister-extension integration. Unset ⇒ Vite folds `isListerAvailable()` to a constant `false` and the Send-to-extension button is compiled out of the bundle entirely. **Provisioned** (measured 2026-08-22). |
 | `VITE_EXTENSION_WEBSTORE_URL` | ⬜ CF Pages build | Public Chrome Web Store listing for the extension (US-2553). Optional: derived from `VITE_LISTER_EXTENSION_ID` when unset. |
 | `VITE_EXTENSION_AMO_URL` | ⬜ CF Pages build | Public Firefox Add-ons (AMO) listing for the extension (US-9210). No default and none possible: AMO slugs have nothing to do with the Chrome id, so unset means a Firefox visitor is sent to the Chrome store or the install call to action stays hidden. |
+| `VITE_IOS_APP_STORE_URL` | ⬜ CF Pages build | Override for the App Store listing the download surfaces link to (US-3116). Optional, and unlike the two extension URLs above it has a real fallback: `APP_STORE_URL` in `src/lib/app-links.ts` is the published listing, so leaving this unset links to the shipping app rather than nowhere. Set it only on a build that should point at an unlisted TestFlight or staging item. |
 | `VITE_SOCIAL_X` / `_LINKEDIN` / `_INSTAGRAM` / `_CRUNCHBASE` | ⬜ CF Pages build | Brand social profile URLs (also read by Pages Functions for OG/footer). |
 | `VITE_TWITTER_SITE` | ⬜ CF Pages build | `@handle` for Twitter card meta. |
 
