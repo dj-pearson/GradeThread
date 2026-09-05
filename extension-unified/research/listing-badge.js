@@ -193,15 +193,35 @@
 
   /**
    * The certificate URL a badge links to, carrying the attribution the site
-   * side reads back (US-3060 AC6/AC7). utm_source is the PLATFORM, which is why
-   * the certificate page allowlists it rather than echoing whatever arrives.
+   * side reads back (US-3060 AC6/AC7).
+   *
+   * BUILT THROUGH attribution.js, not by hand, so this link is tagged the same
+   * way every other extension link on the site is: utm_source=extension,
+   * utm_medium=badge, and the marketplace in utm_campaign.
+   *
+   * ⚠ THE PLATFORM GOES IN utm_campaign, AND THE FIRST VERSION OF THIS PUT IT
+   * IN utm_source. attribution.js sets utm_source="extension" on every link the
+   * extension places, which is how extension traffic is told apart from every
+   * other channel; overwriting it with the marketplace name would have made
+   * this one link type invisible as extension traffic, to answer a question
+   * utm_campaign already answers. src/lib/badge-arrival.ts reads utm_campaign
+   * to match, and its test pins the exact shape this produces.
+   *
+   * `attr` is injected so this stays testable in node, where the extension's
+   * globals do not exist; the browser passes self.GT_ATTRIBUTION.
+   *
+   * ⚠ NO HAND-BUILT FALLBACK, and the first version had one. It returned a
+   * literal https://gradethread.com link when the attribution module was
+   * absent, and test/attribution.test.cjs refused it by name: a hand-built link
+   * reaches the site with no funnel tags and its signups are recorded as direct
+   * traffic. Returning NULL is the right answer anyway — the same rule the rest
+   * of this file follows. A badge with nowhere honest to point does not render.
    */
-  function certificateUrl(siteBase, badge, platform) {
+  function certificateUrl(attr, badge, platform) {
     if (!badge || !badge.path) return null;
-    const base = String(siteBase || "").replace(/\/+$/, "");
-    const q = "utm_source=" + encodeURIComponent(platform) +
-      "&utm_medium=badge";
-    return base + badge.path + "?" + q;
+    const a = attr || (typeof self !== "undefined" ? self.GT_ATTRIBUTION : null);
+    if (!a || typeof a.siteUrl !== "function") return null;
+    return a.siteUrl(badge.path, "badge", { campaign: platform });
   }
 
   return {

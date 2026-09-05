@@ -1,13 +1,21 @@
 // US-3060 AC7: a certificate opened from an on-marketplace extension badge.
 //
-// The badge link carries `utm_medium=badge` and `utm_source=<platform>`, built
-// by the extension's attribution.js. This turns those two parameters into the
-// one fact the certificate page acts on, and refuses to invent the rest.
+// The badge link carries `utm_medium=badge` and `utm_campaign=<platform>`,
+// built by the extension's attribution.js. This turns those two parameters into
+// the one fact the certificate page acts on, and refuses to invent the rest.
 //
-// WHY THE PLATFORM IS ALLOWLISTED RATHER THAN ECHOED. `utm_source` is whatever
-// the URL says, and this value reaches an analytics property and a rendered
-// sentence. Echoing it would put an attacker-controlled string into both from a
-// link anyone can construct — a cheap way to make our own certificate page
+// ⚠ THE PLATFORM IS IN utm_campaign, NOT utm_source, AND THIS FILE SAID
+// OTHERWISE FIRST. attribution.js sets `utm_source = "extension"` on EVERY link
+// the extension puts on the site — that is how extension traffic is told apart
+// from every other channel. Overwriting it with the marketplace name would have
+// made this one link type invisible as extension traffic to answer a question
+// utm_campaign already answers. Read the layer below before choosing a
+// parameter: the convention was there.
+//
+// WHY THE PLATFORM IS ALLOWLISTED RATHER THAN ECHOED. `utm_campaign` is
+// whatever the URL says, and this value reaches an analytics property and a
+// rendered sentence. Echoing it would put an attacker-controlled string into
+// both from a link anyone can construct — a cheap way to make our own certificate page
 // display arbitrary text. The three platforms the badge can appear on are known
 // (BADGE_PLATFORMS on the edge), so an unknown source is a badge arrival with
 // no platform rather than a platform we made up.
@@ -42,9 +50,9 @@ function readParam(params: URLSearchParams, key: string): string {
  */
 export function badgeArrival(params: URLSearchParams): BadgeArrival | null {
   if (readParam(params, "utm_medium") !== BADGE_UTM_MEDIUM) return null;
-  const source = readParam(params, "utm_source");
-  const platform = (BADGE_ARRIVAL_PLATFORMS as readonly string[]).includes(source)
-    ? (source as BadgeArrivalPlatform)
+  const campaign = readParam(params, "utm_campaign");
+  const platform = (BADGE_ARRIVAL_PLATFORMS as readonly string[]).includes(campaign)
+    ? (campaign as BadgeArrivalPlatform)
     : null;
   return { platform };
 }

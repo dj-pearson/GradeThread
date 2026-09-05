@@ -239,21 +239,37 @@ const BADGE = load("research/listing-badge.js", "GT_LISTING_BADGE");
   assert.ok(BADGE.STRINGS.attribution.indexOf("GradeThread") !== -1);
 })();
 
-(function certificateLinkCarriesTheAttribution() {
-  const url = BADGE.certificateUrl(
-    "https://gradethread.com",
-    { path: "/cert/GT-ABC" },
-    "poshmark",
-  );
-  assert.strictEqual(
-    url,
-    "https://gradethread.com/cert/GT-ABC?utm_source=poshmark&utm_medium=badge",
-  );
+(function certificateLinkGoesThroughAttributionJs() {
+  // Built by the REAL attribution.js, not a hand-rolled query string, so this
+  // asserts the shape the certificate page will actually receive.
+  const ATTR = load("attribution.js", "GT_ATTRIBUTION");
+  const url = BADGE.certificateUrl(ATTR, { path: "/cert/GT-ABC" }, "poshmark");
+  const u = new URL(url);
+
+  assert.strictEqual(u.origin + u.pathname, "https://gradethread.com/cert/GT-ABC");
+
+  // ⚠ THE PLATFORM IS IN utm_campaign, AND utm_source STAYS "extension".
+  // attribution.js puts utm_source=extension on every link the extension places
+  // on the site — that is how extension traffic is told apart from every other
+  // channel. The first version of certificateUrl overwrote it with the
+  // marketplace name, which would have made this one link type invisible as
+  // extension traffic to answer a question utm_campaign already answers.
+  assert.strictEqual(u.searchParams.get("utm_source"), "extension");
+  assert.strictEqual(u.searchParams.get("utm_medium"), "badge");
+  assert.strictEqual(u.searchParams.get("utm_campaign"), "poshmark");
+
   // utm_medium=badge is what the certificate page keys the arrival note and the
   // badge_certificate_click event on (src/lib/badge-arrival.ts). Without it the
   // whole site side of the loop is silent.
-  assert.ok(url.indexOf("utm_medium=badge") !== -1);
-  assert.strictEqual(BADGE.certificateUrl("https://gradethread.com", null, "ebay"), null);
+  assert.strictEqual(BADGE.certificateUrl(ATTR, null, "ebay"), null);
+
+  // ⚠ AND WITH NO ATTRIBUTION MODULE IT RETURNS NULL, NOT A HAND-BUILT LINK.
+  // The first version fell back to a literal https://gradethread.com URL, and
+  // attribution.test.cjs refused it by name: a hand-built link reaches the site
+  // with no funnel tags and its signups are recorded as direct traffic. Null is
+  // also the rule the rest of this file follows — a badge with nowhere honest
+  // to point does not render.
+  assert.strictEqual(BADGE.certificateUrl(null, { path: "/cert/X" }, "ebay"), null);
 })();
 
 console.log("listing-badge.test.cjs: ok");
