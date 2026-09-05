@@ -2978,25 +2978,6 @@
       ]
     },
     {
-      "id": "US-3048",
-      "title": "Extension: show the cross-listing queue, lead the popup with the work, and put the read button on the toolbar",
-      "description": "The unified extension has drained the server-side work queue every five minutes since US-2481 and never showed a row of it. A seller who queues six cross-posts from their phone opens the laptop to no count, no list, no way to start them, and no sight of the rows that expired or failed — which GET /api/flipdesk/extension-queue has been returning in needsAttention the whole time. Alongside that, the Selling tab opened on the scheduled-poll clickwrap and the sold-sync table (two blocks about how the extension runs) above the two queues with a deadline on them, and the Reads tab could only DESCRIBE the condition read: the primary action had three doors and none of them was the toolbar icon.",
-      "acceptanceCriteria": [
-        "The popup Selling tab renders the cross-listing queue: every pending and claimed row with its kind, platform, age and state, plus every expired/failed row with the reason it will not run. An unanswerable queue renders as unknown, never as empty.",
-        "\"Run these now\" calls the same drainQueue the five-minute alarm calls, under the same seller gates, and says what it started without claiming completion.",
-        "Cancel is offered on a queued row only and Dismiss on a failed/expired one; a claimed row offers neither, because DELETE /:id would remove a job out from under a marketplace tab that is mid-fill. Pinned by test/queue-view.test.cjs.",
-        "The Selling tab opens on a work summary (to end / queued / to update) that jumps to each block, and the nav badge is the SUM of the three, written once after all three renders settle. A count that could not be read is never rendered as zero.",
-        "The Selling panel is ordered urgent → recent → machinery → reference; the channel table collapses with its live count on the summary.",
-        "The Reads tab carries a \"Get condition read\" button that runs the read on the active tab through the same worker path as Alt+G, disabled with a reason when the tab is not a supported listing.",
-        "timeAgo accepts an ISO string as well as an epoch number: the pending-delist and pending-revise blocks passed server ISO timestamps into a number-only helper and rendered \"NaNd ago\" on every row.",
-        "GET /api/flipdesk/extension-queue joins the item title onto each row (owner-scoped, non-fatal, not on the /claim hot path) so the popup and the Marketplaces page can name what is queued.",
-        "The web queue card no longer offers Cancel on a claimed row, and describes revise/relist rather than calling both \"List to <platform>\"."
-      ],
-      "priority": 6,
-      "passes": false,
-      "notes": "[BUILT 2026-09-02] New: extension-unified/queue/queue-view.js (pure view model, shared by popup + worker) and test/queue-view.test.cjs (11 groups; asserts cancel is queued-only, failures count toward the badge, every dead row carries a reason, and KIND_LABELS matches the edge EXTENSION_QUEUE_KINDS). background.js gains getQueue/cancelQueueRow and the GT_QUEUE_STATE / GT_QUEUE_CANCEL / GT_QUEUE_RUN_NOW / GT_CC_RUN_ACTIVE handlers (internal only — deliberately NOT in EXTERNAL_TYPES). manifest background.scripts + importScripts updated in lockstep. popup.html/js/css: work summary, queue block, reordered Selling panel, collapsed Channels with live count, Reads action button, footer link to the options page. Edge: flipdesk-extension-queue.ts withItemTitles() on GET only. Web: use-extension-queue.ts item_title, marketplaces.tsx claimed-row Cancel removed + revise/relist described + rows named. Verified with a stubbed-chrome Playwright render of popup.html at 340px on both tabs; 47/47 extension guards, tsc -b and eslint clean."
-    },
-    {
       "id": "US-3058",
       "passes": false,
       "title": "Extension revision: verify the redesigned overlay on live marketplace pages and ship 1.1.0 to the stores (operator)",
