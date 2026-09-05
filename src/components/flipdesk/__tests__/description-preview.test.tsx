@@ -158,7 +158,7 @@ describe("AC5: what renders as markup, and what does not", () => {
 
   it("shows prose as text, never as markup", () => {
     mount({
-      segments: [{ ...SEGMENTS[0], body: "<b>bold claim</b>" }],
+      segments: [{ ...SEGMENTS[0]!, body: "<b>bold claim</b>" }],
       proseText: () => "<b>bold claim</b>",
     });
     expect(host.querySelector("b")).toBeNull();
