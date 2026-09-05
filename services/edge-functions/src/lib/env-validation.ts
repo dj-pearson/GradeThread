@@ -356,6 +356,31 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
     vars: [...APPSTORE_VARS],
     enabledWhen: isIapEnabled,
   },
+  {
+    // US-2718 AC2. Whether this is set was answerable only by a hand-run CORS
+    // preflight with a negative control - three curls, one of which exists
+    // solely so that "no header" means "not configured" rather than "quiet
+    // endpoint". Nobody runs that, so the answer lived in a story note dated
+    // 2026-08-22 and went stale the moment an operator changed anything.
+    //
+    // The consequence below is deliberately NARROWER than the story's own AC.
+    // The AC reads as though cross-listing is dead without this; the story's
+    // later measurement found that is not established. isAllowedOrigin is the
+    // only reader, and its extension case exists for the public grade-from-url
+    // endpoint. The FlipDesk queue drain may not need it at all, because the
+    // extension lists https://*.gradethread.com/* in host_permissions and MV3
+    // exempts a host-permitted fetch from CORS. Saying the settled half and
+    // marking the unsettled half as unsettled is the useful line; overstating
+    // it is how an operator learns to skip this page.
+    name: "extension_origins",
+    vars: ["EXTENSION_ALLOWED_ORIGINS"],
+    whenMissing:
+      "no chrome-extension:// or moz-extension:// origin is trusted, so the " +
+      "public grade-from-url endpoint the extension calls cross-origin " +
+      "(US-1754/1755) refuses it. Whether the FlipDesk queue drain also needs " +
+      "this is NOT established - MV3 may exempt it via host_permissions - so " +
+      "treat cross-listing as unverified rather than broken.",
+  },
 ];
 
 // Required vars missing for the current environment (core always; prod-required

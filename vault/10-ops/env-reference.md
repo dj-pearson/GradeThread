@@ -8,7 +8,7 @@ code_refs:
   - .env.example
   - services/edge-functions/.env.example
   - services/edge-functions/src/lib/env-validation.ts
-reviewed: 2026-09-03
+reviewed: 2026-09-05
 tags: [ops, env, deploy, contract]
 summary: Every env var the codebase reads, which of the eight deployment surfaces it belongs to, and which six are boot-fatal in production.
 ---
@@ -164,6 +164,13 @@ Legend: ✅ required · 🟡 required for that feature · ⬜ optional · 🔒 s
 > origin from CORS. Whether that exemption covers every caller here has not been
 > tested from an actual extension context, so treat it as the open question and
 > set the variable regardless.
+>
+> **Re-measured 2026-09-05: still empty**, same three-origin probe, same result.
+> And it no longer needs the probe: `/health/ready` reports
+> `checks.features.extension_origins`, which reads `missing:
+> EXTENSION_ALLOWED_ORIGINS` with the consequence above, or `ok` once it is set.
+> The calibrated curl was correct and nobody ran it, which is why the answer
+> lived in a story note and went stale between readings.
 
 ---
 
@@ -587,7 +594,7 @@ this row still reads "not applied".
 | `SALE_CURRENCY_RECORDED_SINCE` | ⬜ Coolify edge | Cutoff date before which sale rows have no recorded currency, so consignor payouts fall back rather than assume USD. |
 | `TENANT_ISOLATION_REQUIRED` | ⬜ Coolify edge | Hardens the tenant-isolation guard (fail-closed) when set. |
 | `EXTENSION_TOKEN_SECRET` 🔒 | 🟡 Coolify edge | Signs the short-lived tokens the FlipDesk lister browser extension presents. |
-| `EXTENSION_ALLOWED_ORIGINS` | 🟡 Coolify edge | Comma-separated origin allow-list for extension requests (CORS); read by `isAllowedOrigin` in `lib/allowed-origins.ts`. **NOT provisioned** — measured 2026-08-22, see the callout below. |
+| `EXTENSION_ALLOWED_ORIGINS` | 🟡 Coolify edge | Comma-separated origin allow-list for extension requests (CORS); read by `isAllowedOrigin` in `lib/allowed-origins.ts`. **NOT provisioned** — re-measured 2026-09-05; read it live from `/health/ready` `checks.features.extension_origins`, see the callout below. |
 | `EXTENSION_FRAUD_FLAGS_ENABLED` | ⬜ Coolify edge | Surfaces fraud flags on the extension's public grading response. |
 | `API_IDEMPOTENCY_REQUIRED` | ⬜ Coolify edge | `true` makes an `Idempotency-Key` header **mandatory** on the charging public-API routes (`POST /api/v1/grades` and `/grades/batch`). Advisory by default so the middleware could ship without breaking live integrations; flip it once clients have adopted the header, and expect a 400 on any that have not. |
 | `ESG_EXPORT_ENABLED` | ⬜ Coolify edge | Enables the ESG/sustainability export on the public grading API. |

@@ -517,3 +517,44 @@ Deno.test("US-2612: set → ok, and it says the Pages half is still unverified",
     else Deno.env.set("EDGE_ENV", prevEnv);
   }
 });
+
+Deno.test("US-2718: extension_origins reports whether the extension's origin is trusted", () => {
+  // Before this group, the only way to answer "did the operator set
+  // EXTENSION_ALLOWED_ORIGINS" was a hand-run CORS preflight with a negative
+  // control - three curls, one of which existed solely so that a missing header
+  // meant "not configured" rather than "quiet endpoint". Nobody runs that, so
+  // the answer lived in a story note and went stale.
+  const unset = computeFeatureReadiness(envOf({}));
+  assert(unset.extension_origins.startsWith("missing:"), unset.extension_origins);
+  assert(unset.extension_origins.includes("EXTENSION_ALLOWED_ORIGINS"));
+
+  const set = computeFeatureReadiness(
+    envOf({ EXTENSION_ALLOWED_ORIGINS: "chrome-extension://abc" }),
+  );
+  assertEquals(set.extension_origins, "ok");
+});
+
+Deno.test("US-2718: the consequence says the settled half and marks the rest unsettled", () => {
+  // THE POINT OF THIS CASE. The story's own AC reads as though cross-listing is
+  // dead without this variable, and its later measurement found that is not
+  // established: isAllowedOrigin's extension case exists for the public
+  // grade-from-url endpoint, while the FlipDesk queue drain may be exempt via
+  // MV3 host_permissions. A line that claimed the feature was broken would be
+  // the kind of overstatement that teaches an operator to skip this page - and
+  // it is exactly the "improvement" someone would make to this wording later.
+  const line = computeFeatureReadiness(envOf({})).extension_origins;
+
+  // The half that IS settled has to be stated.
+  assert(/grade-from-url/.test(line), line);
+
+  // The half that is NOT settled has to be marked as such, by name.
+  assert(/NOT established|not established/.test(line), line);
+  assert(/host_permissions/.test(line), line);
+  assert(/unverified rather than broken/.test(line), line);
+
+  // And it must not assert the thing the measurement could not support.
+  assert(
+    !/cross-listing is broken|cross-posting is broken|will not work/i.test(line),
+    `overclaims what a missing EXTENSION_ALLOWED_ORIGINS breaks: ${line}`,
+  );
+});
