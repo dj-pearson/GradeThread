@@ -2316,6 +2316,11 @@ if (ext.alarms && ext.alarms.onAlarm) {
       // US-9202: and the edits FlipDesk is waiting to apply on extension
       // channels. One per tick, unfocused, gated like everything else.
       void drainPendingRevises();
+      // US-3067 AC6: the ending-soon count rides this tick rather than adding an
+      // alarm of its own, for the reason the comment above gives. A 5-minute tick
+      // against a 10-minute window means the badge can be up to five minutes
+      // late, which is the honest cost of not adding a second scheduler.
+      void refreshWatchBadge();
       return;
     }
 
@@ -2985,6 +2990,27 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       case "GT_RETURN_PACK":
         sendResponse(await returnShieldPack(msg));
         break;
+      // US-3067 AC5: the watch list. Three reads and writes against
+      // storage.local and NOTHING ELSE — no fetch, no tab opened, no bid. The
+      // whole surface is deliberately this small: every richer version of
+      // "watch this lot" is an extension that acts on an auction unattended.
+      case "GT_WATCH_ADD": {
+        const map = WATCH.watchAdd(await readWatched(), msg.lot || {}, Date.now());
+        const ok = await writeWatched(map);
+        await refreshWatchBadge();
+        sendResponse({ ok, lots: WATCH.watchList(map, Date.now()) });
+        break;
+      }
+      case "GT_WATCH_REMOVE": {
+        const map = WATCH.watchRemove(await readWatched(), msg.itemId);
+        const ok = await writeWatched(map);
+        await refreshWatchBadge();
+        sendResponse({ ok, lots: WATCH.watchList(map, Date.now()) });
+        break;
+      }
+      case "GT_WATCH_LIST":
+        sendResponse({ ok: true, lots: WATCH.watchList(await readWatched(), Date.now()) });
+        break;
       // US-2238: flip mode. Not cached — the seller can re-price or the comps can
       // move, and a stale ROI is the one number they'd act on.
       case "GT_CC_APPRAISE":
@@ -3404,6 +3430,48 @@ if (ext.contextMenus && ext.contextMenus.create) {
         .catch(function () { /* no content script here */ });
     });
   }
+}
+
+// ── Watched lots (US-3067 AC5/AC6) ────────────────────────────────────────
+//
+// On-device only. The id, the verdict and the end time of a lot the reseller
+// asked to keep, in storage.local, with NO SERVER ROW: what somebody is
+// thinking of bidding on is not ours to hold, which is also why this is
+// storage.local and not storage.sync.
+//
+// The badge is the whole of AC6 and the ceiling of it. A count when a watched
+// lot is inside ten minutes, and nothing else — no notifications permission, no
+// sound, no alarm of its own. A number on the toolbar can be ignored; a
+// notification at 3am about a $12 jacket cannot.
+const WATCH = self.GT_CC_FLIP;
+
+async function readWatched() {
+  try {
+    const out = await ext.storage.local.get(WATCH.WATCH_KEY);
+    return (out && out[WATCH.WATCH_KEY]) || {};
+  } catch (_e) { return {}; }
+}
+
+async function writeWatched(map) {
+  try {
+    await ext.storage.local.set({ [WATCH.WATCH_KEY]: map });
+    return true;
+  } catch (_e) { return false; }
+}
+
+// ⚠ GLOBAL, not per-tab, and that is the point. setScoreBadge below writes a
+// PER-TAB badge, which Chrome layers over this one — so on a listing you are
+// reading you see its score, and everywhere else you see how many of your lots
+// are about to close. Writing this per-tab instead would mean the count only
+// appeared on whichever tab happened to be open.
+async function refreshWatchBadge() {
+  if (!ext.action || !WATCH) return 0;
+  const n = WATCH.endingSoonCount(await readWatched(), Date.now());
+  try {
+    await ext.action.setBadgeText({ text: n > 0 ? String(n) : "" });
+    if (n > 0) await ext.action.setBadgeBackgroundColor({ color: "#E94560" });
+  } catch (_e) { /* action API unavailable — the badge is a nicety */ }
+  return n;
 }
 
 // The toolbar badge: the last score for THIS tab. Per-tab, so switching tabs

@@ -1110,3 +1110,25 @@ kbd {
   .pop-tab { color: #9a9ab0; }
   .pop-tab.is-on { color: #cfe0ff; background: #1c1c30; box-shadow: inset 0 0 0 1px #3a3a56; }
 }
+
+/* US-3067 AC5: the watched-lots list. One row per lot, soonest to close first. */
+.pop-section-title { font-weight: 600; }
+.pop-watched { list-style: none; margin: 8px 0 0; padding: 0; }
+.pop-watched-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--pop-border, rgba(0, 0, 0, 0.08));
+}
+.pop-watched-row:last-child { border-bottom: 0; }
+.pop-watched-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pop-watched-meta { font-size: 12px; opacity: 0.75; }
+/* Emphasis by weight, not by a colour a colour-blind reseller cannot read. */
+.pop-watched-row.soon .pop-watched-meta { font-weight: 700; opacity: 1; }
+.pop-watched-row.ended { opacity: 0.55; }

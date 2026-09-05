@@ -346,9 +346,228 @@ const FLIP = (function () {
   );
 })();
 
+
+// ── watched lots (US-3067 AC5/AC6) ─────────────────────────────────────────
+
+(function endsOnIsParsedInPacificTime() {
+  // ⚠ THE ONE THAT WOULD SHIP SILENTLY WRONG. ShopGoodwill prints an absolute
+  // Pacific time, and a fixed -7 or -8 offset is wrong half the year — which
+  // means a ten-minute warning that fires after the auction closed. Both sides
+  // of the DST boundary are checked against a known instant.
+  const pdt = FLIP.parseEndsOn("09/05/2026 06:02:00 PM PT");
+  assert.strictEqual(new Date(pdt).toISOString(), "2026-09-06T01:02:00.000Z"); // UTC-7
+  const pst = FLIP.parseEndsOn("12/05/2026 06:02:00 PM PT");
+  assert.strictEqual(new Date(pst).toISOString(), "2026-12-06T02:02:00.000Z"); // UTC-8
+
+  // ⚠ AND THE DST BOUNDARY ITSELF, which is the case a single-pass conversion
+  // gets wrong by exactly one hour. Guessing the offset from the wall clock
+  // treated as UTC lands 7-8 hours early, which on a transition day is on the
+  // OTHER side of it. 11/01/2026 05:00 PT is PST (UTC-8) but its naive-UTC
+  // guess falls in PDT; 03/08/2026 05:00 PT is the mirror.
+  assert.strictEqual(
+    new Date(FLIP.parseEndsOn("11/01/2026 05:00:00 AM PT")).toISOString(),
+    "2026-11-01T13:00:00.000Z",
+    "fall-back boundary is an hour out",
+  );
+  assert.strictEqual(
+    new Date(FLIP.parseEndsOn("03/08/2026 05:00:00 AM PT")).toISOString(),
+    "2026-03-08T12:00:00.000Z",
+    "spring-forward boundary is an hour out",
+  );
+
+  // The 12-hour clock's two special cases, which an off-by-twelve would pass
+  // for every other hour of the day.
+  assert.strictEqual(
+    new Date(FLIP.parseEndsOn("09/05/2026 12:03:00 PM PT")).toISOString(),
+    "2026-09-05T19:03:00.000Z",
+  );
+  assert.strictEqual(
+    new Date(FLIP.parseEndsOn("09/05/2026 12:03:00 AM PT")).toISOString(),
+    "2026-09-05T07:03:00.000Z",
+  );
+})();
+
+(function anythingUnrecognisedIsNoEndTimeAtAll() {
+  // Null is the safe direction: a lot with no end time is never "ending soon",
+  // where a misparsed one badges at the wrong hour or badges forever.
+  for (const raw of [
+    "",
+    "   ",
+    "not a date",
+    "09/05/2026 06:02:00 PM ET", // a different zone is NOT assumed to be Pacific
+    "09/05/2026 06:02:00 PM",
+    "13/05/2026 06:02:00 PM PT", // month 13
+    "09/32/2026 06:02:00 PM PT", // day 32
+    "09/05/2026 13:02:00 PM PT", // hour 13 on a 12-hour clock
+    "09/05/2026 06:99:00 PM PT",
+    null,
+    undefined,
+    12345,
+    {},
+  ]) {
+    assert.strictEqual(
+      FLIP.parseEndsOn(raw),
+      null,
+      `${JSON.stringify(raw)} was parsed as an end time`,
+    );
+  }
+})();
+
+(function theListIsCappedAndDropsTheOldestWatch() {
+  // At the cap the OLDEST WATCH goes, not the soonest to end. A reseller who
+  // watched fifty lots and adds a fifty-first is telling you the first matters
+  // least; dropping by end time would discard the one they are about to bid on.
+  let map = {};
+  const t0 = 1_000_000;
+  for (let i = 0; i < FLIP.WATCH_MAX + 5; i += 1) {
+    map = FLIP.watchAdd(
+      map,
+      { itemId: "lot" + i, endsAt: t0 + (100 - i) * 60000 },
+      t0 + i,
+    );
+  }
+  const keys = Object.keys(map);
+  assert.strictEqual(keys.length, FLIP.WATCH_MAX);
+  assert.ok(!keys.includes("lot0"), "the oldest watch survived the cap");
+  assert.ok(keys.includes("lot54"), "the newest watch was dropped");
+  // lot54 ends LAST of all of them, and it is still here — which is the point.
+  assert.ok(
+    map.lot54.endsAt < map.lot5.endsAt,
+    "fixture no longer exercises the drop-by-age rule",
+  );
+})();
+
+(function onlyTheThreeVerdictsAreStored() {
+  // A verdict from a future version of the panel must not be written through
+  // into a list the popup renders by name.
+  const m = FLIP.watchAdd({}, { itemId: "a", verdict: "definitely-buy" }, 1);
+  assert.strictEqual(m.a.verdict, null);
+  assert.strictEqual(FLIP.watchAdd({}, { itemId: "b", verdict: "buy" }, 1).b.verdict, "buy");
+  // And a junk id is refused rather than written as a key.
+  for (const id of ["", null, 42, "../../etc", "a".repeat(65)]) {
+    assert.deepStrictEqual(
+      Object.keys(FLIP.watchAdd({}, { itemId: id }, 1)),
+      [],
+      `${String(id)} was accepted as an item id`,
+    );
+  }
+})();
+
+(function theBadgeCountsOnlyTheNextTenMinutes() {
+  const now = 1_700_000_000_000;
+  const map = {
+    soon: { itemId: "soon", endsAt: now + 5 * 60000 },
+    edge: { itemId: "edge", endsAt: now + FLIP.ENDING_SOON_MS },
+    later: { itemId: "later", endsAt: now + 11 * 60000 },
+    ended: { itemId: "ended", endsAt: now - 60000 },
+    noEnd: { itemId: "noEnd", endsAt: null },
+  };
+  assert.strictEqual(FLIP.endingSoonCount(map, now), 2, "wrong ending-soon count");
+  // An ended lot is NOT counted — the badge is a warning, not a tally.
+  assert.strictEqual(FLIP.endingSoonCount({ ended: map.ended }, now), 0);
+  assert.strictEqual(FLIP.endingSoonCount({}, now), 0);
+  assert.strictEqual(FLIP.endingSoonCount(null, now), 0);
+  // Ten minutes exactly, not nine and not eleven.
+  assert.strictEqual(FLIP.ENDING_SOON_MS, 10 * 60 * 1000);
+})();
+
+(function endedLotsSortLastAndAreNotDeleted() {
+  // A lot that ended is information ("you did not bid"). Deleting it out from
+  // under the reseller looks like the extension lost it.
+  const now = 1_700_000_000_000;
+  const list = FLIP.watchList(
+    {
+      ended: { itemId: "ended", endsAt: now - 60000 },
+      later: { itemId: "later", endsAt: now + 60 * 60000 },
+      soon: { itemId: "soon", endsAt: now + 60000 },
+    },
+    now,
+  );
+  assert.deepStrictEqual(list.map((l) => l.itemId), ["soon", "later", "ended"]);
+  assert.strictEqual(list[0].endingSoon, true);
+  assert.strictEqual(list[1].endingSoon, false);
+  assert.strictEqual(list[2].ended, true);
+})();
+
+(function theExtensionNeverActsOnAnAuction() {
+  // AC5's real content, and it is a SOURCE assertion because no behavioural
+  // test distinguishes an extension that bids from one that does not until it
+  // has already bid. Every "helpful" version of watch-this-lot — refresh the
+  // page, reopen the tab at the end, place the increment — is one of these.
+  const bg = fs.readFileSync(
+    path.join(root, "extension-unified", "background.js"),
+    "utf8",
+  );
+  const start = bg.indexOf("// ── Watched lots (US-3067");
+  const end = bg.indexOf("async function setScoreBadge");
+  assert.ok(start > -1 && end > start, "the watched-lots block moved");
+  const block = bg.slice(start, end);
+  for (const forbidden of ["fetch(", "tabs.create", "tabs.update", "tabs.reload", "scripting."]) {
+    assert.ok(
+      !block.includes(forbidden),
+      `the watched-lots block contains ${forbidden} — it must only read and write storage`,
+    );
+  }
+
+  // AC6's ceiling: a badge count and NOTHING more.
+  const manifest = JSON.parse(
+    fs.readFileSync(path.join(root, "extension-unified", "manifest.json"), "utf8"),
+  );
+  assert.ok(
+    !manifest.permissions.includes("notifications"),
+    "a notifications permission was added; AC6 says a badge count and nothing more",
+  );
+  assert.ok(
+    !(manifest.optional_permissions || []).includes("notifications"),
+    "notifications was added as an optional permission",
+  );
+
+  // And the count rides the existing 5-minute sweep rather than adding an alarm.
+  const alarmNames = bg.match(/alarms\.create\(/g) || [];
+  assert.strictEqual(
+    alarmNames.length,
+    3,
+    "an alarm was added or removed — the ending-soon count must ride SWEEP_ALARM",
+  );
+  // Specifically FROM THE SWEEP. Matching the name anywhere would still pass
+  // with the periodic refresh deleted, because the message handlers call it too
+  // — and then the count only ever updates when the reseller touches the list.
+  const sweep = bg.slice(
+    bg.indexOf("if (name === SWEEP_ALARM) {"),
+    bg.indexOf("if (name.indexOf(JOB_ALARM_PREFIX)"),
+  );
+  assert.ok(sweep.length > 100, "the sweep branch moved");
+  assert.ok(
+    /refreshWatchBadge\(\)/.test(sweep),
+    "the ending-soon count is not refreshed on the periodic sweep",
+  );
+})();
+
+(function theBadgeIsGlobalNotPerTab() {
+  // setScoreBadge writes a PER-TAB badge that Chrome layers over this one, so
+  // the score wins on the listing you are reading and the count shows
+  // everywhere else. Writing the count per-tab would mean it only appeared on
+  // whichever tab happened to be open.
+  const bg = fs.readFileSync(
+    path.join(root, "extension-unified", "background.js"),
+    "utf8",
+  );
+  const fn = bg.slice(
+    bg.indexOf("async function refreshWatchBadge"),
+    bg.indexOf("// The toolbar badge:"),
+  );
+  assert.ok(fn.length > 50, "refreshWatchBadge not found where expected");
+  assert.ok(
+    !/tabId/.test(fn),
+    "refreshWatchBadge writes a per-tab badge; the count must be global",
+  );
+  assert.ok(/setBadgeText\(\{ text:/.test(fn), "the badge text call changed shape");
+})();
+
 console.log(
   `sourcing-adapters.test.cjs: ${SOURCING.length} sourcing adapter(s) — id off the URL only, ` +
     "no scan, no condition read, a content-script match with no host permission, " +
     "a gallery that upgrades thumbnails to full size, a cost basis that never " +
-    "reads an unknown fee as a small one, and goodwillfinds stays out",
+    "reads an unknown fee as a small one, a Pacific end time parsed on both sides of DST, " +
+    "a badge that only counts the next ten minutes, and goodwillfinds stays out",
 );

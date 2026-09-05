@@ -284,6 +284,186 @@
     return "at the current bid of " + bid + " plus " + fees + " fees";
   }
 
+
+  // ── Watched lots (US-3067 AC5/AC6) ──────────────────────────────────────
+  //
+  // A reseller who runs a flip check on an auction wants to come back to it,
+  // and the alternative to keeping the verdict is running the check again and
+  // paying for it again. So the id, the verdict and the end time live on the
+  // device. NO SERVER ROW: nothing about what a reseller is thinking of bidding
+  // on leaves their machine, which is also why there is no sync storage here.
+  //
+  // ── WHAT THIS DELIBERATELY DOES NOT DO ──────────────────────────────────
+  //
+  // It does not bid. It does not refresh the lot page. It does not open a lot
+  // on its own. US-1876's rule holds on a sourcing site with more force than
+  // anywhere else, because here the "helpful" version of every one of those is
+  // an extension that spends the reseller's money while they are asleep.
+  //
+  // AC6 asks for a badge count when a watched lot is within ten minutes of
+  // ending, and NOTHING MORE. No notifications permission, no alarm, no sound.
+  // A number on the toolbar is a thing you can ignore; a notification at 3am
+  // about a $12 jacket is not.
+
+  const WATCH_KEY = "watchedLots";
+  const WATCH_MAX = 50;
+  const ENDING_SOON_MS = 10 * 60 * 1000;
+
+  // "09/05/2026 06:02:00 PM PT" — the exact shape ShopGoodwill prints, checked
+  // on three lots 2026-09-05.
+  const ENDS_ON_RE =
+    /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([AP])M?\s*PT$/i;
+
+  /**
+   * The offset America/Los_Angeles is at, in minutes, for a given instant.
+   *
+   * ⚠ A FIXED -7 OR -8 IS WRONG HALF THE YEAR, and being an hour out on a
+   * ten-minute warning means the warning fires after the auction closed. So the
+   * zone is asked rather than assumed: format the instant in Los Angeles, read
+   * the wall clock back, and the difference IS the offset.
+   */
+  function laOffsetMinutes(utcMs) {
+    try {
+      const fmt = new Intl.DateTimeFormat("en-US", {
+        timeZone: "America/Los_Angeles",
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+        hour12: false,
+      });
+      const p = {};
+      for (const part of fmt.formatToParts(new Date(utcMs))) p[part.type] = part.value;
+      const asUtc = Date.UTC(
+        Number(p.year), Number(p.month) - 1, Number(p.day),
+        Number(p.hour) % 24, Number(p.minute), Number(p.second),
+      );
+      return Math.round((asUtc - utcMs) / 60000);
+    } catch (_e) {
+      return null; // no Intl / no tz data — the caller drops the end time
+    }
+  }
+
+  /**
+   * "09/05/2026 06:02:00 PM PT" -> epoch ms, or null.
+   *
+   * Null on anything it does not fully recognise, which is the safe direction:
+   * a lot with no end time is simply never "ending soon", where a misparsed one
+   * would badge at the wrong hour or badge forever.
+   */
+  function parseEndsOn(raw) {
+    if (typeof raw !== "string") return null;
+    const m = raw.trim().match(ENDS_ON_RE);
+    if (!m) return null;
+    const month = Number(m[1]);
+    const day = Number(m[2]);
+    const year = Number(m[3]);
+    let hour = Number(m[4]);
+    const minute = Number(m[5]);
+    const second = Number(m[6] || 0);
+    const pm = m[7].toUpperCase() === "P";
+    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+    if (hour < 1 || hour > 12 || minute > 59 || second > 59) return null;
+    // 12-hour clock: 12 AM is hour 0, 12 PM is hour 12.
+    if (hour === 12) hour = 0;
+    if (pm) hour += 12;
+
+    // Two passes. The first guesses at UTC to find which offset applies at that
+    // point in the year; the second applies it. One pass would be an hour out
+    // for any lot ending within a few hours of a DST boundary.
+    const naive = Date.UTC(year, month - 1, day, hour, minute, second);
+    const off1 = laOffsetMinutes(naive);
+    if (off1 === null) return null;
+    const utc = naive - off1 * 60000;
+    const off2 = laOffsetMinutes(utc);
+    return off2 === off1 ? utc : naive - off2 * 60000;
+  }
+
+  /** A key that is stable across the query strings a lot URL picks up. */
+  function watchKeyFor(itemId) {
+    return typeof itemId === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(itemId)
+      ? itemId
+      : null;
+  }
+
+  /**
+   * Add a lot to the watch map, capped.
+   *
+   * At the cap the OLDEST WATCH is dropped, not the soonest to end: a reseller
+   * who watched fifty lots and adds a fifty-first is telling you the first one
+   * matters least. Dropping by end time would silently discard the lot they are
+   * about to bid on.
+   */
+  function watchAdd(map, entry, nowMs) {
+    const key = watchKeyFor(entry && entry.itemId);
+    if (!key) return map || {};
+    const next = Object.assign({}, map || {});
+    next[key] = {
+      itemId: key,
+      url: typeof entry.url === "string" ? entry.url : null,
+      title: typeof entry.title === "string" ? entry.title.slice(0, 120) : null,
+      verdict: ["buy", "maybe", "skip"].indexOf(entry.verdict) === -1
+        ? null
+        : entry.verdict,
+      priceCents: typeof entry.priceCents === "number" && isFinite(entry.priceCents)
+        ? entry.priceCents
+        : null,
+      endsAt: typeof entry.endsAt === "number" && isFinite(entry.endsAt)
+        ? entry.endsAt
+        : null,
+      at: typeof nowMs === "number" ? nowMs : Date.now(),
+    };
+    const keys = Object.keys(next);
+    if (keys.length > WATCH_MAX) {
+      keys.sort(function (a, b) { return (next[a].at || 0) - (next[b].at || 0); });
+      for (const k of keys.slice(0, keys.length - WATCH_MAX)) delete next[k];
+    }
+    return next;
+  }
+
+  function watchRemove(map, itemId) {
+    const next = Object.assign({}, map || {});
+    delete next[itemId];
+    return next;
+  }
+
+  /**
+   * The watch list, soonest to end first, with the ended ones last rather than
+   * dropped. A lot that ended is information ("you did not bid"), and deleting
+   * it out from under the reseller looks like the extension lost it.
+   */
+  function watchList(map, nowMs) {
+    const now = typeof nowMs === "number" ? nowMs : Date.now();
+    return Object.keys(map || {})
+      .map(function (k) {
+        const e = map[k];
+        return Object.assign({}, e, {
+          ended: typeof e.endsAt === "number" ? e.endsAt <= now : false,
+          endingSoon:
+            typeof e.endsAt === "number" &&
+            e.endsAt > now &&
+            e.endsAt - now <= ENDING_SOON_MS,
+        });
+      })
+      .sort(function (a, b) {
+        if (a.ended !== b.ended) return a.ended ? 1 : -1;
+        const ax = typeof a.endsAt === "number" ? a.endsAt : Infinity;
+        const bx = typeof b.endsAt === "number" ? b.endsAt : Infinity;
+        if (ax !== bx) return ax - bx;
+        return (b.at || 0) - (a.at || 0);
+      });
+  }
+
+  /** How many watched lots end within ten minutes. This is the whole of AC6. */
+  function endingSoonCount(map, nowMs) {
+    const now = typeof nowMs === "number" ? nowMs : Date.now();
+    let n = 0;
+    for (const k of Object.keys(map || {})) {
+      const e = map[k];
+      if (typeof e.endsAt !== "number") continue;
+      if (e.endsAt > now && e.endsAt - now <= ENDING_SOON_MS) n += 1;
+    }
+    return n;
+  }
+
   // US-3052: the popup keeps the last verdict per listing on-device.
   //
   // The key is the listing without its hash and without tracking params, so
@@ -346,5 +526,13 @@
     readShipping,
     sourcingCostBasis,
     costBasisLabel,
+    WATCH_KEY,
+    WATCH_MAX,
+    ENDING_SOON_MS,
+    parseEndsOn,
+    watchAdd,
+    watchRemove,
+    watchList,
+    endingSoonCount,
   };
 });

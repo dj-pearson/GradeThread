@@ -94,6 +94,16 @@
               <button class="pop-linkbtn quiet" id="flipRecheck" type="button">Re-check</button>
             </div>
           </div>
+          <!-- US-3067 AC5: lots the reseller asked to keep, soonest to close
+               first. Read from storage.local; nothing here is fetched, and
+               clicking a row does not open the lot on its own. -->
+          <div class="pop-flip" id="watchedBlock" hidden>
+            <div class="pop-flip-head">
+              <span class="pop-section-title">Watched lots</span>
+              <span class="pop-lastjob-when" id="watchedCount"></span>
+            </div>
+            <ul class="pop-watched" id="watchedList"></ul>
+          </div>
           <!-- US-1881 AC3: the Firefox opt-in host-permission flow. Appears only
                when the probe says access is missing (never on Chrome). -->
           <div class="pop-perm" id="hostPermWrap" hidden>

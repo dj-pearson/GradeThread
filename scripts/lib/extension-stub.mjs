@@ -57,6 +57,15 @@ export function fixture(name, now = Date.now()) {
       ],
     } : { ok: false, reason: seller ? "error" : "no-plan", pending: [], needsAttention: [] },
     stages: seller ? { q1: { stage: "photos", stagedAt: now - 60e3, tabId: 9 } } : {},
+    // US-3067 AC5: the watch list is NOT seller-gated — it is the reseller's own
+    // notes about lots they looked at, on their own machine — so it is populated
+    // for both fixtures. One lot inside the ten-minute window, one already
+    // ended, so the screenshot shows both row states rather than the happy one
+    // twice.
+    watchedLots: [
+      { itemId: "276278053", url: "https://shopgoodwill.com/item/276278053", title: "Mary Cassatt by Nancy Mathews HC Dust Jacket 1987", verdict: "buy", priceCents: 1999, endsAt: now + 6 * 60e3, at: now - 2 * HOUR, ended: false, endingSoon: true },
+      { itemId: "276277887", url: "https://shopgoodwill.com/item/276277887", title: "Rick Nash Bobble Head Collectible", verdict: "skip", priceCents: 1499, endsAt: now - 30 * 60e3, at: now - 3 * HOUR, ended: true, endingSoon: false },
+    ],
   };
 }
 
@@ -104,6 +113,12 @@ export function installStub(fx) {
     GT_CC_RUN_ACTIVE: () => ({ ok: true }),
     GT_CC_APPRAISE: () => ({ ok: false, status: 402, needsUpgrade: true, error: "FlipDesk plan required." }),
     GT_CC_USAGE: () => ({ ok: true }),
+    // US-3067 AC5: two ShopGoodwill lots, one inside the ten-minute window and
+    // one that has ended, so the screenshot shows both states of the row rather
+    // than the happy one twice.
+    GT_WATCH_LIST: () => ({ ok: true, lots: fx.watchedLots }),
+    GT_WATCH_ADD: () => ({ ok: true, lots: fx.watchedLots }),
+    GT_WATCH_REMOVE: () => ({ ok: true, lots: fx.watchedLots.slice(1) }),
   };
   const respond = (msg) => {
     const t = msg && msg.type;

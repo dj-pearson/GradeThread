@@ -2435,6 +2435,67 @@ const FLIP = self.GT_CC_FLIP;
 const FLIP_VERDICT_CLASS = { buy: "on", maybe: "warn", skip: "off" };
 let flipTab = { id: null, url: null };
 
+// ── US-3067 AC5: the watched lots ─────────────────────────────────────────
+//
+// A list, and only a list. No row opens the lot, no row bids, and nothing here
+// refreshes: a reseller opening the popup to check on five auctions must not
+// have the extension touch any of them. The Remove button is the only write.
+function watchedWhen(lot, now) {
+  if (typeof lot.endsAt !== "number") return "";
+  if (lot.ended) return "ended";
+  const mins = Math.max(0, Math.round((lot.endsAt - now) / 60000));
+  if (mins < 60) return "ends in " + mins + "m";
+  const hrs = Math.round(mins / 60);
+  return hrs < 48 ? "ends in " + hrs + "h" : "ends in " + Math.round(hrs / 24) + "d";
+}
+
+function renderWatchedLots(lots) {
+  const block = document.getElementById("watchedBlock");
+  const list = document.getElementById("watchedList");
+  const count = document.getElementById("watchedCount");
+  if (!block || !list) return;
+  if (!Array.isArray(lots) || lots.length === 0) {
+    block.hidden = true;
+    return;
+  }
+  const now = Date.now();
+  const soon = lots.filter(function (l) { return l.endingSoon; }).length;
+  block.hidden = false;
+  count.textContent = soon > 0 ? soon + " ending soon" : lots.length + " watched";
+  list.textContent = "";
+  for (const lot of lots) {
+    const li = document.createElement("li");
+    li.className = "pop-watched-row" + (lot.endingSoon ? " soon" : "") + (lot.ended ? " ended" : "");
+    const name = document.createElement("span");
+    name.className = "pop-watched-title";
+    name.textContent = lot.title || lot.itemId;
+    const meta = document.createElement("span");
+    meta.className = "pop-watched-meta";
+    const bits = [];
+    if (lot.verdict) bits.push(FLIP.VERDICT[lot.verdict] ? FLIP.VERDICT[lot.verdict].label : lot.verdict);
+    const when = watchedWhen(lot, now);
+    if (when) bits.push(when);
+    meta.textContent = bits.join(" · ");
+    const drop = document.createElement("button");
+    drop.className = "pop-linkbtn quiet";
+    drop.type = "button";
+    drop.textContent = "Remove";
+    drop.addEventListener("click", async function () {
+      const res = await send({ type: "GT_WATCH_REMOVE", itemId: lot.itemId });
+      renderWatchedLots(res && res.lots);
+    });
+    li.append(name, meta, drop);
+    list.appendChild(li);
+  }
+}
+
+async function loadWatchedLots() {
+  try {
+    const res = await send({ type: "GT_WATCH_LIST" });
+    renderWatchedLots(res && res.lots);
+  } catch (_e) { /* worker asleep — the block stays hidden */ }
+}
+
 async function readFlipCache() {
   try {
     const out = await ext.storage.local.get(FLIP.CACHE_KEY);
@@ -2585,6 +2646,11 @@ function applyCapabilities(caps) {
   renderSellerSections(caps);
   renderQuota(caps);
   void renderFlip(caps);
+  // US-3067 AC5: the watch list is NOT gated on a seller capability map. It is
+  // the reseller's own notes about lots they looked at, held on their own
+  // machine, and hiding it behind an entitlement would mean an expired plan
+  // silently loses a list nothing on our side ever held.
+  void loadWatchedLots();
   selectDefaultTab(caps);
 }
 
