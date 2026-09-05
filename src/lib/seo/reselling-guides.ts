@@ -395,6 +395,88 @@ export const RESELLING_GUIDES: ResellingGuide[] = [
       },
     ],
   },
+
+  // ── Vinted scams and disputes, seller side (US-3092) ────────────────
+  //
+  // `vinted scams` is 500/mo at competition index 0 with a $10.14 top-of-page
+  // bid and flagged growing; `vinted dispute` is 50/mo at 0. The dispute cluster
+  // is dead as a FAMILY (keyword-strategy-2026-09-02 section 2), so this is one
+  // page rather than a spine, and it exists because Vinted publishes no
+  // seller-side dispute documentation for the US.
+  //
+  // Same freshness group as the how-to guide: the 2-day windows and the
+  // compensation caps are Vinted's to change.
+  //
+  // ⚠ ONE THING DELIBERATELY NOT SAID. A web search reported that promoting
+  // off-platform selling "can result in account banning". Vinted's own community
+  // standards page does not say that. It says buyer protection does not apply.
+  // The page states what the page states.
+  {
+    slug: "vinted-scams-and-disputes",
+    title: "Vinted Scams and Disputes for Sellers",
+    description:
+      "The scams that target Vinted sellers, how a Vinted dispute actually runs, and the evidence that settles one: the 2-day window, the photos, the drop-off receipt.",
+    h1: "Vinted scams and disputes, from the seller's side",
+    intro:
+      "Almost everything that goes wrong for a Vinted seller happens inside one short window: the two days after delivery when the buyer can still raise a claim. This is what gets tried, how Vinted decides it, and what proof you need to already have when it starts.",
+    sections: [
+      {
+        heading: "The three things aimed at sellers",
+        body:
+          "First, the move off-platform. A buyer offers to pay you directly to skip the fee. Vinted's community standards are blunt about the consequence: buying outside its secure payment system means no Buyer Protection applies, and its guidance is to keep conversations on Vinted's own message screen rather than moving to a phone number or an email. There is no held payment, no tracked label and no claim process to appeal to, so if the money never arrives you have no route back. Second, the not-as-described claim on an item that came back different: a buyer opens a claim, returns something that is not what you sent, and asks for the refund. Third, the late complaint, which is the one sellers fear most and the one Vinted answers most clearly. See the window below.",
+      },
+      {
+        heading: "How a Vinted dispute runs",
+        body:
+          "The buyer has 2 calendar days from the delivery notification to report an issue. When they do, the order is suspended and your payment is held rather than released, and Vinted asks the buyer for photographs of the item and the problem, the outer and inner packaging, and any visible damage to the packaging. What happens next depends on what is claimed. On an item significantly not as described, the resolution may be a full refund without a return, or the buyer may be asked to send it back, in which case they get 5 business days to post it. On a lost or damaged parcel there is no return at all: the refund follows the shipping company confirming the loss, and that investigation can take several weeks. Vinted also states it will step in on the seller's side when a buyer's claim does not appear solid.",
+      },
+      {
+        heading: "After 2 days the window is shut",
+        body:
+          "Once the order completes and the payment reaches your Vinted Wallet, Vinted states it can no longer offer a refund, compensation or a return for that order. The confirmation period is 2 days from the package being marked delivered, and after it closes the platform's answer to a complaining buyer is to talk to the seller directly. That cuts both ways. It means the open-ended chargeback fear sellers carry over from other platforms is not the Vinted shape of the problem, and it means every piece of evidence you are going to need has to exist before the parcel is delivered, because nothing you gather afterwards changes an order that has already closed.",
+      },
+      {
+        heading: "The evidence that settles it",
+        body:
+          "Keep the proof of shipping until the order completes. Vinted names the copy of the label, the drop-off receipt and the email confirmation, and that receipt is the whole of your defence on a claim that the parcel never arrived. Use the Vinted-generated prepaid label rather than your own, because compensation for a lost or damaged parcel is only available on one, and sending with a different label or the wrong shipping method cancels the order automatically. The domestic caps are up to $100 per package on USPS and FedEx, up to $30 on Better Trucks and up to $15 on SpeedX; international USPS and SpeedX are up to $27. On condition, the argument is photographs taken before it left you. A dated condition record with every flaw photographed is what turns a not-as-described claim into a comparison anyone can make.",
+      },
+      {
+        heading: "What a graded listing changes here",
+        body:
+          "Nothing about the dispute process, and quite a lot about the argument. A 1.0 to 10.0 grade with the flaws photographed and dated gives you something specific to point at when a buyer says the wear was worse than stated, and it is the difference between two people describing the same jacket from memory and one of them holding a record made before it shipped. It keeps you honest in the other direction too: if the flaw was real and never disclosed, the buyer has a point, and refunding fast is cheaper than losing the claim slowly.",
+      },
+    ],
+    gradingWedge:
+      "Vinted holds the money until the buyer confirms, so a condition dispute is decided on what you can show. Grade the item on the 1.0–10.0 scale before it ships, photograph every flaw, and put the grade and the certificate number in the description. When a claim opens you are quoting a dated record rather than arguing from memory, which is the only version of this conversation you can win.",
+    freshnessGroup: "vinted",
+    related: [
+      { to: "/reselling/how-to-sell-on-vinted", label: "How to sell on Vinted in the US" },
+      { to: "/compare/vinted-vs-mercari", label: "Vinted vs Mercari" },
+      { to: "/reselling/crosslist/vinted-to-poshmark", label: "Crosslist Vinted to Poshmark" },
+    ],
+    faqs: [
+      {
+        q: "Is Vinted safe for sellers?",
+        a: "It is, inside its own payment system. Vinted holds the buyer's payment until the order completes, issues the shipping label, and states it will step in for the seller when a buyer's refund claim does not appear solid. What it does not cover is a payment taken outside that system: its community standards say Buyer Protection does not apply to a direct bank transfer, so an off-platform sale has no held payment and no claim process behind it.",
+      },
+      {
+        q: "What happens if a buyer opens a dispute on Vinted?",
+        a: "The order is suspended and your payment is held rather than released. Vinted asks the buyer for photographs of the item and the issue, the outer and inner packaging, and any visible damage to it. Depending on the claim the outcome is a refund with no return, a return the buyer has 5 business days to post, or, for a lost or damaged parcel, a refund once the shipping company confirms the loss.",
+      },
+      {
+        q: "How long does a Vinted dispute take?",
+        a: "The buyer has 2 calendar days from the delivery notification to raise one at all. A straightforward not-as-described claim resolves inside the return window, which gives the buyer 5 business days to send the item back. A lost or damaged parcel is slower, because it waits on the shipping company's investigation, and Vinted says that can take several weeks.",
+      },
+      {
+        q: "Can a Vinted buyer claim a refund after the order is completed?",
+        a: "No. Once the order completes and the payment reaches your Vinted Wallet, Vinted states it can no longer offer a refund, compensation or a return for that order, and it tells the buyer to contact the seller directly. The confirmation period is 2 days from the package being marked delivered.",
+      },
+      {
+        q: "What proof should a Vinted seller keep?",
+        a: "The proof of shipping until the order completes: the copy of the label, the drop-off receipt or the email confirmation. Send with the Vinted-generated prepaid label rather than your own, because a lost or damaged parcel is only compensated on one, up to $100 per package on USPS and FedEx domestically. For condition, keep dated photographs of every flaw taken before the item shipped.",
+      },
+    ],
+  },
 ];
 
 const GUIDE_BY_SLUG = new Map(RESELLING_GUIDES.map((g) => [g.slug, g]));

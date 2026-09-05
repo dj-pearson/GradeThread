@@ -33,6 +33,15 @@ watch **Impressions** (the demand-created gauge) and **indexation rate**:
 | **Care cluster** | `^/care/` | **1** |
 | **Care, fabric matrix only** | `^/care/[^/]+/[^/]+$` | 1 |
 | **Vinted seller guide** | `^/reselling/how-to-sell-on-vinted$` | **5** |
+| **Vinted dispute page** | `^/reselling/vinted-scams-and-disputes$` | **5** |
+
+US-3092 added a second Vinted row the same day, also single-page and also
+anchored. The two are read SEPARATELY on purpose: `how to sell on vinted` is a
+person learning the platform and `vinted scams` is a person already on it with a
+problem, and one row covering both would hide the case where the second earns and
+the first does not. `vinted scams` carries a $10.14 top-of-page bid at
+competition index 0, which is what commercial traffic nobody is serving looks
+like, so it is the likelier of the two to move first.
 
 The Vinted row was added by US-3090 (2026-09-05) and is a SINGLE PAGE on
 purpose, anchored with `$` so the crosslist pairs that also mention Vinted

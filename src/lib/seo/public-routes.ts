@@ -181,6 +181,8 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   // from Vinted's own pages on this date, and the `vinted` freshness group will
   // fail the build when they are due a re-read. The two dates move together.
   "/reselling/how-to-sell-on-vinted": "2026-09-05",
+  // US-3092, same read and the same `vinted` freshness group.
+  "/reselling/vinted-scams-and-disputes": "2026-09-05",
   "/reselling/vendoo-alternative": "2026-07-20",
   "/reselling/list-perfectly-alternative": "2026-07-20",
   "/reselling/crosslist-alternative": "2026-07-20",

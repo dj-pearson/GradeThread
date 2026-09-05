@@ -699,6 +699,28 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
     ],
   },
   {
+    // US-3092. `vinted scams` is 500/mo at competition index 0 with a $10.14
+    // top-of-page bid, which is the tell that it is commercial traffic nobody
+    // is serving. ONE page, not a spine: the dispute cluster is dead as a
+    // family (keyword-strategy-2026-09-02 section 2).
+    path: "/reselling/vinted-scams-and-disputes",
+    cluster: "selling-guide",
+    intent: "informational",
+    primary: "vinted scams",
+    secondary: [
+      "vinted dispute",
+      "vinted buyer protection for sellers",
+      "vinted item not as described",
+    ],
+    questions: [
+      "is vinted safe for sellers",
+      "what happens if a buyer opens a dispute on vinted",
+      "how long does a vinted dispute take",
+      "can a vinted buyer claim a refund after the order is completed",
+      "what proof should a vinted seller keep",
+    ],
+  },
+  {
     path: "/reselling/crosslist/mercari-to-vinted",
     cluster: "reseller-tools",
     intent: "transactional",

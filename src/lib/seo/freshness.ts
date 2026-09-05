@@ -75,10 +75,29 @@ export const FRESHNESS_REGISTRY: Record<FreshnessGroup, FreshnessEntry> = {
   //   vinted.com/help/753-how-shipping-works      - 5 business days to ship
   //   vinted.com/help/979-usps-shipping           - QR label, US availability
   //   vinted.com/help/4/235-getting-paid-for-a-completed-sale - the 2 + 2 days
+  //
+  // US-3092 added the dispute page to the same group, read the same day:
+  //   vinted.com/help/465-the-vinted-refund-policy   - 2 calendar days to claim,
+  //                                                    the order suspended, the
+  //                                                    photos asked for, 5
+  //                                                    business days to return
+  //   vinted.com/help/1268                           - after the order closes,
+  //                                                    no refund, compensation
+  //                                                    or return
+  //   vinted.com/help/1018-compensation-for-sellers-when-shipping-with-integrated-labels
+  //                                                    $100 USPS/FedEx, $30
+  //                                                    Better Trucks, $15
+  //                                                    SpeedX, $27 international
+  //   vinted.com/help/349-vinted-community-standards - off-platform payment
+  //                                                    forfeits Buyer Protection
+  //   vinted.com/help/551-sellers-safety-and-support - the not-solid-claim line
   vinted: {
     lastVerified: "2026-09-05",
     cadenceMonths: 3,
-    covers: "Vinted seller guide fees, payout and condition options (/reselling/how-to-sell-on-vinted)",
+    covers:
+      "Vinted seller guides: fees, payout, condition options, dispute windows and " +
+      "carrier compensation caps (/reselling/how-to-sell-on-vinted, " +
+      "/reselling/vinted-scams-and-disputes)",
   },
 };
 
