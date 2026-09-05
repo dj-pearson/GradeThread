@@ -36,10 +36,24 @@ something:
 from the container directly on `:9999` with a service-role bearer, so it is not
 the gateway. That last row is how you tell "absent" from "unauthorised".
 
-**Production runs v2.174.0** — older still, read from
-`GET https://api.gradethread.com/auth/v1/health`, which is unauthenticated.
-Routes are added over time, not removed and re-added, so the control was dead in
-production too.
+**Production runs v2.174.0**, read from
+`GET https://api.gradethread.com/auth/v1/health` — which needs the anon key,
+despite what the story that filed this said: Kong 401s the call without one.
+
+**The route exists in NEITHER version, and that is read from the source rather
+than inferred (2026-09-05).** This section used to argue it: "routes are added
+over time, not removed and re-added, so the control was dead in production too."
+Reasonable, and unnecessary. supabase/auth's own route table
+(`internal/api/api.go`) at both tags registers no route under `/admin` whose
+path contains `logout` or `sessions`; the only logout route in either is
+`r.With(api.requireAuthentication).Post("/logout", ...)`, which wants the user's
+own token.
+
+The read has a control, which is what makes it worth more than the inference it
+replaces: it also predicts "absent" for v2.195.0, and that is the version where
+the 404 in the table above was measured against a running container. A source
+read that reproduces a known measurement can be trusted on the version nobody
+probed.
 
 ## What replaces it
 
@@ -50,8 +64,11 @@ token → 400 `refresh_token_not_found`.
 
 `revokeUserSessions` **tries GoTrue first and falls back to the RPC**, rather
 than dropping the upstream call. Both are injectable (`RevokeDeps`), and it only
-reports an incident when BOTH fail — so the day a GoTrue upgrade restores the
-admin route, the supported path starts being used again with no code change.
+reports an incident when BOTH fail — so the day upstream ADDS the admin route,
+the supported path starts being used with no code change. Note "adds", not
+"restores": it has never existed, so this is a bet on a future release rather
+than on an upgrade undoing a removal. The cost of the bet is one fast 404 per
+stop; the thing it must never become is what anyone believes is doing the work.
 
 **It has to be a function, not a delete from the edge.** PostgREST only exposes
 the schemas in its config — `public` and `storage` (`supabase/config.toml`). So

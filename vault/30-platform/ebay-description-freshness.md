@@ -8,12 +8,25 @@ code_refs:
   - services/edge-functions/src/lib/seller-credentials.ts
   - services/edge-functions/src/routes/jobs-credentials-refresh.ts
   - services/edge-functions/src/lib/ai-listing.ts
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [ebay, publishing, listings, gotcha]
 summary: An eBay description is frozen text — eBay bans active content and off-eBay links — so anything time-varying in it goes stale until a scheduled revise re-renders it.
 ---
 
 # eBay descriptions cannot self-update — refresh by revise
+
+> **Re-reviewed 2026-09-05.** Drift flagged `ai-listing.ts` for `f4d6a71d1`
+> (US-3088, the anonymous listing-draft endpoint). Three changes, and none of
+> them is about the description path: an optional `feature` slug on `ListingGenInput` so the
+> free tool's spend lands in its own AI-ledger bucket, `enterAiFeature` reading
+> it with `"autolister"` as the default so every existing caller stays put, and
+> the photo content block going through `tagImageSource()` so a data URI is sent
+> as base64 instead of being handed to the API as a URL. A plain https URL comes
+> back from that sniff untouched, so the generation path is byte-identical.
+>
+> ⚠ Corrected while here: the 2026-08-17 callout below cites the `RenderContext` at
+> `ai-listing.ts:2611`. It is at `:3153` now. The shape is unchanged: one block
+> array, one `renderDescription` call, still frozen HTML once eBay has it.
 
 > **Re-reviewed 2026-09-02.** Drift flagged `ai-listing.ts` for the style-code
 > pipe (`5f994b77e`..`2f7b3f431`: tag-photo selection, the OCR'd code decoded in

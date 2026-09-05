@@ -447,6 +447,30 @@ function ListingGeneratorTool() {
 
 function TemplateTabs() {
   const [active, setActive] = useState<TemplatePlatform>("ebay");
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  // Roving focus. WAI-ARIA Authoring Practices expects arrow keys to move
+  // between tabs in a tablist, and only the selected tab to be in the tab
+  // order — otherwise a keyboard user pages through four buttons to reach the
+  // content, on a page whose whole job is handing over text to copy.
+  function onKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
+    const keys: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1 };
+    const step = keys[e.key];
+    const at = TEMPLATE_PLATFORMS.indexOf(active);
+    let next: TemplatePlatform | undefined;
+    if (step !== undefined) {
+      next = TEMPLATE_PLATFORMS[(at + step + TEMPLATE_PLATFORMS.length) % TEMPLATE_PLATFORMS.length];
+    } else if (e.key === "Home") {
+      next = TEMPLATE_PLATFORMS[0];
+    } else if (e.key === "End") {
+      next = TEMPLATE_PLATFORMS[TEMPLATE_PLATFORMS.length - 1];
+    }
+    if (!next) return;
+    e.preventDefault();
+    setActive(next);
+    tabRefs.current[next]?.focus();
+  }
+
   return (
     <div>
       <div
@@ -460,8 +484,13 @@ function TemplateTabs() {
             type="button"
             role="tab"
             id={`tpl-tab-${t.platform}`}
+            ref={(el) => {
+              tabRefs.current[t.platform] = el;
+            }}
             aria-selected={active === t.platform}
             aria-controls={`tpl-panel-${t.platform}`}
+            tabIndex={active === t.platform ? 0 : -1}
+            onKeyDown={onKeyDown}
             onClick={() => setActive(t.platform)}
             className={
               active === t.platform

@@ -158,11 +158,28 @@ export async function endImpersonation(
  * TWO MECHANISMS, in that order, because neither is available everywhere
  * (US-2662):
  *
- *   1. GoTrue's admin logout. It is the upstream-supported route and it is
- *      ABSENT below some version — measured at 404 on v2.195.0, with GET
- *      /admin/users/{id} answering 200 as the control, so auth, routing and the
- *      id were all fine and the route simply was not there. Kept first because
- *      it is the right call wherever it exists.
+ *   1. GoTrue's admin logout — which, as of 2026-09-05, EXISTS IN NO VERSION WE
+ *      CAN FIND, and this comment used to say something weaker and wronger.
+ *
+ *      It said "ABSENT below some version", which implies newer builds have it.
+ *      They do not. Read straight from supabase/auth's route table at both tags
+ *      that matter, internal/api/api.go: neither v2.174.0 (what production runs,
+ *      measured via /auth/v1/health) nor v2.195.0 registers ANY route under
+ *      /admin whose path contains "logout" or "sessions". The only logout route
+ *      in either is `r.With(api.requireAuthentication).Post("/logout", ...)`,
+ *      which wants the user's OWN token — the one thing we do not have.
+ *
+ *      The source read is trustworthy because it has a control: it also says
+ *      "absent" for v2.195.0, which is the version where a live 404 was measured
+ *      against a running container (with GET /admin/users/{id} answering 200, so
+ *      auth, routing and the id were all fine). Predicting a known measurement
+ *      is what makes the same read of v2.174.0 worth believing.
+ *
+ *      So this call CANNOT succeed on our stack, and it is kept first anyway,
+ *      deliberately: it fails fast with a 404, the fallback below is what
+ *      actually revokes, and leaving it means the day upstream adds the route
+ *      the supported path resumes with no code change. What it must never be is
+ *      the thing anyone believes is doing the work. It is not.
  *   2. Deleting the rows ourselves. Refresh tokens hang off sessions, so
  *      removing them invalidates the tokens (measured: refresh answered 200
  *      before, 400 refresh_token_not_found after). It goes through an RPC
@@ -221,7 +238,11 @@ async function revokeViaDatabase(
   return { error: error ? { message: error.message } : null };
 }
 
-/** The upstream route. `detail` is carried so a double failure can name why. */
+/**
+ * The upstream route. Registered in no supabase/auth version we can read (see
+ * revokeUserSessions above), so on this stack it is a fast 404 and `detail`
+ * carries the status so a double failure can name why.
+ */
 async function revokeViaGoTrue(userId: string): Promise<{ ok: boolean; detail: string }> {
   const url = Deno.env.get("SUPABASE_URL");
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");

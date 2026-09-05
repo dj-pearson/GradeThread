@@ -11,12 +11,25 @@ code_refs:
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
 
 # eBay required-aspect completeness on publish and revise
+
+> **Re-reviewed 2026-09-05.** Drift flagged `ai-listing.ts` for `f4d6a71d1`
+> (US-3088, the anonymous listing-draft endpoint). Three changes, and none of
+> them is about aspect completeness: an optional `feature` slug on `ListingGenInput` so the
+> free tool's spend lands in its own AI-ledger bucket, `enterAiFeature` reading
+> it with `"autolister"` as the default so every existing caller stays put, and
+> the photo content block going through `tagImageSource()` so a data URI is sent
+> as base64 instead of being handed to the API as a URL. A plain https URL comes
+> back from that sniff untouched, so the generation path is byte-identical.
+>
+> ⚠ Corrected while here: nothing needed correcting. The five modules `ai-listing.ts`
+> imports for aspect entry are unchanged, and `generateListing` still runs the
+> resolver at the same step.
 
 > **Re-reviewed 2026-09-02, and the aspect pipeline really did change.** eBay
 > began enforcing standard values for size aspects (the seller-facing error is

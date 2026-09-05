@@ -7,11 +7,18 @@ code_refs:
   - src/prerender/head-builder.ts
   - src/prerender/entry-server.tsx
   - src/lib/seo/json-ld.ts
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [seo, prerender, ci, contract]
 summary: What CI enforces about the HTML crawlers actually receive, and how to read each failure.
 ---
 # Prerender / hydration parity — runbook (US-1669)
+
+> **Re-reviewed 2026-09-05.** Drift flagged `entry-server.tsx` for `b159b4b3c`
+> (US-3089). One page element added to `CALCULATOR_PAGES` and one import; the
+> guards themselves are untouched. Confirmed the lockstep guard still fires from
+> a real build rather than from reading it: `npm run build` completed with 271
+> static pages and `dist/tools/listing-generator.html` at 45,937 body bytes,
+> which is the size it should be only if all four template panels rendered.
 
 > **Re-reviewed 2026-09-02.** Drift flagged `entry-server.tsx` and
 > `head-builder.ts` for the cross-listing batch: seventeen new prerendered pages

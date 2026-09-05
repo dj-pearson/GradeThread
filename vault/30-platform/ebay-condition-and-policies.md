@@ -8,12 +8,26 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/publish-preflight.ts
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [ebay, publishing, conditions, gotcha]
 summary: Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
 ---
 
 # eBay condition mapping and the policy endpoint
+
+> **Re-reviewed 2026-09-05.** Drift flagged `ai-listing.ts` for `f4d6a71d1`
+> (US-3088, the anonymous listing-draft endpoint). Three changes, and none of
+> them is about condition mapping or the policy endpoint: an optional `feature` slug on `ListingGenInput` so the
+> free tool's spend lands in its own AI-ledger bucket, `enterAiFeature` reading
+> it with `"autolister"` as the default so every existing caller stays put, and
+> the photo content block going through `tagImageSource()` so a data URI is sent
+> as base64 instead of being handed to the API as a URL. A plain https URL comes
+> back from that sniff untouched, so the generation path is byte-identical.
+>
+> ⚠ Corrected while here: the 2026-08-28 callout below cites `EBAY_CONDITION_VALUES` at
+> `ai-listing.ts:165-178`. It is at `:235` now and had already moved before this
+> pass — the enum members and the apparel LIKE_NEW rejection are unchanged, only
+> the line reference was stale.
 
 > **Re-reviewed 2026-09-03.** Drift flagged `ebay-client.ts` for `57eff0f03`
 > and `f9144c69a`. The first is `isOfferNotFoundError` (an absent offer is an

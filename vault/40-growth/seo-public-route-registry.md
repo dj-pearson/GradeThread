@@ -9,12 +9,31 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
 
 # SEO — the public route registry
+
+> **Re-reviewed 2026-09-05.** Drift flagged `public-routes.ts`,
+> `entry-server.tsx` and `routes/index.tsx` for `b159b4b3c` (US-3089,
+> `/tools/listing-generator`). Every wiring point below held, and walking them
+> for real surfaced one thing the list does not say.
+>
+> ⚠ **For a CALCULATOR, point 4 is wrong as written.** It says to add the entry
+> to `PUBLIC_ROUTES`. You must not: `calculatorRoutes()` derives the
+> `PublicRoute` from any entry whose `status` is `live`, and it is already
+> spread into the array. Adding one by hand would register the path twice. What
+> a calculator DOES need by hand is `ROUTE_LAST_MODIFIED` in the same file
+> (which is not derived), plus points 5 and 7. So the count for this family is
+> the calculator registry entry, `ROUTE_LAST_MODIFIED`, `CALCULATOR_PAGES` in
+> `entry-server.tsx`, and the router — four places, none of them the
+> `PUBLIC_ROUTES` array itself.
+>
+> The lockstep guard still catches the omissions it always did: leaving the
+> `CALCULATOR_PAGES` entry out fails `ROUTE_PAGE_MODULES out of sync with PAGES`
+> at import time, which the prerender build triggers.
 
 > **Re-reviewed 2026-09-02.** Drift flagged all four wiring points together for
 > the cross-listing batch, which is this note's lockstep working: fifteen new

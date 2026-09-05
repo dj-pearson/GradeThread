@@ -7,7 +7,7 @@ source_of_truth: code
 code_refs:
   - src/components/breadcrumbs.tsx
   - src/lib/seo/public-routes.ts
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [accessibility, compliance, wcag, vpat]
 summary: WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a published artifact that must stay true, not a snapshot.
 ---
@@ -25,6 +25,20 @@ summary: WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a publis
 > flags it when the accessibility surface changes. It should be re-reviewed on
 > any a11y-affecting change, not on a schedule.
 # Accessibility Conformance Report — GradeThread & FlipDesk
+
+> **Re-reviewed 2026-09-05.** Drift flagged `public-routes.ts` for `b159b4b3c`
+> (US-3089), which adds one indexable page, `/tools/listing-generator`. Nothing
+> in this note's claims changes — the count of public routes is not one of them.
+>
+> Worth recording for whoever audits it: the page carries the first tab widget
+> in the `/tools/` family. It uses `role="tablist"` / `role="tab"` /
+> `role="tabpanel"` with `aria-selected`, `aria-controls` and `aria-labelledby`
+> wired, and every panel stays in the DOM (inactive ones hidden) rather than
+> being unmounted. Arrow keys, Home and End move between tabs and only the
+> selected tab is in the tab order, per WAI-ARIA Authoring Practices — the first
+> draft shipped without that and it was added in the same commit, because a
+> keyboard user would otherwise page through four buttons to reach the content
+> on a page whose whole job is handing over text to copy.
 
 > **Re-reviewed 2026-09-02.** Drift flagged `public-routes.ts` for seventeen new
 > indexable pages (fourteen marketplace pair pages, two switch-from pages,
