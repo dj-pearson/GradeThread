@@ -55,6 +55,60 @@ export const INGEST_MARKETPLACE_HOSTS: Record<string, string> = {
   "vinted.co.uk": "vinted",
 };
 
+/**
+ * SOURCING sites — where a reseller BUYS, not where a shopper buys from a
+ * reseller (US-3067).
+ *
+ * ⚠ DELIBERATELY A SEPARATE MAP, AND THE SEPARATION IS THE POINT.
+ * INGEST_MARKETPLACE_HOSTS above feeds condition-alerts: a listing ingested
+ * through it can surface in a BUYER's alert feed. A ShopGoodwill lot must never
+ * do that. It is a charity's photograph of a donation with no seller making a
+ * condition claim, and putting one in front of a buyer looking for a graded
+ * garment would be presenting a thrift bin as a resale listing.
+ *
+ * So a sourcing host resolves for the scout's own metric label and for nothing
+ * else, and listing-ingest_test.ts asserts the two maps stay disjoint.
+ */
+export const SOURCING_MARKETPLACE_HOSTS: Record<string, string> = {
+  "shopgoodwill.com": "shopgoodwill",
+};
+
+/**
+ * The marketplace key for a SOURCING host, or null.
+ *
+ * Same label-boundary walk as resolveIngestMarketplace, for the same reason: a
+ * bare endsWith would resolve `shopgoodwill.com.evil.example`.
+ */
+export function resolveSourcingMarketplace(host: string): string | null {
+  const h = host.trim().toLowerCase().replace(/\.$/, "");
+  if (!h) return null;
+  const labels = h.split(".");
+  for (let i = 0; i < labels.length - 1; i++) {
+    const key = SOURCING_MARKETPLACE_HOSTS[labels.slice(i).join(".")];
+    if (key) return key;
+  }
+  return null;
+}
+
+/**
+ * Normalize whatever the extension called the marketplace into a BOUNDED label.
+ *
+ * The scout used to put `body.marketplace` on a metric after a 24-character
+ * slice and nothing else, which is unbounded cardinality on a caller-supplied
+ * string. Anything not recognised now reads "unknown", which is the honest
+ * label for a value we did not put in either map.
+ */
+export function normalizeScoutMarketplace(raw: unknown): string {
+  if (typeof raw !== "string") return "unknown";
+  const key = raw.trim().toLowerCase();
+  if (!key) return "unknown";
+  const known = new Set<string>([
+    ...Object.values(INGEST_MARKETPLACE_HOSTS),
+    ...Object.values(SOURCING_MARKETPLACE_HOSTS),
+  ]);
+  return known.has(key) ? key : "unknown";
+}
+
 /** Longest normalized listing URL we will store (and therefore index). */
 export const MAX_LISTING_URL_LENGTH = 512;
 

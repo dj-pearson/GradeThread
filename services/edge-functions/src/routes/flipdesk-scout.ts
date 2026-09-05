@@ -89,6 +89,7 @@ import { captureException, recordMetric } from "../lib/observability.ts";
 import { parseFix } from "../lib/radar-privacy.ts";
 import { voidRecordScanLocation } from "../lib/radar-events.ts";
 import { hydrateEbayListingBody } from "../lib/ebay-item-read.ts";
+import { normalizeScoutMarketplace } from "../lib/listing-ingest.ts";
 
 export const flipdeskScoutRoutes = new Hono<{
   Variables: { userId: string; workspaceOwnerId: string };
@@ -993,7 +994,10 @@ flipdeskScoutRoutes.post("/appraise-url", async (c) => {
 
   recordMetric("scout.appraise-url", 1, {
     recommendation: decision.recommendation,
-    marketplace: typeof body.marketplace === "string" ? body.marketplace.slice(0, 24) : "unknown",
+    // US-3067: normalized against the known maps rather than sliced to 24
+    // characters. A caller-supplied string on a metric label is unbounded
+    // cardinality, and "shopgoodwill" is now one of the values it can be.
+    marketplace: normalizeScoutMarketplace(body.marketplace),
   });
 
   return c.json({
