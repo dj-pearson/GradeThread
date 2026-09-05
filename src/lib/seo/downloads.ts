@@ -1,7 +1,7 @@
-// The download page (US-3111): /download.
+// The download page (US-3117): /download.
 //
 // One URL to hand somebody who asks "where do I get it" — a bio link, an email
-// footer, a support reply. US-3110 put the three store links in the site footer
+// footer, a support reply. US-3116 put the three store links in the site footer
 // and on the dashboard; this is the page they can be sent TO, and the only
 // surface that explains what each one actually does differently.
 //

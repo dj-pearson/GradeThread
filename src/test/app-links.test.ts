@@ -14,7 +14,7 @@ import {
   isIosUa,
 } from "@/lib/app-links";
 
-// US-3110. GradeThread ships in three places and the site linked to none of
+// US-3116. GradeThread ships in three places and the site linked to none of
 // them, so these tests are mostly about the links being REAL and being the same
 // three everywhere — the defect was absence, not a wrong URL.
 
@@ -129,7 +129,7 @@ describe("user-agent ordering", () => {
 });
 
 describe("the surfaces that offer a download", () => {
-  // Source scans, because what US-3110 fixes is a link being ABSENT from a
+  // Source scans, because what US-3116 fixes is a link being ABSENT from a
   // page, and absence is what a scan can actually see.
   const SURFACES: Array<[string, string]> = [
     ["the marketing footer", "src/components/marketing/marketing-layout.tsx"],
@@ -141,7 +141,7 @@ describe("the surfaces that offer a download", () => {
     ],
   ];
 
-  // US-3111's page is not in SURFACES: it renders its own buttons rather than
+  // US-3117's page is not in SURFACES: it renders its own buttons rather than
   // the shared component, because it is the one place with room to say what
   // each install is FOR. It still reads its hrefs from app-links().
   const DOWNLOAD_PAGE = "src/pages/marketing/download.tsx";

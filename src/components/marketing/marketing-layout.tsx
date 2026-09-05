@@ -181,12 +181,12 @@ export function MarketingLayout({
                 <FooterLink to="/leaderboard">Top Referrers</FooterLink>
                 <FooterLink to="/faq">FAQ</FooterLink>
               </FooterColumn>
-              {/* US-3110: the apps, on every public page. The iOS app and both
+              {/* US-3116: the apps, on every public page. The iOS app and both
                   extensions existed with nothing on the marketing site linking
                   to any of them. External links, so these are plain <a>s and
                   the footer-links-routed test correctly ignores them. */}
               <FooterColumn title="Get GradeThread">
-                {/* US-3111: the page that explains which one you want, above
+                {/* US-3117: the page that explains which one you want, above
                     the three store links themselves. */}
                 <FooterLink to="/download">Apps & extensions</FooterLink>
                 <AppDownloadLinks surface="marketing-footer" />

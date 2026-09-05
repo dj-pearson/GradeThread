@@ -73,7 +73,7 @@ describe("the widget board renders the seller default in order", () => {
       "Rewards",
       "Try FlipDesk",
       "Discover GradeThread",
-      // US-3110: the iOS app and the two browser extensions.
+      // US-3116: the iOS app and the two browser extensions.
       "Get GradeThread everywhere",
       "Invite a friend",
       "Circularity impact",

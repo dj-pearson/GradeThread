@@ -1082,7 +1082,7 @@ export function LandingPage() {
               </a>
             </nav>
           </div>
-          {/* US-3110: the home page never said GradeThread had an iPhone app or
+          {/* US-3116: the home page never said GradeThread had an iPhone app or
               a browser extension. It does now, above the legal row, where the
               eye already stops on its way down. */}
           <div className="flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between">

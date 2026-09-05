@@ -103,7 +103,7 @@ export const ANALYTICS_EVENTS = {
   "extension_install_cta_click":
     "An install call to action for the browser extension was pressed. Properties `page`, `store`.",
 
-  // ── App and extension downloads (US-3110) ─────────────────────────────────
+  // ── App and extension downloads (US-3116) ─────────────────────────────────
   // The always-on download row (footer, dashboard widget, onboarding welcome),
   // as against `extension_install_cta_click`, which is the in-context CTA on a
   // marketing page about the marketplace the reader is heading to. Two events

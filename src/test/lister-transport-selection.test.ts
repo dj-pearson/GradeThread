@@ -265,7 +265,7 @@ describe("US-1882: transport selection", () => {
     });
 
     it("falls back to the PUBLISHED listing with no id, never to a dead link", () => {
-      // US-3110 changed this. It used to return null, on the reasoning that a
+      // US-3116 changed this. It used to return null, on the reasoning that a
       // URL ending in an empty path segment links to the store's 404 and null
       // is the honest answer — correct while the extension was unpublished.
       //

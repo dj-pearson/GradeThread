@@ -10,9 +10,9 @@ import { appLinks, type AppLinkId } from "@/lib/app-links";
 import { DOWNLOAD_META, DOWNLOAD_PATH } from "@/lib/seo/downloads";
 import { DOWNLOAD_FAQS, downloadsJsonLd } from "@/pages/marketing/marketing-jsonld";
 
-// US-3111: the one URL to hand somebody who asks where to get GradeThread.
+// US-3117: the one URL to hand somebody who asks where to get GradeThread.
 //
-// US-3110 put the three store links in the footer and on the dashboard, which
+// US-3116 put the three store links in the footer and on the dashboard, which
 // answers "where" for a visitor already reading the site. It does not answer
 // "which one do I want", and it is not something that can be pasted into a bio
 // or a support reply. This page is both.

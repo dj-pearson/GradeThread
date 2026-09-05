@@ -376,7 +376,7 @@ export const DASHBOARD_WIDGETS: readonly WidgetDef[] = [
       })),
   },
   {
-    // US-3110: the iOS app and both browser extensions, on the board. Nothing
+    // US-3116: the iOS app and both browser extensions, on the board. Nothing
     // on the seller's dashboard linked to any of the three, so the only people
     // who found them were the ones already deep in the cross-listing UI.
     id: "grading.get-apps",
@@ -1101,7 +1101,7 @@ export const DEFAULT_LAYOUTS: Record<
       { id: "grading.rewards", size: "lg" },
       { id: "grading.flipdesk-promo", size: "lg" },
       { id: "grading.discover", size: "lg" },
-      // US-3110: below Discover, above the invite tile. Promotional, so it sits
+      // US-3116: below Discover, above the invite tile. Promotional, so it sits
       // under every data widget (src/test/dashboard-own-data-first.test.ts).
       { id: "grading.get-apps", size: "lg" },
       { id: "grading.invite", size: "md" },
@@ -1129,7 +1129,7 @@ export const DEFAULT_LAYOUTS: Record<
       { id: "grading.rewards", size: "lg" },
       { id: "grading.flipdesk-promo", size: "lg" },
       { id: "grading.discover", size: "lg" },
-      // US-3110: below Discover, above the invite tile. Promotional, so it sits
+      // US-3116: below Discover, above the invite tile. Promotional, so it sits
       // under every data widget (src/test/dashboard-own-data-first.test.ts).
       { id: "grading.get-apps", size: "lg" },
       { id: "grading.invite", size: "md" },

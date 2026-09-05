@@ -224,7 +224,7 @@ export function isExtensionInstalled(): boolean {
  * second thing to keep in sync.
  */
 export function extensionWebStoreUrl(): string | null {
-  // US-3110: the resolution (override -> derived from the id -> the published
+  // US-3116: the resolution (override -> derived from the id -> the published
   // listing) moved to src/lib/app-links.ts, so the footer, the dashboard and
   // this cross-listing UI cannot drift apart on which store they point at.
   //

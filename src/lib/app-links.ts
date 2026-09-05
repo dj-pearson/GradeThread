@@ -1,4 +1,4 @@
-// Where GradeThread ships, in one place. (US-3110)
+// Where GradeThread ships, in one place. (US-3116)
 //
 // The iOS app and the browser extension are PUBLISHED products, so their store
 // URLs are facts about the product rather than deployment configuration. They
@@ -7,7 +7,7 @@
 // the onboarding welcome, and the marketing install CTA.
 //
 // An env var still wins where one is set, so a staging build can point at an
-// unlisted item. What US-3110 changed is the FALLBACK. It used to be null, and
+// unlisted item. What US-3116 changed is the FALLBACK. It used to be null, and
 // null is what a deployment with a blank VITE_LISTER_EXTENSION_ID got — which
 // is why "Add to Chrome" shipped with nowhere to go for as long as those two
 // build variables sat empty (the same defect US-2718 AC4 and US-2720 chased in

@@ -182,7 +182,7 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   "/pricing": pricingJsonLd,
   // US-2105 AC1: these four shipped only Organization + BreadcrumbList.
   "/for-brands": forBrandsJsonLd,
-  // US-3111: three SoftwareApplication entries + the download FAQ.
+  // US-3117: three SoftwareApplication entries + the download FAQ.
   "/download": downloadsJsonLd,
   "/for-resellers": forResellersJsonLd,
   "/developers": developersJsonLd,

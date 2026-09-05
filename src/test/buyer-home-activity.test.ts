@@ -138,7 +138,7 @@ describe("the home shows the buyer's own activity (US-2553 AC3)", () => {
 
 describe("the extension link points at the extension (US-2553 AC4)", () => {
   it("the store URL is derived from the id already configured", () => {
-    // US-3110 moved the resolution into src/lib/app-links.ts so the footer, the
+    // US-3116 moved the resolution into src/lib/app-links.ts so the footer, the
     // dashboard and this buyer card cannot point at different stores. The
     // assertion follows it rather than being deleted: lister-extension.ts still
     // owns the exported name every caller uses, app-links.ts owns the URL.

@@ -289,7 +289,7 @@ export function OnboardingFlow() {
                 Let's set things up — this takes about 30 seconds.
               </DialogDescription>
             </DialogHeader>
-            {/* US-3110: the apps, on the first screen of the first session.
+            {/* US-3116: the apps, on the first screen of the first session.
                 Deliberately NOT a tour step of its own — every tour step points
                 at a sidebar entry and offers "Take me there", and
                 src/test/onboarding-copy-routes.test.ts checks each one against

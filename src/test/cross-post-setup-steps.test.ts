@@ -163,7 +163,7 @@ describe("the install CTA (US-2719 AC4)", () => {
   it("still resolves a store, and never /buyer/settings, with both vars blank", () => {
     // This case used to assert the OPPOSITE half of AC4: with no id configured
     // there was no store URL, so the step had to render a sentence rather than
-    // a dead control. US-3110 removed the "no store URL" state — the extension
+    // a dead control. US-3116 removed the "no store URL" state — the extension
     // is published, and src/lib/app-links.ts falls back to the real listing
     // instead of to null, so a blank deployment gets a working link rather than
     // a working explanation of why there is no link.

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { track } from "@/lib/analytics";
 import { appLinks, appLinksFor, type AppLink, type AppLinkId } from "@/lib/app-links";
 
-// US-3110: GradeThread ships in three places and the site mentioned none of
+// US-3116: GradeThread ships in three places and the site mentioned none of
 // them. The iOS app had no link anywhere outside the billing page's "manage
 // your subscription" text, and both extensions were reachable only from the
 // cross-listing UI, which a seller has to already be deep inside FlipDesk to

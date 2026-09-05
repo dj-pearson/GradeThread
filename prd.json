@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3116",
+  "nextId": "US-3118",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3589,7 +3589,8 @@
         "OPERATOR: after 48 hours, re-read ebay_api_call_daily and confirm total daily calls and the Trading peak have both dropped; do not submit the growth check on the pre-fix numbers.",
         "OPERATOR: read the next ebay-notification-reconcile failure from the container log now that it names itself, and file the real defect."
       ],
-      "priority": 1
+      "priority": 1,
+      "notes": "2026-09-04: this id was minted TWICE on 2026-09-03. The other holder was the /download page work, now renumbered to US-3116/US-3117 in prd.archive.json; this story keeps the number because migrations 00724 and 00725 name it in their headers and an applied migration is the least editable artifact in the repo. Found by src/test/prd-archive-integrity.test.ts, which had been red since 2026-09-03: a story in both files means one copy's notes are lost the moment either is archived, and `prd-story.mjs show US-3110` was already answering from prd.json while a completely different US-3110 sat in the archive. nextId bumped 3116 -> 3118."
     },
     {
       "id": "US-3111",
@@ -3605,7 +3606,8 @@
         "OPERATOR: apply 00725 to prod, NOTIFY pgrst, then redeploy the edge (the column is read by name; the edge must not go first).",
         "OPERATOR: 48 hours after deploy, confirm from ebay_api_call_daily that GET /sell/inventory/v1/offer has fallen to roughly one read per SKU per day, and that no listing sits in 'listed' with an ended eBay listing for more than 24 hours."
       ],
-      "priority": 1
+      "priority": 1,
+      "notes": "2026-09-04: this id was minted TWICE on 2026-09-03. The other holder was the /download page work, now renumbered to US-3116/US-3117 in prd.archive.json; this story keeps the number because migrations 00724 and 00725 name it in their headers and an applied migration is the least editable artifact in the repo. Found by src/test/prd-archive-integrity.test.ts, which had been red since 2026-09-03: a story in both files means one copy's notes are lost the moment either is archived, and `prd-story.mjs show US-3110` was already answering from prd.json while a completely different US-3110 sat in the archive. nextId bumped 3116 -> 3118."
     },
     {
       "id": "US-3112",

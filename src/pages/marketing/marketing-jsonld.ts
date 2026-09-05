@@ -2035,7 +2035,7 @@ export function forBrandsJsonLd(): JsonLd[] {
   ];
 }
 
-// US-3111: the questions the download page has to answer before somebody
+// US-3117: the questions the download page has to answer before somebody
 // installs anything. The extension one is the load-bearing one — "does this
 // see my marketplace password" is what stops a reseller mid-install.
 export const DOWNLOAD_FAQS = [
@@ -2066,7 +2066,7 @@ export const DOWNLOAD_FAQS = [
 ] as const;
 
 /**
- * /download (US-3111) — one SoftwareApplication per platform, plus the FAQ.
+ * /download (US-3117) — one SoftwareApplication per platform, plus the FAQ.
  *
  * The URLs are the CONSTANTS from app-links.ts, never the env-resolved
  * helpers. Structured data describes the published product, so a staging build

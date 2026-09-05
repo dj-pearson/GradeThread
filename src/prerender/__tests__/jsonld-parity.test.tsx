@@ -110,7 +110,7 @@ const CASES: Array<[string, ComponentType<Record<string, unknown>>, string]> = [
   ["resale-value-by-condition", ResaleValueByConditionPage, "/resale-value-by-condition"],
   ["grading-by-category", GradingByCategoryPage, "/grading-by-category"],
   ["about", AboutPage, "/about"],
-  // US-3111: three SoftwareApplication entries plus the download FAQ.
+  // US-3117: three SoftwareApplication entries plus the download FAQ.
   ["download", DownloadPage, "/download"],
 ];
 
