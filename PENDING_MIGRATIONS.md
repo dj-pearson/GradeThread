@@ -1,5 +1,40 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🟠 HELD: 00727 - the seller's off switch for the on-marketplace badge (US-3060)
+
+**What it does.** One column:
+
+```
+ALTER TABLE public.flipdesk_settings
+  ADD COLUMN IF NOT EXISTS listing_badge_opt_out boolean NOT NULL DEFAULT false;
+```
+
+`false` means badges ON. The badge only ever renders for a listing the seller
+already paid to grade and already published with a public certificate, so it
+surfaces a fact they have already made public rather than disclosing a new one.
+
+**Risk: LOW.** `ADD COLUMN ... NOT NULL DEFAULT false` does not rewrite the
+table on Postgres 11+, and `flipdesk_settings` is small (one row per seller who
+has touched a FlipDesk setting). Idempotent — `IF NOT EXISTS`, safe to re-run.
+No backfill: every existing row gets the default, which is the behaviour every
+seller has today.
+
+**Apply order:** 00727 alone; nothing else is pending.
+
+**`NOTIFY pgrst, 'reload schema';` IS REQUIRED.** A new column on a table
+PostgREST already serves is invisible until the schema cache reloads, and the
+SPA writes this column through PostgREST.
+
+**⚠ THE EDGE READS THIS COLUMN AND IS BUILT TO SURVIVE ITS ABSENCE, DELIBERATELY.**
+`loadOptOuts` in `routes/public-grading.ts` treats a 42703 undefined-column error
+as "nobody has opted out", which is CORRECT rather than permissive: between the
+deploy and this apply there is no column, no switch, and no way anyone could
+have expressed the preference. Every OTHER error from that read fails CLOSED and
+returns no badges, because once the column exists an unreadable settings row
+means we do not know who opted out. So the ordering is safe in both directions,
+and the only thing the gap costs is that the switch is not yet writable.
+
+
 ## APPLIED 2026-09-04: 00726 - undo 00724's REVOKE on pollable_ebay_owner_ids (US-3110 follow-up)
 
 **Verified applied 2026-09-04, and verified WORKING, which is not the same check.** Three reads against production, all from a laptop with nothing but the anon key that ships in the browser bundle:

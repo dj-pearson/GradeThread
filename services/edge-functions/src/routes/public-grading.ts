@@ -106,6 +106,14 @@ import { getEffectiveTellsForBrand } from "../lib/brand-authenticity.ts";
 import { recordAiUsage } from "../lib/ai-usage.ts";
 import { generateListingFields } from "../lib/ai-listing.ts";
 import {
+  type BadgePlatform,
+  type BadgeSourceRow,
+  badgeResponse,
+  MAX_BADGE_IDS,
+  parseBadgeQuery,
+  shapeListingCertificates,
+} from "../lib/listing-certificates.ts";
+import {
   FREE_DRAFT_AI_FEATURE,
   FREE_DRAFT_PROMPT_SELECT_KEY,
   freeDraftLogLine,
@@ -2455,3 +2463,162 @@ publicGradingRoutes.post("/listing-draft", async (c) => {
 
 /** Exported for the route test: the per-IP hourly cap this endpoint enforces. */
 export const LISTING_DRAFT_LIMIT = LISTING_DRAFT_PER_IP_PER_HOUR;
+
+
+// ── On-marketplace verified badge (US-3060) ──────────────────────────
+// GET /listing-certificates?platform=<ebay|poshmark|mercari>&ids=<comma list>
+//
+// UNAUTHENTICATED, and it takes no user id, so there is nothing to tenant-scope
+// and nothing to leak by failing to scope it. Every field it returns is already
+// public: a grade report with a certificate_id is a published certificate. What
+// it adds is the JOIN — that a given marketplace listing belongs to a
+// GradeThread seller — which is the entire point of the badge and which the
+// seller can switch off (flipdesk_settings.listing_badge_opt_out, 00727).
+//
+// Rate limiting is the shared publicReadLimiter("grading-public") already
+// mounted on /api/grading/public/* in main.ts; this needs no window of its own
+// because it spends no AI budget and reads four indexed rows.
+//
+// Four small reads rather than one nested PostgREST select, deliberately: the
+// chain is listings -> inventory_items -> grade_reports plus a settings lookup,
+// and an embed that silently returns nothing when a relationship name is wrong
+// would fail as "no badges", which is indistinguishable from "no badges". Four
+// explicit `.in()` queries on at most 24 ids each are cheap and legible.
+publicGradingRoutes.get("/listing-certificates", async (c) => {
+  try {
+    const parsed = parseBadgeQuery(
+      c.req.query("platform"),
+      c.req.query("ids"),
+    );
+    if (!parsed.ok) return c.json({ error: parsed.error, code: parsed.code }, 400);
+
+    const rows = await loadBadgeRows(parsed.platform, parsed.ids);
+    if (rows === null) {
+      // A read we could not trust. Absence is not a claim, so answer with an
+      // empty set rather than a 500 the extension would have to interpret.
+      return c.json(badgeResponse(parsed.platform, []), 200);
+    }
+    return c.json(badgeResponse(parsed.platform, shapeListingCertificates(rows)), 200);
+  } catch (err) {
+    console.error(
+      "public-grading /listing-certificates:",
+      err instanceof Error ? err.message : String(err),
+    );
+    // Same reasoning: the badge simply does not render.
+    return c.json({ platform: c.req.query("platform") ?? null, found: 0, certificates: [] }, 200);
+  }
+});
+
+/**
+ * The four reads behind a badge lookup. Returns null when something went wrong
+ * badly enough that a "no badges" answer would be a guess rather than a fact.
+ */
+async function loadBadgeRows(
+  platform: BadgePlatform,
+  ids: string[],
+): Promise<BadgeSourceRow[] | null> {
+  const { data: listings, error: listErr } = await supabaseAdmin
+    .from("listings")
+    .select("platform_listing_id, inventory_item_id")
+    .eq("platform", platform)
+    .in("platform_listing_id", ids)
+    .limit(MAX_BADGE_IDS * 2);
+  if (listErr) return null;
+  const listingRows = (listings ?? []) as Array<
+    { platform_listing_id: string | null; inventory_item_id: string | null }
+  >;
+  if (listingRows.length === 0) return [];
+
+  const itemIds = [
+    ...new Set(listingRows.map((r) => r.inventory_item_id).filter((v): v is string => !!v)),
+  ];
+  if (itemIds.length === 0) return [];
+
+  const { data: items, error: itemErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select("id, user_id, grade_report_id")
+    .in("id", itemIds);
+  if (itemErr) return null;
+  const itemRows = (items ?? []) as Array<
+    { id: string; user_id: string; grade_report_id: string | null }
+  >;
+  const itemById = new Map(itemRows.map((r) => [r.id, r]));
+
+  const reportIds = [
+    ...new Set(itemRows.map((r) => r.grade_report_id).filter((v): v is string => !!v)),
+  ];
+  if (reportIds.length === 0) return [];
+
+  const { data: reports, error: repErr } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, certificate_id, overall_score, grade_tier, created_at")
+    .in("id", reportIds)
+    .not("certificate_id", "is", null);
+  if (repErr) return null;
+  const reportById = new Map(
+    ((reports ?? []) as Array<{
+      id: string;
+      certificate_id: string | null;
+      overall_score: number | null;
+      grade_tier: string | null;
+      created_at: string | null;
+    }>).map((r) => [r.id, r]),
+  );
+
+  const optedOut = await loadOptOuts([...new Set(itemRows.map((r) => r.user_id))]);
+  if (optedOut === null) return null;
+
+  const out: BadgeSourceRow[] = [];
+  for (const listing of listingRows) {
+    const listingId = listing.platform_listing_id;
+    if (!listingId || !listing.inventory_item_id) continue;
+    const item = itemById.get(listing.inventory_item_id);
+    if (!item?.grade_report_id) continue;
+    const report = reportById.get(item.grade_report_id);
+    if (!report) continue;
+    out.push({
+      listingId,
+      certificateId: report.certificate_id,
+      overallScore: report.overall_score,
+      gradeTier: report.grade_tier,
+      gradedAt: report.created_at,
+      optedOut: optedOut.has(item.user_id),
+    });
+  }
+  return out;
+}
+
+/**
+ * The set of sellers who have switched the badge off.
+ *
+ * ⚠ THE MISSING-COLUMN BRANCH IS NOT A FAIL-OPEN, and the distinction is the
+ * only interesting thing in this function. Between the code deploying and
+ * migration 00727 applying, `listing_badge_opt_out` does not exist. In that
+ * window NOBODY HAS OPTED OUT — there is no column, no switch and no way to
+ * have expressed the preference — so treating every seller as opted in is the
+ * correct answer rather than a permissive guess.
+ *
+ * Every OTHER error fails CLOSED (null, which the caller turns into an empty
+ * response). Once the column exists, a settings read we could not complete
+ * means we do not know who opted out, and showing a badge on that basis would
+ * override a preference somebody actually set.
+ */
+async function loadOptOuts(userIds: string[]): Promise<Set<string> | null> {
+  if (userIds.length === 0) return new Set();
+  const { data, error } = await supabaseAdmin
+    .from("flipdesk_settings")
+    .select("user_id, listing_badge_opt_out")
+    .in("user_id", userIds);
+  if (error) {
+    // PostgREST answers 42703 for an undefined column, naming it in the message.
+    const undefinedColumn = error.code === "42703" ||
+      /listing_badge_opt_out/.test(error.message ?? "");
+    if (undefinedColumn) return new Set();
+    return null;
+  }
+  const out = new Set<string>();
+  for (const row of (data ?? []) as Array<{ user_id: string; listing_badge_opt_out: unknown }>) {
+    if (row.listing_badge_opt_out === true) out.add(row.user_id);
+  }
+  return out;
+}

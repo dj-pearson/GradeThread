@@ -8034,3 +8034,54 @@ Deno.test({
     assertEquals(after.listings, before.listings, "an anonymous draft created a listing");
   },
 });
+
+Deno.test({
+  // US-3060 AC8. The badge route is UNAUTHENTICATED and takes no user id, so
+  // there is no tenant to scope it to. That is a property worth a case rather
+  // than a comment, because the obvious "improvement" to this endpoint is to
+  // let a caller pass a seller id to narrow the lookup — which would turn a
+  // public read into an inventory oracle over every other tenant.
+  //
+  // Deliberately NOT gated on a seeded platform_listing_id. A case needing a
+  // graded, published, certificated item would gate on an id the seed script
+  // does not emit, so it would skip in CI and prove nothing. What is asserted
+  // here holds for ANY id: no auth is required, an unknown id is an empty
+  // answer rather than an error, and a user id in the query changes nothing.
+  name: "US-3060: the listing-badge route takes no user id and leaks nothing",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const path = "/api/grading/public/listing-certificates";
+    const unknown = `zzz-${crypto.randomUUID()}`;
+
+    const anon = await fetch(`${BASE}${path}?platform=ebay&ids=${unknown}`);
+    assertEquals(anon.status, 200, "the public badge route now requires auth");
+    const body = await anon.json();
+    assertEquals(body.found, 0, "an unknown listing id returned a certificate");
+    assertEquals(body.certificates.length, 0);
+    // Absence is not a claim: no "unverified" marker, ever.
+    assert(
+      !JSON.stringify(body).toLowerCase().includes("unverified"),
+      "the response carries an unverified marker",
+    );
+
+    // A user id in the query must not narrow, widen or otherwise change the
+    // answer — the route must simply not read it.
+    const withUser = await fetch(
+      `${BASE}${path}?platform=ebay&ids=${unknown}&user_id=${Deno.env.get("TEST_WORKSPACE_OWNER_ID") ?? ""}`,
+    );
+    assertEquals(withUser.status, 200);
+    assertEquals(
+      JSON.stringify(await withUser.json()),
+      JSON.stringify(body),
+      "a user_id in the query changed the answer, so the route is reading it",
+    );
+
+    // And an authenticated caller gets exactly the same public answer: there is
+    // no privileged view of this endpoint to accidentally expose.
+    const asB = await fetch(`${BASE}${path}?platform=ebay&ids=${unknown}`, {
+      headers: authHeaders(B_JWT!),
+    });
+    assertEquals(asB.status, 200);
+    assertEquals(JSON.stringify(await asB.json()), JSON.stringify(body));
+  },
+});
