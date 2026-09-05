@@ -1,6 +1,16 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🟠 HELD: 00727 - the seller's off switch for the on-marketplace badge (US-3060)
+## ✅ APPLIED 2026-09-05: 00727 - the seller's off switch for the on-marketplace badge (US-3060)
+
+**Applied by the owner 2026-09-05, verified read-only the same minute.**
+`GET https://functions.gradethread.com/health/ready` reports
+`schema: {"expected":"00726","applied":"00727","status":"ahead"}` — the database
+has it and the still-running container is the previous build, which is exactly
+the mid-redeploy state. `database: ok` on the same read.
+
+The `applied_migrations` record is itself the evidence the column exists: the
+self-record footer is the LAST statement in the file, so a failed
+`ADD COLUMN` would have aborted the apply before it ever ran.
 
 **What it does.** One column:
 
