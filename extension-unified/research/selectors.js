@@ -330,12 +330,19 @@ const GT_CC_CONFIG = {
     // mode. `style` is handled in marketplace.js the way `srcset` already is.
     //
     // The carousel only mounts the three tiles around the current one, so
-    // `.ngx-gallery-image` is the FULL-SIZE set but incomplete on a 9-photo lot;
-    // `.ngx-gallery-thumbnail` is the complete set at thumbnail resolution. Both
-    // are listed, full-size first, and no urlUpgrade maps between them: the
-    // thumbnail is `..._0716t1.jpg` against `..._07161.png` and the mapping was
-    // NOT verified across enough lots to encode. Guessing it would send the
-    // grader a 404 that looks like a photo.
+    // `.ngx-gallery-image` is the FULL-SIZE set but INCOMPLETE -- three of six
+    // on a six-photo lot. `.ngx-gallery-thumbnail` is the complete set, and the
+    // urlUpgrade below turns each thumbnail into its full-size original, so the
+    // thumbnails are listed FIRST and are what the grader actually receives.
+    //
+    // ⚠ MEASURED, NOT ASSUMED (2026-09-05). Fifteen thumbnails across three
+    // lots (/item/276278053 six, /item/276277887 three, /item/274725075 six),
+    // every derived URL loaded, zero failures, and the size difference is the
+    // whole point: 333px thumbnails against 1005-3000px originals. Grading a
+    // 333px photo would be grading a smudge.
+    //
+    // The indexes are NOT contiguous -- 276278053 serves t1..t5 and t7, with
+    // no t6 -- so the upgrade rewrites each thumbnail URL and nothing counts.
     shopgoodwill: {
       label: "ShopGoodwill",
       enabled: true,
@@ -348,11 +355,19 @@ const GT_CC_CONFIG = {
       // id is the only thing this adapter reads out of the URL.
       assetIdPattern: "/item/(\\d+)",
       gallery: [
-        ".ngx-gallery-image",
         ".ngx-gallery-thumbnail",
+        ".ngx-gallery-image",
         ".image-gallery img.sr-only"
       ],
       imageAttrs: ["style", "src"],
+      // `..._0716t3.jpeg` -> `..._07163.png`. Anchored at the end so a `t` or a
+      // `.jpeg` anywhere earlier in the CDN path cannot be rewritten, and the
+      // query string is carried through rather than dropped.
+      urlUpgrade: {
+        pattern: "t(\\d+)\\.jpe?g(\\?.*)?$",
+        replacement: "$1.png$2",
+        flags: "i"
+      },
       title: ["h1"],
       // `Current Price:` is the live figure on an auction and the asking price
       // on a Buy It Now, which is why it is read rather than `Minimum Bid:`.
@@ -379,11 +394,16 @@ const GT_CC_CONFIG = {
       // and do its own arithmetic. A countdown would have been self-updating;
       // this is a fixed string read once.
       endsOnFormat: "MM/DD/YYYY hh:mm:ss A [PT]",
-      // ⚠ AND THE SHIPPING ESTIMATE IS NOT ON THE PAGE. `Shipping Price:` reads
-      // "Estimate Shipping" -- a button that wants a ZIP. Handling IS stated
-      // ($3.99 on both probed lots). AC2 assumes both a buyer premium and a
-      // shipping estimate are readable; neither is. ShopGoodwill charges
-      // shipping + handling and no percentage premium at all.
+      // ⚠ AND THE SHIPPING ESTIMATE IS NOT ON THE PAGE. `Shipping Price:` has
+      // THREE states, and only one of them is a number:
+      //   "Estimate Shipping"  a button that wants a ZIP before it will say
+      //   "Pickup Only"        no shipping at all, and the lot is only worth
+      //                        bidding on if you can drive to that Goodwill
+      //   "$12.34"             an actual figure, on the lots that carry one
+      // Handling IS always stated ($3.99 on all three probed lots). AC2 assumes
+      // both a buyer premium and a shipping estimate are readable; neither is,
+      // and ShopGoodwill charges no percentage premium at all -- the cost basis
+      // is bid + handling + whatever shipping turns out to be.
       maxImages: 6
     }
   }

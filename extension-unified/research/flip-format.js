@@ -163,6 +163,127 @@
     return isFinite(dollars) && dollars >= 0 ? Math.round(dollars * 100) : null;
   }
 
+
+  // ── Sourcing cost basis (US-3067 AC2) ───────────────────────────────────
+  //
+  // On a resale listing the price IS the cost: you pay what it says. On a
+  // sourcing site it is not, and the gap is where a flip goes from profitable
+  // to not. A $15 lot on ShopGoodwill costs $15 plus a handling fee plus
+  // shipping, and the reseller who reads "$15" and bids to their $22 breakeven
+  // has already lost.
+  //
+  // So the card says the arithmetic out loud rather than folding it into one
+  // number: "at the current bid of $15 plus $9 fees". A reseller checking our
+  // maths against the page should be able to.
+  //
+  // ── EVERY FIGURE HAS A SOURCE, AND ONE OF THEM IS "NOT ON THE PAGE" ─────
+  //
+  // Read off three live ShopGoodwill lots on 2026-09-05 (/item/276278053,
+  // /item/276277887, /item/274725075):
+  //
+  //   Handling Price   ALWAYS STATED in the details table. $3.99 on all three.
+  //                    Read per lot; never assumed, because it is per-seller
+  //                    and a fixed default here would be wrong the first time
+  //                    a different Goodwill region prices it differently.
+  //   Shipping Price   THREE STATES, and only one is a number:
+  //                      "$12.34"            an actual figure
+  //                      "Estimate Shipping" a button that wants a ZIP first
+  //                      "Pickup Only"       no shipping, and the lot is worth
+  //                                          bidding on ONLY if you can drive
+  //                                          to that Goodwill
+  //   Buyer premium    NONE. ShopGoodwill charges no percentage premium at
+  //                    all. AC2 says "the site's stated buyer premium"; there
+  //                    isn't one, and inventing a plausible percentage would
+  //                    have quietly shifted every verdict.
+  //   Sales tax        NOT MODELLED. It is destination-based and the page
+  //                    cannot know the buyer's address, so a number here would
+  //                    be a guess dressed as a fee.
+  //
+  // ── WHAT AN UNKNOWN COSTS ───────────────────────────────────────────────
+  //
+  // When shipping is unreadable the basis is INCOMPLETE, and the card says so
+  // instead of quietly treating the unknown as zero. That is the same rule
+  // `money()` above follows for an absent margin: a missing number is not a
+  // small number. An incomplete basis still produces a floor — bid plus
+  // handling is genuinely the least this can cost — and the copy calls it a
+  // floor rather than a total.
+
+  /** The three states `Shipping Price:` can be in. */
+  const SHIPPING_UNKNOWN = "unknown"; // "Estimate Shipping" — needs a ZIP
+  const SHIPPING_PICKUP = "pickup"; // "Pickup Only" — no shipping, must collect
+  const SHIPPING_KNOWN = "known"; // an actual figure
+
+  /**
+   * Read `Shipping Price:` into a state and, when there is one, a number.
+   *
+   * Order matters: the pickup and estimate strings are checked BEFORE the
+   * number, because "Estimate Shipping" contains no digits but a future wording
+   * with one in it (say "Estimate Shipping from 45601") must not be read as a
+   * $45,601 shipping charge.
+   */
+  function readShipping(raw) {
+    if (typeof raw !== "string" || !raw.trim()) {
+      return { state: SHIPPING_UNKNOWN, cents: null };
+    }
+    if (/pickup\s*only/i.test(raw)) return { state: SHIPPING_PICKUP, cents: 0 };
+    if (/estimate/i.test(raw)) return { state: SHIPPING_UNKNOWN, cents: null };
+    const cents = priceToCents(raw);
+    return cents === null
+      ? { state: SHIPPING_UNKNOWN, cents: null }
+      : { state: SHIPPING_KNOWN, cents };
+  }
+
+  /**
+   * What this lot actually costs to win, from the strings on the page.
+   *
+   * `complete` is the load-bearing field. False means shipping could not be
+   * read, the total is a FLOOR rather than a total, and the caller must not
+   * present it as the cost of the flip.
+   */
+  function sourcingCostBasis(input) {
+    const bid = priceToCents(input && input.price);
+    if (bid === null) return null; // no price, no basis, no card
+
+    const handling = priceToCents(input && input.handling) || 0;
+    const shipping = readShipping(input && input.shipping);
+    const feeCents = handling + (shipping.cents || 0);
+
+    return {
+      bidCents: bid,
+      handlingCents: handling,
+      shippingCents: shipping.cents,
+      shippingState: shipping.state,
+      feeCents: feeCents,
+      totalCents: bid + feeCents,
+      // Pickup counts as COMPLETE: zero shipping is a real number, not an
+      // absent one, and the caller warns about the drive separately.
+      complete: shipping.state !== SHIPPING_UNKNOWN,
+      pickupOnly: shipping.state === SHIPPING_PICKUP
+    };
+  }
+
+  /**
+   * The sentence AC2 asks for, stating the basis rather than hiding it.
+   *
+   * Never promises. "at the current bid of $15 plus $4 fees" is checkable
+   * against the page; "this will cost you $19" is not, because the bid moves.
+   */
+  function costBasisLabel(basis) {
+    if (!basis) return "";
+    const bid = money(basis.bidCents);
+    const fees = money(basis.feeCents);
+    if (bid === null) return "";
+    if (!basis.complete) {
+      return "at the current bid of " + bid + " plus " + fees +
+        " handling, before shipping";
+    }
+    if (basis.pickupOnly) {
+      return "at the current bid of " + bid + " plus " + fees +
+        " fees, pickup only";
+    }
+    return "at the current bid of " + bid + " plus " + fees + " fees";
+  }
+
   // US-3052: the popup keeps the last verdict per listing on-device.
   //
   // The key is the listing without its hash and without tracking params, so
@@ -219,5 +340,11 @@
     sellThroughLabel,
     panelFor,
     priceToCents,
+    SHIPPING_UNKNOWN,
+    SHIPPING_PICKUP,
+    SHIPPING_KNOWN,
+    readShipping,
+    sourcingCostBasis,
+    costBasisLabel,
   };
 });

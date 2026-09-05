@@ -136,6 +136,48 @@ assert.ok(SOURCING.length > 0, "no sourcing adapter is registered");
   assert.ok(m[1].endsWith("_07161.png"), m[1]);
 })();
 
+(function thumbnailsAreUpgradedToTheOriginal() {
+  // The carousel mounts only three tiles, so the THUMBNAILS are the complete
+  // set and they come first. Without this upgrade the grader receives 333px
+  // images, which is grading a smudge: the originals measured 1005-3000px
+  // across three lots on 2026-09-05.
+  const sg = cfg.adapters.shopgoodwill;
+  assert.strictEqual(
+    sg.gallery[0],
+    ".ngx-gallery-thumbnail",
+    "the complete set must be tried first, or a six-photo lot sends three",
+  );
+  assert.ok(sg.urlUpgrade, "no thumbnail-to-original upgrade");
+
+  const utilsSelf = {};
+  new Function(
+    "self",
+    fs.readFileSync(
+      path.join(root, "extension-unified", "research", "image-utils.js"),
+      "utf8",
+    ),
+  )(utilsSelf);
+  const IMG = Object.values(utilsSelf).find(
+    (v) => v && typeof v.applyUrlUpgrade === "function",
+  );
+  assert.ok(IMG, "image-utils did not export applyUrlUpgrade");
+
+  const up = (u) => IMG.applyUrlUpgrade(u, sg.urlUpgrade);
+  const CDN = "https://shopgoodwillimages.azureedge.net/production/32/Items/2026-07-16/";
+  assert.strictEqual(up(CDN + "abc_0716t3.jpeg"), CDN + "abc_07163.png");
+  // A query string is carried through, not dropped.
+  assert.strictEqual(up(CDN + "abc_0716t1.jpeg?v=2"), CDN + "abc_07161.png?v=2");
+  // Indexes are NOT contiguous — /item/276278053 serves t1..t5 and t7 — so the
+  // rewrite has to come off each URL rather than off a counter.
+  assert.strictEqual(up(CDN + "abc_0716t7.jpeg"), CDN + "abc_07167.png");
+  // Already-full URLs pass through untouched.
+  assert.strictEqual(up(CDN + "abc_07163.png"), CDN + "abc_07163.png");
+  // Anchored at the END: a `t<digits>.jpeg` earlier in the path is not the
+  // filename and must not be rewritten.
+  const tricky = "https://cdn.example/t9.jpeg/Items/2026-07-16/abc_07163.png";
+  assert.strictEqual(up(tricky), tricky);
+})();
+
 // ── 5. the health allowlist knows about it ─────────────────────────────────
 
 (function selectorHealthAcceptsIt() {
@@ -182,8 +224,131 @@ assert.ok(SOURCING.length > 0, "no sourcing adapter is registered");
   );
 })();
 
+
+// ── the cost basis (US-3067 AC2/AC7) ───────────────────────────────────────
+//
+// On a resale listing the price IS the cost. On a sourcing site it is not, and
+// the gap is exactly where a flip stops being profitable. Everything below is
+// about one property: an unknown fee must never read as a small fee.
+
+const FLIP = (function () {
+  const src = fs.readFileSync(
+    path.join(root, "extension-unified", "research", "flip-format.js"),
+    "utf8",
+  );
+  const selfObj = {};
+  new Function("self", src)(selfObj);
+  assert.ok(selfObj.GT_CC_FLIP, "flip-format.js must assign self.GT_CC_FLIP");
+  return selfObj.GT_CC_FLIP;
+})();
+
+(function theArithmeticIsStatedOutLoud() {
+  // AC2's own wording: "at the current bid of $X plus $Y fees". A reseller
+  // checking our maths against the page has to be able to.
+  const b = FLIP.sourcingCostBasis({
+    price: "$19.99",
+    handling: "$3.99",
+    shipping: "$12.34",
+  });
+  assert.strictEqual(b.totalCents, 3632);
+  assert.strictEqual(b.feeCents, 1633);
+  assert.strictEqual(b.complete, true);
+  assert.strictEqual(
+    FLIP.costBasisLabel(b),
+    "at the current bid of $20 plus $16 fees",
+  );
+  // And it never promises. The bid moves; "this will cost you" would not.
+  assert.ok(!/will cost|you will pay|total price/i.test(FLIP.costBasisLabel(b)));
+})();
+
+(function anUnknownShippingIsNotZeroShipping() {
+  // THE ONE THAT MATTERS. "Estimate Shipping" is a button that wants a ZIP, so
+  // the fee is unknown -- and an unknown folded in as 0 would hand the reseller
+  // a breakeven that is too high by the whole postage on a garment.
+  const b = FLIP.sourcingCostBasis({
+    price: "$14.99",
+    handling: "$3.99",
+    shipping: "Estimate ShippingEstimate Shipping",
+  });
+  assert.strictEqual(b.shippingCents, null, "unknown shipping became a number");
+  assert.strictEqual(b.complete, false);
+  const label = FLIP.costBasisLabel(b);
+  assert.ok(/before shipping/.test(label), label);
+  // The total is still useful, but only as a FLOOR, and the copy says which.
+  assert.strictEqual(b.totalCents, 1898);
+  assert.ok(!/plus \$4 fees$/.test(label), "an incomplete basis read as complete");
+})();
+
+(function pickupOnlyIsAKnownZeroAndSaysSo() {
+  // Zero shipping is a real number, not an absent one -- but a lot you have to
+  // drive to Ohio for is not the same deal as one that ships, so it is called.
+  const b = FLIP.sourcingCostBasis({
+    price: "$19.99",
+    handling: "$3.99",
+    shipping: "Pickup Only",
+  });
+  assert.strictEqual(b.shippingCents, 0);
+  assert.strictEqual(b.complete, true);
+  assert.strictEqual(b.pickupOnly, true);
+  assert.ok(/pickup only/.test(FLIP.costBasisLabel(b)));
+})();
+
+(function estimateIsCheckedBeforeTheNumber() {
+  // Order-of-checks regression: "Estimate Shipping" carries no digits today,
+  // but a wording like "Estimate Shipping from 45601" must not be read as a
+  // $45,601 shipping charge. The word wins over the digits.
+  assert.strictEqual(
+    FLIP.readShipping("Estimate Shipping from 45601").state,
+    FLIP.SHIPPING_UNKNOWN,
+  );
+  assert.strictEqual(FLIP.readShipping("Estimate Shipping from 45601").cents, null);
+  // Same for pickup.
+  assert.strictEqual(FLIP.readShipping("Pickup Only - 3 locations").state, FLIP.SHIPPING_PICKUP);
+})();
+
+(function noPriceMeansNoCard() {
+  // A basis with no bid in it is not a cheap lot, it is an unread page.
+  for (const price of ["", "  ", "Sold", null, undefined, 42]) {
+    assert.strictEqual(
+      FLIP.sourcingCostBasis({ price, handling: "$3.99", shipping: "$1.00" }),
+      null,
+      `price ${String(price)} produced a basis`,
+    );
+  }
+  assert.strictEqual(FLIP.costBasisLabel(null), "");
+})();
+
+(function aMissingHandlingFeeIsZeroAndThatIsFine() {
+  // Unlike shipping, handling is ALWAYS stated on the page ($3.99 on all three
+  // probed lots), so its absence means the row moved rather than that the fee
+  // is unknown -- and the floor is still a floor. It is not treated as an
+  // incomplete basis, because shipping is the field that has a "come back with
+  // a ZIP" state and handling is not.
+  const b = FLIP.sourcingCostBasis({ price: "$10.00", handling: "", shipping: "$5.00" });
+  assert.strictEqual(b.handlingCents, 0);
+  assert.strictEqual(b.totalCents, 1500);
+  assert.strictEqual(b.complete, true);
+})();
+
+(function noBuyerPremiumIsInvented() {
+  // AC2 says "the site's stated buyer premium". ShopGoodwill charges none, and
+  // a plausible-looking percentage here would have shifted every verdict while
+  // looking like diligence. The basis is bid + handling + shipping, full stop.
+  const b = FLIP.sourcingCostBasis({ price: "$100.00", handling: "$0", shipping: "$0" });
+  assert.strictEqual(b.totalCents, 10000, "a premium crept into the basis");
+  const src = fs.readFileSync(
+    path.join(root, "extension-unified", "research", "flip-format.js"),
+    "utf8",
+  );
+  assert.ok(
+    !/premiumPct|BUYER_PREMIUM|premiumCents/.test(src),
+    "a buyer premium was added; ShopGoodwill does not charge one",
+  );
+})();
+
 console.log(
   `sourcing-adapters.test.cjs: ${SOURCING.length} sourcing adapter(s) — id off the URL only, ` +
     "no scan, no condition read, a content-script match with no host permission, " +
-    "a gallery that reads background-image, and goodwillfinds stays out",
+    "a gallery that upgrades thumbnails to full size, a cost basis that never " +
+    "reads an unknown fee as a small one, and goodwillfinds stays out",
 );
