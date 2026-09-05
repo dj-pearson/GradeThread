@@ -41,6 +41,28 @@
           </span>
         </label>
 
+        <!-- US-3066. HIDDEN, not disabled, where the browser has no on-device
+             model: a greyed-out control on Firefox invites a support question
+             with no answer ("why can't I turn this on?"). options.js unhides it
+             only when detect() says available or downloadable. -->
+        <div id="quickLookRow" hidden>
+          <label class="opt-toggle">
+            <input type="checkbox" id="quickLook" />
+            <span>
+              Quick look on this device
+              <small>
+                A first impression from a model that runs inside your browser,
+                before you spend a condition check. The photos never leave your
+                machine. It is not a condition grade.
+              </small>
+            </span>
+          </label>
+          <p class="opt-note" id="quickLookState" role="status" aria-live="polite"></p>
+          <button type="button" class="opt-btn" id="quickLookDownload" hidden>
+            Download the on-device model
+          </button>
+        </div>
+
         <label class="opt-toggle">
           <input type="checkbox" id="selectorTelemetry" />
           <span>
@@ -113,6 +135,12 @@
       </section>
     </main>
 
+    <!-- US-3066: before options.js, which reads self.GT_CC_LOCAL to decide
+         whether the quick-look row exists at all. A classic script loaded AFTER
+         its consumer leaves the global undefined and the row silently never
+         appears - the same load-order trap queue-view.test.cjs pins for the
+         popup. -->
+    <script src="research/local-model.js"></script>
     <script src="research/compare-tray.js"></script>
     <script src="theme.js"></script>
     <script src="options.js"></script>

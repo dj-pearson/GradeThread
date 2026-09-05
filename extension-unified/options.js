@@ -50,6 +50,81 @@ async function initToggles() {
     if (tel.checked) await ext.storage.local.set({ selectorTelemetry: true });
     else await ext.storage.local.remove("selectorTelemetry");
   });
+
+  await initQuickLook();
+}
+
+// ── US-3066: the on-device quick look ───────────────────────────────────────
+//
+// HIDDEN where the browser cannot do it, rather than disabled. A greyed-out
+// control on Firefox invites a support question with no answer; an absent one
+// is simply a feature that browser does not have.
+//
+// The model download is ONLY ever started from here, by a click. Chrome's
+// LanguageModel.create() on a "downloadable" model pulls a multi-gigabyte file,
+// and starting that from a content script — on page load, on someone's mobile
+// tether, because they opened a Poshmark listing — is not a decision the
+// extension gets to make for them.
+async function initQuickLook() {
+  const row = document.getElementById("quickLookRow");
+  const box = document.getElementById("quickLook");
+  const state = document.getElementById("quickLookState");
+  const dl = document.getElementById("quickLookDownload");
+  if (!row || !box || !state || !dl) return;
+
+  const LOCAL = self.GT_CC_LOCAL;
+  const availability = LOCAL ? await LOCAL.detect(self) : "unavailable";
+  if (availability === "unavailable") return; // stays hidden
+
+  row.hidden = false;
+  const { quickLook } = await ext.storage.local.get(["quickLook"]);
+  // Defaults ON where the model is available, and turning it back on REMOVES
+  // the key, so "default" and "explicitly on" are one stored state. Same rule
+  // as scanMode above.
+  box.checked = quickLook !== false;
+  box.addEventListener("change", async () => {
+    if (box.checked) await ext.storage.local.remove("quickLook");
+    else await ext.storage.local.set({ quickLook: false });
+  });
+
+  if (availability === "available") {
+    state.textContent = "The on-device model is ready.";
+    return;
+  }
+
+  // downloadable
+  state.textContent =
+    "The on-device model is not downloaded yet. Nothing happens until you ask " +
+    "for it.";
+  dl.hidden = false;
+  dl.addEventListener("click", async () => {
+    dl.disabled = true;
+    state.textContent = "Starting the download…";
+    try {
+      const session = await self.LanguageModel.create({
+        monitor(m) {
+          m.addEventListener("downloadprogress", (e) => {
+            const pct = typeof e.loaded === "number"
+              ? Math.round(e.loaded * 100)
+              : null;
+            state.textContent = pct === null
+              ? "Downloading the on-device model…"
+              : `Downloading the on-device model… ${pct}%`;
+          });
+        },
+      });
+      if (session && typeof session.destroy === "function") session.destroy();
+      state.textContent = "The on-device model is ready.";
+      dl.hidden = true;
+    } catch (_e) {
+      // Named, not swallowed. A download that fails silently leaves the toggle
+      // on and nothing working, which is the worst of both.
+      state.textContent =
+        "The download did not finish. You can try again, and the quick look " +
+        "stays off until it does.";
+      dl.disabled = false;
+    }
+  });
 }
 
 // ── per-site opt-outs ───────────────────────────────────────────────────────

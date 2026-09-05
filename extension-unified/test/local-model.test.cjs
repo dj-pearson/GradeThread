@@ -281,3 +281,72 @@ const LOCAL = loadLocalModel();
   console.error(err);
   process.exit(1);
 });
+
+// ── US-3066 AC5: the options page ───────────────────────────────────────────
+//
+// Three rules, and each has a specific failure it prevents.
+(function optionsPageWiring() {
+  const html = fs.readFileSync(path.resolve(__dirname, "..", "options.html"), "utf8");
+  const js = fs.readFileSync(path.resolve(__dirname, "..", "options.js"), "utf8");
+
+  // 1. LOAD ORDER. options.js reads self.GT_CC_LOCAL to decide whether the row
+  //    exists at all. A classic script loaded AFTER its consumer leaves the
+  //    global undefined and the row silently never appears — which looks
+  //    exactly like a browser that has no on-device model.
+  const localAt = html.indexOf('src="research/local-model.js"');
+  const optionsAt = html.indexOf('src="options.js"');
+  assert.ok(localAt !== -1, "options.html must load research/local-model.js");
+  assert.ok(
+    localAt < optionsAt,
+    "local-model.js must load BEFORE options.js, or GT_CC_LOCAL is undefined " +
+      "when the quick-look row is decided and the row never renders",
+  );
+
+  // 2. HIDDEN, NOT DISABLED, where the browser cannot do it. A greyed-out
+  //    control on Firefox invites a support question with no answer.
+  assert.ok(
+    /<div id="quickLookRow" hidden>/.test(html),
+    "the quick-look row starts hidden and is unhidden only when detect() says " +
+      "the model is available or downloadable",
+  );
+  assert.ok(
+    /row\.hidden = false/.test(js),
+    "options.js must unhide the row rather than enabling a disabled control",
+  );
+  assert.ok(
+    !/quickLook[^\n]*\.disabled = true/.test(js),
+    "the TOGGLE is never disabled — an unavailable browser hides the row",
+  );
+
+  // 3. THE DOWNLOAD IS NEVER SILENT. LanguageModel.create() on a downloadable
+  //    model pulls a multi-gigabyte file. Starting that on page load, on
+  //    somebody's mobile tether, because they opened a listing, is not a
+  //    decision the extension gets to make — so it happens on a click, on this
+  //    page, and nowhere else.
+  assert.ok(
+    /dl\.addEventListener\("click"/.test(js),
+    "the model download must be behind a click",
+  );
+  assert.ok(
+    /monitor\s*\(/.test(js) && /downloadprogress/.test(js),
+    "the download must report progress — a multi-gigabyte silent wait reads " +
+      "as a hang",
+  );
+  for (const f of ["research/local-model.js", "popup.js"]) {
+    const src = fs.readFileSync(path.resolve(__dirname, "..", f), "utf8");
+    assert.ok(
+      !/LanguageModel\s*\.\s*create/.test(src),
+      `${f} calls LanguageModel.create. Only the options page may start the ` +
+        `model DOWNLOAD, and only on a click.`,
+    );
+  }
+
+  // The stored-state rule, matching scanMode: default ON, and turning it back
+  // on REMOVES the key so "default" and "explicitly on" are one state.
+  assert.ok(
+    /storage\.local\.remove\("quickLook"\)/.test(js),
+    "turning the quick look back on must remove the key, not store true",
+  );
+})();
+
+console.log("✓ local-model: the options row is hidden, not disabled, and the download is a click");
