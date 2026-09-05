@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/seller-credentials.ts
   - services/edge-functions/src/routes/jobs-credentials-refresh.ts
   - services/edge-functions/src/lib/ai-listing.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [ebay, publishing, listings, gotcha]
 summary: An eBay description is frozen text — eBay bans active content and off-eBay links — so anything time-varying in it goes stale until a scheduled revise re-renders it.
 ---
@@ -172,3 +172,12 @@ block changes; the sweep catches it when it does).
 Related: [[ebay-aspect-value-limit]] (the other publish-time constraint that
 surfaces late), [[cross-listing]] (the other marketplaces the same block reaches
 as plain text).
+
+## 2026-09-04: re-read after the US-3047 refine-pass change
+
+`services/edge-functions/src/lib/ai-listing.ts` changed for US-3047:
+a ledger slug on the refine call, a gate that skips the photo-role vision
+pass when every photo is already roled, and that pass's cost recorded on
+the item's `ai_enrichment_log` row. Nothing in the description path moved
+-- not what regenerates it, not when it is considered stale, not what is
+written back to eBay.

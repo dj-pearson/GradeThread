@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/publish-preflight.ts
-reviewed: 2026-09-03
+reviewed: 2026-09-04
 tags: [ebay, publishing, conditions, gotcha]
 summary: Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
 ---
@@ -143,3 +143,14 @@ way to correct a mapping they disagree with.
 - [[grading-scale-and-weights]] — the grade a condition must not overstate
 - [[cross-listing]] — which marketplaces are reached by API at all
 - [[INDEX]]
+
+## 2026-09-04: re-read after the US-3047 refine-pass change
+
+`services/edge-functions/src/lib/ai-listing.ts` changed, and none of it
+touches condition. US-3047 did three things there: the second-pass
+`extractEbayAspects` call now bills the ledger under `autolister_refine`
+instead of sharing `catalog_extract`; the photo-role vision pass is
+skipped when every photo already carries a deliberate role; and that
+pass's tokens and cost now land in the item's `ai_enrichment_log` row.
+Cost accounting and one call-avoidance gate. Condition mapping, the
+policy resolve and the honest-stand-in rule are all unchanged.

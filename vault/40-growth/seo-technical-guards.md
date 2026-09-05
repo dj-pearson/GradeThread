@@ -7,7 +7,7 @@ code_refs:
   - src/prerender/head-builder.ts
   - src/prerender/entry-server.tsx
   - src/lib/seo/json-ld.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [seo, prerender, ci, contract]
 summary: What CI enforces about the HTML crawlers actually receive, and how to read each failure.
 ---
@@ -149,3 +149,11 @@ page into Google's Rich Results Test.
 - [[seo-performance-images]] — the other half of what crawlers experience
 - [[seo-indexability]] — these guards pass while pages still go unindexed
 - [[INDEX]]
+
+## 2026-09-04: a story id moved, the contract did not
+
+`src/prerender/head-builder.ts` shows as changed because `US-3110`/`US-3111` were each minted twice
+on 2026-09-03 by two agents working the tree at once. The /download pair was
+renumbered to `US-3116`/`US-3117` and every comment reference in `src/` was
+rewritten to match (commit 7b0360daa). Comment text only: no guard or head entry was
+added, removed or altered, so nothing this note asserts has moved.

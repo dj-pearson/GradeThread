@@ -11,7 +11,7 @@ code_refs:
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
@@ -428,3 +428,20 @@ roles), which moves both the fill rates and the generation line.
 - [[ebay-aspect-value-limit]] — the other publish-time aspect rejection
 - [[ebay-condition-and-policies]] — the condition equivalent of this parity rule
 - [[INDEX]]
+
+## 2026-09-04: the refine pass is unchanged; only its bill moved
+
+This is the note closest to the US-3047 change, so it is worth being
+precise. The second `extractEbayAspects` pass still runs on the same
+inputs, against the same per-category spec, and fills the same aspects.
+Two things changed around it: it tags the ledger as `autolister_refine`
+rather than sharing `catalog_extract` with the one-item extract path, so
+the cost of a DRAFT's refine can finally be read on its own; and the tool
+schema now carries a prompt-cache breakpoint of its own, because the
+schema is the large repeated part of the request while
+`ASPECT_SYSTEM_PROMPT` sits under the per-model cache minimum.
+
+Neither changes completeness. Whether the cache actually starts hitting
+is US-3047 AC3 and needs a 30+ item batch on prod to answer; the
+measurement is not in yet, so no fill-rate claim here should be read as
+having moved.

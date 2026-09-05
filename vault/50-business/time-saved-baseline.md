@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/routes/flipdesk-time-saved.ts
   - src/lib/time-saved.ts
   - src/test/time-saved-baseline.test.ts
-reviewed: 2026-09-01
+reviewed: 2026-09-04
 tags: [flipdesk, analytics, growth, contract]
 summary: The manual minutes each automated FlipDesk task stands in for, the source of each figure, and the rule that only tasks with an event are counted; both time-saved.ts files mirror the table and a test fails on drift.
 ---
@@ -74,3 +74,15 @@ exists yet; the tile is the only reader.
 
 - [[pricing]] — the same mirror-and-test pattern for the plan matrix.
 - [[flipdesk-plan-gating]]
+
+## 2026-09-04: the parser got CRLF-safe; the table did not change
+
+`src/test/time-saved-baseline.test.ts` split this note on a bare newline
+while the file is CRLF, so its end-anchored row regex matched nothing and
+the table parsed as an empty object. All three of its cases failed on
+every Windows checkout and passed in CI forever, because the runner
+checks out LF. It splits on an optional carriage return now.
+
+No minute figure and no source sentence in the table below was touched.
+The estimates are still the 2026-09-01 owner estimates awaiting
+measurement.

@@ -8,7 +8,7 @@ code_refs:
   - src/lib/analytics.ts
   - src/lib/buyer-analytics.ts
   - src/lib/__tests__/analytics-events.test.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [analytics, posthog, measurement, naming]
 summary: Every product event name is declared in src/lib/analytics-events.ts and enforced by tsc; two naming conventions are live and neither may be renamed.
 ---
@@ -263,3 +263,11 @@ The `calculator_grading_cta_click` event (US-9006) is the other exit from step
 one and uses the same `{source, destination}` pair described above.
 
 Related: [[buyer-economy]].
+
+## 2026-09-04: a story id moved, the contract did not
+
+`src/lib/analytics-events.ts` shows as changed because `US-3110`/`US-3111` were each minted twice
+on 2026-09-03 by two agents working the tree at once. The /download pair was
+renumbered to `US-3116`/`US-3117` and every comment reference in `src/` was
+rewritten to match (commit 7b0360daa). Comment text only: no event name was
+added, removed or altered, so nothing this note asserts has moved.

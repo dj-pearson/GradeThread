@@ -9,7 +9,7 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
@@ -273,3 +273,11 @@ Do not add markup for data that does not exist — no `SearchAction` or
 
 - [[INDEX]]
 - The wider SEO corpus consolidates here in US-2054.
+
+## 2026-09-04: a story id moved, the contract did not
+
+`src/lib/seo/public-routes.ts and src/prerender/head-builder.ts` shows as changed because `US-3110`/`US-3111` were each minted twice
+on 2026-09-03 by two agents working the tree at once. The /download pair was
+renumbered to `US-3116`/`US-3117` and every comment reference in `src/` was
+rewritten to match (commit 7b0360daa). Comment text only: no route or head entry was
+added, removed or altered, so nothing this note asserts has moved.

@@ -7,7 +7,7 @@ source_of_truth: code
 code_refs:
   - src/components/breadcrumbs.tsx
   - src/lib/seo/public-routes.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [accessibility, compliance, wcag, vpat]
 summary: WCAG 2.1 AA, Section 508 and EN 301 549 conformance claims — a published artifact that must stay true, not a snapshot.
 ---
@@ -296,3 +296,11 @@ This document is provided for information purposes only and the contents are sub
 - [[seo-public-route-registry]] — the routes this conformance covers
 - [[archive-semantics]] — why this is NOT archived despite its age
 - [[INDEX]]
+
+## 2026-09-04: a story id moved, the contract did not
+
+`src/lib/seo/public-routes.ts` shows as changed because `US-3110`/`US-3111` were each minted twice
+on 2026-09-03 by two agents working the tree at once. The /download pair was
+renumbered to `US-3116`/`US-3117` and every comment reference in `src/` was
+rewritten to match (commit 7b0360daa). Comment text only: no route was
+added, removed or altered, so nothing this note asserts has moved.

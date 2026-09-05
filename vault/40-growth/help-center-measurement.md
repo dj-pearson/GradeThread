@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/help-analytics.ts
   - functions/_shared/help-analytics.ts
   - src/lib/analytics-events.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [help-center, analytics, seo, contract]
 summary: PostHog cannot see the public help pages because they are server-rendered, so views are counted in Postgres for the public surface and in PostHog for the app, and adding the two together produces a wrong number rather than a bigger one.
 ---
@@ -128,3 +128,11 @@ Two mechanisms, one per tool:
 
 - [[help-center-gating]] — which articles are public at all
 - [[help-center-map]] — the article inventory
+
+## 2026-09-04: a story id moved, the contract did not
+
+`src/lib/analytics-events.ts` shows as changed because `US-3110`/`US-3111` were each minted twice
+on 2026-09-03 by two agents working the tree at once. The /download pair was
+renumbered to `US-3116`/`US-3117` and every comment reference in `src/` was
+rewritten to match (commit 7b0360daa). Comment text only: no event name was
+added, removed or altered, so nothing this note asserts has moved.

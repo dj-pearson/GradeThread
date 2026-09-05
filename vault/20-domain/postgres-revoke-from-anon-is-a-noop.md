@@ -11,8 +11,11 @@ code_refs:
   - supabase/migrations/00611_body_checks_for_ineffective_revokes.sql
   - supabase/migrations/00617_remaining_metered_function_guards.sql
   - supabase/migrations/00723_credit_function_authorization_invariant.sql
+  - supabase/migrations/00686_ledger_rebuild_no_revoke.sql
+  - supabase/migrations/00720_ebay_api_calls_no_revoke.sql
+  - supabase/migrations/00726_pollable_ebay_owner_ids_no_revoke.sql
   - scripts/check-credit-function-guards.mjs
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [postgres, security, migrations, grants]
 summary: CREATE FUNCTION grants EXECUTE to PUBLIC and every role belongs to PUBLIC, so revoking a role by name removes a grant it never held alone. Thirteen migrations used that pattern; six secured nothing, for up to three years.
 ---
@@ -175,3 +178,35 @@ database restart away.
 
 - [[revenue-dashboard-cohorts-and-access]] — a guard that assumed this grant.
 - [[service-role-tables]] — the table-side rule for deny-all operator tables.
+
+## The repair migrations, 2026-09-04
+
+The note described the pattern; it did not name the three migrations that
+actually implement the repair, so someone fixing a fourth had nothing to copy.
+They are now in `code_refs` and they are the templates:
+
+| Broken | Repaired by | Function |
+|---|---|---|
+| 00685 | 00686 | `rebuild_ledger_for_user` |
+| 00711 | 00720 | `bump_ebay_api_calls` |
+| 00724 | 00726 | `pollable_ebay_owner_ids` |
+
+All three do the same two things: restore the default `EXECUTE` (which is what
+disarms the crash, because a role that HOLDS execute never reaches the denial
+path supautils decorates) and move the authorization into the function body,
+where it raises an ordinary `42501`.
+
+**The argument that should have retired this pattern years ago is not the crash.
+It is testability.** A revoke can only be tested by making the call it forbids,
+which on this image is the outage — so nobody tested one, and the same mistake
+shipped three times in six weeks. A body check can be tested by anyone, from
+anywhere, with no credentials and no risk. Verified against production
+2026-09-04 with nothing but the anon key that ships in the browser bundle:
+`POST /rest/v1/rpc/pollable_ebay_owner_ids` returns HTTP 401,
+`42501 pollable_ebay_owner_ids: service role only`, no rows, and the database
+stays up.
+
+**Read the OpenAPI document to check which posture a function is in.** PostgREST
+lists an RPC for the anon key only when anon holds EXECUTE, so
+`GET /rest/v1/` with `Accept: application/openapi+json` separates
+"revoked, crash surface" from "granted, body-checked" without calling anything.

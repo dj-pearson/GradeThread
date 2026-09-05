@@ -7,7 +7,7 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
@@ -135,3 +135,19 @@ confirmed non-vacuous by restoring the old behaviour and watching it hang.
 - [[capacity]] — how many replicas, and when to add more
 - [[connection-pooling]] — the Supavisor layer the no-Redis decision matches
 - [[moc-ops]]
+
+## 2026-09-04: EXPECTED_SCHEMA_VERSION is 00726
+
+`services/edge-functions/src/lib/schema-version.ts` moved 00725 -> 00726
+for migration `00726_pollable_ebay_owner_ids_no_revoke.sql`, which undoes
+the REVOKE that 00724 shipped (see
+[[postgres-revoke-from-anon-is-a-noop]]). The invariant itself is
+untouched: the constant still has to equal the lexically last migration
+prefix, and the boot guard still refuses to start against a schema behind
+it. Only the number moved.
+
+Worth recording because the deploy showed the guard's tolerant direction
+working: with 00726 applied to prod and the old container still running,
+`/health/ready` reported `expected 00724, applied 00726, status ahead` and
+stayed `ready`. Ahead is the safe direction and does not block boot;
+behind is the one that does.
