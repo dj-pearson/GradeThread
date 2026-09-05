@@ -656,6 +656,57 @@ export const CALCULATORS: readonly Calculator[] = [
       },
     ],
   },
+  {
+    slug: "listing-generator",
+    status: "live",
+    story: "US-3089",
+    audience: "seller",
+    title: "eBay Listing Template and Generator",
+    description:
+      "Copyable title and description templates for eBay, Poshmark, Mercari and Depop, with each platform's real character limits. Or drop a photo and have it written.",
+    h1: "Listing template and generator",
+    cardBlurb:
+      "A template per marketplace, with the real limits, and a photo-to-listing generator.",
+    primaryKeyword: "ebay listing template",
+    handoff: {
+      surface: "autolister",
+      heading: "One listing is a template. A closet is a job.",
+      body: "This page writes one listing at a time, which is the right size for a single item you are about to post. A rail of forty is a different problem: the same twelve fields, forty times, in whatever order you happen to open them. AutoLister takes the photos you have already shot and writes the title, item specifics and description for every item in the batch, then holds them as drafts you edit rather than posts you have to undo.",
+      cta: "See how AutoLister handles a whole batch",
+    },
+    secondaryKeywords: [
+      "ebay description template",
+      "ebay title builder",
+      "ebay listing generator",
+      "depop description template",
+      "poshmark listing template",
+      "mercari description template",
+    ],
+    intro:
+      "A template is worth having because the same eight things go in every listing and forgetting one costs you a sale, not a scolding. What it cannot do is know what you are holding. So this page is both halves: a copyable title pattern and description skeleton for each of the four marketplaces, with that platform's real limits printed beside it, and a photo drop that writes the actual listing for the item in your hand. The templates need no account and no photo. The limits below are read from the same table our own software pushes listings against, so when a marketplace changes one, this page changes with it.",
+    faqs: [
+      {
+        q: "What should an eBay listing template include?",
+        a: "Eight things, in this order: a title that leads with brand and item type, the category, the condition, a condition description naming every flaw, item specifics (brand, size, colour, material), measurements taken flat, the description prose, and the price. The first and the sixth are where listings are won. Titles are cut at 80 characters and the words past that are gone rather than shortened, so the ones a buyer types have to be at the front. Measurements matter more than adjectives because a size label is a manufacturer's opinion and a chest measurement is not.",
+      },
+      {
+        q: "How long can an eBay title be?",
+        a: "80 characters, and eBay does not warn you before it truncates. That is the same limit on Poshmark and Mercari. Depop is the odd one out: it has no separate title field at all, so the opening line of your description is what a buyer sees in the grid, and it should carry the brand and the item and nothing else.",
+      },
+      {
+        q: "Can I use the same description on eBay, Poshmark and Mercari?",
+        a: "The prose, yes. The limits and the wording, no. Mercari cuts the description at 1,000 characters and Poshmark at 1,500, while eBay's is effectively unbounded. Condition wording differs too: Poshmark sellers write EUC and GUC, Mercari uses Like new and Good, and Depop uses Used - excellent. A listing that carries another platform's vocabulary reads as written by somebody who does not sell there.",
+      },
+      {
+        q: "Is the listing generator free?",
+        a: "Yes, and it needs no account. Drop one to three photos, pick a marketplace, and it writes the title, item specifics and description. There is an hourly limit per visitor because each generation costs us a vision-model call. The templates on this page have no limit at all: they are static text you can copy as many times as you like.",
+      },
+      {
+        q: "Does the generator set a price?",
+        a: "No, deliberately. A price worth acting on comes from comparable sold items in the same condition, and that needs an account so the comps can be scoped to your own inventory and your own marketplaces. A number generated from one photo with nothing behind it would be worse than no number, which is why you get the words and not the price.",
+      },
+    ],
+  },
 ];
 
 export const CALCULATOR_HUB_META = {

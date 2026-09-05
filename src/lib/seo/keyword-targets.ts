@@ -563,6 +563,29 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
       "do you need a lightbox to photograph clothes",
     ],
   },
+  {
+    // US-3089. The tool nouns carry the volume on this SERP and the how-to
+    // phrasings are blank, so the primary is the noun somebody types when they
+    // want a thing to copy, not a page to read.
+    path: "/tools/listing-generator",
+    cluster: "reseller-tools",
+    intent: "commercial",
+    primary: "ebay listing template",
+    secondary: [
+      "ebay description template",
+      "ebay title builder",
+      "ebay listing generator",
+      "depop description template",
+      "poshmark listing template",
+      "mercari description template",
+    ],
+    questions: [
+      "what should an ebay listing template include",
+      "how long can an ebay title be",
+      "can i use the same description on ebay and poshmark",
+      "is there a free ebay listing generator",
+    ],
+  },
   // ── switch-from pages (US-9209): the reader has decided to move ─────
   {
     path: "/reselling/switch-from-vendoo",

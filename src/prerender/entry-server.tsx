@@ -176,6 +176,7 @@ import { EbaySoldListingsPage } from "@/pages/tools/ebay-sold-listings";
 import { SingleStitchDatingPage } from "@/pages/tools/single-stitch-dating";
 import { ResellerInventorySpreadsheetPage } from "@/pages/tools/reseller-inventory-spreadsheet";
 import { PhotographClothesToSellPage } from "@/pages/tools/photograph-clothes-to-sell";
+import { ListingGeneratorPage } from "@/pages/tools/listing-generator";
 import { FOR_BRANDS_PATH } from "@/lib/seo/for-brands";
 import { ForBrandsPage } from "@/pages/marketing/for-brands";
 import { DOWNLOAD_PATH } from "@/lib/seo/downloads";
@@ -199,6 +200,7 @@ const CALCULATOR_PAGES: Record<string, React.ReactNode> = {
   "single-stitch-dating": <SingleStitchDatingPage />,
   "reseller-inventory-spreadsheet": <ResellerInventorySpreadsheetPage />,
   "photograph-clothes-to-sell": <PhotographClothesToSellPage />,
+  "listing-generator": <ListingGeneratorPage />,
 };
 
 const PAGES: Record<string, React.ReactNode> = {

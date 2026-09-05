@@ -140,6 +140,7 @@ const EbaySoldListingsPage = lazy(() => import("@/pages/tools/ebay-sold-listings
 const SingleStitchDatingPage = lazy(() => import("@/pages/tools/single-stitch-dating").then(m => ({ default: m.SingleStitchDatingPage })));
 const ResellerInventorySpreadsheetPage = lazy(() => import("@/pages/tools/reseller-inventory-spreadsheet").then(m => ({ default: m.ResellerInventorySpreadsheetPage })));
 const PhotographClothesToSellPage = lazy(() => import("@/pages/tools/photograph-clothes-to-sell").then(m => ({ default: m.PhotographClothesToSellPage })));
+const ListingGeneratorPage = lazy(() => import("@/pages/tools/listing-generator").then(m => ({ default: m.ListingGeneratorPage })));
 const ForBrandsPage = lazy(() => import("@/pages/marketing/for-brands").then(m => ({ default: m.ForBrandsPage })));
 const DownloadPage = lazy(() => import("@/pages/marketing/download").then(m => ({ default: m.DownloadPage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
@@ -485,6 +486,7 @@ export const router = createBrowserRouter([
       { path: "/tools/single-stitch-dating", element: <SuspenseWrapper><SingleStitchDatingPage /></SuspenseWrapper> },
       { path: "/tools/reseller-inventory-spreadsheet", element: <SuspenseWrapper><ResellerInventorySpreadsheetPage /></SuspenseWrapper> },
       { path: "/tools/photograph-clothes-to-sell", element: <SuspenseWrapper><PhotographClothesToSellPage /></SuspenseWrapper> },
+      { path: "/tools/listing-generator", element: <SuspenseWrapper><ListingGeneratorPage /></SuspenseWrapper> },
       { path: "/for-brands", element: <SuspenseWrapper><ForBrandsPage /></SuspenseWrapper> },
       { path: "/download", element: <SuspenseWrapper><DownloadPage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served

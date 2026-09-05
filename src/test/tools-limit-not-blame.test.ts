@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { isRateLimited, RATE_LIMITED_CODE } from "@/lib/tool-rate-limit";
+import {
+  AT_CAPACITY_CODE,
+  isAtCapacity,
+  isRateLimited,
+  RATE_LIMITED_CODE,
+} from "@/lib/tool-rate-limit";
 
 // US-2526. The free tools rendered every non-OK response through one red line:
 // "Couldn't grade that photo. Try a clearer, well-lit shot." So a visitor who
@@ -13,6 +18,7 @@ const GRADE = "src/pages/tools/grade-checker.tsx";
 const AUTH = "src/pages/tools/authenticity-check.tsx";
 const FIT = "src/pages/tools/fit-checker.tsx";
 const ROUTE = "services/edge-functions/src/routes/public-grading.ts";
+const GENERATOR = "src/pages/tools/listing-generator.tsx";
 
 function read(rel: string): string {
   return readFileSync(resolve(process.cwd(), rel), "utf8");
@@ -92,5 +98,67 @@ describe("a finished result converts (US-2526)", () => {
     const src = read(FIT);
     expect(src).not.toContain("isRateLimited");
     expect(src).not.toMatch(/fetch\(/);
+  });
+});
+
+describe("at capacity is neither a limit nor a bad photo (US-3089)", () => {
+  // The edge has answered 503 with at_capacity since US-1883 and NOTHING on
+  // this side read it. Rendered through the rate-limit notice it tells a
+  // first-time visitor they have used up a free allowance they never touched;
+  // rendered through the generic error it sends them off to retake a photo
+  // that was fine. Both are the US-2526 mistake wearing a different hat, and
+  // this is the surface where a stranger meets us first.
+
+  it("the client and the server agree on the code", () => {
+    expect(read(ROUTE)).toContain(`export const AT_CAPACITY_CODE = "${AT_CAPACITY_CODE}"`);
+  });
+
+  it("a 503 is capacity, and a 429 is not", () => {
+    expect(isAtCapacity(503, null)).toBe(true);
+    expect(isAtCapacity(200, { code: AT_CAPACITY_CODE })).toBe(true);
+    expect(isAtCapacity(429, { code: RATE_LIMITED_CODE })).toBe(false);
+    expect(isAtCapacity(500, { error: "boom" })).toBe(false);
+  });
+
+  it("the two conditions never both claim the same response", () => {
+    // A response that satisfied both would render whichever branch came first,
+    // which makes the ORDER of two if-statements the thing deciding what a
+    // visitor is told.
+    for (const [status, body] of [
+      [429, { code: RATE_LIMITED_CODE }],
+      [503, { code: AT_CAPACITY_CODE }],
+      [500, null],
+      [400, { code: "bad_target" }],
+    ] as const) {
+      expect(
+        isRateLimited(status, body) && isAtCapacity(status, body),
+        `${status} matches both conditions`,
+      ).toBe(false);
+    }
+  });
+
+  it("the listing generator branches limit, then capacity, then the photo", () => {
+    const src = read(GENERATOR);
+    const limitAt = src.indexOf("isRateLimited(res.status");
+    const capacityAt = src.indexOf("isAtCapacity(res.status");
+    const blameAt = src.search(/Try clearer, well-lit shots/);
+    expect(limitAt, "no rate-limit branch").toBeGreaterThan(-1);
+    expect(capacityAt, "no capacity branch").toBeGreaterThan(-1);
+    expect(blameAt, "no generic fallback to order against").toBeGreaterThan(-1);
+    expect(limitAt).toBeLessThan(blameAt);
+    expect(capacityAt).toBeLessThan(blameAt);
+    expect(src).toContain("<ToolLimitNotice");
+  });
+
+  it("the capacity message blames us and does not mention the photo", () => {
+    const src = read(GENERATOR);
+    const start = src.indexOf("The generator is at capacity right now");
+    expect(start, "no capacity copy").toBeGreaterThan(-1);
+    const copy = src.slice(start, start + 400);
+    expect(copy).toMatch(/That is us, not you/);
+    // The two things it must never do: blame the photo, or imply the visitor
+    // spent something. Neither is true, and both send them away.
+    expect(copy).not.toMatch(/clearer|well-lit|better photo/i);
+    expect(copy).not.toMatch(/used up|ran out|your limit/i);
   });
 });

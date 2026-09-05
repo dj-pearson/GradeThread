@@ -202,6 +202,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/tools/grade-checker": "2026-07-06",
   // Free RN number lookup (US-9033).
   "/tools/rn-lookup": "2026-08-31",
+  "/tools/listing-generator": "2026-09-05",
   // Free authenticity-check tool (US-1771).
   "/tools/authenticity-check": "2026-07-09",
   // Free fit-checker tool (US-1780).
