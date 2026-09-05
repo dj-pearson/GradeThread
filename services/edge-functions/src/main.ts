@@ -74,6 +74,7 @@ import { flipdeskGoogleRoutes } from "./routes/flipdesk-google.ts";
 import { flipdeskGoogleSyncRoutes } from "./routes/flipdesk-google-sync.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
 import { flipdeskExtensionQueueRoutes } from "./routes/flipdesk-extension-queue.ts";
+import { flipdeskReturnShieldRoutes } from "./routes/flipdesk-return-shield.ts";
 import { extensionOrUserAuthMiddleware } from "./middleware/extension-or-user-auth.ts";
 import { flipdeskSyncRoutes } from "./routes/flipdesk-sync.ts";
 import { flipdeskClosetImportRoutes } from "./routes/flipdesk-closet-import.ts";
@@ -531,6 +532,12 @@ app.use("/api/flipdesk/listings/*", authMiddleware);
 // step-up gate.
 app.use("/api/flipdesk/extension-queue", extensionOrUserAuthMiddleware);
 app.use("/api/flipdesk/extension-queue/*", extensionOrUserAuthMiddleware);
+// US-3068: the return shield reads from the extension, which holds an extension
+// token rather than a user JWT. Same middleware as the queue above and for the
+// same reason — /api/flipdesk/ebay/* is behind ebayAuthMiddleware, which falls
+// through to a user JWT and refuses one.
+app.use("/api/flipdesk/return-shield", extensionOrUserAuthMiddleware);
+app.use("/api/flipdesk/return-shield/*", extensionOrUserAuthMiddleware);
 // US-2697: sold-sync observation intake. Both mounts for the same reason as
 // the queue above - there is no bare route today and a wildcard alone would
 // leave one open the day someone adds it.
@@ -1450,6 +1457,7 @@ app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
 // Stores WHAT to do only — never a marketplace credential (the ADR bright line,
 // enforced here, in lib/extension-queue.ts and as a CHECK on the table).
 app.route("/api/flipdesk/extension-queue", flipdeskExtensionQueueRoutes);
+app.route("/api/flipdesk/return-shield", flipdeskReturnShieldRoutes);
 app.route("/api/flipdesk/sync", flipdeskSyncRoutes);
 app.route("/api/flipdesk/expenses", flipdeskExpensesRoutes);
 app.route("/api/flipdesk/qbo", qboRoutes);

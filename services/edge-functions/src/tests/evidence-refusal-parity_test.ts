@@ -31,6 +31,11 @@ function code(src: string): string {
 
 const src = code(Deno.readTextFileSync(ROUTE));
 
+// US-3068: the planner lives here now, so "is there exactly one" has to look at
+// both files. The rule never was "one planner in the route file".
+const PLANNER = new URL("../lib/evidence-plan.ts", import.meta.url);
+const plannerSrc = code(Deno.readTextFileSync(PLANNER));
+
 /** The body of one route handler, by brace matching from its mount. */
 function handlerFor(path: string): string | null {
   const at = src.indexOf(`flipdeskEbayRoutes.post("${path}"`);
@@ -129,12 +134,32 @@ Deno.test("US-2707: one planner answers for both, not two that must agree", () =
   // reported one planner while two existed. A duplicate of the same name is a
   // TypeScript redeclaration error, so the name was the one thing that could
   // never go wrong.
-  const planners = [...src.matchAll(/buildEvidencePlan\(/g)];
+  //
+  // ⚠ AND IT USED TO COUNT WITHIN ONE FILE, which broke the day US-3068
+  // extracted the planner into lib/evidence-plan.ts so a third surface (the
+  // extension's return shield) could ask the same question without a route
+  // importing a route. The property is "one planner in the codebase", not "one
+  // planner in flipdesk-ebay.ts" — pinning the file made a correct extraction
+  // look like the very drift this guard exists to stop.
+  const planners = [
+    ...src.matchAll(/buildEvidencePlan\(/g),
+    ...plannerSrc.matchAll(/buildEvidencePlan\(/g),
+  ];
   assertEquals(
     planners.length,
     1,
-    `${planners.length} places build an evidence plan in this file — there must ` +
-      "be exactly one, or the two case types can reach different verdicts",
+    `${planners.length} places build an evidence plan — there must be exactly ` +
+      "one, or the case types can reach different verdicts",
+  );
+
+  // And every surface reaches THAT one rather than growing its own.
+  assert(
+    /export async function planEvidence\(/.test(plannerSrc),
+    "lib/evidence-plan.ts no longer exports the planner",
+  );
+  assert(
+    !/async function planEvidence\(/.test(src),
+    "flipdesk-ebay.ts has its own planner again",
   );
 });
 

@@ -29,6 +29,16 @@ const EXTENSION_CALLED_PREFIXES = [
   "/api/flipdesk/sync",
   // US-9201: the closet read is posted by the extension with its own token.
   "/api/flipdesk/closet-import",
+  // US-3068: the return shield. The extension sits on an eBay Seller Hub return
+  // page and asks what the evidence pack would say. It could NOT live under
+  // /api/flipdesk/ebay/*, which runs ebayAuthMiddleware and falls through to a
+  // user JWT — an extension token is refused there — so it is its own mount.
+  //
+  // Adding a prefix here widens what an extension token can reach, which is why
+  // this list exists and why the guard failed until it was edited on purpose.
+  // The route behind it is READ-ONLY and sends nothing to eBay
+  // (return-shield_test.ts asserts that).
+  "/api/flipdesk/return-shield",
 ];
 
 Deno.test("every route group the extension calls accepts an extension token", () => {
