@@ -24,7 +24,23 @@ export default defineConfig({
     trace: "on-first-retry",
   },
   projects: [
-    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      // US-3063: the selector spec is its own project, so this one does not
+      // also run it under the webServer it does not need.
+      testIgnore: /extension-selectors\.spec\.ts$/,
+    },
+    // US-3063: shipped selectors resolved against captured marketplace pages.
+    // Its own project because it loads fixtures with page.setContent and needs
+    // NO dev server and no built SPA — the webServer below is skipped for it by
+    // being irrelevant, and the separation keeps a selector failure legible as
+    // "a marketplace changed" rather than as an SPA regression.
+    {
+      name: "extension-selectors",
+      testMatch: /extension-selectors\.spec\.ts$/,
+      use: { ...devices["Desktop Chrome"], baseURL: undefined },
+    },
   ],
   // Serve the production build. `npm run build` must have run first (CI builds
   // before the e2e job; locally run `npm run build` once). Skipped entirely
