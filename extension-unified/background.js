@@ -78,6 +78,11 @@ const GRADE_ENDPOINT = "https://functions.gradethread.com/api/grading/public/gra
 // against the grade budget would let a few scrolls of a results page exhaust the
 // shopper's ability to actually grade anything.
 const SCAN_ENDPOINT = "https://functions.gradethread.com/api/grading/public/scan";
+// US-3060: the on-marketplace verified badge. A public read — no token, no
+// body, no listing content — so it deliberately carries none of scanCards'
+// headers beyond the instance id every call already sends.
+const LISTING_CERTS_ENDPOINT =
+  "https://functions.gradethread.com/api/grading/public/listing-certificates";
 // US-2238: flip mode. NOT under /api/grading/public — this one is authenticated
 // and plan-gated (FlipDesk compPulls), so it lives on the seller side and needs
 // the signed extension token. A request without one is a 401 by design.
@@ -880,6 +885,44 @@ async function gradeFromUrls(
 // EXTENSION_ALLOWED_ORIGINS allowlist) and isn't subject to the marketplace
 // page's CSP. Unlike a grade it spends no AI quota, so anonymous installs are
 // not rationed as tightly — the server's own window is the authority.
+/**
+ * US-3060: fetch the certificates for a batch of marketplace listing ids.
+ *
+ * ABSENCE IS NOT A CLAIM, and this function is where that becomes a network
+ * posture. Every failure — offline, 4xx, 5xx, unparseable body — answers
+ * `{ ok: false }` and the content script renders nothing. There is no error to
+ * show a shopper: they did not ask for this, and an "unverified" marker over
+ * every ungraded listing would be a judgement we have not made.
+ *
+ * It sends NO buyer token, unlike scanCards. The endpoint is public, takes no
+ * user id and returns only already-published certificate fields, so attaching
+ * an identity would associate a shopper with the listings they browse for no
+ * gain whatsoever.
+ */
+async function listingCertificates({ platform, ids }) {
+  if (!platform || !Array.isArray(ids) || ids.length === 0) {
+    return { ok: false, status: 400, error: "Nothing to look up." };
+  }
+  const url = LISTING_CERTS_ENDPOINT +
+    "?platform=" + encodeURIComponent(platform) +
+    "&ids=" + encodeURIComponent(ids.join(","));
+  let resp;
+  try {
+    resp = await fetch(url, {
+      method: "GET",
+      headers: { "X-GT-Extension-Id": await getInstanceId() },
+    });
+  } catch (_e) {
+    return { ok: false, status: 0, error: "offline" };
+  }
+  if (!resp.ok) return { ok: false, status: resp.status, error: "lookup failed" };
+  try {
+    return { ok: true, status: 200, data: await resp.json() };
+  } catch (_e) {
+    return { ok: false, status: resp.status, error: "unparseable" };
+  }
+}
+
 async function scanCards({ cards, marketplace, query, brand }) {
   if (!Array.isArray(cards) || cards.length === 0) {
     return { ok: false, status: 400, error: "Nothing to scan." };
@@ -2886,6 +2929,14 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // that is now a different listing is worse than no badge.
       case "GT_CC_SCAN":
         sendResponse(await scanCards(msg));
+        break;
+      // US-3060: which of these listings has a certificate. Not cached, for the
+      // same reason the scan is not: a grid changes with every filter and sort,
+      // and a badge on a card that is now a different listing is worse than no
+      // badge. The content script's own 60-second gate is what stops this being
+      // a request per scroll.
+      case "GT_CC_LISTING_CERTS":
+        sendResponse(await listingCertificates(msg));
         break;
       // US-2238: flip mode. Not cached — the seller can re-price or the comps can
       // move, and a stale ROI is the one number they'd act on.

@@ -273,3 +273,138 @@ const BADGE = load("research/listing-badge.js", "GT_LISTING_BADGE");
 })();
 
 console.log("listing-badge.test.cjs: ok");
+
+// ── The wiring (US-3060 AC4) ────────────────────────────────────────────────
+//
+// The render itself needs a DOM, so what is asserted here is the wiring that
+// decides whether it EVER runs. Every one of these is a way the badge would
+// silently never appear while every unit test above stayed green — which is the
+// failure mode this repo keeps relearning.
+
+const MANIFEST = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "..", "manifest.json"), "utf8"),
+);
+const MARKETPLACE = fs.readFileSync(
+  path.resolve(__dirname, "..", "research", "marketplace.js"),
+  "utf8",
+);
+const BACKGROUND = fs.readFileSync(
+  path.resolve(__dirname, "..", "background.js"),
+  "utf8",
+);
+const OVERLAY_CSS = fs.readFileSync(
+  path.resolve(__dirname, "..", "research", "overlay.css"),
+  "utf8",
+);
+
+(function theModuleIsActuallyLoadedWhereItIsUsed() {
+  // self.GT_LISTING_BADGE is read at the top of marketplace.js. If the file is
+  // not in the SAME content-script block, that read is undefined, every guard
+  // in marketplace.js short-circuits, and the badge never renders — with no
+  // error anywhere.
+  const blocks = MANIFEST.content_scripts.filter(
+    (b) => Array.isArray(b.js) && b.js.indexOf("research/marketplace.js") !== -1,
+  );
+  assert.ok(blocks.length > 0, "no content-script block loads research/marketplace.js");
+  for (const b of blocks) {
+    assert.ok(
+      b.js.indexOf("research/listing-badge.js") !== -1,
+      "a block loads marketplace.js without listing-badge.js, so GT_LISTING_BADGE " +
+        "is undefined there and the badge silently never renders",
+    );
+    // And BEFORE it, because a UMD global has to exist when marketplace.js runs.
+    assert.ok(
+      b.js.indexOf("research/listing-badge.js") < b.js.indexOf("research/marketplace.js"),
+      "listing-badge.js must load before marketplace.js",
+    );
+  }
+
+  // Every badge platform must be a host the overlay actually runs on. A
+  // platform in BADGE.PLATFORMS with no content script is a lookup that can
+  // never fire.
+  const hosts = blocks
+    .flatMap((b) => b.matches)
+    .map((m) => m.replace("https://", "").split("/")[0].replace("*.", ""));
+  for (const p of BADGE.PLATFORMS) {
+    assert.ok(
+      hosts.some((h) => h.indexOf(p) !== -1),
+      `${p} is a badge platform but no content-script block matches its host`,
+    );
+  }
+})();
+
+(function theLookupHappensBeforeTheCachedGradeReturns() {
+  // boot() takes an EARLY RETURN when a cached grade exists. Loading the
+  // certificate after that point made the bar appear on a first visit and
+  // vanish on the second, which is the worst kind of bug to see reported.
+  const load = MARKETPLACE.indexOf("await loadCertBadges([location.href])");
+  const cached = MARKETPLACE.indexOf('send({ type: "GT_CC_GET_CACHED"');
+  assert.ok(load > -1, "the detail page never loads its certificate");
+  assert.ok(cached > -1, "the cached-grade branch moved; re-check this ordering");
+  assert.ok(
+    load < cached,
+    "loadCertBadges runs AFTER the cached-grade early return, so a return " +
+      "visit to a graded listing shows no badge",
+  );
+})();
+
+(function aCertOnlyCardStillGetsAChip() {
+  // renderBadge used to `return` whenever SCAN.badgeFor produced nothing. That
+  // would make the verified badge conditional on a PRICE signal, so a graded
+  // listing with no comps and no stated condition would carry nothing.
+  assert.ok(
+    /if \(!badge && !certBadge\) return;/.test(MARKETPLACE),
+    "renderBadge returns on a missing triage badge alone, so a certificate " +
+      "with no price signal renders nothing",
+  );
+})();
+
+(function theBackgroundHandlerExistsAndIsPublic() {
+  assert.ok(
+    MARKETPLACE.indexOf('type: "GT_CC_LISTING_CERTS"') !== -1,
+    "the content script never sends the lookup",
+  );
+  assert.ok(
+    BACKGROUND.indexOf('case "GT_CC_LISTING_CERTS":') !== -1,
+    "the background has no handler for the lookup, so every send resolves to " +
+      "undefined and the badge silently never renders",
+  );
+  assert.ok(
+    BACKGROUND.indexOf("/api/grading/public/listing-certificates") !== -1,
+    "the background does not point at the public listing-certificates endpoint",
+  );
+  // ⚠ NO BUYER TOKEN. The endpoint is public, takes no user id, and returns
+  // only already-published certificate fields — attaching an identity would
+  // associate a shopper with the listings they browse for no gain at all.
+  const fn = BACKGROUND.slice(
+    BACKGROUND.indexOf("async function listingCertificates"),
+    BACKGROUND.indexOf("async function scanCards"),
+  );
+  assert.ok(fn.length > 100, "listingCertificates not found where expected");
+  assert.ok(
+    fn.indexOf("gtBuyerToken") === -1 && fn.indexOf("Authorization") === -1,
+    "the badge lookup attaches an identity to a public, anonymous read",
+  );
+})();
+
+(function everyClassTheRenderUsesExistsInTheAuthoredCss() {
+  // The sheet ships as a generated string adopted into a shadow root, so a
+  // class that exists only in the render is invisible rather than unstyled —
+  // and an unstyled chip inside a marketplace's own tile looks like a defect.
+  for (const cls of [
+    "gt-cc-cert",
+    "gt-cc-cert-grade",
+    "gt-cc-cert-by",
+    "gt-cc-cert-link",
+    "gt-cc-cert-chip",
+  ]) {
+    assert.ok(
+      MARKETPLACE.indexOf('"' + cls + '"') !== -1,
+      `${cls} is styled but never rendered`,
+    );
+    assert.ok(
+      OVERLAY_CSS.indexOf("." + cls) !== -1,
+      `${cls} is rendered but has no rule in research/overlay.css`,
+    );
+  }
+})();

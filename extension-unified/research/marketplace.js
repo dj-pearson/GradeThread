@@ -32,6 +32,7 @@
   const SELLER = self.GT_CC_SELLER; // US-2239: pure seller aggregation (seller-memory.js)
   const TRAY = self.GT_CC_TRAY; // US-2240: pure compare-tray logic (compare-tray.js)
   const ATTR = self.GT_ATTRIBUTION; // US-1753: outbound funnel tagging (attribution.js)
+  const CERT = self.GT_LISTING_BADGE; // US-3060: the on-marketplace verified badge
   const DEFAULT_CFG = self.GT_CC_CONFIG; // bundled default (selectors.js)
   // US-2241: the photo ceiling is the ACCOUNT's, not a constant. 4 is the
   // anonymous floor and what we assume until capabilities resolve; a paid tier
@@ -82,6 +83,12 @@
   // costs a boolean check on a detail page.
   let scanning = false;
   let scanEnabled = false;
+
+  // US-3060. Certificates found for listings on this page, keyed by the
+  // marketplace's own listing id, plus the per-tab gate that keeps a grid that
+  // re-renders on scroll from becoming a request per scroll.
+  let certBadges = Object.create(null);
+  const certGate = CERT ? CERT.makeBadgeGate() : null;
   let onSearchPage = false;
   // US-2238 flip-mode state. `caps` is the resolved capability map; the Flip
   // panel only exists for an install whose account has an active FlipDesk plan.
@@ -422,8 +429,65 @@
     }
   }
 
+  // ── the on-marketplace verified badge (US-3060) ─────────────────────────
+  //
+  // ABSENCE IS NOT A CLAIM. Every failure here — no module, no ids, a refused
+  // gate, an offline background, a 4xx, an unparseable body — leaves certBadges
+  // empty and renders nothing. There is no "unverified" badge, because every
+  // ungraded listing on the page would otherwise become something this
+  // extension appears to have judged, and most of those sellers have never
+  // heard of us.
+  async function loadCertBadges(urls) {
+    if (!CERT || !certGate) return;
+    const platform = (adapter && adapter.key) || "";
+    if (!CERT.isBadgePlatform(platform)) return; // no id extractor for this site
+    const ids = CERT.badgeIdsFromUrls(platform, urls);
+    if (!ids.length) return;
+    if (!certGate.allow()) return; // one batch a minute per tab, not per scroll
+    const res = await send({ type: "GT_CC_LISTING_CERTS", platform: platform, ids: ids });
+    if (!res || !res.ok || !res.data) return;
+    certBadges = CERT.badgesFromResponse(res.data);
+  }
+
+  /** The badge for the listing this page IS, or null. */
+  function certBadgeHere() {
+    if (!CERT) return null;
+    const platform = (adapter && adapter.key) || "";
+    const id = CERT.listingIdFromUrl(platform, location.href);
+    return (id && certBadges[id]) || null;
+  }
+
+  /**
+   * The bar at the top of the overlay card. Prepended rather than appended: a
+   * shopper who came for a condition read should see that this listing already
+   * HAS a certified one before they spend a grade on it.
+   */
+  function certBar(badge) {
+    if (!badge) return null;
+    const platform = (adapter && adapter.key) || "";
+    const wrap = el("div", "gt-cc-cert");
+    wrap.appendChild(el("span", "gt-cc-cert-grade", CERT.badgeLabel(badge)));
+    wrap.appendChild(el("span", "gt-cc-cert-by", CERT.STRINGS.attribution));
+    const href = CERT.certificateUrl(ATTR, badge, platform);
+    if (href) {
+      const a = el("a", "gt-cc-cert-link", CERT.STRINGS.linkTitle);
+      a.href = href;
+      a.target = "_blank";
+      a.rel = "noopener";
+      wrap.appendChild(a);
+    }
+    return wrap;
+  }
+
+  /** Prepend the bar to an overlay body when this listing has a certificate. */
+  function maybeCertBar(body) {
+    const bar = certBar(certBadgeHere());
+    if (bar) body.insertBefore(bar, body.firstChild);
+  }
+
   function renderLauncher() {
     renderState((body) => {
+      maybeCertBar(body); // US-3060
       const label = (adapter && adapter.label) || S.launcherTargetFallback;
       body.appendChild(el("p", "gt-cc-lead", T(S.launcherLead, { marketplace: label })));
       const btn = el("button", "gt-cc-cta");
@@ -453,6 +517,7 @@
 
   function renderResult(data, savedAt) {
     renderState((body) => {
+      maybeCertBar(body); // US-3060: a certified grade outranks our estimate
       // A recalled read — show the buyer this is the SAME grade from a prior visit,
       // not a fresh (and possibly different) roll. "Re-read" below forces a new one.
       if (savedAt) {
@@ -1264,7 +1329,14 @@
 
   function renderBadge(card, result) {
     const badge = SCAN.badgeFor(result);
-    if (!badge) return; // nothing honest to say about this card
+    // US-3060: a certificate is worth a chip on its own. Returning early on a
+    // missing triage badge would have made the verified badge conditional on a
+    // price signal, so a graded listing whose price we cannot judge — no comps,
+    // no stated condition — would silently carry nothing.
+    const certBadge = CERT
+      ? certBadges[CERT.listingIdFromUrl((adapter && adapter.key) || "", card.href)]
+      : null;
+    if (!badge && !certBadge) return; // nothing honest to say about this card
     card.node.setAttribute(SCAN_MARK, "1");
 
     // US-1884 (AC4): a badge is the most hostile thing we render — it sits
@@ -1272,15 +1344,20 @@
     // it. So it gets its own shadow root; the tile's stylesheet cannot reach the
     // chips at all, and every badge on the page adopts the SAME constructable
     // sheet rather than carrying its own copy.
-    const mountedBadge = SHADOW.createBadgeHost(document, CSS, badge.cls);
+    const mountedBadge = SHADOW.createBadgeHost(document, CSS, (badge && badge.cls) || "");
     const wrap = mountedBadge.root;
     if (themePref) wrap.setAttribute("data-theme", themePref); // US-3055
     mountedBadge.host.setAttribute("dir", "ltr");
-    for (const part of badge.parts) {
-      wrap.appendChild(el("span", "gt-cc-badge-chip " + part.cls, part.text));
+    if (badge) {
+      for (const part of badge.parts) {
+        wrap.appendChild(el("span", "gt-cc-badge-chip " + part.cls, part.text));
+      }
     }
     // The escalation path: the badge is a triage signal, and this is how the
-    // shopper turns it into an actual condition read.
+    // shopper turns it into an actual condition read. Only when there IS a
+    // triage signal — on a cert-only card the certificate link is the action,
+    // and a second button offering a rougher read beside it is noise.
+    if (badge) {
     const open = el("button", "gt-cc-badge-cta");
     open.setAttribute("type", "button");
     open.textContent = S.badgeCta;
@@ -1293,6 +1370,26 @@
       if (card.href) window.open(card.href, "_blank", "noopener");
     });
     wrap.appendChild(open);
+    }
+
+    // US-3060: a certificate chip BESIDE the triage chips, never instead of
+    // them. The two answer different questions — "is this price fair for what
+    // the seller claims" and "has this exact listing been graded" — and a card
+    // can honestly carry both. Absent when there is no hit, which is most cards.
+    if (certBadge) {
+      const href = CERT.certificateUrl(ATTR, certBadge, (adapter && adapter.key) || "");
+      if (href) {
+        const chip = el("a", "gt-cc-cert-chip", CERT.badgeLabel(certBadge));
+        chip.href = href;
+        chip.target = "_blank";
+        chip.rel = "noopener";
+        chip.title = CERT.STRINGS.attribution;
+        // The tile is a link on most grids, so a click here would navigate the
+        // card before the new tab opened.
+        chip.addEventListener("click", function (e) { e.stopPropagation(); });
+        wrap.appendChild(chip);
+      }
+    }
 
     try {
       card.node.appendChild(mountedBadge.host);
@@ -1350,6 +1447,13 @@
     for (const row of res.data.cards) {
       if (row && typeof row.key === "string") byKey.set(row.key, row);
     }
+    // US-3060: which of these listings already carry a certificate. One
+    // batched lookup for the whole grid, after the triage badges rather than
+    // before — the scan is what the shopper is here for and must not wait on a
+    // badge that may not exist.
+    await loadCertBadges(cards.map((c) => c.href));
+    if (myEpoch !== epoch) return;
+
     for (const card of cards) {
       const row = byKey.get(card.key);
       if (row) renderBadge(card, row);
@@ -1469,6 +1573,13 @@
     // Recall: if this exact listing was already graded, show that SAME grade
     // instead of the launcher (a return visit to a graded item is stable, and it
     // spends no quota). "Re-read" in the result forces a fresh grade.
+    // US-3060: does THIS listing already carry a certificate? Loaded BEFORE the
+    // cached-grade branch below, not after it — a return visit to a graded item
+    // takes that early return, and putting this after it meant the bar appeared
+    // on a first visit and vanished on the second.
+    await loadCertBadges([location.href]);
+    if (stale()) return;
+
     const cached = await send({ type: "GT_CC_GET_CACHED", listingKey: listingKey() });
     if (stale()) return;
     if (cached && cached.data) {

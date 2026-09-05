@@ -464,3 +464,78 @@
 /* US-2239: the shopper's own history with this seller. Same weight as the other
  * notes — it is an observation they made, not a warning we are issuing. */
 #gt-cc-overlay .gt-cc-seller { font-style: normal; }
+
+/* US-3060: the on-marketplace verified badge.
+ *
+ * Two surfaces, one look. A bar on a detail page and a chip inside a scan-mode
+ * result tile, both mounted in a shadow root so the marketplace's own cascade
+ * cannot reach them.
+ *
+ * The GRADE carries the weight, because that is what a shopper scans for. The
+ * attribution is deliberately quieter than the number: it is there so nobody
+ * mistakes the badge for the marketplace's own, not to advertise us over the
+ * fact we are reporting. */
+.gt-cc-cert {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: #eef3fb;
+  color: #0f3460;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.gt-cc-cert .gt-cc-cert-grade {
+  font-weight: 700;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.gt-cc-cert .gt-cc-cert-by {
+  color: #4a5b7a;
+  white-space: nowrap;
+}
+
+.gt-cc-cert .gt-cc-cert-link {
+  margin-left: auto;
+  color: #0f3460;
+  font-weight: 600;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+
+.gt-cc-cert .gt-cc-cert-link:focus-visible {
+  outline: 2px solid #e94560;
+  outline-offset: 2px;
+}
+
+/* The scan-mode chip. Same colours, smaller, and it sits beside the existing
+ * claimed-vs-price chips rather than replacing them: the two answer different
+ * questions and a card can honestly carry both. */
+.gt-cc-badge-row .gt-cc-cert-chip {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+  white-space: nowrap;
+  background: #dfe9f8;
+  color: #0f3460;
+  text-decoration: none;
+}
+
+.gt-cc-badge-row .gt-cc-cert-chip:focus-visible {
+  outline: 2px solid #e94560;
+  outline-offset: 2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .gt-cc-cert { background: #16233a; color: #cfe0ff; }
+  .gt-cc-cert .gt-cc-cert-by { color: #93a7c9; }
+  .gt-cc-cert .gt-cc-cert-link { color: #cfe0ff; }
+  .gt-cc-badge-row .gt-cc-cert-chip { background: #1b2c48; color: #cfe0ff; }
+}

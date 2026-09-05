@@ -157,6 +157,7 @@
         "research/image-utils.js",
         "research/condition-format.js",
         "research/scan-format.js",
+        "research/listing-badge.js",
         "research/flip-format.js",
         "research/seller-memory.js",
         "research/compare-tray.js",
