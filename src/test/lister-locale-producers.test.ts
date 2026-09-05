@@ -93,19 +93,51 @@ describe("ListerPayload.locale has a producer on BOTH paths (US-2777)", () => {
   });
 
   it("the queued send is stamped by the edge, for every client", () => {
+    // ⚠ THIS USED TO PIN THE FILE AND THE FUNCTION NAME, and it broke the day
+    // US-3065 extracted the enqueue path into lib/extension-enqueue.ts so the
+    // Claude connector could call it without a second copy. Nothing about the
+    // PROPERTY changed: the stamping still happens on the server, still before
+    // the insert, and is still the only place a queued job learns the seller's
+    // country. Pinning WHERE it lives rather than WHAT must hold made a correct
+    // refactor look like a regression.
+    //
+    // The property is: whatever function enqueues, it stamps the locale onto
+    // the payload it writes. So the assertion follows the enqueue path to
+    // wherever it is, and requires the stamp and the insert in that order.
+    const enqueue = read(
+      "services/edge-functions/src/lib/extension-enqueue.ts",
+    );
+    // ⚠ THE CALL SITE, NOT THE DEFINITION. The first version of this searched
+    // for /stampSellerLocale\(/, which matches the `export async function`
+    // line — so deleting the CALL left the guard green. Caught by sabotage;
+    // a scan that matches its own definition proves the function exists and
+    // nothing about whether anything runs it.
+    const stampAt = enqueue.search(/await stampSellerLocale\(/);
+    const insertAt = enqueue.search(/\.insert\(/);
+    expect(
+      stampAt,
+      "nothing stamps the seller's locale onto a queued payload. Web, iOS and " +
+        "Android all enqueue an empty payload, so the server is the ONLY place " +
+        "a queued job can learn the seller's country.",
+    ).toBeGreaterThan(-1);
+    expect(insertAt, "the enqueue path no longer inserts a row").toBeGreaterThan(-1);
+    expect(
+      stampAt,
+      "the locale is stamped AFTER the insert, so its answer is thrown away",
+    ).toBeLessThan(insertAt);
+    expect(
+      /payload: payloadValue,/.test(enqueue),
+      "the insert no longer writes the STAMPED payload, so stampSellerLocale " +
+        "runs and its answer is discarded.",
+    ).toBe(true);
+
+    // And the HTTP route still reaches it rather than growing its own insert.
     const route = read(
       "services/edge-functions/src/routes/flipdesk-extension-queue.ts",
     );
     expect(
-      /async function stampLocale\(/.test(route),
-      "flipdesk-extension-queue.ts no longer defines stampLocale. Web, iOS " +
-        "and Android all enqueue an empty payload, so this is the ONLY place a " +
-        "queued job learns the seller's country.",
-    ).toBe(true);
-    expect(
-      /payload:\s*payloadValue,/.test(route),
-      "the enqueue insert no longer writes the stamped payload, so stampLocale " +
-        "runs and its answer is thrown away.",
+      /enqueueExtensionWork\(/.test(route),
+      "the queue route no longer delegates to the extracted enqueue path",
     ).toBe(true);
   });
 

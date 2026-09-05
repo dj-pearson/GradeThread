@@ -72,6 +72,29 @@ const CONNECTOR_TOOLS: Array<{
     wont: "Act on a count alone, or claim a listing ended when the marketplace has not taken it down yet.",
   },
   {
+    // US-3065. The honest sentence is the whole entry: it queues, it does not
+    // list. A reader who takes "list these on Poshmark" to mean the listing
+    // goes live has been misled by us, not by their assistant.
+    name: "gradethread_queue_extension_work",
+    prompt: "“List these twelve on Poshmark and Mercari.”",
+    does:
+      "Queues the work for your own browser, naming every item and channel first. " +
+      "It runs the next time you open your browser with the GradeThread extension " +
+      "installed — Poshmark, Mercari, Grailed, Vinted and Facebook have no " +
+      "listing API, so nothing else can do it for you.",
+    wont:
+      "Put anything live by itself. The work waits for your desktop, and the " +
+      "confirmation says so rather than reporting a listing that does not exist yet.",
+  },
+  {
+    name: "gradethread_extension_queue",
+    prompt: "“What is my browser still waiting to do?”",
+    does:
+      "Shows what is queued, running and needing attention, including work that " +
+      "expired before a browser ever picked it up.",
+    wont: "Change anything. Read-only.",
+  },
+  {
     name: "gradethread_comps / _price_guide",
     prompt: "\u201cWhat do these usually sell for?\u201d",
     does: "Returns sold comparables and the published Resale Condition Index bands.",
