@@ -55,6 +55,24 @@ export function selectTagOcrPhotos<T extends { type?: string | null }>(
 }
 
 /**
+ * US-3047: whether the holistic role pass (US-533) is worth a vision call on
+ * this item. It is worth one only when the label could still be HIDING: at
+ * least two photos carry an id, and at least one of them is on the generic
+ * `detail` default or has no type at all. When every photo already carries a
+ * deliberate role and none of them is a tag, the classifier can only tell us
+ * what we already know — planTagRoleWriteback would relabel nothing — so the
+ * call is pure cost. Pure; the tag-photo emptiness check stays with the caller,
+ * which has already run selectTagOcrPhotos.
+ */
+export function shouldRunTagRolePass<
+  T extends { id?: string; type?: string | null },
+>(photos: T[]): boolean {
+  const candidates = photos.filter((p) => !!p.id);
+  if (candidates.length < 2) return false;
+  return candidates.some((p) => !p.type || p.type === "detail");
+}
+
+/**
  * 2026-09-02: what to do with a holistic role pass when nothing was typed tag.
  * The photos the classifier called `tag` are read by OCR whatever their stored
  * type; only rows still on the generic `detail` default (or untyped) are

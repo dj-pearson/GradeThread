@@ -1679,6 +1679,12 @@ export interface AspectExtractionInput {
   // that may not even be in the refine set any more. Absent → the prompt is
   // byte-identical to before.
   tagGroundTruth?: Record<string, string> | null;
+  // US-3047: the ledger slug this call is billed under. The one-item catalog
+  // path and the AutoLister refine pass share this function but have different
+  // shapes (one photo set vs five, one category vs the batch's), and both were
+  // recorded as "catalog_extract" — so neither could be read on its own.
+  // Unset keeps the old slug, so no existing caller moves buckets.
+  feature?: string;
 }
 
 export interface AspectExtractionResult {
@@ -1735,7 +1741,7 @@ interface BuiltAspectTool {
   keyToName: Map<string, string>;
 }
 
-function buildAspectTool(aspects: EbayAspectSpec[]): BuiltAspectTool {
+export function buildAspectTool(aspects: EbayAspectSpec[]): BuiltAspectTool {
   // Build one property per aspect. The shared item shape is values+confidence+source.
   const properties: Record<string, unknown> = {};
   const keyToName = new Map<string, string>();
@@ -1885,10 +1891,39 @@ export function buildAspectUserPrompt(input: AspectExtractionInput): string {
   return lines.join("\n\n");
 }
 
+/**
+ * US-3047: where this call's prompt-cache breakpoints go. Anthropic caches in
+ * request order — tools, then system, then messages — so a breakpoint on the
+ * LAST (here: only) tool gives the per-category schema a prefix of its own.
+ * That schema is the big, repeated part of a refine call: up to MAX_AI_ASPECTS
+ * aspects each carrying up to MAX_ALLOWED_VALUES_PER_ASPECT enum values, an
+ * order of magnitude past ASPECT_SYSTEM_PROMPT, which on its own sits under the
+ * per-model cache minimum and so was never worth a hit. The system breakpoint
+ * stays: it caches tools+system together for the common case where neither has
+ * moved. Pure, so a test can pin both without an API call.
+ */
+export function aspectCacheBreakpoints(
+  tool: Anthropic.Tool,
+  systemText: string,
+  cachingEnabled: boolean,
+): { tool: Anthropic.ToolUnion; system: Anthropic.TextBlockParam } {
+  if (!cachingEnabled) {
+    return { tool, system: { type: "text", text: systemText } };
+  }
+  return {
+    tool: { ...tool, cache_control: { type: "ephemeral" } },
+    system: {
+      type: "text",
+      text: systemText,
+      cache_control: { type: "ephemeral" },
+    },
+  };
+}
+
 export async function extractEbayAspects(
   input: AspectExtractionInput
 ): Promise<AspectExtractionResult> {
-  enterAiFeature("catalog_extract"); // US-894 spend attribution
+  enterAiFeature(input.feature ?? "catalog_extract"); // US-894 spend attribution
   if (input.aspects.length === 0) {
     return {
       suggestions: {},
@@ -1911,15 +1946,12 @@ export async function extractEbayAspects(
   const content: Anthropic.ContentBlockParam[] = await buildPhotoContent(photos);
   content.push({ type: "text", text: buildAspectUserPrompt(input) });
 
-  const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
-    ? {
-        type: "text",
-        text: ASPECT_SYSTEM_PROMPT,
-        cache_control: { type: "ephemeral" },
-      }
-    : { type: "text", text: ASPECT_SYSTEM_PROMPT };
-
   const { tool, keyToName } = buildAspectTool(input.aspects);
+  const { tool: cachedTool, system: systemBlock } = aspectCacheBreakpoints(
+    tool,
+    ASPECT_SYSTEM_PROMPT,
+    isCachingEnabled(),
+  );
   // Reverse map: original name → sanitized key, so each aspect can be looked
   // up from its original name in the response object.
   const nameToKey = new Map<string, string>();
@@ -1933,7 +1965,7 @@ export async function extractEbayAspects(
     max_tokens: 3072,
     ...(temperature !== undefined ? { temperature } : {}),
     system: [systemBlock],
-    tools: [tool],
+    tools: [cachedTool],
     tool_choice: { type: "tool", name: "extract_ebay_aspects" },
     messages: [{ role: "user", content }],
   });

@@ -22,6 +22,7 @@ const {
   TAG_OCR_FALLBACK_TYPES,
   selectTagOcrPhotos,
   planTagRoleWriteback,
+  shouldRunTagRolePass,
 } = await import("../lib/ai-tag-ocr.ts");
 
 Deno.test("normalizeTagOcr keeps legible string fields and clamps confidence", () => {
@@ -252,4 +253,52 @@ Deno.test("planTagRoleWriteback: no tag in the roles yields nothing", () => {
   );
   assertEquals(tagPhotos, []);
   assertEquals(writeback, []);
+});
+
+// US-3047: the role pass is a vision call, so it has to be worth one. The
+// ledger showed tag OCR reaching 4% of drafts because the label was filed
+// under `detail`; the fix asks the classifier which photo is the label. What
+// it must NOT do is ask on an item where every photo already carries a
+// deliberate role and none of them is a tag — there the answer is already
+// known and the call is pure cost.
+Deno.test("shouldRunTagRolePass: a detail-defaulted photo is worth asking about", () => {
+  assertEquals(
+    shouldRunTagRolePass([
+      { id: "a", type: "front" },
+      { id: "b", type: "detail" },
+    ]),
+    true,
+  );
+});
+
+Deno.test("shouldRunTagRolePass: an untyped photo is worth asking about", () => {
+  assertEquals(
+    shouldRunTagRolePass([{ id: "a", type: "front" }, { id: "b" }]),
+    true,
+  );
+  assertEquals(
+    shouldRunTagRolePass([{ id: "a", type: "front" }, { id: "b", type: null }]),
+    true,
+  );
+});
+
+Deno.test("shouldRunTagRolePass: every photo already roled -> skip the call", () => {
+  assertEquals(
+    shouldRunTagRolePass([
+      { id: "a", type: "front" },
+      { id: "b", type: "back" },
+      { id: "c", type: "defect" },
+    ]),
+    false,
+  );
+});
+
+Deno.test("shouldRunTagRolePass: fewer than two identified photos -> skip", () => {
+  assertEquals(shouldRunTagRolePass([{ id: "a", type: "detail" }]), false);
+  assertEquals(shouldRunTagRolePass([]), false);
+  // Photos with no id cannot be written back to, so they do not count.
+  assertEquals(
+    shouldRunTagRolePass([{ id: "a", type: "detail" }, { type: "detail" }]),
+    false,
+  );
 });

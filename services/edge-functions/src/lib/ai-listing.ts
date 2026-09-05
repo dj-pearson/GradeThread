@@ -172,6 +172,7 @@ import {
   mergeTagGroundTruth,
   planTagRoleWriteback,
   selectTagOcrPhotos,
+  shouldRunTagRolePass,
   tagAttributeFill,
   type TagGroundTruth,
 } from "./ai-tag-ocr.ts";
@@ -2249,13 +2250,24 @@ export async function generateListing(
   let tagOcrCost = 0;
   let tagOcrModel: string | null = null;
   let tagOcrFields: TagGroundTruth | null = null;
+  // US-3047: the role pass is a real vision call and its spend belongs in this
+  // item's row like every other bundled pass. It was billed to the ledger under
+  // "photo_roles" but never reached ai_enrichment_log, so the per-item cost
+  // understated what a tag-less item actually charged.
+  let roleTokensIn = 0;
+  let roleTokensOut = 0;
+  let roleCost = 0;
+  let roleModel: string | null = null;
   let tagPhotos = selectTagOcrPhotos(photos, MAX_TAG_OCR_PHOTOS);
   // 2026-09-02: on prod, 150 of 1001 items had a tag-typed photo and OCR ran
   // on 11 of ~300 generations - the label was usually sitting under `detail`.
   // When nothing is typed tag, ask the holistic role pass (US-533) which photo
   // is the label, read THAT, and relabel only rows still on the detail
   // default. One vision call, only on this branch, metered as photo_roles.
-  if (tagPhotos.length === 0 && photos.length >= 2) {
+  // US-3047: …and only when a photo could still be MISLABELLED. An item whose
+  // photos all carry a deliberate role, none of them tag, has no label for the
+  // classifier to find, and the call would return what we already know.
+  if (tagPhotos.length === 0 && shouldRunTagRolePass(photos)) {
     const candidates = photos.filter(
       (p): p is ListingGenPhoto & { id: string } => !!p.id,
     );
@@ -2264,6 +2276,10 @@ export async function generateListing(
         const rolePass = await classifyPhotoRoles(
           candidates.map((p) => ({ id: p.id, url: p.url })),
         );
+        roleModel = rolePass.model;
+        roleTokensIn = rolePass.tokensIn;
+        roleTokensOut = rolePass.tokensOut;
+        roleCost = estimateCost(rolePass.model, rolePass.tokensIn, rolePass.tokensOut);
         const plan = planTagRoleWriteback(candidates, rolePass.roles);
         tagPhotos = plan.tagPhotos.slice(0, MAX_TAG_OCR_PHOTOS);
         if (plan.writeback.length > 0) {
@@ -2779,6 +2795,11 @@ export async function generateListing(
             // the first pass already worked out. Null identification → the
             // prompt is byte-identical to before.
             research: researchFromIdentification(identification),
+            // US-3047: bill the refine pass under its own slug. It shared
+            // "catalog_extract" with the one-item extract path, so the ledger
+            // could not answer what a DRAFT's refine costs, which is the number
+            // US-3045 is argued from.
+            feature: "autolister_refine",
           });
           refineSuggestions = refined.suggestions;
           const refinedSpecifics = suggestionsToSpecifics(refined.suggestions);
@@ -3393,11 +3414,12 @@ export async function generateListing(
   // US-2595: the measurement and size passes are bundled into this one AI
   // action (same contract as tag-OCR), so their spend belongs in this total —
   // otherwise per-item billing understates what Anthropic actually charged.
-  const costUsd = genCost + extractCost + tagOcrCost + measureCost + sizeCost;
+  const costUsd = genCost + extractCost + tagOcrCost + measureCost + sizeCost +
+    roleCost;
   const totalTokensIn = gen.tokensIn + extractTokensIn + tagOcrTokensIn +
-    measureTokensIn + sizeTokensIn;
+    measureTokensIn + sizeTokensIn + roleTokensIn;
   const totalTokensOut = gen.tokensOut + extractTokensOut + tagOcrTokensOut +
-    measureTokensOut + sizeTokensOut;
+    measureTokensOut + sizeTokensOut + roleTokensOut;
   let enrichmentLogId: string | null = null;
   try {
     const { data: logRow } = await supabaseAdmin.from("ai_enrichment_log").insert({
@@ -3424,6 +3446,12 @@ export async function generateListing(
           tag_ocr_model: tagOcrModel,
           tag_ocr_tokens_in: tagOcrTokensIn,
           tag_ocr_tokens_out: tagOcrTokensOut,
+          // US-3047: the role pass that FOUND the label, when one ran. Null
+          // model means it was skipped — either a tag photo was already typed
+          // or every photo already carried a deliberate role.
+          photo_role_model: roleModel,
+          photo_role_tokens_in: roleTokensIn,
+          photo_role_tokens_out: roleTokensOut,
           // US-2425: coverage travels WITH the generation telemetry, so a run's
           // cost and its completeness can be read off the same row — otherwise
           // "we spent more and got more" stays an assertion.

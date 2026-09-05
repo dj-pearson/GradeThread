@@ -121,7 +121,16 @@ async function spend(side: "before" | "after"): Promise<SpendRow[]> {
 /** The per-call ledger, the features the AutoLister item passes are tagged with. */
 const LEDGER_FEATURES = [
   "autolister",
+  // US-3047: the refine pass, split out of catalog_extract. A window that
+  // straddles the split shows refine spend under BOTH slugs; catalog_extract
+  // after it is the one-item extract path only.
+  "autolister_refine",
   "catalog_extract",
+  // US-3047: the role pass now runs INSIDE generation for a tag-less item, so
+  // it is a per-draft cost. Caveat when reading perDraftUsd: the standalone
+  // intake endpoint (/autolister/classify-photos) bills the same slug, so a
+  // window that also covers an intake session overstates the draft's share.
+  "photo_roles",
   "tag_ocr",
   "size_estimate",
   "measure_extract",
