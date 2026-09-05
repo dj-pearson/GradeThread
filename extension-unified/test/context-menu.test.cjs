@@ -69,6 +69,7 @@ const block = src.slice(start, end + 1);
 
 const menus = new Map();
 let uncheckedErrors = 0;
+let duplicateAttempts = 0;
 let pendingError = null;
 
 const listeners = { installed: [], startup: [] };
@@ -87,6 +88,12 @@ const ext = {
   contextMenus: {
     create(props, cb) {
       if (menus.has(props.id)) {
+        // US-3070: counted as well as reported. Reading lastError is what makes
+        // the warning go away, and our callbacks read it — so `uncheckedErrors`
+        // alone cannot see a duplicate ATTEMPT, only an unreported one. Dropping
+        // removeAll left this test green, which is the half of US-3113's fix it
+        // was not proving.
+        duplicateAttempts++;
         pendingError = { message: `Cannot create item with duplicate id ${props.id}` };
       } else {
         menus.set(props.id, props);
@@ -112,12 +119,24 @@ new Function("ext", block)(ext);
 assert.strictEqual(listeners.installed.length, 1, "registers on onInstalled");
 assert.strictEqual(listeners.startup.length, 1, "and on onStartup");
 
+// US-3070 added a second item, so the count is no longer 1 — and pinning a
+// LITERAL count was the wrong assertion anyway. The property US-3113 is about is
+// IDEMPOTENCE: registering twice must not duplicate an id or leave an unchecked
+// error. A hardcoded number fires on intended growth and says nothing about the
+// failure it exists to catch, so what is pinned now is that the count does not
+// CHANGE across restarts, and that both ids are the ones we meant.
 listeners.installed[0]();
-assert.strictEqual(menus.size, 1, "one menu item after install");
+const afterInstall = menus.size;
+assert.ok(afterInstall >= 1, "no menu item after install");
+assert.deepStrictEqual(
+  [...menus.keys()].sort(),
+  ["gt-grade-image", "gt-read-label"],
+  "the registered menu ids changed",
+);
 assert.strictEqual(uncheckedErrors, 0, "install must not leave an unchecked error");
 
 listeners.startup[0]();
-assert.strictEqual(menus.size, 1, "still exactly one menu item after a restart");
+assert.strictEqual(menus.size, afterInstall, "a restart duplicated a menu item");
 assert.strictEqual(
   uncheckedErrors,
   0,
@@ -126,13 +145,22 @@ assert.strictEqual(
 
 // Third time, because a worker can restart repeatedly in one browser session.
 listeners.startup[0]();
-assert.strictEqual(menus.size, 1, "repeated restarts stay at one menu item");
+assert.strictEqual(menus.size, afterInstall, "repeated restarts grew the menu");
 assert.strictEqual(uncheckedErrors, 0, "and never log an unchecked error");
 
+// ⚠ AND NO DUPLICATE WAS EVER ATTEMPTED. This is the assertion that fails when
+// removeAll is dropped; the two above do not, because our create callbacks read
+// lastError and a read is what clears it.
+assert.strictEqual(
+  duplicateAttempts,
+  0,
+  "a menu id was created twice — removeAll is missing from the registration",
+);
+
 assert.deepStrictEqual(
-  [...menus.keys()],
-  ["gt-grade-image"],
-  "the menu id is unchanged — onClicked filters on it",
+  [...menus.keys()].sort(),
+  ["gt-grade-image", "gt-read-label"],
+  "a menu id changed — onClicked filters on both of them",
 );
 
 console.log(

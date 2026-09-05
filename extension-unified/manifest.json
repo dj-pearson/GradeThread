@@ -68,6 +68,7 @@
       "registry.js",
       "research/seller-memory.js",
       "research/compare-tray.js",
+      "research/label-reader.js",
       "sync/selectors.js",
       "closet-import/selectors.js",
       "sync/poll-plan.js",

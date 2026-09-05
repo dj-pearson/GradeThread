@@ -49,6 +49,9 @@ if (typeof importScripts === "function") {
     "registry.js",
     "research/seller-memory.js",
     "research/compare-tray.js",
+    // US-3070: the label reader is pure and shared - the worker needs it for the
+    // size cap and the url check, the content script needs it to draw.
+    "research/label-reader.js",
     // US-2701: the poll's decisions and the adapters it reads them against.
     // The DRIVER is in this file; these two only decide and describe.
     "sync/selectors.js",
@@ -3358,6 +3361,74 @@ ext.tabs.onRemoved.addListener(function (tabId) {
 // takes the WHOLE worker with it — including buyer research, which has nothing to
 // do with any of this.
 const CONTEXT_MENU_ID = "gt-grade-image";
+// US-3070: the second item. Right-click a care-tag photo anywhere on the web and
+// read what is printed on it. Same contexts as the first, same removeAll
+// registration, and the two ids are distinguished in one place — the click
+// handler below — so a third item cannot be added without touching it.
+const LABEL_MENU_ID = "gt-read-label";
+
+// US-3070: the anonymous tag reader. NO Authorization header, deliberately: the
+// endpoint is unauthenticated by design (US-9033) and rate-limited per IP, and
+// sending a token would tie a care label — which carries a SIZE, a fact about a
+// body — to an account for no gain.
+const TAG_READ_ENDPOINT =
+  "https://functions.gradethread.com/api/grading/public/tag-read";
+
+/**
+ * Fetch the image the person right-clicked and read the label off it.
+ *
+ * ⚠ THE SIZE CHECK HAPPENS BEFORE THE POST. The endpoint refuses over 8MB, but
+ * an 11MB press photo uploaded and then refused costs the person the whole
+ * upload to be told something we knew before it started.
+ *
+ * Nothing here is retried and nothing is stored. A rate limit or a capacity
+ * refusal is an ANSWER: it comes back with a code, the card renders it as a
+ * sentence with the wait, and the person decides.
+ */
+async function readLabelFromImage(srcUrl) {
+  const LR = self.GT_LABEL_READER;
+  if (!LR || !LR.isReadableImageUrl(srcUrl)) return { ok: false, data: null };
+  let dataUri;
+  try {
+    const res = await fetch(srcUrl, { cache: "no-store" });
+    if (!res.ok) return { ok: false, data: null };
+    const blob = await res.blob();
+    if (blob.size > LR.MAX_BYTES) {
+      return { ok: true, data: { error: "That image is too large to read (8MB limit)." } };
+    }
+    if (!/^image\//.test(blob.type || "")) return { ok: false, data: null };
+    dataUri = await blobToDataUri(blob);
+  } catch (_e) {
+    return { ok: false, data: null };
+  }
+  if (!dataUri) return { ok: false, data: null };
+  try {
+    const resp = await fetch(TAG_READ_ENDPOINT, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      // ⚠ JSON WITH A DATA URI, NOT MULTIPART. US-3070's AC1 says multipart;
+      // prepareGradeCheckImage in public-grading.ts takes `{ image: "data:..." }`
+      // and refuses anything that does not start with `data:image/`.
+      body: JSON.stringify({ image: dataUri }),
+    });
+    return { ok: true, data: await resp.json() };
+  } catch (_e) {
+    return { ok: false, data: null };
+  }
+}
+
+function blobToDataUri(blob) {
+  return new Promise(function (resolve) {
+    try {
+      const r = new FileReader();
+      r.onload = function () { resolve(typeof r.result === "string" ? r.result : null); };
+      r.onerror = function () { resolve(null); };
+      r.readAsDataURL(blob);
+    } catch (_e) { resolve(null); }
+  });
+}
+
 
 if (ext.commands && ext.commands.onCommand) {
   ext.commands.onCommand.addListener(async function (command) {
@@ -3403,6 +3474,16 @@ if (ext.contextMenus && ext.contextMenus.create) {
           void ext.runtime.lastError;
         },
       );
+      // US-3070. Same removeAll registration, so the duplicate-id warning
+      // US-3113 fixed stays fixed for two items as it did for one.
+      ext.contextMenus.create(
+        {
+          id: LABEL_MENU_ID,
+          title: "Read this label with GradeThread",
+          contexts: ["image"],
+        },
+        function () { void ext.runtime.lastError; },
+      );
     };
     try {
       if (ext.contextMenus.removeAll) {
@@ -3419,9 +3500,27 @@ if (ext.contextMenus && ext.contextMenus.create) {
 
   if (ext.contextMenus.onClicked) {
     ext.contextMenus.onClicked.addListener(function (info, tab) {
-      if (!info || info.menuItemId !== CONTEXT_MENU_ID) return;
+      if (!info || !tab || typeof tab.id !== "number") return;
+
+      // US-3070: the label reader. The worker fetches the bytes and posts them,
+      // then hands the ANSWER to the page — the content script draws, and never
+      // sees a token or an endpoint. `srcUrl` is the entire input: no page URL
+      // travels, on a marketplace or anywhere else.
+      if (info.menuItemId === LABEL_MENU_ID) {
+        const src = info.srcUrl;
+        if (!self.GT_LABEL_READER || !self.GT_LABEL_READER.isReadableImageUrl(src)) return;
+        void readLabelFromImage(src).then(function (res) {
+          return ext.tabs.sendMessage(tab.id, {
+            type: "GT_LABEL_RESULT",
+            ok: res.ok,
+            data: res.data,
+          }).catch(function () { /* no content script here */ });
+        });
+        return;
+      }
+
+      if (info.menuItemId !== CONTEXT_MENU_ID) return;
       if (!info.srcUrl || !/^https?:\/\//i.test(info.srcUrl)) return;
-      if (!tab || typeof tab.id !== "number") return;
       // Routed through the content script rather than graded straight from here,
       // so the result lands in the same overlay, on the same page, with the same
       // epoch guard — a second, parallel result surface would be a second place
