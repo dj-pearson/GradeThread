@@ -139,14 +139,45 @@ interface LoadResult {
  * wrong on a Tuesday is the part that is covered.
  */
 async function loadCandidates(): Promise<LoadResult> {
+  // 2026-09-04: `grade_reports` HAS NO `user_id`. This selected one and, for a
+  // single owner, filtered on it — so both paths threw
+  // `column grade_reports.user_id does not exist` on the first real row read,
+  // which is why the harness had never produced a candidate. Ownership lives one
+  // hop away: grade_reports.submission_id -> submissions.id -> submissions.user_id
+  // (the FK is grade_reports_submission_id_fkey). The pure library never wanted
+  // the column either — ReportRow is id, submission_id, overall_score.
+  //
+  // Scoped with a submission-id lookup rather than a PostgREST embedded filter,
+  // because an embed that fails to resolve degrades to returning EVERY row, and
+  // the difference between "my garments" and "every seller's garments" is the
+  // one this script asks the operator to state explicitly (--owner vs
+  // --all-tenants). An `.in()` on an id list cannot widen like that.
+  let ownerSubmissionIds: string[] | null = null;
+  if (!allTenants && owner) {
+    const { data, error: subErr } = await db
+      .from("submissions")
+      .select("id")
+      .eq("user_id", owner);
+    if (subErr) throw new Error(`submissions read failed: ${subErr.message}`);
+    ownerSubmissionIds = ((data ?? []) as { id: string }[]).map((r) => r.id);
+    if (ownerSubmissionIds.length === 0) {
+      return {
+        candidates: [],
+        why:
+          `Owner ${owner} has no submissions at all, so there is nothing to ` +
+          `re-read. Check the owner id, or pass --all-tenants.`,
+      };
+    }
+  }
+
   let q = db
     .from("grade_reports")
-    .select("id, submission_id, overall_score, certificate_id, user_id")
+    .select("id, submission_id, overall_score, certificate_id")
     .not("certificate_id", "is", null)
     .not("overall_score", "is", null)
     .order("created_at", { ascending: false })
     .limit(limit * 4);
-  if (!allTenants && owner) q = q.eq("user_id", owner);
+  if (ownerSubmissionIds) q = q.in("submission_id", ownerSubmissionIds);
 
   const { data: reportData, error } = await q;
   if (error) throw new Error(`grade_reports read failed: ${error.message}`);
