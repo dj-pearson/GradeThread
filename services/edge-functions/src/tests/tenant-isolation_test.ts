@@ -8085,3 +8085,73 @@ Deno.test({
     assertEquals(JSON.stringify(await asB.json()), JSON.stringify(body));
   },
 });
+
+Deno.test({
+  // US-3065 AC5. The write tool creates rows the seller's own browser will run
+  // against real marketplaces, so an unscoped one would let tenant B queue work
+  // against tenant A's items — and once drained, A's title and photos would be
+  // read into B's browser. That is the whole reason the enqueue path re-checks
+  // ownership rather than trusting the authenticated caller's ids.
+  name: "MCP: B cannot queue extension work against A's item (gradethread_queue_extension_work)",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+
+    // PREVIEW must refuse too, not just confirm. A preview that named A's item
+    // title back to B would be the leak even if nothing was ever written.
+    const preview = await callMcpTool(B_API_KEY!, "gradethread_queue_extension_work", {
+      kind: "list",
+      item_ids: [itemId],
+      platforms: ["poshmark"],
+      mode: "preview",
+    });
+    // ⚠ foreignData is UNDEFINED, not itemId, and the helper's own comment says
+    // why: a handler that correctly refuses still echoes the id the caller
+    // supplied. Asserting on it fails a CORRECT denial, which is how the first
+    // version of these cases reported four leaks that were not leaks. What
+    // would be a real leak here is A's item TITLE, which B never supplied — and
+    // that is unknown to this test, so the assertion is that the call was
+    // refused at all.
+    assertToolDeniedById(preview.body, undefined, "queue_extension_work preview as B");
+
+    // And confirm, with a token B could not legitimately hold.
+    const confirm = await callMcpTool(B_API_KEY!, "gradethread_queue_extension_work", {
+      kind: "list",
+      item_ids: [itemId],
+      platforms: ["poshmark"],
+      mode: "confirm",
+      confirm_token: "gtc_not_a_real_token",
+    });
+    assertToolDeniedById(confirm.body, undefined, "queue_extension_work confirm as B");
+  },
+});
+
+Deno.test({
+  // US-3065 AC5. The read tool takes NO arguments, so the only thing that can
+  // scope it is the credential. A tool with nothing to pass is the easiest one
+  // to write unscoped and the hardest to notice: it would simply return
+  // everyone's queue and look like it worked.
+  name: "MCP: gradethread_extension_queue answers only for the calling tenant",
+  ignore: !CONFIGURED || !A_API_KEY || !B_API_KEY,
+  fn: async () => {
+    const asA = await callMcpTool(A_API_KEY!, "gradethread_extension_queue", {});
+    const asB = await callMcpTool(B_API_KEY!, "gradethread_extension_queue", {});
+
+    // Both may legitimately be empty. What must NOT happen is the two
+    // answering with the same counts drawn from an unscoped read, so the
+    // assertion is on the id: A's item id must never appear in B's answer.
+    // B never supplied A's id, so A's id appearing anywhere in B's answer is a
+    // leak, full stop — the assertListExcludes case rather than the
+    // assertToolDeniedById one.
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID");
+    if (itemId && asB.status === 200) {
+      assertListExcludes(asB.body, itemId, "extension_queue as B");
+    }
+    // A positive control so an all-403 fixture cannot pass this silently.
+    assert(
+      asA.status === 200 || asB.status === 200,
+      `neither tenant could reach the tool at all (A ${asA.status}, B ${asB.status}); ` +
+        `this case would pass without exercising the handler`,
+    );
+  },
+});

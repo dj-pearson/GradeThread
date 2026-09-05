@@ -27,6 +27,7 @@ export type BudgetKind =
   | "grade"
   | "draft_generation"
   | "draft_edit"
+  | "extension_queue"
   | "ai_spend_cents";
 
 export interface BudgetLimit {
@@ -67,6 +68,18 @@ export const DEFAULT_BUDGETS: Record<BudgetKind, BudgetLimit> = {
   // Editing a draft costs nothing and a model iterating on wording legitimately
   // makes many edits, so this is loose. It exists to stop a loop, not to ration.
   draft_edit: { kind: "draft_edit", windowMs: HOUR, max: 200, label: "draft edits" },
+  // US-3065. Sized like publish rather than like draft_edit, and that is the
+  // judgement: queueing costs nothing and puts nothing live, but a runaway loop
+  // fills the seller's queue with work their browser will dutifully run against
+  // real marketplaces the next time they open it. The ceiling is on CALLS, and
+  // one call may carry up to MAX_QUEUE_TOOL_ITEMS items across several channels;
+  // MAX_QUEUE_DEPTH is the separate cap on how much may be waiting at once.
+  extension_queue: {
+    kind: "extension_queue",
+    windowMs: HOUR,
+    max: 20,
+    label: "batches queued for the browser",
+  },
   ai_spend_cents: {
     kind: "ai_spend_cents",
     windowMs: DAY,
@@ -153,6 +166,9 @@ export const TOOLS_BY_KIND: Record<BudgetKind, string[]> = {
   grade: ["gradethread_grade_item", "gradethread_grade_batch"],
   draft_generation: ["gradethread_create_draft"],
   draft_edit: ["gradethread_update_draft"],
+  // US-3065. The READ tool is absent on purpose: it mutates nothing, and the
+  // coverage guard only requires a budget for tools that do.
+  extension_queue: ["gradethread_queue_extension_work"],
   ai_spend_cents: [],
 };
 

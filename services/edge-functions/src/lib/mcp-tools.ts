@@ -73,6 +73,10 @@ import { gradeBatchTool, gradeItemTool } from "./mcp-grade-tools.ts";
 import { createDraftTool, updateDraftTool } from "./mcp-draft-tools.ts";
 // US-9116: the publish tool. The one that puts a garment in front of buyers.
 import { publishListingTool } from "./mcp-publish-tool.ts";
+import {
+  extensionQueueTool,
+  queueExtensionWorkTool,
+} from "./mcp-extension-queue-tools.ts";
 // US-9117: repricing. Five tools over the existing engine, plus the guard that
 // a valid confirmation does NOT buy past.
 import {
@@ -1335,6 +1339,11 @@ export const TOOLS: McpToolDefinition[] = [
   endListingTool,
   endListingsBulkTool,
   relistTool,
+  // US-3065: the connector queues work the seller's own browser runs. The
+  // write tool lands in WRITE_TOOL_NAMES by DERIVATION (destructiveHint, not
+  // sandbox), which is what the registry does rather than a hand-kept list.
+  extensionQueueTool,
+  queueExtensionWorkTool,
   sandboxGradeTool,
   sandboxPublishTool,
   sandboxPriceGuideTool,
