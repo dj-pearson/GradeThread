@@ -144,7 +144,15 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
   },
   depop: {
     name: "Depop",
-    fees: "A selling fee around 10% plus payment processing.",
+    // CORRECTED 2026-09-04. This said "a selling fee around 10% plus payment
+    // processing", which has been wrong in the US since July 2024: Depop
+    // removed the 10% seller commission and moved the marketplace fee to the
+    // buyer's side of checkout. It was telling US sellers they pay a fee they
+    // do not, on every Depop comparison, which is the same class of error the
+    // quarterly re-verify exists to catch and is why the row is dated.
+    fees:
+      "No US seller commission since July 2024 — payment processing only " +
+      "(about 3.3% + $0.45). Buyers pay a marketplace fee at checkout instead.",
     audience: "A young, style-driven, global Gen-Z audience.",
     categoryFit: "Streetwear, vintage, y2k, and indie or thrifted styles.",
     shipping: "Seller-arranged or a platform label; photo-first listings.",
@@ -176,7 +184,15 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
   },
   vinted: {
     name: "Vinted",
-    fees: "No seller selling fee — buyers pay a Buyer Protection fee instead.",
+    // The figure, not just the shape. US-3091: three Vinted comparisons said
+    // "no seller fee" without ever naming what the buyer pays, which is the
+    // number a seller is actually comparing against Poshmark's 20% or eBay's
+    // 13.6%. Vinted's own help page says "usually 5% + $0.70" and the "usually"
+    // is theirs — it varies by order — so it is carried rather than rounded off
+    // into a certainty the source does not claim.
+    fees:
+      "No seller selling fee. Buyers pay a Buyer Protection fee instead, " +
+      "usually 5% + $0.70 of the item price, excluding shipping and tax.",
     audience: "A large European-rooted and growing-US casual audience.",
     categoryFit: "Everyday casualwear, kids' clothing, and mid-market brands.",
     shipping: "Integrated prepaid labels chosen at checkout.",
@@ -324,8 +340,37 @@ const COMPARISON_PAIRS: Comparison[] = [
     description:
       "Grailed vs Poshmark on fees, audience, shipping and condition disputes. Which suits menswear, streetwear and designer resale, and when to list on both.",
   }),
-  templatedComparison("vinted", "poshmark"),
-  templatedComparison("vinted", "depop"),
+  // US-3091. These three were plain templatedComparison calls with zero clicks,
+  // next to vinted-vs-mercari — same template, one override — earning 9 clicks
+  // on 1,182 impressions at position 8. The difference is the title: it answers
+  // the money question instead of naming two platforms.
+  //
+  // Baselines on the day of the commit (Search Console, 2026-09-02):
+  //   vinted-vs-poshmark  83 impressions, position 21.7, 0 clicks
+  //   vinted-vs-ebay      26 impressions, position 19.0, 0 clicks
+  //   vinted-vs-depop     11 impressions, position 12.9, 0 clicks
+  // Read again 2026-11-15. A page still at zero clicks above 100 impressions
+  // gets written down rather than quietly re-templated.
+  //
+  // Each worked example uses a price the pair actually turns on: $40 is where
+  // Poshmark's 20% starts to hurt, and $25 is where Depop's flat processing
+  // charge is a bigger share than its percentage.
+  templatedComparison("vinted", "poshmark", {
+    // Titles are capped at 60 INCLUDING the " | GradeThread" suffix
+    // (route-metadata.test.ts), which is 13 of the 60 before a word is written.
+    title: "Vinted vs Poshmark: Who Takes the Cut",
+    description:
+      "Poshmark takes 20% of a $40 sale. Vinted takes nothing and charges " +
+      "the buyer instead. Fees, payouts and condition disputes, worked " +
+      "through on one item.",
+  }),
+  templatedComparison("vinted", "depop", {
+    title: "Vinted vs Depop: Neither Charges Sellers Now",
+    description:
+      "Depop dropped its US seller commission in 2024 and Vinted never had " +
+      "one, so it comes down to processing, audience and disputes. What " +
+      "each costs on a $25 item.",
+  }),
   // The worst CTR gap in the family: 530 impressions at position 8.5 for 6
   // clicks (1.13%), where page one should return 3-10% (US-9017).
   templatedComparison("vinted", "mercari", {
@@ -333,7 +378,13 @@ const COMPARISON_PAIRS: Comparison[] = [
     description:
       "Vinted charges the buyer, Mercari charges you. Fees, payout speed, category fit and how each handles condition disputes, worked through on a $40 item.",
   }),
-  templatedComparison("vinted", "ebay"),
+  templatedComparison("vinted", "ebay", {
+    title: "Vinted vs eBay: What a $40 Sale Pays You",
+    description:
+      "eBay takes 13.6% plus $0.40 on apparel, charged on shipping and tax " +
+      "too. Vinted charges the seller nothing. Fees, reach and condition " +
+      "disputes on a $40 item.",
+  }),
   templatedComparison("whatnot", "ebay"),
   // 99 impressions at position 15.5, zero clicks (US-9017).
   templatedComparison("whatnot", "poshmark", {
