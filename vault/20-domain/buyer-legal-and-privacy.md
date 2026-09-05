@@ -12,7 +12,7 @@ code_refs:
   - src/pages/legal/privacy.tsx
   - src/pages/legal/__tests__/privacy-buyer.test.tsx
   - extension-unified/SUBMISSION.md
-reviewed: 2026-09-02
+reviewed: 2026-09-05
 tags: [buyer, privacy, legal, consent, contract]
 summary: Buyer personal data is enumerated in one register that the export iterates; legally-sensitive buyer copy is either behind an operator kill-switch that defaults off or bound to a fixed disclosure, and both are asserted rather than described.
 ---
@@ -158,3 +158,17 @@ checks for the new wording passes fine alongside a reverted paragraph.
 - [[extension-telemetry-consent]] — the two opt-in toggles, and why a consent is never widened in place
 - [[garment-passport-privacy]] — the seller-side pseudonymity contract
 - [[INDEX]]
+
+## 2026-09-05: one permission added to SUBMISSION.md, no disclosure moved
+
+`extension-unified/SUBMISSION.md` changed for US-3062: the side panel
+needs the `sidePanel` permission, and the submission-kit guard refuses a
+permission with no justification in that file (US-1874 shipped `alarms`
+unjustified exactly that way).
+
+The justification states the limits that keep it outside this note's
+subject: the panel renders GradeThread's own page, reads no page content,
+makes no network request of its own, and is enabled only on hosts already
+in host_permissions. So NO new data reaches a server and no buyer
+disclosure changed. Nothing this note asserts has moved -- re-read to
+confirm, which is the only reason the date below moved.

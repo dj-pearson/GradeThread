@@ -7,7 +7,7 @@ code_refs:
   - services/edge-functions/scripts/comp-read-calibration.ts
   - services/edge-functions/src/lib/comp-read-calibration.ts
   - services/edge-functions/src/routes/public-grading.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-05
 tags: [ops, grading, comps, condition-index, spike]
 summary: How to run the US-2842 calibration spike against production, what each number it prints means, and why it stops short of a verdict.
 ---
@@ -117,3 +117,23 @@ wants the answer to be yes is not a gate.
 
 The decision it feeds: `comp_read` becomes an `ai_usage_events` feature with its
 own budget at action `kill` before the US-2845 worker runs at all.
+
+## 2026-09-04: the harness threw on its first query, and now does not
+
+`scripts/comp-read-calibration.ts` had never been run against real rows,
+and when it was it failed immediately: `loadCandidates` selected
+`grade_reports.user_id`, a column that does not exist and never has. Both
+`--owner` and `--all-tenants` died at query one, so the harness could not
+have produced a single candidate however the operator invoked it.
+
+Ownership is one hop away: `grade_reports.submission_id` ->
+`submissions.user_id`. It is scoped with a submission-id lookup and
+`.in()`, deliberately NOT a PostgREST embedded filter -- an embed that
+fails to resolve degrades to returning EVERY row, and the difference
+between one seller's garments and every seller's is exactly what this
+script makes the operator state with `--owner` or `--all-tenants`.
+
+The run recipe in this note is unchanged and still correct. What changed
+is that following it now produces candidates. Verified against a local
+stack with a two-owner fixture: `--all-tenants` found both, `--owner A`
+found one and it was A's. Both dry runs, no AI spend.
