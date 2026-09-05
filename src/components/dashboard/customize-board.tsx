@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/sheet";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { WidgetBoard, type WidgetCell } from "@/components/dashboard/widget-board";
+import { AttentionRail } from "@/components/dashboard/attention-rail";
 import { useNavigationGuard } from "@/hooks/use-navigation-guard";
 import {
   useDashboardLayout,
@@ -522,6 +523,13 @@ export function CustomizableWidgetBoard({
           </>
         }
       />
+
+      {/* US-3079: directly under the header, above the board, on both surfaces.
+          Hidden while editing — customize mode is about the board's shape, and a
+          strip the seller cannot move or hide is noise in that context. It is
+          NOT a widget: it cannot be hidden, moved or resized, because "nothing
+          needs me" has to mean the same thing on every account. */}
+      {editing ? null : <AttentionRail surface={surface} range={range} />}
 
       {editing ? (
         <div className="sticky top-0 z-20 -mx-4 flex flex-wrap items-center justify-between gap-2 border-b bg-background/95 px-4 py-3 backdrop-blur sm:mx-0 sm:rounded-xl sm:border sm:px-4">

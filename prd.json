@@ -3245,25 +3245,6 @@
       "priority": 12
     },
     {
-      "id": "US-3079",
-      "passes": false,
-      "title": "Attention rail: one strip above both overviews that ranks what needs the seller now, with last-updated and refresh-all",
-      "description": "As a seller, I want a single line at the top of the overview that says how many things need me and which is due first, and lets me refresh everything at once, so that the overview works like a command center before I scroll. Today the aging and stale badges sit inside their cards and the eBay queues are on another page entirely.",
-      "acceptanceCriteria": [
-        "src/components/dashboard/attention-rail.tsx renders directly under PageHeader on /dashboard and /dashboard/flipdesk. It is not a widget: it cannot be hidden, moved or resized",
-        "FlipDesk chips, each a link and each shown only when its count is above zero, in this fixed urgency order: needs you (useNeedsYou count with the soonest deadline via deadlineLabel), drafts to review, sync conflicts, extension jobs pending, aging items (metrics.agingCount), stale listings (metrics.staleCount). Grading chips: in review (pending_review), failed, disputed. When every count is zero the rail reads 'All clear'",
-        "The right side shows 'Updated <relative time>' taken from the oldest dataUpdatedAt among the queries of the widgets on the board, and a Refresh control that invalidates the queryKeys prefixes each WidgetDef declares; the registry test asserts queryKeys is non-empty for every widget that reads data",
-        "The chip logic is a pure buildAttentionChips(inputs) in src/lib/attention-rail.ts with vitest coverage for the ordering, zero-count hiding and the all-clear case",
-        "The rail is one row that wraps on mobile, with border-only elevation and no side tab; npm run ui:check reports zero and npm run verify passes"
-      ],
-      "priority": 14,
-      "dependsOn": [
-        "US-3075",
-        "US-3076",
-        "US-3077"
-      ]
-    },
-    {
       "id": "US-3080",
       "passes": false,
       "title": "iOS Home tab laid out as a command center: attention strip, period picker, a section model the seller can reorder and hide, shortcut tiles, two columns on iPad",
