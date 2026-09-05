@@ -40,12 +40,10 @@
   /** At most this many cards get a pre-read on a scan page (US-2237). */
   const SCAN_CARD_CAP = 6;
 
-  /** How the quick look is introduced. Never "grade", never a number. */
-  const QUICK_LOOK_LABEL = "Quick look (on your device)";
-  const QUICK_LOOK_NOTE =
-    "A first impression from a model running in your browser. It is not a " +
-    "condition grade and nothing was sent anywhere.";
-  const QUICK_LOOK_EMPTY = "Nothing obvious spotted in these photos.";
+  // The quick look's WORDING lives in research/condition-format.js, with the
+  // rest of the overlay's copy (US-3066 AC3). This module runs the model; how a
+  // shopper reads the result is a copy decision and belongs where the other
+  // copy is reviewed. Nothing here should grow a user-facing string.
 
   const SYSTEM_PROMPT =
     "You look at photos of a second-hand garment and name only what you can " +
@@ -222,9 +220,6 @@
   return {
     PRE_READ_PLATFORMS: PRE_READ_PLATFORMS,
     SCAN_CARD_CAP: SCAN_CARD_CAP,
-    QUICK_LOOK_LABEL: QUICK_LOOK_LABEL,
-    QUICK_LOOK_NOTE: QUICK_LOOK_NOTE,
-    QUICK_LOOK_EMPTY: QUICK_LOOK_EMPTY,
     SYSTEM_PROMPT: SYSTEM_PROMPT,
     OUTPUT_SCHEMA: OUTPUT_SCHEMA,
     canPreRead: canPreRead,

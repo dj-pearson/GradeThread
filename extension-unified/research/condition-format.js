@@ -34,6 +34,21 @@
   //
   // Brand nouns ("GradeThread") are deliberately absent — a brand is not copy.
   const STRINGS = {
+    // US-3066: the on-device quick look. These three sit HERE, with the rest of
+    // the overlay's copy, rather than in research/local-model.js — that module
+    // runs the model, and copy that decides how a shopper reads the result
+    // belongs where the overlay's other wording is reviewed.
+    //
+    // THE RULE THEY EXIST UNDER: no number, no tier, and no bare use of the
+    // word "grade". A quick look that reads like a grade IS one, to the person
+    // looking at it, and it would be a grade with no prompt version, no eval
+    // gate, no review threshold and no certificate behind it.
+    // condition-format.test.cjs asserts both halves of that.
+    quickLookLabel: "Quick look (on your device)",
+    quickLookNote:
+      "A first impression from a model running in your browser. It is not a " +
+      "condition grade and nothing was sent anywhere.",
+    quickLookEmpty: "Nothing obvious spotted in these photos.",
     // Factor breakdown + photo coverage.
     factorFabric: "Fabric",
     factorStructural: "Structural",

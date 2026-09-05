@@ -248,29 +248,22 @@ const LOCAL = loadLocalModel();
   );
   assert.deepStrictEqual(LOCAL.scanCardsToPreRead(null), []);
 
-  // ── THE LINE: no grade, anywhere in the copy ──────────────────────────────
-  const copy = [
-    LOCAL.QUICK_LOOK_LABEL,
-    LOCAL.QUICK_LOOK_NOTE,
-    LOCAL.QUICK_LOOK_EMPTY,
-  ].join(" ");
-  assert.ok(
-    !/\d+\.\d/.test(copy),
-    `quick-look copy contains a decimal number, which reads as a grade: ${copy}`,
-  );
-  assert.ok(
-    !/\bgrades?\b/i.test(copy.replace(/is not a condition grade/i, "")),
-    "quick-look copy may say what it is NOT, and must not otherwise use the " +
-      "word grade",
-  );
-  assert.ok(
-    /not a condition grade/i.test(LOCAL.QUICK_LOOK_NOTE),
-    "the note must say plainly that this is not a grade",
-  );
-  assert.ok(
-    /on your device/i.test(LOCAL.QUICK_LOOK_LABEL),
-    "the label must say where it ran",
-  );
+  // ── THE LINE: this module owns no user-facing copy ────────────────────────
+  //
+  // The wording lives in research/condition-format.js and is asserted there
+  // (condition-format.test.cjs). What is asserted HERE is that it did not come
+  // back: a second copy of a string whose whole job is to not say "grade" is
+  // two places to get that wrong, and only one of them would be reviewed.
+  for (const key of Object.keys(LOCAL)) {
+    if (key === "SYSTEM_PROMPT") continue; // model instruction, not shown to anyone
+    const v = LOCAL[key];
+    if (typeof v !== "string") continue;
+    assert.ok(
+      !/quick look/i.test(v),
+      `local-model.js exports user-facing copy (${key}). Quick-look wording ` +
+        `belongs in condition-format.js with the rest of the overlay's copy.`,
+    );
+  }
 
   // The prompt itself forbids scoring, so the model is not merely asked not to
   // be rendered as a grade — it is asked not to produce one.
