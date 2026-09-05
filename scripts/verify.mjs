@@ -389,7 +389,22 @@ if (on("web")) {
   // it, which is why it now runs here instead of on memory.
   run("web: unwired edge modules", "node scripts/check-unwired-modules.mjs");
   run("web: unwired src modules", "node scripts/check-web-unwired.mjs");
-  run("web: npm audit (high)", "npm audit --audit-level=high");
+  // The audit gate, mirroring security.yml rather than being stricter than it.
+  //
+  // This ran `npm audit --audit-level=high` over the WHOLE tree and blocked on
+  // the result, while CI blocks on `scripts/audit-gate.mjs` (production deps,
+  // `--omit=dev`, with dated per-advisory acceptances) and runs the full-tree
+  // audit as `|| true`, deliberately non-blocking. So the pre-push hook was
+  // HARDER to pass than the merge gate, on the axis where that is worst: a
+  // dev-only advisory in build tooling nobody ships stopped a push, and the
+  // only ways past were --no-verify or an unrelated dependency bump.
+  //
+  // Found 2026-09-04 by browserslist and fast-uri, both high, both transitive,
+  // one via @vitejs/plugin-react and shadcn and the other via the Claude agent
+  // SDK. None of the three reaches a user. CI's Security lane was green on the
+  // same commit the hook refused to push, which is the tell.
+  run("web: npm audit — production deps (blocking gate)", "node scripts/audit-gate.mjs");
+  advisory("web: npm audit — full tree incl. dev", "npm audit --audit-level=high");
 }
 
 // ── Vault (knowledge base integrity) — US-2044 ───────────────────────────────
@@ -733,7 +748,10 @@ if (on("security")) {
   if (secDockerSkip) {
     skipped.push(secDockerSkip);
   } else {
-    run("security: npm audit (high)", "npm audit --audit-level=high");
+    // Same split as the web lane above and as security.yml: the production
+    // gate blocks, the full tree reports.
+    run("security: npm audit — production deps (blocking gate)", "node scripts/audit-gate.mjs");
+    advisory("security: npm audit — full tree incl. dev", "npm audit --audit-level=high");
     run("security: build edge image", "docker build -t gradethread-edge:scan services/edge-functions");
     run(
       "security: trivy image (HIGH/CRITICAL, fixed-only)",
