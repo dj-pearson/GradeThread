@@ -134,6 +134,35 @@
     flipRecheck: "Re-check",
     badgeCta: "Read condition",
 
+    // US-3068: the return shield. Every string a seller reads on an eBay
+    // dispute page lives here, and there is one rule over all of them:
+    //
+    //   NOTHING PROMISES AN OUTCOME. No "wins", no "guaranteed", no "reversed".
+    //   Evidence is evidence. A seller who reads "this will win" and then loses
+    //   has been told something we had no business saying, on the day it costs
+    //   them money. A test asserts those three words appear nowhere in here.
+    //
+    // The refusal copy is the most important of them. When the pack would argue
+    // from a defect the listing never disclosed, the honest answer is that the
+    // buyer has a point — so it says so and offers nothing to paste.
+    shieldTitle: "GradeThread has a graded record for this item",
+    shieldGradedOn: "Graded {date}",
+    shieldDefects: "{n} recorded flaw(s)",
+    shieldNoSnapshot:
+      "We do not have a copy of the listing text as published, so this can only " +
+      "speak to what the report recorded.",
+    shieldRefusal:
+      "The flaw being complained about is not one the listing disclosed. There " +
+      "is nothing here that argues in your favour, and a refund is worth " +
+      "considering.",
+    shieldCopy: "Copy the wording",
+    shieldCopied: "Copied",
+    shieldOpen: "Open in FlipDesk",
+    draftOpening: "The condition of this item was graded and recorded before sale:",
+    disclosedInDescription: "Disclosed in the listing description as",
+    disclosedInAspects: "Disclosed in the listing item specifics as",
+    certificateLine: "The full graded report is certificate {n}.",
+
     // Relative times, for a recalled read.
     justNow: "just now",
     minutesAgo: "{n}m ago",
