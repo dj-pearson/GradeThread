@@ -1,5 +1,49 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## PENDING: 00726 - undo 00724's REVOKE on pollable_ebay_owner_ids (US-3110 follow-up)
+
+**Why it exists.** 00724 shipped with
+
+```
+revoke all on function public.pollable_ebay_owner_ids(timestamptz) from public;
+revoke all on function public.pollable_ebay_owner_ids(timestamptz) from anon;
+revoke all on function public.pollable_ebay_owner_ids(timestamptz) from authenticated;
+```
+
+On this Postgres image a DENIED function call from a role in
+`supautils.hint_roles` segfaults the backend and restarts the database, because
+supautils appends a GRANT hint to the permission error (US-2403). `anon` is the
+key in the browser bundle and PostgREST exposes the function at
+`/rpc/pollable_ebay_owner_ids`. Third time for this shape: 00686 fixed 00685,
+00720 fixed 00711, 00726 fixes 00724.
+
+**Risk: LOW, and this is NOT an incident.** Production does not reproduce the
+crash: `current_setting('supautils.hint_roles', true)` reads NULL on the prod
+image, read read-only over SSH on 2026-09-02 (US-2403 AC1/AC6). A denied call
+there returns an ordinary error today. The LOCAL image does reproduce it. So
+00726 removes a landmine that an image upgrade would arm, and gets
+`src/test/us2403-function-revoke-gate.test.ts` back to green - it had been red on
+`main` since 00724 landed, which is the part that costs the next person time.
+
+**What changes.** `create or replace` on the function: same result set, same
+`security definer`, same pinned `search_path`, body converted from `sql` to
+`plpgsql` so the authorization check can live in it. Then
+`grant execute ... to public`, which is what disarms the crash - a role that
+HOLDS execute never takes the denial path. The permission is not loosened: the
+body raises 42501 for any PostgREST caller that is not `service_role`, which is
+stricter than the revoke was and has to be, because this function returns other
+tenants' owner ids by design.
+
+**Apply order.** `00726` alone, then `NOTIFY pgrst, 'reload schema';` (the
+function signature is unchanged but the body is replaced). The edge can go
+before or after - it calls this with the service-role key either way, and the
+old grant and the new one both let it through. `EXPECTED_SCHEMA_VERSION` is
+bumped to `00726` in the same commit, so the edge boot guard wants 00726 applied
+before the container restarts.
+
+**Client-side read risk: NONE.** No column, no type, no table. Nothing in `src/`
+or the edge reads a permission.
+
 ## ✅ APPLIED 2026-09-03: 00725 — stagger the per-SKU eBay offer read (US-3111)
 
 **Verified applied 2026-09-03** by `npm run migrate:prod` (dry run): prod records
