@@ -26,9 +26,19 @@ describe("freshness registry (US-1694)", () => {
   });
 
   it("verifiedLabel renders a real 'Month Year' from lastVerified", () => {
-    // All groups were verified 2026-07-06 → "July 2026".
+    // Derived per group, not a single expected string. This asserted
+    // "July 2026" for every group, which held only while every group happened
+    // to share a date — so the first group to be re-verified on its own failed
+    // a test about FORMATTING for a reason that had nothing to do with
+    // formatting. (2026-09-05: comparisons moved when its fee tables were
+    // re-read; two of the five were wrong.)
+    const MONTHS = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December",
+    ];
     for (const g of FRESHNESS_GROUPS) {
-      expect(verifiedLabel(g)).toBe("July 2026");
+      const [y, m] = FRESHNESS_REGISTRY[g].lastVerified.split("-");
+      expect(verifiedLabel(g), `${g}`).toBe(`${MONTHS[Number(m) - 1]} ${y}`);
     }
   });
 
@@ -56,14 +66,21 @@ describe("freshness registry (US-1694)", () => {
     // competitor-alternatives is quarterly and was verified 2026-07-20, so it
     // shares the 2026-10 due month with the other quarterly groups (dueMonth is
     // month-granular — the day of the month does not participate).
+    //
+    // `comparisons` is NOT in this list any more: it was re-verified 2026-09-05
+    // (two of its five fee strings were wrong), so it is due 2026-12. That is
+    // the registry working, and the list stays concrete rather than being
+    // computed from FRESHNESS_REGISTRY — deriving it here would re-implement
+    // the function under test and pass for any value it returned.
     expect(overdueGroups("2026-10-01").sort()).toEqual(
       [
-        "comparisons",
         "competitor-alternatives",
         "crosslisting-apps",
         "platform-standards",
       ].sort(),
     );
+    // And it IS overdue once its own quarter is up.
+    expect(overdueGroups("2026-12-01")).toContain("comparisons");
     // A year out, the annual group is due too.
     expect(overdueGroups("2027-08-01").sort()).toEqual([...FRESHNESS_GROUPS].sort());
   });

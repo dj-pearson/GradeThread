@@ -112,7 +112,14 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
   },
   poshmark: {
     name: "Poshmark",
-    fees: "A flat fee on low-price sales and roughly a fifth of the sale price on higher-priced items.",
+    // Sharpened 2026-09-05, not corrected: "a flat fee on low-price sales and
+    // roughly a fifth on higher-priced items" was true. It was also vague
+    // enough that nobody could have noticed it going stale, which is exactly
+    // how the Depop line survived being wrong for over a year. A named figure
+    // fails visibly; a hedge does not.
+    fees:
+      "$2.95 flat on sales of $15 and under, and 20% of the sale price above " +
+      "that.",
     audience: "A large, social US/Canada community that skews contemporary women's and men's fashion.",
     categoryFit: "Contemporary and casual clothing, accessories, and recognizable mid-market brands.",
     shipping: "A flat-rate prepaid label, usually paid by the buyer — simple but not optimizable.",
@@ -128,7 +135,17 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
   },
   mercari: {
     name: "Mercari",
-    fees: "A flat selling fee around 10% plus payment processing; the fee model shifts often, so verify before you price.",
+    // CORRECTED 2026-09-05. This said "around 10% plus payment processing".
+    // The 10% is right; the processing charge is not. Mercari removed the
+    // separate seller processing fee on 2025-01-06 and put a 3.6% Buyer
+    // Protection fee on the buyer instead, so the old string overstated what a
+    // Mercari seller pays. Source: mercari.com/us/help_center/article/2517.
+    // The "verify before you price" warning stays: this is the platform that
+    // ran a zero-seller-fee experiment through 2024 and reversed it.
+    fees:
+      "A flat 10% selling fee on the item price plus buyer-paid shipping, and " +
+      "no separate seller processing fee since January 2025. The fee model " +
+      "shifts often here, so verify before you price.",
     audience: "A smaller, US-focused, mobile-first buyer base that skews casual.",
     categoryFit: "Everyday casualwear, streetwear, and mid-market brands sold quickly.",
     shipping: "A prepaid label or flat-rate options; less control than eBay.",

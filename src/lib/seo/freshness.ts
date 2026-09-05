@@ -38,7 +38,11 @@ export const FRESHNESS_REGISTRY: Record<FreshnessGroup, FreshnessEntry> = {
     covers: "Platform condition-standard pages (/grading/platform-standards/*)",
   },
   comparisons: {
-    lastVerified: "2026-07-06",
+    // 2026-09-05: all five platform fee strings re-read against the platforms'
+    // own pages. Two were WRONG, which the previous verification had not caught
+    // because both were hedged rather than numeric - see the dated callouts on
+    // depop.fees and mercari.fees in comparison-guides.ts.
+    lastVerified: "2026-09-05",
     cadenceMonths: 3,
     covers: "Marketplace comparison fee tables (/compare/*)",
   },
