@@ -10,7 +10,7 @@ code_refs:
   - src/lib/garment-mapping.ts
   - src/lib/grading-readiness.ts
   - src/lib/measurement-templates.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [flipdesk, grading, ebay, contract]
 summary: An item carries three category axes that must agree; correcting one cascades into the others, and the specifics a change cannot carry are set aside rather than destroyed.
 ---
@@ -229,3 +229,21 @@ card that says Ready always passes the authoritative server check.
 - [[grading-scale-and-weights]] — what the garment axis selects
 - [[listing-photos]] — the other half of grading readiness
 - [[INDEX]]
+
+## 2026-09-04: syncedAspectNameFor, the inverse lookup
+
+`src/lib/ebay-prefill.ts` gained `syncedAspectNameFor(column, category,
+aspectList)` in 1d565ca6f: given a structured column, the ONE eBay
+specific it is two-way synced with for that category. The inverse of
+`syncedItemFieldFor`.
+
+It matters to this note's cascade because of which candidate it picks. It
+calls `ownedAspectName`, deliberately the same call
+`reverseProjectAspectColumns` makes. A caller that writes a column and
+this aspect together therefore writes the pair the next save reads back;
+picking any other candidate the spec happens to list would mean the save
+reverse-projects a different specific over the column and silently undoes
+the seller's edit. Returns null when the category exposes no such
+specific, which is the signal to write the column alone.
+
+Additive. No existing remap or cascade behaviour changed.

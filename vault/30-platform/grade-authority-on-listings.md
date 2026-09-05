@@ -11,7 +11,7 @@ code_refs:
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
@@ -197,3 +197,14 @@ failing a HEAD probe. It cannot recur, since nothing attaches a slab.
 - [[grading-scale-and-weights]] — what the number in that text means
 - [[shipped-but-unwired]] — telling a retirement apart from an oversight
 - [[INDEX]]
+
+## 2026-09-04: re-read after the eBay sync-efficiency change
+
+`services/edge-functions/src/routes/flipdesk-ebay.ts` changed on
+2026-09-03 for US-3110/US-3111: what a pull is allowed to read from eBay,
+a recheck stamp so a specific eBay cannot fill is not re-asked every sync,
+and a per-SKU stagger on the offer read. Call-volume work throughout.
+
+Nothing about how a grade reaches a listing moved. It is still text plus a
+structured specific, still never burned into a photo, still never a QR
+slab image and still never a link.

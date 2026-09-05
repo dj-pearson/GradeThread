@@ -7,7 +7,7 @@ code_refs:
   - services/edge-functions/src/routes/flipdesk-ebay.ts
   - services/edge-functions/src/lib/sync-watermark.ts
   - services/edge-functions/src/routes/jobs-ebay-order-backstop.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [ebay, flipdesk, sync, recovery]
 summary: How to recover eBay orders that a pre-US-2320 sync skipped past, how to tell whether a seller lost any, and why the run status field is the wrong thing to check.
 ---
@@ -150,3 +150,23 @@ Shopify already worked this way — `flipdesk-shopify.ts` gates its watermark on
 
 Related: [[incident-response]] for the SEV process if a seller reports missing
 revenue, [[deploy]] for shipping the fix ahead of the backfill.
+
+## 2026-09-04: the backstop asks for orders only now
+
+Both eBay code_refs changed on 2026-09-03 for the sync-efficiency work
+(US-3110, US-3111). The one that matters to this runbook is
+`jobs-ebay-order-backstop.ts`: the backstop used to pay a whole-catalog read
+on every tick -- one `GET /sell/inventory/v1/offer` per SKU plus
+`GetMyeBaySelling` -- to do a job that only ever needed orders. It now calls
+`triggerEbaySyncForUser(ownerId, "orders")` and skips both active-listing
+passes.
+
+It does NOT weaken this backstop, which is the thing to check before
+trusting a recovery procedure. `resolveSyncScope` upgrades an orders-only
+request to a full read whenever the catalog cursor is null, unparseable or
+older than `CATALOG_REFRESH_MS`, so no caller can starve the reconcile and
+an eBay-side edit is never missed for longer than that window. The orders
+pass itself -- the part this runbook depends on -- is untouched.
+
+`flipdesk-ebay.ts` changed in the same window for the per-SKU offer stagger
+and the GetItem specifics recheck stamp. Neither is on the orders path.

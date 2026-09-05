@@ -19,7 +19,7 @@ code_refs:
   - supabase/migrations/00587_item_photo_role_qualifier.sql
   - supabase/migrations/00589_submission_image_role.sql
   - services/edge-functions/src/routes/flipdesk-grading.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
@@ -400,3 +400,14 @@ Consequences worth knowing:
 - [[image-intake]] — what the uploaded bytes are allowed to be
 - [[grade-authority-on-listings]] — why nothing is ever burned into these photos
 - [[INDEX]]
+
+## 2026-09-04: constants.ts moved, but only the grade-score colours
+
+`src/lib/constants.ts` changed in 19d62b6b4 (US-3010). The whole diff is the
+four grade-score colour helpers -- `getScoreColor`, `getScoreBorderColor`,
+`getProgressColor`, `getTierBadgeClasses` -- dropping from four bands to
+three and moving the green boundary from `> 7` to `>= 7`. That contract lives
+in [[brand-design-system]] section 3B, which the same commit amended.
+
+Nothing this note asserts is in that diff. Re-read to confirm rather than
+assumed, which is the only reason the date below moved.

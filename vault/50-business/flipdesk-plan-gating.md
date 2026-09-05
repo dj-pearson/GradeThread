@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/tests/plan-gate-coverage_test.ts
   - services/edge-functions/src/routes/flipdesk-closet-import.ts
   - src/lib/constants.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [flipdesk, plans, billing, contract]
 summary: Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 ---
@@ -179,3 +179,14 @@ not unset. Treating `-1` as missing data silently downgrades Business accounts.
 - [[pricing]] — the plan matrix these gates enforce
 - [[subscription-unit-economics]] — why the AI-action caps sit where they do
 - [[INDEX]]
+
+## 2026-09-04: constants.ts moved, but only the grade-score colours
+
+`src/lib/constants.ts` changed in 19d62b6b4 (US-3010). The whole diff is the
+four grade-score colour helpers -- `getScoreColor`, `getScoreBorderColor`,
+`getProgressColor`, `getTierBadgeClasses` -- dropping from four bands to
+three and moving the green boundary from `> 7` to `>= 7`. That contract lives
+in [[brand-design-system]] section 3B, which the same commit amended.
+
+Nothing this note asserts is in that diff. Re-read to confirm rather than
+assumed, which is the only reason the date below moved.

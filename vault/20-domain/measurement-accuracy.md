@@ -6,7 +6,7 @@ source_of_truth: code
 code_refs:
   - src/lib/measurements.ts
   - services/edge-functions/src/lib/measurements.ts
-reviewed: 2026-08-23
+reviewed: 2026-09-04
 tags: [measurement, contract]
 summary: Tolerances the measurement pipeline must hold and how accuracy is validated.
 ---
@@ -208,3 +208,22 @@ No entry in `progress.txt` → the copy stays. This document is the contract.
 - [[measurement-card-spec]] — the physical card these measurements are taken against
 - [[sync-source-of-truth]] — who owns a measurement field once it is synced
 - [[INDEX]]
+
+## 2026-09-04: the renderers were split; the numbers were not touched
+
+`services/edge-functions/src/lib/measurements.ts` changed in 1d565ca6f.
+It is a refactor for the composer's clickable description preview, not a
+measurement change. `buildMeasurementLineParts` and
+`buildMeasurementsBlockParts` are new and return the same lines tagged
+with the measurements key that produced each one; the old
+`buildMeasurementLines` and `buildMeasurementsBlock` are now defined AS
+those functions with the tags dropped (`.map(p => p.text)`).
+
+That definition is the useful part: the rendered text cannot drift from
+the tagged version, because there is only one renderer and the plain one
+is derived from it. No spec, tolerance, unit conversion, circumference
+doubling or label changed.
+
+The keys exist so a click on a rendered line maps back to the field that
+produced it. Matching on the rendered LABEL would have worked today and
+broken the first time a label was reworded.

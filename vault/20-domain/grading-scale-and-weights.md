@@ -12,7 +12,7 @@ code_refs:
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/defect-weighting.ts
   - services/edge-functions/src/tests/weighted-grade-parity_test.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [grading, contract]
 summary: The 1.0-10.0 scale, the five weighted factors, the rounding rule that has now shipped wrong twice, and which engine criteria are published and therefore no longer free to tune.
 ---
@@ -180,3 +180,16 @@ the published standard by adding it should read this paragraph first.
 - [[INDEX]]
 - [[brand-taxonomy-overview]] — brand tiering that feeds grading context
 - [[CONTRACT]] — why this note is `type: contract` and gets strict CI treatment
+
+## 2026-09-04: the colour boundary now agrees with the tier floor
+
+`src/lib/constants.ts` changed in 19d62b6b4 (US-3010). No weight, no
+rounding rule and no tier band moved -- the diff is the grade-score colour
+helpers, whose contract is [[brand-design-system]] section 3B.
+
+One thing there is worth knowing here, because it was a disagreement WITH
+this note. The colour helpers tested `score > 7`, while `GRADE_TIER_BANDS`
+calls 7.0 the inclusive floor of "Very Good". So a 7.0 was named Very Good
+and painted the same colour as a 5.0 "Fair" -- one tier rendered in two
+colours, at the exact boundary. The helpers are `>= 7` now and the two
+agree. The bands themselves are unchanged and remain what this note owns.

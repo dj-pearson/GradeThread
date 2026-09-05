@@ -9,7 +9,7 @@ code_refs:
   - scripts/setup-stripe-pricing.mjs
   - src/pages/legal/refund.tsx
   - src/pages/legal/terms.tsx
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [pricing, billing, stripe, contract]
 summary: The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
 ---
@@ -557,3 +557,14 @@ numbers must change all three in the same commit;
 > billing-error window** in `refund.tsx` section 3, so that is what the hold is
 > set to. Paying a commission on an invoice still inside the window it can be
 > reversed in is how an affiliate ledger goes negative.
+
+## 2026-09-04: constants.ts moved, but only the grade-score colours
+
+`src/lib/constants.ts` changed in 19d62b6b4 (US-3010). The whole diff is the
+four grade-score colour helpers -- `getScoreColor`, `getScoreBorderColor`,
+`getProgressColor`, `getTierBadgeClasses` -- dropping from four bands to
+three and moving the green boundary from `> 7` to `>= 7`. That contract lives
+in [[brand-design-system]] section 3B, which the same commit amended.
+
+Nothing this note asserts is in that diff. Re-read to confirm rather than
+assumed, which is the only reason the date below moved.

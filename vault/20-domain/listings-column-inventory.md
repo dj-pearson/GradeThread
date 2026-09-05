@@ -8,7 +8,7 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
@@ -208,3 +208,16 @@ complete. See [[data-retention]].
   and never a silent truncation.
 - [[sync-source-of-truth]] — which side owns a field once a listing exists on a
   marketplace.
+
+## 2026-09-04: two new interfaces, no new column
+
+`src/types/database.ts` changed in 1d565ca6f. The whole diff is additive
+and sits ABOVE `ListingRow`: `DescriptionSegmentLine` and
+`DescriptionSegment`, the shapes the composer's clickable description
+preview is rendered from. `ListingRow` itself is untouched, so the column
+inventory below still stands.
+
+Worth knowing anyway, because the types encode a contract: `sep + body`
+glued across every segment IS the string eBay receives, and `index` points
+into the blocks array the client sent rather than the render order. The
+preview cannot show something other than what publishes.

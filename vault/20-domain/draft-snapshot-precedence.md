@@ -10,7 +10,7 @@ code_refs:
   - src/pages/flipdesk/grid.tsx
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-09-02
+reviewed: 2026-09-04
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
@@ -193,3 +193,25 @@ different contract; see [[sync-source-of-truth]].
 - [[listings-column-inventory]] — what the rest of the listings row is for
 - [[listing-photos]] — the photo half of the same publish path
 - [[INDEX]]
+
+## 2026-09-04: one more surface that writes the item
+
+Two code_refs moved. `services/edge-functions/src/routes/flipdesk-ebay.ts`
+changed on 2026-09-03 for the eBay sync-efficiency work (US-3110/US-3111):
+sync-scope resolution, a GetItem specifics recheck stamp and the per-SKU
+offer stagger. Read: none of it touches which copy publish prefers.
+
+`src/pages/flipdesk/composer.tsx` changed in 1d565ca6f and does concern
+this note. `commitDerivedField` is a new write path: a seller clicks a
+line in the rendered description preview, and it writes the underlying
+`inventory_items` column or measurement directly, then writes the paired
+eBay specific through `syncedAspectNameFor`, then re-renders the preview.
+
+The precedence rule is unchanged and now covers one more surface. The
+column half lands on the ITEM immediately; the draft row's stored
+description is still reconciled by the composer's save, exactly as it is
+for every other item write. So between a derived-field edit and a save,
+the item and the snapshot disagree -- which is this note's whole subject,
+not a new exception to it. The aspect half is routed through the normal
+dirty/save machinery (`sellerEditedAspects`, `handleAspectsChange`), so it
+reaches the draft the way a specifics edit always has.
