@@ -41,6 +41,51 @@ const CONFIRM_DELAY_MS = Number(process.env.UPTIME_CONFIRM_DELAY_MS ?? 30_000);
 const SPA_SHELL_MARKER = /<div id="root">/i;
 const NOT_FOUND_MARKER = /Page Not Found/i;
 
+// US-2619: the size of the static branded card, measured at run time rather
+// than written down.
+//
+// An OG endpoint that fails gracefully serves this exact file, so an image
+// whose byte count equals it is the FALLBACK and not a real render. Both are
+// 200 image/png and both look healthy from the outside, which is precisely how
+// /og/help and /og/verified read as fine for months while their render path had
+// never once executed.
+//
+// Measured, because a hardcoded 133915 would turn the first redesign of the
+// fallback into a false alarm — and a monitor that cries wolf is one people
+// switch off. Null when it cannot be fetched, and every use is guarded, so
+// failing to measure it costs the NOTE and never invents an alert.
+let FALLBACK_PNG_BYTES = null;
+
+/**
+ * What to say about an OG endpoint that answered 200 image/png with `bytes`.
+ *
+ * Pure, and exported, because the three-way distinction is the whole point and
+ * it is not observable from the outside: zero bytes, the fallback, and a real
+ * render are all "200 image/png" to anything that only checks a status code.
+ *
+ * Returns null when there is nothing to say — which includes zero bytes, since
+ * that is a FAILURE (bytesOk) and a note as well would report it twice.
+ */
+export function ogFallbackNote(endpoint, bytes, fallbackBytes) {
+  if (!bytes) return null;
+  if (!fallbackBytes || bytes !== fallbackBytes) return null;
+  return `${endpoint} is serving the BRANDED FALLBACK (${bytes} bytes, ` +
+    `byte-identical to /og-image.png), so the real renderer did not run ` +
+    `(US-2619)`;
+}
+
+async function measureFallbackBytes() {
+  try {
+    const res = await fetch(`${SITE_URL}/og-image.png`, {
+      headers: { "User-Agent": "GradeThread-Uptime/1.0" },
+    });
+    if (!res.ok) return null;
+    return (await res.arrayBuffer()).byteLength || null;
+  } catch {
+    return null;
+  }
+}
+
 export const TARGETS = [
   {
     id: "spa",
@@ -140,6 +185,37 @@ export const TARGETS = [
     },
   },
   {
+    // US-2619 AC3/AC4: the social card, checked as an IMAGE rather than as a
+    // status code.
+    //
+    // THE FAILURE THIS EXISTS FOR. /og/social/card returns HTTP 200,
+    // Content-Type image/png, and ZERO BYTES. workers-og's ImageResponse
+    // STREAMS, so the raster happens as the body is consumed — after the
+    // Response object was built and returned — and the route's try/catch
+    // cannot see a failure that happens then. The catch never fires, the
+    // branded fallback never runs, and the client gets a well-formed 200 with
+    // nothing in it. content-social-publish.ts auto-fills this URL whenever a
+    // post has no image, so every auto-filled social image is blank.
+    //
+    // TWO DIFFERENT SIGNALS, and conflating them is what let this hide:
+    //   - ZERO bytes FAILS. A 200 with no body is never acceptable.
+    //   - The FALLBACK is a NOTE. Serving the branded card is not an outage;
+    //     it is the graceful path. But it means the real renderer was not
+    //     exercised, which is exactly why /og/help and /og/verified read as
+    //     healthy for months while their render path had never once run.
+    //
+    // The fallback is recognised by comparing against the static file rather
+    // than a hardcoded byte count, so a redesign of the fallback does not turn
+    // this into a false alarm.
+    id: "og_social_card",
+    name: "Social card image",
+    url: `${SITE_URL}/og/social/card?ratio=landscape`,
+    ok: (status) => status === 200,
+    bytesOk: (bytes) => bytes > 0,
+    bytesNote: (bytes) =>
+      ogFallbackNote("og/social/card", bytes, FALLBACK_PNG_BYTES),
+  },
+  {
     // Kong fronts GoTrue and requires an apikey for /auth/v1/health. With the
     // anon key we demand a real 200 from GoTrue; without it (secret unset) a
     // 401 from Kong still proves Supabase's gateway is up, so accept any
@@ -165,20 +241,49 @@ async function probe(target) {
     const latency = Date.now() - started;
     // Read the body only when a target asserts on it (e.g. the SPA-shell check);
     // otherwise just drain so the runner doesn't hold sockets open.
-    const needsBody = typeof target.bodyOk === "function" || typeof target.bodyNote === "function";
-    const bodyText = needsBody ? await res.text() : (await res.arrayBuffer().catch(() => {}), null);
+    // US-2619: a BINARY target asserts on byte length, not text. res.text()
+    // decodes as UTF-8, so a PNG's .length is not its byte count — which is the
+    // difference between "this image is empty" and "this image is 133915 bytes
+    // of branded fallback", and both of those are 200 image/png.
+    const needsBytes = typeof target.bytesOk === "function" ||
+      typeof target.bytesNote === "function";
+    const needsBody = !needsBytes &&
+      (typeof target.bodyOk === "function" || typeof target.bodyNote === "function");
+    let bodyText = null;
+    let byteLength = null;
+    if (needsBytes) {
+      byteLength = (await res.arrayBuffer().catch(() => new ArrayBuffer(0))).byteLength;
+    } else if (needsBody) {
+      bodyText = await res.text();
+    } else {
+      await res.arrayBuffer().catch(() => {});
+    }
     const statusOk = target.ok(res.status);
     const bodyOk = typeof target.bodyOk === "function" ? target.bodyOk(bodyText ?? "") : true;
+    const bytesOk = typeof target.bytesOk === "function"
+      ? target.bytesOk(byteLength ?? 0)
+      : true;
     // A note never contributes to `up` — see the bodyNote comment on edge_ready.
-    const note = typeof target.bodyNote === "function" ? target.bodyNote(bodyText ?? "") : null;
+    const note = typeof target.bytesNote === "function"
+      ? target.bytesNote(byteLength ?? 0)
+      : typeof target.bodyNote === "function"
+      ? target.bodyNote(bodyText ?? "")
+      : null;
     return {
       ...target,
-      up: statusOk && bodyOk,
+      up: statusOk && bodyOk && bytesOk,
       note,
       httpStatus: res.status,
       latency,
-      // Distinguish a clean status failure from a 200-with-wrong-body (soft 404).
-      error: statusOk && !bodyOk ? "HTTP 200 but body is not the SPA shell (soft-404 / broken routing)" : null,
+      byteLength,
+      // Distinguish a clean status failure from a 200-with-wrong-body (soft 404),
+      // and both from a 200 with NO body at all.
+      error: statusOk && !bytesOk
+        ? `HTTP 200 image/png with ${byteLength} bytes — an empty image is a ` +
+          `blank link preview everywhere it is used (US-2619)`
+        : statusOk && !bodyOk
+        ? "HTTP 200 but body is not the SPA shell (soft-404 / broken routing)"
+        : null,
     };
   } catch (err) {
     return {
@@ -330,6 +435,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // environment, open a GitHub issue) as a side effect of a unit test. Same trap
 // that made gen-console-diagnostics regenerate the file it was asked to check.
 if (process.argv[1]?.endsWith("uptime-check.mjs")) {
+
+  // US-2619: measure the branded fallback ONCE per run, before probing, so the
+  // image targets can tell a real render from a graceful one. Best effort — a
+  // null here silently disables that note and nothing else.
+  FALLBACK_PNG_BYTES = await measureFallbackBytes();
 
   const round1 = await Promise.all(TARGETS.map(probe));
   for (const r of round1) console.log(describe(r));
