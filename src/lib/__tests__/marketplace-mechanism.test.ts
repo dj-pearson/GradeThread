@@ -12,6 +12,7 @@ import {
   MARKETPLACE_TIER_LABEL,
   MARKETPLACE_EXTENSION_FLOW,
   MARKETPLACE_EXTENSION_FLOWS,
+  MARKETPLACE_FLOW_CAPABILITY_LABEL,
   MARKETPLACE_FLOW_LABEL,
   MARKETPLACE_REVISE_LABEL,
   formatListingAllowance,
@@ -201,6 +202,7 @@ describe("extension flow status matches the shipped selectors (US-2477..US-2480)
       lastVerified: string | null;
       delist?: { enabled: boolean; lastVerified: string | null };
       revise?: { enabled: boolean; lastVerified: string | null };
+      relist?: { enabled: boolean; lastVerified: string | null };
     }
   > {
     const src = readFileSync(SELECTORS_PATH, "utf8");
@@ -438,6 +440,7 @@ describe("MARKETPLACE_EXTENSION_FLOWS matches the shipped selectors (US-9202)", 
       enabled: boolean;
       delist?: { enabled: boolean; lastVerified: string | null };
       revise?: { enabled: boolean; lastVerified: string | null };
+      relist?: { enabled: boolean; lastVerified: string | null };
     }
   >;
 
@@ -447,11 +450,16 @@ describe("MARKETPLACE_EXTENSION_FLOWS matches the shipped selectors (US-9202)", 
     }
   });
 
-  it("delist and revise agree with selectors.js, flow by flow", () => {
+  it("delist, revise and relist agree with selectors.js, flow by flow", () => {
     for (const p of EXTENSION_CROSS_LISTING_PLATFORMS) {
       const e = selectors[p];
       if (!e) throw new Error(`${p} has no selectors entry`);
-      for (const flow of ["delist", "revise"] as const) {
+      // US-3071 added relist. It shipped in US-9203 with a selectors block and
+      // NO mirror here, so nothing on this side knew the flow existed — it
+      // could have been switched on in the extension with no screen and no test
+      // noticing. A missing block reads `verifying`, the same as a switched-off
+      // one, because both mean the seller does it by hand.
+      for (const flow of ["delist", "revise", "relist"] as const) {
         const cfg = e[flow];
         const expected = cfg?.enabled ? "live" : "verifying";
         expect(
@@ -480,3 +488,53 @@ describe("MARKETPLACE_EXTENSION_FLOWS matches the shipped selectors (US-9202)", 
   });
 });
 
+
+// US-3071: the Marketplaces card cannot promise a flow that is off.
+//
+// The map above is drift-guarded against selectors.js. This is the other half:
+// that the SCREEN reads the map rather than describing the channels itself. A
+// correct map nobody renders is what the page had before — a list badge and
+// silence about delist, revise and relist.
+describe("the Marketplaces card renders the flows from the map (US-3071)", () => {
+  const page = readFileSync(
+    resolve(process.cwd(), "src/pages/flipdesk/marketplaces.tsx"),
+    "utf8",
+  );
+
+  it("reads MARKETPLACE_EXTENSION_FLOWS and its label map", () => {
+    expect(page).toContain("MARKETPLACE_EXTENSION_FLOWS[");
+    expect(page).toContain("MARKETPLACE_FLOW_CAPABILITY_LABEL[flow][flows[flow]]");
+  });
+
+  it("renders all four flows, not the three that existed before relist", () => {
+    expect(page).toContain('(["list", "delist", "revise", "relist"] as const)');
+  });
+
+  it("has a label for every flow at every status", () => {
+    // A missing entry would render `undefined` in the row, which reads as a
+    // capability nobody can interpret rather than as a bug.
+    for (const flow of ["list", "delist", "revise", "relist"] as const) {
+      for (const status of ["live", "verifying"] as const) {
+        const label = MARKETPLACE_FLOW_CAPABILITY_LABEL[flow][status];
+        expect(label, `${flow}/${status} has no label`).toBeTruthy();
+        // Says what the SELLER does. "You end it" is actionable; "delist
+        // unavailable" is a status nobody can act on.
+        expect(label).not.toMatch(/unavailable|not supported|n\/a/i);
+      }
+    }
+  });
+
+  it("never writes a channel's capabilities as prose in the page", () => {
+    // The failure this guards: somebody adds "Poshmark: ends for you" as a
+    // literal next to the card because the map was inconvenient that day, and
+    // it survives the flow being switched off.
+    for (const platform of ["Poshmark", "Mercari", "Grailed", "Vinted"]) {
+      for (const claim of ["ends for you", "edits for you", "relists for you"]) {
+        expect(
+          page.toLowerCase().includes(`${platform.toLowerCase()} ${claim}`),
+          `${platform} ${claim} is written as prose rather than read from the map`,
+        ).toBe(false);
+      }
+    }
+  });
+});

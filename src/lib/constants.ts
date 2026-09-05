@@ -1744,13 +1744,25 @@ export const MARKETPLACE_FLOW_LABEL: Record<MarketplaceFlowStatus, string> = {
   verifying: "Checking the form — list manually for now",
 };
 
-// ─── US-9202: the three flows a channel has, each with its own switch ───────
+// ─── US-9202/9203: the FOUR flows a channel has, each with its own switch ──
 //
 // MARKETPLACE_EXTENSION_FLOW above is the LIST flow. A channel also has a
-// delist flow and, as of US-9202, a revise (edit-sync) flow, and each is
-// verified and switched on separately in extension-unified/lister/selectors.js
-// (`delist.enabled`, `revise.enabled`). This map mirrors all three so a screen
-// can say "Ready to list · ends by hand · edits by hand" truthfully per channel.
+// delist flow, a revise (edit-sync) flow from US-9202 and a relist flow from
+// US-9203, and each is verified and switched on separately in
+// extension-unified/lister/selectors.js (`delist.enabled`, `revise.enabled`,
+// `relist.enabled`). This map mirrors all four so a screen can say "Ready to
+// list · ends by hand · edits by hand" truthfully per channel.
+//
+// ⚠ RELIST WAS MISSING FROM THIS MAP UNTIL US-3071. US-9203 shipped the flow
+// and its selectors block, and nothing on this side knew the flow existed — so
+// no screen could report it and no drift test watched it. A flow with no mirror
+// is a flow that can be switched on in the extension without anything here
+// noticing, which is the exact failure the US-2477 comment above describes.
+//
+// A channel with NO relist block at all (Grailed and Vinted today) reads
+// `verifying`, the same as one that is switched off. That is deliberate: both
+// mean "the seller does this by hand", and inventing a third state would put a
+// distinction on screen that makes no difference to them.
 //
 // SAME RULE AS ABOVE: this must match the selectors file and cannot be derived
 // from it, so marketplace-mechanism.test.ts parses that file and fails the
@@ -1759,24 +1771,39 @@ export type MarketplaceExtensionFlows = {
   list: MarketplaceFlowStatus;
   delist: MarketplaceFlowStatus;
   revise: MarketplaceFlowStatus;
+  relist: MarketplaceFlowStatus;
 };
 export const MARKETPLACE_EXTENSION_FLOWS: Record<
   (typeof EXTENSION_CROSS_LISTING_PLATFORMS)[number],
   MarketplaceExtensionFlows
 > = {
-  poshmark: { list: "live", delist: "live", revise: "verifying" },
-  mercari: { list: "live", delist: "live", revise: "verifying" },
+  poshmark: { list: "live", delist: "live", revise: "verifying", relist: "verifying" },
+  mercari: { list: "live", delist: "live", revise: "verifying", relist: "verifying" },
   // Grailed's delist is permanently off (native confirm dialog); revise may
   // be possible because an edit saves through the site's own form. Off until
-  // verified either way.
-  grailed: { list: "live", delist: "verifying", revise: "verifying" },
-  vinted: { list: "live", delist: "verifying", revise: "verifying" },
-  facebook: { list: "verifying", delist: "verifying", revise: "verifying" },
+  // verified either way. It carries NO relist block, and a relist that cannot
+  // end the old listing would leave two live listings for one garment.
+  grailed: { list: "live", delist: "verifying", revise: "verifying", relist: "verifying" },
+  vinted: { list: "live", delist: "verifying", revise: "verifying", relist: "verifying" },
+  facebook: { list: "verifying", delist: "verifying", revise: "verifying", relist: "verifying" },
 };
 
 export const MARKETPLACE_REVISE_LABEL: Record<MarketplaceFlowStatus, string> = {
   live: "Edits reach the marketplace",
   verifying: "Edits by hand for now — the row says when it is stale",
+};
+
+// US-3071: the short per-flow words the Marketplaces card renders. Deliberately
+// says what the SELLER does, not what the software does: "you end it" is
+// actionable and "delist unavailable" is a status nobody can act on.
+export const MARKETPLACE_FLOW_CAPABILITY_LABEL: Record<
+  keyof MarketplaceExtensionFlows,
+  Record<MarketplaceFlowStatus, string>
+> = {
+  list: { live: "Lists for you", verifying: "You list it" },
+  delist: { live: "Ends for you", verifying: "You end it" },
+  revise: { live: "Edits for you", verifying: "You edit it" },
+  relist: { live: "Relists for you", verifying: "You relist it" },
 };
 
 // Short, human-facing label for each tier — used by the Marketplaces UI badges

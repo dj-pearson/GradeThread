@@ -62,6 +62,8 @@ import { useAuthStore } from "@/stores/auth-store";
 import { SHIPPING_PROFILE_QUERY_KEY, fetchShippingProfile } from "@/lib/shipping-profile";
 import {
   MARKETPLACE_EXTENSION_FLOW,
+  MARKETPLACE_EXTENSION_FLOWS,
+  MARKETPLACE_FLOW_CAPABILITY_LABEL,
   MARKETPLACE_FLOW_LABEL,
   MARKETPLACE_LABELS,
   MARKETPLACE_TIER,
@@ -1076,6 +1078,11 @@ function ChannelRisk({ platform }: { platform: keyof typeof MARKETPLACE_TIER }) 
     MARKETPLACE_EXTENSION_FLOW[
       platform as keyof typeof MARKETPLACE_EXTENSION_FLOW
     ];
+  // US-3071: and the whole four-flow row beneath it.
+  const flows =
+    MARKETPLACE_EXTENSION_FLOWS[
+      platform as keyof typeof MARKETPLACE_EXTENSION_FLOWS
+    ];
   return (
     <div className="rounded-lg border p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -1095,6 +1102,29 @@ function ChannelRisk({ platform }: { platform: keyof typeof MARKETPLACE_TIER }) 
         </span>
       </div>
       <p className="mt-1 text-xs font-medium text-foreground/80">{d.title}</p>
+      {/* US-3071: what this channel does FOR the seller, and what they still do
+          themselves. Read straight from MARKETPLACE_EXTENSION_FLOWS, which
+          marketplace-mechanism.test.ts pins to the shipped selectors — so the
+          page cannot promise a flow the extension has switched off. Before
+          this, the card showed the LIST flow's badge and nothing about delist,
+          revise or relist, which is how three channels can be switched on with
+          nothing on screen saying so. */}
+      {flows && (
+        <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+          {(["list", "delist", "revise", "relist"] as const).map((flow) => (
+            <li
+              key={flow}
+              className={
+                flows[flow] === "live"
+                  ? "text-[11px] font-medium text-foreground"
+                  : "text-[11px] text-muted-foreground"
+              }
+            >
+              {MARKETPLACE_FLOW_CAPABILITY_LABEL[flow][flows[flow]]}
+            </li>
+          ))}
+        </ul>
+      )}
       <ul className="mt-2 space-y-1.5">
         {d.facts.map((fact) => (
           <li
