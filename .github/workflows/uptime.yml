@@ -61,3 +61,30 @@ jobs:
           # GoTrue (without it, Kong's 401 is accepted as "gateway up"). The
           # anon key is public by design (shipped in the SPA bundle).
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+
+  # US-3108: Universal Links. The AASA file is what tells iOS that a tapped
+  # password-reset or magic-link URL belongs to the app. When it stops listing
+  # the app id, nothing 404s and nothing errors; the seller simply lands in
+  # Safari, signed out, and there is no way to notice from inside the app.
+  #
+  # It rides the uptime schedule rather than PR CI because it probes the live
+  # domain, which is also why it must stay out of `npm run verify`. It is a
+  # separate job so an AASA failure does not mask, or get masked by, a real
+  # outage in the probe above. `continue-on-error` is deliberately NOT set: a
+  # red scheduled run is the alert.
+  aasa:
+    name: Universal Links (AASA)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: ios/Scripts
+      - name: Check apple-app-site-association
+        run: sh ios/Scripts/check-aasa.sh
+        env:
+          # Asserts the exact team id when the secret is set; without it the
+          # check still fails on a malformed or unconfigured appID. Do NOT
+          # hard-code a team id here or in the script. See the header of
+          # ios/Scripts/check-aasa.sh for what that cost.
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
