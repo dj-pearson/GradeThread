@@ -72,6 +72,8 @@ import {
 import { supabase } from "@/lib/supabase";
 import { ScoreExplainer } from "@/components/grading/score-explainer";
 import { track } from "@/lib/analytics";
+import { badgeArrival, badgeArrivalNote } from "@/lib/badge-arrival";
+import { isExtensionInstalled } from "@/lib/lister-extension";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import type {
@@ -365,6 +367,15 @@ export function CertificatePage() {
       certificate_id: id,
       source: searchParams.get("s") ?? "direct",
     });
+    // US-3060 AC6: the SITE half of the install loop. The extension's own
+    // badge_shown counter is opt-in telemetry with no listing id; this is the
+    // arrival, which is the half that says whether the badge earns anything.
+    // Carries the platform and nothing else — the badge works without us
+    // learning what anyone browses.
+    const arrival = badgeArrival(searchParams);
+    if (arrival) {
+      track("badge_certificate_click", { platform: arrival.platform ?? "unknown" });
+    }
     // US-769: bump the server-side view counter once per browser session (coarse
     // + abuse-resistant enough for a soft "viewed N times" signal). No PII.
     try {
@@ -637,6 +648,22 @@ export function CertificatePage() {
   // simply shows none (it's still identified by its /cert/<id> URL + QR).
   const certNumber = gradeReport.certificate_number ?? null;
 
+  // US-3060 AC7. A visitor who arrived from an on-marketplace badge already has
+  // the extension, so the note tells them what they are looking at rather than
+  // selling them anything. Null on every ordinary visit, and null on a badge
+  // link naming a platform we do not recognise — "seen via the extension"
+  // without saying where adds nothing and still has to be read.
+  //
+  // ⚠ AC7 also asks to HIDE "the existing install CTA" here. There is none:
+  // this page does not use MarketingLayout, which is what renders
+  // ExtensionInstallCta, so there was never a CTA on a certificate to hide.
+  // isExtensionInstalled() is used anyway, to suppress the note for someone who
+  // reached a badge URL WITHOUT the extension (a shared or pasted link), where
+  // "seen via the extension" would be describing something that did not happen.
+  const arrivalNote = isExtensionInstalled()
+    ? badgeArrivalNote(badgeArrival(searchParams))
+    : null;
+
   return (
     <div className="min-h-screen bg-background">
       <SEO
@@ -667,6 +694,16 @@ export function CertificatePage() {
           breadcrumbLd(breadcrumbTrail),
         ]}
       />
+      {/* US-3060: where this visit came from, when it came from a badge on a
+          marketplace listing. print:hidden — it describes the arrival, not the
+          certificate, so it has no place on a printed copy. */}
+      {arrivalNote ? (
+        <div className="border-b bg-muted/30 print:hidden">
+          <p className="mx-auto max-w-3xl px-6 py-2 text-center text-xs text-muted-foreground">
+            {arrivalNote}
+          </p>
+        </div>
+      ) : null}
       {/* Header with branding (hidden when printing — replaced by a clean
           print-only title below). */}
       <div className="bg-brand-navy py-6 text-white print:hidden">

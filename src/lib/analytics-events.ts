@@ -103,6 +103,18 @@ export const ANALYTICS_EVENTS = {
   "extension_install_cta_click":
     "An install call to action for the browser extension was pressed. Properties `page`, `store`.",
 
+  // ── The on-marketplace badge (US-3060) ────────────────────────────────────
+  // The SITE side of the install loop: a shopper on eBay, Poshmark or Mercari
+  // saw a GradeThread badge on a listing and followed it to the certificate.
+  // Recorded HERE and not in the extension because this is the arrival, which
+  // is the half that tells us the badge earns anything; the extension's own
+  // `badge_shown` counter is opt-in telemetry and carries no listing id or URL.
+  // Property `platform` (the marketplace the badge was on), read from the
+  // utm_source the badge link sets. NEVER a listing id: the whole point of the
+  // badge is that it works without us learning what anyone browses.
+  "badge_certificate_click":
+    "A certificate page was opened from an on-marketplace extension badge. Property `platform`.",
+
   // ── App and extension downloads (US-3116) ─────────────────────────────────
   // The always-on download row (footer, dashboard widget, onboarding welcome),
   // as against `extension_install_cta_click`, which is the in-context CTA on a

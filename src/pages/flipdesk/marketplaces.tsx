@@ -97,6 +97,7 @@ import {
 import { CrossPostSetup } from "@/components/flipdesk/cross-post-setup";
 import { CrossPostChannelPicker } from "@/components/flipdesk/cross-post-channel-picker";
 import { ListerLocalePicker } from "@/components/flipdesk/lister-locale-picker";
+import { ListingBadgeToggle } from "@/components/flipdesk/listing-badge-toggle";
 import {
   syncStateCopy,
   useDismissSyncReview,
@@ -2059,6 +2060,12 @@ export function FlipdeskMarketplacesPage() {
           <h2 className="mb-3 text-base font-semibold text-foreground">
             Grade promotion
           </h2>
+          {/* US-3060: the on-marketplace badge switch belongs here rather than
+              under Cross-listing — both this and the text signal below answer
+              "what does my grade do on the listing once it is live". */}
+          <div className="mb-3">
+            <ListingBadgeToggle />
+          </div>
           <div className="rounded-lg border p-3 text-sm">
             <p className="font-medium">Graded listings show the grade as text</p>
             <p className="mt-0.5 text-xs text-muted-foreground">
