@@ -229,3 +229,185 @@ const ASSEMBLE = {
 })();
 
 console.log("return-shield.test.cjs: ok");
+
+// ── the wiring (US-3068 AC1/AC3/AC6) ───────────────────────────────────────
+//
+// The render needs a DOM, so what is asserted here is the wiring that decides
+// whether it ever runs — every one of these is a way the panel would silently
+// never appear while every case above stayed green.
+
+const MANIFEST = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "..", "manifest.json"), "utf8"),
+);
+function stripComments(src) {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .split("\n")
+    .map(function (l) {
+      const i = l.search(/(^|[^:])\/\//);
+      return i === -1 ? l : l.slice(0, i);
+    })
+    .join("\n");
+}
+
+const BOOT = fs.readFileSync(
+  path.resolve(__dirname, "..", "research", "return-shield-boot.js"),
+  "utf8",
+);
+const BACKGROUND = fs.readFileSync(
+  path.resolve(__dirname, "..", "background.js"),
+  "utf8",
+);
+const OVERLAY_CSS = fs.readFileSync(
+  path.resolve(__dirname, "..", "research", "overlay.css"),
+  "utf8",
+);
+
+(function theModulesLoadTogetherAndInOrder() {
+  const block = MANIFEST.content_scripts.find(
+    (c) => Array.isArray(c.js) && c.js.includes("research/return-shield-boot.js"),
+  );
+  assert.ok(block, "no content-script block loads the return shield");
+
+  // Every global the boot script reads has to be in the SAME block and BEFORE
+  // it, or the reads are undefined, the early return fires and the panel
+  // silently never renders — with no error anywhere.
+  for (const dep of [
+    "research/return-shield.js",
+    "research/condition-format.js",
+    "research/overlay-host.js",
+    "research/overlay-css.js",
+    "attribution.js",
+  ]) {
+    assert.ok(block.js.includes(dep), `the return-shield block is missing ${dep}`);
+    assert.ok(
+      block.js.indexOf(dep) < block.js.indexOf("research/return-shield-boot.js"),
+      `${dep} must load BEFORE return-shield-boot.js`,
+    );
+  }
+
+  // And it runs ONLY on Seller Hub dispute paths. A match on the whole of
+  // ebay.com would put this on every listing page a seller opens.
+  assert.ok(block.matches.length > 0);
+  for (const m of block.matches) {
+    assert.ok(
+      /\/sh\/(rtn|cases|returns)\//.test(m),
+      `${m} is broader than a Seller Hub dispute path`,
+    );
+  }
+})();
+
+(function itAsksOnceAndNeverRetries() {
+  // A 404 is an ANSWER — a return this workspace does not own — and asking
+  // again will not change it. More than that: a seller reading a dispute must
+  // not have a GradeThread panel appear four seconds late on a retry, on the
+  // page where they are deciding whether to refund somebody.
+  const doneAt = BOOT.indexOf("done = true;");
+  const sendAt = BOOT.indexOf('send({ type: "GT_RETURN_PACK"');
+  assert.ok(doneAt > -1, "the boot script has no once-per-page latch");
+  assert.ok(sendAt > -1, "the boot script never asks for the pack");
+  assert.ok(
+    doneAt < sendAt,
+    "the latch is set AFTER the round trip, so an SPA navigation inside Seller " +
+      "Hub can start a second request for the same page",
+  );
+  // Stripped of comments first: the prose above the code says the word "retry"
+  // while explaining why there is not one, and a guard that reads the comment
+  // fires on the explanation instead of on the behaviour.
+  const code = stripComments(BOOT);
+  assert.ok(!/(retry|attempts|setInterval)/i.test(code), "the boot script retries");
+  // The only timer is the Copied-label reset. A second one would be a re-ask.
+  assert.strictEqual(
+    (code.match(/setTimeout\(/g) || []).length,
+    1,
+    "the boot script gained a timer beyond the copy-label reset",
+  );
+  assert.ok(!/setTimeout\([\s\S]{0,80}boot\(/.test(code), "boot() is scheduled on a timer");
+})();
+
+(function theBootScriptTouchesNothingOfEbays() {
+  // AC4 again, on the half that actually has a document. It appends one host
+  // and reads location.href; it queries, clicks, fills and submits nothing.
+  for (const forbidden of [
+    ".click(",
+    ".submit(",
+    ".value =",
+    "querySelector",
+    "requestSubmit",
+    "DataTransfer",
+  ]) {
+    assert.ok(
+      !BOOT.includes(forbidden),
+      `return-shield-boot.js contains ${forbidden} — it must not act on eBay's page`,
+    );
+  }
+  // getElementById is allowed and is ours: it checks for OUR host id.
+  assert.ok(BOOT.includes('getElementById(HOST_ID)'));
+})();
+
+(function theBackgroundCarriesTheSellersTokenAndDoesNotRetry() {
+  assert.ok(
+    BACKGROUND.includes('case "GT_RETURN_PACK":'),
+    "the background has no handler, so every send resolves to undefined",
+  );
+  const fn = BACKGROUND.slice(
+    BACKGROUND.indexOf("async function returnShieldPack"),
+    BACKGROUND.indexOf("async function listingCertificates"),
+  );
+  assert.ok(fn.length > 100, "returnShieldPack not found where expected");
+  // ⚠ THIS ONE CARRIES THE SELLER'S TOKEN, unlike the badge lookup beside it.
+  // It reads their grade report, their listing's disclosure and their dispute —
+  // none of which is public.
+  // ⚠ On the AUTHORIZATION HEADER, not merely somewhere in the function. Reading
+  // the token out of storage and then not sending it left this green when the
+  // header was deleted, which is the whole failure it exists to catch.
+  assert.ok(
+    /"Authorization":\s*"Bearer "\s*\+\s*gtBuyerToken/.test(fn),
+    "the return-shield read sends no identity",
+  );
+  assert.ok(fn.includes("RETURN_SHIELD_ENDPOINT"), "the read goes somewhere else");
+  assert.ok(
+    /RETURN_SHIELD_ENDPOINT\s*=[\s\S]{0,200}\/api\/flipdesk\/return-shield\/preview/.test(
+      BACKGROUND,
+    ),
+    "RETURN_SHIELD_ENDPOINT does not point at the preview mount",
+  );
+  assert.ok(!/retry|attempts|setTimeout/i.test(fn), "the background retries the read");
+  // AC6. A 404 is an ANSWER — a return this workspace does not own — so it comes
+  // back as ok:false and renders nothing, exactly like an offline read does.
+  assert.ok(
+    /if \(!resp\.ok\) return \{ ok: false \};/.test(fn),
+    "a non-200 is not turned into a rendered nothing",
+  );
+  const guard = stripComments(BOOT).indexOf("if (!res || !res.ok) return;");
+  assert.ok(guard > -1, "the boot script renders whatever the background returned");
+  assert.ok(
+    guard < stripComments(BOOT).indexOf("createOverlayHost"),
+    "the panel is mounted before the answer is checked",
+  );
+})();
+
+(function everyClassTheRenderUsesIsStyled() {
+  const SRC = fs.readFileSync(
+    path.resolve(__dirname, "..", "research", "return-shield.js"),
+    "utf8",
+  );
+  for (const cls of [
+    "gt-rs",
+    "gt-rs-title",
+    "gt-rs-meta",
+    "gt-rs-refusal",
+    "gt-rs-note",
+    "gt-rs-draft",
+    "gt-rs-copy",
+    "gt-rs-open",
+  ]) {
+    assert.ok(SRC.includes('"' + cls + '"'), `${cls} is styled but never rendered`);
+    // Anchored at the END of the class name too: every one of these is a prefix
+    // of the next, so a plain substring check passes on a renamed rule.
+    assert.ok(
+      new RegExp("\\." + cls + "(?![\\w-])").test(OVERLAY_CSS),
+      `${cls} is rendered but has no CSS rule`,
+    );
+  }
+})();

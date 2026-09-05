@@ -83,6 +83,16 @@ const SCAN_ENDPOINT = "https://functions.gradethread.com/api/grading/public/scan
 // headers beyond the instance id every call already sends.
 const LISTING_CERTS_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/listing-certificates";
+
+// US-3068: the return shield. The seller's own evidence, on the eBay dispute
+// page they are already looking at.
+//
+// It carries the SELLER's token, unlike the badge lookup beside it: this reads
+// their grade report, their listing's disclosure and their dispute. Nothing
+// here is public, and the route scopes every read to the workspace the token
+// resolves to.
+const RETURN_SHIELD_ENDPOINT =
+  "https://functions.gradethread.com/api/flipdesk/return-shield/preview";
 // US-2238: flip mode. NOT under /api/grading/public — this one is authenticated
 // and plan-gated (FlipDesk compPulls), so it lives on the seller side and needs
 // the signed extension token. A request without one is a 401 by design.
@@ -899,6 +909,37 @@ async function gradeFromUrls(
  * an identity would associate a shopper with the listings they browse for no
  * gain whatsoever.
  */
+/**
+ * US-3068: the evidence verdict for one eBay return.
+ *
+ * NOTHING IS RETRIED, and that is deliberate rather than lazy. Every failure
+ * here — no token, offline, 404, 500, an unparseable body — means the panel
+ * does not render, and a seller reading a dispute must not have a GradeThread
+ * box appear four seconds late on a retry. A 404 in particular is an ANSWER: it
+ * is a return this workspace does not own, and asking again will not change it.
+ */
+async function returnShieldPack({ returnId }) {
+  if (!returnId || typeof returnId !== "string") return { ok: false };
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") return { ok: false };
+  try {
+    const resp = await fetch(RETURN_SHIELD_ENDPOINT, {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        "Authorization": "Bearer " + gtBuyerToken,
+        "Content-Type": "application/json",
+        "X-GT-Extension-Id": await getInstanceId(),
+      },
+      body: JSON.stringify({ return_id: returnId }),
+    });
+    if (!resp.ok) return { ok: false };
+    return { ok: true, data: await resp.json() };
+  } catch (_e) {
+    return { ok: false };
+  }
+}
+
 async function listingCertificates({ platform, ids }) {
   if (!platform || !Array.isArray(ids) || ids.length === 0) {
     return { ok: false, status: 400, error: "Nothing to look up." };
@@ -2937,6 +2978,12 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // a request per scroll.
       case "GT_CC_LISTING_CERTS":
         sendResponse(await listingCertificates(msg));
+        break;
+      // US-3068: what the evidence pack would say for one return. A READ. The
+      // send stays on the FlipDesk post-sale surface behind the seller's own
+      // click, and nothing in this path touches eBay.
+      case "GT_RETURN_PACK":
+        sendResponse(await returnShieldPack(msg));
         break;
       // US-2238: flip mode. Not cached — the seller can re-price or the comps can
       // move, and a stale ROI is the one number they'd act on.

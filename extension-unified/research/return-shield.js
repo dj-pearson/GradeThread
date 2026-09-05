@@ -151,7 +151,86 @@
     return isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
   }
 
+  // ── the render ─────────────────────────────────────────────────────────────
+  //
+  // Mounted in a shadow root like every other surface this extension draws, so
+  // eBay's own cascade cannot reach it and ours cannot reach eBay's. The panel
+  // is APPENDED to the body; nothing on eBay's page is read, moved or clicked.
+
+  function el(doc, tag, cls, text) {
+    const node = doc.createElement(tag);
+    if (cls) node.className = cls;
+    if (text) node.textContent = text;
+    return node;
+  }
+
+  /**
+   * Build the panel for an answer, or null when there is nothing honest to say.
+   *
+   * Takes its document, its shadow-host factory, its strings and its link
+   * builder rather than reaching for globals, so the whole render is drivable
+   * from a test with a fake DOM.
+   */
+  function buildPanel(deps, answer) {
+    const doc = deps.doc;
+    const S = deps.strings;
+    if (!answer) return null;
+
+    const wrap = el(doc, "div", "gt-rs");
+    wrap.appendChild(el(doc, "div", "gt-rs-title", S.shieldTitle));
+
+    const on = gradedOn(answer);
+    if (on) {
+      wrap.appendChild(
+        el(doc, "div", "gt-rs-meta", S.shieldGradedOn.replace("{date}", on)),
+      );
+    }
+    if (answer.defectCount > 0) {
+      wrap.appendChild(
+        el(doc, "div", "gt-rs-meta", S.shieldDefects.replace("{n}", String(answer.defectCount))),
+      );
+    }
+
+    if (answer.verdict === "refuse-undisclosed") {
+      // ⚠ THE REFUSAL RENDERS NO COPY BUTTON AND NO DRAFT. The pack would argue
+      // from a defect the listing never disclosed, which argues for the buyer.
+      wrap.appendChild(el(doc, "div", "gt-rs-refusal", S.shieldRefusal));
+      return wrap;
+    }
+
+    if (!answer.hasPublicationSnapshot) {
+      wrap.appendChild(el(doc, "div", "gt-rs-note", S.shieldNoSnapshot));
+    }
+
+    const draft = draftParagraph(answer, S);
+    if (draft) {
+      const pre = el(doc, "pre", "gt-rs-draft", draft);
+      wrap.appendChild(pre);
+      const copy = el(doc, "button", "gt-rs-copy", S.shieldCopy);
+      copy.setAttribute("type", "button");
+      copy.addEventListener("click", function (e) {
+        // Our own button, inside our own shadow root. The stopPropagation is so
+        // a click never reaches an eBay handler underneath.
+        e.preventDefault();
+        e.stopPropagation();
+        if (deps.copy) deps.copy(draft, copy);
+      });
+      wrap.appendChild(copy);
+    }
+
+    const href = deps.flipdeskUrl && deps.flipdeskUrl();
+    if (href) {
+      const a = el(doc, "a", "gt-rs-open", S.shieldOpen);
+      a.href = href;
+      a.target = "_blank";
+      a.rel = "noopener";
+      wrap.appendChild(a);
+    }
+    return wrap;
+  }
+
   return {
+    buildPanel,
     RETURN_PATH_RES,
     VERDICTS,
     isEbayHost,
