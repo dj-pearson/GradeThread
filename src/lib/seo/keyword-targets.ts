@@ -675,6 +675,30 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
     ],
   },
   {
+    // US-3090. Every Vinted term in the 2026-09-02 pull is Low competition at
+    // difficulty 0-3, which is the whole reason this page exists: `how to sell
+    // on vinted` runs 500/mo and growing with nobody defending it in US SERPs.
+    // The cluster is selling-guide, not reseller-tools — the intent is a person
+    // learning a platform, not one shopping for crosslisting software.
+    path: "/reselling/how-to-sell-on-vinted",
+    cluster: "selling-guide",
+    intent: "informational",
+    primary: "how to sell on vinted",
+    secondary: [
+      "vinted selling tips",
+      "selling on vinted",
+      "vinted fees for sellers",
+      "vinted condition",
+    ],
+    questions: [
+      "what are the vinted fees for sellers",
+      "how long does a vinted payout take",
+      "is vinted available in the us",
+      "what counts as satisfactory condition on vinted",
+      "how long do i have to ship a vinted order",
+    ],
+  },
+  {
     path: "/reselling/crosslist/mercari-to-vinted",
     cluster: "reseller-tools",
     intent: "transactional",

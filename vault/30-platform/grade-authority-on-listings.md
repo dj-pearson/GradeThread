@@ -11,12 +11,19 @@ code_refs:
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
 
 # How a grade appears on a listing — text only
+
+> **Re-reviewed 2026-09-05, no change.** Drift flagged `flipdesk-ebay.ts`
+> for US-3068. The return shield quotes the grade report as TEXT into a
+> paragraph the seller copies, and cites the disclosure the listing already
+> carried. No image is composed, nothing is burned into a photo, and nothing
+> is attached to eBay by us, so the text-only rule holds on the new surface
+> too - see `vault/30-platform/ebay-visual-search.md` for the image side.
 
 > **Re-reviewed 2026-08-17.** Drift flagged `flipdesk-ebay.ts` for the same two
 > commits as the note above, both about reading eBay's response. The rule here

@@ -417,9 +417,25 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
     titleMaxLength: 60,
     descriptionMaxLength: 3000,
     maxPhotos: 20,
+    // ⚠ CORRECTED 2026-09-05 (US-3090) against Vinted's own help page,
+    // https://www.vinted.com/help/50-choosing-item-condition, which names the
+    // options New / Like new / Very good / Good / Satisfactory (plus "Needs
+    // repair", electronics only, which a clothing listing never offers).
+    //
+    // The first two used to read "New with tags" and "New without tags". That
+    // is eBay's and Poshmark's vocabulary, not Vinted's, and it had been sitting
+    // here long enough to reach the /grading/platform-standards/vinted copy as
+    // well. A seller following it looks for a dropdown entry that is not there.
+    //
+    // NOT RE-PROBED ON THE LIVE SELL FORM: the Vinted lister does not fill the
+    // condition field (`required` is title/description/price/submit), so the
+    // 2026-08-11 selector verification never read these names back. If somebody
+    // with a signed-in US account finds the clothing flow still says "New with
+    // tags", the help page is the thing that is stale and this comment is the
+    // place to say so.
     conditions: [
-      { value: "New with tags", label: "New with tags" },
-      { value: "New without tags", label: "New without tags" },
+      { value: "New", label: "New" },
+      { value: "Like new", label: "Like new" },
       { value: "Very good", label: "Very good" },
       { value: "Good", label: "Good" },
       { value: "Satisfactory", label: "Satisfactory" },
@@ -586,9 +602,13 @@ const CONDITION_BY_BUCKET: Record<
     ACCEPTABLE: "fair",
     POOR: "fair",
   },
+  // Vinted's own two unworn options split on PACKAGING, not on tags: "New" is
+  // unopened with its original packaging, "Like new" is unused but opened or
+  // unpackaged. For a garment that lands where you would expect. See the dated
+  // callout on vinted.conditions above.
   vinted: {
-    NEW_WITH_TAGS: "New with tags",
-    NEW_WITHOUT_TAGS: "New without tags",
+    NEW_WITH_TAGS: "New",
+    NEW_WITHOUT_TAGS: "Like new",
     EXCELLENT: "Very good",
     VERY_GOOD: "Very good",
     GOOD: "Good",

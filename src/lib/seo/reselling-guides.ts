@@ -11,6 +11,8 @@
 // Article for the guides) is composed in src/pages/marketing/marketing-jsonld.ts.
 
 import type { PublicRoute } from "./public-routes";
+import type { FreshnessGroup } from "./freshness";
+import { canReadCloset, destinationMechanism } from "./crosslist-pairs";
 
 export const RESELLING_PILLAR_PATH = "/reselling";
 
@@ -32,6 +34,49 @@ export interface ResellingGuide {
   /** The grading wedge — where a condition grade fits in THIS guide's workflow. */
   gradingWedge: string;
   faqs: Array<{ q: string; a: string }>;
+  /**
+   * The freshness group whose re-verification date stamps this guide (US-3090).
+   *
+   * Set it on any guide that states a FEE, A DEADLINE OR A PAYOUT TIME — the
+   * numbers a platform changes without announcing. The stamp is derived from
+   * freshness.ts, so it cannot say "verified" about a date nobody re-checked,
+   * and freshness.test.ts fails the build once the group is past its cadence.
+   */
+  freshnessGroup?: FreshnessGroup;
+  /**
+   * Curated onward links, rendered as a block at the foot of the guide.
+   *
+   * Every entry is checked against isCrossHubLinkAllowed by
+   * reselling-guide-links.test.ts, so a guide cannot leak authority across hubs
+   * by linking wherever it likes.
+   */
+  related?: Array<{ to: string; label: string }>;
+}
+
+/**
+ * What the extension does on a marketplace, DERIVED from the constants.
+ *
+ * The listing mechanism is exactly the one the crosslist pair pages use, so a
+ * guide cannot promise a run that MARKETPLACE_EXTENSION_FLOW has switched off.
+ * Hand-writing this sentence is how Mercari, Grailed and Vinted spent months
+ * being advertised as ready while their selectors sat disabled.
+ */
+export function guideMechanismSentence(platform: string, label: string): string {
+  switch (destinationMechanism(platform)) {
+    case "api":
+      return `GradeThread publishes to ${label} over ${label}'s own API, so the listing goes live from your dashboard.`;
+    case "extension":
+      return `${label} has no listing API for sellers, so the GradeThread browser extension fills ${label}'s own listing form in your logged-in tab and you press post.`;
+    default:
+      return `${label} has no seller listing API and no verified extension flow yet, so FlipDesk holds the listing, the photos and the grade, and the last step is yours.`;
+  }
+}
+
+/** Whether the extension can import a marketplace's own listings back out. */
+export function guideClosetSentence(platform: string, label: string): string {
+  return canReadCloset(platform)
+    ? `The extension can also read your existing ${label} closet back into FlipDesk, photos and all.`
+    : `${label} has no export the extension can read, so an item starts from its photos rather than from an existing ${label} listing.`;
 }
 
 export function resellingGuidePath(slug: string): string {
@@ -255,6 +300,98 @@ export const RESELLING_GUIDES: ResellingGuide[] = [
       {
         q: "Is thrift store reselling still profitable?",
         a: "Yes, when you source selectively and price accurately. The margin comes from buying items with real demand in gradeable condition at a low cost basis, then setting accurate condition and comp-based prices so they sell fast with few returns — not from buying everything cheap.",
+      },
+    ],
+  },
+
+  // ── Vinted, US edition (US-3090) ────────────────────────────────────
+  //
+  // Every fee, deadline and payout number below was read on 2026-09-05 from
+  // Vinted's own pages, listed in the `vinted` freshness group. Do not edit a
+  // number here without re-reading the page it came from and bumping that date;
+  // the stamp on the rendered page says a human checked, and it should be true.
+  //
+  // The pitch is that no US seller guide covers this properly. Every Vinted term
+  // in the 2026-09-02 keyword pull is Low competition at difficulty 0-3, the UK
+  // sends 11 of the site's 130 clicks, and the guides that exist are written for
+  // a UK seller paying a UK Buyer Protection fee on a Royal Mail label.
+  {
+    slug: "how-to-sell-on-vinted",
+    title: "How to Sell on Vinted in the US",
+    description:
+      "How to sell on Vinted in the US: no seller fee, a buyer-paid $0.70 + 5% protection fee, USPS QR labels, a 5-business-day ship deadline, and when you get paid.",
+    h1: "How to sell on Vinted in the US",
+    intro:
+      "Vinted charges sellers nothing. The buyer pays a Buyer Protection fee and the shipping, you get a prepaid USPS label, and the money lands after the buyer confirms. This guide covers the numbers, the deadlines, the condition options, and how to move listings you already have onto Vinted.",
+    sections: [
+      {
+        heading: "What Vinted costs you: nothing",
+        body:
+          "Vinted's US price list sets no seller commission and no listing fee. What the buyer pays on top of your asking price is the Buyer Protection fee: a fixed $0.70 plus 5% of the item price, shipping excluded. The buyer also pays the shipping, which they see at checkout. So a $40 sweater costs the buyer $42.70 plus postage, and you keep $40. That is the whole pitch against Poshmark's 20% and Mercari's per-sale cut, and it is why Vinted works for items under about $25 that the fee-taking platforms make uneconomic. The one optional cost on your side is bumping a listing, which is priced at checkout for a 3-day or 7-day run.",
+      },
+      {
+        heading: "Yes, Vinted works in the US",
+        body:
+          "Vinted runs in all 50 states, Washington D.C. and Puerto Rico on vinted.com, with USPS as the carrier. It is not a UK-only app, though most of the advice written about it is UK advice: a US listing does not use Royal Mail, does not price in pounds, and does not follow the UK fee table. Vinted also runs a US-to-UK route, so a US listing can reach a UK buyer, but the day-to-day flow you will use is domestic USPS.",
+      },
+      {
+        heading: "The shipping flow, and the deadline that cancels orders",
+        body:
+          "When an item sells, Vinted issues the label. Choose the post-office option and you get a digital QR code to scan at the counter, nothing to print; choose the from-home option and you schedule a pickup and print a label. You then have 5 business days to send it. Miss that and Vinted cancels the order automatically, so a weekend away is a real risk on a Wednesday sale. You can ask the buyer for a 3 or 5 business-day extension, and they can decline. Keep the drop-off receipt until the order completes, and give tracking up to 48 hours to appear.",
+      },
+      {
+        heading: "When you actually get paid",
+        body:
+          "The money sits as pending until the order completes. The buyer has 2 days from the delivery notification to press the confirmation or raise an issue; if they do nothing, the order closes on its own. Once it closes, your payment reaches your Vinted Wallet within 2 days, and you transfer from the Wallet to your bank. Budget roughly delivery plus four days before the cash is movable, which is slower than an eBay payout and faster than a Poshmark one on a buyer who sits on the confirm.",
+      },
+      {
+        heading: "The five condition options, and which one is honest",
+        body:
+          "Vinted offers New, Like new, Very good, Good and Satisfactory, plus a Needs repair option that only appears on electronics. Note that its two unworn options split on packaging, not on tags: New means unopened in its original packaging, Like new means unused but opened or unpackaged, so an unworn garment without its tag is Like new rather than New. Very good is gentle wear that does not affect appearance, Good shows wear but works, Satisfactory is clear wear. Vinted's own listing advice is to photograph each flaw separately and describe it, which is also the fastest way to keep a Buyer Protection claim from starting.",
+      },
+      {
+        heading: "Moving listings you already have onto Vinted",
+        body:
+          `${guideMechanismSentence("vinted", "Vinted")} ${guideClosetSentence("vinted", "Vinted")} The practical order is to catalog the item once in FlipDesk with its photos, measurements and grade, then push it to Vinted along with wherever else you sell it. One thing to plan around: GradeThread does not end a Vinted listing for you. When an item sells somewhere else it flags the Vinted copy and reminds you, and you close it by hand.`,
+      },
+    ],
+    gradingWedge:
+      "Vinted holds the buyer's money until they confirm the item, so condition is the thing standing between you and a hold that turns into a refund. Pick the Vinted option that matches the grade band, put the 1.0–10.0 grade and the certificate number in the description, and photograph every flaw. If a buyer disputes the condition later, you are arguing from a dated report rather than from memory.",
+    freshnessGroup: "vinted",
+    // ⚠ NO /grading/platform-standards/vinted HERE, though US-3090's AC4 asks
+    // for it. isCrossHubLinkAllowed forbids it: a reselling page may only reach
+    // the grading hub through the spine or the hub pillar, which is how US-1674
+    // concentrates authority on /grading/scale instead of spraying it across
+    // every platform page. The grading wedge below links /grading/scale, which
+    // is the allowed crossover, and that page carries the Vinted mapping one
+    // hop on. Adding the direct link would satisfy the criterion and break the
+    // rule the criterion also asks this list to pass.
+    related: [
+      { to: "/compare/vinted-vs-mercari", label: "Vinted vs Mercari" },
+      { to: "/compare/vinted-vs-poshmark", label: "Vinted vs Poshmark" },
+      { to: "/reselling/crosslist/mercari-to-vinted", label: "Crosslist Mercari to Vinted" },
+      { to: "/reselling/crosslist/vinted-to-poshmark", label: "Crosslist Vinted to Poshmark" },
+    ],
+    faqs: [
+      {
+        q: "What are the Vinted fees for sellers?",
+        a: "There are none. Vinted's US price list sets no seller commission and no listing fee, so you keep your full asking price. The fee on a Vinted order is the Buyer Protection fee, which the buyer pays: a fixed $0.70 plus 5% of the item price, not counting shipping. The buyer pays the shipping too. Bumping a listing is the only thing a seller can choose to pay for, and its price is shown before you confirm.",
+      },
+      {
+        q: "How long does a Vinted payout take?",
+        a: "The buyer has 2 days from the delivery notification to confirm the order or raise an issue, and the order closes on its own if they do neither. Your payment then reaches your Vinted Wallet within 2 days, and you transfer it from the Wallet to your bank. Plan on roughly delivery plus four days before the money is movable.",
+      },
+      {
+        q: "Is Vinted available in the US?",
+        a: "Yes. Vinted operates in all 50 states, Washington D.C. and Puerto Rico through vinted.com, shipping with USPS on prepaid labels Vinted issues after a sale. There is also a US-to-UK route for international sales. Most Vinted advice online is written for UK sellers, so check that any fee or postage figure you read is the US one.",
+      },
+      {
+        q: "What counts as satisfactory condition on Vinted?",
+        a: "Vinted defines Satisfactory as a well-used item that shows clear signs of wear and imperfections but still works as intended. It is the lowest option a garment can be listed under, and it is the one buyers scrutinise hardest, so photograph each flaw on its own and say what it is. On the 1.0–10.0 grading scale that band sits around 3.0–4.5.",
+      },
+      {
+        q: "How long do I have to ship a Vinted order?",
+        a: "5 business days from the sale. Vinted cancels the order automatically if the item has not been sent by then. You can ask the buyer for a 3 or 5 business-day extension and they can accept or decline, so ask early rather than on day five.",
       },
     ],
   },

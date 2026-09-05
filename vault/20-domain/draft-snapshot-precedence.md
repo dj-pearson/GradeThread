@@ -10,12 +10,19 @@ code_refs:
   - src/pages/flipdesk/grid.tsx
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-09-04
+reviewed: 2026-09-05
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
 
 # The draft snapshot shadows the item
+
+> **Re-reviewed 2026-09-05, no change.** Drift flagged `flipdesk-ebay.ts`
+> for US-3068, which moved `planEvidence` out to `lib/evidence-plan.ts`
+> unchanged so a second surface could call the one planner. It reads the
+> grade report and the publication snapshot; it writes no draft and touches
+> no title, description or price, so nothing this note says about who must
+> reach the listings row moved.
 
 > **Re-reviewed 2026-09-02, and a new writer joined the list.** US-9205 makes
 > the graded price the DRAFT price rather than a suggestion: the composer and

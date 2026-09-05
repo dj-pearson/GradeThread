@@ -12,6 +12,7 @@ import {
   getResellingGuideBySlug,
   resellingGuidePath,
 } from "@/lib/seo/reselling-guides";
+import { verifiedLabel } from "@/lib/seo/freshness";
 import {
   resellingPillarJsonLd,
   resellingPillarBreadcrumbItems,
@@ -163,6 +164,16 @@ export function ResellingGuidePage({ slug: slugProp }: { slug?: string }) {
             {guide.h1}
           </h1>
           <p className="mt-6 text-lg text-foreground">{guide.intro}</p>
+          {guide.freshnessGroup && (
+            // US-3090: derived from freshness.ts, never typed by hand. A guide
+            // stating a fee or a deadline says WHEN a person last re-read the
+            // platform's own page for it, and freshness.test.ts fails the build
+            // once that date is past its cadence.
+            <p className="mt-4 text-sm text-muted-foreground">
+              Fees, deadlines and payout times verified{" "}
+              {verifiedLabel(guide.freshnessGroup)}
+            </p>
+          )}
         </div>
       </section>
 
@@ -199,6 +210,26 @@ export function ResellingGuidePage({ slug: slugProp }: { slug?: string }) {
           </div>
         </div>
       </section>
+
+      {guide.related && guide.related.length > 0 && (
+        <section className="border-t px-6 py-16">
+          <div className="mx-auto max-w-3xl">
+            <h2 className="text-2xl font-bold">Related</h2>
+            <ul className="mt-4 space-y-2">
+              {guide.related.map((r) => (
+                <li key={r.to}>
+                  <Link
+                    to={r.to}
+                    className="text-brand-navy hover:underline dark:text-foreground"
+                  >
+                    {r.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
 
       {guide.faqs.length > 0 && (
         <section className="border-t bg-card px-6 py-16">

@@ -6,12 +6,20 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - scripts/ops/edge-watchdog.sh
-reviewed: 2026-09-02
+reviewed: 2026-09-05
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
 
 # DNS and routing
+
+> **Re-reviewed 2026-09-05.** Drift flagged `main.ts` again, for US-3068's
+> return shield. It mounts `/api/flipdesk/return-shield` behind
+> `extensionOrUserAuthMiddleware`, which is another `/api/*` family on the
+> EDGE service and so another instance of the split rather than an exception
+> to it. The browser extension calls it at `functions.gradethread.com`; the
+> same path on `api.gradethread.com` would 404 silently, which is the whole
+> reason this note exists.
 
 > **Re-reviewed 2026-09-02.** Drift flagged `main.ts` for the cross-listing
 > batch, which mounts new route families -- `/api/flipdesk/closet-import`,

@@ -32,6 +32,17 @@ watch **Impressions** (the demand-created gauge) and **indexation rate**:
 | **Tools and calculators** | `^/tools/` | **3** |
 | **Care cluster** | `^/care/` | **1** |
 | **Care, fabric matrix only** | `^/care/[^/]+/[^/]+$` | 1 |
+| **Vinted seller guide** | `^/reselling/how-to-sell-on-vinted$` | **5** |
+
+The Vinted row was added by US-3090 (2026-09-05) and is a SINGLE PAGE on
+purpose, anchored with `$` so the crosslist pairs that also mention Vinted
+cannot land in it. It is the whole Vinted leg's evidence: every Vinted term in
+the 2026-09-02 pull is Low competition at difficulty 0-3, which is either a real
+opening or a sign nobody bothers because the traffic does not convert, and one
+page's own row is the cheapest way to tell those apart. Baseline is zero
+impressions; the read is due 2026-11-15 on `how to sell on vinted` plus the four
+secondaries in `keyword-targets.ts`. If it is still near zero then, the answer is
+in US-3087's SERP check rather than in more Vinted pages.
 
 The last three were added by US-9016 (2026-08-18). The fabric-matrix row is
 separate from the care row on purpose: US-9014 shipped 18 pages out of a

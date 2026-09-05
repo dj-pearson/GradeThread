@@ -245,10 +245,13 @@ export const PLATFORM_STANDARDS: PlatformStandard[] = [
     name: "Vinted",
     title: "Vinted Condition Standards, Mapped",
     description:
-      "How Vinted's condition options (New with tags to Satisfactory) map to a 1.0–10.0 grade, what triggers a Buyer Protection claim, and listing copy per grade.",
+      "How Vinted's condition options (New to Satisfactory) map to a 1.0–10.0 grade, what triggers a Buyer Protection claim, and listing copy per grade.",
     h1: "Vinted condition standards mapped to the 1.0–10.0 scale",
     definition:
-      "Vinted uses five condition options — New with tags, New without tags, Very good, Good, Satisfactory. Each maps to a band of the GradeThread 1.0–10.0 scale, so a grade tells you which Vinted option is honest and gives you evidence if it's questioned.",
+      // Names re-read 2026-09-05 from https://www.vinted.com/help/50-choosing-item-condition.
+      // They used to say "New with tags / New without tags", which is eBay's
+      // vocabulary; Vinted splits its two unworn options on packaging instead.
+      "Vinted uses five condition options — New, Like new, Very good, Good, Satisfactory. Each maps to a band of the GradeThread 1.0–10.0 scale, so a grade tells you which Vinted option is honest and gives you evidence if it's questioned.",
     intro:
       "Vinted's Buyer Protection fee makes buyers expect the item to match the listing exactly. This page maps Vinted's condition options to the GradeThread scale with listing copy for each grade.",
     policyName: "Vinted Buyer Protection",

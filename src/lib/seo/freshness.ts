@@ -20,7 +20,8 @@ export type FreshnessGroup =
   | "comparisons"
   | "crosslisting-apps"
   | "competitor-alternatives"
-  | "where-to-sell";
+  | "where-to-sell"
+  | "vinted";
 
 export interface FreshnessEntry {
   /** ISO date (YYYY-MM-DD) of the last human re-verification. Bump on re-check. */
@@ -60,6 +61,24 @@ export const FRESHNESS_REGISTRY: Record<FreshnessGroup, FreshnessEntry> = {
     lastVerified: "2026-07-06",
     cadenceMonths: 12,
     covers: "Where-to-sell mega-guide (year-in-title) (/where-to-sell-used-clothes)",
+  },
+  // US-3090. Its own group rather than a line under `comparisons`, because the
+  // Vinted guide states more than a fee: a ship-by deadline, a payout wait, a
+  // buyer-confirmation window and the condition option names, and every one of
+  // those is Vinted's to change without telling anyone. The 2026-09-05 read
+  // already caught two of the five condition names being eBay's vocabulary
+  // rather than Vinted's, which had been wrong long enough to reach three files.
+  //
+  // Pages read on 2026-09-05, and the pages to re-read when this comes due:
+  //   vinted.com/pricelist                        - $0.70 + 5% Buyer Protection
+  //   vinted.com/help/50-choosing-item-condition  - the five condition names
+  //   vinted.com/help/753-how-shipping-works      - 5 business days to ship
+  //   vinted.com/help/979-usps-shipping           - QR label, US availability
+  //   vinted.com/help/4/235-getting-paid-for-a-completed-sale - the 2 + 2 days
+  vinted: {
+    lastVerified: "2026-09-05",
+    cadenceMonths: 3,
+    covers: "Vinted seller guide fees, payout and condition options (/reselling/how-to-sell-on-vinted)",
   },
 };
 

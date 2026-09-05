@@ -176,6 +176,11 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/where-to-sell-used-clothes": "2026-07-06",
   // Best crosslisting apps listicle (US-1686).
   "/reselling/best-crosslisting-apps": "2026-07-06",
+  // US-3090. The other TOFU guides fall back to DEFAULT_LAST_MODIFIED; this one
+  // is dated explicitly because its fee, deadline and payout numbers were read
+  // from Vinted's own pages on this date, and the `vinted` freshness group will
+  // fail the build when they are due a re-read. The two dates move together.
+  "/reselling/how-to-sell-on-vinted": "2026-09-05",
   "/reselling/vendoo-alternative": "2026-07-20",
   "/reselling/list-perfectly-alternative": "2026-07-20",
   "/reselling/crosslist-alternative": "2026-07-20",

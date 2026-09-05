@@ -57,6 +57,14 @@ const NOT_A_PROCESSOR: Record<string, string> = {
   // the page by hand and cross-checked, which is the whole point of
   // docs/shipping/. No data of any kind goes to USPS.
   "pe.usps.com": "a cited source URL for published rates, never called",
+  // US-3090: the same shape as pe.usps.com above. marketplace-specs.ts cites
+  // https://www.vinted.com/help/50-choosing-item-condition as the provenance of
+  // the five condition option names, so a reader can check where they came from
+  // and see the date they were read. Nothing on the server calls Vinted at all:
+  // Vinted has no seller API, and the extension lists from the seller's own
+  // logged-in tab. If the edge service ever DOES call vinted.com, this line is
+  // wrong and Vinted becomes a real processor.
+  "www.vinted.com": "a cited source URL for the condition option names, never called",
   // US-9029: the FTC's public RN register, read signed out by the seeder and
   // cited as the provenance link on every /rn/:number page. Traffic goes ONE
   // way and carries no personal data — the query string is a brand name or the
