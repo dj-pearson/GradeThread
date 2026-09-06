@@ -68,6 +68,20 @@ export class NoLocalSegmenter extends Error {
   }
 }
 
+/**
+ * What to tell somebody when background removal did not happen.
+ *
+ * Lives HERE rather than at each call site because the distinction is a
+ * property of this module: only it knows that a missing model is not a failed
+ * removal. Written inline at the second screen it was already a copy, and a
+ * copy of a message is a message that drifts.
+ */
+export function backgroundRemovalMessage(err: unknown): string {
+  return (err as Error | null)?.name === "NoLocalSegmenter"
+    ? "On-device background removal isn't available in this build yet."
+    : "Background removal failed. The photo is unchanged.";
+}
+
 /** Is the on-device path usable right now? Callers use this to pick a route. */
 export function localBackgroundRemovalAvailable(): Promise<boolean> {
   return segmenterAvailable();

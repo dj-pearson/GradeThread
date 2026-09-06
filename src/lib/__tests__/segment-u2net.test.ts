@@ -157,17 +157,38 @@ describe("the AGPL library is gone and nothing points at a vendor CDN (US-3069)"
   });
 
   it("a missing model is a NAMED error, not a generic failure", () => {
-    // Both call sites branch on it to say something a seller can act on. A
-    // generic "background removal failed" on a missing model blames the photo,
-    // and the seller retries with a better one forever.
+    // A generic "background removal failed" on a missing model blames the
+    // photo, and the seller retries with a better one forever.
     const lib = read("src/lib/background-removal.ts");
     expect(lib).toMatch(/class NoLocalSegmenter extends Error/);
+    // ⚠ THE DISTINCTION IS ASSERTED ON THE BEHAVIOUR, NOT ON WHERE IT LIVES.
+    // The first version of this checked that each call site contained the
+    // string "NoLocalSegmenter", and then went red when the branch was
+    // correctly extracted into backgroundRemovalMessage() — a guard failing a
+    // refactor that improved the thing it guards. What matters is that the
+    // helper knows the error name and both screens go through it.
+    expect(lib).toMatch(/backgroundRemovalMessage/);
+    const helper = lib.slice(lib.indexOf("export function backgroundRemovalMessage"));
+    expect(helper.slice(0, 400)).toMatch(/NoLocalSegmenter/);
     for (const f of [
       "src/pages/flipdesk/autolister.tsx",
       "src/components/flipdesk/photo-editor-dialog.tsx",
     ]) {
-      expect(read(f), `${f} does not distinguish a missing model`).toMatch(
-        /NoLocalSegmenter/,
+      expect(read(f), `${f} does not use the shared message`).toMatch(
+        /backgroundRemovalMessage/,
+      );
+    }
+  });
+
+  it("neither screen writes its own copy of the message", () => {
+    // A copy of a message is a message that drifts. This is what the extraction
+    // bought, so it is what is pinned.
+    for (const f of [
+      "src/pages/flipdesk/autolister.tsx",
+      "src/components/flipdesk/photo-editor-dialog.tsx",
+    ]) {
+      expect(read(f), `${f} hardcodes the missing-model copy`).not.toMatch(
+        /isn't available in this build/,
       );
     }
   });

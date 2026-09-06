@@ -99,7 +99,11 @@ import {
   useAutolisterUploadStore,
 } from "@/stores/autolister-upload-store";
 import { autoEnhance, type EnhanceStats } from "@/lib/image-enhance";
-import { removeImageBackground, type BgMode } from "@/lib/background-removal";
+import {
+  backgroundRemovalMessage,
+  removeImageBackground,
+  type BgMode,
+} from "@/lib/background-removal";
 import {
   fetchAutolisterHandoff,
   useAutolisterHandoffs,
@@ -1359,17 +1363,8 @@ export function FlipdeskAutolisterPage() {
       return true;
     } catch (err) {
       setModelProgress(null);
-      // US-3069: a missing on-device model is not a failed removal. Saying so
-      // stops a seller retrying the same photo and stops it reading as a bug in
-      // their image.
-      if ((err as Error)?.name === "NoLocalSegmenter") {
-        toast.error(
-          "On-device background removal isn't available in this build yet.",
-          { duration: 8000 },
-        );
-        return false;
-      }
-      toastError(err, "Background removal failed.");
+      // US-3069: a missing on-device model is not a failed removal.
+      toastError(err, backgroundRemovalMessage(err));
       return false;
     } finally {
       setBgProcessing((prev) => {

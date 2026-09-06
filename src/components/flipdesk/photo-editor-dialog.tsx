@@ -404,11 +404,8 @@ export function PhotoEditorDialog({
     } catch (err) {
       // US-3069: tell the two failures apart. "Failed" on a missing model
       // blames the photo, and the seller retries with a better one forever.
-      setNotice(
-        (err as Error)?.name === "NoLocalSegmenter"
-          ? "On-device background removal isn't available in this build. Use Remove background from the photo grid, which runs on the server."
-          : "Background removal failed. The photo is unchanged.",
-      );
+      const { backgroundRemovalMessage } = await import("@/lib/background-removal");
+      setNotice(backgroundRemovalMessage(err));
     } finally {
       setBgBusy(false);
     }
