@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-3120",
+  "nextId": "US-3121",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -3551,6 +3551,20 @@
         "The guard is wired into npm run verify and android-ci.yml, and src/test/android-guard-lane.test.ts still passes."
       ],
       "priority": 6
+    },
+    {
+      "id": "US-3120",
+      "passes": false,
+      "title": "CI's frontend job has been red on main since before 2026-09-05: coverage 56.65% against a 57% floor, and the eager bundle is over budget",
+      "description": "MEASURED 2026-09-06. The 'CI' workflow's 'Lint, type-check, test & build (frontend)' job has failed on main for at least the last four runs, including at 50a730960. Two separate gates, plus one already fixed.\n\n1. COVERAGE. 'ERROR: Coverage for functions (56.65%) does not meet global threshold (57%)' on main. Locally, with the ten commits main is missing, it is 56.83% - closer, still short by about 11 functions. No test is failing: 8,685 vitest tests pass. It is the floor alone.\n\n2. BUNDLE BUDGET. 'eager graph is 215.11 KB gz, over the 215 KB budget', over by 0.11 KB on a 215 KB ceiling. check-bundle-budget.mjs also reports the entry chunk at 63.44/64 KB, 'only 0.56 KB left'. Its own message says do NOT raise the ceiling because the cause is structural - the roughly 250-route eager route table in src/routes/index.tsx - which is US-2112. CI never reaches this gate because coverage fails first, so it is unconfirmed on main and confirmed locally.\n\n3. ALREADY FIXED, listed so nobody re-does it: the same job failed vault-lint with four DRIFT errors against src/lib/constants.ts (grading-scale-and-weights, listing-photos, flipdesk-plan-gating, pricing). Those notes were repaired in commits that are on local main and not yet pushed.\n\n⚠ THE OBVIOUS WAY TO RAISE COVERAGE MAKES IT WORSE, and this is the part worth writing down. src/lib/dashboard-widgets.ts had 54 uncovered functions, almost all of them the per-widget  lazy loaders. A test that awaits every loader and asserts it resolves to a component is a genuinely good test - a renamed component file is invisible until the one seller who adds that widget gets a blank frame. It was written, it passed, and function coverage fell from 56.83% to 54.34%: importing 50 widget components added about 378 functions to v8's denominator against about 52 newly covered. The gate measures 'of the modules our tests import', so importing more of the codebase lowers it however good the test is. The test is not in the tree; the reasoning is, at the top of src/lib/__tests__/dashboard-widget-behaviour.test.ts.\n\nThat trap is the reason this is a story rather than a chore: whoever takes it needs to know that chasing the number and improving the tests can point in opposite directions here.",
+      "acceptanceCriteria": [
+        "The frontend CI job is green on main.",
+        "Coverage clears the floor by covering code the suite ALREADY imports, or the floor is changed with the reason written down and the denominator effect above acknowledged - not by importing more modules to reach a number.",
+        "The widget loaders get their test back, and the story records what it cost in coverage terms and why that is acceptable.",
+        "The eager bundle is under budget by trimming the eager graph, not by raising the ceiling - see US-2112 and check-bundle-budget.mjs's own warning. If the ceiling does move, the commit says which LCP measurement justified it.",
+        "A note or a check makes it visible that main's CI is red, since it stayed red for four runs with nobody acting on it."
+      ],
+      "priority": 3
     }
   ]
 }
