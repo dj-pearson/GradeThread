@@ -536,6 +536,25 @@ kover {
  * one by one, so this is the only place the cross-client rule is enforced today.
  */
 tasks.withType<Test>().configureEach {
+    // US-3121: run the tests in parallel. There was no `maxParallelForks` here
+    // at all, so every task used Gradle's default of ONE fork and 2,550 tests
+    // plus 393 rendered screenshots went through a single JVM, serially.
+    //
+    // MEASURED, because this was invisible until 2026-09-06: Android CI failed
+    // at lint for the whole of the preceding week, so nothing after it ran and
+    // nobody had seen what it cost. The first two runs to get past lint both
+    // died on a timeout inside `verifyRoborazziDebug` - 37m15s of a 45-minute
+    // job, then 90m18s of a 90-minute one, still unfinished. The unit tests
+    // alone take 1m52s, so the cost is the RENDERING, and rendering is exactly
+    // what parallelises.
+    //
+    // Capped at 4 rather than taking every core: each fork loads Robolectric's
+    // android-all jar and its own heap, and this repo is also built on a
+    // Windows box that has been out of memory three times in one session
+    // (see the orphaned-JVM note in the project memory).
+    maxParallelForks = Runtime.getRuntime().availableProcessors().coerceAtMost(4)
+    maxHeapSize = "1g"
+
     inputs.files(
         fileTree("src/main/java") { include("**/*.kt") },
         fileTree("$rootDir/../ios/GradeThread") { include("**/*.swift") },
