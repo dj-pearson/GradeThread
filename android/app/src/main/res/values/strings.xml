@@ -2100,6 +2100,8 @@
     <string name="inventory_sort_highest_comp">Highest comp</string>
     <string name="inventory_sort_highest_grade">Highest grade</string>
     <string name="inventory_sort_sku">SKU</string>
+    <string name="inventory_sort_sourced_by_az">Sourced by A to Z</string>
+    <string name="inventory_sort_sourced_by_za">Sourced by Z to A</string>
     <string name="inventory_stage_all">All</string>
     <string name="inventory_stage_to_list">To list</string>
     <string name="inventory_stage_drafts">Drafts</string>

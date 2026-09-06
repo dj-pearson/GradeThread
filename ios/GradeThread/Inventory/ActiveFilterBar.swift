@@ -81,6 +81,13 @@ struct ActiveFilterBar: View {
                 criteria.sources.remove(source)
             })
         }
+        // US-3124: the chip carries the person's name, which needs no lookup —
+        // sourced_by IS the name (unlike a source, which is an id).
+        for who in criteria.sourcers.sorted() {
+            out.append(Chip(id: "sourcer-\(who)", label: "Sourced by \(who)") {
+                criteria.sourcers.remove(who)
+            })
+        }
 
         if let floor = criteria.minGrade {
             out.append(Chip(id: "grade", label: "Grade ≥ \(String(format: "%.1f", floor))") {

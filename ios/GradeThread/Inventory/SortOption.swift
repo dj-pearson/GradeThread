@@ -11,6 +11,10 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
     case highestComp   = "highest_comp"
     case highestGrade  = "highest_grade"
     case skuNatural    = "sku_natural"
+    // US-3124: who bought the item. The raw values match the web's `?sort=`
+    // ids so a link and a phone mean the same order.
+    case sourcerAZ     = "sourcer_az"
+    case sourcerZA     = "sourcer_za"
 
     public var id: String { rawValue }
 
@@ -22,6 +26,8 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
         case .highestComp:  return "Highest comp"
         case .highestGrade: return "Highest grade"
         case .skuNatural:   return "SKU"
+        case .sourcerAZ:    return "Sourced by A to Z"
+        case .sourcerZA:    return "Sourced by Z to A"
         }
     }
 
@@ -33,6 +39,8 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
         case .highestComp:  return "dollarsign.arrow.circlepath"
         case .highestGrade: return "checkmark.seal"
         case .skuNatural:   return "barcode"
+        case .sourcerAZ:    return "person"
+        case .sourcerZA:    return "person"
         }
     }
 
@@ -69,6 +77,26 @@ public enum SortOption: String, CaseIterable, Identifiable, Hashable {
             return a.createdAt > b.createdAt
         case .skuNatural:
             return Self.naturalCompare(a.sku ?? "", b.sku ?? "") == .orderedAscending
+        case .sourcerAZ, .sourcerZA:
+            // Nobody recorded sorts LAST in BOTH directions — an item with no
+            // sourcer is not "before A", it is unknown. Same rule the web's
+            // NULLS LAST gives the table, and the same rule Android applies.
+            let aName = a.sourcedBy?.facetTrimmed
+            let bName = b.sourcedBy?.facetTrimmed
+            if aName == nil || bName == nil {
+                if aName == nil && bName == nil { return a.id < b.id }
+                return bName == nil
+            }
+            let order = Self.naturalCompare(aName ?? "", bName ?? "")
+            if order != .orderedSame {
+                return self == .sourcerAZ
+                    ? order == .orderedAscending
+                    : order == .orderedDescending
+            }
+            // One person's items, newest first, with the id pinning ties so
+            // the two clients cannot order the same list differently.
+            if a.createdAt != b.createdAt { return a.createdAt > b.createdAt }
+            return a.id < b.id
         }
     }
 

@@ -12,6 +12,12 @@ data class InventoryFacets(
     val locationBins: List<FacetValue> = emptyList(),
     val sources: List<FacetValue> = emptyList(),
     val categories: List<FacetValue> = emptyList(),
+    /**
+     * US-3124: WHO bought the item (`inventory_items.sourced_by`). Keyed AND
+     * labelled by the name, unlike [sources], which keys on an id — the column
+     * stores the name itself on every platform.
+     */
+    val sourcers: List<FacetValue> = emptyList(),
     val priceRange: ClosedFloatingPointRange<Double>? = null,
 )
 
@@ -36,10 +42,7 @@ object InventoryFacetsBuilder {
 
     fun sizeRankOf(size: String): Int = sizeRank[size.trim().lowercase()] ?: UNRANKED_SIZE
 
-    fun derive(
-        items: List<InventoryItemEntity>,
-        sourceNames: Map<String, String> = emptyMap(),
-    ): InventoryFacets {
+    fun derive(items: List<InventoryItemEntity>, sourceNames: Map<String, String> = emptyMap()): InventoryFacets {
         fun counts(selector: (InventoryItemEntity) -> String?): Map<String, Int> {
             val out = mutableMapOf<String, Int>()
             for (item in items) {
@@ -83,6 +86,7 @@ object InventoryFacetsBuilder {
             // label without changing the selection.
             sources = ranked(counts { it.sourceId }) { id -> sourceNames[id] ?: id },
             categories = ranked(counts { it.itemCategory }),
+            sourcers = ranked(counts { it.sourcedBy }),
             priceRange = priceRange,
         )
     }

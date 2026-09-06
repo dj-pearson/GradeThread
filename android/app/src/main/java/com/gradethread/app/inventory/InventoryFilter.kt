@@ -7,7 +7,10 @@ enum class PhotoState { ANY, WITH_PHOTO, MISSING_PHOTO }
 
 /** Relative date-added band. */
 enum class DateAddedBand(val days: Int?) {
-    ANY(null), LAST_7(7), LAST_30(30), LAST_90(90),
+    ANY(null),
+    LAST_7(7),
+    LAST_30(30),
+    LAST_90(90),
 }
 
 /**
@@ -23,6 +26,11 @@ data class InventoryFilterCriteria(
     val locationBins: Set<String> = emptySet(),
     val sources: Set<String> = emptySet(),
     val categories: Set<String> = emptySet(),
+    /**
+     * US-3124: WHO bought the item, selected by name. [sources] is WHERE it
+     * came from and holds ids — two different questions, two different columns.
+     */
+    val sourcers: Set<String> = emptySet(),
     val gradedOnly: Boolean = false,
     val minGrade: Double? = null,
     val minPrice: Double? = null,
@@ -42,6 +50,7 @@ data class InventoryFilterCriteria(
             locationBins.isNotEmpty(),
             sources.isNotEmpty(),
             categories.isNotEmpty(),
+            sourcers.isNotEmpty(),
             gradedOnly || minGrade != null,
             minPrice != null || maxPrice != null,
             photoState != PhotoState.ANY,
@@ -73,8 +82,7 @@ object InventoryFilter {
         search.lowercase().split(Regex("[^\\p{L}\\p{N}]+")).filter { it.isNotEmpty() }
 
     /** Most-specific price wins. */
-    fun effectivePrice(item: InventoryItemEntity): Double? =
-        item.listingPrice ?: item.targetPrice ?: item.acquiredPrice
+    fun effectivePrice(item: InventoryItemEntity): Double? = item.listingPrice ?: item.targetPrice ?: item.acquiredPrice
 
     /**
      * @param photoItemIds ids known to have photo ROWS. US-994: the
@@ -96,6 +104,11 @@ object InventoryFilter {
             return false
         }
         if (criteria.sources.isNotEmpty() && item.sourceId?.trim() !in criteria.sources) return false
+        // An item with nobody recorded matches no selection, the same way an
+        // unbranded item matches no brand.
+        if (criteria.sourcers.isNotEmpty() && item.sourcedBy?.trim() !in criteria.sourcers) {
+            return false
+        }
         if (criteria.categories.isNotEmpty() &&
             item.itemCategory?.trim() !in criteria.categories
         ) {

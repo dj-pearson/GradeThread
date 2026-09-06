@@ -93,6 +93,10 @@ public struct InventoryFilterCriteria: Codable, Equatable, Hashable {
     public var sources: Set<String> = []
     /// US-1052: `inventory_items.item_category` multi-select.
     public var categories: Set<String> = []
+    /// US-3124: `inventory_items.sourced_by` multi-select — WHO bought the
+    /// item, selected by name. ``sources`` is WHERE it came from and keys on
+    /// an id; these are two different questions on two different columns.
+    public var sourcers: Set<String> = []
 
     /// Only items carrying a certified grade.
     public var gradedOnly: Bool = false
@@ -136,6 +140,7 @@ public struct InventoryFilterCriteria: Codable, Equatable, Hashable {
         if !locationBins.isEmpty { n += 1 }
         if !sources.isEmpty { n += 1 }
         if !categories.isEmpty { n += 1 }
+        if !sourcers.isEmpty { n += 1 }
         if gradedOnly || minGrade != nil { n += 1 }
         if minPrice != nil || maxPrice != nil { n += 1 }
         if photoState != .any { n += 1 }
@@ -151,7 +156,7 @@ public struct InventoryFilterCriteria: Codable, Equatable, Hashable {
 
 extension InventoryFilterCriteria {
     private enum CodingKeys: String, CodingKey {
-        case brands, sizes, colors, locationBins, sources, categories
+        case brands, sizes, colors, locationBins, sources, categories, sourcers
         case gradedOnly, minGrade, minPrice, maxPrice
         case photoState, dateAdded
         case purchaseDates, saleDates, ruleQuery
@@ -171,6 +176,7 @@ extension InventoryFilterCriteria {
         locationBins = try c.decodeIfPresent(Set<String>.self, forKey: .locationBins) ?? []
         sources = try c.decodeIfPresent(Set<String>.self, forKey: .sources) ?? []
         categories = try c.decodeIfPresent(Set<String>.self, forKey: .categories) ?? []
+        sourcers = try c.decodeIfPresent(Set<String>.self, forKey: .sourcers) ?? []
         gradedOnly = try c.decodeIfPresent(Bool.self, forKey: .gradedOnly) ?? false
         minGrade = try c.decodeIfPresent(Double.self, forKey: .minGrade)
         minPrice = try c.decodeIfPresent(Double.self, forKey: .minPrice)
@@ -190,6 +196,7 @@ extension InventoryFilterCriteria {
         try c.encode(locationBins, forKey: .locationBins)
         try c.encode(sources, forKey: .sources)
         try c.encode(categories, forKey: .categories)
+        try c.encode(sourcers, forKey: .sourcers)
         try c.encode(gradedOnly, forKey: .gradedOnly)
         try c.encodeIfPresent(minGrade, forKey: .minGrade)
         try c.encodeIfPresent(minPrice, forKey: .minPrice)

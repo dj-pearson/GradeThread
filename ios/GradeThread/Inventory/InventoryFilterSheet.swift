@@ -191,6 +191,11 @@ struct InventoryFilterSheet: View {
             if !facets.sources.isEmpty {
                 facetLink("Source", systemImage: "bag", values: facets.sources, selection: $draft.sources)
             }
+            // US-3124. Directly under Source on purpose: one is where the item
+            // came from, the other is who bought it, and the words collide.
+            if !facets.sourcers.isEmpty {
+                facetLink("Sourced by", systemImage: "person", values: facets.sourcers, selection: $draft.sourcers)
+            }
             if !facets.locationBins.isEmpty {
                 facetLink("Location", systemImage: "shippingbox", values: facets.locationBins, selection: $draft.locationBins)
             }

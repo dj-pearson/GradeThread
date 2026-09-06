@@ -36,6 +36,11 @@ public struct InventoryFacets: Equatable {
     public let sources: [Value]
     /// US-1052: item-category facet (clothing / shoes / watches / …).
     public let categories: [Value]
+    /// US-3124: WHO bought the item — `inventory_items.sourced_by`, which is a
+    /// NAME string on every platform (the roster picks it, it does not replace
+    /// it). Keyed and labelled by that name, unlike ``sources``, which keys on
+    /// an id. The two are different questions and sit next to each other.
+    public let sourcers: [Value]
 
     /// Effective-price span across items that have any price, or nil when
     /// none do. Used to seed the price-band slider bounds.
@@ -51,7 +56,7 @@ public struct InventoryFacets: Equatable {
 
     public static let empty = InventoryFacets(
         brands: [], sizes: [], colors: [], locationBins: [],
-        sources: [], categories: [], priceBounds: nil, unpricedCount: 0
+        sources: [], categories: [], sourcers: [], priceBounds: nil, unpricedCount: 0
     )
 
     /// Builds the facet index from a snapshot of items. Values are trimmed;
@@ -77,6 +82,7 @@ public struct InventoryFacets: Equatable {
         var locationCounts: [String: Int] = [:]
         var sourceCounts: [String: Int] = [:]
         var categoryCounts: [String: Int] = [:]
+        var sourcerCounts: [String: Int] = [:]
         var minPrice: Double?
         var maxPrice: Double?
         var unpricedCount = 0
@@ -88,6 +94,7 @@ public struct InventoryFacets: Equatable {
             if let l = item.locationBin?.facetTrimmed { locationCounts[l, default: 0] += 1 }
             if let src = item.sourceId?.facetTrimmed { sourceCounts[src, default: 0] += 1 }
             if let cat = item.itemCategory?.facetTrimmed { categoryCounts[cat, default: 0] += 1 }
+            if let who = item.sourcedBy?.facetTrimmed { sourcerCounts[who, default: 0] += 1 }
             if let p = InventoryFilter.effectivePrice(item) {
                 minPrice = min(minPrice ?? p, p)
                 maxPrice = max(maxPrice ?? p, p)
@@ -112,6 +119,7 @@ public struct InventoryFacets: Equatable {
             locationBins: byFrequency(locationCounts),
             sources: byFrequency(sourceCounts) { sourceNames[$0] ?? $0 },
             categories: byFrequency(categoryCounts, label: Self.categoryLabel),
+            sourcers: byFrequency(sourcerCounts),
             priceBounds: bounds,
             unpricedCount: unpricedCount
         )

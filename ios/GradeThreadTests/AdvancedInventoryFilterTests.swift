@@ -486,6 +486,76 @@ final class AdvancedInventoryFilterTests: XCTestCase {
         XCTAssertEqual(back, c)
     }
 
+    // MARK: - US-3124: who sourced the item
+
+    func test_matches_sourcerFacet_selectsByName() throws {
+        let ctx = ModelContext(try makeContainer())
+        let dan = makeItem(id: "d", context: ctx); dan.sourcedBy = "Dan"
+        let sam = makeItem(id: "s", context: ctx); sam.sourcedBy = "Sam"
+        let nobody = makeItem(id: "n", context: ctx)
+
+        var c = InventoryFilterCriteria()
+        c.sourcers = ["Dan", "Sam"]
+        XCTAssertTrue(InventoryFilter.matches(dan, c))
+        XCTAssertTrue(InventoryFilter.matches(sam, c))
+        // Nobody recorded matches no selection, exactly as an unbranded item
+        // matches no brand.
+        XCTAssertFalse(InventoryFilter.matches(nobody, c))
+    }
+
+    func test_sourcerFacet_isSeparateFromSource() throws {
+        let ctx = ModelContext(try makeContainer())
+        let item = makeItem(id: "i", context: ctx)
+        item.sourcedBy = "Dan"
+        item.sourceId = "src-1"
+
+        var bySourcer = InventoryFilterCriteria(); bySourcer.sourcers = ["Dan"]
+        var bySource = InventoryFilterCriteria(); bySource.sources = ["Dan"]
+        XCTAssertTrue(InventoryFilter.matches(item, bySourcer))
+        // WHERE it came from is an id, WHO bought it is a name. Selecting one
+        // must never answer for the other.
+        XCTAssertFalse(InventoryFilter.matches(item, bySource))
+    }
+
+    func test_facets_sourcers_countAndBlankHandling() throws {
+        let ctx = ModelContext(try makeContainer())
+        let a = makeItem(id: "1", context: ctx); a.sourcedBy = "Dan"
+        let b = makeItem(id: "2", context: ctx); b.sourcedBy = "Dan"
+        let c = makeItem(id: "3", context: ctx); c.sourcedBy = "Sam"
+        let d = makeItem(id: "4", context: ctx); d.sourcedBy = "   "
+        let e = makeItem(id: "5", context: ctx)
+
+        let facets = InventoryFacets.derive(from: [a, b, c, d, e])
+        XCTAssertEqual(facets.sourcers.map(\.value), ["Dan", "Sam"])
+        XCTAssertEqual(facets.sourcers.first?.count, 2)
+    }
+
+    func test_ruleQuery_sourcedByField() throws {
+        let ctx = ModelContext(try makeContainer())
+        let dan = makeItem(id: "d", context: ctx); dan.sourcedBy = "Dan"
+        let sam = makeItem(id: "s", context: ctx); sam.sourcedBy = "Sam"
+
+        var c = InventoryFilterCriteria()
+        c.ruleQuery = .init(
+            combinator: .and,
+            rules: [.init(field: .sourcedBy, op: .eq, value: "dan")]
+        )
+        XCTAssertTrue(InventoryFilter.matches(dan, c), "the rule is case-insensitive")
+        XCTAssertFalse(InventoryFilter.matches(sam, c))
+        XCTAssertFalse(InventoryRuleQuery.Field.sourcedBy.isNumeric)
+    }
+
+    func test_sourcerSelection_survivesASavedView() throws {
+        var c = InventoryFilterCriteria()
+        c.sourcers = ["Dan", "Sam"]
+        let back = try JSONDecoder().decode(
+            InventoryFilterCriteria.self,
+            from: try JSONEncoder().encode(c)
+        )
+        XCTAssertEqual(back.sourcers, ["Dan", "Sam"])
+        XCTAssertEqual(c.activeCount, 1)
+    }
+
     // MARK: - Helpers
 
     private func ephemeralDefaults() throws -> UserDefaults {

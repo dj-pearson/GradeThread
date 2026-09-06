@@ -39,6 +39,10 @@ public struct InventoryRuleQuery: Codable, Equatable, Hashable {
         case category
         case size
         case color
+        // US-3124: who bought the item. Web calls it `sourced_by` and this is
+        // the same column; `source` (where it came from) stays a facet, since
+        // resolving an id to a name needs the source cache.
+        case sourcedBy
         case sku
         case status
         case grade
@@ -54,6 +58,7 @@ public struct InventoryRuleQuery: Codable, Equatable, Hashable {
             case .category:     return "Category"
             case .size:         return "Size"
             case .color:        return "Color"
+            case .sourcedBy:    return "Sourced by"
             case .sku:          return "SKU"
             case .status:       return "Status"
             case .grade:        return "Grade"
@@ -189,6 +194,7 @@ extension InventoryRuleQuery.Rule {
         case .category: return item.itemCategory?.facetTrimmed
         case .size:     return item.size?.facetTrimmed
         case .color:    return item.color?.facetTrimmed
+        case .sourcedBy: return item.sourcedBy?.facetTrimmed
         case .sku:      return item.sku?.facetTrimmed
         case .status:   return item.status.facetTrimmed
         default:        return nil

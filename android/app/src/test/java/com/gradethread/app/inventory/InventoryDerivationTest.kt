@@ -195,9 +195,12 @@ class InventoryDerivationTest {
     @Test
     fun priceUsesTheMostSpecificValue() {
         // listing beats target beats cost.
-        assertEquals(30.0, InventoryFilter.effectivePrice(
-            item("1", acquired = 10.0, target = 20.0, listing = 30.0),
-        ))
+        assertEquals(
+            30.0,
+            InventoryFilter.effectivePrice(
+                item("1", acquired = 10.0, target = 20.0, listing = 30.0),
+            ),
+        )
         assertEquals(20.0, InventoryFilter.effectivePrice(item("1", acquired = 10.0, target = 20.0)))
         assertEquals(10.0, InventoryFilter.effectivePrice(item("1", acquired = 10.0)))
     }
@@ -252,7 +255,9 @@ class InventoryDerivationTest {
     @Test
     fun facetValuesAreRankedByCountThenLabel() {
         val items = listOf(
-            item("1", brand = "Adidas"), item("2", brand = "Nike"), item("3", brand = "Nike"),
+            item("1", brand = "Adidas"),
+            item("2", brand = "Nike"),
+            item("3", brand = "Nike"),
         )
         val facets = InventoryFacetsBuilder.derive(items)
         assertEquals(listOf("Nike", "Adidas"), facets.brands.map { it.value })
@@ -267,7 +272,9 @@ class InventoryDerivationTest {
     @Test
     fun sizesSortInWearingOrderNotAlphabetical() {
         val items = listOf(
-            item("1", size = "L"), item("2", size = "S"), item("3", size = "XL"),
+            item("1", size = "L"),
+            item("2", size = "S"),
+            item("3", size = "XL"),
             item("4", size = "M"),
         )
         val facets = InventoryFacetsBuilder.derive(items)
@@ -374,7 +381,10 @@ class InventoryDerivationTest {
         d.filtered(items, InventoryStage.SOLD, "nike", SortOption.OLDEST, InventoryFilterCriteria())
         assertEquals(4, d.filterPassCount)
         d.filtered(
-            items, InventoryStage.SOLD, "nike", SortOption.OLDEST,
+            items,
+            InventoryStage.SOLD,
+            "nike",
+            SortOption.OLDEST,
             InventoryFilterCriteria(gradedOnly = true),
         )
         assertEquals(5, d.filterPassCount)
@@ -383,8 +393,20 @@ class InventoryDerivationTest {
     @Test
     fun editingAnItemInvalidatesTheMemo() {
         val d = InventoryDerivation()
-        d.filtered(listOf(item("1", updatedAt = 1)), InventoryStage.ALL, "", SortOption.NEWEST, InventoryFilterCriteria())
-        d.filtered(listOf(item("1", updatedAt = 2)), InventoryStage.ALL, "", SortOption.NEWEST, InventoryFilterCriteria())
+        d.filtered(
+            listOf(item("1", updatedAt = 1)),
+            InventoryStage.ALL,
+            "",
+            SortOption.NEWEST,
+            InventoryFilterCriteria(),
+        )
+        d.filtered(
+            listOf(item("1", updatedAt = 2)),
+            InventoryStage.ALL,
+            "",
+            SortOption.NEWEST,
+            InventoryFilterCriteria(),
+        )
         assertEquals(2, d.filterPassCount)
     }
 
@@ -471,6 +493,87 @@ class InventoryDerivationTest {
         )
     }
 
+    // ── US-3124: who sourced the item ────────────────────────────────────
+
+    /** The helper is at detekt's parameter ceiling, so the name goes on after. */
+    private fun sourced(id: String, by: String?, createdAt: Long = 1_000L) =
+        item(id, createdAt = createdAt).copy(sourcedBy = by)
+
+    @Test
+    fun sourcerFacetSelectsByName() {
+        val items = listOf(
+            sourced("d", "Dan"),
+            sourced("s", "Sam"),
+            item("n"),
+        )
+        val out = apply(items, criteria = InventoryFilterCriteria(sourcers = setOf("Dan", "Sam")))
+        // Nobody recorded matches no selection, as an unbranded item matches
+        // no brand.
+        assertEquals(listOf("d", "s"), out.map { it.id }.sorted())
+    }
+
+    @Test
+    fun sourcerIsNotTheSource() {
+        val items = listOf(item("i", sourceId = "src-1").copy(sourcedBy = "Dan"))
+        assertTrue(apply(items, criteria = InventoryFilterCriteria(sourcers = setOf("Dan"))).size == 1)
+        // WHERE it came from is an id; WHO bought it is a name. One must never
+        // answer for the other.
+        assertTrue(apply(items, criteria = InventoryFilterCriteria(sources = setOf("Dan"))).isEmpty())
+    }
+
+    @Test
+    fun sourcerFacetValuesRankByCountAndDropBlanks() {
+        val items = listOf(
+            sourced("1", "Dan"),
+            sourced("2", "Dan"),
+            sourced("3", "Sam"),
+            sourced("4", "  "),
+            item("5"),
+        )
+        val facets = InventoryFacetsBuilder.derive(items)
+        assertEquals(listOf("Dan", "Sam"), facets.sourcers.map { it.value })
+        assertEquals(2, facets.sourcers.first().count)
+    }
+
+    @Test
+    fun sourcerSortOrdersByNameAndSinksTheUnassigned() {
+        val items = listOf(
+            item("n"),
+            sourced("d", "dan"),
+            sourced("a", "Alex"),
+            sourced("b", "   "),
+        )
+        // Case-insensitive, and the two unassigned rows sit at the END of BOTH
+        // directions — the web's NULLS LAST, and what iOS does.
+        assertEquals(
+            listOf("a", "d", "b", "n"),
+            apply(items, sort = SortOption.SOURCED_BY_AZ).map { it.id },
+        )
+        assertEquals(
+            listOf("d", "a", "b", "n"),
+            apply(items, sort = SortOption.SOURCED_BY_ZA).map { it.id },
+        )
+    }
+
+    @Test
+    fun sourcerSortTieBreaksNewestThenId() {
+        val items = listOf(
+            sourced("a", "Dan", createdAt = 100L),
+            sourced("b", "Dan", createdAt = 200L),
+        )
+        assertEquals(
+            listOf("b", "a"),
+            apply(items, sort = SortOption.SOURCED_BY_AZ).map { it.id },
+        )
+    }
+
+    @Test
+    fun sourcerSortWireValuesMatchTheOtherClients() {
+        // The web writes these into `?sort=` and iOS uses them as raw values.
+        assertEquals("sourcer_az", SortOption.SOURCED_BY_AZ.wire)
+        assertEquals("sourcer_za", SortOption.SOURCED_BY_ZA.wire)
+    }
+
     // ── helper ───────────────────────────────────────────────────────────
 
     private fun apply(
@@ -482,6 +585,13 @@ class InventoryDerivationTest {
         photoItemIds: Set<String>? = null,
         serverSearchIds: Set<String>? = null,
     ) = InventoryFilter.apply(
-        items, stage, query, sort, criteria, photoItemIds, serverSearchIds, nowMillis = 10_000_000L,
+        items,
+        stage,
+        query,
+        sort,
+        criteria,
+        photoItemIds,
+        serverSearchIds,
+        nowMillis = 10_000_000L,
     )
 }

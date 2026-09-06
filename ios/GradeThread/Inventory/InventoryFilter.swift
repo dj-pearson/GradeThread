@@ -100,6 +100,12 @@ public enum InventoryFilter {
         if !criteria.categories.isEmpty {
             guard let cat = item.itemCategory?.facetTrimmed, criteria.categories.contains(cat) else { return false }
         }
+        // US-3124: WHO bought it, matched on the name the item carries. An
+        // item with nobody recorded matches no selection, the same way an
+        // unbranded item matches no brand.
+        if !criteria.sourcers.isEmpty {
+            guard let who = item.sourcedBy?.facetTrimmed, criteria.sourcers.contains(who) else { return false }
+        }
 
         if criteria.gradedOnly || criteria.minGrade != nil {
             guard let grade = item.gradeValue else { return false }

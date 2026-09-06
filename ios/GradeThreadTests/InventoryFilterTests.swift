@@ -108,6 +108,44 @@ final class InventoryFilterTests: XCTestCase {
         XCTAssertFalse(SortOption.highestGrade.isOrdered(ungraded, high))
     }
 
+    // US-3124: who bought the item. Nobody recorded sorts LAST in BOTH
+    // directions — the web's NULLS LAST, and what Android does — because an
+    // item with no sourcer is unknown, not "before A".
+    func test_sort_sourcer_ordersByNameAndSinksTheUnassigned() throws {
+        let context = ModelContext(try makeContainer())
+        let alex = makeItem(id: "a", context: context); alex.sourcedBy = "Alex"
+        let dan = makeItem(id: "d", context: context); dan.sourcedBy = "dan"
+        let nobody = makeItem(id: "n", context: context)
+        let blank = makeItem(id: "b", context: context); blank.sourcedBy = "  "
+
+        XCTAssertTrue(SortOption.sourcerAZ.isOrdered(alex, dan))
+        XCTAssertFalse(SortOption.sourcerAZ.isOrdered(dan, alex))
+        // Case-insensitive: "dan" is not sorted apart from "Dan".
+        XCTAssertTrue(SortOption.sourcerZA.isOrdered(dan, alex))
+
+        for direction in [SortOption.sourcerAZ, SortOption.sourcerZA] {
+            XCTAssertTrue(direction.isOrdered(alex, nobody),
+                          "\(direction.rawValue): a named item beats an unassigned one")
+            XCTAssertFalse(direction.isOrdered(nobody, alex))
+            XCTAssertTrue(direction.isOrdered(dan, blank),
+                          "\(direction.rawValue): whitespace counts as unassigned")
+        }
+    }
+
+    func test_sort_sourcer_tieBreaksNewestThenId() throws {
+        let context = ModelContext(try makeContainer())
+        let older = makeItem(
+            id: "a", createdAt: Date(timeIntervalSince1970: 100), context: context
+        )
+        older.sourcedBy = "Dan"
+        let newer = makeItem(
+            id: "b", createdAt: Date(timeIntervalSince1970: 200), context: context
+        )
+        newer.sourcedBy = "Dan"
+        XCTAssertTrue(SortOption.sourcerAZ.isOrdered(newer, older),
+                      "one person's items read newest first")
+    }
+
     // MARK: - Graded-only filter
 
     func test_apply_gradedOnly_dropsUngradedItems() throws {

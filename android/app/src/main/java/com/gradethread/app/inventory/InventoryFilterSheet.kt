@@ -81,6 +81,11 @@ fun InventoryFilterSheet(
             facetSection("Source", facets.sources, draft.sources) { selected ->
                 draft = draft.copy(sources = selected)
             }
+            // US-3124. Directly under Source, because one is where the item
+            // came from and the other is who bought it.
+            facetSection("Sourced by", facets.sourcers, draft.sourcers) { selected ->
+                draft = draft.copy(sourcers = selected)
+            }
 
             item {
                 SectionLabel(stringResource(R.string.filters_section_grade))
@@ -99,8 +104,8 @@ fun InventoryFilterSheet(
                                 )
                             },
                             label = {
-                    Text(stringResource(R.string.filters_min_price, min.toInt()))
-                },
+                                Text(stringResource(R.string.filters_min_price, min.toInt()))
+                            },
                         )
                     }
                 }
@@ -206,13 +211,16 @@ private fun androidx.compose.foundation.lazy.LazyListScope.facetSection(
                     selected = facet.value in selected,
                     onClick = {
                         onChange(
-                            if (facet.value in selected) selected - facet.value
-                            else selected + facet.value,
+                            if (facet.value in selected) {
+                                selected - facet.value
+                            } else {
+                                selected + facet.value
+                            },
                         )
                     },
                     label = {
-                Text(stringResource(R.string.filters_facet, facet.label, facet.count))
-            },
+                        Text(stringResource(R.string.filters_facet, facet.label, facet.count))
+                    },
                 )
             }
         }

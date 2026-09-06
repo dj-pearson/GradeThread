@@ -22,6 +22,11 @@ enum class SortOption(val wire: String, @StringRes val label: Int) {
     HIGHEST_COMP("highest_comp", R.string.inventory_sort_highest_comp),
     HIGHEST_GRADE("highest_grade", R.string.inventory_sort_highest_grade),
     SKU_NATURAL("sku_natural", R.string.inventory_sort_sku),
+
+    // US-3124: who bought the item. The wire values match the web's `?sort=`
+    // ids and iOS's raw values, so a shared link and a phone mean one order.
+    SOURCED_BY_AZ("sourcer_az", R.string.inventory_sort_sourced_by_az),
+    SOURCED_BY_ZA("sourcer_za", R.string.inventory_sort_sourced_by_za),
     ;
 
     fun comparator(): Comparator<InventoryItemEntity> = when (this) {
@@ -68,6 +73,30 @@ enum class SortOption(val wire: String, @StringRes val label: Int) {
         SKU_NATURAL -> Comparator { a, b ->
             naturalCompare(a.sku.orEmpty(), b.sku.orEmpty()).let {
                 if (it != 0) it else a.id.compareTo(b.id)
+            }
+        }
+
+        SOURCED_BY_AZ, SOURCED_BY_ZA -> Comparator { a, b ->
+            // Nobody recorded sorts LAST in BOTH directions — an item with no
+            // sourcer is unknown, not "before A". Same rule as the web's NULLS
+            // LAST and iOS's comparator; a blank string counts as nobody.
+            val nameA = a.sourcedBy?.trim()?.ifEmpty { null }
+            val nameB = b.sourcedBy?.trim()?.ifEmpty { null }
+            when {
+                nameA == null && nameB == null -> a.id.compareTo(b.id)
+                nameA == null -> 1
+                nameB == null -> -1
+                else -> {
+                    val order = naturalCompare(nameA, nameB)
+                    val directed = if (this == SOURCED_BY_AZ) order else -order
+                    if (directed != 0) {
+                        directed
+                    } else {
+                        // One person's items, newest first, id pinning the tie.
+                        compareValuesBy(b, a) { it.createdAt }
+                            .let { if (it != 0) it else a.id.compareTo(b.id) }
+                    }
+                }
             }
         }
     }
